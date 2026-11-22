@@ -67,7 +67,7 @@ impl Ede {
         }
         let surface = window.wl_surface()?;
         let client = self.display_handle.get_client(surface.id()).ok()?;
-        client.get_credentials(&self.display_handle).ok().map(|c| c.pid as u32)
+        Some(crate::state::client_pid(&self.display_handle, &client)).filter(|pid| *pid != 0)
     }
 
     /// `window` came without the keyboard: not activated, and behind the

@@ -56,7 +56,36 @@ fn read_json(path: &str) -> Result<Value, String> {
     ede_ui::doc::parse(&bytes).map_err(|issues| issues.iter().map(|i| format!("{path}: {i}")).collect::<Vec<_>>().join("\n"))
 }
 
-fn run(dir: PathBuf, factory: PathBuf, args: &[String]) -> Result<bool, String> {
+/// #EDE-172 (P4): the channel `exponential-ui supervise` was started with
+/// by the compositor (`EDE_CONTROL_FD`), taken before anything starts a
+/// process; after its hello nothing else of the person's reads this
+/// process. A supervisor the compositor's session should have started
+/// that has none is not the one.
+#[cfg(target_os = "linux")]
+type Control = Option<ede_protocol::Client>;
+#[cfg(not(target_os = "linux"))]
+type Control = ();
+
+#[cfg(target_os = "linux")]
+fn take_control() -> Result<Control, String> {
+    match ede_protocol::Client::inherited() {
+        Some(Ok(client)) => {
+            if let Err(e) = ede_protocol::process::refuse_ptrace() {
+                eprintln!("exponential-ui: PR_SET_DUMPABLE: {e}");
+            }
+            Ok(Some(client))
+        }
+        Some(Err(e)) => Err(format!("the inherited channel: {e}")),
+        None => Ok(None),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn take_control() -> Result<Control, String> {
+    Ok(())
+}
+
+fn run(dir: PathBuf, factory: PathBuf, args: &[String], control: Control) -> Result<bool, String> {
     let cmd = args.first().map(String::as_str).unwrap_or("");
     let open = || {
         let opened = if factory.is_dir() { Runtime::open_with_factory(&dir, &factory) } else { Runtime::open(&dir) };
@@ -66,14 +95,28 @@ fn run(dir: PathBuf, factory: PathBuf, args: &[String]) -> Result<bool, String> 
         ("dir", []) => println!("{}", dir.display()),
         ("digest", [file]) => println!("{}", ede_ui::digest(&std::fs::read(file).map_err(|e| format!("{file}: {e}"))?)),
         ("supervise", rest) if rest.first().map(String::as_str) == Some("--") && rest.len() >= 2 => {
+            #[cfg(target_os = "linux")]
+            if control.is_none() && ede_protocol::process::helpers_spawned() {
+                return Err("no channel: this session's compositor starts the shell's supervisor itself ([session] helpers = \"compositor\"); one started by hand is not it".into());
+            }
             let (ui, changes) = open()?;
             print_changes(&changes);
-            let mut supervisor = ede_ui::supervise::Supervisor::new(ui, rest[1..].to_vec(), |report| {
+            let supervisor = ede_ui::supervise::Supervisor::new(ui, rest[1..].to_vec(), |report| {
                 #[cfg(feature = "diagnostics")]
                 diagnostics::report(&report);
                 println!("{report:?}");
             })
             .map_err(|e| e.to_string())?;
+            #[cfg(target_os = "linux")]
+            let mut supervisor = match control {
+                Some(control) => supervisor.with_control(control),
+                None => supervisor,
+            };
+            #[cfg(not(target_os = "linux"))]
+            let mut supervisor = {
+                let () = control;
+                supervisor
+            };
             let stop = std::sync::atomic::AtomicBool::new(false);
             supervisor.run(&stop).map_err(|e| e.to_string())?;
         }
@@ -221,6 +264,14 @@ fn main() -> ExitCode {
     // A crash-monitor process (ede-observability) runs and exits here.
     #[cfg(feature = "diagnostics")]
     ede_observability::run_crash_monitor_if_requested();
+    // #EDE-172 (P4): before the crash monitor or anything else starts.
+    let control = match take_control() {
+        Ok(control) => control,
+        Err(e) => {
+            eprintln!("exponential-ui: {e}");
+            return ExitCode::from(2);
+        }
+    };
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let safe_mode = std::env::var_os("EDE_SAFE_MODE").is_some_and(|v| !v.is_empty() && v != "0");
     let mut dir = if safe_mode { safe_mode_dir() } else { ede_ui::default_dir() };
@@ -244,7 +295,7 @@ fn main() -> ExitCode {
     let supervising = args.first().map(String::as_str) == Some("supervise");
     #[cfg(feature = "diagnostics")]
     let _diagnostics = supervising.then(diagnostics::start);
-    match run(dir, factory, &args) {
+    match run(dir, factory, &args, control) {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(e) => {

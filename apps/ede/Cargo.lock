@@ -976,6 +976,7 @@ name = "ede-protocol"
 version = "0.14.172"
 dependencies = [
  "ecore",
+ "libc",
  "rustix 1.1.6",
  "serde",
  "serde_json",
@@ -1031,7 +1032,9 @@ dependencies = [
 name = "ede-ui"
 version = "0.2.31"
 dependencies = [
+ "ede-compositor",
  "ede-observability",
+ "ede-protocol",
  "eui-core",
  "libc",
  "notify",

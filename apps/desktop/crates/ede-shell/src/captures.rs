@@ -403,7 +403,7 @@ pub fn backoff(attempt: u32) -> Duration {
 }
 
 /// The loop: runs until [`Shared::stop`] or until the shell stops listening.
-/// `connect` makes a connection (the root grant's, `Client::connect_env`).
+/// `connect` makes a connection (the root grant's: `control::connect`).
 pub fn run(connect: impl Fn() -> Result<Client, ede_protocol::Error>, shared: &Shared, tx: &mpsc::Sender<Out>) {
     let mut schedule = Schedule::new(Instant::now());
     let mut generation = u64::MAX;

@@ -320,13 +320,18 @@ pub fn space_of(pids: &[u32]) -> Asked {
 /// exists. For a request that names no process it is asked (about the
 /// agent's own) only whether any space exists.
 fn ask_compositor(pids: &[u32]) -> Said {
-    let mut client = match ede_protocol::Client::connect_env() {
-        Ok(client) => client,
+    // #EDE-172 (P4): on the agent's channel when the compositor started it.
+    match crate::control::with(|client| Ok(ask_on(client, pids)), ede_protocol::Client::connect_env) {
+        Ok(said) => said,
         Err(e) => {
             tracing::warn!("polkit: the compositor cannot be asked whose processes these are: {e:?}");
-            return Said::default();
+            Said::default()
         }
-    };
+    }
+}
+
+/// [`ask_compositor`] on `client`.
+fn ask_on(client: &mut ede_protocol::Client, pids: &[u32]) -> Said {
     if pids.is_empty() {
         return match client.space_of_process(std::process::id()) {
             Ok(answer) => Said { no_space: answer.no_space, ..Said::default() },

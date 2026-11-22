@@ -1,7 +1,11 @@
+# #EDE-172 (P4): with `[session] helpers = "compositor"` the compositor runs
+# the portal itself and it owns the bus name; this unit (D-Bus activation)
+# stays off then.
 [Unit]
 Description=Portal service (Exponential Desktop implementation)
 PartOf=graphical-session.target
 After=graphical-session.target
+ConditionEnvironment=!EDE_HELPERS_SPAWNED
 
 [Service]
 Type=dbus

@@ -20,6 +20,7 @@ pub mod fallback;
 pub mod focus;
 pub mod frames;
 pub mod grabs;
+pub mod helpers;
 mod handlers;
 pub mod hold;
 pub mod hotkeys;

@@ -18,6 +18,12 @@
 //!   method on it. #EDE-172: the file itself (root-owned, by `(st_dev,
 //!   st_ino)`, in the compositor's user namespace: [`crate::peer`]), never
 //!   its name: a copy or a rename of it draws an ordinary surface.
+//! - #EDE-172 (P4, `[session] helpers = "compositor"`): the lock client
+//!   gets its grant as a channel at fd 3 instead of a token on its stdin,
+//!   its Wayland connection from the compositor, and the pinned
+//!   environment ([`crate::helpers`]); `unlock` counts on that channel
+//!   alone. A client the compositor made for a helper is the shell or
+//!   sealed by construction; with the switch on, a shell is nothing else.
 
 use std::{
     io::Write,
@@ -32,7 +38,11 @@ use smithay::{
     utils::{IsAlive, SERIAL_COUNTER},
 };
 
-use crate::{lock::LockState, state::Ede};
+use crate::{
+    helpers::{Channel, Kind},
+    lock::LockState,
+    state::{client_pid, ClientState, Ede},
+};
 
 /// The grant's session name for the lock child.
 pub const SEALED_SESSION: &str = "exponential-sealed";
@@ -62,6 +72,9 @@ pub struct Sealed {
     pub child: Option<Child>,
     pub pid: u32,
     pub token: ede_protocol::Token,
+    /// #EDE-172 (P4): the lock client's channel, the one connection that
+    /// unlocks; `None` = its grant went to its stdin (or a test's process).
+    pub conn: Option<u64>,
     pub respawns: u32,
     pub started: Instant,
     /// What starts the lock client; empty = a test's own process.
@@ -111,19 +124,26 @@ fn is_installed(ede: &Ede, client: &Client, name: &str) -> bool {
     client.get_data::<crate::state::ClientState>().and_then(|c| c.peer.as_ref()).is_some_and(|peer| ede.installed.is(peer, name))
 }
 
+/// #EDE-172 (P4): what the compositor made `client` for, if it did.
+fn made_for(client: &Client) -> Option<Kind> {
+    client.get_data::<ClientState>().and_then(|c| c.helper)
+}
+
 /// `client` is the shell, the installed `exponential-shell` (or the
 /// headless tests' stand-in for it, by pid): its space view (#EXP-2024) and
 /// its Agent spaces list (#EXP-2041) are black in captures of the person's
-/// output.
+/// output. #EDE-172 (P4): with the compositor starting the shell, the
+/// client it made for it, and no other.
 pub fn is_shell(ede: &Ede, client: &Client) -> bool {
-    let pid = client.get_credentials(&ede.display_handle).map(|c| c.pid as u32).unwrap_or(0);
-    (pid != 0 && ede.shell_stand_in == Some(pid)) || is_installed(ede, client, crate::peer::SHELL)
+    let pid = client_pid(&ede.display_handle, client);
+    made_for(client) == Some(Kind::Shell) || (pid != 0 && ede.shell_stand_in == Some(pid)) || (!ede.helpers.on && is_installed(ede, client, crate::peer::SHELL))
 }
 
 pub fn origin_of(ede: &Ede, surface: &WlSurface, namespace: &str) -> LayerOrigin {
     let Ok(client) = ede.display_handle.get_client(surface.id()) else { return LayerOrigin { pid: 0, sealed: false, space_view: false } };
-    let pid = client.get_credentials(&ede.display_handle).map(|c| c.pid as u32).unwrap_or(0);
-    let sealed = (pid != 0 && ede.sealed_stand_in == Some(pid)) || is_installed(ede, &client, crate::peer::SEALED);
+    let pid = client_pid(&ede.display_handle, &client);
+    // Consent and the share chooser (the shell's and the portal's) still connect by the socket.
+    let sealed = made_for(&client) == Some(Kind::Sealed) || (pid != 0 && ede.sealed_stand_in == Some(pid)) || is_installed(ede, &client, crate::peer::SEALED);
     // Only the shell's own view hides: another client naming the namespace stays in captures.
     let space_view = namespace == ede_protocol::SPACE_VIEW_NAMESPACE && is_shell(ede, &client);
     LayerOrigin { pid, sealed, space_view }
@@ -141,21 +161,66 @@ impl Ede {
 
     /// [`Self::begin_sealed_lock`] with `argv` as the lock client.
     pub fn begin_sealed_lock_with(&mut self, argv: Vec<String>) {
-        let grant = self.ipc.mint_for(SEALED_SESSION, vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui]);
-        match self.spawn_lock_client(&argv, &grant.token) {
-            Some(child) => {
+        let started = if self.helpers.on {
+            self.spawn_lock_on_channel(&argv)
+        } else {
+            let grant = self.ipc.mint_for(SEALED_SESSION, vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui]);
+            let child = self.spawn_lock_client(&argv, &grant.token);
+            if child.is_none() {
+                self.ipc.grants.retain(|g| g.token != grant.token);
+            }
+            child.map(|child| (child, None, grant.token))
+        };
+        match started {
+            Some((child, conn, token)) => {
                 let pid = child.id();
-                tracing::info!(pid, "sealed lock client started");
-                self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token: grant.token, respawns: 0, started: Instant::now(), command: argv, seen: Instant::now(), retry_at: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
+                tracing::info!(pid, channel = conn.is_some(), "sealed lock client started");
+                self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token, conn, respawns: 0, started: Instant::now(), command: argv, seen: Instant::now(), retry_at: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
             }
             None => {
                 tracing::error!("exponential-sealed could not start: the session stays unlocked");
-                self.ipc.grants.retain(|g| g.token != grant.token);
                 return;
             }
         }
         self.enter_lock();
         self.emit(ede_protocol::events::SESSION_LOCKED, serde_json::Value::Null);
+    }
+
+    /// #EDE-172 (P4): starts the lock client with a grant of its own on a
+    /// channel at fd 3 (bound: it ends with the client's connection) and a
+    /// Wayland connection the compositor made, in the pinned environment;
+    /// the client, its channel's connection and the grant.
+    fn spawn_lock_on_channel(&mut self, argv: &[String]) -> Option<(Child, Option<u64>, ede_protocol::Token)> {
+        let channel = Channel::Child { session: SEALED_SESSION.into(), capabilities: vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui] };
+        let (conn, fd, grant) = self.ipc_helper_channel(&channel)?;
+        let Some(grant) = grant else {
+            self.ipc_end_channel(conn, None);
+            return None;
+        };
+        let (client, wayland_fd) = match self.helper_wayland_client(Kind::Sealed) {
+            Some((client, fd)) => (Some(client), Some(fd)),
+            None => (None, None),
+        };
+        let started = match self.helper_command(SEALED_SESSION, argv, &[], None) {
+            Some(mut command) => ede_protocol::process::hand_over(&mut command, Some(fd), wayland_fd).and_then(|()| command.spawn()),
+            None => Err(std::io::Error::other("no lock client to start")),
+        };
+        match started {
+            Ok(child) => {
+                if let Some(state) = client.as_ref().and_then(|client| client.get_data::<ClientState>()) {
+                    state.helper_pid.store(child.id(), std::sync::atomic::Ordering::Relaxed);
+                }
+                Some((child, Some(conn), grant))
+            }
+            Err(e) => {
+                tracing::warn!("{}: {e}", argv.first().map(String::as_str).unwrap_or("the lock client"));
+                if let Some(client) = client {
+                    self.display_handle.backend_handle().kill_client(client.id(), smithay::reexports::wayland_server::backend::DisconnectReason::ConnectionClosed);
+                }
+                self.ipc_end_channel(conn, Some(&grant));
+                None
+            }
+        }
     }
 
     /// Starts the lock client with the unlock grant on its stdin.
@@ -172,7 +237,7 @@ impl Ede {
     /// A test's lock: the test's own process plays the lock client.
     pub fn begin_sealed_lock_as(&mut self, pid: u32) -> ede_protocol::Token {
         let grant = self.ipc.mint_for(SEALED_SESSION, vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui]);
-        self.lock = LockState::Sealed(Sealed { child: None, pid, token: grant.token.clone(), respawns: 0, started: Instant::now(), command: Vec::new(), seen: Instant::now(), retry_at: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
+        self.lock = LockState::Sealed(Sealed { child: None, pid, token: grant.token.clone(), conn: None, respawns: 0, started: Instant::now(), command: Vec::new(), seen: Instant::now(), retry_at: Instant::now(), shown_on: Vec::new(), homeless: Vec::new() });
         self.enter_lock();
         self.emit(ede_protocol::events::SESSION_LOCKED, serde_json::Value::Null);
         grant.token
@@ -180,14 +245,18 @@ impl Ede {
 
     /// `unlock` over ede-protocol: only the lock child's grant opens it,
     /// and only on a connection of that child (`peer` = the caller's pid):
-    /// a grant read from its stdin or its memory opens nothing.
-    pub fn sealed_unlock(&mut self, token: &ede_protocol::Token, peer: Option<u32>) -> Result<(), &'static str> {
+    /// a grant read from its stdin or its memory opens nothing. #EDE-172
+    /// (P4): a lock client on its channel unlocks on that very connection
+    /// (`conn`), never on another one, its own process's included.
+    pub fn sealed_unlock(&mut self, token: &ede_protocol::Token, peer: Option<u32>, conn: Option<u64>) -> Result<(), &'static str> {
         let LockState::Sealed(s) = &mut self.lock else { return Err("the session is not sealed-locked") };
         if &s.token != token {
             return Err("only the lock client's grant unlocks");
         }
-        if !s.command.is_empty() && peer != Some(s.pid) {
-            return Err("only the lock client's own connection unlocks");
+        match s.conn {
+            Some(channel) if conn != Some(channel) => return Err("only the lock client's own channel unlocks"),
+            None if !s.command.is_empty() && peer != Some(s.pid) => return Err("only the lock client's own connection unlocks"),
+            _ => {}
         }
         let (token, pid) = (s.token.clone(), s.pid);
         if let Some(mut child) = s.child.take() {
@@ -310,11 +379,19 @@ impl Ede {
         if s.respawns > MAX_RESPAWNS && Instant::now() < s.retry_at {
             return;
         }
-        let (argv, token) = (s.command.clone(), s.token.clone());
-        if let Some(child) = self.spawn_lock_client(&argv, &token) {
+        let (argv, token, old) = (s.command.clone(), s.token.clone(), s.conn.take());
+        // #EDE-172 (P4): the dead client's channel and grant go; the next
+        // one gets its own.
+        if let Some(old) = old {
+            self.ipc_end_channel(old, Some(&token));
+        }
+        let started = if self.helpers.on { self.spawn_lock_on_channel(&argv) } else { self.spawn_lock_client(&argv, &token).map(|child| (child, None, token)) };
+        if let Some((child, conn, token)) = started {
             if let LockState::Sealed(s) = &mut self.lock {
                 s.pid = child.id();
                 s.child = Some(child);
+                s.conn = conn;
+                s.token = token;
                 s.started = Instant::now();
                 s.seen = s.started;
             }

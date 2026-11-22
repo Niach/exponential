@@ -35,8 +35,16 @@ pub const SESSION_ENV: &[(&str, &str)] = &[
 /// `XAUTHORITY` (#EDE-138): the person's Xwayland admits only clients with
 /// its cookie, so every way an app starts (the shell, a user service, D-Bus
 /// activation, a terminal's children) needs the file's path.
+/// `EDE_HELPERS_SPAWNED` (#EDE-172 P4): the compositor started the shell,
+/// the polkit agent and the portal itself; their units are conditioned off
+/// by it (`ConditionEnvironment=!EDE_HELPERS_SPAWNED`).
 pub const EXPORTED_ENV: &[&str] =
-    &["WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "EDE_SAFE_MODE"];
+    &["WAYLAND_DISPLAY", "DISPLAY", "XAUTHORITY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP", "XDG_SESSION_TYPE", "EDE_SAFE_MODE", "EDE_HELPERS_SPAWNED"];
+
+/// The units the compositor starts the programs of itself when
+/// `[session] helpers = "compositor"` (#EDE-172 P4): installed, and
+/// conditioned off by `EDE_HELPERS_SPAWNED`.
+pub const HELPER_UNITS: &[&str] = &["systemd/exponential-shell.service", "systemd/exponential-polkit-agent.service", "portal/xdg-desktop-portal-exponential.service"];
 
 /// A crash this soon after start counts toward safe mode.
 pub const QUICK_CRASH: Duration = Duration::from_secs(60);
@@ -592,6 +600,13 @@ mod tests {
         let device = std::fs::read_to_string(root.join("systemd/exponential-device.service")).unwrap();
         assert!(device.contains("ExecStart=/usr/bin/exponential-session --device\n") && device.contains("Restart=on-failure\n"));
         assert!(device.contains("After=graphical-session.target exponential-shell.service\n"), "the panel comes first");
+        // #EDE-172 (P4): what the compositor starts itself when asked stays
+        // installed, and off while it does (the variable reaches systemd).
+        assert!(EXPORTED_ENV.contains(&"EDE_HELPERS_SPAWNED"));
+        for unit in HELPER_UNITS {
+            let text = std::fs::read_to_string(root.join(unit)).unwrap();
+            assert!(text.contains("ConditionEnvironment=!EDE_HELPERS_SPAWNED\n"), "{unit} is off while the compositor starts its program");
+        }
     }
 
     /// #ERR-29: every long-running binary the packages ship reports its

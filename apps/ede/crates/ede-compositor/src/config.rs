@@ -35,6 +35,29 @@ pub struct Config {
     /// `[theme]`: the bridge's (#EDE-19, exponential-theme reads it), kept
     /// here only so the Theme page's writes do not make this file invalid.
     pub theme: toml::Table,
+    /// `[session]`: how the session's own programs start (#EDE-172).
+    pub session: Session,
+}
+
+/// `[session]` (#EDE-172). Read at the compositor's start only.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Session {
+    /// Who starts the shell, the polkit agent and the portal:
+    /// `"units"` (the default: their systemd user units, as before) or
+    /// `"compositor"` (P4, dark until eDE's flip): the compositor itself,
+    /// each in a scope of its own, with its channel at fd 3 and its Wayland
+    /// connection from the compositor (`WAYLAND_SOCKET`), a pinned
+    /// environment, and started again when it ends ([`crate::helpers`]).
+    pub helpers: Helpers,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Helpers {
+    #[default]
+    Units,
+    Compositor,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -203,6 +226,7 @@ impl Default for Config {
             outputs: Vec::new(),
             diagnostics: Diagnostics::default(),
             theme: toml::Table::new(),
+            session: Session::default(),
         }
     }
 }
@@ -418,6 +442,16 @@ mod tests {
         assert_eq!(parse_mode("1920x1080"), Some((1920, 1080, 0)));
         assert!(Config::parse("[[outputs]]\nname = \"DP-1\"\nmode = \"big\"\n").is_err());
         assert!(Config::parse("[[outputs]]\nname = \"DP-1\"\nscale = 9\n").is_err());
+    }
+
+    /// #EDE-172 (P4): the units start the session's programs unless the
+    /// person (or a VM's proof) says the compositor does.
+    #[test]
+    fn the_units_start_the_helpers_unless_the_compositor_is_asked_to() {
+        assert_eq!(Config::default().session.helpers, Helpers::Units);
+        assert_eq!(Config::parse("[session]\nhelpers = \"compositor\"\n").unwrap().session.helpers, Helpers::Compositor);
+        assert_eq!(Config::parse("[session]\nhelpers = \"units\"\n").unwrap().session.helpers, Helpers::Units);
+        assert!(Config::parse("[session]\nhelpers = \"systemd\"\n").is_err());
     }
 
     #[test]
