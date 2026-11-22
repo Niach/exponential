@@ -4253,6 +4253,12 @@ fn main() {
                 tracing::warn!(document = %name, ?issues, "refused at start");
             }
         }
+        // #EDE-202: a document the supervisor set aside at start (an older
+        // release's, refused now), told once with the shell's own toast.
+        for notice in ede_ui::take_notices(&dir) {
+            let (title, body) = notice.toast();
+            toast(&shell, &title, &body, cx);
+        }
         if shell.borrow().surfaces.open_names().next().is_none() {
             tracing::warn!(dir = %dir.display(), "no layer document to draw (is the factory directory installed? exponential-ui --factory apps/ede/ui check)");
         }

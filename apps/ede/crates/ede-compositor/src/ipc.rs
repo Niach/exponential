@@ -91,8 +91,8 @@ pub struct Ipc {
 #[derive(Debug)]
 pub(crate) enum ConsentEvent {
     /// An executable's hash, read off the loop: every hello waiting for
-    /// that file ([`crate::consent::Gate::hashing`]) goes on with it.
-    Hashed { file: crate::consent::FileKey, hash: Result<[u8; 32], String> },
+    /// that key ([`crate::consent::Gate::hashing`]) goes on with it.
+    Hashed { key: crate::consent::HashKey, hash: Result<[u8; 32], String> },
     /// The person's answer to the question `key`.
     Answered { key: Key, allowed: bool },
 }
@@ -1119,20 +1119,21 @@ impl Ede {
         if hash.is_none() && peer.is_some_and(|p| self.ipc.consent.needs_hash(p, &self.installed, &policy)) {
             let peer = peer.unwrap();
             let (pid, exe) = (peer.pid, peer.exe.clone());
-            let (Some(file), Some(exe)) = (crate::consent::file_key(peer), exe) else { return Err(fail(ErrorCode::Unauthorized, "its executable could not be read")) };
-            // One hash per file: a hello for a file already being read waits for it.
-            if let Some(waiting) = self.ipc.consent.hashing.get_mut(&file) {
+            let (Some(key), Some(exe)) = (crate::consent::hash_key(peer), exe) else { return Err(fail(ErrorCode::Unauthorized, "its executable could not be read")) };
+            // One hash per key (#EDE-206: per file, or per process of a file
+            // the person can write): a hello for one being read waits for it.
+            if let Some(waiting) = self.ipc.consent.hashing.get_mut(&key) {
                 waiting.push((id, call_id));
                 return Ok(None);
             }
-            self.ipc.consent.hashing.insert(file, vec![(id, call_id)]);
-            *self.ipc.consent.hashes_started.entry(file).or_default() += 1;
+            self.ipc.consent.hashing.insert(key, vec![(id, call_id)]);
+            self.ipc.consent.hash_started();
             let tx = self.consent_events();
             let spawned = std::thread::Builder::new().name("ede-consent-hash".into()).spawn(move || {
-                let _ = tx.send(ConsentEvent::Hashed { file, hash: crate::consent::hash_exe(pid, exe.dev, exe.ino) });
+                let _ = tx.send(ConsentEvent::Hashed { key, hash: crate::consent::hash_exe(pid, exe.dev, exe.ino) });
             });
             if let Err(e) = spawned {
-                self.ipc.consent.hashing.remove(&file);
+                self.ipc.consent.hashing.remove(&key);
                 return Err(fail(ErrorCode::Internal, &e.to_string()));
             }
             return Ok(None);
@@ -1190,10 +1191,10 @@ impl Ede {
 
     fn consent_event(&mut self, event: ConsentEvent) {
         match event {
-            ConsentEvent::Hashed { file, hash } => {
-                let waiting = self.ipc.consent.hashing.remove(&file).unwrap_or_default();
+            ConsentEvent::Hashed { key, hash } => {
+                let waiting = self.ipc.consent.hashing.remove(&key).unwrap_or_default();
                 if let Ok(hash) = hash {
-                    self.ipc.consent.remember_hash(file, hash);
+                    self.ipc.consent.remember_hash(key, hash);
                 }
                 for (conn, call) in waiting {
                     let outcome = match &hash {

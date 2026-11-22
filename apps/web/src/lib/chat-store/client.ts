@@ -162,7 +162,31 @@ export function stopChatStore(): void {
 /** One op on the worker; undefined = no store here (unsupported, stopped). */
 export async function chatStoreCall<T>(op: string, ...args: unknown[]): Promise<T | undefined> {
   if (!(await ensure())) return undefined
-  return (await send(op, args)) as T
+  const result = (await send(op, args)) as T
+  const roots = writtenRoots(op, args)
+  if (roots.size > 0) for (const listener of changeListeners) listener(roots)
+  return result
+}
+
+// #EXP-2021 (find-in-chat.json THE STORE CATCHING UP): who wants to know the
+// store took rows of a chat (an open find bar asks it again).
+const changeListeners = new Set<(rootIds: ReadonlySet<string>) => void>()
+
+/** Calls `listener` with the chats (root ids) every write of this tab touched. */
+export function onChatStoreChanged(listener: (rootIds: ReadonlySet<string>) => void): () => void {
+  changeListeners.add(listener)
+  return () => changeListeners.delete(listener)
+}
+
+/** The chats a write op touched (none for a read). */
+export function writtenRoots(op: string, args: readonly unknown[]): Set<string> {
+  if (op === `putEvents` && typeof args[0] === `string` && Array.isArray(args[1]) && args[1].length > 0) return new Set([args[0]])
+  if (op === `putMessages` && Array.isArray(args[0])) {
+    return new Set(
+      (args[0] as { rootId?: unknown }[]).map((message) => message?.rootId).filter((root): root is string => typeof root === `string`)
+    )
+  }
+  return new Set()
 }
 
 // ── The steer feed ─────────────────────────────────────────────────────────

@@ -384,6 +384,36 @@ impl ShapeStore {
         Ok(out)
     }
 
+    // -- the chat store's arrival order (#EXP-2018) ---------------------------
+
+    /// #EXP-2018 (chat-store.json MESSAGES BY ARRIVAL): up to `limit`
+    /// `messages` rows from the local arrival position `from` on (the
+    /// table's rowid, inclusive), in arrival order, each with its position.
+    /// An upsert keeps a row's position; an insert takes the next one, so a
+    /// row that reaches this device late is read here whatever its
+    /// `created_at`.
+    pub fn read_messages_by_arrival(&self, from: i64, limit: usize) -> Result<Vec<(i64, Map<String, Value>)>> {
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let maps = self.read_rows(
+            r#"SELECT rowid AS "__arrival", * FROM "messages" WHERE rowid >= ?1 ORDER BY rowid LIMIT ?2"#,
+            &[&from as &dyn rusqlite::ToSql, &limit],
+        )?;
+        Ok(maps
+            .into_iter()
+            .filter_map(|mut map| {
+                let at = map.remove("__arrival")?;
+                let at = at.as_i64().or_else(|| at.as_str().and_then(|text| text.parse().ok()))?;
+                Some((at, map))
+            })
+            .collect())
+    }
+
+    /// #EXP-2018: the newest arrival position of `messages` (0 = empty).
+    pub fn messages_arrival_max(&self) -> Result<i64> {
+        let conn = self.reader.lock().expect("reader poisoned");
+        Ok(conn.query_row(r#"SELECT COALESCE(MAX(rowid), 0) FROM "messages""#, [], |row| row.get(0))?)
+    }
+
     // -- the chat page (#EXP-1380) ------------------------------------------
 
     /// The newest `limit` messages of `root_id`'s tree, newest first

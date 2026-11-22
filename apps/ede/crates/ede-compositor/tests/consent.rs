@@ -4,29 +4,90 @@
 //! the `computer-use` principal; anything else is refused without a prompt;
 //! eDE's own binaries pass; a policy file that is not root's is ignored.
 //!
-//! The asking processes are this test binary copied under those names; the
-//! person is a stand-in that answers on a channel.
+//! The asking processes are this test binary's ELF interpreter copied under
+//! those names, running this binary's `role_ask` (#EDE-207: the file the
+//! compositor hashes and the test copies is a few hundred KB, not a debug
+//! test binary of hundreds of MB); the person is a stand-in that answers
+//! on a channel.
 
 mod common;
 
 use std::{
     io::Write,
-    os::unix::{fs::PermissionsExt, net::{UnixListener, UnixStream}},
+    os::unix::{fs::{MetadataExt, PermissionsExt}, net::{UnixListener, UnixStream}},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::mpsc,
+    sync::{mpsc, OnceLock},
     time::{Duration, Instant},
 };
 
 use ede_compositor::{
     backend::headless::Harness,
-    consent::{Key, Own, Policy, Principal, StandIn, Verdict},
+    consent::{HashKey, Key, Own, Policy, Principal, StandIn, Verdict},
     peer::{Installed, Peer},
     Config,
 };
 use ede_protocol::{Capability, Client, Error, ErrorCode, InputEvent, Request, SessionId, Token};
 
 const ROLE: &str = "EDE172_CONSENT_ROLE";
+
+/// How long the role's hello waits for its reply (the hash, then the
+/// person): within [`run`]'s own minute, so a slow runner fails there with
+/// what the role said, never with a role that gave up first (#EDE-207).
+const HELLO_WITHIN: Duration = Duration::from_secs(50);
+
+/// This test binary's ELF interpreter (`PT_INTERP`), when it has one.
+fn loader() -> Option<&'static Path> {
+    static LOADER: OnceLock<Option<PathBuf>> = OnceLock::new();
+    LOADER.get_or_init(|| interpreter(&std::env::current_exe().ok()?)).as_deref()
+}
+
+/// The `PT_INTERP` path of the 64-bit little-endian ELF file `exe`.
+fn interpreter(exe: &Path) -> Option<PathBuf> {
+    use std::{io::Read, os::unix::ffi::OsStrExt};
+    let mut head = Vec::new();
+    std::fs::File::open(exe).ok()?.take(64 * 1024).read_to_end(&mut head).ok()?;
+    let at = |offset: usize, len: usize| head.get(offset..offset + len);
+    let u16_at = |o: usize| Some(u16::from_le_bytes(at(o, 2)?.try_into().ok()?) as usize);
+    let u32_at = |o: usize| Some(u32::from_le_bytes(at(o, 4)?.try_into().ok()?));
+    let u64_at = |o: usize| Some(u64::from_le_bytes(at(o, 8)?.try_into().ok()?) as usize);
+    if at(0, 6)? != b"\x7fELF\x02\x01" {
+        return None;
+    }
+    let (table, entry, count) = (u64_at(0x20)?, u16_at(0x36)?, u16_at(0x38)?);
+    (0..count).find_map(|i| {
+        let header = table + i * entry;
+        if u32_at(header)? != 3 {
+            return None;
+        }
+        let path = at(u64_at(header + 8)?, u64_at(header + 32)?)?;
+        Some(PathBuf::from(std::ffi::OsStr::from_bytes(path.strip_suffix(b"\0").unwrap_or(path))))
+    })
+}
+
+/// A process of `exe` (a [`copy_as`]) in the asking role: the interpreter
+/// runs this test binary's `role_ask`.
+fn asker(exe: &Path) -> Command {
+    let mut command = Command::new(exe);
+    if loader().is_some() {
+        command.arg(std::env::current_exe().unwrap());
+    }
+    command.args(["--exact", "role_ask", "--ignored", "--nocapture", "--test-threads=1"]);
+    command
+}
+
+/// `command` started. A copy written a moment ago can still be open for
+/// writing in another test's child, between its fork and its exec, and
+/// the kernel then refuses to run it (`ETXTBSY`): tried again a while.
+fn spawn(command: &mut Command) -> std::process::Child {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match command.spawn() {
+            Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) && Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            spawned => return spawned.unwrap(),
+        }
+    }
+}
 
 fn harness() -> Harness {
     let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
@@ -45,12 +106,13 @@ fn gated(h: &Harness, policy: PathBuf) -> mpsc::Receiver<StandIn> {
     rx
 }
 
-/// This test binary under `name` in a directory of its own; `extra` bytes
-/// appended make it another file with another hash (it still runs).
+/// The asking executable ([`loader`], else this test binary) under `name`
+/// in a directory of its own; `extra` bytes appended make it another file
+/// with another hash (it still runs).
 fn copy_as(dir: &Path, name: &str, extra: &[u8]) -> PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(name);
-    std::fs::copy(std::env::current_exe().unwrap(), &path).unwrap();
+    std::fs::copy(loader().map_or_else(|| std::env::current_exe().unwrap(), Path::to_path_buf), &path).unwrap();
     std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(extra).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     path
@@ -73,12 +135,12 @@ fn run(h: &Harness, asks: &mpsc::Receiver<StandIn>, exe: &Path, ops: &str, env: 
     let listener = UnixListener::bind(&sock).unwrap();
     listener.set_nonblocking(true).unwrap();
     let root = h.with(|ede| ede.ipc.root_grant().token);
-    let mut command = Command::new(exe);
-    command.args(["--exact", "role_ask", "--ignored", "--nocapture", "--test-threads=1"]).env(ROLE, ops).env("EDE172_SOCKET", &sock).env("EDE172_TOKEN", root.as_str()).stdout(Stdio::piped()).stderr(Stdio::null());
+    let mut command = asker(exe);
+    command.env(ROLE, ops).env("EDE172_SOCKET", &sock).env("EDE172_TOKEN", root.as_str()).stdout(Stdio::piped()).stderr(Stdio::null());
     for (k, v) in env {
         command.env(k, v);
     }
-    let mut child = command.spawn().unwrap();
+    let mut child = spawn(&mut command);
     let pid = child.id();
     let mut asked = None;
     let deadline = Instant::now() + Duration::from_secs(60);
@@ -97,11 +159,11 @@ fn run(h: &Harness, asks: &mpsc::Receiver<StandIn>, exe: &Path, ops: &str, env: 
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert_eq!(asked.is_some(), answer.is_some(), "asked: {:?}", asked.as_ref().map(|a| &a.asking.body));
-    assert!(asks.try_recv().is_err(), "the person was asked once more");
     let mut out = String::new();
     child.stdout.take().unwrap().read_to_string(&mut out).unwrap();
-    let lines = out.lines().filter_map(|l| l.split_once("@@ ").map(|(_, r)| r.to_string())).collect();
+    let lines: Vec<String> = out.lines().filter_map(|l| l.split_once("@@ ").map(|(_, r)| r.to_string())).collect();
+    assert_eq!(asked.is_some(), answer.is_some(), "asked: {:?}; it said {lines:?}", asked.as_ref().map(|a| &a.asking.body));
+    assert!(asks.try_recv().is_err(), "the person was asked once more");
     Run { lines, asked, pid }
 }
 
@@ -122,7 +184,7 @@ fn role_ask() {
         other => format!("{other}"),
     };
     let started = Instant::now();
-    let first = Client::over(UnixStream::connect(&sock).unwrap(), token);
+    let first = Client::over_waiting(UnixStream::connect(&sock).unwrap(), token, HELLO_WITHIN);
     let mut client = match first {
         Ok(client) => {
             println!("\n@@ hello ok {}", started.elapsed().as_millis());
@@ -162,7 +224,7 @@ fn role_ask() {
     }
     if ops.contains("again") {
         let token = Token::new(std::env::var("EDE172_TOKEN").unwrap()).unwrap();
-        let again = Client::over(UnixStream::connect(&sock).unwrap(), token);
+        let again = Client::over_waiting(UnixStream::connect(&sock).unwrap(), token, HELLO_WITHIN);
         println!("\n@@ again {}", again.map_or_else(code, |_| "ok".into()));
     }
 }
@@ -176,17 +238,20 @@ fn the_app_is_asked_once_per_login_and_binary() {
     let dir = tempfile::tempdir().unwrap();
     let asks = gated(&h, dir.path().join("no-policy.toml"));
     let app = copy_as(&dir.path().join("a"), "exponential", b"");
-    let first = run(&h, &asks, &app, "", &[], Some((true, Duration::from_millis(400))));
+    // How long the person reads: what tells waiting for them from at once
+    // on a slow runner too (#EDE-207).
+    let reads = Duration::from_millis(1500);
+    let first = run(&h, &asks, &app, "", &[], Some((true, reads)));
     let asked = first.asked.as_ref().unwrap();
     assert!(asked.asking.body.contains(&app.display().to_string()) && asked.asking.body.contains(&first.pid.to_string()), "the prompt names the binary and the process: {}", asked.asking.body);
     assert_eq!(asked.asking.grants, Principal::ComputerUse);
     assert!(matches!(asked.asking.key, Key::Binary(_)));
     let waited: u128 = said(&first, "hello").strip_prefix("ok ").unwrap().parse().unwrap();
-    assert!(waited >= 400, "the hello waited for the person ({waited} ms)");
-    // Again, a new process: no question, at once.
+    assert!(waited >= reads.as_millis(), "the hello waited for the person ({waited} ms)");
+    // Again, a new process (hashed again, #EDE-206): no question, at once.
     let second = run(&h, &asks, &app, "", &[], None);
     let at_once: u128 = said(&second, "hello").strip_prefix("ok ").unwrap().parse().unwrap();
-    assert!(at_once < 400, "{at_once} ms");
+    assert!(at_once < reads.as_millis(), "{at_once} ms");
     // The same bytes at another path: the same answer.
     let moved = copy_as(&dir.path().join("b"), "exponential", b"");
     assert!(said(&run(&h, &asks, &moved, "", &[], None), "hello").starts_with("ok"));
@@ -201,7 +266,11 @@ fn the_app_is_asked_once_per_login_and_binary() {
 
 /// The answer is remembered by the file's content: a rewrite in place with
 /// its mtime put back (what the file's owner can do) is hashed again, and a
-/// changed binary is asked about, never let in on the old hash.
+/// changed binary is asked about, never let in on the old hash. Also within
+/// the same second where timestamps are coarse (#EDE-206): the rewritten
+/// file then reads with the very stat the old hash was taken at. Here the
+/// file-wide cache holds the old hash under the rewritten file's stat, and
+/// the person's file is hashed again all the same, for its new process.
 #[test]
 fn a_rewrite_in_place_is_hashed_again() {
     use std::io::{Seek, SeekFrom};
@@ -209,23 +278,72 @@ fn a_rewrite_in_place_is_hashed_again() {
     let dir = tempfile::tempdir().unwrap();
     let asks = gated(&h, dir.path().join("no-policy.toml"));
     let app = copy_as(&dir.path().join("a"), "exponential", b"aaaa");
-    assert!(run(&h, &asks, &app, "", &[], Some((true, Duration::ZERO))).lines.iter().any(|l| l.starts_with("hello ok")));
+    let first = run(&h, &asks, &app, "", &[], Some((true, Duration::ZERO)));
+    assert!(first.lines.iter().any(|l| l.starts_with("hello ok")));
+    let Some(Key::Binary(allowed)) = first.asked.map(|a| a.asking.key) else { panic!("the app is asked about by its content") };
     let mtime = std::fs::metadata(&app).unwrap().modified().unwrap();
-    std::thread::sleep(Duration::from_millis(20));
     let mut file = std::fs::OpenOptions::new().write(true).open(&app).unwrap();
     file.seek(SeekFrom::End(-4)).unwrap();
     file.write_all(b"bbbb").unwrap();
     file.set_modified(mtime).unwrap();
     drop(file);
-    assert_eq!(std::fs::metadata(&app).unwrap().modified().unwrap(), mtime, "the mtime is put back");
+    let meta = std::fs::metadata(&app).unwrap();
+    assert_eq!(meta.modified().unwrap(), mtime, "the mtime is put back");
+    let same_second = HashKey::File(meta.dev(), meta.ino(), meta.size(), meta.mtime(), meta.ctime(), meta.ctime_nsec());
+    let hashed = h.with(move |ede| {
+        ede.ipc.consent.remember_hash(same_second, allowed);
+        ede.ipc.consent.hashes_started
+    });
     let again = run(&h, &asks, &app, "", &[], Some((false, Duration::ZERO)));
     assert_eq!(said(&again, "hello"), "Unauthorized", "the rewritten file was asked about (and refused), not let in on the old hash");
+    assert_eq!(h.with(|ede| ede.ipc.consent.hashes_started), hashed + 1, "hashed again");
 }
 
-/// Several hellos of one new binary at once: its file is hashed once, they
-/// all wait for it and for the one question.
+/// #EDE-206: what a hash is cached by. A file the person can write: by the
+/// process too, each new process of it hashed once, the file unchanged or
+/// not; root's own file: by the file, for every process that runs it.
 #[test]
-fn one_hash_per_file_however_many_hellos() {
+fn a_persons_file_is_hashed_per_process_and_roots_per_file() {
+    use ede_compositor::consent::hash_key;
+    let sleep = std::fs::canonicalize("/usr/bin/sleep").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let theirs = dir.path().join("exponential");
+    std::fs::copy(&sleep, &theirs).unwrap();
+    let theirs = std::fs::canonicalize(theirs).unwrap();
+    let running = |exe: &Path| {
+        let child = spawn(Command::new(exe).arg("30"));
+        let peer = peer_running(child.id(), exe);
+        (child, peer)
+    };
+    let (a, peer_a) = running(&theirs);
+    let (b, peer_b) = running(&theirs);
+    let key_a = hash_key(&peer_a).unwrap();
+    assert!(matches!(key_a, HashKey::Process { pid, start, .. } if pid == peer_a.pid && start == peer_a.start), "{key_a:?}");
+    assert_eq!(hash_key(&peer_a), Some(key_a), "one process: one key");
+    assert_ne!(hash_key(&peer_b), Some(key_a), "another process of the same file: hashed again");
+    let mut children = vec![a, b];
+    if ede_compositor::peer::root_owned(&sleep).is_some() {
+        let (c, peer_c) = running(&sleep);
+        let (d, peer_d) = running(&sleep);
+        let key_c = hash_key(&peer_c).unwrap();
+        assert!(matches!(key_c, HashKey::File(..)), "{key_c:?}");
+        assert_eq!(hash_key(&peer_d), Some(key_c), "root's file: one key for every process");
+        children.extend([c, d]);
+    } else {
+        eprintln!("skipped root's half: {} is not root-owned here", sleep.display());
+    }
+    for child in &mut children {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+/// Several hellos of one new binary at once: each process of it is hashed
+/// once (#EDE-206: the file is the person's, so its hash is kept per
+/// process; a second hello of a process uses it), and they all wait for the
+/// one question.
+#[test]
+fn one_hash_per_process_however_many_hellos() {
     use std::io::Read;
     let h = harness();
     let dir = tempfile::tempdir().unwrap();
@@ -235,11 +353,7 @@ fn one_hash_per_file_however_many_hellos() {
     let listener = UnixListener::bind(&sock).unwrap();
     listener.set_nonblocking(true).unwrap();
     let root = h.with(|ede| ede.ipc.root_grant().token);
-    let mut children: Vec<_> = (0..3)
-        .map(|_| {
-            Command::new(&app).args(["--exact", "role_ask", "--ignored", "--nocapture", "--test-threads=1"]).env(ROLE, "").env("EDE172_SOCKET", &sock).env("EDE172_TOKEN", root.as_str()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap()
-        })
-        .collect();
+    let mut children: Vec<_> = (0..3).map(|_| spawn(asker(&app).env(ROLE, "again").env("EDE172_SOCKET", &sock).env("EDE172_TOKEN", root.as_str()).stdout(Stdio::piped()).stderr(Stdio::null()))).collect();
     let (mut accepted, mut answered) = (0, false);
     let deadline = Instant::now() + Duration::from_secs(60);
     while children.iter_mut().any(|c| c.try_wait().unwrap().is_none()) {
@@ -261,10 +375,9 @@ fn one_hash_per_file_however_many_hellos() {
     for mut child in children {
         let mut out = String::new();
         child.stdout.take().unwrap().read_to_string(&mut out).unwrap();
-        assert!(out.contains("@@ hello ok"), "{out}");
+        assert!(out.contains("@@ hello ok") && out.contains("@@ again ok"), "{out}");
     }
-    let started = h.with(|ede| ede.ipc.consent.hashes_started.values().copied().collect::<Vec<_>>());
-    assert_eq!(started, [1], "one hash of the one file");
+    assert_eq!(h.with(|ede| ede.ipc.consent.hashes_started), 3, "one hash per process, six hellos");
 }
 
 /// A path that would write its own lines into the prompt comes out
@@ -311,7 +424,7 @@ fn others_are_refused_without_a_question_and_edes_own_pass() {
     let sock = dir2.path().join("ede.sock");
     let listener = UnixListener::bind(&sock).unwrap();
     let root = h.with(|ede| ede.ipc.root_grant().token);
-    let child = Command::new(&shell).args(["--exact", "role_ask", "--ignored", "--nocapture", "--test-threads=1"]).env(ROLE, "").env("EDE172_SOCKET", &sock).env("EDE172_TOKEN", root.as_str()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
+    let child = spawn(asker(&shell).env(ROLE, "").env("EDE172_SOCKET", &sock).env("EDE172_TOKEN", root.as_str()).stdout(Stdio::piped()).stderr(Stdio::null()));
     let pid = child.id();
     h.with(move |ede| ede.shell_stand_in = Some(pid));
     let (stream, _) = listener.accept().unwrap();
@@ -364,14 +477,7 @@ fn installed_binaries_ctl_and_the_policy() {
         return;
     }
     let mut child = Command::new(&sleep).arg("30").spawn().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let peer = loop {
-        if let Some(p) = Peer::of_pid(child.id()).filter(|p| p.exe_path().as_deref() == Some(sleep.as_path())) {
-            break p;
-        }
-        assert!(Instant::now() < deadline, "sleep never ran");
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let peer = peer_running(child.id(), &sleep);
     let gate = ede_compositor::consent::Gate::default();
     let none = Policy::default();
     // The units start eDE's programs: they pass by file.
@@ -387,25 +493,11 @@ fn installed_binaries_ctl_and_the_policy() {
     // A "Don't allow" to ctl backs its file off: another ctl process (the
     // same file) is refused without a question for the back-off.
     let other = Command::new(&sleep).arg("30").spawn().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let second = loop {
-        if let Some(p) = Peer::of_pid(other.id()).filter(|p| p.exe_path().as_deref() == Some(sleep.as_path())) {
-            break p;
-        }
-        assert!(Instant::now() < deadline, "sleep never ran");
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let second = peer_running(other.id(), &sleep);
     let Verdict::Ask(asked) = gate.verdict(Some(&second), &as_ctl, &units, &none, None) else { panic!("another ctl process is asked") };
     gate.answered(&asked.key, false, &[(second.pid, second.start)], &[asked.file.unwrap()]);
     let third = Command::new(&sleep).arg("30").spawn().unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let third_peer = loop {
-        if let Some(p) = Peer::of_pid(third.id()).filter(|p| p.exe_path().as_deref() == Some(sleep.as_path())) {
-            break p;
-        }
-        assert!(Instant::now() < deadline, "sleep never ran");
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    let third_peer = peer_running(third.id(), &sleep);
     assert!(matches!(gate.verdict(Some(&third_peer), &as_ctl, &units, &none, None), Verdict::Refuse(_)), "ctl in a loop is not asked again at once");
     for mut child in [other, third] {
         let _ = child.kill();
@@ -419,14 +511,20 @@ fn installed_binaries_ctl_and_the_policy() {
     let _ = child.wait();
 }
 
-/// `exe` (root-owned) as process `pid` once it runs it.
+/// Process `pid` once it runs the file `exe` is, told by `(st_dev,
+/// st_ino)`, not by how `/proc/<pid>/exe` spells its path; within the
+/// harness's minute, as a slow runner needs (#EDE-207).
 fn peer_running(pid: u32, exe: &Path) -> Peer {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let file = std::fs::metadata(exe).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(60);
     loop {
-        if let Some(p) = Peer::of_pid(pid).filter(|p| p.exe_path().as_deref() == Some(exe)) {
+        if let Some(p) = Peer::of_pid(pid).filter(|p| p.exe.as_ref().is_some_and(|e| (e.dev, e.ino) == (file.dev(), file.ino()))) {
             return p;
         }
-        assert!(Instant::now() < deadline, "{} never ran", exe.display());
+        if Instant::now() > deadline {
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
+            panic!("{} ({}:{}) never ran in process {pid}: its exe {:?}, peer {:?}, stat {}", exe.display(), file.dev(), file.ino(), std::fs::read_link(format!("/proc/{pid}/exe")), Peer::of_pid(pid).map(|p| p.exe), stat.trim());
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
 }

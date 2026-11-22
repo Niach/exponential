@@ -141,6 +141,27 @@ export async function waitForAnchor(page: Page, anchor: AnchorSpec): Promise<voi
   throw new Error(`anchor has neither text nor testId`)
 }
 
+/** #EXP-1891: the feed's rows reach the transcript in this long (the stub's
+ *  dial + replay; desktop gives its `EXP_DEV_WAIT_FEED` the same order). */
+export const FEED_ROWS_TIMEOUT_MS = 45_000
+
+/**
+ * #EXP-1891: wait until the session view's transcript draws a feed row
+ * (`transcript-feed` with `data-feed="rows"`): the relay stub's replay
+ * lands after the header, so an anchor on the header pictured "No live
+ * transcript". Throws naming the stub when it never comes.
+ */
+export async function waitForFeedRows(page: Page, timeout = FEED_ROWS_TIMEOUT_MS): Promise<void> {
+  try {
+    await page.locator(`[data-testid="transcript-feed"][data-feed="rows"]`).filter({ visible: true }).first().waitFor({ timeout })
+  } catch {
+    throw new Error(
+      `no feed rows in the session view after ${timeout} ms: the relay stub ` +
+        `(bun run screenshots:desktop) serves this chat's feed; "No live transcript" = it is not`
+    )
+  }
+}
+
 /** Write the PNG, creating the directory tree on the way. */
 export async function shot(
   page: Page,

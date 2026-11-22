@@ -1791,6 +1791,10 @@ class AgentSessionViewModel @AssistedInject constructor(
     suspend fun findInStore(rootId: String, query: String): List<com.exponential.app.data.chatstore.StoredChatHit>? =
         chatStores.searchChat(rootId, query, com.exponential.app.domain.FindInChat.HITS_MAX)
 
+    /** #EXP-2021 (find-in-chat.json THE STORE CATCHING UP): ticks when the
+     *  chat store takes in rows of the chat [rootId]. */
+    fun findStoreTaken(rootId: String): kotlinx.coroutines.flow.Flow<Unit> = chatStores.taken(rootId)
+
     /** #EDE-130: the running device's `search` frame below [beforeSeq] (#EDE-96). */
     suspend fun findOnDevice(query: String, beforeSeq: Long?): com.exponential.app.data.steer.SteerSearchResult? =
         connection.search(query, beforeSeq)
