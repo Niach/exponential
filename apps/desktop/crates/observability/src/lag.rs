@@ -120,10 +120,10 @@ impl Shared {
             return;
         }
         self.focus_changes.fetch_add(1, Ordering::AcqRel);
-        // Focus is back: the unfocused stretch is no baseline, the next
-        // stall is measured from now.
-        if focused && self.last_tick.load(Ordering::Acquire) != 0 {
-            self.last_tick.store(self.now_micros(), Ordering::Release);
+        // Focus is back: the unfocused stretch is no baseline; the next
+        // tick starts a new one (no gap, no stall before it).
+        if focused {
+            self.last_tick.store(0, Ordering::Release);
         }
     }
 }
@@ -711,7 +711,7 @@ mod tests {
         assert!(shared.watch(&mut hang).is_none());
         assert!(hang.is_none(), "an unfocused app opens no hang");
         shared.set_foreground(true);
-        assert!(shared.watch(&mut hang).is_none(), "focus back starts a new baseline");
+        assert!(shared.watch(&mut hang).is_none(), "focus back: the next tick starts a new baseline");
         shared.tick(true);
         assert!(shared.watch(&mut hang).is_none());
         assert!(hang.is_none());
