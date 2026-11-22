@@ -625,13 +625,11 @@ fn share() {
             exit(1);
         }
         let mut picks = preselected;
-        let mut allow = false;
         let (mut outputs, mut windows) = (outputs, windows);
         cx.spawn(async move |cx| {
             loop {
                 while let Ok(act) = acts_rx.try_recv() {
                     match act {
-                        Act::Input { path, value } if path == "/allow" => allow = value.as_bool().unwrap_or(false),
                         Act::Call { name, args } => match name.as_str() {
                             "sealed_pick" => {
                                 let id = args["id"].as_str().unwrap_or("").to_string();
@@ -658,17 +656,13 @@ fn share() {
                                 }
                             }
                             "sealed_answer" => {
-                                let answer = args["answer"].as_str().unwrap_or("cancel");
-                                if answer == "share" {
-                                    for p in &picks {
-                                        println!("{p}");
-                                    }
-                                    if allow {
-                                        println!("allow");
-                                    }
+                                let lines = share_answer(&args, &picks);
+                                for line in &lines {
+                                    println!("{line}");
                                 }
+                                let shared = args["answer"].as_str() == Some("share");
                                 cx.update(|cx| cx.quit());
-                                std::process::exit(if answer == "share" { 0 } else { 1 });
+                                std::process::exit(if shared { 0 } else { 1 });
                             }
                             _ => {}
                         },
@@ -680,6 +674,21 @@ fn share() {
         })
         .detach();
     });
+}
+
+/// The chooser's answer to the portal for `sealed_answer` `args`: on
+/// Share, the picks, then `allow` when the remote-control switch is on.
+/// #EDE-203: the switch's state comes with Share's args (`/allow`): a
+/// `Switch` sends its host no input event, so it is never read from one.
+fn share_answer(args: &Value, picks: &[String]) -> Vec<String> {
+    if args["answer"].as_str() != Some("share") {
+        return Vec::new();
+    }
+    let mut lines = picks.to_vec();
+    if args["allow"].as_bool() == Some(true) {
+        lines.push("allow".into());
+    }
+    lines
 }
 
 /// #EDE-172 (D6 a): the ask's `selected` (a restored share's last picks)
@@ -756,6 +765,43 @@ mod tests {
         assert_eq!((selected(&outputs), selected(&windows)), (vec![false, false], vec![true]));
         assert!(preselect(&json!({}), true, &mut outputs, &mut windows).is_empty());
         assert_eq!((selected(&outputs), selected(&windows)), (vec![false, false], vec![false]));
+    }
+
+    /// #EDE-203: the chooser as eUI runs it: the remote-control switch on,
+    /// then Share, answers the portal `allow`; with it off, no `allow`.
+    /// Cancel answers nothing.
+    #[test]
+    fn share_with_the_switch_on_answers_allow() {
+        use eui_core::{
+            measure::FixedMeasure,
+            surface::{OutEvent, Surface, SurfaceOptions},
+        };
+        let press = |toggle: bool, button: &str| {
+            let parsed: Value = serde_json::from_str(SHARE).expect("the chooser");
+            let tree: NestedNode = serde_json::from_value(parsed["root"].clone()).expect("its tree");
+            let mut s = Surface::new("share", SurfaceOptions::default());
+            assert!(s.set_nested(tree).issues.is_empty());
+            for (path, value) in [("/title", json!("probe wants to control the keyboard and pointer")), ("/body", json!("")), ("/outputs", json!([])), ("/windows", json!([])), ("/remoteControl", json!(true)), ("/allow", json!(false))] {
+                s.set_data(path, Some(value)).unwrap();
+            }
+            s.set_viewport(854.0, 534.0, None);
+            let mut measure = FixedMeasure { sizes: Default::default(), wrap: true };
+            s.layout(&mut measure);
+            if toggle {
+                let switch = s.index_of("control").expect("the remote-control switch shows");
+                s.event(switch, "press", None);
+                s.layout(&mut measure);
+            }
+            let out = s.event(s.index_of(button).expect("the button"), "press", None);
+            let args = out.into_iter().find_map(|e| match e {
+                OutEvent::FunctionCall { name, args, .. } if name == "sealed_answer" => Some(args),
+                _ => None,
+            });
+            share_answer(&args.expect("the button answers"), &["output:Virtual-1".to_string()])
+        };
+        assert_eq!(press(true, "ok"), ["output:Virtual-1", "allow"]);
+        assert_eq!(press(false, "ok"), ["output:Virtual-1"], "no allow with the switch off");
+        assert!(press(true, "cancel").is_empty(), "Cancel answers nothing");
     }
 
     /// #EDE-172 (P7): consent's `--size` and the chooser's ask say the size
