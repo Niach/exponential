@@ -1231,6 +1231,17 @@ export function AgentSessionView({
       busy: Boolean(session.busy),
       deviceOffline: device.online === false,
     }) === `away`
+  // #EXP-2000 (steer-enet.json NEVER HELD): a row no device picked up yet
+  // says nothing: only its sent inputs and own tail, never "No live transcript".
+  const noFeedWaiting =
+    feedPlaceholder &&
+    phase.kind !== `live` &&
+    steerNoFeedState({
+      ended: sessionEnded,
+      busy: Boolean(session.busy),
+      deviceOffline: device.online === false,
+      started: session.startedAt != null,
+    }) === `waiting`
   const [stalled, setStalled] = useState(false)
   useEffect(() => {
     if (!waitingForRoom) {
@@ -1293,6 +1304,7 @@ export function AgentSessionView({
     .map((row) => row.id)
   const placeholderShown =
     noFeedAway ||
+    noFeedWaiting ||
     (feedPlaceholder && starting) ||
     noFeedIdle ||
     (waitingForRoom && stalled) ||
@@ -1409,6 +1421,7 @@ export function AgentSessionView({
     feedPlaceholder &&
     (phase.kind === `connecting` || phase.kind === `starting`) &&
     !noFeedAway &&
+    !noFeedWaiting &&
     !noFeedIdle &&
     !(waitingForRoom && stalled)
   useDeepLinkDriver(
@@ -1421,7 +1434,7 @@ export function AgentSessionView({
       // whose replay lands next shows `Waiting for activity` first): the
       // card under it moves then, so a young link waits for the feed and
       // only settles on the placeholder's copy past the grace.
-      const placeholderFinal = noFeedAway || noFeedIdle || (deviceOffline && phase.kind === `ended`)
+      const placeholderFinal = noFeedAway || noFeedWaiting || noFeedIdle || (deviceOffline && phase.kind === `ended`)
       const placeholderYoung = placeholderShown && !placeholderFinal && deepLink !== null && Date.now() - deepLink.takenAt < DEEP_LINK_PLACEHOLDER_GRACE_MS
       const base = {
         paging:
@@ -1547,6 +1560,9 @@ export function AgentSessionView({
                   />
                 </div>
               </CenteredState>
+            ) : noFeedWaiting ? (
+              /* #EXP-2000: nothing to say yet; the own bubbles sit at the bottom. */
+              <div className="flex-1" data-testid="transcript-waiting" />
             ) : feedPlaceholder && starting ? (
               /* N-11: no status row over the feed; before the first turn the
                  column holds the placeholder rows over "Starting on …". */
@@ -1612,6 +1628,9 @@ export function AgentSessionView({
                 ref={follow.contentRef}
                 className={cn(`flex min-h-full shrink-0 flex-col justify-end py-2`, TRANSCRIPT_COLUMN)}
                 style={{ paddingBottom: DOCK_GAP }}
+                // #EXP-1891: the web capture's feed gate (a transcript row drawn).
+                data-testid="transcript-feed"
+                data-feed={rows.length > 0 ? `rows` : `empty`}
               >
                 {canLoadEarlier ? <LoadEarlierButton onClick={loadEarlier} /> : null}
                 {renderToolCards(cardAnchors.unanchored, `head`)}
