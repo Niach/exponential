@@ -105,9 +105,11 @@ where
     // polkit, consent or share prompt) is solid black in a capture, with
     // or without a fullscreen window under it (#EDE-121); so is the shell's
     // pinned view of an agent space (#EXP-2024: a space's pixels never reach
-    // a person-seat screenshot, screen memory or a screen share through it).
+    // a person-seat screenshot, screen memory or a screen share through it),
+    // and the taskbar's Agent spaces list, a popup the shell names
+    // (#EXP-2041: the spaces' thumbnails; the layer's other popups stay).
     let draw = |renderer: &mut R, elements: &mut Vec<_>, shown: &dyn Fn(&smithay::desktop::LayerSurface) -> bool| {
-        use smithay::desktop::PopupManager;
+        use smithay::desktop::{utils::bbox_from_surface_tree, PopupManager};
         let hidden = |l: &smithay::desktop::LayerSurface| {
             let origin = crate::sealed::layer_origin(l);
             redact && (origin.sealed || origin.space_view)
@@ -115,8 +117,13 @@ where
         for l in layers.layers().rev().filter(|l| shown(l) && !hidden(l)) {
             let Some(geo) = layers.layer_geometry(l) else { continue };
             for (popup, location) in PopupManager::popups_for_surface(l.wl_surface()) {
-                let offset = (geo.loc + location - popup.geometry().loc).to_physical_precise_round(scale);
-                elements.extend(render_elements_from_surface_tree(renderer, popup.wl_surface(), offset, scale, 1.0, Kind::Unspecified).into_iter().map(OutputElements::Surface));
+                let offset = geo.loc + location - popup.geometry().loc;
+                if redact && crate::popup_namespace::black_in_captures(&state.popups, &popup) {
+                    let geo = bbox_from_surface_tree(popup.wl_surface(), offset).to_physical_precise_round(scale);
+                    elements.push(OutputElements::Solid(SolidColorRenderElement::new(Id::new(), geo, CommitCounter::default(), [0.0, 0.0, 0.0, 1.0], Kind::Unspecified)));
+                    continue;
+                }
+                elements.extend(render_elements_from_surface_tree(renderer, popup.wl_surface(), offset.to_physical_precise_round(scale), scale, 1.0, Kind::Unspecified).into_iter().map(OutputElements::Surface));
             }
         }
         for l in layers.layers().rev().filter(|l| shown(l)) {

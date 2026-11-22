@@ -102,12 +102,23 @@ pub fn exe_name(link: &std::path::Path) -> Option<String> {
     Some(name.strip_suffix(" (deleted)").unwrap_or(&name).to_string())
 }
 
+/// The executable name of process `pid` ([`exe_name`]).
+fn exe_of(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok().and_then(|p| exe_name(&p))
+}
+
+/// Process `pid` is the shell, `exponential-shell` (or the headless tests'
+/// stand-in for it): its space view (#EXP-2024) and its Agent spaces list
+/// (#EXP-2041) are black in captures of the person's output.
+pub fn is_shell(ede: &Ede, pid: u32) -> bool {
+    pid != 0 && (ede.shell_stand_in == Some(pid) || exe_of(pid).is_some_and(|n| n == "exponential-shell"))
+}
+
 pub fn origin_of(ede: &Ede, surface: &WlSurface, namespace: &str) -> LayerOrigin {
     let pid = ede.display_handle.get_client(surface.id()).ok().and_then(|c| c.get_credentials(&ede.display_handle).ok()).map(|c| c.pid as u32).unwrap_or(0);
-    let exe = || std::fs::read_link(format!("/proc/{pid}/exe")).ok().and_then(|p| exe_name(&p));
-    let sealed = pid != 0 && (ede.sealed_stand_in == Some(pid) || exe().is_some_and(|n| n == "exponential-sealed"));
+    let sealed = pid != 0 && (ede.sealed_stand_in == Some(pid) || exe_of(pid).is_some_and(|n| n == "exponential-sealed"));
     // Only the shell's own view hides: another client naming the namespace stays in captures.
-    let space_view = pid != 0 && namespace == ede_protocol::SPACE_VIEW_NAMESPACE && (ede.shell_stand_in == Some(pid) || exe().is_some_and(|n| n == "exponential-shell"));
+    let space_view = namespace == ede_protocol::SPACE_VIEW_NAMESPACE && is_shell(ede, pid);
     LayerOrigin { pid, sealed, space_view }
 }
 

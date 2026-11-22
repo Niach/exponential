@@ -140,6 +140,30 @@ program, so the IDE's "Copy image" shipped on macOS/Windows only.
   returns at once when no program owns `CLIPBOARD_MANAGER`. Tests: a slow
   manager (500 ms) still saves the image; no manager means no wait.
 
+## A popup's namespace on Exponential Desktop (#EXP-2041)
+
+Marked `Exponential patch (#EXP-2041)` in the source. An `xdg_popup` has no
+name, so eDE's compositor could not tell the shell's Agent spaces list (a
+hosted Popover showing the agent spaces' pictures) from the taskbar's other
+popups, and every capture of the person's output showed it.
+
+- **`src/linux/wayland/popup_namespace.rs` (new):** the client code of
+  `exponential_popup_namespace_v1`, generated from
+  `apps/desktop/crates/ede-protocol/protocols/exponential-popup-namespace-v1.xml`
+  (the compositor generates its server half from the same file).
+- **`src/linux/wayland/client.rs`:** `Globals` binds the global when the
+  compositor offers it (eDE only; `None` elsewhere, nothing is sent).
+- **`src/linux/wayland/window.rs`:** an `AnchoredPopup` with an app id names
+  its surface with it (`set_namespace`) right after `get_popup`, before the
+  first commit. The app id is otherwise unused for popups on Wayland.
+  `uicore-gpui` gives the shell's popups `exponential-shell:<document>` and
+  `exponential-shell:<document>:<owner>` (a hosted layer).
+- **`src/linux/wayland.rs`:** declares `mod popup_namespace`. **`Cargo.toml`:**
+  `wayland-scanner` (already in the lock through wayland-client), enabled by
+  the `wayland` feature.
+- **Tests:** the compositor's headless `space_view` test names popups the
+  same way; the built shell's list is black in a capture on eDE.
+
 ## Packaging
 
 `Cargo.toml` stays the crates.io-normalised manifest. Dropped from the

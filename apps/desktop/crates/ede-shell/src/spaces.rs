@@ -422,6 +422,21 @@ mod tests {
         assert_eq!(uicore_gpui::layer_namespace(&uicore_gpui::LayerShellHost::default().namespace, VIEW), ede_protocol::SPACE_VIEW_NAMESPACE);
     }
 
+    /// #EXP-2041: the taskbar's Agent spaces list, a hosted Popover, names
+    /// its popup with the namespace the compositor keeps out of every
+    /// capture of the person's output; the taskbar's other hosted layer (the
+    /// window previews) and its popup documents (the tray menu, Needs you)
+    /// have names of their own.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_lists_popup_has_the_namespace_captures_black_out() {
+        let prefix = uicore_gpui::LayerShellHost::default().namespace;
+        assert_eq!(uicore_gpui::hosted_namespace(&prefix, "taskbar", LIST), ede_protocol::SPACE_LIST_NAMESPACE);
+        for other in [uicore_gpui::hosted_namespace(&prefix, "taskbar", "previews"), uicore_gpui::layer_namespace(&prefix, "tray-menu"), uicore_gpui::layer_namespace(&prefix, "needs-you")] {
+            assert_ne!(other, ede_protocol::SPACE_LIST_NAMESPACE);
+        }
+    }
+
     fn window(fullscreen: bool, minimized: bool, workspace: usize, x: i32) -> WindowInfo {
         WindowInfo { id: WindowId::new("w1").unwrap(), title: None, app_id: Some("mpv".into()), x, y: 0, width: 1920, height: 1080, focused: true, fullscreen, protected: false, x11: false, workspace, minimized, space: None }
     }

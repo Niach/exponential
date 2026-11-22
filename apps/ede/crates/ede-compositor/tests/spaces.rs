@@ -14,7 +14,7 @@ use ede_protocol::{Capability, CaptureTarget, Error, ErrorCode, InputEvent, Requ
 use smithay::backend::input::{ButtonState, KeyState};
 
 /// Every global a client of the person's desk is told about, in order.
-const PERSONS_GLOBALS: [&str; 19] = [
+const PERSONS_GLOBALS: [&str; 20] = [
     "wl_compositor",
     "wl_subcompositor",
     "xdg_wm_base",
@@ -23,6 +23,7 @@ const PERSONS_GLOBALS: [&str; 19] = [
     "zxdg_output_manager_v1",
     "wl_data_device_manager",
     "wl_seat",
+    "exponential_popup_namespace_v1",
     "ext_idle_notifier_v1",
     "ext_session_lock_manager_v1",
     "zwp_idle_inhibit_manager_v1",

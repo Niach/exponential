@@ -131,8 +131,10 @@ pub struct Ede {
     pub sealed_stand_in: Option<u32>,
     /// #EXP-2024: a test's own process standing in for `exponential-shell`:
     /// a layer it maps meanwhile with the space view's namespace is the
-    /// shell's pinned view ([`crate::sealed::origin_of`]). As
-    /// `sealed_stand_in`, only the headless tests set it; `None` in a session.
+    /// shell's pinned view ([`crate::sealed::origin_of`]), a popup it names
+    /// meanwhile the Agent spaces list's namespace is the shell's list
+    /// (#EXP-2041, [`crate::popup_namespace`]). As `sealed_stand_in`, only
+    /// the headless tests set it; `None` in a session.
     pub shell_stand_in: Option<u32>,
     /// Counts presented frames ([`crate::backend::frame_done`]); a capture
     /// with `since` equal to it carries no pixels.
@@ -206,6 +208,8 @@ impl Ede {
             })
             .expect("insert the display source");
 
+        // #EXP-2041: the shell names its Agent spaces list (black in captures).
+        crate::popup_namespace::create_global(&dh);
         let idle_notifier = smithay::wayland::idle_notify::IdleNotifierState::new(&dh, loop_handle.clone());
         crate::idle::start_timer(&loop_handle);
 

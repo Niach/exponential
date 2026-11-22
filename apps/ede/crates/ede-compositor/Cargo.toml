@@ -50,6 +50,9 @@ xcursor = { version = "0.3", optional = true }
 swash = "0.2.9"
 # The recovery message as a file (`ede-compositor recovery --png`, #EDE-40).
 png = "0.17"
+# #EXP-2041: `exponential_popup_namespace_v1` (ede-protocol's protocols/),
+# the server code from its XML (the version smithay's protocols already use).
+wayland-scanner = "0.31"
 
 [dev-dependencies]
 wayland-client = "0.31.10"

@@ -3,6 +3,8 @@ mod clipboard;
 mod cursor;
 mod display;
 mod popup;
+// Exponential patch (#EXP-2041): a popup's namespace for eDE's compositor.
+mod popup_namespace;
 mod serial;
 mod window;
 

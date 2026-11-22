@@ -286,6 +286,13 @@ pub struct SpaceReadiness {
 /// screen share through it.
 pub const SPACE_VIEW_NAMESPACE: &str = "exponential-shell:space-view";
 
+/// #EXP-2041: the namespace of the taskbar's Agent spaces list, a hosted
+/// Popover (an `xdg_popup` of the taskbar layer) that shows each space's
+/// picture: the shell names the popup with it through
+/// `protocols/exponential-popup-namespace-v1.xml`, and the compositor draws
+/// it black in every capture of the person's output, as it draws the view.
+pub const SPACE_LIST_NAMESPACE: &str = "exponential-shell:taskbar:agent_spaces";
+
 /// An agent space ([`Request::CreateSpace`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceInfo {
