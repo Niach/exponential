@@ -42,6 +42,7 @@ pub mod popup_namespace;
 pub mod protected;
 pub mod recovery;
 pub mod sealed;
+pub mod services;
 pub mod shortcuts;
 pub mod spaces;
 pub mod state;

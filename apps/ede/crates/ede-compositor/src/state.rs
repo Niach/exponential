@@ -152,6 +152,9 @@ pub struct Ede {
     /// #EDE-172 (P4): the session's programs the compositor starts itself
     /// (`[session] helpers = "compositor"`, [`crate::helpers`]).
     pub helpers: crate::helpers::Helpers,
+    /// #EDE-172 (P13): the services daemon the compositor runs, by its
+    /// intake ([`crate::services`]).
+    pub services: crate::services::Services,
 }
 
 /// Tries a client's dmabuf on the backend's renderer.
@@ -300,6 +303,7 @@ impl Ede {
             frame_serial: 0,
             config_path: None,
             helpers,
+            services: Default::default(),
         }
     }
 

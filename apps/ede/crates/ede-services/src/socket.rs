@@ -1,18 +1,31 @@
-//! The data source: `$XDG_RUNTIME_DIR/exponential-desktop/services.sock` (the directory
-//! is 0700, the compositor's), ede-protocol framing (a `u32` length then
-//! JSON). Calls: `{"id", "op": "list" | "get" {domain} | "call" {domain,
-//! action, args} | "subscribe" | "grant" {session, label, capabilities}}`;
-//! replies `{"id", "result"}` or `{"id", "error"}`; after `subscribe`,
-//! `{"event": "services.changed", "domain", "snapshot"}` whenever a
-//! domain's snapshot moves (a subscriber subscribes, then gets: the events
-//! heard during its gets wait for it, #EDE-135). Same-user processes reach it: the shell, the
-//! settings pages, ede-tools. `call` from the socket holds every
-//! capability (the shell's own buttons); agents go through the MCP face.
+//! The data source, ede-protocol framing (a `u32` length then JSON).
+//! Calls: `{"id", "op": "list" | "get" {domain} | "call" {domain, action,
+//! args} | "subscribe"}`; replies `{"id", "result"}` or `{"id", "error"}`;
+//! after `subscribe`, `{"event": "services.changed", "domain", "snapshot"}`
+//! whenever a domain's snapshot moves (a subscriber subscribes, then gets:
+//! the events heard during its gets wait for it, #EDE-135).
+//!
+//! Its connections come one of two ways:
+//! - **#EDE-172 (P13), the compositor's intake** ([`serve_intake`],
+//!   `[session] helpers = "compositor"`): the compositor hands each over
+//!   with the capabilities of the principal that asked for it
+//!   ([`ede_protocol::Request::OpenServices`]), and its `call` holds
+//!   exactly those. No socket path exists.
+//! - **`$XDG_RUNTIME_DIR/exponential-desktop/services.sock`** ([`serve`];
+//!   the directory is 0700, the compositor's): any process of the person,
+//!   and `call` holds every capability (the shell's own buttons). Until
+//!   eDE's flip (P14).
+//!
+//! #EDE-172: `grant` (an MCP bearer over the socket) is gone; the MCP face
+//! ([`crate::mcp`]) serves nothing until agents reach it through a relay.
 
 use std::{
     collections::VecDeque,
     io::Read,
-    os::unix::net::{UnixListener, UnixStream},
+    os::{
+        fd::OwnedFd,
+        unix::net::{UnixListener, UnixStream},
+    },
     path::Path,
     sync::{mpsc, Arc, Mutex},
     thread,
@@ -22,7 +35,7 @@ use std::{
 use ede_protocol::{read_frame, write_frame, Capability};
 use serde_json::{json, Value};
 
-use crate::{mcp::Mcp, Registry};
+use crate::Registry;
 
 /// Every subscriber's stream.
 #[derive(Clone, Default)]
@@ -65,32 +78,59 @@ fn poll(name: &'static str, registry: &Registry, subscribers: &Subscribers) {
     }
 }
 
-/// Serves until the listener fails; `refresh` runs on its own thread.
-pub fn serve(path: &Path, registry: Arc<Registry>, mcp: Option<Arc<Mcp>>) -> std::io::Result<()> {
+/// The poll: each domain's changed snapshots to every subscriber.
+fn start_polls(registry: &Arc<Registry>, subscribers: &Subscribers) -> std::io::Result<()> {
+    for name in registry.names() {
+        let registry = registry.clone();
+        let subscribers = subscribers.clone();
+        thread::Builder::new().name(format!("ede-services-poll-{name}")).spawn(move || poll(name, &registry, &subscribers))?;
+    }
+    Ok(())
+}
+
+/// One connection, served on its own thread with `held` for its calls.
+fn spawn_client(stream: UnixStream, registry: &Arc<Registry>, subscribers: &Subscribers, held: Vec<Capability>) -> std::io::Result<()> {
+    let registry = registry.clone();
+    let subscribers = subscribers.clone();
+    thread::Builder::new().name("ede-services-client".into()).spawn(move || serve_client(stream, &registry, &subscribers, &held))?;
+    Ok(())
+}
+
+/// Serves `services.sock` until the listener fails: every connection's
+/// `call` holds every capability.
+pub fn serve(path: &Path, registry: Arc<Registry>) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
     let _ = std::fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
     let subscribers = Subscribers::default();
-    // The poll: the changed snapshots to every subscriber.
-    for name in registry.names() {
-        let registry = registry.clone();
-        let subscribers = subscribers.clone();
-        thread::Builder::new().name(format!("ede-services-poll-{name}")).spawn(move || poll(name, &registry, &subscribers))?;
-    }
+    start_polls(&registry, &subscribers)?;
     tracing::info!(path = %path.display(), "services socket");
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
-        let registry = registry.clone();
-        let subscribers = subscribers.clone();
-        let mcp = mcp.clone();
-        thread::Builder::new().name("ede-services-client".into()).spawn(move || serve_client(stream, &registry, &subscribers, mcp.as_deref()))?;
+        spawn_client(stream, &registry, &subscribers, Capability::ALL.to_vec())?;
     }
     Ok(())
 }
 
-fn serve_client(mut stream: UnixStream, registry: &Registry, subscribers: &Subscribers, mcp: Option<&Mcp>) {
+/// #EDE-172 (P13): serves the connections the compositor hands over
+/// `intake` ([`ede_protocol::intake`]), each with the capabilities it
+/// names, until the compositor closes it (`Ok`: it ended, or started
+/// another daemon).
+pub fn serve_intake(intake: OwnedFd, registry: Arc<Registry>) -> std::io::Result<()> {
+    let subscribers = Subscribers::default();
+    start_polls(&registry, &subscribers)?;
+    tracing::info!("services served over the compositor's intake");
+    while let Some((handed, connection)) = ede_protocol::intake::receive(&intake)? {
+        tracing::info!(session = handed.session_id.as_str(), capabilities = ?handed.capabilities, "a connection from the compositor");
+        spawn_client(UnixStream::from(connection), &registry, &subscribers, handed.capabilities)?;
+    }
+    tracing::info!("the compositor closed the intake");
+    Ok(())
+}
+
+fn serve_client(mut stream: UnixStream, registry: &Registry, subscribers: &Subscribers, held: &[Capability]) {
     loop {
         let Ok(frame) = read_frame(&mut stream) else { return };
         let call: Value = match serde_json::from_slice(&frame) {
@@ -101,7 +141,7 @@ fn serve_client(mut stream: UnixStream, registry: &Registry, subscribers: &Subsc
             }
         };
         let id = call["id"].clone();
-        let reply = match handle(&call, registry, mcp) {
+        let reply = match handle(&call, registry, held) {
             Ok(Some(result)) => json!({"id": id, "result": result}),
             Ok(None) => {
                 // subscribe: this stream joins the broadcast.
@@ -118,8 +158,8 @@ fn serve_client(mut stream: UnixStream, registry: &Registry, subscribers: &Subsc
     }
 }
 
-/// `Ok(None)` = subscribe.
-pub fn handle(call: &Value, registry: &Registry, mcp: Option<&Mcp>) -> Result<Option<Value>, String> {
+/// `Ok(None)` = subscribe. `held` = what this connection's `call` holds.
+pub fn handle(call: &Value, registry: &Registry, held: &[Capability]) -> Result<Option<Value>, String> {
     match call["op"].as_str().unwrap_or_default() {
         "list" => Ok(Some(json!(registry.names()))),
         "get" => {
@@ -130,17 +170,11 @@ pub fn handle(call: &Value, registry: &Registry, mcp: Option<&Mcp>) -> Result<Op
             let domain = call["domain"].as_str().ok_or("domain")?;
             let action = call["action"].as_str().ok_or("action")?;
             let args = call.get("args").cloned().unwrap_or(json!({}));
-            registry.call(domain, action, &args, &Capability::ALL).map(Some).map_err(|e| e.to_string())
+            registry.call(domain, action, &args, held).map(Some).map_err(|e| e.to_string())
         }
         "subscribe" => Ok(None),
-        "grant" => {
-            let mcp = mcp.ok_or("no MCP face")?;
-            let session = call["session"].as_str().ok_or("session")?;
-            let label = call["label"].as_str().unwrap_or("agent");
-            let capabilities: Vec<Capability> = call["capabilities"].as_array().map(|l| l.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect()).unwrap_or_default();
-            let (url, token) = mcp.grant(session, label, capabilities)?;
-            Ok(Some(json!({"url": url, "token": token})))
-        }
+        // #EDE-172: no MCP bearer is minted over a connection any more.
+        "grant" => Err("grant is gone: the services' MCP face mints no bearers over a socket (#EDE-172)".into()),
         other => Err(format!("unknown op {other:?}")),
     }
 }
@@ -160,6 +194,12 @@ impl Client {
 
     pub fn connect_default() -> std::io::Result<Self> {
         Self::connect(&crate::socket_path())
+    }
+
+    /// #EDE-172 (P13): a connection the compositor handed over
+    /// ([`ede_protocol::Client::open_services`]).
+    pub fn from_fd(fd: OwnedFd) -> Self {
+        Self { stream: UnixStream::from(fd), next: 1, pending: VecDeque::new() }
     }
 
     pub fn call(&mut self, mut call: Value) -> Result<Value, String> {

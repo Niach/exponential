@@ -299,23 +299,32 @@ off), `disks` (udisks2: drives, filesystems; mount, unmount), `updates`
 (fwupd), `about` (host, OS, kernel, CPU, memory). A missing daemon gives
 `{available: false, reason}`, so a page can say so.
 
-- **Data source**: `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`, ede-protocol
-  framing, `list`, `get {domain}`, `call {domain, action, args}` (every
-  capability: the shell's own buttons), `subscribe` (`services.changed`
-  per domain whose snapshot moved, polled every 2 s). The shell feeds
-  every document `/services/<domain>`; the settings pages (#EDE-14) bind
-  it. `exponential-services get sound`, `exponential-services call sound set_volume
-  '{"percent": 40}'` from a terminal.
+- **Data source**: ede-protocol framing, `list`, `get {domain}`, `call
+  {domain, action, args}`, `subscribe` (`services.changed` per domain
+  whose snapshot moved, polled every 2 s). The shell feeds every document
+  `/services/<domain>`; the settings pages (#EDE-14) bind it.
+  `exponential-services get sound` and `exponential-services call sound
+  set_volume '{"percent": 40}'` run in the command's own process (the
+  daemon would run them with the same power).
+- **Its connections** (#EDE-172 P13): with `[session] helpers =
+  "compositor"` the compositor runs `exponential-services serve` with its
+  intake at fd 3 and no socket path: a connection is asked for on a
+  channel (`open_services {capabilities}`, no more than the grant holds,
+  never for computer use or a space), the compositor hands the daemon its
+  end with those capabilities, and its `call` holds exactly them (the
+  shell's root channel asks with all of them). Without the switch,
+  `exponential-services.service` serves
+  `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`: every capability
+  to any process of the person, until eDE's flip.
 - **MCP face**: eMCP's loopback server (`exponential-services tools` lists them:
-  `<domain>_get` and `<domain>_<action>`), a bearer per agent session from
-  `exponential-services grant <session> [label] [system,ui]` (over the socket;
-  ede-tools wires it in M2), each action gated by the eCore capability its
-  description names (`ui` for sound and media, `system` for the rest;
-  `crates/ede-services/tests/tools.rs` pins the list), a refusal
-  answered as `isError` content, and an `mcp_calls`-shaped row per call in
-  `$XDG_STATE_HOME/exponential-desktop/mcp-audit.jsonl` (audit.json's columns, the
-  canonical `args_hash`).
-- `exponential-services.service` runs it in the session.
+  `<domain>_get` and `<domain>_<action>`), each action gated by the eCore
+  capability its description names (`ui` for sound and media, `system`
+  for the rest; `crates/ede-services/tests/tools.rs` pins the list), a
+  refusal answered as `isError` content, and an `mcp_calls`-shaped row per
+  call in `$XDG_STATE_HOME/exponential-desktop/mcp-audit.jsonl`
+  (audit.json's columns, the canonical `args_hash`). #EDE-172: `grant`
+  (a bearer over the socket) is gone and `serve` does not start it; it
+  waits for a way agents reach it that is not a bearer.
 
 ## Tier B: `exponential-sealed` (#EDE-17)
 
@@ -1341,7 +1350,7 @@ icons = "Papirus-Dark"   # gtk, cursor, cursor_size, font, monospace, font_size 
 send = true          # false (or EXP_DIAGNOSTICS=0): no crash, performance or log reports
 
 [session]            # read at the compositor's start (#EDE-172)
-helpers = "units"    # "compositor": the compositor starts the shell (under exponential-ui supervise), the polkit agent and the portal itself
+helpers = "units"    # "compositor": the compositor starts the shell (under exponential-ui supervise), the polkit agent, the portal and the services daemon itself
 ```
 
 `helpers = "compositor"` (#EDE-172 P4, off until eDE's flip): each helper runs
@@ -1356,7 +1365,8 @@ environment without `LD_PRELOAD`, `LD_AUDIT`, `LD_LIBRARY_PATH`,
 device_select), and is started again when it ends. Their units stay
 installed and off (`ConditionEnvironment=!EDE_HELPERS_SPAWNED`, which every
 process the compositor starts gets and `exponential-session --ready`
-exports); a copy started by hand finds no channel and ends. The compositor,
+exports); a copy started by hand finds no channel and ends. The services
+daemon's fd 3 is its intake (#EDE-172 P13, no `services.sock` then). The compositor,
 the supervisor, the shell, the lock and the polkit agent refuse ptrace
 (`PR_SET_DUMPABLE 0`) once their first roundtrips are done.
 

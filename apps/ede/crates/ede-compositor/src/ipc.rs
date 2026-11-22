@@ -997,6 +997,18 @@ impl Ede {
                 }
                 json(serde_json::to_value(opened).unwrap())
             }
+            // #EDE-172 (P13): a connection to the services daemon the
+            // compositor runs, holding no more than this grant.
+            Request::OpenServices { capabilities } => {
+                if let Some(missing) = capabilities.iter().find(|c| !grant.admits(**c, now)) {
+                    return Err(fail(ErrorCode::Forbidden, &format!("the grant does not hold {}", missing.as_str())));
+                }
+                let fd = self.services_open(&grant.session_id, capabilities)?;
+                if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                    c.pending_fd = Some(fd);
+                }
+                json(serde_json::Value::Null)
+            }
             // #EDE-172 (P4): the shell's supervisor, for each shell it starts.
             Request::OpenWayland => {
                 let fd = self.helper_wayland_for(id).ok_or_else(|| fail(ErrorCode::Forbidden, "only the channel the compositor started a helper with asks for a Wayland connection"))?;
@@ -1020,6 +1032,8 @@ impl Ede {
                 let session = SessionId::new(session.as_str()).ok()?;
                 self.ipc_open_channel(&root, Some(session), capabilities.clone(), None, now_ms()).map_err(|e| tracing::warn!("a helper's channel: {}", e.message)).ok()?
             }
+            // An intake is no control connection ([`crate::services`]).
+            crate::helpers::Channel::Intake => return None,
         };
         let child = (grant.token != root.token).then(|| grant.token.clone());
         let made = UnixStream::pair().ok().and_then(|(ours, theirs)| Some((self.ipc_insert_holding(ours, Some(grant.token.clone()))?, OwnedFd::from(theirs))));
@@ -1081,6 +1095,8 @@ impl Ede {
         let refused = match request {
             Request::Lock | Request::Logout | Request::Unlock | Request::SetOutput { .. } | Request::ReloadConfig | Request::LaunchToken => true,
             Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => true,
+            // #EDE-172 (P13): the services are the shell's buttons.
+            Request::OpenServices { .. } => true,
             Request::Input { bindings, .. } => *bindings,
             _ => false,
         };

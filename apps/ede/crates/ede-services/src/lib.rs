@@ -4,14 +4,19 @@
 //! `actions` (what a page's button or an agent's tool calls), with the
 //! eCore capability each action needs. Two faces share one [`Registry`]:
 //!
-//! - the **data source** ([`socket`]): `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`,
-//!   ede-protocol framing, `get`, `call`, `subscribe` (a `services.changed`
-//!   event per domain whose snapshot moved; each domain polled on its own
-//!   thread at its own [`Service::interval`], only while someone subscribes);
+//! - the **data source** ([`socket`]): ede-protocol framing, `get`, `call`,
+//!   `subscribe` (a `services.changed` event per domain whose snapshot
+//!   moved; each domain polled on its own thread at its own
+//!   [`Service::interval`], only while someone subscribes), over the
+//!   connections the compositor hands its intake (#EDE-172 P13, each with
+//!   the capabilities of the principal that asked) or, until eDE's flip,
+//!   `$XDG_RUNTIME_DIR/exponential-desktop/services.sock`;
 //! - the **MCP face** ([`mcp`]): eMCP's loopback server with one tool per
 //!   action plus `<domain>_get`, grants per agent session with the
 //!   capabilities they may use, and an `mcp_calls`-shaped audit row per
 //!   call in `$XDG_STATE_HOME/exponential-desktop/mcp-audit.jsonl` (audit.json's columns).
+//!   #EDE-172: it is not started and mints no bearer over a socket until
+//!   agents reach it through a relay of their own.
 //!
 //! Behaviour follows what Cinnamon's applets and settings do with the same
 //! daemons; no code is shared with them. `tests/tools.rs` pins the tool list
