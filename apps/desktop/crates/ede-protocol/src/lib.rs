@@ -290,7 +290,7 @@ pub enum Request {
     /// is the person's session's (#EDE-143): a [`ProcessAnswer`]. eDE's
     /// polkit agent asks before it shows the person a prompt: it refuses a
     /// request from a space, and shows one from outside the session
-    /// without the keyboard. `system` only.
+    /// without the keyboard. Any grant (#EDE-172; `system` before).
     SpaceOfProcess { pid: u32 },
     /// Whether this desktop gives a person's runs an agent space now
     /// (#EXP-1514): [`SpaceReadiness`]. Any valid person-scope grant (as
@@ -608,7 +608,26 @@ impl Request {
             // #EDE-172: `system` ends any grant, a holder its own lineage (checked in the arm).
             Request::RevokeGrant { .. } => None,
             Request::CreateSpace { .. } | Request::Launch { .. } | Request::SpaceBusy => Some(Capability::Space),
-            Request::DestroySpace { .. } | Request::ListSpaces | Request::SpaceOfProcess { .. } => Some(Capability::System),
+            Request::DestroySpace { .. } | Request::ListSpaces => Some(Capability::System),
+            // #EDE-172: whether a pid is in an agent space tells nothing of
+            // the desk: any grant (the polkit agent's holds no capability).
+            Request::SpaceOfProcess { .. } => None,
+        }
+    }
+
+    /// #EDE-172: may an anonymous connection (a hello without a token on
+    /// the socket: it holds no grant) ask this? An allowlist with no
+    /// wildcard arm: the outputs' sizes, whether a space is ready, and
+    /// (from P5 on) asking for a grant. Everything else is refused.
+    pub fn anonymous(&self) -> bool {
+        match self {
+            Request::Hello { .. } | Request::ListOutputs | Request::SpaceReadiness => true,
+            Request::ListWindows | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } => false,
+            Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::HoldInput | Request::ReleaseInput => false,
+            Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::SetOutput { .. } => false,
+            Request::Subscribe | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::OpenChannel { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => false,
+            Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText | Request::LaunchToken => false,
+            Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceOfProcess { .. } | Request::SpaceBusy => false,
         }
     }
 
@@ -1017,8 +1036,8 @@ pub struct Client {
     /// an `open_channel` reply's), oldest first.
     fds: VecDeque<OwnedFd>,
     /// What the hello said, or for a connection that held its grant
-    /// already, the `grant` its hello's reply named.
-    token: Token,
+    /// already, the `grant` its hello's reply named; `None` = anonymous.
+    token: Option<Token>,
     pub hello: Hello,
     call_timeout: std::time::Duration,
     /// [`Client::connect_within`]: no call of this connection waits past it.
@@ -1064,12 +1083,13 @@ impl Client {
     /// grant already, whose reply names it (`grant`).
     fn handshake(stream: UnixStream, token: Option<Token>, call_timeout: std::time::Duration, deadline: Option<std::time::Instant>) -> Result<Self, Error> {
         stream.set_write_timeout(Some(call_timeout))?;
-        let pending = Token::new("0".repeat(64)).expect("64 hex");
-        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), fds: VecDeque::new(), token: token.clone().unwrap_or(pending), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap(), features: vec![], unknown_capabilities: vec![] }, call_timeout, deadline };
+        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), fds: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap(), features: vec![], unknown_capabilities: vec![] }, call_timeout, deadline };
         let hello = client.call(Request::Hello { version: PROTOCOL_VERSION, token: token.clone() })?;
+        // A channel's reply names its grant; an anonymous one's names none.
         if token.is_none() {
-            let grant = hello.get("grant").and_then(serde_json::Value::as_str).ok_or_else(|| Error::Protocol("a tokenless hello's reply names no grant".into()))?;
-            client.token = Token::new(grant).map_err(|e| Error::Protocol(format!("{e:?}")))?;
+            if let Some(grant) = hello.get("grant").and_then(serde_json::Value::as_str) {
+                client.token = Some(Token::new(grant).map_err(|e| Error::Protocol(format!("{e:?}")))?);
+            }
         }
         client.hello = serde_json::from_value(hello).map_err(|e| Error::Protocol(e.to_string()))?;
         Ok(client)
@@ -1080,6 +1100,22 @@ impl Client {
     /// inherited one). No token goes over it.
     pub fn from_fd(fd: OwnedFd) -> Result<Self, Error> {
         Self::handshake(UnixStream::from(fd), None, CALL_TIMEOUT, None)
+    }
+
+    /// #EDE-172: a connection to the compositor of `$WAYLAND_DISPLAY` that
+    /// holds no grant: its hello names no token. It asks only what
+    /// [`Request::anonymous`] lets it (the outputs, whether a space is
+    /// ready; later a grant). An older compositor refuses the hello
+    /// ([`Error::Unsupported`]).
+    pub fn anonymous() -> Result<Self, Error> {
+        let runtime = std::env::var_os("XDG_RUNTIME_DIR").ok_or_else(|| Error::Protocol("XDG_RUNTIME_DIR unset".into()))?;
+        let display = std::env::var("WAYLAND_DISPLAY").map_err(|_| Error::Protocol("WAYLAND_DISPLAY unset".into()))?;
+        Self::anonymous_at(&socket_path(Path::new(&runtime), &display))
+    }
+
+    /// [`Client::anonymous`] on `socket`.
+    pub fn anonymous_at(socket: &Path) -> Result<Self, Error> {
+        Self::handshake(UnixStream::connect(socket)?, None, CALL_TIMEOUT, None)
     }
 
     /// #EDE-172: the control connection this process was started with: the
@@ -1151,7 +1187,7 @@ impl Client {
     pub fn mint_env(session_id: SessionId, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<Token, Error> {
         let mut root = Self::connect_env()?;
         if !root.hello.capabilities.contains(&Capability::System) {
-            return Ok(root.token.clone());
+            return Ok(root.token().clone());
         }
         Ok(root.mint(session_id, capabilities, expires_at)?.token)
     }
@@ -1172,8 +1208,17 @@ impl Client {
     /// grant already (#EDE-172), the grant its hello's reply named: a
     /// bound grant's id, refused at hello and taken by
     /// [`Client::revoke_grant`].
+    ///
+    /// Panics on an anonymous connection ([`Client::anonymous`]), which
+    /// holds no grant: [`Client::grant`] there.
     pub fn token(&self) -> &Token {
-        &self.token
+        self.token.as_ref().expect("an anonymous connection holds no grant")
+    }
+
+    /// The grant this connection holds ([`Client::token`]); `None` =
+    /// anonymous.
+    pub fn grant(&self) -> Option<&Token> {
+        self.token.as_ref()
     }
 
     /// #EDE-172 ([`Request::OpenChannel`]): one more connection, holding
@@ -1958,7 +2003,7 @@ mod tests {
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
         assert_eq!(Request::DestroySpace { space: space() }.capability(), Some(Capability::System));
         assert_eq!(Request::ListSpaces.capability(), Some(Capability::System));
-        assert_eq!(Request::SpaceOfProcess { pid: 42 }.capability(), Some(Capability::System));
+        assert_eq!(Request::SpaceOfProcess { pid: 42 }.capability(), None, "#EDE-172: any grant");
         // #EXP-1514: any person-scope grant asks it, as `list_windows`.
         assert_eq!(Request::SpaceReadiness.capability(), None);
         // D 10: a space grant's own word for its own space.
@@ -2207,6 +2252,65 @@ mod tests {
         drop(client);
         drop(child);
         peer.join().unwrap();
+    }
+
+    /// #EDE-172: what an anonymous connection may ask. Every variant has a
+    /// row: `anonymous` has no wildcard arm, and neither has `listed`.
+    #[test]
+    fn the_anonymous_table() {
+        let w = || WindowId::new("w1").unwrap();
+        let space = || SpaceId::new("space-1").unwrap();
+        let token = || Token::new("0".repeat(64)).unwrap();
+        let allowed = [Request::Hello { version: 1, token: None }, Request::ListOutputs, Request::SpaceReadiness];
+        let refused = [
+            Request::ListWindows,
+            Request::FocusWindow { window: w() },
+            Request::CloseWindow { window: w() },
+            Request::MoveWindow { window: w(), x: 0, y: 0 },
+            Request::MinimizeWindow { window: w() },
+            Request::RestoreWindow { window: w() },
+            Request::Capture { target: CaptureTarget::Output { name: "o".into() }, since: None },
+            Request::Input { event: InputEvent::Key { key: 30, pressed: true }, bindings: false },
+            Request::PointerPosition,
+            Request::HoldInput,
+            Request::ReleaseInput,
+            Request::ReloadConfig,
+            Request::Lock,
+            Request::Logout,
+            Request::Unlock,
+            Request::ListWorkspaces,
+            Request::SwitchWorkspace { index: 0 },
+            Request::MoveToWorkspace { window: w(), index: 0 },
+            Request::SetOutput { name: "o".into(), mode: None, scale: None, position: None },
+            Request::Subscribe,
+            Request::MintGrant { session_id: SessionId::new("x").unwrap(), run_id: None, capabilities: vec![], expires_at: None },
+            Request::RevokeGrant { token: token() },
+            Request::OpenChannel { session_id: None, capabilities: vec![], expires_at: None },
+            Request::BindShortcuts { owner: "p".into(), shortcuts: vec![] },
+            Request::UnbindShortcuts { owner: "p".into() },
+            Request::ClipboardSerial,
+            Request::ClipboardSnapshot,
+            Request::ClipboardSet { items: vec![], sensitive: false },
+            Request::ClipboardTaken { serial: 1 },
+            Request::ClipboardText,
+            Request::LaunchToken,
+            Request::CreateSpace { width: 1, height: 1 },
+            Request::DestroySpace { space: space() },
+            Request::ListSpaces,
+            Request::Launch { argv: vec![], env: Default::default(), cwd: None },
+            Request::SpaceOfProcess { pid: 1 },
+            Request::SpaceBusy,
+        ];
+        let mut seen = std::collections::BTreeSet::new();
+        for request in &allowed {
+            assert!(request.anonymous(), "{request:?}");
+            seen.insert(listed(request));
+        }
+        for request in &refused {
+            assert!(!request.anonymous(), "{request:?}");
+            seen.insert(listed(request));
+        }
+        assert_eq!(seen.len(), 40, "every op has a row");
     }
 
     /// #EDE-172: only a socket is taken as the inherited control connection.

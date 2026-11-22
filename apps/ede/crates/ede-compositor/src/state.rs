@@ -136,6 +136,9 @@ pub struct Ede {
     /// (#EXP-2041, [`crate::popup_namespace`]). As `sealed_stand_in`, only
     /// the headless tests set it; `None` in a session.
     pub shell_stand_in: Option<u32>,
+    /// #EDE-172: eDE's root-owned binaries, by file ([`crate::peer`]): a
+    /// sealed or shell surface is one of these processes', never a name's.
+    pub installed: crate::peer::Installed,
     /// Counts presented frames ([`crate::backend::frame_done`]); a capture
     /// with `since` equal to it carries no pixels.
     pub frame_serial: u64,
@@ -283,8 +286,18 @@ impl Ede {
             debug_captures: false,
             sealed_stand_in: None,
             shell_stand_in: None,
+            installed: crate::peer::Installed::system(),
             frame_serial: 0,
             config_path: None,
+        }
+    }
+
+    /// A client of the person's Wayland socket. #EDE-172: who connected is
+    /// taken now, before its first request ([`crate::peer::Peer`]).
+    pub fn insert_person_client(&mut self, stream: std::os::unix::net::UnixStream) {
+        let peer = crate::peer::Peer::of_socket(std::os::fd::AsFd::as_fd(&stream)).map(Arc::new);
+        if let Err(e) = self.display_handle.insert_client(stream, Arc::new(ClientState { peer, ..ClientState::default() })) {
+            tracing::warn!("client refused: {e}");
         }
     }
 
@@ -293,11 +306,7 @@ impl Ede {
         let source = ListeningSocketSource::new_auto().map_err(std::io::Error::other)?;
         let name = source.socket_name().to_os_string();
         self.loop_handle
-            .insert_source(source, |stream, _, state| {
-                if let Err(e) = state.display_handle.insert_client(stream, Arc::new(ClientState::default())) {
-                    tracing::warn!("client refused: {e}");
-                }
-            })
+            .insert_source(source, |stream, _, state| state.insert_person_client(stream))
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         self.socket_name = Some(name.clone());
         if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
@@ -926,6 +935,10 @@ pub struct ClientState {
     /// #EDE-162: its space draws on the GPU (decided when it connected): it
     /// sees the spaces' linux-dmabuf and drm-syncobj ([`crate::desk::on_gpu_space`]).
     pub gpu: bool,
+    /// #EDE-172: the process that connected the person's socket, as it
+    /// connected ([`crate::peer::Peer::of_socket`]); `None` for the
+    /// compositor's own clients (Xwayland, a space's, a test's pair).
+    pub peer: Option<Arc<crate::peer::Peer>>,
 }
 
 impl ClientData for ClientState {

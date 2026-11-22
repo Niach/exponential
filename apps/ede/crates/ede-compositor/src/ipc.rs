@@ -12,6 +12,11 @@
 //! (the reply carries it as the grant's id), and its connections end when
 //! it is revoked, or when its parent is (or loses its last connection).
 //! Until eDE's flip the root grant stays a bearer in its file.
+//!
+//! #EDE-172 (P2): a hello without a token on a socket connection is
+//! anonymous: it holds no grant and asks only what
+//! [`Request::anonymous`] lets it. Every socket connection's peer is taken
+//! as it comes in ([`crate::peer::Peer`]).
 
 use std::{
     io::{Read, Write},
@@ -49,6 +54,9 @@ const OUT_MAX: usize = 1024;
 
 /// The root grant's session: the shell.
 pub const ROOT_SESSION: &str = "exponential-shell";
+
+/// #EDE-172: what an anonymous connection's hello names as its session.
+pub const ANONYMOUS_SESSION: &str = "anonymous";
 
 #[derive(Debug, Default)]
 pub struct Ipc {
@@ -90,6 +98,11 @@ struct Conn {
     channel: bool,
     /// The descriptor the reply being made goes out with.
     pending_fd: Option<OwnedFd>,
+    /// #EDE-172: it said hello without a token and holds no grant.
+    anonymous: bool,
+    /// Who connected it (a socket's peer; `None` for a channel the
+    /// compositor made), taken before its first call.
+    peer: Option<crate::peer::Peer>,
     inbuf: Vec<u8>,
     /// Whole frames not served yet: they wait while a call's reply is
     /// deferred (a clipboard read), so replies keep the calls' order.
@@ -320,9 +333,25 @@ impl Ede {
         Ok(socket)
     }
 
-    /// Serves one connection (the socket's, or a test's socketpair).
+    /// Serves one connection (the socket's, or a test's socketpair); its
+    /// peer is taken now (#EDE-172).
     pub fn ipc_insert(&mut self, stream: UnixStream) {
-        self.ipc_insert_holding(stream, None);
+        let peer = crate::peer::Peer::of_socket(std::os::fd::AsFd::as_fd(&stream));
+        if let Some(id) = self.ipc_insert_holding(stream, None) {
+            if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                c.peer = peer;
+            }
+        }
+    }
+
+    /// #EDE-172: the peer of connection `conn` as it connected.
+    pub fn ipc_peer(&self, conn: u64) -> Option<&crate::peer::Peer> {
+        self.ipc.clients.iter().find(|c| c.id == conn).and_then(|c| c.peer.as_ref())
+    }
+
+    /// The peers of the live socket connections: pid and executable.
+    pub fn ipc_peers(&self) -> Vec<(u32, Option<PathBuf>)> {
+        self.ipc.clients.iter().filter(|c| !c.dead).filter_map(|c| c.peer.as_ref()).map(|p| (p.pid, p.exe_path())).collect()
     }
 
     /// #EDE-172: serves a connection that holds the grant `token` from the
@@ -350,7 +379,7 @@ impl Ede {
         let id = self.ipc.next_client;
         self.ipc.next_client += 1;
         let scope = held.as_ref().and_then(|t| self.ipc.grant(t)).map(Scope::of);
-        self.ipc.clients.push(Conn { id, writer: stream, channel: held.is_some(), pending_fd: None, inbuf: Vec::new(), queued: Default::default(), busy: None, token: held, scope, subscribed: false, dead: false, out: Default::default(), out_at: 0, flushing: false });
+        self.ipc.clients.push(Conn { id, writer: stream, channel: held.is_some(), pending_fd: None, anonymous: false, peer: None, inbuf: Vec::new(), queued: Default::default(), busy: None, token: held, scope, subscribed: false, dead: false, out: Default::default(), out_at: 0, flushing: false });
         let inserted = self.loop_handle.insert_source(Generic::new(reader, Interest::READ, Mode::Level), move |_, reader, state| {
             let mut buf = [0u8; 65536];
             let mut r: &UnixStream = reader;
@@ -573,6 +602,7 @@ impl Ede {
         let now = now_ms();
         let token = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.token.clone());
         let channel = self.ipc.clients.iter().any(|c| c.id == id && c.channel);
+        let anonymous = self.ipc.clients.iter().any(|c| c.id == id && c.anonymous);
         if let Request::Hello { version, token: named } = &request {
             if *version != PROTOCOL_VERSION {
                 return Err(fail(ErrorCode::Invalid, &format!("this compositor speaks ede-protocol v{PROTOCOL_VERSION}")));
@@ -582,7 +612,10 @@ impl Ede {
             let held = match (named, channel) {
                 (None, true) => token.clone(),
                 (Some(_), true) => return Err(fail(ErrorCode::Forbidden, "this connection holds its grant: say hello without a token")),
-                (None, false) => return Err(fail(ErrorCode::Unauthorized, "say hello with a token")),
+                // A hello without a token on the socket: anonymous (P2).
+                (None, false) if token.is_some() => return Err(fail(ErrorCode::Forbidden, "this connection said hello with a token")),
+                (None, false) => return Ok(Some((self.ipc_anonymous_hello(id), None))),
+                (Some(_), false) if anonymous => return Err(fail(ErrorCode::Forbidden, "an anonymous connection stays anonymous: connect again with a token")),
                 (Some(named), false) if self.ipc.is_bound(named) => return Err(fail(ErrorCode::Unauthorized, "a bound grant is held by its connections, never by its token")),
                 (Some(named), false) => Some(named.clone()),
             };
@@ -610,6 +643,17 @@ impl Ede {
                 hello["grant"] = serde_json::Value::String(id_of.as_str().to_string());
             }
             return Ok(Some((hello, None)));
+        }
+        // #EDE-172: an anonymous connection holds nothing: the allowlist.
+        if anonymous {
+            return match request {
+                Request::ListOutputs => Ok(Some((serde_json::to_value(self.output_infos()).unwrap(), None))),
+                Request::SpaceReadiness => Ok(Some((serde_json::to_value(self.space_readiness_reply()).unwrap(), None))),
+                other => {
+                    debug_assert!(!other.anonymous(), "{other:?} is on the allowlist and has no arm here");
+                    Err(fail(ErrorCode::Forbidden, "an anonymous connection asks only list_outputs, space_readiness and request_grant"))
+                }
+            };
         }
         let Some(grant) = token.and_then(|t| self.ipc.grant(&t).cloned()) else {
             return Err(fail(ErrorCode::Unauthorized, "say hello with a valid token first"));
@@ -890,6 +934,21 @@ impl Ede {
                 json(serde_json::to_value(opened).unwrap())
             }
         }
+    }
+
+    /// #EDE-172: connection `id` is anonymous from now on: its hello's reply
+    /// holds no capability and names no grant.
+    fn ipc_anonymous_hello(&mut self, id: u64) -> serde_json::Value {
+        if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+            c.anonymous = true;
+            c.scope = Some(Scope::Person);
+        }
+        let mut features: Vec<String> = self.spaces.dir.iter().map(|_| ede_protocol::FEATURE_SPACES.to_string()).collect();
+        if self.says_space_readiness() {
+            features.push(ede_protocol::FEATURE_SPACE_READINESS.to_string());
+        }
+        let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new(ANONYMOUS_SESSION).unwrap(), features, unknown_capabilities: vec![] };
+        serde_json::to_value(hello).unwrap()
     }
 
     /// #EDE-172: the grant an `open_channel` call's connection holds: the

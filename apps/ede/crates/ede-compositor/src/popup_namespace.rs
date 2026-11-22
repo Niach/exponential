@@ -70,7 +70,7 @@ impl Dispatch2<ExponentialPopupNamespaceV1, Ede> for NamespaceManager {
         match request {
             Request::SetNamespace { surface, namespace } => {
                 let pid = client.get_credentials(dhandle).map(|c| c.pid as u32).unwrap_or(0);
-                let space_list = namespace == ede_protocol::SPACE_LIST_NAMESPACE && crate::sealed::is_shell(state, pid);
+                let space_list = namespace == ede_protocol::SPACE_LIST_NAMESPACE && crate::sealed::is_shell(state, client);
                 let named = with_states(&surface, |s| s.data_map.insert_if_missing_threadsafe(|| PopupName { namespace: namespace.clone(), space_list }));
                 if named && space_list {
                     tracing::info!(pid, surface = surface.id().protocol_id(), "the Agent spaces list: black in captures of the person's output");

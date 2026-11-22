@@ -53,6 +53,8 @@ png = "0.17"
 # #EXP-2041: `exponential_popup_namespace_v1` (ede-protocol's protocols/),
 # the server code from its XML (the version smithay's protocols already use).
 wayland-scanner = "0.31"
+# #EDE-172: SO_PEERPIDFD (a connecting process's pidfd; not in rustix).
+libc = "0.2"
 
 [dev-dependencies]
 wayland-client = "0.31.10"
@@ -60,9 +62,6 @@ wayland-protocols = { version = "0.32.8", features = ["client", "staging", "unst
 wayland-protocols-wlr = { version = "0.3.8", features = ["client"] }
 wayland-protocols-misc = { version = "0.3.8", features = ["client"] }
 tempfile = "3"
-# #EDE-172: the acceptance test's foreign process (ptrace, pidfd_getfd) and
-# the descriptors the tests hand a compositor they start.
-libc = "0.2"
 x11rb = "0.13"
 # #EDE-127: polkitd's side of the real polkit agent in `tests/sealed_client.rs`
 # (the version ede-services already resolves).
