@@ -110,6 +110,9 @@ pub fn choose(chooser: &[String], ask: &Ask, outputs: &[OutputInfo], windows: &[
             "outputs": if types & MONITOR != 0 { outputs } else { &[] },
             "windows": if types & WINDOW != 0 { windows.clone() } else { vec![] },
             "selected": selected,
+            // #EDE-172 (P7): the size of the output the chooser covers (the
+            // first one), so the chooser asks the compositor nothing.
+            "size": outputs.first().map(|o| [o.width, o.height]),
         });
         let out = run(chooser, &input.to_string())?;
         allow = ask.remote_control && out.lines().any(|l| l.trim() == "allow");
@@ -194,10 +197,17 @@ mod tests {
         let seen = dir.path().join("in.json");
         let picks = choose(&sh(&format!("cat > {}; echo output:A", seen.display())), &ask, &outputs, &windows).unwrap();
         assert_eq!(picks.unwrap().picks, [Pick::Output("A".into())]);
-        let input: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(seen).unwrap()).unwrap();
+        let input: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&seen).unwrap()).unwrap();
         assert_eq!((input["app_id"].as_str(), input["types"].as_array().unwrap().len()), (Some("org.example"), 2));
         let ids: Vec<_> = input["windows"].as_array().unwrap().iter().map(|w| w["id"].as_str().unwrap()).collect();
         assert_eq!(ids, ["w1"], "protected windows are never offered");
+        // #EDE-172 (P7): the size the chooser covers comes with the ask, a
+        // window-only ask too.
+        assert_eq!(input["size"], serde_json::json!([outputs[0].width, outputs[0].height]));
+        let windows_only = Ask { types: WINDOW, ..ask };
+        choose(&sh(&format!("cat > {}; echo window:w1", seen.display())), &windows_only, &outputs, &windows).unwrap();
+        let input: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&seen).unwrap()).unwrap();
+        assert_eq!((input["outputs"].as_array().map(Vec::len), input["size"].clone()), (Some(0), serde_json::json!([outputs[0].width, outputs[0].height])));
 
         let control = Ask { app_id: "org.example", types: 0, multiple: false, remote_control: true, selected: &[] };
         assert_eq!(choose(&sh("cat >/dev/null; echo allow"), &control, &outputs, &windows).unwrap(), Some(Chosen { picks: vec![], allow: true }));
@@ -212,7 +222,7 @@ mod tests {
         let seen = dir.path().join("in.json");
         let chooser = vec!["sh".to_string(), "-c".to_string(), format!("cat > {}; {answer}", seen.display())];
         let chosen = choose(&chooser, ask, outputs, windows).unwrap();
-        let input: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(seen).unwrap()).unwrap();
+        let input: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&seen).unwrap()).unwrap();
         (input["selected"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_string()).collect(), chosen)
     }
 
@@ -223,7 +233,7 @@ mod tests {
         let seen = dir.path().join("in.json");
         let chooser = vec!["sh".to_string(), "-c".to_string(), format!("cat > {}; {answer}", seen.display())];
         let chosen = choose(&chooser, ask, outputs, windows).unwrap();
-        let input: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(seen).unwrap()).unwrap();
+        let input: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&seen).unwrap()).unwrap();
         let list = |key: &str, field: &str| input[key].as_array().unwrap_or_else(|| panic!("the ask names its {key}")).iter().map(|r| r[field].as_str().unwrap().to_string()).collect::<Vec<_>>();
         (list("outputs", "name"), list("windows", "id"), input["selected"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_string()).collect(), chosen)
     }

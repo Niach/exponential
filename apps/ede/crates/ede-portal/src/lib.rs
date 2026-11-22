@@ -13,7 +13,9 @@
 //! focused output/window). Remote control is never granted silently: it
 //! needs the chooser's `allow` or an app on `[remote_desktop] allow`.
 //! Every connection holds a grant minted for the portal, never the root
-//! token ([`minted_token`]). A stream polls captures with `since`, so an
+//! token ([`minted_token`]); #EDE-172 (P7): a portal the compositor started
+//! holds its grant on the channel it was handed and opens every connection
+//! on it ([`on_channel`]). A stream polls captures with `since`, so an
 //! unchanged screen costs the compositor no re-render; the GPU (dmabuf)
 //! path for the udev backend is still to come.
 
@@ -46,6 +48,26 @@ pub const PATH: &str = "/org/freedesktop/portal/desktop";
 
 /// Opens a new `ede-protocol` connection (each stream captures over its own).
 pub type Connect = Arc<dyn Fn() -> Result<Client, Error> + Send + Sync>;
+
+/// #EDE-172 (P7): the channel the compositor started the portal with
+/// (`[session] helpers = "compositor"`), holding the portal's grant; taken
+/// first thing in `main`, before the crash monitor or any thread starts.
+/// `Ok(None)` = none (a portal its unit or D-Bus activation started).
+pub fn take_channel() -> Result<Option<Client>, Error> {
+    ede_protocol::process::keep_inherited_to_this_process();
+    Client::inherited().transpose()
+}
+
+/// #EDE-172 (P7): every connection of a portal started on `channel` is a
+/// channel opened on it, holding the same grant; no token is read.
+pub fn on_channel(channel: Client) -> Connect {
+    let channel = Mutex::new(channel);
+    Arc::new(move || {
+        let mut channel = channel.lock().unwrap_or_else(|p| p.into_inner());
+        let held = channel.hello.capabilities.clone();
+        channel.open_channel(None, held, None).map(|(client, _)| client)
+    })
+}
 
 /// The portal's own grant (#EDE-15): minted once from the root token the
 /// compositor leaves for the shell ([`Client::mint_env`], #EDE-22), holding
