@@ -156,6 +156,12 @@ fn node_id(args: &Value) -> Result<u64, String> {
     args["id"].as_u64().or_else(|| args["id"].as_str().and_then(|s| s.trim().parse().ok())).ok_or_else(|| "id".to_string())
 }
 
+/// `percent` from a call's args: a whole number, or the fraction a
+/// Slider hands over (the applet's and the page's volume, `75.0`), rounded.
+fn percent(args: &Value) -> Result<u64, String> {
+    args["percent"].as_u64().or_else(|| args["percent"].as_f64().filter(|p| p.is_finite() && *p >= 0.0).map(|p| p.round() as u64)).ok_or_else(|| "percent".to_string())
+}
+
 impl Service for Sound {
     fn name(&self) -> &'static str {
         "sound"
@@ -199,7 +205,7 @@ impl Service for Sound {
         let run = |a: &[&str]| command("wpctl", a).map(|_| ()).ok_or_else(|| format!("wpctl {} failed", a.join(" ")));
         match action {
             "set_volume" | "set_mic_volume" => {
-                let percent = args["percent"].as_u64().ok_or("percent")?.min(150);
+                let percent = percent(args)?.min(150);
                 let target = if action == "set_volume" { "@DEFAULT_AUDIO_SINK@" } else { "@DEFAULT_AUDIO_SOURCE@" };
                 run(&["set-volume", "-l", "1.5", target, &format!("{}%", percent)])?;
                 Ok(json!({"volume": percent}))
@@ -217,7 +223,7 @@ impl Service for Sound {
             }
             "set_stream_volume" => {
                 let id = node_id(args)?;
-                let percent = args["percent"].as_u64().ok_or("percent")?.min(100);
+                let percent = percent(args)?.min(100);
                 run(&["set-volume", "-l", "1.0", &id.to_string(), &format!("{percent}%")])?;
                 Ok(json!({"id": id, "volume": percent}))
             }
@@ -235,6 +241,17 @@ impl Service for Sound {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Slider's value is a fraction (`75.0`): the panel's volume reaches wpctl.
+    #[test]
+    fn a_volume_is_a_whole_number_or_a_sliders_fraction() {
+        assert_eq!(percent(&json!({"percent": 40})), Ok(40));
+        assert_eq!(percent(&json!({"percent": 75.0})), Ok(75));
+        assert_eq!(percent(&json!({"percent": 62.6})), Ok(63));
+        assert!(percent(&json!({"percent": -1.0})).is_err());
+        assert!(percent(&json!({"percent": "loud"})).is_err());
+        assert!(percent(&json!({})).is_err());
+    }
 
     const STATUS: &str = "PipeWire 'pipewire-0' [1.6.2]\n └─ Clients:\n        33. WirePlumber\n\nAudio\n ├─ Devices:\n │      48. Internes Audio                      [alsa]\n │  \n ├─ Sinks:\n │  *   55. Internes Audio Analoges Stereo      [vol: 0.40]\n │      57. HDMI Out                            [vol: 1.00 MUTED]\n │  \n ├─ Sources:\n │  *   56. Internes Audio Analoges Stereo      [vol: 1.00]\n │  \n ├─ Filters:\n │  \n └─ Streams:\n        63. speech-dispatcher-dummy\n\nVideo\n ├─ Sinks:\n";
 
