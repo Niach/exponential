@@ -348,6 +348,20 @@ impl ToolProvider for AppsProvider {
     }
 }
 
+/// #VAPP-273: the Local desktop agent's host tools: `base` (shell_edit)
+/// with `note`, plus the running apps' exposed tools (`<app>__<tool>`)
+/// and their names in the note when `seats` holds any. Decided once, at the
+/// chat's start: #EDE-144 boots the Engine before a pick starts the chat.
+pub fn local_host(base: Arc<dyn ToolProvider>, mut note: String, seats: Seats, exponential: Arc<dyn ToolProvider>) -> elocal::runs::HostTools {
+    let mut providers = vec![base];
+    let names: Vec<String> = seats.read().unwrap_or_else(|p| p.into_inner()).iter().map(|a| a.server.clone()).collect();
+    if !names.is_empty() {
+        note.push_str(&format!(" The apps of this desktop expose their tools as <app>__<tool> (apps: {}); a records tool reads or writes the app's own records, an action tool runs one of the exponential tools via the app.", names.join(", ")));
+        providers.push(Arc::new(AppsProvider { apps: seats, exponential }));
+    }
+    elocal::runs::HostTools { provider: Arc::new(Providers(providers)), note }
+}
+
 /// Several providers behind the one hub seat the host gets: a name the
 /// first one lists goes there.
 pub struct Providers(pub Vec<Arc<dyn ToolProvider>>);
@@ -444,6 +458,33 @@ mod tests {
         assert_eq!(tools[2]["annotations"]["readOnlyHint"], json!(false));
         assert_eq!(tools[0]["_meta"]["at.exponential/app"], json!("at-exponential-notes"));
         assert_eq!(tools[1]["inputSchema"]["required"], json!(["text"]));
+    }
+
+    /// #EDE-144: a team without apps, then a Local desktop with one: the
+    /// team's (empty) Engine cleared the seats, the desktop's boot fills
+    /// them, and the chat the pick starts after it gets the app's tools and
+    /// names the app in its note. A chat started before the boot (the old
+    /// order) got neither for as long as it lived.
+    #[test]
+    fn a_team_without_apps_then_a_local_pick_gives_the_agent_the_desktop_s_apps() {
+        let shared = seats(Vec::new());
+        let nouns = || -> Arc<dyn ToolProvider> { Arc::new(Nouns(Mutex::new(Vec::new()))) };
+        let base = || -> Arc<dyn ToolProvider> { Arc::new(crate::engine::shell_edit::ShellEdit::new(std::env::temp_dir())) };
+        let names = |host: &elocal::runs::HostTools| host.provider.tools().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+
+        // The team's pick: no apps, no seats (the old order started the chat here).
+        let early = local_host(base(), "base.".into(), shared.clone(), nouns());
+        assert_eq!(names(&early), ["shell_edit"]);
+        assert_eq!(early.note, "base.");
+
+        // The Local desktop's boot seats its app; then the chat starts.
+        let (app, _) = app();
+        *shared.write().unwrap() = vec![app];
+        let host = local_host(base(), "base.".into(), shared, nouns());
+        assert_eq!(names(&host), ["shell_edit", "at-exponential-notes__list_notes", "at-exponential-notes__find_notes", "at-exponential-notes__add_note"]);
+        assert!(host.note.starts_with("base. ") && host.note.contains("(apps: at-exponential-notes)"), "{}", host.note);
+        let added = host.provider.call(&caller(), "at-exponential-notes__add_note", json!({"text": "Buy milk"}));
+        assert_eq!(added["structuredContent"]["created"], json!(true), "{added}");
     }
 
     #[test]
