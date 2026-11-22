@@ -10,6 +10,9 @@ export XDG_CONFIG_HOME="$root/config"
 # Nor may the checks write the machine's queue log.
 export XDG_STATE_HOME="$root/state"
 unset LANE_LOG
+# Every lock dir and the waiter registry live under the private root: the
+# machine's live lanes and /tmp/exp-lane-waiters are never read or written.
+export EXP_LANE_LOCK_ROOT="$root"
 fails=0
 ok() { echo "ok - $1"; }
 no() { echo "not ok - $1"; fails=$((fails + 1)); }
@@ -77,7 +80,6 @@ lock_take_over "$root/busy" 2>/dev/null; [ -d "$root/busy" ] && ok "a held takeo
 LANE_LOCK_POLL_SECONDS=30
 
 # lane.sh: runs inside the lock, releases after, keeps the command's exit.
-export EXP_LANE_LOCK_ROOT="$root"
 held=$("$here/lane.sh" heavy me -- sh -c 'cat "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-1/owner"' | cut -d' ' -f1)
 [ "$held" = me ] && ok "lane.sh runs with the lane lock held" || no "lane.sh runs with the lane lock held"
 pid=$("$here/lane.sh" heavy me -- sh -c 'cut -d" " -f3 "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-1/owner"')
@@ -177,6 +179,77 @@ rm -rf "$root/exp-perf-heavy-1"
 wait "$waiter"
 grep -q "take owner=queued session=waiter99 pid=[0-9]* waited=[0-9]*s" "$log" && ok "the waiter's take is logged with its wait" || no "the waiter's take is logged with its wait"
 [ -z "$(ls "$root/exp-lane-waiters" 2>/dev/null)" ] && ok "a waiter that got its slot leaves the queue" || no "a waiter that got its slot leaves the queue"
+
+# #EXP-2055: first come, first served. A freed slot goes to the oldest live
+# waiter, whatever each waiter's poll interval (before, the fastest poller won:
+# on 2026-11-22 fe3191d5 waited 85 min while later waiters took the slot).
+reg="$root/exp-lane-waiters"
+registered() {
+  i=0; while ! grep -qs "^$1 " "$reg"/* && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+  grep -qs "^$1 " "$reg"/*
+}
+sleep 120 & holdpid=$!
+now=$(date +%s)
+mkdir "$root/exp-perf-heavy-1" && echo "busy $now $holdpid $host sess0004" > "$root/exp-perf-heavy-1/owner"
+: > "$root/order"
+LANE_LOCK_POLL_SECONDS=2 "$here/lane.sh" heavy wa -- sh -c 'echo wa >> "$EXP_LANE_LOCK_ROOT/order"; sleep 1' 2>/dev/null & pa=$!
+registered wa
+LANE_LOCK_POLL_SECONDS=1 "$here/lane.sh" heavy wb -- sh -c 'echo wb >> "$EXP_LANE_LOCK_ROOT/order"; sleep 1' 2>/dev/null & pb=$!
+registered wb
+LANE_LOCK_POLL_SECONDS=0.2 "$here/lane.sh" heavy wc -- sh -c 'echo wc >> "$EXP_LANE_LOCK_ROOT/order"; sleep 1' 2>/dev/null & pc=$!
+registered wc && ok "three waiters are queued" || no "three waiters are queued"
+rm -rf "$root/exp-perf-heavy-1"
+wait "$pa" "$pb" "$pc"
+order=$(tr '\n' ' ' < "$root/order")
+[ "$order" = "wa wb wc " ] && ok "three waiters take the slot in the order they came" || no "three waiters take the slot in the order they came (got '$order')"
+
+# The overdue handover goes to the oldest live waiter too: the holder turns
+# overdue (60 s max hold) about 4 s after both waiters queued.
+now=$(date +%s)
+mkdir "$root/exp-perf-heavy-1" && echo "slow $((now - 56)) $holdpid $host sess0005" > "$root/exp-perf-heavy-1/owner"
+: > "$root/order"
+LANE_MAX_HOLD_SECONDS=60 LANE_LOCK_POLL_SECONDS=2 "$here/lane.sh" heavy old -- sh -c 'echo old >> "$EXP_LANE_LOCK_ROOT/order"; sleep 1' 2>/dev/null & pa=$!
+registered old
+LANE_MAX_HOLD_SECONDS=60 LANE_LOCK_POLL_SECONDS=0.2 "$here/lane.sh" heavy new -- sh -c 'echo new >> "$EXP_LANE_LOCK_ROOT/order"' 2>/dev/null & pb=$!
+registered new
+wait "$pa" "$pb"
+order=$(tr '\n' ' ' < "$root/order")
+[ "$order" = "old new " ] && ok "the overdue handover goes to the oldest waiter" || no "the overdue handover goes to the oldest waiter (got '$order')"
+grep -q "handover owner=slow session=sess0005 .* to=old" "$log" && ok "the handover names the oldest waiter" || no "the handover names the oldest waiter"
+
+# A dead waiter's entry (its run was killed) is skipped and pruned; so is a
+# live pid's entry that stopped polling (a take_lock interrupted in a shell).
+mkdir -p "$reg"
+sh -c 'exit 0' & deadwaiter=$!; wait "$deadwaiter"
+echo "ghost $((now - 600)) $deadwaiter sessdead exp-perf-heavy-1 1000000000 1" > "$reg/exp-perf-heavy-1.$deadwaiter"
+echo "idle $((now - 600)) $holdpid sessidle exp-perf-heavy-1 1000000000 1" > "$reg/exp-perf-heavy-1.$holdpid"
+touch -t 202001010000 "$reg/exp-perf-heavy-1.$holdpid"
+out=$(LANE_LOCK_POLL_SECONDS=0.2 "$here/lane.sh" heavy alive -- echo took 2>/dev/null)
+[ "$out" = took ] && ok "a dead or stopped waiter never blocks the slot" || no "a dead or stopped waiter never blocks the slot (got '$out')"
+[ ! -e "$reg/exp-perf-heavy-1.$deadwaiter" ] && ok "a dead waiter's entry is pruned" || no "a dead waiter's entry is pruned"
+rm -f "$reg/exp-perf-heavy-1.$holdpid"
+
+# An owner that already holds a slot queues behind everyone else (c595e3c9's
+# second job took the slot while its first still held one): heavy=2, slot 1
+# held by `same`, slot 2 frees; `same`'s second run came first but `other`
+# gets the slot.
+printf 'heavy=2\n' > "$root/exp-lane-slots"
+mkdir "$root/exp-perf-heavy-1" "$root/exp-perf-heavy-2"
+echo "same $now $holdpid $host sess0006" > "$root/exp-perf-heavy-1/owner"
+echo "busy $now $holdpid $host sess0007" > "$root/exp-perf-heavy-2/owner"
+: > "$root/order"
+LANE_LOCK_POLL_SECONDS=0.2 "$here/lane.sh" heavy same -- sh -c 'echo same >> "$EXP_LANE_LOCK_ROOT/order"' 2>/dev/null & pa=$!
+registered same
+LANE_LOCK_POLL_SECONDS=2 "$here/lane.sh" heavy other -- sh -c 'echo other >> "$EXP_LANE_LOCK_ROOT/order"; sleep 1' 2>/dev/null & pb=$!
+registered other
+rm -rf "$root/exp-perf-heavy-2"
+wait "$pb"
+order=$(head -n 1 "$root/order")
+[ "$order" = other ] && ok "an owner already holding a slot queues behind the others" || no "an owner already holding a slot queues behind the others (got '$order')"
+rm -rf "$root/exp-perf-heavy-1"
+wait "$pa"
+rm -f "$root/exp-lane-slots"
+kill "$holdpid" 2>/dev/null; wait "$holdpid" 2>/dev/null
 
 # Gradle daemons don't outlive their session (#EXP-1844): an idle timeout
 # well under the 3 h default.

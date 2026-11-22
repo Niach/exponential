@@ -25,6 +25,12 @@ scripts/lanes/lane.sh <ios|android|heavy> <owner> [--own-target] -- <command...>
   (`handover`). The overrun build is never killed, and its release can no
   longer free the new holder's lock. The simulator and emulator lanes have no
   limit.
+- **First come, first served (#EXP-2055):** a free or handed-over slot goes
+  only to the oldest live waiter in the queue (`exp-lane-waiters`, one file per
+  waiting pid; all of a lane's slots share slot 1's queue), whatever its poll
+  interval. A dead waiter's entry is pruned; one that stopped polling (no touch
+  for 2 polls + 60 s) is skipped. An owner that already holds a slot of the
+  lane queues behind everyone else.
 - **Who holds what:** `scripts/lanes/lane.sh status` prints each slot's holder
   (owner, session, pid, held for) and the waiters; a waiting run names the
   holder the same way. Every take, wait, release, handover and overrun is

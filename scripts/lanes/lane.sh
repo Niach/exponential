@@ -41,7 +41,7 @@ lane_status() {
   for f in "$(lane_waiters_dir)"/*; do
     [ -f "$f" ] || continue
     # "<owner> <since> <pid> <session> <lock dir name>"
-    read -r w_owner w_since w_pid w_session w_dir < "$f" || continue
+    read -r w_owner w_since w_pid w_session w_dir _ < "$f" || continue
     if ! ps -p "$w_pid" >/dev/null 2>&1; then rm -f "$f"; continue; fi
     [ "$waiting" -eq 0 ] && echo "waiting:"
     waiting=1
@@ -88,7 +88,7 @@ while :; do
   holders=
   while [ "$k" -le "$slots" ]; do
     if [ "$k" -eq 1 ]; then dir=$(lane_lock_dir "$lane"); else dir=$(lane_slot_dir "$lane" "$k"); fi
-    try_take_lock "$dir" "$owner" && break 2
+    try_take_lock "$dir" "$owner" "$(lane_lock_dir "$lane")" && break 2
     holders="$holders${holders:+; }$(lock_describe "$dir")"
     k=$((k + 1))
   done
