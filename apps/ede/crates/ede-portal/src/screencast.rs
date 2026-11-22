@@ -95,9 +95,13 @@ pub async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static)
     blocking::unblock(f).await
 }
 
-/// Picks (restored or chosen), starts a stream per pick and answers the
-/// Start results. `Ok(None)` = the person cancelled (or, for remote
-/// control, nobody allowed it).
+/// Picks (the chooser's, or without one the focused output/window),
+/// starts a stream per pick and answers the Start results. `Ok(None)` =
+/// the person cancelled (or, for remote control, nobody allowed it).
+/// #EDE-172 (D6 a): restore data only preselects the chooser's rows; a
+/// restored share shows the chooser like a new one, so a restore token
+/// alone (any process of the person can present a host app's) never
+/// shares.
 pub fn start(ctx: &Arc<Ctx>, path: &str, remote_control: bool) -> Result<Option<Vardict>, String> {
     let s = ctx.sessions.lock().unwrap().get(path).cloned().ok_or("no such session")?;
     if s.started {
@@ -113,19 +117,15 @@ pub fn start(ctx: &Arc<Ctx>, path: &str, remote_control: bool) -> Result<Option<
     let windows = ctx.ede(|c| c.windows()).map_err(|e| e.to_string())?;
     let config = ctx.config.lock().unwrap().clone();
     let allowed = config.remote_desktop.allow.iter().any(|a| a == &s.app_id);
-    let restored: Vec<Pick> = s.restore.iter().filter(|p| p.geometry(&outputs, &windows).is_some()).cloned().collect();
+    let ask = Ask { app_id: &s.app_id, types, multiple: s.multiple, remote_control, selected: &s.restore };
 
-    let picks = if !restored.is_empty() && (!remote_control || allowed) {
-        restored
-    } else if remote_control && config.screencast.chooser.is_empty() {
+    let picks = if remote_control && config.screencast.chooser.is_empty() {
         if !allowed {
             tracing::warn!("remote control for {:?} refused: set [screencast] chooser or [remote_desktop] allow", s.app_id);
             return Ok(None);
         }
-        let ask = Ask { app_id: &s.app_id, types, multiple: s.multiple, remote_control };
         pick::choose(&[], &ask, &outputs, &windows)?.map(|c| c.picks).unwrap_or_default()
     } else {
-        let ask = Ask { app_id: &s.app_id, types, multiple: s.multiple, remote_control };
         match pick::choose(&config.screencast.chooser, &ask, &outputs, &windows)? {
             Some(chosen) if !remote_control || chosen.allow || allowed => chosen.picks,
             _ => return Ok(None),

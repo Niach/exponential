@@ -357,6 +357,130 @@ fn a_screencast_streams_the_output_over_pipewire() {
     let () = zbus::block_on(w.bus.call_method(Some(BUS_NAME), session, Some("org.freedesktop.impl.portal.Session"), "Close", &())).unwrap().body().deserialize().unwrap();
 }
 
+/// A chooser stand-in: it keeps each ask in `ask.json` and answers what
+/// the test wrote to `answer` (none = Cancel, exit 1). The sealed
+/// chooser prints its selected rows on Share, so answering the ask's
+/// `selected` is the one click on Share.
+struct Chooser(tempfile::TempDir);
+
+impl Chooser {
+    fn new() -> Chooser {
+        Chooser(tempfile::tempdir().unwrap())
+    }
+
+    /// `[screencast] chooser` for portal.toml.
+    fn toml(&self) -> String {
+        let d = self.0.path().display();
+        format!("chooser = [\"sh\", \"-c\", \"cat > {d}/ask.json; cat {d}/answer\"]\n")
+    }
+
+    /// The next ask's answer: these lines, or `None` = Cancel.
+    fn answer(&self, lines: Option<&str>) {
+        let _ = std::fs::remove_file(self.0.path().join("ask.json"));
+        match lines {
+            Some(lines) => std::fs::write(self.0.path().join("answer"), lines).unwrap(),
+            None => {
+                let _ = std::fs::remove_file(self.0.path().join("answer"));
+            }
+        }
+    }
+
+    /// The rows the last ask started selected; `None` = the chooser never ran.
+    fn selected(&self) -> Option<Vec<String>> {
+        let ask: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(self.0.path().join("ask.json")).ok()?).unwrap();
+        Some(ask["selected"].as_array().expect("the ask names its selected rows").iter().map(|p| p.as_str().unwrap().to_string()).collect())
+    }
+}
+
+/// SelectSources for an output, persisting, with `restore` as the
+/// frontend hands a restore token's data back.
+fn select_output(w: &World, session: &str, app: &str, restore: Option<&OwnedValue>) {
+    let mut opts: HashMap<&str, Value> = HashMap::new();
+    opts.insert("types", Value::from(1u32));
+    opts.insert("persist_mode", Value::from(2u32));
+    if let Some(data) = restore {
+        opts.insert("restore_data", Value::from(data.try_clone().unwrap()));
+    }
+    let (r, _): (u32, Vardict) = w.call(SCREENCAST, "SelectSources", &(path("/r/select"), path(session), app, opts)).unwrap();
+    assert_eq!(r, 0);
+}
+
+fn close(w: &World, session: &str) {
+    let () = zbus::block_on(w.bus.call_method(Some(BUS_NAME), session, Some("org.freedesktop.impl.portal.Session"), "Close", &())).unwrap().body().deserialize().unwrap();
+}
+
+/// The portal's PipeWire nodes now.
+fn screencast_nodes() -> usize {
+    let out = Command::new("pw-cli").args(["ls", "Node"]).env("PIPEWIRE_RUNTIME_DIR", pipewire()).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+    out.matches("\"ede-screencast\"").count()
+}
+
+/// #EDE-172 (D6 a): a restored share shows the chooser with the last pick
+/// selected and shares on one click; a cancel there shares nothing.
+/// Restore data is never an answer.
+#[test]
+fn a_restored_share_goes_through_the_chooser() {
+    let chooser = Chooser::new();
+    let w = world(&format!("[screencast]\n{}", chooser.toml()));
+    let app = "org.example.Meet";
+    let start = |session: &str| -> (u32, Vardict) { w.call(SCREENCAST, "Start", &(path("/r/start"), path(session), app, "", none())).unwrap() };
+    let pick = vec!["output:HEADLESS-1".to_string()];
+
+    let first = "/org/freedesktop/portal/desktop/session/1_1/rs1";
+    let _: (u32, Vardict) = w.call(SCREENCAST, "CreateSession", &(path("/r/1"), path(first), app, none())).unwrap();
+    select_output(&w, first, app, None);
+    chooser.answer(Some("output:HEADLESS-1\n"));
+    let (r, results) = start(first);
+    assert_eq!(r, 0);
+    assert_eq!(chooser.selected(), Some(vec![]), "a new share starts with nothing selected");
+    let restore = results["restore_data"].try_clone().unwrap();
+    close(&w, first);
+
+    let second = "/org/freedesktop/portal/desktop/session/1_1/rs2";
+    let _: (u32, Vardict) = w.call(SCREENCAST, "CreateSession", &(path("/r/2"), path(second), app, none())).unwrap();
+    select_output(&w, second, app, Some(&restore));
+    chooser.answer(Some("output:HEADLESS-1\n"));
+    let (r, results) = start(second);
+    assert_eq!(chooser.selected().as_ref(), Some(&pick), "the restore shows the chooser with the last pick selected");
+    assert_eq!(r, 0, "one click on Share shares it again");
+    let streams = <Vec<(u32, Vardict)>>::try_from(results["streams"].try_clone().unwrap()).unwrap();
+    assert_eq!(streams.len(), 1);
+    assert!(results.contains_key("restore_data"), "the pick is kept for the next restore");
+    close(&w, second);
+
+    let third = "/org/freedesktop/portal/desktop/session/1_1/rs3";
+    let _: (u32, Vardict) = w.call(SCREENCAST, "CreateSession", &(path("/r/3"), path(third), app, none())).unwrap();
+    select_output(&w, third, app, Some(&restore));
+    let before = screencast_nodes();
+    chooser.answer(None);
+    let (r, results) = start(third);
+    assert_eq!(chooser.selected().as_ref(), Some(&pick));
+    assert_eq!((r, results.contains_key("streams")), (1, false), "a cancel shares nothing");
+    assert!(screencast_nodes() <= before, "a cancelled restore made a PipeWire node");
+    close(&w, third);
+}
+
+/// #EDE-172 (D6 a): a restored RemoteDesktop session goes through the
+/// chooser too, and remote control still needs `allow` (the switch, or the
+/// app on `[remote_desktop] allow`).
+#[test]
+fn a_restored_remote_desktop_still_needs_allow() {
+    let chooser = Chooser::new();
+    let w = world(&format!("[screencast]\n{}[remote_desktop]\nallow = [\"org.example.Allowed\"]\n", chooser.toml()));
+    let restore = ede_portal::value(("ede", 1u32, Value::new("output:HEADLESS-1")));
+    let cases = [("org.example.Remote", "output:HEADLESS-1\n", false), ("org.example.Remote", "output:HEADLESS-1\nallow\n", true), ("org.example.Allowed", "output:HEADLESS-1\n", true)];
+    for (n, (app, answer, drives)) in cases.into_iter().enumerate() {
+        let session = format!("/org/freedesktop/portal/desktop/session/1_1/rr{n}");
+        let _: (u32, Vardict) = w.call(REMOTE, "CreateSession", &(path("/r/1"), path(&session), app, none())).unwrap();
+        select_output(&w, &session, app, Some(&restore));
+        chooser.answer(Some(answer));
+        let (r, _): (u32, Vardict) = w.call(REMOTE, "Start", &(path("/r/2"), path(&session), app, "", none())).unwrap();
+        assert_eq!(chooser.selected(), Some(vec!["output:HEADLESS-1".to_string()]), "{app}: the chooser, its row selected");
+        assert_eq!((r == 0, w.call::<()>(REMOTE, "NotifyPointerMotion", &(path(&session), none(), 5.0f64, 5.0f64)).is_ok()), (drives, drives), "{app} answered {answer:?}");
+        close(&w, &session);
+    }
+}
+
 /// A consumer stream for the screencast node (WirePlumber links it, as it
 /// does for any app), the BGR bytes at `at` of the first frame. WirePlumber
 /// takes a moment to load its link policy after it registers, so a stream
