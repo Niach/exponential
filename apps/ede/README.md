@@ -115,8 +115,14 @@ and a row press sends the item its `clicked` event. Nested under another
 desktop the well-known names stay with that desktop and the objects answer
 on the shell's unique bus name (`scripts/tray-demo.py --watcher :1.N`
 registers a sample item; `gdbus call --dest :1.N …Notify` a sample toast).
-Host functions: `ede_notify_close {id}`, `ede_notify_action {id, key}`,
-`ede_notify_clear`, `ede_tray {service}`, `ede_tray_menu {service, id}`.
+A press follows the spec (#EDE-196): an action button sends the app
+`ActionInvoked(id, key)`, a press on the toast or the bell's row its
+`default` action (never drawn as a button) when it gave one; then the
+notification closes (`NotificationClosed(id, 2)`) unless the app marked
+it `resident`. Host functions: `ede_notify_open {id}`, `ede_notify_close
+{id}`, `ede_notify_action {id, key}` (each action in `/notifications`
+carries its row's `id`), `ede_notify_clear`, `ede_tray {service}`,
+`ede_tray_menu {service, id}`.
 
 ### Hotkeys (#EDE-12)
 
@@ -167,6 +173,8 @@ WAYLAND_DISPLAY=wayland-1 xed        # or point a client at the socket it logs
 Driving it with `xdotool` on the live desktop sends keys to whatever window
 is focused there, not necessarily eDE: script input against a private
 `Xvfb :77` (Mesa EGL: `__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json`).
+Photograph it only with `scripts/lanes/capture.sh :77 <out.png>` (#EXP-2022),
+which refuses the live display.
 
 ## Tier A: frames, the recovery screen, the restore hotkey (#EDE-16)
 
@@ -224,8 +232,13 @@ the autostart entries, the mime defaults, `[windows]`); a control is two-way
 bound and calls `ede_service {domain, action, args}`, `ede_output`,
 `ede_config {theme}` or `ede_settings {page, key, value}` (the one host
 function for the shell's pages: `[keyboard]` and `[windows]` in
-`compositor.toml` + a reload, `timedatectl`, the user's autostart override
-with `Hidden`, `xdg-mime default`). A setting the machine cannot apply yet
+`compositor.toml` + a reload, timedated's `SetNTP`/`SetTimezone` over the
+system bus, the user's autostart override with `Hidden`, `xdg-mime
+default`). What polkit guards (Date & Time, the Power page's and the start
+menu's power, the other services' actions) runs off the UI thread on calls
+that allow interactive authorization, so the person's polkit agent asks
+instead of the daemon refusing; a refusal (a cancelled prompt, the wrong
+password) is the failed action's toast (#EDE-182). A setting the machine cannot apply yet
 (the pointer options, the workspace count and wrap-around, the 24-hour
 clock) is a read-only value row, never a dead control; what needs the
 Exponential app (the Coding pages, Devices, Security, the notification
@@ -324,7 +337,30 @@ driven, no input method), and trusts the lock client by the pid it spawned:
   `swaylock` still works through `[lock] command` (ext-session-lock).
 - **polkit** (`exponential-sealed polkit`, `exponential-polkit-agent.service`): the
   session's authentication agent; polkitd's request opens the prompt, the
-  password goes to `polkit-agent-helper-1`.
+  password goes to `polkit-agent-helper-1`. A request whose subject or
+  caller belongs to an agent space is refused before anything maps (#EDE-127:
+  no prompt, the person's keyboard stays where it is, the space's command
+  fails; journal: `refused a polkit request from agent space N: <action>`).
+  Whose a process is: its cgroup first (#EDE-138: a scope of a space's
+  systemd slice, which a process keeps when it starts a session of its own
+  with an empty environment and lets its parent die), then its environment
+  or an ancestor's naming the space's directory, else the compositor's
+  `space_of_process` (what it launched into the space, that launch's
+  process group, the space's socket's clients).
+  Everything else of the user is one of two kinds (#EDE-143). A process in
+  the person's login session (the compositor's own cgroup, root's, which
+  no space's process gets back into) gets the prompt as always: it takes
+  the keyboard. A process anywhere else gets a prompt that shows WITHOUT
+  taking the keyboard and names it ("Asked by <command line> (process
+  N)"): the person's user services, snaps, Flatpaks, a coding session's
+  shell, or a space's process that moved itself out of its slice. The
+  person clicks into the prompt to type. While a space has launches
+  outside systemd scopes (no user manager), they are in the session's
+  cgroup too, so every request is of the second kind. The second kind
+  exists only while an agent space does (one is open, a closed one's slice
+  is still stopping, or a launch of one is alive): with no space, before
+  the first and after the last one closed, every prompt takes the keyboard
+  as before #EDE-143.
 - **Consent** (`exponential-sealed consent --title … --body … [--allow …] [--deny
   …]`): a question to the person for an agent's privileged action; prints
   `allow` or `deny`, exits 0 or 1 (eMCP/ede-tools call it in M2).
@@ -357,9 +393,13 @@ headless outputs resize. A connector that changes while connected (udev's
 hotplug: a VM window resized, a monitor re-reading its EDID) follows its
 new preferred mode unless `[[outputs]]` pins a mode it still offers; the
 scan runs 150 ms after the last change (VBoxDRMClient pushes a layout
-every 250 ms while the window is dragged), then the outputs without a
-configured position close ranks, layers re-arrange and tiled windows
-follow. In VirtualBox this is the guest additions' resize: `VBoxDRMClient`
+every 250 ms while the window is dragged). After any change (`set_output`,
+such a resize, an unplug) the outputs without a configured or
+`set_output` position close ranks, layers re-arrange and every window
+stays on its output (#EDE-139): it goes along as the output moves, tiled
+and fullscreen windows fill it again, one it no longer holds comes back
+inside it, and the windows of an output that went away reopen on the
+first one (a fullscreen one fullscreen there). Nothing is raised. In VirtualBox this is the guest additions' resize: `VBoxDRMClient`
 (the `virtualbox-guest-utils` system service, no session service needed)
 pushes the window size to `vmwgfx`, which lists it as the preferred mode. Every surface hears its output's preferred scale
 (fractional through wp-fractional-scale-v1; integer clients keep
@@ -504,7 +544,9 @@ maximizes, Super+Down restores, Alt+F4 closes, Super+L locks, Super+Shift+E quit
 Super+1…9 switch, Super+Shift+1…9 take the focused window along,
 Ctrl+Alt+Left/Right step (with Shift: the window too). A window on another
 workspace is parked off screen; the taskbar still lists it and focusing it
-switches back. Over ede-protocol: `list_workspaces`, `switch_workspace`,
+switches back. A parked or minimized window comes back fitted to its output
+as it is now (a tiled or fullscreen one fills it; one whose output went
+away opens on the first, #EDE-139). Over ede-protocol: `list_workspaces`, `switch_workspace`,
 `move_to_workspace`, the `workspace.switched` event.
 
 ## Run it as the session (a TTY)
@@ -625,6 +667,9 @@ first; each op needs the Core capability it names:
 | `input` (key by evdev code, `keysym` = the key that types it on the active layout with its Shift/AltGr held around it, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
 | `hold_input`, `release_input` (#EDE-23: the person's keys, pointer and wheel reach no window while the connection lives, the agent's `input` still does; their Esc ends every hold and reaches the holders as `input.escape`; the lock screen always takes their input) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
+| `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space: {space, by, pid} or null, session, unscoped_launches, no_space}` with `by` = `cgroup` (#EDE-138, looked at first), `launch`, `group`, `client` or `environment`; #EDE-143: `session` = it runs in the compositor's own cgroup, `unscoped_launches` = a space has launches outside systemd scopes, `no_space` = no agent space exists (none open, none stopping, no launch alive); the polkit agent asks it) | `system` |
+| `space_busy` (#EXP-1514, D 10: the caller's space does not give way to a new one for 90 s; ePilot's keeper says it each round while the session's turn runs) | a space grant, its own space |
+| `space_readiness` (#EXP-1514, #EXP-2011: `{ready, block?, max?}`, whether a person's runs get an agent space now; every compositor that makes spaces says `space-readiness` and answers from what holds now: `no_user_manager` (its tools, its private socket, memory and pids delegated to it), `guard` (the space guard installed and answering, polkit refusing a space's process), `session` (a space's session failed to start, until one starts); see "Agent spaces: readiness"; never a space grant's) | any person-scope grant |
 | `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to
@@ -637,7 +682,8 @@ mints its own grant and drops the root connection (#EDE-22: grants by
 default); a process handed a grant in `EDE_TOKEN` keeps that one. Any process of the same user can read the token
 file, so the boundary is between the shell and the agents it mints for (an
 agent sandbox does not see `$XDG_RUNTIME_DIR/exponential-desktop`). Agent spaces and window
-lending come with their own issues; captures are drawn in software for now.
+lending come with their own issues; a space's captures are drawn on its GPU when it has one
+(below), the person's on the backend's renderer.
 
 ```rust
 let mut ede = ede_protocol::Client::connect_env()?;   // the shell: $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN)
@@ -656,7 +702,8 @@ and keeps it for the process; a tool call is `input` (keysyms, so the
 compositor's layout decides the key) / `capture` / `list_windows`; its lock
 is `hold_input` on a connection of its own, so the IDE's banner and Esc
 work as on X11. Headless test: `EDE_COMPOSITOR=<target>/debug/exponential-compositor
-cargo test -p epilot headless_ede` (in `apps/desktop`).
+cargo test -p epilot headless_ede` (in `apps/desktop`); the gate's `ede` job
+runs it on every PR that touches eDE or ePilot (#EDE-140).
 
 ## Apps (#EDE-20, #VAPP-273)
 
@@ -747,8 +794,13 @@ platform theme reads the GTK settings), `environment.d/90-ede-theme.conf`
 clients, and sets `org.gnome.desktop.interface` to match (libadwaita and
 the GTK portal read it). The GTK theme, icon theme, cursor theme and
 fonts are the first installed of a short preference list (Adwaita-dark;
-Papirus-Dark, Yaru, Adwaita; Bibata, Adwaita; Inter, Ubuntu Sans,
-Cantarell), each overridable in `[theme]` (below).
+Papirus-Dark, Yaru-dark, Yaru, Adwaita; Bibata, Adwaita; Inter, Ubuntu
+Sans, Cantarell), each overridable in `[theme]` (below). With snapd
+(#EDE-196) a theme the installed snaps carry too comes first
+(`gtk-common-themes`: Yaru-dark, Adwaita, …, read from snapd's
+`/v2/connections`): snap apps draw with the same names, and
+snapd-desktop-integration no longer asks at every login to install a
+Papirus theme snap.
 
 Every file it writes starts with a marker line; `exponential-theme remove` deletes
 only those, puts a person's own file back from `*.before-ede` (moved
@@ -761,6 +813,482 @@ compositor starts so its cursor matches. `exponential-theme print` shows the
 choice and the files; `--files-only` skips the live environment and
 gsettings (CI, tests). Nemo stays the file manager and file dialogs stay
 GTK through the portal delegate (#EDE-15), both themed through this.
+
+## Agent spaces: a systemd slice per space (#EDE-138)
+
+What an agent launches into a space runs in a systemd scope of the space's
+own slice, in the person's user manager:
+
+```
+app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memory, oomd
+  └─ app-exponential_p<pid>-s<n>.slice               space n: memory, tasks
+       └─ exponential-p<pid>-s<n>-<k>.scope          launch k
+```
+
+- **Out of the login session.** The person's apps stay in their login
+  session scope; a space's processes are in none.
+- **Limits, the person's to set** (`[spaces]` below, read at a space's
+  first launch): all spaces together half of the cores and half of the
+  memory by default, one space 30 % of the memory. `systemctl --user status
+  'app-exponential_p*.slice'` shows them. The CPU limit is a quota: the
+  person's apps are in a sibling of the whole user manager, so a weight
+  inside it could not keep spaces below half of a busy machine.
+- **How many, and the memory they share.** `[spaces] max` spaces at once
+  (unset: one per GiB of what all spaces may use: 8 GB of RAM = 4, 16 GB =
+  8, 64 GB = 31, at most 32), `[spaces] launches` programs each (32). The
+  spaces SHARE their memory: one may take up to its 30 % while the others
+  are still, so together they are promised more than the 50 % they have.
+  The fence is room: a new space is made only while what the spaces hold
+  (anonymous and shared memory of their slice) plus one still space (1 GiB:
+  a browser page measured 0.5 to 0.9 GB) fits under 90 % of their
+  `MemoryMax`.
+- **Over its limit, a space loses its biggest program** (#EDE-192). A
+  space's `MemoryMax` is where the kernel ends a program, inside the
+  space's own slice, at once, whether or not systemd-oomd runs. No slice
+  has a `MemoryHigh`: under it the kernel throttled a space just short of
+  its `MemoryMax` and ended nothing (only systemd-oomd did, 39 s later, by
+  the pressure of the person's whole user manager). No space swaps: with
+  swap a space at its limit first writes out what it may swap and stalls
+  while the disk is busy (15 s measured), and its swap is the person's;
+  an idle space stays in RAM, within its `MemoryMax`. The kernel ends one
+  program per OOM, the biggest (by its `oom_score_adj` too):
+  `memory.oom.group` stays 0, and from systemd 253 a launch's scope has
+  `OOMPolicy=continue`, so the launch's other programs and the other
+  spaces run on (systemd 252 ends the whole scope: the launch, or the
+  space's own user manager with all it started). An app the space's
+  own user manager starts in a scope of its own (a snap, a flatpak)
+  keeps that manager's default (`OOMPolicy=stop`): when the kernel picks
+  one of its programs, the whole app ends. What a space keeps in tmpfs
+  (`/dev/shm`, a tmpfs `/tmp`) no kill frees. Together the spaces are
+  held the same way at their `MemoryMax`, the biggest program of any
+  space first. A space that thrashes on its programs' files short of a
+  kill is systemd-oomd's, where it runs: it watches the slice of all
+  spaces at 30 % memory pressure for its usual time
+  (`ManagedOOMMemoryPressure=kill`), below the 50 % at which Ubuntu and
+  Fedora watch the person's whole user manager, and ends the scope that
+  reclaims most before it looks at the person's services.
+- **A full desktop gives way** (#EXP-1514, D 10). A space lives as long
+  as its session, so when a NEW one does not fit (the count or the room),
+  the space unused longest closes for it: one neither driven nor captured
+  by its own grant for 10 minutes (a space never used counts from its
+  creation) and not busy (its keeper said `space_busy` in the last 90 s:
+  its session's turn runs). For room as many give way as it takes, what
+  each holds read from its own slice, planned before one closes. Only
+  when none may does `create_space` answer `limit` (`N spaces at most`,
+  `no memory for another space: …`), and then none closed. A session's own
+  space is always found again first.
+- **Grants and the clock.** An expired grant leaves the list in the 1 s
+  tick. A space whose owner holds no live space grant closes after 30
+  ticks; after the wall clock jumped ahead of the ticks (a suspend) no space
+  closes for 5 minutes, one space grant's life, so its keeper can renew.
+  The log and the doctor's line say the numbers. Without a user manager:
+  4 spaces and 32 launches in all, as before.
+- **Homes on disk.** A launch's `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`,
+  `XDG_DATA_HOME`, `XDG_STATE_HOME` and `GNUPGHOME` are in
+  `$XDG_CACHE_HOME/exponential-desktop/spaces/p<compositor pid>/space-<n>/`
+  (a cache: no backup wants an agent's browser profile), removed at the
+  close; the next compositor's start removes what a gone one left. Only
+  sockets and the bus are in the runtime directory, a tmpfs the person's
+  session shares.
+- **The environment is an allowlist**: of the compositor's, a launch gets
+  who the person is, the language, `PATH`, the desktop's name and the
+  toolkits' hints, nothing else (no `SSH_AUTH_SOCK`, `TMUX`, `STY`,
+  `NOTIFY_SOCKET`, `DOCKER_HOST`, keyring or gpg-agent variables). It gets
+  a tmux server (`TMUX_TMPDIR`) and screen sessions (`SCREENDIR`) of the
+  space's own: an agent's `tmux` never opens in the person's server.
+- **The close ends everything.** The space's slice is stopped (SIGTERM,
+  SIGKILL two seconds later), then the kernel ends what is left in its
+  cgroup (`cgroup.kill`): a process that started a session of its own, a
+  scope that asked not to be killed, a launch that was still on its way in.
+  The compositor never waits for the user manager in its event loop.
+- **The compositor's end ends everything.** With lingering on (the
+  Exponential daemon turns it on) the user manager outlives the person's
+  logout, and nothing else would stop what a space left. A compositor that
+  ends by itself kills what is in the slice of all its spaces and waits (3 s
+  at most) until the user manager has taken the slice away. One that is
+  ended from outside (the session's SIGTERM, a crash) stops nothing:
+  `exponential-session` then runs `exponential-compositor space-end <pid>`,
+  which does the same for it. What is still left (the session supervisor
+  died too) is stopped at the next compositor's start.
+- **How.** A launch is four programs in one process: `exponential-compositor
+  space-run` makes the slices when the space has none (`busctl`), becomes
+  `systemd-run --user --scope`; in the scope `space-enter` is the first
+  program (the entry of every scope into a space: it asks the space guard
+  below, then becomes the next), and `space-exec` takes the
+  caller's environment from its standard input and becomes the program. No
+  D-Bus library in the compositor; nothing the caller chose (a variable, an
+  `LD_PRELOAD`) reaches a program outside the scope or an argument. A launch
+  that gets no scope does not run, and a compositor that found its user
+  manager never starts one outside a scope: when the user manager is gone
+  later, `launch` answers `unavailable`.
+- **Needs** a systemd user manager on the session bus, systemd **252** or
+  newer (the first that hands the cpu controller to the user manager), a
+  unified cgroup hierarchy (cgroup v2), and `systemd-run`, `busctl` and
+  `systemctl`. Without one of them (Ubuntu 22.04 has systemd 249, a
+  container has no user manager) spaces work as before for the whole run:
+  launches run in the login session, without limits, and end by their
+  process group. The log says so once at the session's start, and
+  `exponential-compositor doctor` asks the same questions for its line
+  `Agent spaces`.
+- **The space's own user manager and bus.** At a space's first launch the
+  compositor starts `systemd --user` for the space, in a `Delegate=yes`
+  scope of its slice (`exponential-p<pid>-s<n>-session<k>.scope`): the
+  space's directory is its runtime directory, and it can load only the
+  units written into `<space dir>/units` (its bus, nothing of the
+  distribution's or of `~/.config/systemd/user`). Its `dbus.service` is the
+  space's ONE session bus (`<space dir>/bus` and an abstract
+  `/tmp/dbus-ede-<random>`, which strict snaps can reach), with what it
+  activates (dconf, gvfs, portals with the GTK backend; screen capture,
+  remote control, shortcuts, notifications and inhibit are `none` in the
+  space). Every launch of the space gets that bus and waits for it in its
+  own process. So `snap run`, Ptyxis, `systemd-run --user` and anything
+  that asks "the" user manager for a scope find the space's, and their
+  scopes are in the space's slice. A manager that ends is started once
+  more; when it ends again the space closes (its session's next call reads
+  "new and empty"). Needs `dbus-daemon` (the packages depend on it).
+  A Flatpak installed for the person alone (`flatpak install --user`) is
+  not there in a space: its installation is under `XDG_DATA_HOME`, and a
+  space has its own; system-wide ones are (#EDE-158). `flatpak run` asks
+  the person's user manager for its scope whatever the environment says,
+  so the compositor finds such a scope of a space's (its first process is
+  a launch of the space's, or a child of one) within a second and moves
+  its processes into a scope of the space's own manager. They are then
+  under the space's limits and end with it, and what is still outside at
+  the close is ended by the kernel.
+- **Drawing in a space: on the CPU, unless the space draws on the GPU**
+  (#EDE-162, [below](#agent-spaces-on-the-gpu-ede-162)). A space in
+  software takes shared-memory buffers only, so a frame drawn on the GPU
+  cannot reach it. OpenGL and EGL apps get Mesa's software driver
+  (llvmpipe) by themselves. Vulkan apps would pick the GPU and then fail,
+  so while a space renders in software its programs see lavapipe, Mesa's
+  software Vulkan, alone (`VK_ICD_FILENAMES`, which Chromium's SwiftShader
+  may replace; a launch may set neither it nor `VK_DRIVER_FILES`). The
+  packages recommend `mesa-vulkan-drivers` (Arch:
+  `vulkan-swrast`); without it a Vulkan app does not start in a space, and
+  the doctor says so. The cost: 3D apps and games are slow or do not run
+  in a space, and every frame is drawn on the processor. A WebGL page or a
+  spinning 3D view keeps one or more cores busy; the space's share of the
+  processor (`[spaces] cpu_quota`) caps it.
+- **An Xwayland of its own.** X11 apps launched into a space get
+  `DISPLAY=:<10 or more>` (never `:0`): an Xwayland started at the space's
+  first launch, whose Wayland client belongs to the space's desk (it binds
+  the space's seat and output only) and whose window manager puts its
+  windows on the space's desk; the person's X server and window manager
+  are untouched. One that dies is started again at the space's next
+  launch; it ends with the space (its socket and lock go). Its CLIPBOARD
+  is the space's: an X11 copy there is the space's selection (the agent
+  reads it, the space's Wayland apps paste it), and a copy by the space's
+  Wayland apps or by the agent pastes in its X11 apps. Only the X11 app
+  holding the space's keyboard reads it, and the person's clipboard and
+  X11 CLIPBOARD are never involved. A drag the space's X11 app starts runs
+  on the space's seat. A space that closes in the middle of a paste ends
+  it there (an agent's read is answered `unavailable`).
+- **X authority, both sides.** Every Xwayland of the compositor admits
+  only a client that shows its cookie (MIT-MAGIC-COOKIE-1). The person's
+  file is `$XDG_RUNTIME_DIR/xauth_<wayland socket>`. Its path stays the
+  same for the compositor's life, and it reaches every way the person's
+  apps start: the compositor's children (the shell's launches among them)
+  get `XAUTHORITY`, and `exponential-session --ready` hands it to the user
+  manager and D-Bus activation with `DISPLAY` (terminals and services
+  inherit it from there). A space's file is
+  `$XDG_RUNTIME_DIR/xauth_<wayland socket>-space-<n>`, with a new cookie
+  for each of its servers; only its launches get it, and it goes when the
+  space closes. The `xauth_` names are the ones snaps can read: `snap run`
+  copies only an `XAUTHORITY` under `/tmp`, and the x11 interface lets a
+  snap read `/run/user/<uid>/xauth_*`. So `DISPLAY=:0 xdotool type …` from a
+  space is refused by the person's server, and the person's apps cannot
+  reach a space's either. A snap app in a space that the space's Wayland
+  socket refuses (its AppArmor admits only `/run/user/<uid>/wayland-N`)
+  draws through the space's Xwayland.
+- **Browsers get the space's profile.** Snaps and Flatpaks keep their data
+  under the person's `HOME`, which a space's own directories do not
+  change. Without a profile of the space, its Chromium would hand its
+  window to the person's running one (a window on the person's desk), or
+  browse in the person's signed-in profile, and Firefox would say "already
+  running". So a known browser started in a space gets a profile of its
+  own. The Chromium family (Chromium, Chrome, Brave, Edge, Vivaldi, and
+  their binaries started by name: `chrome` of Chrome, Chrome for Testing
+  and Playwright, `chrome-headless-shell`, `headless_shell`, `msedge`,
+  `vivaldi-bin`) gets `--user-data-dir=`; Firefox and LibreWolf get
+  `--profile <dir> --new-instance`. For a browser of the system the
+  directory is in the space's home. For a snap or a Flatpak (its command,
+  `snap run`, `flatpak run`, or Ubuntu's `/usr/bin/firefox` script that
+  runs the snap) it is in the app's own data, the one place it may write:
+  `~/snap/<name>/common/exponential-space/p<pid>-<space>` or
+  `~/.var/app/<id>/exponential-space/p<pid>-<space>`. It is removed when
+  the space closes, and what a crashed session left there goes at the next
+  start. A launch that names its own profile (Playwright always does, in a
+  temporary directory) keeps it, and the space makes none, unless that
+  profile is, or is inside, one of the person's:
+  `~/.config/{chromium,google-chrome*,BraveSoftware,microsoft-edge*,vivaldi*,mozilla,librewolf}`
+  (and the same under `$XDG_CONFIG_HOME`), `~/.mozilla`, `~/.librewolf`, or
+  a known browser's `~/snap/<name>` or `~/.var/app/<id>` outside its
+  `exponential-space`, each followed through links and `..` from the
+  launch's directory. Such a launch is refused (#EDE-186), and so are
+  Firefox's `-P`, `-ProfileManager` and `-CreateProfile` (they go to the
+  person's `profiles.ini`), a profile flag that names no directory, and a
+  Chromium `--profile-directory=` that is a path, not a name.
+  Chromium and Electron apps (VS Code, VSCodium) also always get
+  `--enable-unsafe-swiftshader`, so their WebGL can fall back to software,
+  and `--use-angle=swiftshader` while the space renders in software, with
+  their own profile as with the space's. A snap
+  of the Chromium family also gets `--ozone-platform=x11`: it exits where
+  the space's Wayland socket is refused, rather than falling back. Firefox
+  gets nothing more: it switches to software WebRender by itself. A browser
+  that is not on the list runs like any other program. A browser of the
+  system then keeps its data in the space's own directories, but a snap or
+  Flatpak one uses the person's profile and may open on the person's desk
+  (#EDE-166).
+- **The person's Xwayland starts again** when it dies, on the same display
+  and with the same cookie file, so the `DISPLAY` and `XAUTHORITY` the
+  session was given stay right. Its X11 windows are let go of, and its
+  X11 copy goes too. It waits 1 s after the first death, and 2, 4, 8, 16,
+  30, then 60 s after each further death of a server that ran less than
+  a minute. After 8 such deaths in a row it is not started again, and X11
+  apps return at the next login. Each death is logged as an error, which
+  diagnostics report.
+- **Not a wall.** Everything in a space is the person's user. Every cgroup
+  under the user manager belongs to that user: a process that works at it
+  raises its own limits or moves itself into another cgroup. The slice
+  guards against the accidents of ordinary programs (#EDE-145).
+- **The close also ends what got out** (#EDE-183). A close ends the slice
+  and the launches' process groups. It also ends every process the
+  compositor ties to the space some other way: it descends from one of the
+  space's launches, or the space's directory is in its environment. That
+  holds wherever the process's cgroup is now, and also for a process that
+  left its launch's group. Each one is told to end, and killed after 2 s.
+  Until then a space still counts as there for the polkit prompt's class
+  (#EDE-143), so such a process never gets the person's keyboard prompt. A
+  process that cleared its environment, left its launch's lineage and
+  group, and left the slice is tied to nothing (#EDE-145).
+
+## The space guard: `exponential-space-guard` (#EDE-146, #EDE-147, #EDE-148)
+
+A space's programs are the person's user, so by user they may open the
+person's microphone and camera (the `uaccess` ACLs logind gives the person,
+the audio and video groups), switch their radios off (`/dev/rfkill`) or type
+into their session (`/dev/uinput`). What tells a space's processes apart is
+their slice (above). The space guard is the one privileged part of eDE that
+acts on it: when a process INSIDE a space's slice asks, it attaches a fixed
+eBPF device program to that slice. From then on the kernel refuses every
+`open()` and `mknod()` by a process of the space of:
+
+| devices | why |
+|---|---|
+| `/dev/snd/*` (116), OSS (14) | the microphone (and the speakers) |
+| `/dev/video*`, `/dev/v4l-subdev*` (81), DVB (212) | cameras, libcamera, video capture |
+| `/dev/input/*` (13), `/dev/uinput` (10:223) | input devices; `ydotool` |
+| `/dev/hidraw*`, `/dev/usbmon*` (their majors read from `/proc/devices` when the guard starts) | HID reports (keyboards with a vendor's udev rule, security keys), USB traffic |
+| `/dev/rfkill` (10:242) for writing | `rfkill block all` turns Wi-Fi and Bluetooth off |
+| `/dev/i2c-*` (89) | `ddcutil` switches monitors off |
+| `/dev/bus/usb/*` (189) for writing | PTP cameras, libusb capture |
+
+whoever owns the node and whatever its ACL says, also for root in the
+space, for a snap with its `camera` interface, a reopen through
+`/proc/<pid>/fd`. Everything else (the GPU, ttys, fuse, `/dev/null`) is as
+before; WebAuthn keys, game controllers, adb and WebUSB do not work in a
+space. The person's own processes are not affected. The table is
+`crates/ede-space-guard/src/devices.rs`; the program is generated from it
+and tested in an eBPF interpreter on every device.
+
+With it the guard attaches a connect program, for `connect()` and for a
+datagram's `sendto()`, which refuses a unix socket made in the space the
+way to (`crates/ede-space-guard/src/connect.rs`):
+
+| path | why |
+|---|---|
+| `/run/dbus/system_bus_socket` | no system bus in a space: no `loginctl lock-session` or `terminate-session`, no `systemctl suspend`/`reboot`, no `nmcli networking off`, no `udisksctl mount`, no `pkexec` |
+| `/run/user/<uid>/bus`, `/run/user/<uid>/.dbus-proxy/…` | the person's session bus and their Flatpaks' proxies (their portals hand out camera streams) |
+| `/run/user/<uid>/systemd/…` | the person's user manager: nothing leaves the slice through it (also not `flatpak run`'s hard-coded socket: the Flatpak stays in its launch's scope) |
+| `/run/user/<uid>/exponential-desktop/…` (but the spaces' own directory) | eDE's control socket (lock, log out with the root token) and `services.sock` (power, network) |
+| `/run/systemd/private`, `/run/systemd/io.systemd.*` | PID 1 for root (`sudo reboot`), logind's Varlink (`sudo -i` would get a new login session) |
+| `/tmp/tmux-<uid>/…`, `/run/screen/…` | the person's tmux and screen servers run what they are sent outside the space |
+| `/run/wpa_supplicant/…`, `/run/hostapd/…`, `/run/tailscale/…`, `/run/mullvad-vpn`, `/run/cloudflare-warp/…` | `wpa_cli disconnect` (a member of `netdev`), `tailscale down` and the like |
+| `/run/docker.sock`, `/run/user/<uid>/docker.sock`, `/run/libvirt/…`, `/run/incus/…`, `/var/lib/incus/…`, `/var/lib/lxd/…`, `/var/snap/lxd/…` | daemons that act for their group as root, and a rootless docker of the person's |
+| `/run/…/pulse/native`, `/run/…/pipewire-<n>[-manager]`, `/dev/shm/jack…` | the person's sound servers: the microphone (a space has no speakers either), also as a snap's launch helper spells them (`/run/user/<uid>/snap.<name>/../pulse/native`) |
+| `/run/…/<wayland-N>` | the person's Wayland socket (#EDE-145): a program that names it (`WAYLAND_DISPLAY=/run/user/<uid>/wayland-1`) opens its windows on the person's desk. Its name is the one the directory of spaces carries (`<wayland-N>.spaces`, which `enter` hands the guard), and every path under `/run` ending in it is refused: also a snap's link to it (`/run/user/<uid>/snap.<name>/wayland-N`, which the snap's desktop launcher makes) and a Flatpak's bind of it (`/run/flatpak/wayland-N`). A space's own socket is in its directory, and eDE's socket is never `wayland-0`, the name a space's Flatpak gives the space's own |
+| any path with `/../` | so no other rule is walked around by spelling |
+
+It reads the address as the caller passed it, bounded by its length
+(libdbus passes no NUL), before the kernel looks the path up; an address
+whose family is not AF_UNIX is refused (a misread layout fails closed). A
+symlink of the space's own, a relative path or `//` get around it, on
+purpose. Abstract sockets (the space's bus) are not paths and pass, and
+so does the person's Xwayland's abstract socket: until Xwayland gets an
+X authority (F3), `DISPLAY=:0 xdotool type …` from a space reaches the
+person's X11 apps.
+
+The package also ships `/usr/share/polkit-1/rules.d/00-00-exponential-agent-spaces.rules`:
+polkit answers NO for every action whose subject is in a space's slice
+(polkit takes a space's processes for the person's active session, so
+suspend, reboot, network and mounts would pass without a prompt). It reads
+the subject's `/proc/<pid>/cgroup` with `cat`: about 4 ms per polkit check
+of a process of the person's user manager (measured on Ubuntu 26.04), and
+polkitd checks one at a time, so a flood of such checks slows every
+authorization on the machine. It never answers YES; when polkitd cannot
+run `cat` at all, it asks for an administrator's password instead of
+passing. An earlier rule that answers wins (polkit sorts all rule files
+by name: hence `00-00-`). logind's `Lock`/`Terminate` for the session's
+owner never ask polkit: the connect program closes those. The session
+checks that the rule is read: a probe in its spaces' slice asks for the
+package's action `at.exponential.desktop.space-probe`, which the rule
+answers with a challenge; readiness and the doctor's line need it.
+
+- **What it is.** `/usr/libexec/exponential-space-guard`, a system service
+  started by `exponential-space-guard.socket` (`/run/exponential-space-guard.sock`;
+  the package links it into `sockets.target.wants`, so it is `static`:
+  `systemctl mask exponential-space-guard.socket` turns it off). It ends
+  after 10 minutes without a request.
+- **Fail closed.** When the guard is installed, every launch into a space
+  runs `exponential-compositor space-enter --guard` first, inside its scope:
+  it asks the guard (`enter <spaces>`) and becomes the program only on `ok`.
+  A guard that is busy, down or broken means the launch does not run;
+  without a user manager or with the guard's socket gone, `launch` answers
+  `unavailable`. Nothing of that depends on what the guard answered at the
+  session's start: the session only asks it for readiness and the doctor,
+  which reads what the running session decided (`<wayland-N>.guard` beside
+  its socket). Uninstalled, launches run as before, and the doctor says so.
+- **A guard from before** (#EDE-145). The session's probe asks
+  `probe wayland`. A guard from before the person's Wayland socket was
+  refused answers it `not a request`; the session then asks `probe`, and
+  the doctor names the person's Wayland socket among what is open in a
+  space (its state file says `wayland open`).
+- **Its three capabilities, no root.** A user of its own (`DynamicUser`),
+  `CAP_BPF` and `CAP_NET_ADMIN` (to load and attach cgroup programs),
+  `CAP_PERFMON` (the connect program reads the address it is asked about),
+  nothing else; no network, no home directories, the system read-only, a
+  narrow syscall set. What a compromised guard could do with them: attach
+  cgroup programs to any cgroup (also refusing devices or sockets to other
+  users' processes) and, with `CAP_BPF` and `CAP_PERFMON`, load tracing
+  programs that read kernel and process memory.
+- **What a hostile caller can make it do.** Anyone on the machine can ask.
+  The guard takes the asking process's user and cgroup from the kernel
+  (`SO_PEERCRED`, `/proc/<pid>/cgroup`), requires that cgroup to be inside
+  a space slice (`app-exponential_p<pid>-s<n>.slice`) under THAT user's own
+  manager and owned by them, and attaches its fixed programs there. So the
+  most a caller can do is restrict cgroups of its own user: take sound,
+  cameras and input devices away from its own processes. It writes no file,
+  never detaches anything and touches no other user. A space's programs
+  cannot undo it: the person's user can neither load a program nor get a
+  descriptor of the guard's, and without one the kernel refuses to detach
+  programs attached with `BPF_F_ALLOW_MULTI`. No user can starve another:
+  each user has two requests in the guard's hands at most (users without a
+  runtime directory, such as a user namespace's subordinate ids, share
+  two), each request gets one second from connect to its line, and
+  `space-enter` asks again after `busy` within its 5 s. At most 64 live
+  space slices per user carry its programs, and at most 4 directories of
+  spaces have connect programs; a removed slice frees its place.
+- **Not a wall** (#EDE-145). Not stopped by it: a process that moves itself
+  to another cgroup of the user; a descriptor opened outside the space and
+  passed in; the person's terminals (`/dev/pts/*`: a space can read what
+  the person types into a shell, or print a fake prompt there, as any
+  program of the person's can); where `kernel.yama.ptrace_scope` is 0, a
+  space taking descriptors from the person's processes (`pidfd_getfd`);
+  root in a space (sudo with the person's password) detaching the program.
+- **Needs** cgroup v2, Linux 6.7 or newer (the unix connect hook) with BTF,
+  lockdown below `confidentiality`, and a kernel that loads both programs
+  (`exponential-space-guard probe` prints `ok` or why not).
+
+## Agent spaces: readiness (#EXP-1514, #EXP-2011)
+
+eDE 0.2.29 and before say `spaces` in their hello and nothing else: no
+device offers a person's runs a space there. From the flip on every
+compositor that makes spaces also says `space-readiness`, and
+`space_readiness` is what offers a space to people (ePilot makes one only
+after a `ready` answer, cached for 30 s). It answers from what holds NOW:
+
+1. **`no_user_manager`**: the person's systemd user manager as the
+   session's start found it, and as it is now: `systemd-run`, `busctl`,
+   `systemctl`, `/usr/lib/systemd/systemd` and `dbus-daemon` there, its
+   private socket (`$XDG_RUNTIME_DIR/systemd/private`) there, and the
+   memory and pids controllers given to it (`user@<uid>.service`'s
+   `cgroup.controllers`), or a space's limits would not hold.
+2. **`guard`**: the space guard installed and its probe answered, and
+   polkit refusing a space's process (the package's rule is read).
+3. **`session`**, the latch: once a space's session failed to start (its
+   user manager could not start, or ended), until a session start
+   succeeds (a manager that runs and whose bus is there). What failed is
+   refused: a compositor whose launches run in scopes never starts one in
+   the person's login session, and one that lost its user manager answers
+   `unavailable`.
+
+There is no `driver` block: on every driver a space's apps start, on the
+GPU where the driver is proven and in software elsewhere (below). Each
+answer that differs from the one before is logged with its cause
+(`agent spaces are not offered (guard): …`); the device's doctor shows
+the row Agent space (Ready, or why not) and `exponential doctor` names
+the cause.
+
+## Agent spaces on the GPU (#EDE-162)
+
+A space's apps draw on a GPU, as they would on the person's desk: Vulkan,
+OpenGL/EGL and a browser's WebGL in hardware, instead of llvmpipe, lavapipe
+and SwiftShader.
+
+- **Which GPU** (`[space_gpu] device`, read at the compositor's start):
+  `auto` takes, of the cards with a GPU driver and a render node:
+
+  | The machine | Spaces render on |
+  |---|---|
+  | one GPU (a desktop with a dGPU and no iGPU, most laptops) | that GPU |
+  | two GPUs, no battery, the displays on one (a desktop: monitors on the dGPU, an idle iGPU) | the one the displays are not on: the person's game keeps its GPU to itself |
+  | two GPUs and a battery (a laptop: the iGPU drives the panel, the dGPU sleeps) | the one driving the displays: the dGPU stays asleep |
+
+  `auto` takes only drivers proven for spaces (`nvidia`, `i915`, `xe`); on
+  any other (AMD, nouveau, a VM's GPU) spaces render in software and the log
+  says why. Naming a render node opts in on any driver
+  (`device = "/dev/dri/renderD128"`); proving AMD and Mesa as the main GPU
+  is #EDE-164. `software` keeps spaces in software; so do safe mode, no GPU,
+  a renderer that turns out to be llvmpipe, and NVIDIA without explicit sync.
+- **What it is.** One renderer for all spaces, opened at the start on a
+  helper thread: its own EGL display on the render node
+  (EGL_EXT_platform_device: no display, no DRM master), its own context at
+  low priority where the driver has one; the person's renderer is not
+  touched. A space's clients get the spaces' own linux-dmabuf (that GPU as
+  the main device, explicit modifiers only) and drm-syncobj; the person's
+  clients, a space in software and a space's Xwayland never see them (X11
+  GL apps in a space draw in software; glamor per space is #EDE-163). Its
+  programs see exactly that GPU's Vulkan driver and lavapipe
+  (`VK_ICD_FILENAMES`, as in software; lavapipe alone where that driver is
+  not installed): a Vulkan app takes the space's GPU, never the person's.
+  A browser in it keeps hardware ANGLE: of F3's software switches it gets
+  only `--enable-unsafe-swiftshader`, ANGLE's own fallback.
+- **The person's frames come first.** A space's tick builds no renderer
+  elements and imports nothing. A capture is drawn after the person's frames
+  of that turn, read back asynchronously (a fence the loop waits on, never
+  the thread), at most once per space per 50 ms and 100 ms of the thread per
+  second for all spaces. A space's app presents at most once per tick of the
+  space's clock (60 Hz in use, 10 Hz unwatched): an app that renders faster
+  (vsync off) has its extra frames held and dropped. GPU work an app never
+  presents (compute) is not bounded by that: the GPU choice above is what
+  keeps it off the person's GPU. `EXP_FRAME_STATS=1` prints the spaces' cost
+  on the person's thread every 5 s; `EDE_HEADLESS_GLES=/dev/dri/renderDN` (a
+  measuring rig) draws a headless compositor's own output on a GPU, as udev
+  draws a monitor, to measure the person's frame times beside spaces.
+- **The safety net: an app whose GPU path fails falls back to software.** In
+  a space on the GPU, any of these latches the space back to software:
+  - a launch that ends non-zero or by a signal within 10 s without any
+    client of it having drawn (vkcube's missing present queue, ANV's
+    swapchain abort, a Wine or GLFW X11 Vulkan app: X11 apps draw through
+    the space's Xwayland and always count as not having drawn), or that
+    starts dumping a core within those 10 s without having drawn (counted
+    at once: writing the core can keep a crashed app alive for half a
+    minute);
+  - a GPU buffer the space's GPU cannot import, or more than 32 a second
+    from one client (refused; a window that cannot be drawn shows a grey
+    placeholder);
+  - a GPU buffer whose fence never fires within 2 s;
+  - a lost GPU context (every GPU space).
+
+  Its later clients and launches then draw in software, the running ones
+  stay as they are. The agent reads "X ended at start on the GPU (...);
+  this space now draws in software: start it again" with its next
+  screenshot. After three such spaces in one run, new spaces start in
+  software.
+- **What the net does not catch:** an app that draws and then shows black or
+  freezes, a blank canvas inside a window that draws. The hand proof per
+  driver is the only check for those, which is why `auto` takes proven
+  drivers only.
 
 ## Config
 
@@ -791,6 +1319,17 @@ lock_after = 600      # seconds without input; 0 = never
 [protected]
 app_ids = ["org.example.Bank"]   # on top of the built-in list
 
+[spaces]              # what agent spaces may take of this machine (#EDE-138); the defaults:
+# max = 8             # spaces at once; unset = one per GiB of memory_max (rounded), at most 32
+launches = 32         # programs one space may have launched at once
+cpu_quota = 50        # percent of all cores, for all spaces together
+memory_max = 50       # percent of the memory, for all spaces together
+space_memory_max = 30 # percent of the memory for one space (at least 2 GiB, never more than memory_max)
+tasks_max = 4096      # processes and threads of one space
+
+[space_gpu]           # the GPU agent spaces render on (#EDE-162)
+device = "auto"       # or "software", or a render node: "/dev/dri/renderD128" (taken whatever its driver)
+
 [theme]              # the bridge (#EDE-19), read by exponential-theme, not the compositor
 bridge = true        # false: exponential-theme sync removes what it wrote
 icons = "Papirus-Dark"   # gtk, cursor, cursor_size, font, monospace, font_size likewise; unset = the first installed preference
@@ -801,7 +1340,7 @@ send = true          # false (or EXP_DIAGNOSTICS=0): no crash, performance or lo
 
 ## Diagnostics (#LOGS-2)
 
-`crates/ede-observability`: the Sentry SDK in the compositor and `exponential-session` (panics, `error!` events, `warn!`/`info!` breadcrumbs and logs, transactions),
+`crates/ede-observability`: the Sentry SDK in every long-running binary (#ERR-29: the compositor, `exponential-session`, `exponential-services serve`, `exponential-shell`, `exponential-sealed`, the portal and `exponential-ui supervise`, each with its own `component` tag; panics, `error!` events, `warn!`/`info!` breadcrumbs and logs, transactions, native crashes; the shell and the sealed surfaces, where the person's content passes through, send only WHERE a line was logged, never its text: `Trail::Places`),
 OFF unless the signed-in account's server turns it on. Nothing is baked in: the server of the first
 account in the IDE's shared `accounts.json` answers `GET <server>/api/monitoring/config?platform=ede`
 (`{"enabled", "dsn", "environment", "tracesSampleRate"}`), the answer is cached in
@@ -914,7 +1453,11 @@ expects the shell to print `{"frame": {"name": "panel", "digest": "…"}}`
 No frame within 2 s of an edit = the edit is reverted (`Undo: Edit
 panel.json, rolled back`), unless another process undid or replaced it
 meanwhile (`exponential-ui undo`, Version history): nothing is rolled back
-and what replaced it is an edit of its own; the shell dying counts as a crash, it restarts
+and what replaced it is an edit of its own. A rollback puts back what the
+shell last drew (after two quick edits, never the first one, which did not
+draw either) and touches that document alone: another document's edit in
+the same moment stays an edit of its own, and a broken text the file holds
+meanwhile is kept beside it as `.panel.json.refused`. The shell dying counts as a crash, it restarts
 after 500 ms, and three crashes after an edit revert it, three more put the
 factory copy back (`Factory panel`). The shell itself opens the directory
 read-only (`Runtime::open_readonly`): it validates and reloads but never

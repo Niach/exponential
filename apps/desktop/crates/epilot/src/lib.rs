@@ -23,6 +23,57 @@ mod tools;
 pub mod work_screen;
 pub mod visible;
 
+/// #ERR-29: every `log` record of a test binary (one logger per process):
+/// only an `error!` becomes a GlitchTip event, so the tests of a dead end
+/// look for one (here and in epilot-screen's).
+#[cfg(any(test, feature = "test-support"))]
+pub mod log_capture {
+    use std::sync::{Mutex, Once};
+    use std::thread::ThreadId;
+
+    static RECORDS: Mutex<Vec<(ThreadId, log::Level, String)>> = Mutex::new(Vec::new());
+
+    struct Capture;
+
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+
+        fn log(&self, record: &log::Record) {
+            RECORDS.lock().unwrap_or_else(|e| e.into_inner()).push((std::thread::current().id(), record.level(), record.args().to_string()));
+        }
+
+        fn flush(&self) {}
+    }
+
+    pub fn start() {
+        static START: Once = Once::new();
+        START.call_once(|| {
+            let _ = log::set_logger(&Capture);
+            log::set_max_level(log::LevelFilter::Trace);
+        });
+    }
+
+    /// Every record so far, of every thread (and test) of the binary.
+    pub fn records() -> Vec<(log::Level, String)> {
+        RECORDS.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(_, level, text)| (*level, text.clone())).collect()
+    }
+
+    /// Whether THIS thread logged an error with exactly this text (tests
+    /// run as threads of one binary: another test's record never counts).
+    pub fn error_logged(message: &str) -> bool {
+        let here = std::thread::current().id();
+        RECORDS.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(thread, level, text)| *thread == here && *level == log::Level::Error && text == message)
+    }
+
+    /// [`error_logged`] for an error another thread logs (a reader, a lock
+    /// thread): any thread's, so its text must be the test's alone.
+    pub fn error_logged_anywhere(message: &str) -> bool {
+        records().iter().any(|(level, text)| *level == log::Level::Error && text == message)
+    }
+}
+
 use std::sync::{Arc, OnceLock};
 
 pub use server::SERVER_NAME;
@@ -201,8 +252,20 @@ pub struct ScreenState {
 /// NEW-59: the device's Work screen setting (`launch_defaults.computerUseDisplayId`,
 /// the picked [`Display::id`]; `None` = Auto). The hub resolves it to the
 /// display carrying that id on every call (#FEED-161).
+///
+/// #EXP-1514: `Some("space")` (Agent space only) restricts DRIVING: a
+/// person run's hold is released at once (on a thread of its own, after
+/// the driving call in flight) and every later seat call is refused
+/// `spaceOnly`; screen memory and the voice overlay read it as Auto.
 pub fn set_work_display(id: Option<String>) {
+    let space_only = id.as_deref() == Some(work_screen::SPACE_PICK);
     work_screen::set_picked(backend::Target::Person, id);
+    if space_only {
+        if let Some(Ok(live)) = LIVE.get() {
+            let host = live.host.clone();
+            let _ = std::thread::Builder::new().name("computer-use-release".into()).spawn(move || host.release_person_hold());
+        }
+    }
 }
 
 /// The Work screen setting as the hub reads it now ([`set_work_display`]).
@@ -323,11 +386,6 @@ pub fn banner_index() -> Option<usize> {
 /// `label` is what the banner shows for the run (the issue's identifier,
 /// the action's name).
 pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
-    // #EDE-126: a development switch until a run can ask for a space
-    // itself. It never falls back to the person's seat.
-    if std::env::var("EXPONENTIAL_COMPUTER_SPACE").is_ok_and(|on| on == "1") {
-        return grant_space(session_id, label);
-    }
     if let Some(reason) = backend::unsupported() {
         return Err(reason);
     }
@@ -337,37 +395,83 @@ pub fn grant(session_id: &str, label: &str) -> Result<Grant, String> {
     Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, label).into() })
 }
 
-/// #EDE-126: whether a run can get an agent space here: an eDE whose hello
-/// offers `spaces` (asks the compositor; an older one reads as none).
-pub fn spaces_offered() -> bool {
-    backend::spaces_offered().is_ok()
+/// #EXP-1514: whether this desktop gives a run an agent space of its own
+/// now ([`space_offer`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SpaceOffer {
+    /// Exponential Desktop says a space is ready.
+    Offered,
+    /// A stable no, and why.
+    No(SpaceBlock),
+    /// Exponential Desktop did not answer (yet). Never the person's screen:
+    /// a run admitted on it asks again at its first call and makes no
+    /// space unless the answer is ready.
+    Unknown,
 }
 
-/// The doctor line for agent spaces: [`Readiness::Ready`], or why not.
-pub fn space_readiness() -> Readiness {
-    match backend::unsupported().map_or_else(backend::spaces_offered, Err) {
-        Ok(()) => Readiness::Ready,
-        Err(reason) => Readiness::Unsupported(reason),
-    }
+/// Why [`SpaceOffer::No`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SpaceBlock {
+    /// Not Exponential Desktop (another desktop, macOS, Windows).
+    NotDesktop,
+    /// An Exponential Desktop that cannot say a space is ready (eDE 0.2.29
+    /// and before, which already say `spaces`).
+    OlderDesktop,
+    /// No space here (no systemd user manager, a space whose session did
+    /// not start, a token that cannot mint): the cause, for the log and
+    /// `exponential doctor`.
+    Unavailable(String),
+    /// Apps do not start in a space on this graphics driver.
+    Driver,
+}
+
+/// #EXP-1514: whether this desktop offers a run an agent space now. Read
+/// from a cache, never waiting on the desktop (the heartbeat and the IDE's
+/// foreground may call it): an answer older than a few seconds is
+/// refreshed on a thread of its own. No answer (none yet, or none in time)
+/// is [`SpaceOffer::Unknown`] only once this process has heard this
+/// desktop say it can answer (`space-readiness`); before that it is
+/// [`SpaceBlock::OlderDesktop`], the person's screen as before spaces.
+pub fn space_offer() -> SpaceOffer {
+    backend::space_offer()
+}
+
+/// #EXP-1514: [`space_offer`] for a process that asks once and ends
+/// (`exponential doctor`): it waits up to `within` for the desktop's first
+/// answer instead of reading an empty cache. Never on a host's beat.
+pub fn space_offer_settled(within: std::time::Duration) -> SpaceOffer {
+    backend::space_offer_settled(within)
 }
 
 /// #EDE-126: admit the run `session_id` into an agent space of its own
-/// (eDE): it drives that space and nothing of the person's. `Err` when
-/// this desktop makes no spaces; never a fallback to the person's seat.
-pub fn grant_space(session_id: &str, label: &str) -> Result<Grant, String> {
-    if let Some(reason) = backend::unsupported() {
-        return Err(reason);
+/// (eDE): it drives that space and nothing of the person's. No round trip
+/// (#EXP-1514): its first call asks the desktop, and a desktop that does
+/// not say a space is ready answers that call with why, never the person's
+/// seat. `Err` = not Exponential Desktop.
+///
+/// #EXP-1514 (D 5): the space is the SESSION's and the host keeps it: the
+/// session's next run drives the same space, with what ran in it.
+/// `had_space` = the host's run record says the session had a space
+/// ([`set_space_made_observer`]): a first call that then finds none says
+/// it is new and empty; a session that never had one gets its first one
+/// silently.
+pub fn grant_space(session_id: &str, label: &str, had_space: bool) -> Result<Grant, String> {
+    if !backend::makes_spaces() {
+        return Err("Agent spaces need Exponential Desktop.".to_string());
     }
-    backend::spaces_offered()?;
     let id = emcp::SessionId::new(session_id).map_err(|err| err.to_string())?;
     let live = live()?;
+    backend::admit_space(id.as_str(), had_space);
     live.host.admit_space(id.as_str());
     Ok(Grant { url: live.server.url().to_string(), token: live.server.grant(&id, label).into() })
 }
 
 /// The run ended: its token is dead, its call in flight stopped (this waits
 /// for it to return, [`host::Host::end`]), its abort state gone, the lock
-/// released when it was the last user.
+/// released when it was the last user. A person run's desktop grant is
+/// revoked with it; a space run's space and kept grant stay with the host
+/// for its session's next run (#EXP-1514, D 5): only [`close_space`], the
+/// switch going off ([`shutdown`]) or the process's end close it.
 pub fn revoke(session_id: &str) {
     // An id that breaks the id rule was never granted.
     if let (Some(Ok(live)), Ok(id)) = (LIVE.get(), emcp::SessionId::new(session_id)) {
@@ -376,10 +480,78 @@ pub fn revoke(session_id: &str) {
 }
 
 /// The run's turn began (the person's next message): an Esc that aborted
-/// it is answered, its calls work again.
+/// it is answered, its calls work again. #EXP-1514 (D 10): while the turn
+/// runs its kept space never gives way to a new one on a full desktop.
 pub fn turn_started(session_id: &str) {
     if let Some(Ok(live)) = LIVE.get() {
         live.host.turn_started(session_id);
+    }
+    backend::turn(session_id, true);
+}
+
+/// #EXP-1514 (D 10): the run's turn ended (the engine's turn signal, not
+/// the session's busy flag, which a background task keeps on for hours):
+/// its kept space may give way from now on.
+pub fn turn_ended(session_id: &str) {
+    backend::turn(session_id, false);
+}
+
+/// #EXP-1514 (rows 3, 14): the session's agent space closes now, whatever
+/// grants keep it (`destroy_space`, then this host's revokes): the session
+/// ended, was deleted or left this device, or its next run is a person
+/// run. A space run of it makes no new space until its next grant. A no-op
+/// where there are no spaces.
+pub fn close_space(session_id: &str) {
+    backend::close_space(session_id);
+}
+
+/// #EXP-1514: the sessions this host keeps an agent space for (its sweep
+/// checks them against their rows).
+pub fn kept_spaces() -> Vec<String> {
+    backend::kept_spaces()
+}
+
+/// #EXP-1514: who hears that a session got its first agent space (the
+/// host's run record keeps it as `had_space`, [`grant_space`]).
+pub fn set_space_made_observer(observer: impl Fn(&str) + Send + Sync + 'static) {
+    backend::set_space_made(Arc::new(observer));
+}
+
+/// #EXP-1514 (row 15): where a session is, as the host's rows say.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionHere {
+    /// Live on this device.
+    Live,
+    /// Ended, deleted, or on another device.
+    Ended,
+    /// Not known (yet): a row that is not there is this, never `Ended`.
+    Unknown,
+}
+
+/// #EXP-1514 (row 15): [`adopt_spaces`]' second step.
+#[must_use = "settle the adoption once the host's rows are in sync"]
+pub struct Adoption(());
+
+/// #EXP-1514 (row 15), at the host's start (the desktop app's, the
+/// daemon's), in two steps. This one, at once: a grant for every agent
+/// space whose session `registry` (the host's run registry, which outlives
+/// a restart) lists, so nothing expires while the rows load; others are
+/// left to their own grants. With the switch OFF those spaces are
+/// destroyed instead and nothing is held. Then [`Adoption::settle`].
+pub fn adopt_spaces(registry: &[String], switch_on: bool) -> Adoption {
+    backend::hold_spaces(registry, switch_on);
+    Adoption(())
+}
+
+impl Adoption {
+    /// Once the host's rows are in sync: each held session as `here` says.
+    /// `Live` = kept; `Ended` = destroyed, but only while `live_run` (the
+    /// host-wide run registry, read right before) has no live run of it:
+    /// the desktop app and the daemon are two devices on one machine, and
+    /// one's stale row must not close a space the other's run drives;
+    /// else, and `Unknown`, the hold goes and its own grants decide.
+    pub fn settle(self, here: impl Fn(&str) -> SessionHere, live_run: impl Fn(&str) -> bool) {
+        backend::settle_spaces(&here, &live_run);
     }
 }
 

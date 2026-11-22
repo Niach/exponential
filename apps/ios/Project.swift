@@ -277,8 +277,8 @@ let shareExtensionConditions = "$(inherited) SHARE_EXTENSION" + (hasEnetPush ? "
 
 // Single source of truth for app + extension version; keep these in lockstep so
 // the extension's CFBundleVersion never drifts from the parent app.
-let appMarketingVersion = "0.14.139"
-let appBuildVersion = "342"
+let appMarketingVersion = "0.14.141"
+let appBuildVersion = "344"
 // Staging always runs one build AHEAD of prod (EXP-405): the staging apps have
 // their own store namespaces, so an equal number silently uploads and then
 // masquerades as prod's build in ASC. Derived, so one bump covers all targets.
@@ -358,7 +358,7 @@ let sharedInfoPlist: [String: Plist.Value] = [
     // #EXP-1638 (app-shortcuts.json): the app icon's long-press menu, the
     // three statics in order (type = fixture id, title = fixture copy, icon =
     // the concept's lucide imageset); #EXP-1830: the chat entries (the
-    // Assistant, pins, recent chats) are set at runtime (`AppShortcutItems`).
+    // Assistant, recent chats) are set at runtime (`AppShortcutItems`).
     "UIApplicationShortcutItems": .array([
         .dictionary([
             "UIApplicationShortcutItemType": .string("new-issue"),

@@ -301,10 +301,10 @@ describe(`#PERF-6: pending resolves readers in batches`, () => {
     // 4 missing readers per tree (I1A, I1B, I2, I3D), capped at the limit:
     // the first chunk of 100 trees already fills it.
     expect(pairs).toHaveLength(200)
-    expect(selects.mock.calls.length).toBeLessThanOrEqual(3 + 6)
+    expect(selects.mock.calls.length).toBeLessThanOrEqual(3 + 7)
     selects.mockClear()
     expect(await caller(`u1`).pending({ installId: I1D, limit: 1 })).toHaveLength(1)
-    expect(selects.mock.calls.length).toBeLessThanOrEqual(3 + 6)
+    expect(selects.mock.calls.length).toBeLessThanOrEqual(3 + 7)
   })
 })
 

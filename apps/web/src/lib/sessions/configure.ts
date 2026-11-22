@@ -1,10 +1,12 @@
 import { TRPCError } from "@trpc/server"
+import { getPersonalTeamId, getUserTeamIds } from "@/lib/auth/membership"
 import { and, eq, inArray } from "drizzle-orm"
 import type { SessionsConfigureInput } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
 import { mcpServers, sessions } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
 import { assertSkillsInTeam } from "@/lib/skills-guard"
+import { mergedAgentPick } from "@/lib/agents/team-picks"
 import { assertCanSteer, loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
 import { gatedComputerUse } from "@/lib/sessions/computer-use"
 import { assertRunnerVocabulary, effectiveCli, liftWallInTx, runnerPicks } from "@/lib/sessions/send"
@@ -40,11 +42,28 @@ export async function configureSession(
     effort: effort ?? undefined,
     ultracode: input.ultracode,
   })
+  // #EXP-1984: the Assistant's conversation (its member's personal team)
+  // picks among the rows of every team of theirs.
+  const personal =
+    (input.mcpServerIds !== undefined || input.skillIds !== undefined) && target.teamId === (await getPersonalTeamId(userId))
+  const pickTeams = personal ? await getUserTeamIds(userId) : [target.teamId]
+  // #EXP-1988 (agent-settings.json `assistant.teamPicks`): there a write
+  // replaces the picks of the teams it names and keeps another team's.
+  const merged = async (kind: `skills` | `mcp`, existing: string[] | null, written: string[] | null) => {
+    if (!personal) return written
+    const next = await mergedAgentPick(db, kind, { existing, written: written ?? [], pickTeamId: null, agentTeamId: target.teamId })
+    return next.length > 0 ? next : null
+  }
   const mcpServerIds =
-    input.mcpServerIds === undefined ? undefined : await assertMcpServers(target.teamId, input.mcpServerIds)
+    input.mcpServerIds === undefined
+      ? undefined
+      : await merged(`mcp`, target.mcpServerIds, await assertMcpServers(pickTeams, input.mcpServerIds))
   // #EXP-1656: the skill pick, server-only like the MCP pick (the device
   // reads it back through `sessions.skillPicks` / `skills.resolveForLaunch`).
-  const skillIds = input.skillIds === undefined ? undefined : await assertSkillsInTeam(db, target.teamId, input.skillIds)
+  const skillIds =
+    input.skillIds === undefined
+      ? undefined
+      : await merged(`skills`, target.skillIds, await assertSkillsInTeam(db, pickTeams, input.skillIds))
 
   const picks = runnerPicks(input)
   // #EXP-1899: a person's pick (tRPC only), clamped for a build without the gate.
@@ -75,13 +94,13 @@ export async function configureSession(
 
 /** The picked team MCP servers (deduped, pick order), refusing any outside
  *  the session's team. An empty pick = none (stored NULL). */
-async function assertMcpServers(teamId: string, ids: string[]): Promise<string[] | null> {
+async function assertMcpServers(teamIds: string[], ids: string[]): Promise<string[] | null> {
   const unique = [...new Set(ids)]
   if (unique.length === 0) return null
   const rows = await db
     .select({ id: mcpServers.id })
     .from(mcpServers)
-    .where(and(eq(mcpServers.teamId, teamId), inArray(mcpServers.id, unique)))
+    .where(and(inArray(mcpServers.teamId, teamIds), inArray(mcpServers.id, unique)))
   if (rows.length !== unique.length) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Unknown MCP server for this team` })
   }

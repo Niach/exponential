@@ -265,6 +265,10 @@ pub trait DialLink: 'static {
     fn set_muted(&self, muted: bool);
     /// Hang up (`call_end`).
     fn end(&self);
+    /// #EXP-2017: hang up after this side's own failure: `call_end {reason:
+    /// dropped}` (voice-call.json `caller`: the host learns it from the
+    /// caller, not from the relay's guess).
+    fn fail(&self);
 }
 
 /// EXP-1857: a dialled call, connected.

@@ -1,0 +1,60 @@
+---
+title: Agent spaces
+description: "On Exponential Desktop a session with Computer use works in an agent space: a desktop of its own beside yours, which you can watch and close."
+---
+
+With **Computer use** on, a session on Exponential Desktop works in an **agent space**: a desktop of its own, with its own screen, keyboard, pointer and clipboard. Nothing in it reaches yours. You keep your keyboard and pointer while the agent works.
+
+## Where agents work
+
+**Device settings › Work screen** picks it for each device:
+
+| Work screen | Agents work |
+|---|---|
+| **Auto · Agent space** | in an agent space while this desktop offers one. Where none is offered (macOS, Windows, other Linux desktops) Auto stays your screen, as before. |
+| **Agent space only** | in an agent space, never on your screen. While none is offered, agents do nothing on this device and the composer offers no Computer use. |
+| **Display n** | on that display of your screen, never in a space. |
+
+A change of the pick applies from a session's next start.
+
+## What a space is
+
+- **One per session.** Every session gets its own space, a child session too. A space lives as long as its session, so the next message finds the apps the agent left open. A chat never ends by itself: its space stays until you delete the chat, switch Computer use off, log out, or close the space.
+- **Apps start signed out.** A space has a profile of its own: its own browser profile, keyring and caches, none of yours. What an agent signs into there stays signed in until its space closes; then it is gone.
+- **You can watch it.** While a space is open, the taskbar shows the **Agent spaces** button. Its list has one row per space with the session's title (`Agent space n` when this desktop cannot read it): press a row to pin a live view of it, or close the space from its row. The person at this computer can watch every space on it, a teammate's session's too. The view is only a view: nothing you do on it reaches the space.
+- **Closing a space** ends what runs in it, not its session: the agent's next step starts in a new, empty space.
+- **Its limits.** All spaces together get half of the cores and half of the memory, one space at most 30 % of the memory, and there is one space per GiB of that memory at most (32 on any machine). When the desktop is full, the space unused longest closes for a new one; a space that is in use or whose session is working never does. A space over its memory limit loses its biggest program at once, inside the space, and no space swaps. `[spaces]` in `~/.config/exponential-desktop/compositor.toml` sets the limits:
+
+```toml
+[spaces]
+# max = 8             # spaces at once; unset = one per GiB of memory_max, at most 32
+launches = 32         # programs one space may have launched at once
+cpu_quota = 50        # percent of all cores, for all spaces together
+memory_max = 50       # percent of the memory, for all spaces together
+space_memory_max = 30 # percent of the memory for one space (at least 2 GiB)
+tasks_max = 4096      # processes and threads of one space
+```
+
+## Ready, or why not
+
+Device settings show the row **Agent space** under **Computer use**:
+
+| The row | Why |
+|---|---|
+| **Ready** | This desktop gives a session an agent space. |
+| **Needs Exponential Desktop** | An X11 desktop that is not Exponential Desktop. |
+| **Update Exponential Desktop** | An Exponential Desktop from before agent spaces. |
+| **Not available here** | No systemd user manager, the space guard or polkit's rule missing, or a space whose session did not start. `exponential doctor` names the cause. |
+| **Not responding** | Exponential Desktop did not answer for three checks in a row. |
+
+With **Agent space only** picked and no space offered, the Computer use row itself says why (for example *Agent space · Update Exponential Desktop*).
+
+## A space is not a sandbox
+
+A space guards against accidents, not against a program that works at it. Its programs run as your user. The space guard keeps them off your microphone, camera, radio switches and input devices, the system bus and your session's sockets, and polkit refuses them every action. What it does not do:
+
+- **One user, no wall.** A program in a space can still move itself into another of your cgroups, use a file descriptor passed in from outside, or read and write your files.
+- **A space's X11 apps** are drawn by an Xwayland of the space's that runs outside the space's limits.
+- **GPU time and disk** are shared with your apps; a busy space can slow them.
+- **Sound**: a snap in a space can play sound on your speakers.
+- **An edited taskbar**: if you or an agent changed `~/.config/exponential-desktop/ui/taskbar.json`, your copy stays and the **Agent spaces** button is not in it. Take the button from the factory copy, `/usr/share/exponential-desktop/ui/taskbar.json`.

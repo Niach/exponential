@@ -4,12 +4,23 @@
 //! socket does not take waits in the connection's own queue, its next call
 //! is served once that queue is empty, and a client that lets [`OUT_MAX`]
 //! writes pile up (it stopped reading its events) is dropped.
+//!
+//! #EDE-172, channels: a connection can hold its grant from the start (one
+//! the compositor made: [`Ede::ipc_insert_channel`], `--control-fd`, an
+//! `open_channel` reply's descriptor) and says hello without a token. A
+//! child opened on a channel is bound: its token is never taken at hello
+//! (the reply carries it as the grant's id), and its connections end when
+//! it is revoked, or when its parent is (or loses its last connection).
+//! Until eDE's flip the root grant stays a bearer in its file.
 
 use std::{
     io::{Read, Write},
-    os::unix::{
-        fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
-        net::{UnixListener, UnixStream},
+    os::{
+        fd::OwnedFd,
+        unix::{
+            fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
+            net::{UnixListener, UnixStream},
+        },
     },
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
@@ -42,6 +53,9 @@ pub const ROOT_SESSION: &str = "exponential-shell";
 #[derive(Debug, Default)]
 pub struct Ipc {
     pub grants: Vec<Grant>,
+    /// #EDE-172: the bound grants (by their token, which is their id) and
+    /// the grant each was opened on.
+    bound: std::collections::HashMap<Token, Bound>,
     clients: Vec<Conn>,
     next_client: u64,
     next_event: u64,
@@ -51,10 +65,31 @@ pub struct Ipc {
     pub shortcuts: crate::shortcuts::Shortcuts,
 }
 
+/// A bound grant (#EDE-172): never taken by its token, it lives on its
+/// connections.
+#[derive(Debug, Clone)]
+struct Bound {
+    /// The grant it was opened on; it ends with that one.
+    parent: Token,
+}
+
+/// One write a connection has waiting: bytes, and a descriptor that goes
+/// with their first byte (an `open_channel` reply's).
+#[derive(Debug)]
+struct Out {
+    bytes: Vec<u8>,
+    fd: Option<OwnedFd>,
+}
+
 #[derive(Debug)]
 struct Conn {
     id: u64,
     writer: UnixStream,
+    /// #EDE-172: it holds its grant (`token`) from the start: its hello
+    /// names none, and may not name another.
+    channel: bool,
+    /// The descriptor the reply being made goes out with.
+    pending_fd: Option<OwnedFd>,
     inbuf: Vec<u8>,
     /// Whole frames not served yet: they wait while a call's reply is
     /// deferred (a clipboard read), so replies keep the calls' order.
@@ -67,7 +102,7 @@ struct Conn {
     subscribed: bool,
     dead: bool,
     /// What the socket did not take yet; the first one is sent up to `out_at`.
-    out: std::collections::VecDeque<Vec<u8>>,
+    out: std::collections::VecDeque<Out>,
     out_at: usize,
     /// A writable source drains `out`.
     flushing: bool,
@@ -82,10 +117,17 @@ impl Conn {
 
     /// Writes what the socket takes now. `Ok(true)` = nothing is left.
     fn write_out(&mut self) -> std::io::Result<bool> {
-        while let Some(front) = self.out.front() {
-            match (&self.writer).write(&front[self.out_at..]) {
+        while let Some(front) = self.out.front_mut() {
+            let wrote = match front.fd.take() {
+                // Its first byte carries the descriptor; once a byte went,
+                // so did the descriptor (ours closes here).
+                Some(fd) => send_with_fd(&self.writer, &front.bytes[self.out_at..], &fd).inspect_err(|_| front.fd = Some(fd)),
+                None => (&self.writer).write(&front.bytes[self.out_at..]),
+            };
+            let len = front.bytes.len();
+            match wrote {
                 Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
-                Ok(n) if self.out_at + n == front.len() => {
+                Ok(n) if self.out_at + n == len => {
                     self.out.pop_front();
                     self.out_at = 0;
                 }
@@ -99,12 +141,49 @@ impl Conn {
     }
 }
 
+/// `bytes` with `fd` (`SCM_RIGHTS`) on their first byte.
+fn send_with_fd(stream: &UnixStream, bytes: &[u8], fd: &OwnedFd) -> std::io::Result<usize> {
+    use smithay::reexports::rustix::net::{sendmsg, SendAncillaryBuffer, SendAncillaryMessage, SendFlags};
+    use std::os::fd::AsFd;
+    let mut space = [std::mem::MaybeUninit::uninit(); smithay::reexports::rustix::cmsg_space!(ScmRights(1))];
+    let mut control = SendAncillaryBuffer::new(&mut space);
+    let fds = [fd.as_fd()];
+    if !control.push(SendAncillaryMessage::ScmRights(&fds)) {
+        return Err(std::io::Error::other("no room for the descriptor"));
+    }
+    Ok(sendmsg(stream, &[std::io::IoSlice::new(bytes)], &mut control, SendFlags::NOSIGNAL | SendFlags::DONTWAIT)?)
+}
+
 impl Drop for Ipc {
     fn drop(&mut self) {
         for p in &self.paths {
             let _ = std::fs::remove_file(p);
         }
     }
+}
+
+/// #EDE-172 (3.6), `--control-fd N`: the connection a test's parent handed
+/// over; it holds the root grant once the socket listens.
+static CONTROL_FD: std::sync::Mutex<Option<OwnedFd>> = std::sync::Mutex::new(None);
+/// `--test-token-file PATH` (headless and nested only): the root token is
+/// written there too (0600), for scripts that drive a test compositor.
+static TEST_TOKEN_FILE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// `--control-fd N`: `fd` becomes a root channel when the socket listens.
+pub fn hand_control_fd(fd: OwnedFd) {
+    *CONTROL_FD.lock().unwrap_or_else(|p| p.into_inner()) = Some(fd);
+}
+
+/// `--test-token-file PATH`: the root token goes to `path` too.
+pub fn write_test_token_to(path: PathBuf) {
+    *TEST_TOKEN_FILE.lock().unwrap_or_else(|p| p.into_inner()) = Some(path);
+}
+
+/// A root token file at `path`, 0600, written anew.
+fn write_token_file(path: &Path, token: &Token) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(path);
+    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    f.write_all(token.as_str().as_bytes())
 }
 
 pub(crate) fn now_ms() -> i64 {
@@ -143,6 +222,45 @@ impl Ipc {
         self.grants.iter().find(|g| &g.token == token)
     }
 
+    /// #EDE-172: a bound grant's token is its id, never a way in.
+    pub fn is_bound(&self, token: &Token) -> bool {
+        self.bound.contains_key(token)
+    }
+
+    /// `root` and every grant opened on it, at any depth (`root` first).
+    fn lineage(&self, root: &Token) -> Vec<Token> {
+        let mut out = vec![root.clone()];
+        let mut i = 0;
+        while i < out.len() {
+            let parent = out[i].clone();
+            out.extend(self.bound.iter().filter(|(_, b)| b.parent == parent).map(|(t, _)| t.clone()));
+            i += 1;
+        }
+        out
+    }
+
+    /// Ends `tokens`' grants and kills the connections holding them (the
+    /// connections' own drop releases what they held). Bound entries of
+    /// grants that are gone otherwise (expired) go too.
+    fn end_grants(&mut self, tokens: &[Token]) {
+        self.grants.retain(|g| !tokens.contains(&g.token));
+        self.bound.retain(|t, _| !tokens.contains(t));
+        let live: std::collections::HashSet<Token> = self.grants.iter().map(|g| g.token.clone()).collect();
+        self.bound.retain(|t, _| live.contains(t));
+        for c in self.clients.iter_mut().filter(|c| c.channel && c.token.as_ref().is_some_and(|t| tokens.contains(t))) {
+            c.kill();
+        }
+    }
+
+    /// Ends the bound grants opened on `parent` and theirs, with their
+    /// connections; `parent` itself stays.
+    fn end_children(&mut self, parent: &Token) {
+        let children: Vec<Token> = self.lineage(parent).into_iter().skip(1).collect();
+        if !children.is_empty() {
+            self.end_grants(&children);
+        }
+    }
+
     pub(crate) fn next_event_id(&mut self) -> u64 {
         self.next_event += 1;
         self.next_event
@@ -177,10 +295,18 @@ impl Ede {
         let _ = std::fs::remove_file(&socket);
         let listener = UnixListener::bind(&socket)?;
         let token_file = ede_protocol::token_path(runtime_dir, wayland_display);
-        let _ = std::fs::remove_file(&token_file);
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&token_file)?;
-        f.write_all(self.ipc.root_grant().token.as_str().as_bytes())?;
+        let root = self.ipc.root_grant().token;
+        write_token_file(&token_file, &root)?;
         self.ipc.paths = vec![socket.clone(), token_file];
+        if let Some(path) = TEST_TOKEN_FILE.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            write_token_file(&path, &root)?;
+            self.ipc.paths.push(path);
+        }
+        if let Some(fd) = CONTROL_FD.lock().unwrap_or_else(|p| p.into_inner()).take() {
+            if !self.ipc_insert_root_channel(UnixStream::from(fd)) {
+                tracing::warn!("--control-fd: the connection could not be served");
+            }
+        }
 
         listener.set_nonblocking(true)?;
         self.loop_handle
@@ -196,13 +322,35 @@ impl Ede {
 
     /// Serves one connection (the socket's, or a test's socketpair).
     pub fn ipc_insert(&mut self, stream: UnixStream) {
-        if stream.set_nonblocking(true).is_err() {
-            return;
+        self.ipc_insert_holding(stream, None);
+    }
+
+    /// #EDE-172: serves a connection that holds the grant `token` from the
+    /// start (a channel): its hello names no token. `false` = no such grant,
+    /// or the connection could not be served.
+    pub fn ipc_insert_channel(&mut self, stream: UnixStream, token: &Token) -> bool {
+        if self.ipc.grant(token).is_none() {
+            return false;
         }
-        let Ok(reader) = stream.try_clone() else { return };
+        self.ipc_insert_holding(stream, Some(token.clone())).is_some()
+    }
+
+    /// #EDE-172 (`--control-fd`, a test's channel): a connection holding
+    /// the root grant from the start.
+    pub fn ipc_insert_root_channel(&mut self, stream: UnixStream) -> bool {
+        let root = self.ipc.root_grant().token;
+        self.ipc_insert_channel(stream, &root)
+    }
+
+    fn ipc_insert_holding(&mut self, stream: UnixStream, held: Option<Token>) -> Option<u64> {
+        if stream.set_nonblocking(true).is_err() {
+            return None;
+        }
+        let Ok(reader) = stream.try_clone() else { return None };
         let id = self.ipc.next_client;
         self.ipc.next_client += 1;
-        self.ipc.clients.push(Conn { id, writer: stream, inbuf: Vec::new(), queued: Default::default(), busy: None, token: None, scope: None, subscribed: false, dead: false, out: Default::default(), out_at: 0, flushing: false });
+        let scope = held.as_ref().and_then(|t| self.ipc.grant(t)).map(Scope::of);
+        self.ipc.clients.push(Conn { id, writer: stream, channel: held.is_some(), pending_fd: None, inbuf: Vec::new(), queued: Default::default(), busy: None, token: held, scope, subscribed: false, dead: false, out: Default::default(), out_at: 0, flushing: false });
         let inserted = self.loop_handle.insert_source(Generic::new(reader, Interest::READ, Mode::Level), move |_, reader, state| {
             let mut buf = [0u8; 65536];
             let mut r: &UnixStream = reader;
@@ -219,7 +367,9 @@ impl Ede {
         });
         if inserted.is_err() {
             self.ipc.clients.retain(|c| c.id != id);
+            return None;
         }
+        Some(id)
     }
 
     /// A connection went; its hold and what it pressed go with it, the
@@ -230,7 +380,16 @@ impl Ede {
         // never from its grant: a foreground run revokes its grant before
         // its hold connection drops, and the hold must still end here.
         let scope = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.scope.clone()).unwrap_or(Scope::Person);
+        let held = self.ipc.clients.iter().find(|c| c.id == id && c.channel).and_then(|c| c.token.clone());
         self.ipc.clients.retain(|c| c.id != id);
+        // #EDE-172: a bound grant lives on its connections; with the last
+        // one it ends, and what was opened on it with it.
+        if let Some(token) = held.filter(|t| self.ipc.is_bound(t)) {
+            if !self.ipc.clients.iter().any(|c| !c.dead && c.token.as_ref() == Some(&token)) {
+                let lineage = self.ipc.lineage(&token);
+                self.ipc.end_grants(&lineage);
+            }
+        }
         self.ipc.shortcuts.drop_client(id);
         if let Some(desk) = self.desk_of_scope(&scope) {
             self.release_driven(desk, id);
@@ -269,6 +428,10 @@ impl Ede {
                 }
             };
             let (call_id, outcome) = match serde_json::from_slice::<Call>(&frame) {
+                // #EXP-1514: a compositor that makes no spaces reads the op as
+                // an older one does (it cannot parse it): its hello does
+                // not say `space-readiness`.
+                Ok(Call { request: Request::SpaceReadiness, .. }) if !self.says_space_readiness() => (0, Err(fail(ErrorCode::Invalid, "unknown variant `space_readiness`"))),
                 Ok(call) => {
                     // Busy before the call runs (#EDE-74): a deferred read
                     // that finishes inside it (the selection's owner is
@@ -285,10 +448,13 @@ impl Ede {
                 Ok(Some((result, extra))) => (Message::Reply { id: call_id, result }, extra),
                 Err(error) => (Message::Error { id: call_id, error }, None),
             };
+            // #EDE-172: an `open_channel` reply's descriptor goes with it.
+            let mut fd = None;
             if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
                 conn.busy = None;
+                fd = conn.pending_fd.take().filter(|_| matches!(message, Message::Reply { .. }));
             }
-            if !self.ipc_send(id, &message, extra) {
+            if !self.ipc_send_with(id, &message, extra, fd) {
                 return false;
             }
         }
@@ -298,16 +464,22 @@ impl Ede {
     /// The reply to a call [`Ede::ipc_call`] deferred; the connection's
     /// next calls are served after it.
     pub(crate) fn ipc_reply_later(&mut self, id: u64, call_id: u64, outcome: Result<serde_json::Value, Failure>) {
+        self.ipc_reply_later_with(id, call_id, outcome.map(|result| (result, None)));
+    }
+
+    /// [`Self::ipc_reply_later`] with a capture's pixels (#EDE-162: a
+    /// space's capture that waited its turn).
+    pub(crate) fn ipc_reply_later_with(&mut self, id: u64, call_id: u64, outcome: Result<(serde_json::Value, Option<Vec<u8>>), Failure>) {
         let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return };
         if conn.busy != Some(call_id) {
             return;
         }
         conn.busy = None;
-        let message = match outcome {
-            Ok(result) => Message::Reply { id: call_id, result },
-            Err(error) => Message::Error { id: call_id, error },
+        let (message, extra) = match outcome {
+            Ok((result, extra)) => (Message::Reply { id: call_id, result }, extra),
+            Err(error) => (Message::Error { id: call_id, error }, None),
         };
-        if !self.ipc_send(id, &message, None) || !self.ipc_serve(id) {
+        if !self.ipc_send(id, &message, extra) || !self.ipc_serve(id) {
             if let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
                 conn.kill();
             }
@@ -318,6 +490,11 @@ impl Ede {
     /// takes now; the rest goes out as it drains. `false` = the connection
     /// is gone (or was dropped: [`OUT_MAX`]).
     pub(crate) fn ipc_send(&mut self, id: u64, message: &Message, extra: Option<Vec<u8>>) -> bool {
+        self.ipc_send_with(id, message, extra, None)
+    }
+
+    /// [`Self::ipc_send`] with `fd` on the message's first byte (#EDE-172).
+    fn ipc_send_with(&mut self, id: u64, message: &Message, extra: Option<Vec<u8>>, mut fd: Option<OwnedFd>) -> bool {
         let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id && !c.dead) else { return false };
         let json = serde_json::to_vec(message).expect("messages serialize");
         if conn.out.len() >= OUT_MAX || json.len() > MAX_FRAME || extra.as_ref().is_some_and(|b| b.len() > MAX_FRAME) {
@@ -325,9 +502,9 @@ impl Ede {
             return false;
         }
         for bytes in std::iter::once(json).chain(extra) {
-            conn.out.push_back((bytes.len() as u32).to_le_bytes().to_vec());
+            conn.out.push_back(Out { bytes: (bytes.len() as u32).to_le_bytes().to_vec(), fd: fd.take() });
             if !bytes.is_empty() {
-                conn.out.push_back(bytes);
+                conn.out.push_back(Out { bytes, fd: None });
             }
         }
         match conn.write_out() {
@@ -395,11 +572,21 @@ impl Ede {
     fn ipc_call(&mut self, id: u64, call_id: u64, request: Request) -> Result<Option<(serde_json::Value, Option<Vec<u8>>)>, Failure> {
         let now = now_ms();
         let token = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.token.clone());
-        if let Request::Hello { version, token } = &request {
+        let channel = self.ipc.clients.iter().any(|c| c.id == id && c.channel);
+        if let Request::Hello { version, token: named } = &request {
             if *version != PROTOCOL_VERSION {
                 return Err(fail(ErrorCode::Invalid, &format!("this compositor speaks ede-protocol v{PROTOCOL_VERSION}")));
             }
-            let grant = self.ipc.grant(token).filter(|g| g.expires_at.is_none_or(|e| now < e)).cloned();
+            // #EDE-172: a channel holds its grant already and names no
+            // other; a bound grant is never taken by its token.
+            let held = match (named, channel) {
+                (None, true) => token.clone(),
+                (Some(_), true) => return Err(fail(ErrorCode::Forbidden, "this connection holds its grant: say hello without a token")),
+                (None, false) => return Err(fail(ErrorCode::Unauthorized, "say hello with a token")),
+                (Some(named), false) if self.ipc.is_bound(named) => return Err(fail(ErrorCode::Unauthorized, "a bound grant is held by its connections, never by its token")),
+                (Some(named), false) => Some(named.clone()),
+            };
+            let grant = held.and_then(|t| self.ipc.grant(&t).cloned()).filter(|g| g.expires_at.is_none_or(|e| now < e));
             let Some(grant) = grant else { return Err(fail(ErrorCode::Unauthorized, "unknown or expired token")) };
             let scope = Scope::of(&grant);
             if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
@@ -409,8 +596,20 @@ impl Ede {
                 c.token = Some(grant.token.clone());
                 c.scope = Some(scope);
             }
-            let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id, features: self.spaces.dir.iter().map(|_| ede_protocol::FEATURE_SPACES.to_string()).collect() };
-            return Ok(Some((serde_json::to_value(hello).unwrap(), None)));
+            let mut features: Vec<String> = self.spaces.dir.iter().map(|_| ede_protocol::FEATURE_SPACES.to_string()).collect();
+            // #EXP-1514 (#EXP-2011, the flip): what offers a space to people.
+            if self.says_space_readiness() {
+                features.push(ede_protocol::FEATURE_SPACE_READINESS.to_string());
+            }
+            let named = named.is_some();
+            let id_of = grant.token.clone();
+            let hello = Hello { version: PROTOCOL_VERSION, capabilities: grant.capabilities, session_id: grant.session_id, features, unknown_capabilities: vec![] };
+            let mut hello = serde_json::to_value(hello).unwrap();
+            // #EDE-172: a channel learns which grant it holds (a bound one's id).
+            if !named {
+                hello["grant"] = serde_json::Value::String(id_of.as_str().to_string());
+            }
+            return Ok(Some((hello, None)));
         }
         let Some(grant) = token.and_then(|t| self.ipc.grant(&t).cloned()) else {
             return Err(fail(ErrorCode::Unauthorized, "say hello with a valid token first"));
@@ -420,7 +619,7 @@ impl Ede {
         }
         // #EDE-126: a space connection never reaches the arms below.
         let (desk, request) = if let Some(Scope::Space(session)) = self.ipc.clients.iter().find(|c| c.id == id).and_then(|c| c.scope.clone()) {
-            match self.space_scope_call(&session, &grant, now, request)? {
+            match self.space_scope_call(&session, &grant, now, request, crate::spaces::scope::Caller { conn: id, call: call_id })? {
                 Scoped::Reply(reply) => return Ok(reply),
                 // #EDE-125: the few ops whose arm below takes any desk.
                 Scoped::Through(desk, request) => {
@@ -507,7 +706,7 @@ impl Ede {
                 // window capture is always drawn (a parked window's commits
                 // are never presented, #EDE-100).
                 if since == Some(self.frame_serial) && matches!(target, CaptureTarget::Output { .. }) {
-                    let info = CaptureInfo { width: 0, height: 0, stride: 0, format: "argb8888".into(), serial: self.frame_serial, unchanged: true };
+                    let info = CaptureInfo { width: 0, height: 0, stride: 0, format: "argb8888".into(), serial: self.frame_serial, unchanged: true, notice: None };
                     return Ok(Some((serde_json::to_value(info).unwrap(), None)));
                 }
                 let frame = match target {
@@ -519,7 +718,7 @@ impl Ede {
                     CaptureTarget::Space { .. } if !grant.admits(Capability::System, now) => return Err(fail(ErrorCode::Forbidden, "another's space needs the system capability")),
                     CaptureTarget::Space { space } => {
                         let desk = self.spaces.iter().find(|s| s.id == space).map(|s| s.desk.id).ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))?;
-                        return self.space_capture(desk, since);
+                        return self.space_capture(desk, since, crate::spaces::scope::Caller { conn: id, call: call_id }, false);
                     }
                     CaptureTarget::Window { window } => {
                         // A parked or minimized window still has its last
@@ -532,7 +731,7 @@ impl Ede {
                     }
                 }
                 .map_err(|e| fail(ErrorCode::Internal, &e))?;
-                let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into(), serial: self.frame_serial, unchanged: false };
+                let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into(), serial: self.frame_serial, unchanged: false, notice: None };
                 let bytes = frame.pixels.iter().flat_map(|p| p.to_le_bytes()).collect();
                 Ok(Some((serde_json::to_value(info).unwrap(), Some(bytes))))
             }
@@ -630,11 +829,26 @@ impl Ede {
                 json(serde_json::to_value(minted).unwrap())
             }
             Request::RevokeGrant { token } => {
+                // #EDE-172: `system` ends any grant; a holder ends its own
+                // and what was opened on it (asked before the lookup: no
+                // other grant's existence shows).
+                if !grant.admits(Capability::System, now) && !self.ipc.lineage(&grant.token).contains(&token) {
+                    return Err(fail(ErrorCode::Forbidden, "needs the system capability, or a grant opened on the caller's"));
+                }
                 let g = self.ipc.grant(&token).ok_or_else(|| fail(ErrorCode::NotFound, "no such grant"))?;
                 if g.session_id.as_str() == ROOT_SESSION {
                     return Err(fail(ErrorCode::Forbidden, "the root grant lives as long as the compositor"));
                 }
                 let scope = Scope::of(g);
+                // #EDE-172: what was opened on it ends with it, connections
+                // and all; a bound grant's own connections too (a bearer
+                // grant's keep what they hold until they drop).
+                if self.ipc.is_bound(&token) {
+                    let lineage = self.ipc.lineage(&token);
+                    self.ipc.end_grants(&lineage);
+                } else {
+                    self.ipc.end_children(&token);
+                }
                 self.ipc.grants.retain(|g| g.token != token);
                 // #EDE-125: a space ends with its session's last space grant.
                 if let Scope::Space(session) = scope {
@@ -656,8 +870,65 @@ impl Ede {
                 json(serde_json::Value::Null)
             }
             // Only a space grant has a space to make or to launch into.
-            Request::CreateSpace { .. } | Request::Launch { .. } => Err(fail(ErrorCode::Forbidden, "a space grant only")),
+            Request::CreateSpace { .. } | Request::Launch { .. } | Request::SpaceBusy => Err(fail(ErrorCode::Forbidden, "a space grant only")),
+            // #EDE-127: the polkit agent asks before it shows the person a prompt.
+            Request::SpaceOfProcess { pid } => json(serde_json::to_value(self.process_answer(pid)).unwrap()),
+            // #EXP-1514 (#EXP-2011, the flip): from what holds now (`spaces::readiness`).
+            Request::SpaceReadiness => json(serde_json::to_value(self.space_readiness_reply()).unwrap()),
+            Request::OpenChannel { session_id, capabilities, expires_at } => {
+                let opened = self.ipc_open_channel(&grant, session_id, capabilities, expires_at, now)?;
+                let (ours, theirs) = UnixStream::pair().map_err(|e| fail(ErrorCode::Internal, &e.to_string()))?;
+                if !self.ipc_insert_channel(ours, &opened.token) {
+                    if opened.token != grant.token {
+                        self.ipc.end_grants(std::slice::from_ref(&opened.token));
+                    }
+                    return Err(fail(ErrorCode::Internal, "the channel could not be served"));
+                }
+                if let Some(c) = self.ipc.clients.iter_mut().find(|c| c.id == id) {
+                    c.pending_fd = Some(OwnedFd::from(theirs));
+                }
+                json(serde_json::to_value(opened).unwrap())
+            }
         }
+    }
+
+    /// #EDE-172: the grant an `open_channel` call's connection holds: the
+    /// caller's own (`session_id` none, exactly what it holds), or a bound
+    /// child of it holding no more and expiring no later.
+    fn ipc_open_channel(&mut self, grant: &Grant, session_id: Option<SessionId>, capabilities: Vec<Capability>, expires_at: Option<i64>, now: i64) -> Result<Grant, Failure> {
+        let mut wanted = capabilities.clone();
+        wanted.sort();
+        wanted.dedup();
+        let Some(session_id) = session_id else {
+            let mut held = grant.capabilities.clone();
+            held.sort();
+            held.dedup();
+            if wanted != held || expires_at.is_some() {
+                return Err(fail(ErrorCode::Invalid, "a channel on the caller's grant holds it as it is; a narrower one names its session"));
+            }
+            return Ok(grant.clone());
+        };
+        if let Some(why) = crate::spaces::scope::mint_refused(&session_id, &wanted) {
+            return Err(fail(ErrorCode::Invalid, why));
+        }
+        if wanted.contains(&Capability::Space) {
+            return Err(fail(ErrorCode::Invalid, "a space grant is minted (mint_grant), never opened"));
+        }
+        if let Some(extra) = wanted.iter().find(|c| !grant.capabilities.contains(c)) {
+            return Err(fail(ErrorCode::Forbidden, &format!("cannot open a channel holding {}: not held", extra.as_str())));
+        }
+        if let Some(limit) = grant.expires_at {
+            if expires_at.is_none_or(|e| e > limit) {
+                return Err(fail(ErrorCode::Forbidden, "cannot outlive the grant it is opened on"));
+            }
+        }
+        if expires_at.is_some_and(|e| e <= now) {
+            return Err(fail(ErrorCode::Invalid, "expired already"));
+        }
+        let child = Grant { token: new_token(), session_id, run_id: None, capabilities: wanted, expires_at };
+        self.ipc.grants.push(child.clone());
+        self.ipc.bound.insert(child.token.clone(), Bound { parent: grant.token.clone() });
+        Ok(child)
     }
 
     /// `Request::Input` on `desk`, the desk the call resolved to, for the
@@ -739,7 +1010,7 @@ impl Ede {
         let focused = self.focused_window(DeskId::PERSON);
         self.all_windows()
             .iter()
-            .filter(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect()))
+            .filter(|w| !x11_override_redirect(w))
             .filter_map(|w| {
                 let st = crate::state::window_state(w);
                 let g = self.desk.space.element_geometry(w).or_else(|| st.parked_at.map(|at| smithay::utils::Rectangle::new(at, w.geometry().size)))?;
@@ -756,7 +1027,7 @@ impl Ede {
                     focused: focused.as_ref() == Some(w),
                     fullscreen: st.fullscreen.is_some(),
                     protected,
-                    x11: w.x11_surface().is_some(),
+                    x11: is_x11(w),
                     workspace: st.workspace,
                     minimized: st.minimized,
                     // #EDE-91: every window is on the person's desk until spaces land.
@@ -828,6 +1099,29 @@ pub fn window_id(window: &Window) -> WindowId {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
     window.user_data().get_or_insert(|| WindowId::new(format!("w{}", NEXT.fetch_add(1, Ordering::Relaxed))).unwrap()).clone()
+}
+
+/// An Xwayland window (none without the `xwayland` feature, #EDE-140).
+pub(crate) fn is_x11(window: &Window) -> bool {
+    #[cfg(feature = "xwayland")]
+    return window.x11_surface().is_some();
+    #[cfg(not(feature = "xwayland"))]
+    {
+        let _ = window;
+        false
+    }
+}
+
+/// An X11 override-redirect window (a menu, a tooltip): no window of the
+/// list.
+pub(crate) fn x11_override_redirect(window: &Window) -> bool {
+    #[cfg(feature = "xwayland")]
+    return window.x11_surface().is_some_and(|x| x.is_override_redirect());
+    #[cfg(not(feature = "xwayland"))]
+    {
+        let _ = window;
+        false
+    }
 }
 
 /// The title (else the app id, else nothing) for a frame.

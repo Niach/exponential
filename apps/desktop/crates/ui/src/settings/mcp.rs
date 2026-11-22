@@ -24,7 +24,7 @@ use api::mcp_clients::{McpActivityOut, McpClient, McpClientsOut};
 
 use crate::icons::registry;
 use crate::native_dialog::{open_alert, AlertSpec};
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 use crate::queries;
 
 use super::doc::{empty_state, hex, path, IdeToasts, Ink, SM, XS};
@@ -501,7 +501,7 @@ impl McpPane {
         if let Some(shot) = &self.shot {
             return shot.team.clone();
         }
-        active_team_id(&self.nav, cx)
+        screen_team_id(&self.nav, cx)
     }
 
     fn owner(&self, team_id: &str, cx: &App) -> bool {
@@ -1286,7 +1286,7 @@ impl McpActivityPane {
         if let Some(team) = &self.shot {
             return team.clone();
         }
-        active_team_id(&self.nav, cx)
+        screen_team_id(&self.nav, cx)
     }
 
     pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {

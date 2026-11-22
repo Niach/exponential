@@ -140,7 +140,9 @@ mod links;
 mod login;
 mod device_readiness;
 mod device_settings;
-mod devices_view;
+mod device_page;
+mod new_item_page;
+
 mod device_setup;
 mod drafts;
 mod drafts_view;
@@ -176,7 +178,6 @@ pub mod talk_host;
 mod pickers;
 // EXP-1029: the shared picker API (primitive + typed pickers, EXP-1021).
 mod picker;
-mod pins;
 mod plan_card;
 mod plan_page;
 // #EXP-1493: THE Outline + THE Mosaic (the plan page's low-level pieces).

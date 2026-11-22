@@ -1,11 +1,13 @@
 //! #EXP-1441: the UniFFI facade over eTalk for Swift (iOS, macOS) and Kotlin
-//! (Android): a phone places the same call as the desktop.
+//! (Android): the call machine Exponential's desktop, web and phones run.
 //!
 //! Shape of the contract:
 //! - The CALL MACHINE (`etalk::call`, byte-locked by
 //!   `packages/etalk/fixtures/voice-call.json`, whose `$comment` is the spec):
 //!   pure free functions over plain records. `callIdle()` → `callStep(state,
-//!   event)` → `callView(state, platform)`, `callUnavailable(input)`,
+//!   event)` → `callView(state, platform)` (its `via` names the desktop that
+//!   speaks while the call falls back, #EXP-1857), `callTarget(input)` (where
+//!   the call rings), `callUnavailable(input)`, `callTap(platform, reason)`,
 //!   `callSpeechOf(row state)`, the ring (`callRingMs`, `callAnswerMs`,
 //!   `callRingToneOn`, `callRingRandom`), `callTimer`, and the
 //!   wire form of a flow event (`callEventOfWire` for an incoming `call_event`,
@@ -26,7 +28,7 @@
 use std::sync::Mutex;
 
 use etalk::call;
-use etalk::call::{CallButton, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState, VOICE_CALL};
+use etalk::call::{CallButton, CallEvent, CallPhase, CallPlatform, CallSpeech, CallState, CallTargetDevice, VOICE_CALL};
 
 uniffi::setup_scaffolding!();
 
@@ -106,22 +108,80 @@ impl From<TalkCallSpeech> for CallSpeech {
     }
 }
 
-/// `availabilityCases` input.
+/// EXP-1857: one of the member's own desktops (EXP-1858: or servers) as
+/// [`call_target`] reads it.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TalkCallTargetDevice {
+    pub id: String,
+    pub name: String,
+    pub online: bool,
+    /// Its doctor row `speech` through [`call_speech_of`] (None = none yet).
+    pub speech: Option<TalkCallSpeech>,
+    /// A meeting runs on it.
+    pub meeting: bool,
+}
+
+impl From<TalkCallTargetDevice> for CallTargetDevice {
+    fn from(device: TalkCallTargetDevice) -> Self {
+        CallTargetDevice {
+            id: device.id,
+            name: device.name,
+            online: device.online,
+            speech: device.speech.map(Into::into),
+            meeting: device.meeting,
+        }
+    }
+}
+
+/// `targetCases` input.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TalkCallTargetInput {
+    /// THIS client's own desktop (None on phones and web).
+    pub here: Option<String>,
+    /// The called agent's Runs on device.
+    pub agent_device: Option<String>,
+    /// The member's own desktops, newest `lastSeenAt` first.
+    pub desktops: Vec<TalkCallTargetDevice>,
+    /// EXP-1858: the member's own servers (CLI daemons): a candidate only as
+    /// the agent's device, never here nor a fallback.
+    pub servers: Vec<TalkCallTargetDevice>,
+    /// A call this client does not run already runs on the target.
+    pub busy: bool,
+}
+
+/// Where a call's speech runs; `device` None = the telephone is disabled
+/// with `reason`.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TalkCallTarget {
+    pub enabled: bool,
+    pub reason: Option<String>,
+    /// The target's id and name.
+    pub device: Option<String>,
+    pub name: Option<String>,
+    /// The target is not the agent's own device: the call starts with
+    /// `fallback` (the view's `via`).
+    pub fallback: bool,
+    /// The target is this client's own desktop: it runs the call itself.
+    pub local: bool,
+}
+
+/// What a press on the telephone does (`tapCases`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct TalkCallTap {
+    pub call: bool,
+    /// A phone's tap on a disabled telephone toasts its reason.
+    pub toast: Option<String>,
+}
+
+/// `availabilityCases` input (EXP-1991): ONE desktop.
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct TalkCallAvailabilityInput {
-    /// The member has a voice Assistant (`voice.get` agentId non-null).
-    pub agent: bool,
-    pub platform: TalkCallPlatform,
-    /// The voice device's name; None = none.
-    pub device: Option<String>,
+    /// The desktop's name.
+    pub device: String,
     pub online: bool,
-    /// THIS client is the voice device.
-    pub here: bool,
     /// None = no `speech` row yet.
     pub speech: Option<TalkCallSpeech>,
-    /// A call this client does not run already runs on the voice device.
-    pub busy: bool,
-    /// A meeting runs on the voice device.
+    /// A meeting runs on it.
     pub meeting: bool,
 }
 
@@ -166,6 +226,9 @@ pub struct TalkCallState {
     /// Phones: the loudspeaker (false = the earpiece).
     pub speaker: bool,
     pub device: String,
+    /// EXP-1857: the device is not the agent's own (the view's `via`).
+    #[uniffi(default = false)]
+    pub fallback: bool,
     /// The ring's earliest answer passed.
     pub rang: bool,
     /// The voice device's warm-up is done.
@@ -186,6 +249,7 @@ impl From<CallState> for TalkCallState {
             muted: state.muted,
             speaker: state.speaker,
             device: state.device,
+            fallback: state.fallback,
             rang: state.rang,
             ready: state.ready,
             no_sound: state.no_sound,
@@ -203,7 +267,7 @@ impl From<TalkCallState> for CallState {
             muted: state.muted,
             speaker: state.speaker,
             device: state.device,
-            fallback: false,
+            fallback: state.fallback,
             rang: state.rang,
             ready: state.ready,
             no_sound: state.no_sound,
@@ -217,7 +281,14 @@ impl From<TalkCallState> for CallState {
 /// One flow event (`flowCases` events; a caller gets the host's as `call_event`).
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
 pub enum TalkCallEvent {
-    Start { device: String, language: Option<String> },
+    /// EXP-1857: `fallback` = the device is not the agent's own
+    /// ([`TalkCallTarget::fallback`]).
+    Start {
+        device: String,
+        language: Option<String>,
+        #[uniffi(default = false)]
+        fallback: bool,
+    },
     /// The ring's earliest answer ([`call_ring_ms`]) passed.
     Rang,
     /// The voice device's warm-up is done.
@@ -242,9 +313,7 @@ pub enum TalkCallEvent {
 impl From<TalkCallEvent> for CallEvent {
     fn from(event: TalkCallEvent) -> Self {
         match event {
-            // EXP-1857: the facade's start has no fallback (its hosts always
-            // speak on the agent's own device).
-            TalkCallEvent::Start { device, language } => CallEvent::Start { device, language, fallback: false },
+            TalkCallEvent::Start { device, language, fallback } => CallEvent::Start { device, language, fallback },
             TalkCallEvent::Rang => CallEvent::Rang,
             TalkCallEvent::Ready => CallEvent::Ready,
             TalkCallEvent::NoSound => CallEvent::NoSound,
@@ -267,7 +336,7 @@ impl From<TalkCallEvent> for CallEvent {
 impl From<CallEvent> for TalkCallEvent {
     fn from(event: CallEvent) -> Self {
         match event {
-            CallEvent::Start { device, language, .. } => TalkCallEvent::Start { device, language },
+            CallEvent::Start { device, language, fallback } => TalkCallEvent::Start { device, language, fallback },
             CallEvent::Rang => TalkCallEvent::Rang,
             CallEvent::Ready => TalkCallEvent::Ready,
             CallEvent::NoSound => TalkCallEvent::NoSound,
@@ -312,6 +381,9 @@ pub struct TalkCallView {
     pub activity: String,
     /// The line under the name; None = the call's timer ([`call_timer`]).
     pub status: Option<String>,
+    /// EXP-1857: `Voice on {device}` while the call falls back (a second
+    /// status line); None otherwise.
+    pub via: Option<String>,
     pub caption: String,
     pub muted: bool,
     pub speaker: bool,
@@ -368,6 +440,7 @@ pub fn call_view(state: TalkCallState, platform: TalkCallPlatform) -> Option<Tal
     call::call_view(&state.into(), platform.into()).map(|view| TalkCallView {
         activity: view.activity.to_string(),
         status: view.status,
+        via: view.via,
         caption: view.caption,
         muted: view.muted,
         speaker: view.speaker,
@@ -376,19 +449,50 @@ pub fn call_view(state: TalkCallState, platform: TalkCallPlatform) -> Option<Tal
     })
 }
 
-/// None = the telephone is enabled; Some = disabled, with the reason.
+/// None = the desktop can take the call; Some = it cannot, with the reason.
 #[uniffi::export]
 pub fn call_unavailable(input: TalkCallAvailabilityInput) -> Option<String> {
     call::call_unavailable(&call::CallAvailabilityInput {
-        agent: input.agent,
-        platform: input.platform.into(),
-        device: input.device.as_deref(),
+        device: &input.device,
         online: input.online,
-        here: input.here,
         speech: input.speech.map(Into::into),
-        busy: input.busy,
         meeting: input.meeting,
     })
+}
+
+/// EXP-1857 (`targetCases`): where a call's speech runs: the first that
+/// speaks of the agent's device (EXP-1858: a desktop or a server of the
+/// member's), the desktop you're at, the other desktops newest first. None
+/// speaks = disabled with the first candidate's reason.
+#[uniffi::export]
+pub fn call_target(input: TalkCallTargetInput) -> TalkCallTarget {
+    let devices = |devices: Vec<TalkCallTargetDevice>| -> Vec<CallTargetDevice> { devices.into_iter().map(Into::into).collect() };
+    let (desktops, servers) = (devices(input.desktops), devices(input.servers));
+    let target = call::call_target(&call::CallTargetInput {
+        here: input.here.as_deref(),
+        agent_device: input.agent_device.as_deref(),
+        desktops: &desktops,
+        servers: &servers,
+        busy: input.busy,
+    });
+    TalkCallTarget {
+        enabled: target.enabled(),
+        reason: target.reason,
+        device: target.device,
+        name: target.name,
+        fallback: target.fallback,
+        local: target.local,
+    }
+}
+
+/// #EXP-1878 (`tapCases`): a press on the telephone whose `reason` is
+/// [`call_target`]'s (None = enabled): it calls, or (a phone's tap on a
+/// disabled one) toasts the reason; web and desktop show it as the disabled
+/// control's tooltip.
+#[uniffi::export]
+pub fn call_tap(platform: TalkCallPlatform, reason: Option<String>) -> TalkCallTap {
+    let tap = call::call_tap(platform.into(), reason.as_deref());
+    TalkCallTap { call: tap.call, toast: tap.toast }
 }
 
 /// The voice device's doctor row `speech` state (None = no row yet).

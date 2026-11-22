@@ -55,7 +55,11 @@
 //! command, forwarding the browser's callback to the running shell);
 //! #EDE-57: `ede_share {action: start|run|cancel, name?, account?}` (Share a
 //! Local desktop as a team: `/sharing`); #EDE-58: `ede_chat {action: send,
-//! text}` (the desktop's own agent on a Local desktop: `/chatting`).
+//! text}` (the desktop's own agent on a Local desktop: `/chatting`);
+//! #EXP-2024: `/spaces` (the machine's agent spaces: the taskbar's Agent
+//! spaces button and list) and `/spaceView` (the ONE pinned view),
+//! `ede_space {session | null, size?}` (pins a session's view, sizes it,
+//! or unpins) and `ede_space_close {space}` (ends a space, not its session).
 //!
 //! `exponential-shell [--windowed] [--popup] [--open <document>] [--exit-after <ms>]`
 //!   --windowed    normal windows instead of layer surfaces (macOS, any desktop)
@@ -69,11 +73,15 @@
 //! the start, chat and new-issue buttons; a chat of the rail opens in eDE's
 //! chat (`exponential://session/<id>` only when the team's chat cannot),
 //! `ede_launch {new: issue}` hands off (`exponential://new-issue`);
-//! `EDE_SHELL_DEMO_TRAY=1` adds the demo's inbox entries and Needs you.
+//! `EDE_SHELL_DEMO_TRAY=1` adds the demo's inbox entries and Needs you;
+//! `EDE_SHELL_DEMO_SPACES=list|view` three sample agent spaces, their list
+//! open or the first one's view pinned (#EXP-2024).
 
 mod accounts;
 mod chat;
 mod chat_files;
+mod chat_rows;
+mod captures;
 mod chats;
 mod cli_setup;
 mod engine;
@@ -87,6 +95,7 @@ mod settings;
 mod settings_pages;
 mod share;
 mod sealed;
+mod spaces;
 mod start_menu;
 mod system;
 mod team_chat;
@@ -252,6 +261,39 @@ impl Notifications {
         self.toasts.retain(|x| *x != id);
         before != self.list.len()
     }
+
+    /// #EDE-196: a press on desktop notification `id` as the freedesktop
+    /// spec has it. The app hears `ActionInvoked(id, key)`: the pressed
+    /// action `key` (only one it offered), or for a press on the
+    /// notification itself (`None`) its `default` action when it gave one.
+    /// Then the notification closes (`NotificationClosed(id, 2)`, the
+    /// person dismissed it), unless the app made it `resident`: then only
+    /// its toast goes and the bell keeps it. `true` when anything changed.
+    fn invoke(&mut self, dbus: Option<&dbus::Dbus>, id: u32, key: Option<&str>) -> bool {
+        let Some(n) = self.list.iter().find(|n| n.id == id) else { return false };
+        let action = match key {
+            Some(key) => n.has_action(key).then_some(key),
+            None => n.has_action(dbus::DEFAULT_ACTION).then_some(dbus::DEFAULT_ACTION),
+        };
+        if key.is_some() && action.is_none() {
+            tracing::warn!(id, key, "a press on an action the notification does not offer");
+            return false;
+        }
+        let resident = n.resident;
+        if let (Some(d), Some(action)) = (dbus, action) {
+            d.action_invoked(id, action);
+        }
+        if resident {
+            let before = self.toasts.len();
+            self.toasts.retain(|x| *x != id);
+            return before != self.toasts.len();
+        }
+        self.remove(id);
+        if let Some(d) = dbus {
+            d.notification_closed(id, 2);
+        }
+        true
+    }
 }
 
 /// What the hosted-popups hook reports: a document's hosted layers.
@@ -285,14 +327,21 @@ struct Shell {
     menu_apps: Vec<StartMenuApp>,
     /// The compositor's last window list (ede-protocol), to shape `/windows`.
     windows: Vec<ede_protocol::WindowInfo>,
-    /// Live thumbnails by window id, refreshed by the capture thread while
+    /// Live thumbnails by window id, refreshed by the capture loop while
     /// the switcher or the previews are open.
     thumbnails: HashMap<String, String>,
-    /// The windows the capture thread photographs.
-    capture_ids: Arc<Mutex<Vec<String>>>,
-    /// The thumbnail thread runs while this is set.
-    capturing: thumbs::Captures,
-    thumbs_tx: mpsc::Sender<(String, String)>,
+    /// #EXP-2024: THE capture loop's plan and asks (`captures.rs`): the
+    /// windows and agent spaces it photographs, derived from what is open.
+    captures: Arc<captures::Shared>,
+    /// #EXP-2024: the machine's agent spaces, their titles and pictures, the pinned view.
+    spaces: spaces::Spaces,
+    /// The screen is locked (`session.locked` / `session.unlocked`): nothing is captured.
+    locked: bool,
+    /// The first person output's x, y, width, height (a fullscreen window over it covers the view).
+    first_output: Option<(i32, i32, i32, i32)>,
+    /// #EXP-2024: when each layer document last opened (a counter): a later
+    /// top layer lies above an earlier one.
+    layers_opened: HashMap<String, u64>,
     /// The OSD closes when this passes.
     osd_until: Option<Instant>,
     /// #EDE-89: when each popup document last opened (epoch ms, the clock of
@@ -303,6 +352,10 @@ struct Shell {
     notifications: Notifications,
     /// #EDE-65: Needs you across the accounts' teams (the tray button, needs-you.json).
     needs_you: Vec<inbox::NeedsYouItem>,
+    /// #EDE-141: the tray's read of the accounts' stores runs off the main
+    /// loop, one at a time; a refresh asked for meanwhile runs after it.
+    tray_reading: bool,
+    tray_again: bool,
     /// When the shell started (epoch ms): only inbox entries since then toast.
     started_ms: i64,
     /// `EDE_SHELL_DEMO`: the sample data, nothing leaves the shell.
@@ -350,14 +403,18 @@ struct Shell {
     chat_menu_selected: usize,
     /// The chat on a team: its account, team and open session.
     chat_team: Option<team_chat::TeamChat>,
-    /// The team chat's opener over the app's keyring (its account's).
-    chat_opener: Option<(String, Arc<sync::sealed::Opener>)>,
+    /// #EDE-141: the team chat's rows (its account's), opened with the
+    /// app's keyring, moved by the sync's deltas.
+    chat_rows: Option<chat_rows::ChatRows>,
     /// The team's agents' glyphs (the hosts paint `ide:agent:<id>` from it).
     chat_glyphs: AgentGlyphs,
     /// The chat document's literal composer props (placeholder, busy) as drawn.
     chat_composer: Value,
     /// #VAPP-273: the apps on the Engine (their windows and widgets).
     engine: Option<engine::SharedEngine>,
+    /// #EDE-141: the desktop agent's seats on the running apps: replaced at
+    /// every Engine boot, empty after a shutdown.
+    engine_seats: engine::exposes::Seats,
     /// #EDE-64: the apps launched in the last seconds.
     launches: system::LaunchGuard,
     /// The installed packages (the factory and the person's directories).
@@ -373,6 +430,10 @@ struct Shell {
     issue_search: u64,
     /// #EDE-92: the search's selected result (Up, Down; Enter runs it).
     menu_selection: start_menu::Selection,
+    /// #EDE-182: the Date & Time changes timedated is on (a prompt may be
+    /// open): the same change again (the zone picker's close re-fires the
+    /// zone it just picked) waits for that one instead of asking twice.
+    time_changes: Vec<settings_pages::TimeChange>,
     /// Watches while the shell lives (dropping it ends the hot reload).
     _watcher: ede_ui::Watcher,
 }
@@ -488,14 +549,8 @@ impl HostPlugin for Host {
         if !matches!(event.component_id.as_str(), "chat_composer" | "chat_home_composer") || !allowed(&self.shell.borrow(), &event.surface_id, "ede_chat") {
             return;
         }
-        let (shell, paths) = (self.shell.clone(), event.paths.clone());
-        cx.defer(move |cx| {
-            let notice = shell.borrow_mut().chat_files.stage_paths(&paths);
-            if let Some(notice) = notice {
-                failed_action(&shell, "attach", "the file", &notice, cx);
-            }
-            chat_files_changed(&shell, cx);
-        });
+        let (shell, paths, field) = (self.shell.clone(), event.paths.clone(), event.component_id.clone());
+        cx.defer(move |cx| chat_stage(&shell, &field, &paths, cx));
     }
 
     /// #EDE-65: the rail's glyphs as the IDE paints them (the agent's mark,
@@ -678,8 +733,8 @@ impl HostPlugin for Host {
                 with_ede(&self.shell, |ede| ede.logout());
             }
             "ede_power" => {
-                if let Some(action) = args.get("action").and_then(Value::as_str) {
-                    system::power(action);
+                if let Some(action) = args.get("action").and_then(Value::as_str).map(String::from) {
+                    power(&shell, action, cx);
                 }
             }
             "ede_select" => {
@@ -694,15 +749,13 @@ impl HostPlugin for Host {
                 }
             }
             // #EDE-65: a row's press; an inbox entry hands off to the Exponential app.
+            // #EDE-196: a toast's own press too: a desktop notification's default action.
             "ede_notify_open" => {
                 if let Some(key) = args.get("id").and_then(Value::as_str).map(String::from) {
                     cx.defer(move |cx| inbox_open(&shell, &key, cx));
                 } else if let Some(id) = args.get("id").and_then(Value::as_u64) {
-                    if let Some(d) = self.shell.borrow().dbus.as_ref() {
-                        d.action_invoked(id as u32, "default");
-                    }
                     cx.defer(move |cx| {
-                        notification_close(&shell, id as u32, 2, cx);
+                        notification_invoke(&shell, id as u32, None, cx);
                         close(&shell, "notification-center", cx);
                     });
                 }
@@ -722,10 +775,10 @@ impl HostPlugin for Host {
                 if let (Some(inbox_key), Some(key)) = (inbox_key, key.clone()) {
                     cx.defer(move |cx| if key == "open" { inbox_open(&shell, &inbox_key, cx) } else { inbox_mark_read(&shell, &inbox_key, cx) });
                 } else if let (Some(id), Some(key)) = (id, key) {
-                    if let Some(d) = self.shell.borrow().dbus.as_ref() {
-                        d.action_invoked(id as u32, &key);
-                    }
-                    cx.defer(move |cx| notification_close(&shell, id as u32, 2, cx));
+                    cx.defer(move |cx| notification_invoke(&shell, id as u32, Some(&key), cx));
+                } else {
+                    // #EDE-196: a press that names no notification reaches no app (it was silent).
+                    tracing::warn!(%args, "a notification action without its notification id or key");
                 }
             }
             "ede_notify_clear" => {
@@ -772,11 +825,7 @@ impl HostPlugin for Host {
                 let (domain, action) = (args.get("domain").and_then(Value::as_str).map(String::from), args.get("action").and_then(Value::as_str).map(String::from));
                 if let (Some(domain), Some(action)) = (domain, action) {
                     let call_args = args.get("args").cloned().unwrap_or_else(|| json!({}));
-                    // Off the main loop: a daemon round trip, and polkit may ask.
-                    std::thread::spawn(move || match ede_services::socket::Client::connect_default().map_err(|e| e.to_string()).and_then(|mut c| c.call(json!({"op": "call", "domain": domain, "action": action, "args": call_args}))) {
-                        Ok(v) => tracing::info!(%domain, %action, result = %v, "service"),
-                        Err(e) => tracing::warn!(%domain, %action, "service: {e}"),
-                    });
+                    service_call(&shell, domain, action, call_args, cx);
                 }
             }
             "ede_output" => {
@@ -848,6 +897,29 @@ impl HostPlugin for Host {
                     }
                 }
             }
+            // #EXP-2024: a row of the Agent spaces list pins its session's view
+            // (null unpins; `size` = "large" | "default", the view's size button).
+            "ede_space" => {
+                let session = args.get("session").and_then(Value::as_str).filter(|s| !s.is_empty()).map(String::from);
+                let large = args.get("size").and_then(Value::as_str).map(|s| s == "large");
+                cx.defer(move |cx| {
+                    let picked = session.is_some() && large.is_none();
+                    shell.borrow_mut().spaces.pin(session.as_deref(), large);
+                    // A row's press: the list makes way for the view it pinned
+                    // (as the switcher's pick closes its menu, #EDE-65).
+                    if picked {
+                        let hosted: Vec<_> = shell.borrow().surfaces.hosted_layers().into_iter().filter(|(_, owner)| owner == spaces::LIST).collect();
+                        uicore_gpui::dismiss_hosted(hosted, cx);
+                    }
+                    spaces_changed(&shell, cx);
+                });
+            }
+            // #EXP-2024: a row's Close ends that space (never its session), on the capture loop's connection.
+            "ede_space_close" => {
+                if let Some(space) = args.get("space").and_then(Value::as_str) {
+                    self.shell.borrow().captures.ask(captures::Ask::Close(space.to_string()));
+                }
+            }
             "ede_previews" => {
                 // A hover Popover's change as a function (a document from before
                 // #EDE-75, whose `open` never arrives): the event in `on_action` is the factory's.
@@ -857,7 +929,7 @@ impl HostPlugin for Host {
             }
             // #EDE-47: the settings pages the shell feeds itself (/pages); a compositor.toml key reloads it.
             "ede_settings" => match settings_pages::handle(args) {
-                Ok(reload) => {
+                Ok(settings_pages::Handled::Applied { reload }) => {
                     if reload {
                         with_ede(&self.shell, |ede| ede.call(ede_protocol::Request::ReloadConfig));
                     }
@@ -867,6 +939,8 @@ impl HostPlugin for Host {
                         refresh(&shell, cx);
                     });
                 }
+                Ok(settings_pages::Handled::Unchanged) => {}
+                Ok(settings_pages::Handled::Asks(change)) => cx.defer(move |cx| settings_time(&shell, change, cx)),
                 Err(e) => tracing::warn!("ede_settings: {e}"),
             },
             "ede_switcher" => {
@@ -1034,8 +1108,7 @@ impl HostPlugin for Host {
                         Some("attach") => chat_attach(&shell, cx),
                         Some("unattach") => {
                             if let Ok(key) = arg("key").parse::<u64>() {
-                                shell.borrow_mut().chat_files.remove(key);
-                                chat_files_changed(&shell, cx);
+                                chat_unattach(&shell, key, cx);
                             }
                         }
                         // #EDE-129 (find-in-chat.json): the header's Search in chat, the bar.
@@ -1209,6 +1282,10 @@ fn engine_boot(shell: &SharedShell, cx: &mut App) {
     if let Some(engine) = shell.borrow_mut().engine.take() {
         engine::shutdown(&engine, cx);
     }
+    // #EDE-141: the desktop agent's seats on those apps go with them (a
+    // chat that stays holds none of their stores); the boot below seats the new ones.
+    let seats = shell.borrow().engine_seats.clone();
+    seats.write().unwrap_or_else(|p| p.into_inner()).clear();
     shell.borrow_mut().team_stores = None;
     let current = shell.borrow().model.switcher.current.clone();
     let connect: Arc<dyn engine::capabilities::Connect> = Arc::new(engine::capabilities::Minted::default());
@@ -1265,6 +1342,7 @@ fn engine_boot(shell: &SharedShell, cx: &mut App) {
         }
     };
     let eng = engine::boot(apps, &stores, cx);
+    *seats.write().unwrap_or_else(|p| p.into_inner()) = engine::app_seats(&eng.borrow());
     eng.borrow_mut().window_max = {
         let s = shell.borrow();
         engine::window_max(output_size(&s))
@@ -1629,6 +1707,13 @@ fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
     if let (true, SurfaceHeader::Layer { size, .. }) = (doc.name == "switcher", &mut header) {
         size.width = Some(switcher_width(uicore_model::alt_tab_order(&shell.model).len(), out.0));
     }
+    // #EXP-2024: the pinned view is sized by the display and its space (spaces.json).
+    if let (true, SurfaceHeader::Layer { size, .. }) = (doc.name == spaces::VIEW, &mut header) {
+        if let Some((_, view)) = shell.spaces.view(first_display(shell)) {
+            size.width = Some(view.width);
+            size.height = Some(view.height);
+        }
+    }
     header
 }
 
@@ -1691,17 +1776,35 @@ fn layer_rank(doc: &Document) -> (u8, String) {
     (rank, doc.name.clone())
 }
 
-fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
-    let (header, feed) = {
-        let s = shell.borrow();
-        (header_for(&s, doc), s.feed.clone())
-    };
+/// THE document as the shell draws it (#EDE-141): the file's, without the
+/// IDE's sidebar parts, the chat's composer as `/chatting` says (its busy,
+/// placeholder and + menu are literal props), the root at the surface's
+/// size, the header it opens with. Every load goes through it: an open, an
+/// edit on disk, an output change, a composer change.
+fn as_drawn(doc: &Document, header: SurfaceHeader, chatting: Option<&Value>) -> Document {
     let mut doc = doc.clone();
     drawn(&mut doc);
-    patch_chat(&shell.borrow(), &mut doc);
+    patch_chat(chatting, &mut doc);
     size_root(&mut doc, &header);
     doc.surface = header;
-    shell.borrow_mut().surfaces.open_layer(&doc, &feed, cx);
+    doc
+}
+
+/// [`as_drawn`] on the output and `/chatting` of now.
+fn drawn_now(shell: &Shell, doc: &Document) -> Document {
+    as_drawn(doc, header_for(shell, doc), shell.feed.get("/chatting"))
+}
+
+fn open_layer(shell: &SharedShell, doc: &Document, cx: &mut App) {
+    let (doc, feed) = {
+        let s = shell.borrow();
+        (drawn_now(&s, doc), s.feed.clone())
+    };
+    if shell.borrow_mut().surfaces.open_layer(&doc, &feed, cx) {
+        let mut s = shell.borrow_mut();
+        let next = s.layers_opened.values().max().map_or(1, |n| n + 1);
+        s.layers_opened.insert(doc.name.clone(), next);
+    }
     // #EXP-1780: the chat's rows follow the newest one.
     if doc.name == "chat" {
         let view = shell.borrow().surfaces.region("chat").map(|r| r.view.clone());
@@ -1736,12 +1839,10 @@ fn apply_change(shell: &SharedShell, change: Change, cx: &mut App) {
             let open = shell.borrow().surfaces.is_open(&name);
             match (open, &doc.surface) {
                 (true, _) => {
-                    let (header, feed) = {
+                    let (doc, feed) = {
                         let s = shell.borrow();
-                        (header_for(&s, &doc), s.feed.clone())
+                        (drawn_now(&s, &doc), s.feed.clone())
                     };
-                    let mut doc = doc.clone();
-                    size_root(&mut doc, &header);
                     shell.borrow_mut().surfaces.redraw(&doc, &feed, cx);
                     tracing::info!(document = %name, "redrawn");
                 }
@@ -1843,18 +1944,19 @@ fn relayout(shell: &SharedShell, cx: &mut App) {
         names.iter().filter_map(|n| document(&s, n)).filter(|d| matches!(d.surface, SurfaceHeader::Layer { .. })).collect()
     };
     for doc in docs {
-        let (header, feed) = {
+        let (doc, feed) = {
             let s = shell.borrow();
-            (header_for(&s, &doc), s.feed.clone())
+            (relaid(&doc, header_for(&s, &doc), s.feed.get("/chatting")), s.feed.clone())
         };
-        if header == doc.surface {
-            continue;
-        }
-        let mut doc = doc;
-        size_root(&mut doc, &header);
-        doc.surface = header;
+        let Some(doc) = doc else { continue };
         shell.borrow_mut().surfaces.resize_layer(&doc, &feed, cx);
     }
+}
+
+/// An open layer document as [`relayout`] resizes it to `header`, `None`
+/// when it has that size already.
+fn relaid(doc: &Document, header: SurfaceHeader, chatting: Option<&Value>) -> Option<Document> {
+    (header != doc.surface).then(|| as_drawn(doc, header, chatting))
 }
 
 /// Mint's click on a taskbar button: launch, focus, minimize, or the
@@ -2074,14 +2176,13 @@ fn chat_local(shell: &SharedShell) -> bool {
         let ui_dir = shell.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).dir().to_path_buf();
         let mut providers: Vec<Arc<dyn emcp::server::ToolProvider>> = vec![Arc::new(engine::shell_edit::ShellEdit::new(ui_dir))];
         let mut note = engine::shell_edit::ShellEdit::note();
-        let engine = shell.borrow().engine.clone();
-        if let Some(engine) = engine {
-            let apps = engine::apps_provider(&engine.borrow(), elocal::runs::local_tools(desktop.clone()));
-            if !apps.apps.is_empty() {
-                let names: Vec<String> = apps.apps.iter().map(|a| a.server.clone()).collect();
-                note.push_str(&format!(" The apps of this desktop expose their tools as <app>__<tool> (apps: {}); a records tool reads or writes the app's own records, an action tool runs one of the exponential tools via the app.", names.join(", ")));
-                providers.push(Arc::new(apps));
-            }
+        // #EDE-141: the seats the Engine's boots replace, so this chat's
+        // tools reach the apps that run, whichever Engine booted them.
+        let seats = shell.borrow().engine_seats.clone();
+        let names: Vec<String> = seats.read().unwrap_or_else(|p| p.into_inner()).iter().map(|a| a.server.clone()).collect();
+        if !names.is_empty() {
+            note.push_str(&format!(" The apps of this desktop expose their tools as <app>__<tool> (apps: {}); a records tool reads or writes the app's own records, an action tool runs one of the exponential tools via the app.", names.join(", ")));
+            providers.push(Arc::new(engine::exposes::AppsProvider { apps: seats, exponential: elocal::runs::local_tools(desktop.clone()) }));
         }
         let host = elocal::runs::HostTools { provider: Arc::new(engine::exposes::Providers(providers)), note };
         let chat = local_runs::LocalChat::start(desktop, Some(host));
@@ -2141,7 +2242,8 @@ fn chat_setup_step(shell: &SharedShell, step: cli_setup::Step, cx: &mut App) {
 fn chatting_changed(shell: &SharedShell, cx: &mut App) {
     let demo = std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0");
     let local = !demo && chat_local(shell);
-    let team = if demo || local { None } else { team_chat(shell) };
+    // This draws the chat: whatever moved is drawn with it (#EDE-141).
+    let team = if demo || local { None } else { team_chat_rows(shell, true).map(|(chat, rows, _)| (chat, rows)) };
     // The open session's CLI (the `/` menu's builtins), `None` = the CLI default.
     let (mut input, no_cli, cli, prompts, members) = {
         let s = shell.borrow();
@@ -2262,22 +2364,21 @@ fn chat_composer(shell: &SharedShell, composer: &uicore_model::chat::ChatCompose
     if !shell.borrow().surfaces.is_open("chat") {
         return;
     }
-    let Some(mut doc) = document(&shell.borrow(), "chat") else { return };
-    patch_chat(&shell.borrow(), &mut doc);
-    let header = header_for(&shell.borrow(), &doc);
-    size_root(&mut doc, &header);
-    doc.surface = header;
-    let feed = shell.borrow().feed.clone();
+    let Some(doc) = document(&shell.borrow(), "chat") else { return };
+    let (doc, feed) = {
+        let s = shell.borrow();
+        (drawn_now(&s, &doc), s.feed.clone())
+    };
     shell.borrow_mut().surfaces.redraw(&doc, &feed, cx);
 }
 
 /// The chat model's composer (`/chatting/composer`) into the chat
 /// document's literal props.
-fn patch_chat(shell: &Shell, doc: &mut Document) {
+fn patch_chat(chatting: Option<&Value>, doc: &mut Document) {
     if doc.name != "chat" {
         return;
     }
-    let Some(composer) = shell.feed.get("/chatting").map(|c| &c["composer"]) else { return };
+    let Some(composer) = chatting.map(|c| &c["composer"]) else { return };
     for prop in ["placeholder", "busy"] {
         if let Some(value) = composer.get(prop) {
             uicore_gpui::inline::set_prop(doc, "chat_composer", prop, value.clone());
@@ -2289,7 +2390,7 @@ fn patch_chat(shell: &Shell, doc: &mut Document) {
             uicore_gpui::inline::set_prop(doc, id, "items", menu.clone());
         }
     }
-    if let Some(message) = shell.feed.get("/chatting").map(|c| &c["setup"]["message"]).filter(|m| m.is_string()) {
+    if let Some(message) = chatting.map(|c| &c["setup"]["message"]).filter(|m| m.is_string()) {
         uicore_gpui::inline::set_prop(doc, "chat_cli_failed", "description", message.clone());
     }
 }
@@ -2297,7 +2398,15 @@ fn patch_chat(shell: &Shell, doc: &mut Document) {
 /// The chat on the current team (its account's synced rows), kept on its
 /// session while the team stays current; `None` off a team or before its
 /// account's store opened.
-fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::TeamRows)> {
+fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, Rc<team_chat::TeamRows>)> {
+    team_chat_rows(shell, false).map(|(chat, rows, _)| (chat, rows))
+}
+
+/// [`team_chat`] (#EDE-141: [`chat_rows::ChatRows`] reads only what the
+/// sync noted, the open tree's messages only); `paint` = the caller draws
+/// the chat now, so it learns whether the open chat's rows moved since the
+/// last paint (and it is no longer owed).
+fn team_chat_rows(shell: &SharedShell, paint: bool) -> Option<(team_chat::TeamChat, Rc<team_chat::TeamRows>, bool)> {
     let current = shell.borrow().model.switcher.current.clone();
     let account_id = current.account.clone().filter(|_| current.kind == uicore_model::SwitcherKind::Team)?;
     let (account, store) = {
@@ -2309,21 +2418,16 @@ fn team_chat(shell: &SharedShell) -> Option<(team_chat::TeamChat, team_chat::Tea
         chat.session_id = open.session_id.clone();
     }
     shell.borrow_mut().chat_team = Some(chat.clone());
-    let mut rows = team_chat::TeamRows {
-        account: inbox::AccountRows::read(&account_id, &account.user_id, &store),
-        messages: inbox::read_rows(&store, "messages"),
-        users: inbox::read_rows(&store, "users"),
-        prompts: inbox::read_rows(&store, "prompts"),
-        members: inbox::read_rows(&store, "team_members"),
-    };
     // Sealed chats open with the keys the Exponential app holds.
-    let opener = match shell.borrow().chat_opener.clone().filter(|(id, _)| *id == account_id) {
-        Some((_, opener)) => opener,
-        None => Arc::new(sealed::opener(&account_id)),
+    let mut rows = match shell.borrow_mut().chat_rows.take().filter(|r| r.account_id() == account_id) {
+        Some(rows) => rows,
+        None => chat_rows::ChatRows::new(&account_id, &account.user_id, Arc::new(sealed::opener(&account_id)), sealed::keyring_path(&account_id)),
     };
-    shell.borrow_mut().chat_opener = Some((account_id, opener.clone()));
-    sealed::open(&opener, &mut rows.account.sessions, &mut rows.messages);
-    Some((chat, rows))
+    rows.refresh(&store, &chat);
+    let moved = paint && rows.take_owed();
+    let read = rows.rows();
+    shell.borrow_mut().chat_rows = Some(rows);
+    Some((chat, read, moved))
 }
 
 /// The composer's text: to the desktop's agent (#EDE-58), or on a team
@@ -2474,14 +2578,83 @@ fn chat_attach(shell: &SharedShell, cx: &mut App) {
             }
         };
         cx.update(|cx| {
-            let notice = shell.borrow_mut().chat_files.stage_paths(&paths);
-            if let Some(notice) = notice {
-                failed_action(&shell, "attach", "the file", &notice, cx);
-            }
-            chat_files_changed(&shell, cx);
+            let field = chat_field(&shell.borrow());
+            chat_stage(&shell, field, &paths, cx);
         });
     })
     .detach();
+}
+
+/// #EXP-1845: the chat's drawn composer: the home's on the start face,
+/// the conversation's otherwise.
+fn chat_field(s: &Shell) -> &'static str {
+    if s.feed.get("/chatting").and_then(|c| c["face"].as_str()) == Some("home") {
+        "chat_home_composer"
+    } else {
+        "chat_composer"
+    }
+}
+
+/// The composer `field`'s live text and caret (bytes); before the chat is
+/// drawn, the host's draft with the caret at its end.
+fn chat_field_draft(shell: &SharedShell, field: &str, cx: &App) -> (String, usize) {
+    let s = shell.borrow();
+    s.surfaces
+        .region("chat")
+        .and_then(|region| {
+            let view = region.view.read(cx);
+            Some((view.field_text(field, cx)?, view.field_caret(field, cx)?))
+        })
+        .unwrap_or_else(|| (s.chat_draft.clone(), s.chat_draft.len()))
+}
+
+/// #EXP-1845: a pick (the "+", a paste, a drop) staged the app composers'
+/// way (`domain::composer_attachments`): an `[Image #N]` per taken image
+/// typed at `field`'s caret, each refusal its own error toast.
+fn chat_stage(shell: &SharedShell, field: &str, paths: &[std::path::PathBuf], cx: &mut App) {
+    let (text, caret) = chat_field_draft(shell, field, cx);
+    let outcome = shell.borrow_mut().chat_files.stage_paths(paths, &text, caret);
+    for message in &outcome.toasts {
+        toast(shell, message, "", cx);
+    }
+    if let Some((at, inserted)) = &outcome.inserted {
+        // The field types it (its caret, its undo); its change follows.
+        let region = shell.borrow().surfaces.region("chat").cloned();
+        let typed = region.is_some_and(|region| {
+            region.handle.update(cx, |_, window, cx| region.view.update(cx, |view, cx| view.insert_into_field(field, *at, inserted, window, cx))).unwrap_or(false)
+        });
+        if typed {
+            shell.borrow_mut().chat_draft = outcome.text.clone();
+            chat_menu_changed(shell);
+        } else {
+            chat_set_draft(shell, &outcome.text, cx);
+        }
+    }
+    chat_files_changed(shell, cx);
+}
+
+/// #EXP-1845: a chip's X: an image's markers leave the draft, the higher
+/// ones slide down, and the caret keeps the writer's place.
+fn chat_unattach(shell: &SharedShell, key: u64, cx: &mut App) {
+    let field = chat_field(&shell.borrow());
+    let (text, caret) = chat_field_draft(shell, field, cx);
+    let rewritten = shell.borrow_mut().chat_files.remove(key, &text, caret);
+    if let Some((next, caret)) = rewritten {
+        let region = shell.borrow().surfaces.region("chat").cloned();
+        match region {
+            Some(region) => {
+                // A programmatic write: the field adopts it even focused.
+                region.view.update(cx, |view, cx| {
+                    view.caret_on_write(field, caret);
+                    let _ = view.assign_data("/chat/draft", Some(json!(next)), cx);
+                });
+                shell.borrow_mut().chat_draft = next;
+                chat_menu_changed(shell);
+            }
+            None => chat_set_draft(shell, &next, cx),
+        }
+    }
+    chat_files_changed(shell, cx);
 }
 
 /// A send landed: what went out leaves the strip.
@@ -2593,6 +2766,82 @@ fn failed_action(shell: &SharedShell, verb: &str, thing: &str, message: &str, cx
     notification_push(shell, failed_toast(verb, thing, message, now_ms()), cx);
 }
 
+/// #EDE-182: a Date & Time change through timedated, off the main loop
+/// (polkit's prompt may stay open as long as the person takes); then the
+/// page as the machine has it, and a refusal (a cancelled prompt, the wrong
+/// password) as the failed action's toast.
+fn settings_time(shell: &SharedShell, change: settings_pages::TimeChange, cx: &mut App) {
+    if shell.borrow().time_changes.contains(&change) {
+        return;
+    }
+    shell.borrow_mut().time_changes.push(change.clone());
+    // The feed follows the person's flip while timedated decides, so the
+    // page a refusal brings back moves the control back.
+    let flipped = shell.borrow().feed.get("/pages").cloned().map(|mut pages| {
+        pages["datetime"] = change.applied(pages["datetime"].take());
+        pages
+    });
+    if let Some(pages) = flipped {
+        shell.borrow_mut().feed.set("/pages", pages);
+        refresh(shell, cx);
+    }
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let asked = change.clone();
+        let (applied, pages) = blocking::unblock(move || settings_pages::apply_time_on_system_bus(&asked)).await;
+        cx.update(|cx| {
+            shell.borrow_mut().time_changes.retain(|c| *c != change);
+            shell.borrow_mut().feed.set("/pages", pages);
+            refresh(&shell, cx);
+            if let Some(toast) = time_toast(&change, &applied, now_ms()) {
+                notification_push(&shell, toast, cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// [`settings_time`]'s toast: `None` when timedated took the change.
+fn time_toast(change: &settings_pages::TimeChange, applied: &Result<(), String>, received_ms: i64) -> Option<dbus::Notification> {
+    let message = applied.as_ref().err()?;
+    tracing::warn!("datetime {change:?}: {message}");
+    let (verb, thing) = change.failed();
+    Some(failed_toast(verb, thing, message, received_ms))
+}
+
+/// A page's service action (#EDE-13), off the main loop: a daemon round
+/// trip, and polkit may ask the person for as long as its prompt is open
+/// (#EDE-182); a failure is the failed action's toast.
+fn service_call(shell: &SharedShell, domain: String, action: String, args: Value, cx: &mut App) {
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let call = json!({"op": "call", "domain": domain, "action": action, "args": args});
+        let result = blocking::unblock(move || ede_services::socket::Client::connect_default().map_err(|e| e.to_string()).and_then(|mut c| c.call(call))).await;
+        match result {
+            Ok(v) => tracing::info!(%domain, %action, result = %v, "service"),
+            Err(e) => {
+                let (verb, thing) = settings_pages::service_failed(&domain, &action, &args);
+                cx.update(|cx| failed_action(&shell, &verb, &thing, &e, cx));
+            }
+        }
+    })
+    .detach();
+}
+
+/// The start menu's power rows through logind, off the main loop (#EDE-182:
+/// polkit may ask); a refusal toasts as the Power page's does.
+fn power(shell: &SharedShell, action: String, cx: &mut App) {
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let asked = action.clone();
+        if let Err(e) = blocking::unblock(move || system::power(&asked)).await {
+            let (verb, thing) = settings_pages::service_failed("power", &action, &json!({}));
+            cx.update(|cx| failed_action(&shell, &verb, &thing, &e, cx));
+        }
+    })
+    .detach();
+}
+
 /// A toast of the shell's own (`summary`, `body` may be empty).
 fn toast(shell: &SharedShell, summary: &str, body: &str, cx: &mut App) {
     tracing::warn!("{summary} {body}");
@@ -2616,6 +2865,7 @@ fn own_toast(summary: String, body: String, received_ms: i64) -> dbus::Notificat
         body,
         icon: String::new(),
         actions: Vec::new(),
+        resident: false,
         urgency: 1,
         expires_at: Some(Instant::now() + INBOX_TOAST),
         at: clock::time(),
@@ -3114,60 +3364,137 @@ fn switcher_width(n: usize, output_width: u32) -> u32 {
     (2 * PADDING + n * TILE + (n - 1) * GAP).min(output_width.saturating_sub(2 * PADDING)).max(TILE + 2 * PADDING)
 }
 
-/// The windows the capture thread photographs: the switcher's while it is
+/// The windows the capture loop photographs: the switcher's while it is
 /// open, the previews' while they show, every window while Expo or Scale
-/// is up; nothing otherwise (the thread stops).
-fn thumbnails_retarget(shell: &SharedShell) {
-    let ids: Vec<String> = {
-        let s = shell.borrow();
-        if s.surfaces.is_open("expo") || s.surfaces.is_open("scale") {
-            s.model.windows.iter().map(|w| w.id.clone()).collect()
-        } else if s.model.alt_tab.shown {
-            uicore_model::alt_tab_order(&s.model)
-        } else if let Some(app) = s.model.taskbar.previews.as_deref() {
-            s.model.windows.iter().filter(|w| w.app == app).map(|w| w.id.clone()).collect()
-        } else {
-            Vec::new()
-        }
-    };
-    let (captures, targets, tx) = {
-        let s = shell.borrow();
-        (s.capturing.clone(), s.capture_ids.clone(), s.thumbs_tx.clone())
-    };
-    *targets.lock().unwrap_or_else(|p| p.into_inner()) = ids.clone();
-    if ids.is_empty() {
-        captures.stop();
-        return;
+/// is up; nothing otherwise.
+fn thumbnail_windows(s: &Shell) -> Vec<String> {
+    if s.surfaces.is_open("expo") || s.surfaces.is_open("scale") {
+        s.model.windows.iter().map(|w| w.id.clone()).collect()
+    } else if s.model.alt_tab.shown {
+        uicore_model::alt_tab_order(&s.model)
+    } else if let Some(app) = s.model.taskbar.previews.as_deref() {
+        s.model.windows.iter().filter(|w| w.app == app).map(|w| w.id.clone()).collect()
+    } else {
+        Vec::new()
     }
-    let Some(run) = captures.start() else { return };
-    // Thumbnails at about 5 fps on a thread with its own ede-protocol connection.
-    let _ = std::thread::Builder::new().name("ede-shell-thumbs".into()).spawn(move || {
-        let Ok(mut ede) = ede_protocol::Client::connect_env() else {
-            run.fail();
-            return;
-        };
-        while run.live() {
-            let started = Instant::now();
-            let ids = targets.lock().unwrap_or_else(|p| p.into_inner()).clone();
-            for id in &ids {
-                if !run.live() {
-                    return;
-                }
-                let Ok(window) = ede_protocol::WindowId::new(id) else { continue };
-                // A protected window refuses the capture: no picture, as intended.
-                if let Ok(capture) = ede.capture(ede_protocol::CaptureTarget::Window { window }) {
-                    if let Some(url) = thumbs::data_url(&capture) {
-                        if tx.send((id.clone(), url)).is_err() {
-                            return;
-                        }
-                    }
-                }
+}
+
+/// #EXP-2024: the first display as the live view's box reads it (`/outputs`).
+fn first_display(s: &Shell) -> uicore_model::spaces::Display {
+    let (width, height) = output_size(s);
+    let scale = s.feed.get("/outputs").and_then(Value::as_array).and_then(|o| o.first()).and_then(|o| o["scale"].as_f64()).filter(|v| *v > 0.0).unwrap_or(1.0);
+    uicore_model::spaces::Display { width, height, scale }
+}
+
+/// #EXP-2024: the taskbar's Agent spaces list is open (its hosted Popover).
+fn spaces_list_open(s: &Shell) -> bool {
+    s.surfaces.hosted_layers().iter().any(|(_, owner)| owner == spaces::LIST)
+}
+
+/// #EXP-2024: why a space's picture cannot be seen now: the lock; a
+/// fullscreen window over the first display; the chat or Settings opened
+/// after the view (a later top layer lies above an earlier one).
+fn spaces_pause(s: &Shell) -> spaces::Pause {
+    let opened = |name: &str| s.surfaces.is_open(name).then(|| s.layers_opened.get(name).copied().unwrap_or(0));
+    let view = opened(spaces::VIEW).unwrap_or(u64::MAX);
+    let view_covered = ["chat", "settings"].iter().any(|n| opened(n).is_some_and(|at| at > view));
+    spaces::Pause { locked: s.locked, fullscreen: spaces::fullscreen_over(&s.windows, s.model.workspaces.active, s.first_output), view_covered }
+}
+
+/// What THE capture loop photographs, derived from what is open now (the
+/// switcher, the previews, Expo; the Agent spaces list, the pinned view),
+/// nothing while locked; the loop wakes only when it moved.
+fn thumbnails_retarget(shell: &SharedShell) {
+    let s = shell.borrow();
+    let plan = spaces::plan(thumbnail_windows(&s), &s.spaces, s.surfaces.is_open(spaces::VIEW), spaces_list_open(&s), spaces_pause(&s), first_display(&s));
+    s.captures.set_plan(plan);
+}
+
+/// #EXP-2024: what the capture loop said of the spaces, into the shell.
+fn capture_out(shell: &SharedShell, out: captures::Out, cx: &mut App) {
+    match out {
+        captures::Out::Window { id, url } => thumbnail_arrived(shell, id, url),
+        captures::Out::Spaces(list) => {
+            let new_session = {
+                let mut s = shell.borrow_mut();
+                let known: HashSet<String> = s.spaces.sessions.iter().map(|x| x.id.clone()).collect();
+                let new = list.iter().any(|x| !known.contains(x.session_id.as_str()));
+                s.spaces.listed(list);
+                new
+            };
+            // A space of a session the titles have not read yet: read them.
+            if new_session {
+                exp_tray_refresh(shell, cx);
             }
-            if let Some(rest) = Duration::from_millis(200).checked_sub(started.elapsed()) {
-                std::thread::sleep(rest);
-            }
+            spaces_changed(shell, cx);
         }
-    });
+        captures::Out::Picture { space, view, url } => {
+            shell.borrow_mut().spaces.picture(&space, view, url);
+            spaces_feed(shell);
+        }
+        captures::Out::Failing { space, view } => {
+            shell.borrow_mut().spaces.picture(&space, view, String::new());
+            spaces_feed(shell);
+        }
+        captures::Out::Gone { space } => {
+            shell.borrow_mut().spaces.gone(&space);
+            shell.borrow().captures.ask(captures::Ask::List);
+            spaces_changed(shell, cx);
+        }
+    }
+}
+
+/// `/spaces` and `/spaceView` from what the shell knows now.
+fn spaces_feed(shell: &SharedShell) {
+    let mut s = shell.borrow_mut();
+    let display = first_display(&s);
+    let (list, view) = (s.spaces.feed(), s.spaces.view_feed(display));
+    s.feed.set("/spaces", list);
+    s.feed.set("/spaceView", view);
+}
+
+/// The spaces, the titles or the pin moved: the feeds, the pinned view's
+/// layer (opened, resized, closed), the list closed with the last space,
+/// the capture targets.
+fn spaces_changed(shell: &SharedShell, cx: &mut App) {
+    spaces_feed(shell);
+    let (wanted, open, none) = {
+        let s = shell.borrow();
+        (s.spaces.view_wanted(), s.surfaces.is_open(spaces::VIEW), s.spaces.list.is_empty())
+    };
+    let size = {
+        let s = shell.borrow();
+        s.spaces.view(first_display(&s)).map(|(_, v)| (v.width, v.height))
+    };
+    match (wanted, open) {
+        (true, false) => {
+            open_on_demand(shell, spaces::VIEW, cx);
+            shell.borrow_mut().spaces.shown_size = size;
+        }
+        (false, true) => {
+            close(shell, spaces::VIEW, cx);
+            shell.borrow_mut().spaces.shown_size = None;
+        }
+        // The size button, another space of another size: resized in place.
+        (true, true) if size.is_some() && size != shell.borrow().spaces.shown_size => {
+            let (doc, feed) = {
+                let s = shell.borrow();
+                (document(&s, spaces::VIEW).map(|d| drawn_now(&s, &d)), s.feed.clone())
+            };
+            if let Some(doc) = doc {
+                shell.borrow_mut().surfaces.resize_layer(&doc, &feed, cx);
+            }
+            shell.borrow_mut().spaces.shown_size = size;
+        }
+        _ => {}
+    }
+    // The last space ended: the list closes with its button.
+    if none {
+        let hosted: Vec<_> = shell.borrow().surfaces.hosted_layers().into_iter().filter(|(_, owner)| owner == spaces::LIST).collect();
+        uicore_gpui::dismiss_hosted(hosted, cx);
+    }
+    thumbnails_retarget(shell);
+    refresh(shell, cx);
 }
 
 /// A thumbnail arrived: the documents that show it.
@@ -3293,6 +3620,19 @@ fn notification_close(shell: &SharedShell, id: u32, reason: u32, cx: &mut App) {
     notifications_changed(shell, cx);
 }
 
+/// #EDE-196: a press on desktop notification `id`: the action `key`, or
+/// (`None`) the notification itself; see [`Notifications::invoke`].
+fn notification_invoke(shell: &SharedShell, id: u32, key: Option<&str>, cx: &mut App) {
+    let changed = {
+        let mut s = shell.borrow_mut();
+        let s = &mut *s;
+        s.notifications.invoke(s.dbus.as_ref(), id, key)
+    };
+    if changed {
+        notifications_changed(shell, cx);
+    }
+}
+
 /// The toast surface shows while toasts exist; every document sees the data.
 fn notifications_changed(shell: &SharedShell, cx: &mut App) {
     let any_toast = {
@@ -3310,17 +3650,63 @@ fn notifications_changed(shell: &SharedShell, cx: &mut App) {
 }
 
 /// #EDE-65: the accounts' inbox and Needs you again (a delta on a shape the
-/// tray reads, a minute passed: the ages move).
+/// tray reads, a minute passed: the ages move). #EDE-141: the stores'
+/// SQLite off the main loop (every row of eight shapes per account, once a
+/// second while a sync streams), like the start menu's issue pool; one read
+/// at a time, a refresh asked for meanwhile runs once it is in.
 fn exp_tray_refresh(shell: &SharedShell, cx: &mut App) {
-    let demo = shell.borrow().demo;
-    let (items, needs) = if demo {
-        (inbox::demo_inbox(now_ms()), inbox::demo_needs_you())
-    } else {
-        let rows = shell.borrow().workspaces.tray_rows();
-        let now = now_ms();
-        let read = shell.borrow().notifications.read_locally.clone();
-        (rows.iter().flat_map(|r| inbox::inbox_items(r, &read)).collect(), rows.iter().flat_map(|r| inbox::needs_you_items(r, now)).collect())
+    if shell.borrow().demo {
+        tray_apply(shell, inbox::demo_inbox(now_ms()), inbox::demo_needs_you(), cx);
+        return;
+    }
+    let (sources, read, wanted) = {
+        let mut s = shell.borrow_mut();
+        if s.tray_reading {
+            s.tray_again = true;
+            return;
+        }
+        s.tray_reading = true;
+        (s.workspaces.tray_sources(), s.notifications.read_locally.clone(), s.spaces.wanted_sessions().into_iter().collect::<HashSet<String>>())
     };
+    let shell = shell.clone();
+    cx.spawn(async move |cx| {
+        let (items, needs, space_sessions) = cx.background_executor().spawn(async move { tray_read(&sources, &read, &wanted, now_ms()) }).await;
+        let again = {
+            let mut s = shell.borrow_mut();
+            s.tray_reading = false;
+            std::mem::take(&mut s.tray_again)
+        };
+        cx.update(|cx| {
+            // #EXP-2024: the spaces' titles ride on the same read.
+            if shell.borrow().spaces.sessions != space_sessions {
+                shell.borrow_mut().spaces.sessions = space_sessions;
+                spaces_changed(&shell, cx);
+            }
+            tray_apply(&shell, items, needs, cx);
+            if again {
+                exp_tray_refresh(&shell, cx);
+            }
+        });
+    })
+    .detach();
+}
+
+/// The tray's rows off the accounts' stores: BLOCKING (SQLite), off the
+/// main loop; #EXP-2024: and the titles of the agent spaces' sessions
+/// (`wanted`), sealed ones opened with the keyrings of the account's
+/// installs on this machine (#EDE-194: the app's and the CLI daemon's).
+fn tray_read(sources: &[(String, String, Arc<sync::store::ShapeStore>)], read_locally: &HashSet<String>, wanted: &HashSet<String>, now_ms: i64) -> (Vec<inbox::InboxItem>, Vec<inbox::NeedsYouItem>, Vec<uicore_model::spaces::SpaceSession>) {
+    let rows: Vec<inbox::AccountRows> = sources.iter().map(|(account, user, store)| inbox::AccountRows::read(account, user, store)).collect();
+    let space_sessions = if wanted.is_empty() {
+        Vec::new()
+    } else {
+        rows.iter().flat_map(|r| inbox::space_sessions(r, wanted, &sealed::space_opener(&r.account_id))).collect()
+    };
+    (rows.iter().flat_map(|r| inbox::inbox_items(r, read_locally)).collect(), rows.iter().flat_map(|r| inbox::needs_you_items(r, now_ms)).collect(), space_sessions)
+}
+
+/// The inbox and Needs you as read, into the bell and the tray.
+fn tray_apply(shell: &SharedShell, items: Vec<inbox::InboxItem>, needs: Vec<inbox::NeedsYouItem>, cx: &mut App) {
     {
         let mut s = shell.borrow_mut();
         let since = s.started_ms;
@@ -3364,7 +3750,9 @@ fn needs_you_open(shell: &SharedShell, key: &str, cx: &mut App) {
 /// The outputs as the Displays page binds them (#EDE-14).
 fn outputs_refresh(shell: &SharedShell) {
     let outputs = with_ede(shell, |ede| ede.outputs()).unwrap_or_default();
-    shell.borrow_mut().feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
+    let mut s = shell.borrow_mut();
+    s.first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
+    s.feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
 }
 
 /// Reads the tray items again, on the tray thread: [`dbus::Event::TrayItems`]
@@ -3428,16 +3816,31 @@ fn demo_windows() -> Vec<ede_protocol::WindowInfo> {
     vec![w("w1", "firefox", "Firefox", false), w("w2", "terminal", "Terminal", true), w("w3", "nemo", "Files", false), w("w4", "firefox", "Exponential — Firefox", false)]
 }
 
+/// #ERR-29: a start that cannot go on: an error (a GlitchTip event when
+/// diagnostics are on), flushed before the exit skips the guard's drop.
+/// `detail` (a path under the person's home) stays on stderr.
+fn fail_start(what: &'static str, detail: String) -> ! {
+    eprintln!("exponential-shell: {detail}");
+    tracing::error!("{what}");
+    ede_observability::flush();
+    std::process::exit(2);
+}
+
 fn main() {
-    tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+    // A crash-monitor process (ede-observability) runs and exits here.
+    ede_observability::run_crash_monitor_if_requested();
+    // `connect`, `--help` and bad arguments end here, before diagnostics.
     let options = parse_args();
+    // #ERR-29: the compositor's diagnostics (panics, errors, native
+    // crashes), tagged `shell`; stdout is the supervisor's frame lines. The
+    // person's chats, notifications and accounts pass through here: a
+    // report says where a line was logged, never what it said.
+    let _diagnostics = ede_observability::init_with("shell", "info", ede_observability::Output::Stderr, ede_observability::Trail::Places);
+    ede_observability::watch_native_crashes("shell");
     let dir = ede_ui::default_dir();
     let (ui, initial) = match Runtime::open_readonly(&dir) {
         Ok(opened) => opened,
-        Err(e) => {
-            eprintln!("exponential-shell: {}: {e}", dir.display());
-            std::process::exit(2);
-        }
+        Err(e) => fail_start("the ui directory could not be opened", format!("{}: {e}", dir.display())),
     };
     let ui = Arc::new(Mutex::new(ui));
     let (changes_tx, changes_rx) = mpsc::channel::<Vec<Change>>();
@@ -3445,10 +3848,7 @@ fn main() {
         let _ = changes_tx.send(changes);
     }) {
         Ok(w) => w,
-        Err(e) => {
-            eprintln!("exponential-shell: watch {}: {e}", dir.display());
-            std::process::exit(2);
-        }
+        Err(e) => fail_start("the ui directory could not be watched", format!("watch {}: {e}", dir.display())),
     };
     let demo = std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0");
 
@@ -3456,6 +3856,8 @@ fn main() {
     let (windows_tx, windows_rx) = mpsc::channel::<(Vec<ede_protocol::WindowInfo>, Vec<ede_protocol::WorkspaceInfo>)>();
     let (hotkeys_tx, hotkeys_rx) = mpsc::channel::<(String, i64)>();
     let (outputs_tx, outputs_rx) = mpsc::channel::<()>();
+    // #EXP-2024: the session's lock (the capture loop stops while it holds).
+    let (locks_tx, locks_rx) = mpsc::channel::<bool>();
     std::thread::Builder::new()
         .name("ede-shell-events".into())
         .spawn(move || {
@@ -3477,7 +3879,11 @@ fn main() {
                 if !ede_protocol::is_persons_event(&event) {
                     continue;
                 }
-                if event.kind == ede_protocol::events::HOTKEY {
+                if event.kind == ede_protocol::events::SESSION_LOCKED || event.kind == ede_protocol::events::SESSION_UNLOCKED {
+                    if locks_tx.send(event.kind == ede_protocol::events::SESSION_LOCKED).is_err() {
+                        return;
+                    }
+                } else if event.kind == ede_protocol::events::HOTKEY {
                     if let Some(name) = event.data.get("name").and_then(Value::as_str) {
                         if hotkeys_tx.send((name.to_string(), event.at)).is_err() {
                             return;
@@ -3505,8 +3911,17 @@ fn main() {
     installed.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     tracing::info!(apps = installed.len(), engine_apps = engine_apps.len(), demo, "desktop entries");
     let launchable: Arc<Vec<apps::App>> = Arc::new(installed.clone());
-    // Thumbnails from the capture thread while the switcher or the previews are open.
-    let (thumbs_tx, thumbs_rx) = mpsc::channel::<(String, String)>();
+    // #EXP-2024: THE capture loop (the windows' thumbnails, the agent spaces,
+    // their list) on its own thread and connection, for the shell's life.
+    let captures_shared = Arc::new(captures::Shared::default());
+    let (captures_tx, captures_rx) = mpsc::channel::<captures::Out>();
+    {
+        let shared = captures_shared.clone();
+        std::thread::Builder::new()
+            .name("ede-shell-captures".into())
+            .spawn(move || captures::run(ede_protocol::Client::connect_env, &shared, &captures_tx))
+            .expect("the capture thread");
+    }
     // The hosted popups of every surface (VAPP-281).
     let (hosted_tx, hosted_rx) = mpsc::channel::<HostedReport>();
     // The services data source: every domain's snapshot, then its changes.
@@ -3560,10 +3975,7 @@ fn main() {
     let config_dir = settings::config_path().parent().map(|p| p.to_path_buf()).unwrap_or_else(|| std::path::PathBuf::from("."));
     let workspaces = match accounts::Workspaces::open(&config_dir, demo) {
         Ok(w) => w,
-        Err(e) => {
-            eprintln!("exponential-shell: {e}");
-            std::process::exit(2);
-        }
+        Err(e) => fail_start("the desktops and accounts could not be opened", e.to_string()),
     };
     workspaces.start_sync();
     let team_deltas = workspaces.deltas();
@@ -3601,6 +4013,11 @@ fn main() {
         feed.set("/user", settings::user_json());
         feed.set("/notifications", json!({"toasts": [], "list": [], "count": 0}));
         feed.set("/needsYou", json!({"count": 0, "rows": []}));
+        feed.set("/spaces", json!({"count": 0, "rows": []}));
+        feed.set("/spaceView", json!({"open": false}));
+        // The goldens open the Agent spaces list through its bound `open`.
+        let demo_spaces = spaces::demo_mode().filter(|_| demo);
+        feed.set("/spacesList", json!({"open": demo_spaces.as_deref() == Some("list")}));
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
@@ -3706,9 +4123,11 @@ fn main() {
             menu_apps,
             windows: Vec::new(),
             thumbnails: HashMap::new(),
-            capture_ids: Arc::new(Mutex::new(Vec::new())),
-            capturing: thumbs::Captures::default(),
-            thumbs_tx,
+            captures: captures_shared,
+            spaces: demo_spaces.as_deref().map(spaces::Spaces::demo).unwrap_or_default(),
+            locked: false,
+            first_output: None,
+            layers_opened: HashMap::new(),
             osd_until: None,
             popups_opened: HashMap::new(),
             switcher_generation: 0,
@@ -3726,6 +4145,8 @@ fn main() {
                 ..Notifications::default()
             },
             needs_you: Vec::new(),
+            tray_reading: false,
+            tray_again: false,
             demo,
             // The demo toasts only through `--open notifications`.
             started_ms: if demo { i64::MAX / 2 } else { now_ms() },
@@ -3755,10 +4176,11 @@ fn main() {
             chat_menu: Value::Null,
             chat_menu_selected: 0,
             chat_team: None,
-            chat_opener: None,
+            chat_rows: None,
             chat_glyphs,
             chat_composer: Value::Null,
             engine: None,
+            engine_seats: engine::exposes::seats(Vec::new()),
             launches: system::LaunchGuard::default(),
             engine_apps: Vec::new(),
             launchable: Arc::new(Vec::new()),
@@ -3767,6 +4189,7 @@ fn main() {
             issue_hits: Vec::new(),
             issue_search: 0,
             menu_selection: start_menu::Selection::default(),
+            time_changes: Vec::new(),
             _watcher: watcher,
         }));
         // #EDE-92: Up and Down in the start menu's search move its selection.
@@ -3790,6 +4213,8 @@ fn main() {
             // The outputs first: a stretched surface takes the output's size.
             outputs_refresh(&shell);
         }
+        // #EXP-2024: the spaces' feeds at the first display's size.
+        spaces_feed(&shell);
         if demo {
             // The sample windows, before any document opens (the goldens).
             windows_changed(&shell, demo_windows(), vec![ede_protocol::WorkspaceInfo { index: 0, active: true, windows: vec![] }, ede_protocol::WorkspaceInfo { index: 1, active: false, windows: vec![] }], cx);
@@ -3848,9 +4273,13 @@ fn main() {
                 while let Ok((name, at)) = hotkeys_rx.try_recv() {
                     cx.update(|cx| hotkey(&s, &name, at, cx));
                 }
-                while let Ok((id, url)) = thumbs_rx.try_recv() {
-                    thumbnail_arrived(&s, id, url);
+                while let Ok(out) = captures_rx.try_recv() {
+                    cx.update(|cx| capture_out(&s, out, cx));
                     dirty = true;
+                }
+                if let Some(locked) = locks_rx.try_iter().last() {
+                    s.borrow_mut().locked = locked;
+                    tracing::info!(locked, "session lock");
                 }
                 while let Ok(event) = dbus_rx.try_recv() {
                     cx.update(|cx| dbus_event(&s, event, cx));
@@ -3870,6 +4299,14 @@ fn main() {
                     if output_size(&s.borrow()) != before {
                         cx.update(|cx| relayout(&s, cx));
                     }
+                    // #EXP-2024: the pinned view's box follows the display
+                    // (relayout resized its layer through header_for).
+                    spaces_feed(&s);
+                    let size = {
+                        let sh = s.borrow();
+                        sh.spaces.view(first_display(&sh)).map(|(_, v)| (v.width, v.height)).filter(|_| sh.surfaces.is_open(spaces::VIEW))
+                    };
+                    s.borrow_mut().spaces.shown_size = size;
                     dirty = true;
                 }
                 // The latest report per surface only (#EDE-65): a hover Popover
@@ -3885,12 +4322,18 @@ fn main() {
                 let mut tray_changed = false;
                 let mut team_chat_changed = false;
                 while let Ok(delta) = team_deltas.try_recv() {
-                    if let sync::ShapeDelta::Applied { shape, account_id, .. } = &delta {
-                        if *shape == "teams" || inbox::SHAPES.contains(shape) {
+                    if let sync::ShapeDelta::Applied { shape, account_id, keys, full_replace, .. } = &delta {
+                        if inbox::refreshes_tray(shape) {
                             tray_changed = true;
                         }
-                        // #EDE-65 lane I: the open team chat's rows moved.
-                        if team_chat::SHAPES.contains(shape) && s.borrow().chat_team.as_ref().is_some_and(|c| &c.account_id == account_id) {
+                        // #EDE-65 lane I: the team chat's rows moved; #EDE-141: noted
+                        // (no read), the tick reads them and repaints only for the open chat's.
+                        let noted = {
+                            let mut sh = s.borrow_mut();
+                            let rows = sh.chat_rows.as_mut().filter(|r| r.account_id() == account_id.as_str());
+                            rows.map(|r| r.note(shape, keys, *full_replace)).is_some()
+                        };
+                        if noted && team_chat::SHAPES.contains(shape) {
                             team_chat_changed = true;
                         }
                         match *shape {
@@ -3947,7 +4390,8 @@ fn main() {
                 if chat_pending && last_chat.elapsed() >= Duration::from_millis(250) {
                     chat_pending = false;
                     last_chat = Instant::now();
-                    if s.borrow().surfaces.is_open("chat") {
+                    let open = s.borrow().surfaces.is_open("chat");
+                    if open && team_chat_rows(&s, true).is_some_and(|(_, _, moved)| moved) {
                         cx.update(|cx| chatting_changed(&s, cx));
                     }
                 }
@@ -3992,6 +4436,9 @@ fn main() {
                     sh.feed.set("/dateText", clock::date_text());
                     dirty = true;
                 }
+                // #EXP-2024: the capture targets follow what is open (a hosted
+                // list, a layer, the lock); the loop wakes only when they moved.
+                thumbnails_retarget(&s);
                 if dirty {
                     cx.update(|cx| refresh(&s, cx));
                 }
@@ -4071,6 +4518,251 @@ mod notification_lifetime {
         assert_eq!(n.push(toast(101)), vec![1]);
         assert_eq!(n.list.len(), 100);
         assert!(!n.toasts.contains(&1));
+    }
+}
+
+/// #EDE-196: a toast's presses reach the app that sent it, end to end: a
+/// fake app on a private bus calls `Notify`, the shell's notification
+/// server hears it, the toast document as it ships draws it from the feed,
+/// a press resolves through the document's own bindings, and the app hears
+/// the spec's signals. The release check's snapd question sent
+/// `{"key":"yes"}` alone, so no app ever heard a press.
+#[cfg(test)]
+mod toast_presses {
+    use super::*;
+    use eui_core::surface::{OutEvent, Surface};
+
+    /// An app on the bus: it sends notifications and hears the server's signals.
+    struct FakeApp {
+        conn: zbus::blocking::Connection,
+        signals: mpsc::Receiver<(String, Value)>,
+    }
+
+    impl FakeApp {
+        fn connect(bus: &dbus::private_bus::PrivateBus) -> FakeApp {
+            let conn = bus.builder().and_then(|b| b.build()).expect("the app's connection");
+            let rule = zbus::MatchRule::builder().msg_type(zbus::message::Type::Signal).interface(dbus::NOTIFICATIONS_NAME).expect("the interface").build();
+            let iter = zbus::blocking::MessageIterator::for_match_rule(rule, &conn, None).expect("the app listens");
+            let (tx, signals) = mpsc::channel();
+            std::thread::spawn(move || {
+                for msg in iter.flatten() {
+                    let member = msg.header().member().map(|m| m.to_string()).unwrap_or_default();
+                    let body = match member.as_str() {
+                        "ActionInvoked" => msg.body().deserialize::<(u32, String)>().map(|(id, key)| json!([id, key])),
+                        "NotificationClosed" => msg.body().deserialize::<(u32, u32)>().map(|(id, reason)| json!([id, reason])),
+                        _ => continue,
+                    };
+                    if tx.send((member, body.expect("the spec's signature"))).is_err() {
+                        break;
+                    }
+                }
+            });
+            FakeApp { conn, signals }
+        }
+
+        /// `Notify` as libnotify sends it; the server's id.
+        fn notify(&self, summary: &str, actions: &[&str], resident: bool) -> u32 {
+            let mut hints: HashMap<&str, zbus::zvariant::Value> = HashMap::new();
+            if resident {
+                hints.insert("resident", zbus::zvariant::Value::from(true));
+            }
+            let reply = self
+                .conn
+                .call_method(Some(dbus::NOTIFICATIONS_NAME), dbus::NOTIFICATIONS_PATH, Some(dbus::NOTIFICATIONS_NAME), "Notify", &("fake-app", 0u32, "", summary, "", actions.to_vec(), hints, 0i32))
+                .expect("Notify answers");
+            reply.body().deserialize::<u32>().expect("an id")
+        }
+
+        /// The next signal the app hears, within a few seconds.
+        fn heard(&self) -> Option<(String, Value)> {
+            self.signals.recv_timeout(Duration::from_secs(5)).ok()
+        }
+
+        /// Nothing more within a moment.
+        fn quiet(&self) -> bool {
+            self.signals.recv_timeout(Duration::from_millis(300)).is_err()
+        }
+    }
+
+    /// The server's next notification, into the shell's list.
+    fn arrived(rx: &mpsc::Receiver<dbus::Event>, n: &mut Notifications) {
+        loop {
+            match rx.recv_timeout(Duration::from_secs(5)).expect("the server heard it") {
+                dbus::Event::Notified(notification) => {
+                    n.push(notification);
+                    return;
+                }
+                _ => continue,
+            }
+        }
+    }
+
+    /// The toast document as it ships, drawn from the shell's feed.
+    fn toasts(n: &Notifications) -> Surface {
+        let source = uicore_docs::doc("notifications").expect("the toast document").json();
+        let doc = ede_ui::validate_document("notifications", &source).expect("it validates as shipped");
+        let mut s = doc.surface(eui_core::themes::builtin_theme("exponential").expect("the theme"));
+        s.set_data("/notifications", Some(n.to_json())).expect("the feed binds");
+        s.set_viewport(380.0, 0.0, None);
+        s.layout(&mut eui_core::measure::FixedMeasure::default());
+        s
+    }
+
+    /// The live nodes `pick` matches.
+    fn find(s: &mut Surface, pick: impl Fn(&eui_core::surface::PlacedNode) -> bool) -> Vec<eui_core::surface::PlacedNode> {
+        s.nodes().into_iter().filter(|n| !n.removed && pick(n)).collect()
+    }
+
+    /// An action button of a toast (the template `toast_action`'s items).
+    fn is_action(n: &eui_core::surface::PlacedNode) -> bool {
+        n.component == "Button" && n.part.is_none() && n.id.starts_with("toast_action.")
+    }
+
+    /// The labels of the toasts' action buttons, sorted.
+    fn button_labels(s: &mut Surface) -> Vec<String> {
+        let mut labels: Vec<String> = find(s, is_action).iter().filter_map(|n| n.props.get("label").and_then(Value::as_str).map(String::from)).collect();
+        labels.sort();
+        labels
+    }
+
+    /// The host function a press on node `index` calls, with its resolved args.
+    fn press(s: &mut Surface, index: u32) -> (String, Value) {
+        s.event(index, "press", None)
+            .into_iter()
+            .find_map(|e| match e {
+                OutEvent::FunctionCall { name, args, .. } => Some((name, args)),
+                _ => None,
+            })
+            .expect("the press calls a host function")
+    }
+
+    fn press_button(s: &mut Surface, label: &str) -> (String, Value) {
+        let button = find(s, |n| is_action(n) && n.props.get("label").and_then(Value::as_str) == Some(label));
+        assert_eq!(button.len(), 1, "one {label} button");
+        press(s, button[0].index)
+    }
+
+    /// The press on the card itself (not on one of its buttons).
+    fn press_card(s: &mut Surface) -> (String, Value) {
+        let cards = find(s, |n| n.component == "Box" && n.pressable && n.id.starts_with("toast."));
+        assert_eq!(cards.len(), 1, "one toast card is a press target");
+        press(s, cards[0].index)
+    }
+
+    /// What the shell's host function does with the press (`ede_notify_open`
+    /// = the card itself, `ede_notify_action` = a button).
+    fn dispatch(n: &mut Notifications, server: &dbus::Dbus, (name, args): (String, Value)) -> bool {
+        let id = args["id"].as_u64().expect("the press names its notification") as u32;
+        match name.as_str() {
+            "ede_notify_open" => n.invoke(Some(server), id, None),
+            "ede_notify_action" => n.invoke(Some(server), id, Some(args["key"].as_str().expect("and its action"))),
+            other => panic!("the toast called {other}"),
+        }
+    }
+
+    #[test]
+    fn an_action_button_reaches_the_app_with_the_toast_s_id_and_its_key() {
+        let bus = dbus::private_bus::PrivateBus::start();
+        let (tx, rx) = mpsc::channel();
+        let server = dbus::Dbus::start_on(bus.builder(), tx, || "12:00".into()).expect("the shell on the private bus");
+        let app = FakeApp::connect(&bus);
+        let mut n = Notifications::default();
+
+        // snapd-desktop-integration's question: Yes, No and the default action.
+        let id = app.notify("Some required themes are missing.", &["yes", "Yes", "no", "No", "default", "default"], false);
+        arrived(&rx, &mut n);
+        let mut s = toasts(&n);
+        assert_eq!(button_labels(&mut s), ["No", "Yes"], "the default action is no button");
+        let call = press_button(&mut s, "Yes");
+        assert_eq!(call, ("ede_notify_action".to_string(), json!({"id": id, "key": "yes"})), "the press names the toast and the action");
+        assert!(dispatch(&mut n, &server, call));
+        assert_eq!(app.heard(), Some(("ActionInvoked".into(), json!([id, "yes"]))));
+        assert_eq!(app.heard(), Some(("NotificationClosed".into(), json!([id, 2]))), "then it closes, dismissed");
+        assert!(app.quiet());
+        assert!(n.list.is_empty() && n.toasts.is_empty());
+
+        // The card itself is the default action.
+        let id = app.notify("Release notes", &["default", "Open", "archive", "Archive"], false);
+        arrived(&rx, &mut n);
+        let mut s = toasts(&n);
+        assert_eq!(button_labels(&mut s), ["Archive"], "Open is the card itself");
+        let call = press_card(&mut s);
+        assert_eq!(call, ("ede_notify_open".to_string(), json!({"id": id})));
+        assert!(dispatch(&mut n, &server, call));
+        assert_eq!(app.heard(), Some(("ActionInvoked".into(), json!([id, "default"]))));
+        assert_eq!(app.heard(), Some(("NotificationClosed".into(), json!([id, 2]))));
+        assert!(app.quiet());
+
+        // Without a default action the card's press only dismisses it.
+        let id = app.notify("Updates installed", &[], false);
+        arrived(&rx, &mut n);
+        let mut s = toasts(&n);
+        assert!(dispatch(&mut n, &server, press_card(&mut s)));
+        assert_eq!(app.heard(), Some(("NotificationClosed".into(), json!([id, 2]))), "no ActionInvoked the app never offered");
+        assert!(app.quiet());
+
+        // A resident notification stays (the bell keeps it); its toast goes.
+        let id = app.notify("Call", &["answer", "Answer"], true);
+        arrived(&rx, &mut n);
+        let mut s = toasts(&n);
+        assert!(dispatch(&mut n, &server, press_button(&mut s, "Answer")));
+        assert_eq!(app.heard(), Some(("ActionInvoked".into(), json!([id, "answer"]))));
+        assert!(app.quiet(), "a resident notification does not close");
+        assert!(n.list.iter().any(|x| x.id == id) && !n.toasts.contains(&id));
+        // An action it never offered reaches nothing.
+        assert!(!n.invoke(Some(&server), id, Some("hang-up")));
+        assert!(app.quiet());
+    }
+}
+
+/// #ERR-29: both binaries of this crate report like the compositor (the
+/// same check as ede-session's packaging test, which CI runs only when eDE
+/// itself changes).
+#[cfg(test)]
+mod diagnostics {
+    fn starts_diagnostics(bin: &str, source: &str, components: &[&str]) {
+        // The body of `main` alone (this test's own text is in the file too).
+        let main = &source[source.find("\nfn main(").expect("a main") + 1..];
+        let main = &main[..main.find("\n}\n").expect("the end of main")];
+        let first = main.lines().skip(1).map(str::trim).find(|l| !l.is_empty() && !l.starts_with("//"));
+        assert_eq!(first, Some("ede_observability::run_crash_monitor_if_requested();"), "{bin}: the crash monitor's dispatch comes first");
+        assert!(main.contains("ede_observability::init_with(") && main.contains("ede_observability::watch_native_crashes("), "{bin} starts diagnostics");
+        assert!(main.contains("ede_observability::Output::Stderr, ede_observability::Trail::Places)"), "{bin}: stdout is a protocol, and no line's text leaves the machine");
+        assert!(!source.contains(&["tracing_subscriber", "::fmt()"].concat()), "{bin}: a second subscriber panics");
+        for component in components {
+            assert!(source.contains(&format!("\"{component}\"")), "{bin}: tagged {component}");
+        }
+    }
+
+    #[test]
+    fn the_shell_and_the_sealed_surfaces_start_diagnostics() {
+        starts_diagnostics("exponential-shell", include_str!("main.rs"), &["shell"]);
+        starts_diagnostics("exponential-sealed", include_str!("bin/ede-sealed/main.rs"), &["sealed-lock", "sealed-polkit", "sealed-consent", "sealed-share"]);
+    }
+
+    /// #ERR-32: a release build of both binaries keeps the `log` lines of
+    /// the libraries they link (api, sync, elocal, emcp, eengine-desktop,
+    /// gpui, crash-monitor) at least from WARN. Cargo unifies features, so
+    /// one crate turning on a `log` level feature compiles the lines out of
+    /// every binary in its graph: the runner's `release_max_level_off` did.
+    /// The features `cargo tree` resolves for this package alone, the way
+    /// `apps/ede/packaging/stage.sh` builds it (`-p ede-shell --bins`).
+    #[test]
+    fn a_release_build_keeps_the_log_lines() {
+        let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+        let manifest = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+        let out = std::process::Command::new(cargo)
+            .args(["tree", "--locked", "--offline", "--manifest-path", manifest, "-p", "ede-shell", "-e", "features,no-dev", "-i", "log", "--depth", "1", "--prefix", "none"])
+            .output()
+            .expect("cargo runs");
+        let tree = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success() && tree.lines().any(|line| line.starts_with("log v")), "cargo tree: {}{tree}", String::from_utf8_lossy(&out.stderr));
+        // `log`'s STATIC_MAX_LEVEL in a release build: the strictest
+        // `release_max_level_*`, else the strictest `max_level_*`, else trace.
+        const LEVELS: [&str; 6] = ["off", "error", "warn", "info", "debug", "trace"];
+        let strictest = |prefix: &str| LEVELS.iter().position(|level| tree.contains(&format!("log feature \"{prefix}{level}\"")));
+        let kept = strictest("release_max_level_").or_else(|| strictest("max_level_")).unwrap_or(LEVELS.len() - 1);
+        assert!(kept >= 2, "a release build compiles `log` down to `{}`:\n{tree}", LEVELS[kept]);
     }
 }
 
@@ -4262,6 +4954,38 @@ mod layer_sizes {
         assert_ne!(layer_header(&taskbar, (1280, 720)), layer_header(&taskbar, (1920, 1080)), "a new size is a relayout");
     }
 
+    /// #EXP-2024 (section 8, 6d): the pinned view of an agent space is an
+    /// on-demand top layer at the bottom right, above the taskbar, that
+    /// never takes the keyboard; the taskbar lists the spaces in a hosted
+    /// Popover (never a popup document: those take the keyboard) and may
+    /// call the two functions the view and the list use.
+    #[test]
+    fn the_space_view_takes_no_keyboard_and_the_list_is_hosted() {
+        let view = factory(spaces::VIEW);
+        let SurfaceHeader::Layer { layer, anchor, keyboard, on_demand, functions, margin, .. } = &view.surface else { panic!("a layer") };
+        assert_eq!((*layer, *keyboard, *on_demand), (DocLayer::Top, ede_ui::surface::Keyboard::None, true));
+        assert_eq!(anchor, &vec![ede_ui::surface::Edge::Bottom, ede_ui::surface::Edge::Right]);
+        assert_eq!((margin.right, margin.bottom), (shell_layout().panel_margin, shell_layout().panel_margin), "beside the edge, above the taskbar's zone");
+        assert_eq!(functions, &vec!["ede_space".to_string()]);
+        let taskbar: Value = serde_json::from_str(uicore_docs::doc("taskbar").unwrap().source).unwrap();
+        fn node<'a>(n: &'a Value, id: &str) -> Option<&'a Value> {
+            if n["id"] == id {
+                return Some(n);
+            }
+            match n {
+                Value::Object(m) => m.values().find_map(|v| node(v, id)),
+                Value::Array(a) => a.iter().find_map(|v| node(v, id)),
+                _ => None,
+            }
+        }
+        let list = node(&taskbar["root"], spaces::LIST).expect("the Agent spaces list");
+        assert_eq!(list["component"], "Popover", "the list is a hosted Popover of the taskbar");
+        assert_eq!(list["slots"]["trigger"]["props"]["label"], "Agent spaces");
+        assert!(!uicore_docs::DOCS.iter().any(|d| d.source.contains("\"anchor\": \"agent_spaces")), "no popup document anchors at it");
+        let functions: Vec<&str> = taskbar["surface"]["functions"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(functions.contains(&"ede_space") && functions.contains(&"ede_space_close"));
+    }
+
     /// #EDE-65: Settings open into the sidebar like the IDE's: over the
     /// rail and the ground, standing on the taskbar, the nav as wide as the
     /// IDE's settings column.
@@ -4358,6 +5082,56 @@ mod layer_sizes {
         assert_eq!(super::stop_toast(Ok(true)), None);
         assert_eq!(super::stop_toast(Ok(false)), Some(("The device didn't get the stop".into(), String::new())));
         assert_eq!(super::stop_toast(Err(" The session ended. ".into())), Some(("Couldn't stop the turn".into(), "The session ended.".into())));
+    }
+}
+
+#[cfg(test)]
+mod chat_as_drawn {
+    use super::*;
+
+    fn factory(name: &str) -> Document {
+        uicore_gpui::inline::document(uicore_docs::DOCS.iter().find(|d| d.name == name).expect(name))
+    }
+
+    fn node<'a>(n: &'a Value, id: &str) -> Option<&'a Value> {
+        if n.get("id").and_then(Value::as_str) == Some(id) {
+            return Some(n);
+        }
+        match n {
+            Value::Object(m) => m.values().find_map(|v| node(v, id)),
+            Value::Array(a) => a.iter().find_map(|v| node(v, id)),
+            _ => None,
+        }
+    }
+
+    fn prop(doc: &Document, id: &str, prop: &str) -> Value {
+        let ede_ui::Body::Nested(tree) = &doc.body else { panic!("a nested chat") };
+        let tree = serde_json::to_value(tree).unwrap();
+        node(&tree, id).unwrap_or_else(|| panic!("no {id}"))["props"].get(prop).cloned().unwrap_or(Value::Null)
+    }
+
+    /// #EDE-141: the chat's composer stays as `/chatting` says (busy, its
+    /// placeholder, the + menu) through an output change (`relayout`) and
+    /// an edit of chat.json on disk (`apply_change`). Both reloaded the
+    /// document as the file has it (`busy: false`, `items: []`), and
+    /// `chat_composer` never repaired it (its model had not changed).
+    #[test]
+    fn the_chat_keeps_its_composer_through_a_relayout_and_an_edit_on_disk() {
+        let chatting = json!({"composer": {"placeholder": "Reply to Triage", "busy": true, "menu": [{"id": "photo", "label": "Photo or file"}]}, "setup": {}});
+        let doc = factory("chat");
+        assert_eq!(prop(&doc, "chat_composer", "busy"), json!(false), "the file's literal");
+        let relaid = relaid(&doc, layer_header(&doc, (1920, 1080)), Some(&chatting)).expect("the chat takes the output's new size");
+        let redrawn = as_drawn(&doc, layer_header(&doc, (1280, 720)), Some(&chatting));
+        for (how, drawn) in [("relayout", &relaid), ("an edit on disk", &redrawn)] {
+            assert_eq!(prop(drawn, "chat_composer", "busy"), json!(true), "{how}");
+            assert_eq!(prop(drawn, "chat_composer", "placeholder"), json!("Reply to Triage"), "{how}");
+            for plus in ["chat_plus", "chat_home_plus"] {
+                assert_eq!(prop(drawn, plus, "items"), chatting["composer"]["menu"], "{how}: {plus}");
+            }
+        }
+        let ede_ui::Body::Nested(root) = &relaid.body else { panic!("a nested chat") };
+        let (w, h) = engine::window_max((1920, 1080));
+        assert_eq!(root.style.as_ref().map(|s| (s["width"].clone(), s["height"].clone())), Some((json!(w), json!(h))), "relayout's size");
     }
 }
 
@@ -4537,6 +5311,25 @@ mod failed_actions {
         let dump = super::failed_toast("answer", "the question", "{\"code\":\"CONFLICT\"}", 7);
         assert_eq!((dump.summary.as_str(), dump.body.as_str()), ("Couldn't answer the question", ""));
         assert_ne!(toast.id, dump.id, "each its own id");
+    }
+
+    /// #EDE-182: a cancelled polkit prompt and timedated's refusal reach
+    /// the failed action's toast; a change timedated took toasts nothing.
+    #[test]
+    fn a_refused_date_and_time_change_toasts() {
+        use crate::settings_pages::{
+            apply_time,
+            fake_timedated::{serve, Answer},
+            TimeChange,
+        };
+        let toast_for = |answer: Answer, change: TimeChange| {
+            let (_bus, _daemon, client, _) = serve(answer);
+            super::time_toast(&change, &apply_time(&client, &change), 7).map(|t| (t.summary, t.body))
+        };
+        assert_eq!(toast_for(Answer::Cancelled, TimeChange::Ntp(true)), Some(("Couldn't turn on automatic time".into(), "Permission denied".into())));
+        assert_eq!(toast_for(Answer::Cancelled, TimeChange::Ntp(false)), Some(("Couldn't turn off automatic time".into(), "Permission denied".into())));
+        assert_eq!(toast_for(Answer::Fails, TimeChange::TimeZone("Asia/Tokyo".into())), Some(("Couldn't change the time zone".into(), "Invalid or not installed time zone 'Asia/Tokyo'".into())));
+        assert_eq!(toast_for(Answer::Takes, TimeChange::Ntp(true)), None);
     }
 }
 

@@ -41,13 +41,9 @@ fn availability_and_speech_match_the_fixture() {
     for case in fixture["availabilityCases"].as_array().unwrap() {
         let input = &case["input"];
         let reason = call_unavailable(TalkCallAvailabilityInput {
-            agent: input["agent"].as_bool().unwrap(),
-            platform: platform(&input["platform"]),
-            device: input["device"].as_str().map(str::to_string),
+            device: input["device"].as_str().unwrap().to_string(),
             online: input["online"].as_bool().unwrap(),
-            here: input["here"].as_bool().unwrap(),
             speech: input["speech"].as_str().map(speech),
-            busy: input["busy"].as_bool().unwrap(),
             meeting: input["meeting"].as_bool().unwrap_or(false),
         });
         assert_eq!(reason.as_deref(), case["expected"]["reason"].as_str(), "{}", case["name"]);
@@ -76,6 +72,7 @@ fn the_flow_matches_the_fixture_through_the_wire_form() {
             Some(view) => {
                 assert_eq!(view.activity, expected["activity"].as_str().unwrap(), "{name}");
                 assert_eq!(view.status.as_deref(), expected["status"].as_str(), "{name}");
+                assert_eq!(view.via.as_deref(), expected["via"].as_str(), "{name}");
                 assert_eq!(view.caption, expected["caption"].as_str().unwrap(), "{name}");
                 assert_eq!(view.muted, expected["muted"].as_bool().unwrap(), "{name}");
                 assert_eq!(view.speaker, expected["speaker"].as_bool().unwrap(), "{name}");
@@ -85,6 +82,51 @@ fn the_flow_matches_the_fixture_through_the_wire_form() {
             }
         }
         assert_eq!(state.toast.as_deref(), case["toast"].as_str(), "{name}");
+    }
+}
+
+#[test]
+fn the_target_and_the_tap_match_the_fixture() {
+    let fixture = fixture();
+    for case in fixture["targetCases"].as_array().unwrap() {
+        let input = &case["input"];
+        let devices = |key: &str| -> Vec<TalkCallTargetDevice> {
+            input[key]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default()
+                .iter()
+                .map(|device| TalkCallTargetDevice {
+                    id: device["id"].as_str().unwrap().into(),
+                    name: device["name"].as_str().unwrap().into(),
+                    online: device["online"].as_bool().unwrap(),
+                    speech: device["speech"].as_str().map(speech),
+                    meeting: device["meeting"].as_bool().unwrap_or(false),
+                })
+                .collect()
+        };
+        let target = call_target(TalkCallTargetInput {
+            here: input["here"].as_str().map(str::to_string),
+            agent_device: input["agentDevice"].as_str().map(str::to_string),
+            desktops: devices("desktops"),
+            servers: devices("servers"),
+            busy: input["busy"].as_bool().unwrap(),
+        });
+        let (expected, name) = (&case["expected"], &case["name"]);
+        assert_eq!(target.enabled, expected["enabled"].as_bool().unwrap(), "{name}");
+        assert_eq!(target.reason.as_deref(), expected["reason"].as_str(), "{name}");
+        assert_eq!(target.device.as_deref(), expected["device"].as_str(), "{name}");
+        assert_eq!(target.name.as_deref(), expected["name"].as_str(), "{name}");
+        assert_eq!(target.fallback, expected["fallback"].as_bool().unwrap(), "{name}");
+        assert_eq!(target.local, expected["local"].as_bool().unwrap(), "{name}");
+    }
+    for case in fixture["tapCases"].as_array().unwrap() {
+        let (input, expected, name) = (&case["input"], &case["expected"], &case["name"]);
+        let availability = &input["availability"];
+        assert_eq!(availability["enabled"].as_bool().unwrap(), availability["reason"].is_null(), "{name}");
+        let tap = call_tap(platform(&input["platform"]), availability["reason"].as_str().map(str::to_string));
+        assert_eq!(tap.call, expected["call"].as_bool().unwrap(), "{name}");
+        assert_eq!(tap.toast.as_deref(), expected["toast"].as_str(), "{name}");
     }
 }
 

@@ -15,14 +15,15 @@ run-name: release-suite${{ inputs.only && format(' (only {0})', inputs.only) || 
 # service Postgres; a not-ready DB fails them), the feedback-widget
 # Playwright e2e on the compose dev stack (`e2e`), the push-relay
 # image smoke build, site build + shots:check, the full
-# desktop cargo test + Rust licence inventory (+ the engine's macOS-only
-# confine cases on the Mac, the coding crate's long-path removal on
-# Windows), the desktop fuzz targets (short
+# desktop cargo test + Rust licence inventory (+ ePilot's macOS cases on
+# the Mac, the coding crate's
+# long-path removal on Windows), the desktop fuzz targets (short
 # runs, NEW-88), Android unit tests + lint +
 # licence inventory, the iOS compile + suites (test-ios.yml) and the ExpCore
 # SwiftPM replay (ios-core.yml; informational on PRs), and every
-# Exponential UI renderer + conformance + bench (exponential-ui.yml), and
-# eTalk's phone facade (etalk-ffi: bindings drift + Swift/Kotlin suites).
+# Exponential UI renderer + conformance + bench (exponential-ui.yml),
+# eTalk's phone facade (etalk-ffi: bindings drift + Swift/Kotlin suites),
+# and ePilot's live agent space on a ready desktop (epilot-space-live).
 
 on:
   push:
@@ -187,9 +188,11 @@ jobs:
 
   # #EDE-11: eDE's goldens. The headless compositor draws the factory
   # documents through the supervisor and the shell (apps/ede/scripts/shots.sh),
-  # the shots lane encodes them, and the committed store must not move:
-  # a pixel that changed is a look that changed, and the PR re-records it
-  # with `bun run shots -- --platform ede --skip-seed`.
+  # the shots lane encodes them, and the committed store must not move.
+  # #EDE-140: "moved" is eDE's own tolerance (packages/shots/src/store.ts:
+  # more than one pixel in 10,000 changed clearly, or 2 % of them faintly),
+  # not the store's 0.5 %. The PR re-records with `bun run shots -- --platform
+  # ede --skip-seed`, or from this job's artifact (shots/README.md).
   ede-goldens:
     needs: [dedupe, pick]
     if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'ede-goldens')
@@ -203,9 +206,13 @@ jobs:
             libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config libxcb1-dev libssl-dev libfontconfig1-dev clang \
             mesa-vulkan-drivers libegl1
       - uses: dtolnay/rust-toolchain@stable
+      # Every rust-cache here saves on master only, which never runs this:
+      # a tag's or a dispatched branch's entry no other ref can read (~1 GB
+      # each, per branch) evicted the master seeds (2026-11-20/21).
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: |
             apps/ede
             apps/desktop
@@ -243,6 +250,79 @@ jobs:
             shots/ede-panel-menu
           retention-days: 14
           if-no-files-found: ignore
+
+  # #EXP-1514 (#EXP-2011, the flip): ePilot's live test of an agent space on
+  # a desktop that is READY for one: this user's systemd user manager
+  # (lingering on, as the installed daemon has it), the space guard installed
+  # as the package installs it, polkit with the package's rule. A headless
+  # compositor on the runner user's runtime directory; `serve --space`
+  # drives a space through the host's gate (epilot/scripts/space-live.sh:
+  # the offer, a screenshot of the space, a launch in its slice, nothing left
+  # after the compositor's end), then ePilot's own space-run test
+  # (EDE_SPACE_LIVE=1). The gate's container has no user manager: there the
+  # compositor answers `no_user_manager` (`headless_ede_says_why_it_makes_no_space`).
+  epilot-space-live:
+    needs: dedupe
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'epilot-space-live')
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/apt-mirror
+      - name: Linux system deps, the user's session bus, polkit, lingering
+        run: |
+          sudo apt-get install -y \
+            libxkbcommon-dev libpixman-1-dev libwayland-dev pkg-config \
+            libudev-dev libinput-dev libgbm-dev libseat-dev libdrm-dev libegl1 \
+            libpipewire-0.3-dev libclang-dev dbus dbus-user-session polkitd
+          # `busctl --user` reaches the user manager over the session bus.
+          [ -S "$XDG_RUNTIME_DIR/bus" ] || { systemctl --user daemon-reload; systemctl --user start dbus.socket; }
+          busctl --user call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.DBus.Peer Ping
+          sudo loginctl enable-linger "$(id -un)"
+          loginctl show-user "$(id -un)" --property=Linger
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/ede
+            apps/desktop
+      - uses: ./.github/actions/cargo-fetch
+        with:
+          dir: apps/ede
+      - uses: ./.github/actions/cargo-fetch
+      - name: Build the compositor and the space guard
+        working-directory: apps/ede
+        run: cargo build --locked -p ede-compositor --bin exponential-compositor -p ede-space-guard --bin exponential-space-guard
+      - name: Install the space guard and polkit's rule as the package does
+        run: |
+          target="${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/ede/target}/debug"
+          sudo install -Dm755 "$target/exponential-space-guard" /usr/libexec/exponential-space-guard
+          sudo install -Dm644 apps/ede/packaging/system/exponential-space-guard.socket /etc/systemd/system/exponential-space-guard.socket
+          sudo install -Dm644 apps/ede/packaging/system/exponential-space-guard.service /etc/systemd/system/exponential-space-guard.service
+          sudo install -Dm644 apps/ede/packaging/polkit/00-00-exponential-agent-spaces.rules /usr/share/polkit-1/rules.d/00-00-exponential-agent-spaces.rules
+          sudo install -Dm644 apps/ede/packaging/polkit/at.exponential.desktop.space-probe.policy /usr/share/polkit-1/actions/at.exponential.desktop.space-probe.policy
+          sudo systemctl daemon-reload
+          sudo systemctl start exponential-space-guard.socket
+          sudo systemctl restart polkit
+      - name: Build the serve example
+        working-directory: apps/desktop
+        run: cargo build --locked -p epilot --example serve
+      - name: An agent space through serve --space
+        run: |
+          sh apps/desktop/crates/epilot/scripts/space-live.sh \
+            "${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/ede/target}/debug/exponential-compositor" \
+            "${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/desktop/target}/debug/examples/serve"
+      - name: ePilot's space run on the same desktop
+        working-directory: apps/desktop
+        env:
+          EDE_SPACE_LIVE: '1'
+        run: |
+          EDE_COMPOSITOR="${CARGO_TARGET_DIR:-$GITHUB_WORKSPACE/apps/ede/target}/debug/exponential-compositor" \
+            cargo test --locked -p epilot --lib headless_ede_runs_a_space_run -- --test-threads=1
+      - name: What the guard and polkit said
+        if: failure()
+        run: |
+          sudo journalctl -u exponential-space-guard.service -u polkit.service --no-pager -n 200 || true
 
   migrations:
     needs: [dedupe, pick]
@@ -411,6 +491,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests
@@ -452,6 +533,7 @@ jobs:
           echo "IROH_RELAY_VERSION=$(awk '/^name = "iroh-relay"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
           key: enet-wasm-smoke
       - uses: ./.github/actions/cargo-fetch
@@ -489,6 +571,7 @@ jobs:
           echo "WASM_BINDGEN_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
           key: eagent-wasm-replay
       - uses: ./.github/actions/cargo-fetch
@@ -518,6 +601,7 @@ jobs:
           echo "WASM_BINDGEN_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
           key: chat-store-wasm
       - uses: ./.github/actions/cargo-fetch
@@ -533,9 +617,7 @@ jobs:
         working-directory: apps/web
         run: bunx vitest run --config vitest.config.ts src/lib/chat-store src/lib/perf/chat-store-open.test.ts
 
-  # FEED-160: the macOS-only cases (confine.rs's `/System/Volumes` Data
-  # volume) never run on the Linux `desktop` job; the engine's confine
-  # tests on the Mac.
+  # The macOS-only cases that never run on the Linux `desktop` job.
   desktop-macos:
     needs: [dedupe, pick]
     if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'desktop-macos')
@@ -549,11 +631,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
-      - name: Cargo tests (engine confine, macOS)
-        working-directory: apps/desktop
-        run: cargo test --locked -p engine --lib adapters::confine
       # #EXP-1979: computer use's macOS backend (the lock's verdicts, the
       # keyboard layouts, activate_window's answer) never runs on Linux.
       - name: Cargo tests (ePilot, macOS)
@@ -571,6 +651,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Cargo tests (worktree removal, Windows long paths)
@@ -581,6 +662,14 @@ jobs:
       - name: Cargo tests (ePilot, Windows)
         working-directory: apps/desktop
         run: cargo test --locked -p epilot --lib
+      # #EXP-1889: the two Windows paths that shipped unrun (#VAPP-166's
+      # variable-font weights on DirectWrite, #EXP-1794's store junctions).
+      - name: Cargo tests (variable-font weights, DirectWrite)
+        working-directory: apps/desktop
+        run: cargo test --locked -p gpui-pre-windows --lib -- exponential_variable_font_tests
+      - name: Cargo tests (one claude store, junctions)
+        working-directory: apps/desktop
+        run: cargo test --locked -p eagent --lib claude_store
 
   desktop-fuzz:
     needs: dedupe
@@ -600,6 +689,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop/fuzz
       - uses: ./.github/actions/cargo-fetch
         with:
@@ -634,6 +724,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Facade tests
@@ -671,6 +762,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Swift binding suite (the committed binding vs the host dylib)
@@ -698,6 +790,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
       - uses: ./.github/actions/cargo-fetch
       - name: Build the eNet facade for the JVM unit tests
@@ -709,16 +802,14 @@ jobs:
       - name: Build the chat store facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p chat-store-ffi --release
-      - name: Cache Gradle packages
+      # Restore only: seed-gradle-caches.yml saves the entry on master.
+      - name: Restore the Gradle caches
         if: runner.environment == 'github-hosted'
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('apps/android/**/*.gradle*', 'apps/android/gradle/wrapper/gradle-wrapper.properties', 'apps/android/gradle/libs.versions.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
+          path: ~/.gradle/caches
+          key: gradle-android-
+          restore-keys: gradle-android-
       - name: Android unit tests
         working-directory: apps/android
         run: ./gradlew :app:testProductionDebugUnitTest --no-daemon

@@ -84,11 +84,19 @@ counts as 0 and ends every subtree); the Row's `guides` part gets
 for a root). A lone root or slot value is a one-element list. Any OTHER
 sibling with a numeric `depth` prop (an extension row such as SessionRow or
 PrRow) takes part too and gets the result as its `guide` prop
-(`{elbowAt?, tee, passThrough}`) for its painter to draw. A `depth` is
-static (never bindable). The pass runs over the EXPANDED tree only: rows a
-data template instantiates (a List over `{path}`) are not siblings at
-expansion time, and a painter draws NO elbow without `elbowAt`; author
-static rows for a connected tree. A macro that offers `pressable` (Row,
+(`{elbowAt?, tee, passThrough}`) for its painter to draw. The pass runs
+over the EXPANDED tree only: rows a data template instantiates (a List over
+`{path}`) are not siblings at expansion time, and a painter draws NO elbow
+without `elbowAt`; author static rows for a connected tree. Row `depth` is
+BINDABLE (#EXP-1843, a templated folder tree: `{"@path": "depth"}`): a bound
+depth is never computed against the siblings (the row counts as 0 for them
+and ends every subtree); its `guides` part keeps the binding
+(`{depth: <binding>, tee: false, passThrough: []}`, no `elbowAt`) under the
+`visible` that hides the gutter at depth 0, so each item INDENTS by the
+depth its data holds and draws no connector. Every painter reads the
+resolved value through `treeGuideDepth` (`tree_guide_depth`): a finite
+number floored, never below 0; a string, a boolean or nothing = 0
+(`fixtures/tree-guides.json` `resolved`). A macro that offers `pressable` (Row,
 Chip) takes it from an `on.press` when unset.
 
 **Geometry** (`layout.json`): `treeGuideColumn` = 14 (the `guides` part is

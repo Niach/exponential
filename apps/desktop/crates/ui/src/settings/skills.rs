@@ -27,7 +27,7 @@ use eui_gpui::binding::Binding;
 use eui_gpui::view::SurfaceView;
 
 use crate::native_dialog::{self, AlertSpec};
-use crate::navigation::{active_team_id, navigate, Navigation, Screen};
+use crate::navigation::{screen_team_id, navigate, Navigation, Screen};
 use crate::queries;
 use crate::sidebar::select_settings_section;
 
@@ -184,7 +184,7 @@ impl SkillsPane {
         if let Some(shot) = &self.shot {
             return shot.team.then(|| (shot.rows.clone(), shot.ready, shot.owner));
         }
-        let team_id = active_team_id(&self.nav, cx)?;
+        let team_id = screen_team_id(&self.nav, cx)?;
         let (rows, ready) = queries::team_skills(cx, &team_id);
         Some((rows, ready, super::is_owner(cx, &team_id)))
     }

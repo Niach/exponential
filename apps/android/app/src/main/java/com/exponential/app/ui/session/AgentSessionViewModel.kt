@@ -1069,16 +1069,38 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /**
-     * #FEED-260 (fixtures/steer-enet.json SYNCED TAIL): the session's newest
-     * card-less agent lines and person inputs, OPENED, oldest first. The
-     * screen picks the ones after its not-live feed ([steerSyncedTail]).
-     */
-    val tailMessages: StateFlow<List<com.exponential.app.data.steer.SyncedTailMessage>> =
-        dbFlow.scopedQuery(emptyList<MessageEntity>()) {
-            it.messageDao().observeTailMessages(codingSessionId, com.exponential.app.data.steer.STEER_SYNCED_TAIL_MAX)
-        }.map { rows ->
-            rows.map { row ->
+    /** #EXP-1998 (find-in-chat.json): how many of the session's newest
+     *  synced tail messages are loaded; find in chat's landing on an older
+     *  one doubles it ([loadOlderSynced]) until the chat closes. */
+    private val syncedLimit = MutableStateFlow(com.exponential.app.data.steer.STEER_SYNCED_TAIL_MAX)
+
+    fun loadOlderSynced() = syncedLimit.update { if (it >= Int.MAX_VALUE / 2) it else it * 2 }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val tailRows: Flow<Pair<Int, List<MessageEntity>>> =
+        syncedLimit.flatMapLatest { limit ->
+            dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeTailMessages(codingSessionId, limit) }
+                .map { limit to it }
+        }
+
+    /** #EXP-1998: the session's LOADED synced messages, ONE consistent read:
+     *  [messages] = its newest card-less agent lines and person inputs,
+     *  OPENED, oldest first (#FEED-260, steer-enet.json SYNCED TAIL: the
+     *  screen picks the ones after its not-live feed, [steerSyncedTail]);
+     *  [loaded] = every message id from the oldest of them on, as find in
+     *  chat reads them; [more] = the query hit its limit, so older ones
+     *  exist unloaded. */
+    data class SyncedWindow(
+        val messages: List<com.exponential.app.data.steer.SyncedTailMessage>,
+        val loaded: List<String>,
+        val more: Boolean,
+        val oldestAt: String?,
+    )
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val syncedWindow: StateFlow<SyncedWindow> =
+        tailRows.map { (limit, rows) ->
+            (rows.size >= limit) to rows.map { row ->
                 val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row)
                 com.exponential.app.data.steer.SyncedTailMessage(
                     id = row.id,
@@ -1089,7 +1111,14 @@ class AgentSessionViewModel @AssistedInject constructor(
                     body = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body,
                 )
             }
-        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }.flatMapLatest { (more, messages) ->
+            val oldestAt = messages.firstOrNull()?.createdAt
+            dbFlow.scopedQuery(emptyList<String>()) {
+                it.messageDao().observeIdsSince(codingSessionId, if (more) oldestAt.orEmpty() else "")
+            }.map { ids -> SyncedWindow(messages, ids, more, oldestAt) }
+        }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncedWindow(emptyList(), emptyList(), false, null))
 
     /**
      * #FEED-237 (message-delivery.json): the viewer's OWN bubbles at the

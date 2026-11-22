@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import {
   APPS_COPY,
@@ -24,6 +24,7 @@ import {
 } from "@exp/domain-contract/apps"
 import {
   FAB_CLEARANCE_CLASS,
+  FAB_FOOT_INSET_VAR,
   FAB_LANE_CLASS,
   BoardGlyph,
   Button,
@@ -672,7 +673,8 @@ export function AppEditor({
   const openScreen = (request: ScreenRequest) => setScreenRequest(request)
 
   const preview = (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-4">
+    // #EXP-1874: the Phone frame's row (THE pinned foot) sits the pane's `p-4` in from the card's edge.
+    <div className="flex h-full min-h-0 flex-col gap-3 p-4" style={{ [FAB_FOOT_INSET_VAR]: `16px` } as CSSProperties}>
       {toolbar}
       {viewing !== null && (
         <div

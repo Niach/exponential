@@ -36,6 +36,14 @@ use crate::actions::{
     OpenSourceControl, OpenWhatsNew, SwitchTeam, SyncNow,
 };
 
+/// #EXP-2027: what a team menu's New › page creates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum NewItemKind {
+    Board,
+    Agent,
+    App,
+}
+
 /// One center TAB (§4.2, reworked): the center pane is tab-based — every
 /// `Screen` value identifies one openable tab (issues and files can be open
 /// several at a time; Source Control / Settings are singletons).
@@ -60,10 +68,19 @@ pub enum Screen {
     /// `routes/t/$ws/settings/` — team, device AND personal sections
     /// (EXP-238 folded the old Account screen into the settings nav).
     Settings,
-    /// The Devices page (EXP-686 — the web `t/$teamSlug/devices` page: the
-    /// user's machines and nothing else). Tab-less full-page mode like
-    /// Settings (no sidebar, no tab chip), opened from the rail.
-    Devices,
+    /// #EXP-2027 (sidebar-tree.json): one DEVICE's page, opened from its
+    /// sidebar row under Devices: its accounts with their limits and the
+    /// sessions running on it across teams; on THIS device also Tools,
+    /// Coding CLIs, Worktrees and Sessions. `device_id` EMPTY = this device.
+    /// Tab-less full-page mode (the Devices page is gone).
+    Device { device_id: String },
+    /// #EXP-2027: a device's SETTINGS page (the old Device settings dialog's
+    /// body), opened from its row's hover gear and the page's Settings.
+    DeviceSettings { device_id: String },
+    /// #EXP-2027: a team menu's New › Board | Agent | App: the creation
+    /// PAGE of `kind` in `team_id` (never a dialog; New › Session is Home
+    /// with the team as its Teams pick).
+    NewItem { team_id: String, kind: NewItemKind },
     /// The Drafts page (EXP-878 — the New issue pages this user left with
     /// content in them). Tab-less full-page mode like Devices, opened from
     /// the rail's conditional Drafts entry; context-free, so it lends no list
@@ -369,7 +386,9 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .unwrap_or_else(|| "Board".into()),
         Screen::Files => "Files".into(),
         Screen::SourceControl => "Source Control".into(),
-        Screen::Devices => "Devices".into(),
+        Screen::Device { device_id } => crate::device_page::device_title(device_id, cx),
+        Screen::DeviceSettings { .. } => domain::sidebar_tree::sidebar_tree_copy().device_settings.clone().into(),
+        Screen::NewItem { kind, .. } => crate::new_item_page::new_item_title(*kind).into(),
         Screen::Drafts => "Drafts".into(),
         Screen::NeedsYou => domain::needs_you::NEEDS_YOU.copy.entry.clone().into(),
         // EXP-1170: the draft page names itself by the contract's header.
@@ -450,6 +469,8 @@ pub(crate) struct ChatSeed {
     pub(crate) device_id: Option<String>,
     /// Text inserted into an EMPTY draft (a suggestion's brief).
     pub(crate) text: Option<String>,
+    /// #EXP-2027: a team menu's New › Session: the composer's Teams pick.
+    pub(crate) team_id: Option<String>,
 }
 
 impl ChatSeed {
@@ -586,13 +607,16 @@ pub(crate) fn holds_leave(armed: bool, current: Option<&Screen>, target: Option<
 }
 
 /// Per-window navigation state. Mutate through [`navigate`] /
-/// [`switch_team`] / [`go_back`] so observers fire consistently.
+/// [`go_back`] so observers fire consistently.
 pub struct Navigation {
     /// #FEED-191: the rail header's Inbox popover is up.
     pub(crate) inbox_open: bool,
-    /// Selected team; `None` = "first synced team" (resolved at
-    /// query time — a fresh install has no selection until sync lands).
-    pub team_id: Option<String>,
+    /// #EXP-2027 (sidebar-tree.json): there is NO active team: a screen's
+    /// team is derived from what it shows ([`screen_team_id`]). Settings is
+    /// the one screen that names its team from outside: the team whose
+    /// settings are open (a team menu › Settings); `None` = the member's
+    /// personal settings (the gear next to their name).
+    pub settings_team: Option<String>,
     screen: Option<Screen>,
     back_stack: Vec<Screen>,
     /// EXP-818: what [`go_back`] left, so [`go_forward`] (the mouse's
@@ -644,7 +668,7 @@ impl Navigation {
             // EXP_DEV_SERVER/EXP_DEV_BOARD): pre-select a team and/or
             // pre-route the first screen so gate screenshots can reach
             // surfaces without synthetic input. Unset in normal runs.
-            team_id: std::env::var("EXP_DEV_TEAM").ok(),
+            settings_team: dev_team(),
             screen,
             back_stack: Vec::new(),
             forward_stack: Vec::new(),
@@ -826,7 +850,8 @@ pub(crate) fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "settings" => Some(Screen::Settings),
         // EXP-238: Account merged into Settings — the dev value keeps working.
         "account" => Some(Screen::Settings),
-        "devices" => Some(Screen::Devices),
+        // #EXP-2027: the Devices page is gone: THIS device's page.
+        "devices" | "device" => Some(Screen::Device { device_id: String::new() }),
         // EXP-878: the drafts list.
         "drafts" => Some(Screen::Drafts),
         "needs-you" => Some(Screen::NeedsYou),
@@ -838,7 +863,7 @@ pub(crate) fn parse_dev_screen(spec: &str) -> Option<Screen> {
         }),
         // EXP-818: Usage folded into Devices (its Accounts section); the old
         // dev value lands there.
-        "usage" => Some(Screen::Devices),
+        "usage" => Some(Screen::Device { device_id: String::new() }),
         "home" => Some(Screen::Home),
         // EXP-1294: the Chats page.
         "chats" => Some(Screen::Chats),
@@ -901,6 +926,18 @@ pub(crate) fn parse_dev_screen(spec: &str) -> Option<Screen> {
                     agent_id: id.to_string(),
                 });
             }
+            // #EXP-2027: a device's page and settings page, a creation page.
+            if let Some(id) = spec.strip_prefix("device-settings:") {
+                return Some(Screen::DeviceSettings { device_id: id.to_string() });
+            }
+            if let Some(id) = spec.strip_prefix("device:") {
+                return Some(Screen::Device { device_id: id.to_string() });
+            }
+            for (prefix, kind) in [("new-board:", NewItemKind::Board), ("new-agent:", NewItemKind::Agent), ("new-app:", NewItemKind::App)] {
+                if let Some(team_id) = spec.strip_prefix(prefix) {
+                    return Some(Screen::NewItem { team_id: team_id.to_string(), kind });
+                }
+            }
             // EXP-1259: one dev-only specimen, full-window.
             if let Some(id) = spec.strip_prefix("specimen:") {
                 return crate::specimens::entries::find(id)
@@ -955,7 +992,7 @@ impl Global for NavRegistry {}
 /// The window's navigation entity, created on first access. A fresh window
 /// starts on the LAST team **and board** this install had active
 /// (persisted in `settings.json`, EXP-116); ids that no longer sync fall back
-/// via `active_team_id` / `active_board_id` at query time.
+/// via `screen_team_id` / `active_board_id` at query time.
 pub fn nav_for_window(window: &Window, cx: &mut App) -> Entity<Navigation> {
     let window_id = window.window_handle().window_id();
     if let Some(existing) = cx
@@ -969,20 +1006,10 @@ pub fn nav_for_window(window: &Window, cx: &mut App) -> Entity<Navigation> {
     if !repo_picks.is_empty() {
         nav.update(cx, |nav, _| nav.repo_picks = repo_picks);
     }
-    if nav.read(cx).team_id.is_none() {
-        // The EXP_DEV_TEAM override (Navigation::new) wins over the
-        // persisted pair — dev runs must land where they were pointed.
-        let last_team = load_settings_string(cx, LAST_TEAM_KEY);
-        let last_board = load_settings_string(cx, LAST_BOARD_KEY);
-        if last_team.is_some() || last_board.is_some() {
-            nav.update(cx, |nav, _| {
-                nav.team_id = last_team;
-                // Same rule for the board (EXP-642): an EXP_DEV_BOARD_ID
-                // seed must survive the persisted value.
-                if nav.last_board_id.is_none() {
-                    nav.last_board_id = last_board;
-                }
-            });
+    // EXP-642: an EXP_DEV_BOARD_ID seed survives the persisted board.
+    if nav.read(cx).last_board_id.is_none() {
+        if let Some(last_board) = load_settings_string(cx, LAST_BOARD_KEY) {
+            nav.update(cx, |nav, _| nav.last_board_id = Some(last_board));
         }
     }
     cx.default_global::<NavRegistry>()
@@ -1011,12 +1038,12 @@ pub(crate) fn seed_window_scope(
 ) {
     let scope = nav_for_window_id(source, cx).map(|nav| {
         let nav = nav.read(cx);
-        (nav.team_id.clone(), nav.last_board_id.clone(), nav.repo_picks.clone())
+        (nav.settings_team.clone(), nav.last_board_id.clone(), nav.repo_picks.clone())
     });
     let nav = nav_for_window(window, cx);
     nav.update(cx, |nav, cx| {
         if let Some((team_id, last_board_id, repo_picks)) = scope {
-            nav.team_id = team_id;
+            nav.settings_team = team_id;
             nav.last_board_id = last_board_id;
             nav.repo_picks = repo_picks;
         }
@@ -1032,14 +1059,14 @@ pub(crate) fn seed_window_scope(
 pub(crate) fn seed_window_team(window: &Window, cx: &mut App, source: WindowId) {
     let scope = nav_for_window_id(source, cx).map(|nav| {
         let nav = nav.read(cx);
-        (nav.team_id.clone(), nav.last_board_id.clone(), nav.repo_picks.clone())
+        (nav.settings_team.clone(), nav.last_board_id.clone(), nav.repo_picks.clone())
     });
     let Some((team_id, last_board_id, repo_picks)) = scope else {
         return;
     };
     let nav = nav_for_window(window, cx);
     nav.update(cx, |nav, cx| {
-        nav.team_id = team_id;
+        nav.settings_team = team_id;
         nav.last_board_id = last_board_id;
         nav.repo_picks = repo_picks;
         cx.notify();
@@ -1365,6 +1392,12 @@ pub(crate) fn set_draft_board(window: &Window, cx: &mut App, draft_id: &str, boa
 /// so the seed goes to the shell it was undocked from and that window is
 /// raised — the `forward_to_owner_shell` shape, only with the seed carried
 /// along (writing it onto the undocked window's nav would lose it).
+/// #EXP-2027 (sidebar-tree.json): a team menu's New › Session = Home's
+/// composer with that team as its Teams pick.
+pub fn open_home_in_team(window: &mut Window, cx: &mut App, team_id: String) {
+    navigate_to_chat(window, cx, ChatSeed { team_id: Some(team_id), ..Default::default() });
+}
+
 pub(crate) fn navigate_to_chat(window: &mut Window, cx: &mut App, seed: ChatSeed) {
     navigate_to_chat_inner(window, cx, seed);
 }
@@ -1475,8 +1508,7 @@ pub fn set_active_board(window: &Window, cx: &mut App, board_id: String) {
         true
     });
     if changed {
-        let team_id = nav.read(cx).team_id.clone();
-        persist_nav_state(cx, team_id, Some(board_id));
+        persist_nav_state(cx, Some(board_id));
     }
 }
 
@@ -1488,7 +1520,7 @@ pub fn set_active_repo(window: &Window, cx: &mut App, repository_id: String) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
-    let Some(team_id) = active_team_id(&nav, cx) else {
+    let Some(team_id) = screen_team_id(&nav, cx) else {
         return;
     };
     let changed = nav.update(cx, |nav, cx| {
@@ -1569,84 +1601,23 @@ pub fn go_forward(window: &Window, cx: &mut App) {
     }
 }
 
-/// Switch the window's active team. Resets the screen + back stack —
-/// screens are team-scoped (a board of team A is meaningless in B);
-/// the default-screen resolution then lands on Home (EXP-1192).
-pub fn switch_team(window: &Window, cx: &mut App, team_id: String) {
-    let Some(nav) = nav_for_window_readonly(window, cx) else {
-        return;
-    };
-    if nav.read(cx).team_id.as_deref() != Some(team_id.as_str()) {
-        if let Some(hold) = leave_hold(window, cx, None) {
-            hold(window, cx, Box::new(move |window, cx| switch_team(window, cx, team_id)));
-            return;
-        }
-    }
-    let changed = nav.update(cx, |nav, cx| {
-        if nav.team_id.as_deref() == Some(team_id.as_str()) {
-            return false;
-        }
-        nav.team_id = Some(team_id.clone());
-        nav.screen = None;
-        nav.back_stack.clear();
-        nav.forward_stack.clear();
-        nav.last_board_id = None;
-        nav.pending_origin = None;
-        nav.pending_chat_seed = None;
-        cx.notify();
-        true
-    });
-    if changed {
-        // Clearing the board key keeps the file consistent with the
-        // in-memory reset above — a restart must not resurrect a board
-        // from the team this window just left.
-        persist_nav_state(cx, Some(team_id), None);
-    }
+/// #EXP-2027: there is no team to switch to any more: a team the member
+/// just created, joined or was pointed at shows OPEN in the sidebar (its
+/// screens' team is derived from what they show).
+pub fn reveal_team(_window: &Window, cx: &mut App, team_id: String) {
+    remember_team(cx, team_id);
 }
 
-/// EXP-1275 — [`switch_team`] from the team picker. The switch itself is
-/// local and instant; only a team whose rows have not synced here yet (the
-/// teams + boards shapes still catching up) has something to wait for, and
-/// that wait is the BLOCKING kind (`crate::feedback::Blocking`): the window
-/// backdrop, the mark and "Switching to <team>", until the team's row lands
-/// (or the gate gives up), then the switch.
-pub fn switch_team_blocking(window: &Window, cx: &mut App, team_id: String) {
-    let teams = Store::global(cx).collections().teams.clone();
-    let synced = shapes_ready(cx) && teams.read(cx).get(&team_id).is_some();
-    if synced {
-        switch_team(window, cx, team_id);
-        return;
-    }
-    let name = teams
-        .read(cx)
-        .get(&team_id)
-        .map(|team| team.name.clone())
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| "your team".to_string());
-    crate::feedback::Blocking::begin(crate::feedback::blocking_switch_team(&name), cx);
-    window
-        .spawn(cx, async move |cx| {
-            crate::queries::await_row_visible(&teams, &team_id, cx).await;
-            let switched = cx.update(|window, cx| {
-                crate::feedback::Blocking::end(cx);
-                switch_team(window, cx, team_id);
-            });
-            // The window closed meanwhile: the wait covers EVERY window, so
-            // it still ends.
-            if switched.is_err() {
-                let app: &gpui::AsyncApp = cx;
-                let _ = app.update(crate::feedback::Blocking::end);
-            }
-        })
-        .detach();
+/// [`reveal_team`] without a window (a deep link before one opens).
+pub(crate) fn remember_team(_cx: &mut App, team_id: String) {
+    crate::ui_prefs::set_sidebar_folder_open(&domain::sidebar_tree::sidebar_team_open_key(&team_id), true);
 }
 
 // -----------------------------------------------------------------------
-// Last-team/-board persistence (`settings.json`, merge-preserving
+// Last-board persistence (`settings.json`, merge-preserving
 // like the `deviceId` key — other subsystems' keys survive)
 // -----------------------------------------------------------------------
 
-const LAST_TEAM_KEY: &str = "lastTeamId";
 const LAST_BOARD_KEY: &str = "lastBoardId";
 /// EXP-1133: `{ teamId: repositoryId }` — the per-team repo picks.
 const LAST_REPO_BY_TEAM_KEY: &str = "lastRepoByTeam";
@@ -1699,20 +1670,12 @@ pub(crate) fn persist_member_setting(cx: &mut App, key: &'static str, member: St
         .detach();
 }
 
-/// Remember the window's team/board selection for the next launch
-/// (best-effort, off-thread). ONE writer for BOTH keys: the `OpenBoard`
-/// cross-team path mutates team then board back-to-back, and two
-/// independent read-modify-write tasks against the shared `settings.json`
-/// could land in either order — the sequence stamp (checked under the write
-/// lock) lets a superseded snapshot skip instead of clobbering the newest.
-/// `team_id: None` leaves the team key untouched;
-/// `board_id: None` REMOVES the board key (team switch reset).
-/// #EDE-65: the team the next window opens on (a deep link with no window).
-pub(crate) fn remember_team(cx: &mut App, team_id: String) {
-    persist_nav_state(cx, Some(team_id), None);
-}
-
-fn persist_nav_state(cx: &mut App, team_id: Option<String>, board_id: Option<String>) {
+/// Remember the window's board for the next launch (best-effort,
+/// off-thread); the sequence stamp (checked under the write lock) lets a
+/// superseded snapshot skip instead of clobbering the newest.
+/// `board_id: None` REMOVES the board key. #EXP-2027: no team is
+/// remembered (there is no active team).
+fn persist_nav_state(cx: &mut App, board_id: Option<String>) {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -1729,12 +1692,7 @@ fn persist_nav_state(cx: &mut App, team_id: Option<String>, board_id: Option<Str
                 return; // a newer snapshot is queued (or already written)
             }
             update_settings_json(&path, |object| {
-                if let Some(team_id) = team_id {
-                    object.insert(
-                        LAST_TEAM_KEY.to_string(),
-                        serde_json::Value::String(team_id),
-                    );
-                }
+                object.remove("lastTeamId");
                 match board_id {
                     Some(board_id) => {
                         object.insert(
@@ -1900,7 +1858,7 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &OpenInbox, cx| {
         on_active_window(cx, crate::inbox_popover::open);
     });
-    cx.on_action(|_: &OpenSettings, cx| navigate_active(cx, Screen::Settings));
+    cx.on_action(|_: &OpenSettings, cx| on_active_window(cx, |window, cx| open_settings(window, cx, None)));
     // EXP-1170: "New issue" (the §3.6 unit action) opens the New issue PAGE
     // on the window's active board — the create dialog is gone.
     cx.on_action(|_: &NewIssue, cx| {
@@ -1931,24 +1889,8 @@ pub fn init(cx: &mut App) {
                 board_id: board_id.clone(),
             };
             leave_held(window, cx, Some(&target), move |window, cx| {
-                // EXP-69 merged picker: a board picked from ANOTHER team
-                // switches the window's team first (same reset semantics as
-                // the old footer switcher — screen + back stack cleared), then
-                // scopes to the picked board. One action, one gesture.
-                let nav = nav_for_window(window, cx);
-                let board_team = Store::global(cx)
-                    .collections()
-                    .boards
-                    .read(cx)
-                    .get(&board_id)
-                    .map(|board| board.team_id.clone());
-                if let Some(board_team) = board_team {
-                    if active_team_id(&nav, cx).as_deref()
-                        != Some(board_team.as_str())
-                    {
-                        switch_team(window, cx, board_team);
-                    }
-                }
+                // #EXP-2027: a board of any team opens as it is (its
+                // screen's team is the board's; there is no switch).
                 set_active_board(window, cx, board_id.clone());
                 navigate(window, cx, Screen::BoardIssues { board_id });
             });
@@ -1958,10 +1900,13 @@ pub fn init(cx: &mut App) {
         let issue_id = action.issue_id.clone();
         navigate_active(cx, Screen::IssueDetail { issue_id });
     });
+    // #EXP-2027: a team named from outside (a deep link, a fresh team)
+    // shows open in the sidebar; nothing switches.
     cx.on_action(|action: &SwitchTeam, cx| {
         let team_id = action.team_id.clone();
         on_active_window(cx, move |window, cx| {
-            switch_team_blocking(window, cx, team_id);
+            reveal_team(window, cx, team_id);
+            navigate(window, cx, Screen::Home);
         });
     });
     // EXP-723: the rail's account menu is What's new / About / Sign out. Both
@@ -2081,7 +2026,7 @@ pub fn resolved_screen(nav: &Entity<Navigation>, cx: &App) -> Option<Screen> {
     }
     // `try_global`: the panel-rehydrate tests build windows without a store.
     let collections = Store::try_global(cx)?.collections();
-    let team_id = active_team_id(nav, cx)?;
+    let team_id = fallback_team_id(cx)?;
     default_screen(!collections.boards_in_team(&team_id, cx).is_empty())
 }
 
@@ -2107,7 +2052,8 @@ pub fn shapes_ready(cx: &App) -> bool {
 /// the team's first board.
 pub fn active_board_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
     let collections = Store::global(cx).collections();
-    let team_id = active_team_id(nav, cx)?;
+    // #EXP-2027: the screen's own team (a board's, an issue's, a chat's).
+    let team_id = screen_team_id(nav, cx)?;
     if let Some(picked) = nav.read(cx).last_board_id.clone() {
         let still_here = collections
             .boards
@@ -2158,21 +2104,59 @@ pub fn active_board_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
         .map(|board| board.id.clone())
 }
 
-/// The active team id: the explicit selection when it still exists,
-/// else the first synced team WITH boards (name-sorted, web picker
-/// order), else the plain first team. The boards preference is EXP-181:
-/// without a persisted selection the name-sort used to land startups on
-/// an empty personal team ("Select board", blank lists) while another
-/// team was fully usable. Before the boards shape's first sync every
-/// team looks empty and the plain first team wins — the resolution is
-/// query-time, so it self-corrects the moment boards land.
-pub fn active_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
-    let collections = Store::global(cx).collections();
-    let selected = nav.read(cx).team_id.clone();
-    if let Some(id) = selected {
-        if collections.teams.read(cx).get(&id).is_some() {
-            return Some(id);
+/// #EXP-2027 (sidebar-tree.json): the team of the screen on show, DERIVED
+/// from what it shows: a board's (its list, an issue, a New issue page), an
+/// agent's, an app's, a chat's or session's, the team whose settings are
+/// open, a creation page's. There is no active team: a screen that belongs
+/// to none (Home, Chats, a device) reads [`fallback_team_id`], the first
+/// of the member's teams, for what still needs one (a board scope, the
+/// trunk's repository); lists that span teams read every team instead.
+pub fn screen_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
+    let screen = nav.read(cx).screen.clone();
+    screen
+        .as_ref()
+        .and_then(|screen| team_of_screen(screen, nav, cx))
+        .filter(|team| Store::try_global(cx).is_some_and(|store| store.collections().teams.read(cx).get(team).is_some()))
+        .or_else(|| fallback_team_id(cx))
+}
+
+/// The team `screen` shows something of, when it shows one.
+pub(crate) fn team_of_screen(screen: &Screen, nav: &Entity<Navigation>, cx: &App) -> Option<String> {
+    let collections = Store::try_global(cx)?.collections();
+    let board_team = |board_id: &str| {
+        let board_id = if board_id.is_empty() { nav.read(cx).last_board_id.clone()? } else { board_id.to_string() };
+        collections.boards.read(cx).get(&board_id).map(|board| board.team_id.clone())
+    };
+    match screen {
+        Screen::BoardIssues { board_id } | Screen::IssueDraft { board_id, .. } => board_team(board_id),
+        Screen::IssueDetail { issue_id } => {
+            let board = collections.issues.read(cx).get(issue_id).map(|issue| issue.board_id.clone())?;
+            board_team(&board)
         }
+        Screen::Agent { agent_id } => {
+            let id = crate::agent_screen::resolve_agent_id(agent_id, cx);
+            collections.agents.read(cx).get(&id).and_then(|agent| agent.team_id.clone())
+        }
+        Screen::App { app } | Screen::AppRun { app } => collections
+            .apps
+            .read(cx)
+            .iter()
+            .find(|row| row.id == *app || row.slug == *app)
+            .and_then(|row| row.team_id.clone()),
+        Screen::Chat { session_id } | Screen::Session { session_id } => crate::session_data::session(session_id, cx).and_then(|session| session.team_id),
+        Screen::Settings => nav.read(cx).settings_team.clone(),
+        Screen::NewItem { team_id, .. } => Some(team_id.clone()),
+        _ => None,
+    }
+}
+
+/// #EXP-2027: the team a screen with none of its own falls back to (the
+/// dev captures' `EXP_DEV_TEAM`, else the member's first team by name with a
+/// board).
+pub fn fallback_team_id(cx: &App) -> Option<String> {
+    let collections = Store::try_global(cx)?.collections();
+    if let Some(dev) = dev_team().filter(|id| collections.teams.read(cx).get(id).is_some()) {
+        return Some(dev);
     }
     let teams = collections.teams_sorted(cx);
     teams
@@ -2182,53 +2166,40 @@ pub fn active_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
         .map(|team| team.id.clone())
 }
 
-/// EXP-1250 — the team the window's TAB STRIP belongs to: the CHOSEN team
-/// (`Navigation::team_id`) while its row exists or is still syncing (the
-/// teams shape before its first `up-to-date`), and [`active_team_id`]'s
-/// fallback otherwise — nothing chosen, or a chosen team whose row is GONE
-/// (left or deleted), so the strip never stays dead on a team that no
-/// longer exists. A fallback that flips during a sync pass never reads as a
-/// team switch (the strip's tabs are parked per team on a real one).
-pub(crate) fn tabs_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
-    let chosen = nav.read(cx).team_id.clone();
-    let teams = Store::global(cx).collections().teams.read(cx);
-    let chosen_alive = chosen
-        .as_deref()
-        .is_some_and(|id| !teams.is_ready() || teams.get(id).is_some());
-    strip_team(chosen.as_deref(), chosen_alive, || active_team_id(nav, cx))
+/// DEV-ONLY: `EXP_DEV_TEAM` (the captures' team).
+fn dev_team() -> Option<String> {
+    std::env::var("EXP_DEV_TEAM").ok().map(|id| id.trim().to_string()).filter(|id| !id.is_empty())
 }
 
-/// [`tabs_team_id`]'s pure rule: `chosen_alive` = its row exists, or the
-/// teams shape has not finished its first sync yet.
-fn strip_team(
-    chosen: Option<&str>,
-    chosen_alive: bool,
-    fallback: impl FnOnce() -> Option<String>,
-) -> Option<String> {
-    chosen
-        .filter(|_| chosen_alive)
-        .map(str::to_string)
-        .or_else(fallback)
+/// #EXP-2027: open Settings: `team` = that team's settings (a team menu ›
+/// Settings), `None` = the member's personal settings (the gear next to
+/// their name).
+pub fn open_settings(window: &mut Window, cx: &mut App, team: Option<String>) {
+    if let Some(nav) = nav_for_window_readonly(window, cx) {
+        nav.update(cx, |nav, cx| {
+            if nav.settings_team != team {
+                nav.settings_team = team.clone();
+                cx.notify();
+            }
+        });
+    }
+    let section = match team {
+        Some(_) => crate::settings::SettingsSection::General,
+        None => crate::settings::SettingsSection::Account,
+    };
+    crate::sidebar::select_settings_section(window, cx, section);
+    navigate(window, cx, Screen::Settings);
+}
+
+/// #EXP-2027: the window's strip is ONE for every team (there is no team to
+/// park tabs under).
+pub(crate) fn tabs_team_id(_nav: &Entity<Navigation>, _cx: &App) -> Option<String> {
+    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// EXP-1250: the strip's team is the CHOSEN one, whatever the fallback
-    /// says while its row syncs; the fallback only fills an empty choice —
-    /// or a chosen team whose row is gone after the first sync (left or
-    /// deleted), which would otherwise leave a dead strip.
-    #[test]
-    fn the_fallback_team_never_counts_as_a_switch() {
-        assert_eq!(strip_team(Some("t1"), true, || Some("t2".into())), Some("t1".into()));
-        assert_eq!(strip_team(Some("t1"), true, || None), Some("t1".into()));
-        assert_eq!(strip_team(None, true, || Some("t2".into())), Some("t2".into()));
-        assert_eq!(strip_team(None, true, || None), None);
-        // The chosen team's row is gone: the fallback takes over.
-        assert_eq!(strip_team(Some("t1"), false, || Some("t2".into())), Some("t2".into()));
-        assert_eq!(strip_team(Some("t1"), false, || None), None);
-    }
 
     /// EXP-1037: the ONE routing rule — a seed with a subject (issues or an
     /// action) opens the composer DIALOG, a subject-less one still navigates
@@ -2255,7 +2226,7 @@ mod tests {
     /// meaning the Actions list.
     #[test]
     fn dev_screen_values_cover_the_full_page_screens() {
-        assert_eq!(parse_dev_screen("devices"), Some(Screen::Devices));
+        assert_eq!(parse_dev_screen("devices"), Some(Screen::Device { device_id: String::new() }));
         // VAPP-90: the Exponential UI kitchen sink (the view-catalog's
         // desktop drive for `exponential-ui-kitchen-sink`).
         assert_eq!(
@@ -2326,7 +2297,7 @@ mod tests {
         assert_eq!(parse_dev_screen("chat"), None);
         assert_eq!(parse_dev_screen("chat?issues=a"), None);
         // EXP-818: Usage folded into the Devices page.
-        assert_eq!(parse_dev_screen("usage"), Some(Screen::Devices));
+        assert_eq!(parse_dev_screen("usage"), Some(Screen::Device { device_id: String::new() }));
         assert_eq!(parse_dev_screen("settings"), Some(Screen::Settings));
         // EXP-238: the legacy Account value still lands on Settings.
         assert_eq!(parse_dev_screen("account"), Some(Screen::Settings));
@@ -2698,7 +2669,7 @@ mod tests {
         let mut nav = Navigation::new();
         nav.screen = None;
         nav.back_stack.clear();
-        nav.forward_stack = vec![Screen::Devices];
+        nav.forward_stack = vec![Screen::Drafts];
         nav.advance(board.clone(), PendingOrigin::Derive, None);
         nav.advance(draft.clone(), PendingOrigin::Derive, None);
         nav.replace(issue.clone(), PendingOrigin::Derive);
@@ -2745,17 +2716,17 @@ mod tests {
     #[test]
     fn forward_stack_is_browser_shaped() {
         let mut nav = Navigation::new();
-        nav.screen = Some(Screen::Devices);
+        nav.screen = Some(Screen::Drafts);
         nav.back_stack.push(Screen::Chats);
         assert!(nav.can_go_back());
         assert!(!nav.can_go_forward());
         // go_back's bookkeeping
         assert_eq!(nav.step_back(), Some(Screen::Chats));
         assert_eq!(nav.screen, Some(Screen::Chats));
-        assert_eq!(nav.forward_stack, vec![Screen::Devices]);
+        assert_eq!(nav.forward_stack, vec![Screen::Drafts]);
         assert!(nav.can_go_forward());
         // go_forward's bookkeeping
-        assert_eq!(nav.step_forward(), Some(Screen::Devices));
+        assert_eq!(nav.step_forward(), Some(Screen::Drafts));
         assert_eq!(nav.back_stack, vec![Screen::Chats]);
         assert!(!nav.can_go_forward());
         assert_eq!(nav.step_back(), Some(Screen::Chats));
@@ -2774,10 +2745,10 @@ mod tests {
         let diff = Screen::IssueDetail { issue_id: "i1".into() };
         let mut nav = Navigation::new();
         nav.screen = Some(Screen::Chats);
-        nav.back_stack = vec![Screen::Devices, diff.clone(), Screen::Drafts];
+        nav.back_stack = vec![Screen::Drafts, diff.clone(), Screen::Drafts];
         nav.forward_stack = vec![diff.clone(), Screen::Settings, diff.clone()];
         assert!(nav.purge_history(|screen| *screen == diff));
-        assert_eq!(nav.back_stack, vec![Screen::Devices, Screen::Drafts]);
+        assert_eq!(nav.back_stack, vec![Screen::Drafts, Screen::Drafts]);
         assert_eq!(nav.forward_stack, vec![Screen::Settings]);
         // the current screen is not history
         assert_eq!(nav.screen, Some(Screen::Chats));
@@ -2829,7 +2800,7 @@ mod tests {
     #[gpui::test]
     async fn full_page_screens_carry_their_own_titles(cx: &mut gpui::TestAppContext) {
         cx.update(|cx| {
-            assert_eq!(screen_title(&Screen::Devices, cx), "Devices");
+            assert_eq!(screen_title(&Screen::Drafts, cx), "Drafts");
             assert_eq!(screen_title(&Screen::Drafts, cx), "Drafts");
             // EXP-1170: the New issue page names itself by the contract.
             assert_eq!(screen_title(&draft_screen("d1", ""), cx), "New issue");

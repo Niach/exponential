@@ -22,6 +22,7 @@ public protocol ChatStoreBackend: AnyObject, Sendable {
     func page(sessionId: String, deviceId: String, beforeSeq: UInt64, limit: UInt32) throws -> String
     func count(sessionId: String, deviceId: String) throws -> UInt64
     func searchChat(rootId: String, query: String, limit: UInt32) throws -> String
+    func searchAll(query: String, limit: UInt32) throws -> String
     func applyRetention(nowMs: Int64, windowDays: UInt32?) throws -> UInt64
     func meta(key: String) throws -> String?
     func setMeta(key: String, value: String) throws
@@ -269,11 +270,11 @@ public enum ChatStoreWire {
         return (object["t"] as? String, object["requestId"] as? String)
     }
 
-    /// An ISO-8601 stamp as epoch ms.
+    /// A wire stamp as epoch ms: ISO-8601 or the Postgres text form every
+    /// synced row carries (#EXP-1998: the strict ISO parse dropped every
+    /// synced message, so the store indexed none).
     public static func isoMs(_ value: String) -> Int64? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value) else { return nil }
+        guard let date = WireTimestamps.parse(value) else { return nil }
         return Int64((date.timeIntervalSince1970 * 1000).rounded())
     }
 }

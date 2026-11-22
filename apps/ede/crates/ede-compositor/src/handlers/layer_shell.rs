@@ -38,12 +38,17 @@ fn shows_exclusive(layer: &LayerSurface) -> bool {
         && smithay::backend::renderer::utils::with_renderer_surface_state(layer.wl_surface(), |s| s.buffer().is_some()).unwrap_or(false)
 }
 
-/// A sealed prompt (#EDE-107): an Exclusive layer of `exponential-sealed`
-/// (polkit, consent, share) that drew. It holds the keyboard, so it is the
-/// one layer a fullscreen window does not hide: drawn above it, and the
-/// press on it is its own.
+/// A sealed prompt (#EDE-107): a top or overlay layer of
+/// `exponential-sealed` (polkit, consent, share) that drew and takes the
+/// keyboard, at once (Exclusive) or on a click (OnDemand: #EDE-143, a
+/// polkit request from outside the person's session). It is the one layer
+/// a fullscreen window does not hide: drawn above it, and the press on it
+/// is its own.
 pub(crate) fn is_sealed_prompt(layer: &LayerSurface) -> bool {
-    crate::sealed::layer_origin(layer).sealed && shows_exclusive(layer)
+    crate::sealed::layer_origin(layer).sealed
+        && matches!(layer.cached_state().keyboard_interactivity, KeyboardInteractivity::Exclusive | KeyboardInteractivity::OnDemand)
+        && matches!(layer.layer(), Layer::Top | Layer::Overlay)
+        && smithay::backend::renderer::utils::with_renderer_surface_state(layer.wl_surface(), |s| s.buffer().is_some()).unwrap_or(false)
 }
 
 fn root_of(surface: &WlSurface) -> WlSurface {
@@ -147,8 +152,8 @@ impl WlrLayerShellHandler for Ede {
             surface.send_close();
             return;
         };
+        let origin = crate::sealed::origin_of(self, surface.wl_surface(), &namespace);
         let layer = LayerSurface::new(surface, namespace);
-        let origin = crate::sealed::origin_of(self, layer.wl_surface());
         layer.user_data().insert_if_missing(|| origin);
         let mut map = layer_map_for_output(&output);
         if let Err(e) = map.map_layer(&layer) {
@@ -168,8 +173,13 @@ impl WlrLayerShellHandler for Ede {
         });
         if let Some((output, layer)) = found {
             let mut map = layer_map_for_output(&output);
+            let zone = map.non_exclusive_zone();
             map.unmap_layer(&layer);
+            let zone_changed = map.non_exclusive_zone() != zone;
             drop(map);
+            if zone_changed {
+                self.refit_tiles(&output);
+            }
             self.restore_focus_after_layer(&layer);
         }
     }
@@ -188,7 +198,9 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
         with_states(surface, |states| states.data_map.get::<LayerSurfaceData>().unwrap().lock().unwrap().initial_configure_sent);
     let mut map = layer_map_for_output(&output);
     // Arrange first so the initial configure carries the size the client asked for.
+    let zone = map.non_exclusive_zone();
     map.arrange();
+    let zone_changed = map.non_exclusive_zone() != zone;
     if !initial_configure_sent {
         if let Some(layer) = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL) {
             layer.layer_surface().send_configure();
@@ -200,6 +212,12 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
     // that maps behind it takes the keyboard at unlock.
     let layer = map.layer_for_surface(surface, WindowSurfaceType::TOPLEVEL).cloned();
     drop(map);
+    // #EDE-139: a panel's exclusive zone came or changed (the taskbar can
+    // map after a window maximized at login, or come back after a shell
+    // restart): the tiled windows fill the new work area.
+    if zone_changed {
+        state.refit_tiles(&output);
+    }
     let Some(layer) = layer else { return };
     if !shows_exclusive(&layer) {
         return;

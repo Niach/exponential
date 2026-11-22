@@ -14,7 +14,7 @@ use ede_protocol::{Capability, CaptureTarget, Error, ErrorCode, InputEvent, Requ
 use smithay::backend::input::{ButtonState, KeyState};
 
 /// Every global a client of the person's desk is told about, in order.
-const PERSONS_GLOBALS: [&str; 19] = [
+const PERSONS_GLOBALS: [&str; 20] = [
     "wl_compositor",
     "wl_subcompositor",
     "xdg_wm_base",
@@ -23,6 +23,7 @@ const PERSONS_GLOBALS: [&str; 19] = [
     "zxdg_output_manager_v1",
     "wl_data_device_manager",
     "wl_seat",
+    "exponential_popup_namespace_v1",
     "ext_idle_notifier_v1",
     "ext_session_lock_manager_v1",
     "zwp_idle_inhibit_manager_v1",
@@ -340,10 +341,17 @@ fn a_space_has_its_own_frames_and_capture() {
     assert!((1..=7).contains(&slow), "{slow} callbacks in 600 ms on the slow clock");
     assert_eq!(settled(&h).3, serial, "a commit without a new buffer changes nothing");
 
-    // The capture shows the space alone, and makes the clock fast.
+    // The capture shows the space alone. By itself it is no use
+    // (#EXP-2024: a person watching a space does not speed it up)...
     let frame = h.with(move |state| state.capture_space(desk)).expect("a capture");
     assert_eq!((frame.width, frame.height, frame.at(320, 240)), (640, 480, RED));
     assert!(!frame.pixels.contains(&BLUE), "nothing of the person's desk");
+    assert!(b.count_frames(&window.surface, Duration::from_millis(200)) > 0);
+    assert_eq!(settled(&h).1, SLOW);
+    // ...its own agent's capture (its space grant) is: the clock goes fast.
+    let id = h.with(move |state| state.spaces.get(desk).unwrap().id.clone());
+    let token = h.with(|state| state.ipc.mint_for("run-1", vec![Capability::Space]).token);
+    h.ipc_with(token).unwrap().capture(CaptureTarget::Space { space: id }).expect("the agent's capture");
     assert!(b.count_frames(&window.surface, Duration::from_millis(200)) > 0);
     assert_eq!(settled(&h).1, FAST);
     // A new buffer moves the serial, once, whoever looks first.

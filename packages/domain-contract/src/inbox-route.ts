@@ -39,6 +39,24 @@ export function inboxRowTarget(row: InboxRouteRow): InboxRowTarget {
   return { kind: `none` }
 }
 
+/** #EXP-1987: whether team `teamId`'s inbox (null = every team) lists a row,
+ *  its badge and Mark all read alike. `row.teamId` = the row's own team, else
+ *  its issue's board's team (null = unknown); `teamIds` = the synced teams
+ *  rows (never a personal team). `agent_signed_out` and a session row of a
+ *  team the viewer does not sync (the Assistant's chat in the personal team)
+ *  list in every team. fixtures/inbox-route.json `listCases`. */
+export function inboxRowListed(
+  row: { type: string; teamId: string | null; issueId: string | null },
+  teamId: string | null,
+  teamIds: readonly string[]
+): boolean {
+  if (row.issueId) return row.teamId !== null && (teamId === null || row.teamId === teamId)
+  if (row.type === `agent_signed_out`) return true
+  if (!SESSION_ROW_TYPES.has(row.type)) return false
+  if (teamId === null) return true
+  return row.teamId === teamId || row.teamId === null || !teamIds.includes(row.teamId)
+}
+
 export type SessionTarget =
   | { kind: `agent`; agentId: string }
   | { kind: `chat`; chatId: string; sessionId: string | null }

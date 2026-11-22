@@ -46,6 +46,156 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-21-agent-spaces",
+    date: "2026-11-21",
+    title: "Agents work in a space of their own on Exponential Desktop",
+    summary: "With Computer use on, a session on Exponential Desktop now drives a desktop of its own instead of your screen, and you keep your keyboard and pointer.",
+    body: r##"- **Agent spaces**: every session with Computer use gets a space of its own and keeps it for as long as the session lives, so its next message finds the apps it left open.
+- **Signed out**: apps in a space start signed out, and what an agent signs into there stays signed in until its space closes.
+- **Watch or close**: on that machine the taskbar shows the agent spaces that are open: pin one to watch it, or close it.
+- **Work screen**: Device settings › Work screen picks where agents work: Auto, Agent space only, or one of your displays.
+- **Agent space row**: device settings show whether a device offers an agent space, and why not."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_345: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-21-desktop-cli-0-14-172",
+    date: "2026-11-21",
+    title: "Stop a spoken reply, one call host, steadier computer use",
+    summary: "Desktop and CLI 0.14.172: a Speaking banner with Stop while a call's reply is spoken, one call host for the desktop app and the CLI, computer use fixes on every system, and the agent space on the Work screen, with eDE 0.2.31.",
+    body: r##"- **Stop a spoken reply**: while a call's reply is spoken, its chat shows a Speaking banner with Stop.
+- **Calls**: the desktop app runs calls on the same call host as the CLI, so a call behaves the same on both.
+- **Computer use**: a key and its modifiers arrive in the right order, and the screen lock, the display list and Esc work the same on macOS, Windows and Linux.
+- **Agent spaces on the Work screen**: when a device offers an agent space, the Work screen lists "Auto · Agent space" and "Agent space only".
+- **eDE 0.2.31** comes with this release."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_344: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-21-phones-agent-space",
+    date: "2026-11-21",
+    title: "An agent space on the phones' Work screen",
+    summary: "Android 0.14.153 and iOS 0.14.141: the Work screen lists an agent space when your device offers one.",
+    body: r##"- **Agent space on the Work screen**: while your device offers an agent space, the Work screen picker in a device's settings reads Auto · Agent space, followed by Agent space only; a device without one shows the picker as before."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_343: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-sidebar-tree",
+    date: "2026-11-20",
+    title: "One sidebar for all your teams",
+    summary: "The sidebar shows every team at once: Home, Chats, your devices, then each team with its boards, agents, apps and the chats you placed there, in your own folders.",
+    body: r##"- **No team switcher**: Home, Chats, Needs you and Drafts cover all your teams; each row shows its team.
+- **Devices**: each device is a row that opens its accounts, limits and running sessions; its gear opens its settings.
+- **Teams**: each team is a folder with its boards, agents and apps in one list; drag a chat from Active into it, and right-click a team for New, New folder and Settings.
+- **New board, agent and app** open as pages.
+- **Settings**: the gear next to your name opens your own settings; a team's settings open from its menu."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_342: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-phones-calls-find-search",
+    date: "2026-11-20",
+    title: "Calls, find in chat and sharing on phones",
+    summary: "Android 0.14.152 and iOS 0.14.140: phone calls follow the same call rules as the desktop, find in chat reaches older messages, and global search finds chats.",
+    body: r##"- **Calls**: a call from your phone follows the same rules as on the desktop: it reaches the device you picked, falls back the same way, and an opening line that arrives late is said at pickup instead of crashing the app.
+- **Find in chat**: finds and lands on every message of the chat, older synced messages and the ones already shown included.
+- **Global search finds chats**: the search tab lists the chats that mention your words; a pick opens the chat on that message.
+- **iOS sharing**: sharing pictures into Exponential stages them like the chat's composer: the same limits, and removing one renumbers the rest.
+- **iOS settings**: values in settings rows draw in the muted value colour."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_341: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-desktop-cli-0-14-171",
+    date: "2026-11-20",
+    title: "Calls in their own session, computer use on every keyboard, chats in global search",
+    summary: "Desktop and CLI 0.14.171: every call gets its own session, computer use works on non-US keyboards, global search finds chats, long words wrap, outside pictures show as links, and find in chat reaches older messages, with eDE 0.2.30.",
+    body: r##"- **Calls**: each call gets its own session again, and the agent's opening line no longer crashes it.
+- **Computer use**: keys and shortcuts work on non-US keyboard layouts, and bringing a window to the front works on macOS and Windows.
+- **Global search finds chats**: matching chats show under the issues; pick one and it opens on that message.
+- **Long words wrap**: a long unbroken word or link in a chat bubble wraps instead of being cut off.
+- **Pictures from other websites** in an issue description show as a link and are never loaded.
+- **Find in chat reaches older messages**: matches further back in a chat are found too.
+- **eDE 0.2.30** comes with this release."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_340: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-desktop-agent-entry",
+    date: "2026-11-20",
+    title: "Agent is back in the desktop sidebar",
+    summary: "The desktop app's sidebar lists Agent first again, so the page for starting a new chat is one click away.",
+    body: r##"- **Desktop sidebar**: Agent leads the list, above Chats and Devices, like on the web; it opens the page where you start a new chat."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_338: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-assistant-skills-mcp-per-team",
+    date: "2026-11-20",
+    title: "Your Assistant's skills and MCP servers, per team",
+    summary: "Settings › Assistant now shows Skills and MCP servers for each of your teams, and work in a team uses that team's picks.",
+    body: r##"- **Settings › Assistant**: one section per team, each with its own Skills and MCP servers rows.
+- **Work in a team**: your Assistant's chats and sessions in a team start with the skills and MCP servers you picked for that team."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_337: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-assistant-account-settings",
+    date: "2026-11-20",
+    title: "Your Assistant has its own place in Settings",
+    summary: "Settings › Assistant moves to your personal settings, next to Account, and your Assistant's notifications show in every team's inbox.",
+    body: r##"- **Settings › Assistant**: your Assistant's page is now under Personal, right after Account, on every app. The team's Agents list shows the team's agents only.
+- **Inbox**: notifications from your Assistant show and count in the inbox of every team you are in, and open its chat.
+- **iOS**: a chat that briefly disappeared while syncing gets its message field back without restarting the app."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_336: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-global-search-chats",
+    date: "2026-11-20",
+    title: "Global search finds chats",
+    summary: "Search now finds your chats too: a Chats section under the issues, each chat with the matching line highlighted; pick one and it opens on that message with find in chat on your words.",
+    body: r##"- **Chats under Issues**: the global search (the search button, or ⌘F / Ctrl+F outside a chat; the phones' search tab) lists the chats that mention your words after the matching issues, newest first.
+- **The matching line**: each chat shows its title, the line that matched with your words highlighted, and when it was said.
+- **Straight to the message**: picking a chat opens it on that message with find in chat already on your search, so previous and next walk the other matches.
+- **From this device's copy**: chats are searched in the local chat store, so it works offline; a private chat's messages are found once they open on this device."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_335: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-20-desktop-description-foreign-pictures",
+    date: "2026-11-20",
+    title: "A picture from another website in an issue description is a link",
+    summary: "On the desktop app, a picture from another website in an issue description shows as a link while you edit, and is never loaded.",
+    body: r##"- **Issue descriptions on the desktop app**: a picture from another website shows as a link with its alt text, or the site's name, and opens in your browser. It is never loaded.
+- **Pictures that can't be shown**: while you edit, one without alt text shows its address, so you can find it and remove it."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_334: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-19-repo-less-sessions-full-access",
+    date: "2026-11-19",
+    title: "Chats without a repository reach your whole machine",
+    summary: "Chats and agents without a repository, like your Assistant, now have the same access as a coding session: your files, ssh and the apps on the machine.",
+    body: r##"- **Chats without a repository**: a chat, a team agent or your Assistant running without a repository is no longer kept inside its own folder. It can read and edit your files, use ssh and run the tools on the device, like a coding session in a worktree.
+- **Coding sessions**: nothing changes for sessions on a repository."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_333: ChangelogEntry = ChangelogEntry {
     id: "2026-11-19-calls-own-session-on-every-host",
     date: "2026-11-19",
     title: "Every call opens with the agent's own line",

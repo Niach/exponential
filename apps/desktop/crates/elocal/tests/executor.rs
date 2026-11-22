@@ -90,9 +90,9 @@ fn sessions_agents_prompts_records_and_refusals() {
     api::sessions::end(&client, &out.session_id).unwrap();
     assert_eq!(desktop.store.row("sessions", &out.session_id).unwrap().unwrap()["status"], serde_json::json!("ended"));
 
-    let assistant = api::agents::ensure_assistant(&client, &team_id).unwrap().unwrap();
+    let assistant = api::agents::ensure_assistant(&client, Some(&team_id)).unwrap().unwrap();
     assert_eq!(assistant.role.as_deref(), Some("assistant"));
-    assert_eq!(api::agents::ensure_assistant(&client, &team_id).unwrap().unwrap().id, assistant.id);
+    assert_eq!(api::agents::ensure_assistant(&client, Some(&team_id)).unwrap().unwrap().id, assistant.id);
     let mut update = api::agents::UpdateInput::new(&assistant.id);
     update.instructions = Some("Be kind".into());
     assert_eq!(api::agents::update(&client, &update).unwrap().instructions, "Be kind");

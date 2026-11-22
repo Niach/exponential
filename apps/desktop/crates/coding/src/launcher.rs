@@ -873,13 +873,14 @@ pub struct AcpLaunch {
     /// for those servers — the engine's redactor masks them out of the
     /// activity channel like the `expu_` key. Never read for anything else.
     pub mcp_secrets: McpSecrets,
-    /// N-5 / NEW-5: `Some(cwd)` = a repo-less run, confined to its scratch
-    /// dir ([`crate::scratch::is_scratch_dir`]); `None` = a worktree run.
-    pub confine_to: Option<PathBuf>,
     /// #EXP-1658: the session's team skills folder
     /// ([`crate::team_skills`], `<data_dir>/skills/<session>`): claude
     /// `--add-dir`, codex `skills/extraRoots/set`. `None` = no skills.
     pub skills_dir: Option<PathBuf>,
+    /// #EXP-1514: the run drives an agent space of its session's own
+    /// ([`crate::computer_place::Placed::Space`]): every turn it runs keeps
+    /// that space busy (the engine's turn signal, D 10).
+    pub computer_space: bool,
 }
 
 /// EXP-792: the resolved servers' secret values, for the steer redactor.
@@ -1257,104 +1258,8 @@ fn path_segment(id: &str) -> Option<String> {
 /// Exponential's), so `useAutoModeDuringPlan` is gone.
 pub const CLAUDE_FLAG_SETTINGS: &str = r#"{"permissions":{"disableAutoMode":"disable"}}"#;
 
-/// N-5: the rule kinds a CONFINED (repo-less) claude run denies on the
-/// person's checkouts. `Read(path)` covers Read/Glob/Grep, `Edit(path)`
-/// covers Edit/Write/MultiEdit/NotebookEdit; the CLI (2.1.308, measured)
-/// warns that `Write(path)`/`Glob(path)`/`NotebookEdit(path)` rules match
-/// nothing, so they are not spelled.
-pub const CONFINED_DENY_TOOLS: [&str; 2] = ["Read", "Edit"];
-
-/// N-5: the home-relative toolchain dirs a confined run's sandboxed Bash may
-/// still READ inside the otherwise read-denied home (so `bun`, `cargo`,
-/// `git`, a version manager's shims keep working). Never `.config` or
-/// `.local/share` whole: those hold tokens and, on Linux, the data dir with
-/// every other session's scratch folder.
-pub const CONFINED_HOME_READABLE: [&str; 12] = [
-    ".local/bin",
-    ".bun",
-    ".cargo",
-    ".rustup",
-    ".nvm",
-    ".volta",
-    ".pyenv",
-    ".deno",
-    ".asdf",
-    ".npm",
-    ".gitconfig",
-    ".config/git",
-];
-
-/// The claude flag-settings layer for one launch. A repo-backed run gets
-/// [`CLAUDE_FLAG_SETTINGS`] byte for byte. N-5: a repo-less run confined to
-/// its scratch dir (`confine_to`) additionally carries
-///
-/// - `permissions.deny` for [`CONFINED_DENY_TOOLS`] on `repos_root/**` (deny
-///   rules hold under `bypassPermissions`, measured; the engine's `PreToolUse` hook
-///   refuses every OTHER path outside the scratch dir, which a deny rule
-///   cannot express while the scratch dir itself lives under the home);
-/// - the CLI's Bash sandbox (Seatbelt on macOS, bubblewrap on Linux):
-///   writes only to the cwd (the scratch dir) and the temp dirs, reads
-///   denied for the whole `home` and `repos_root` with the scratch dir and
-///   [`CONFINED_HOME_READABLE`] re-allowed, no `dangerouslyDisableSandbox`
-///   escape (which also stops the scratch dir's own `.claude/settings.json`
-///   from loosening any of it), and the network left open (every domain plus
-///   localhost, so a dev instance's upload `curl` still lands).
-///
-/// Measured limits: the CLI keeps `.git/hooks` unwritable inside the cwd, so
-/// a `git init`/`git clone` INTO the scratch dir fails (one in `$TMPDIR`
-/// works); a missing sandbox backend (Linux without bubblewrap) runs Bash
-/// unsandboxed with a warning, leaving the engine's hook as the only guard;
-/// a user `sandbox.excludedCommands` pattern still runs outside the sandbox.
-///
-/// Paths are absolute: the `//` prefix is claude's absolute-path rule form.
-pub fn claude_flag_settings(confine_to: Option<&Path>, home: Option<&Path>, repos_root: &Path) -> String {
-    posture_flag_settings(confine_to, home, repos_root)
-}
-
-fn posture_flag_settings(confine_to: Option<&Path>, home: Option<&Path>, repos_root: &Path) -> String {
-    let Some(scratch) = confine_to else {
-        return CLAUDE_FLAG_SETTINGS.to_string();
-    };
-    let absolute = |path: &Path| -> Option<String> {
-        path.is_absolute().then(|| path.display().to_string().trim_end_matches('/').to_string())
-    };
-    let repos = absolute(repos_root).filter(|repos| !repos.is_empty());
-    let deny: Vec<String> = repos
-        .iter()
-        .flat_map(|repos| CONFINED_DENY_TOOLS.iter().map(move |tool| format!("{tool}(/{repos}/**)")))
-        .collect();
-    let home = home.and_then(absolute).filter(|home| !home.is_empty());
-    let mut deny_read: Vec<String> = home.iter().cloned().collect();
-    if let Some(repos) = repos.filter(|repos| !home.as_ref().is_some_and(|home| Path::new(repos).starts_with(home))) {
-        deny_read.push(repos);
-    }
-    let mut allow_read: Vec<String> = absolute(scratch).into_iter().collect();
-    if let Some(home) = &home {
-        allow_read.extend(CONFINED_HOME_READABLE.iter().map(|rel| format!("{home}/{rel}")));
-    }
-    serde_json::json!({
-        "permissions": {
-            "disableAutoMode": "disable",
-            "deny": deny,
-        },
-        "sandbox": {
-            "enabled": true,
-            "autoAllowBashIfSandboxed": true,
-            "allowUnsandboxedCommands": false,
-            "filesystem": {
-                "denyRead": deny_read,
-                "allowRead": allow_read,
-            },
-            "network": {
-                "allowedDomains": ["*"],
-                "allowLocalBinding": true,
-            },
-        },
-    })
-    .to_string()
-}
-
-/// EXP-746: the claude `--settings` file ([`claude_flag_settings`], EXP-1124)
+/// EXP-746: the claude `--settings` file ([`CLAUDE_FLAG_SETTINGS`], EXP-1124;
+/// #EXP-1890: the same bytes for a worktree and a repo-less run)
 /// at a per-pid path. It wires no hooks (the engine reads `session/update`
 /// notifications), and claude's `--settings <path>` argv is the REAPER's only process-selection
 /// anchor (`reaper::select` matches the `claude-hooks/<pid>/` segment in the
@@ -1366,13 +1271,11 @@ fn write_acp_reaper_anchor(
     data_dir: &Path,
     session_id: &str,
     agent: CodingAgent,
-    confine_to: Option<&Path>,
-    repos_root: &Path,
 ) -> Option<PathBuf> {
     if agent != CodingAgent::Claude {
         return None;
     }
-    let content = claude_flag_settings(confine_to, dirs::home_dir().as_deref(), repos_root);
+    let content = CLAUDE_FLAG_SETTINGS;
     let root = data_dir.join(HOOK_SETTINGS_DIR);
     prune_hook_settings(&root);
     let dir = root.join(std::process::id().to_string());
@@ -1714,30 +1617,71 @@ fn resolve_mcp_servers(deps: &CodingDeps, session_id: &str) -> ResolvedMcp {
 /// switch that is off, [`LaunchOptions::computer_use_on`]). The grant names the run by `session_id`, so it
 /// is minted after the row exists like the team servers; the entry and its
 /// token then ride [`ResolvedMcp`] through the same config and env path.
-/// Returns whether the run got it. BEST-EFFORT: a machine that cannot do
-/// computer use (a headless session, a desktop without portals) launches without, with a
-/// warning in the log and no section in the prompt. `label` = what the agent
-/// cursor's badge shows while this run drives ([`session_label`]).
+/// `label` = what the agent cursor's badge shows while this run drives
+/// ([`session_label`]).
+///
+/// #EXP-1514: WHERE it happens is [`crate::computer_place::resolve`]'s
+/// answer, asked at every launch (this is called at the first start and at
+/// every resume, relaunch and reconfigure): an agent space of the session's
+/// own (`epilot::grant_space`, no round trip: its first call asks the
+/// desktop, and a desktop that did not answer is never the person's
+/// screen), the person's screen (`epilot::grant`), or nothing. A launch
+/// that is not a space run closes the session's kept space FIRST (the pick
+/// or the offer changed since its last launch), so a person run never
+/// drives beside it. A failed grant launches without, with a warning in the
+/// log and no section in the prompt; a space grant that fails is never
+/// turned into the person's screen. `had_space` = the session's run record
+/// says it had a space ([`crate::run_registry::RunRecord::had_space`]): a
+/// first call that finds none says it is new and empty.
 fn attach_computer_use(
     deps: &CodingDeps,
     options: &LaunchOptions,
     team_mcp: &mut ResolvedMcp,
     session_id: &str,
     label: &str,
-) -> bool {
-    if !options.computer_use_on(deps.settings.computer_use) {
-        return false;
-    }
-    match epilot::grant(session_id, label) {
-        Ok(grant) => {
-            crate::mcp_servers::attach_computer(team_mcp, &grant);
-            true
+    had_space: bool,
+) -> crate::computer_place::Placed {
+    use crate::computer_place::{Inputs, Pick, Place, Placed};
+    let inputs = Inputs {
+        switch: deps.settings.computer_use,
+        computer_use: options.computer_use_on(true),
+        session: options.computer_place,
+        pick: Pick::of(deps.settings.computer_use_display_id.as_deref()),
+    };
+    crate::computer_place::machine(|machine| {
+        let mut undrivable = None;
+        let place = crate::computer_place::resolve(&inputs, || machine.space_offer(), || match machine.screen() {
+            Ok(()) => true,
+            Err(reason) => {
+                undrivable = Some(reason);
+                false
+            }
+        });
+        if place != Place::Space && machine.kept(session_id) {
+            log::info!("coding: session {session_id}'s launch is not a space run: its agent space closes first");
+            machine.close_space(session_id);
         }
-        Err(reason) => {
-            log::warn!("coding: computer use is on but unavailable, launching without it: {reason}");
-            false
+        let granted = match place {
+            // Row 5 when the screen was the place and cannot be driven
+            // (asked only then); rows 1 and 4 say nothing.
+            Place::None => return Placed::None(undrivable),
+            Place::Person => machine.grant(session_id, label).map(|grant| (grant, Placed::Person)),
+            Place::Space => machine.grant_space(session_id, label, had_space).map(|grant| (grant, Placed::Space)),
+        };
+        match granted {
+            Ok((grant, placed)) => {
+                crate::mcp_servers::attach_computer(team_mcp, &grant);
+                if placed == Placed::Space {
+                    crate::session_teardown::saw_space_row(session_id);
+                }
+                placed
+            }
+            Err(reason) => {
+                log::warn!("coding: computer use is on but unavailable, launching without it: {reason}");
+                Placed::None(None)
+            }
         }
-    }
+    })
 }
 
 /// NEW-58 (`fixtures/screen-memory.json` TOOL): only the member's PRIVATE
@@ -1802,17 +1746,26 @@ fn attach_code_mode(
 }
 
 /// EXP-1196/EXP-1236: what this launch carries beyond the playbook, for
-/// [`crate::skill::system_append_layers`]: the computer-use section names the device's
+/// [`crate::skill::system_append_layers`]: the computer-use section (#EXP-1514:
+/// the person's or the space's, or row 5's one line) names the device's
 /// subagent model.
 fn run_extras(
     deps: &CodingDeps,
-    computer_use: bool,
+    computer_use: &crate::computer_place::Placed,
     code_mode: bool,
     dispatch: bool,
     voice_call: bool,
 ) -> crate::skill::Extras {
+    use crate::computer_place::Placed;
+    use crate::skill::ComputerUse;
+    let model = || deps.settings.computer_use_model.clone();
     crate::skill::Extras {
-        computer_use: computer_use.then(|| deps.settings.computer_use_model.clone()),
+        computer_use: match computer_use {
+            Placed::Person => Some(ComputerUse::Screen(model())),
+            Placed::Space => Some(ComputerUse::Space(model())),
+            Placed::None(Some(reason)) => Some(ComputerUse::Unavailable(reason.clone())),
+            Placed::None(None) => None,
+        },
         code_mode,
         dispatch,
         voice_call,
@@ -2356,7 +2309,10 @@ fn prepare_session(
     // #EXP-1658: the row's skill pick, written outside the worktree.
     let team_skills = resolve_team_skills(deps, &session_id);
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
-    let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session_id, &label);
+    // #EXP-1514: a record of this row from before (a start that was retried)
+    // keeps saying it had a space.
+    let had_space = crate::run_registry::get(&deps.data_dir, &session_id).is_some_and(|record| record.had_space());
+    let computer_use = attach_computer_use(deps, options, &mut team_mcp, &session_id, &label, had_space);
     let code_mode = attach_code_mode(&mut team_mcp, &agent_mcp, &mcp_key, &session_id, &label);
     attach_screen_memory(screen_memory_allowed(req), &mut team_mcp, &session_id);
 
@@ -2389,15 +2345,7 @@ fn prepare_session(
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
     // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings).
-    // N-5 / NEW-5: a repo-less run is confined to its scratch dir.
-    let confine_to = crate::scratch::is_scratch_dir(&deps.data_dir, &cwd).then(|| cwd.clone());
-    let reaper_anchor = write_acp_reaper_anchor(
-        &deps.data_dir,
-        &session_id,
-        agent,
-        confine_to.as_deref(),
-        &deps.settings.repos_root_path(),
-    );
+    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session_id, agent);
     // EXP-443: the codex originator is stamped into its rollout metas before
     // the spawn. The claude session id is the ACP adapter's own to mint.
     let codex_originator =
@@ -2455,6 +2403,13 @@ fn prepare_session(
                 extra.extend(crate::run_registry::skill_ids_extra(
                     team_skills.pick.as_deref().unwrap_or_default(),
                 ));
+                // #EXP-1514: the space it had, and the host keeping its space.
+                if had_space {
+                    extra.insert(crate::run_registry::HAD_SPACE_KEY.to_string(), serde_json::Value::Bool(true));
+                }
+                if let (crate::computer_place::Placed::Space, Some(device)) = (&computer_use, &deps.device_id) {
+                    extra.insert(crate::run_registry::SPACE_HOST_KEY.to_string(), serde_json::Value::String(device.clone()));
+                }
                 extra
             },
         },
@@ -2481,7 +2436,7 @@ fn prepare_session(
     let system_append = crate::skill::system_append_layers(
         req.brief.team_prompt.as_deref(),
         req.brief.agent_instructions.as_deref(),
-        &run_extras(deps, computer_use, code_mode, dispatches(row), req.brief.call),
+        &run_extras(deps, &computer_use, code_mode, dispatches(row), req.brief.call),
     );
     // EXP-1051: a fresh session carries no base from anywhere — every layer
     // is one this launch just built.
@@ -2549,8 +2504,8 @@ fn prepare_session(
                 &personal_key,
                 long_lived_env(&deps.data_dir, options.agent, options.account.as_deref()),
             ),
-            confine_to,
             skills_dir: team_skills.dir.clone(),
+            computer_space: computer_use == crate::computer_place::Placed::Space,
         },
         seed_message_id: None,
         bypass_permissions: true,
@@ -2724,6 +2679,7 @@ fn prepare_resume(
         // the run used — unless this resume switches (gated below).
         account: resume_account.clone(),
         computer_use: Some(row.computer_use),
+        computer_place: Default::default(),
     };
     let profile_dir = crate::agent_profiles::account_dir(
         &deps.data_dir,
@@ -3096,8 +3052,14 @@ fn prepare_resume(
         resolve_team_skills(deps, &session_id)
     };
     let label = session_label(row, &req.issue_identifiers, &req.brief.brief);
-    let computer_use =
-        !aside && attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label);
+    // #EXP-1514: the record as written now: the previous run's first space
+    // may have landed on it after the resume was planned.
+    let had_space = record.had_space() || crate::run_registry::get(&deps.data_dir, &session_id).is_some_and(|now| now.had_space());
+    let computer_use = if aside {
+        crate::computer_place::Placed::None(None)
+    } else {
+        attach_computer_use(deps, &options, &mut team_mcp, &session_id, &label, had_space)
+    };
     let code_mode =
         !aside && attach_code_mode(&mut team_mcp, &agent_mcp, &mcp_key, &session_id, &label);
     if !aside {
@@ -3117,15 +3079,7 @@ fn prepare_resume(
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
     // EXP-746: the reaper's claude anchor (the EXP-1124 flag settings).
-    // N-5 / NEW-5: a repo-less run is confined to its scratch dir.
-    let confine_to = crate::scratch::is_scratch_dir(&deps.data_dir, &cwd).then(|| cwd.clone());
-    let reaper_anchor = write_acp_reaper_anchor(
-        &deps.data_dir,
-        &session_id,
-        agent,
-        confine_to.as_deref(),
-        &deps.settings.repos_root_path(),
-    );
+    let reaper_anchor = write_acp_reaper_anchor(&deps.data_dir, &session_id, agent);
     let codex_originator =
         (agent == CodingAgent::Codex).then(|| crate::argv::codex_session_originator(&session_id));
     let spawn = session_spawn(
@@ -3193,6 +3147,17 @@ fn prepare_resume(
     if let Some(pick) = &team_skills.pick {
         resumed_record.set_skill_ids(pick);
     }
+    // #EXP-1514: the host keeping the session's space now: this one for a
+    // space run, none for any other (its kept space closed first). An aside
+    // never touches it.
+    if !aside {
+        let space_host = (computer_use == crate::computer_place::Placed::Space).then_some(deps.device_id.as_deref()).flatten();
+        resumed_record.set_space_host(space_host);
+    }
+    // #EXP-1514: never written back over.
+    if had_space {
+        resumed_record.set_had_space();
+    }
     crate::run_registry::record(&deps.data_dir, resumed_record);
 
     // EXP-746 (D8): how the ACP engine reopens the conversation — the
@@ -3206,7 +3171,7 @@ fn prepare_resume(
     let system_append = crate::skill::system_append_layers(
         req.brief.team_prompt.as_deref(),
         req.brief.agent_instructions.as_deref(),
-        &run_extras(deps, computer_use, code_mode, record.kind.is_persistent() || dispatches(row), req.brief.call),
+        &run_extras(deps, &computer_use, code_mode, record.kind.is_persistent() || dispatches(row), req.brief.call),
     );
     // EXP-1051: a NATIVE resume re-enters a transcript whose base context
     // this launch never built, so the recorded measured number is the only
@@ -3253,8 +3218,8 @@ fn prepare_resume(
                 &personal_key,
                 long_lived_env(&deps.data_dir, options.agent, options.account.as_deref()),
             ),
-            confine_to,
             skills_dir: team_skills.dir.clone(),
+            computer_space: computer_use == crate::computer_place::Placed::Space,
         },
         seed_message_id: resume.message_id.clone(),
         bypass_permissions: true,
@@ -3780,6 +3745,7 @@ mod tests {
     };
     use api::token_store::SecretKind;
     use std::fs;
+    use std::rc::Rc;
 
     const SESSION_ID: &str = "5ECB3C42-1f2e-4c7a-9d1b-0a7b6c5d4e3f";
 
@@ -3814,6 +3780,7 @@ mod tests {
             mcp_server_ids: Vec::new(),
             account: None,
             computer_use: None,
+            computer_place: Default::default(),
         }
     }
 
@@ -4425,13 +4392,229 @@ mod tests {
         let options = session_launch_options(&on, &base_options(), &deps.settings);
         assert_eq!(options.computer_use, Some(true));
         let mut mcp = ResolvedMcp::default();
-        assert!(!attach_computer_use(&deps, &options, &mut mcp, "s-1", "EXP-1"));
+        use crate::computer_place::Placed;
+        assert_eq!(attach_computer_use(&deps, &options, &mut mcp, "s-1", "EXP-1", false), Placed::None(None));
         assert_eq!(mcp, ResolvedMcp::default());
 
         deps.settings.computer_use = true;
         let opted_out = session_launch_options(&row("s-2", None), &base_options(), &deps.settings);
         assert_eq!(opted_out.computer_use, Some(false));
-        assert!(!attach_computer_use(&deps, &opted_out, &mut mcp, "s-2", "EXP-2"));
+        assert_eq!(attach_computer_use(&deps, &opted_out, &mut mcp, "s-2", "EXP-2", false), Placed::None(None));
+        assert_eq!(mcp, ResolvedMcp::default());
+    }
+
+    /// #EXP-1514: the machine a launch asks about computer use, as a test
+    /// sets it: the desktop's offer, whether the person's screen can be
+    /// driven, the spaces this host keeps; what the launch did, in order.
+    struct FakeMachine {
+        offer: crate::computer_place::Offer,
+        screen: Result<(), String>,
+        kept: std::cell::RefCell<Vec<String>>,
+        did: std::cell::RefCell<Vec<String>>,
+        /// Each space grant's `had_space`.
+        had: std::cell::RefCell<Vec<bool>>,
+    }
+
+    impl FakeMachine {
+        fn new(offer: crate::computer_place::Offer, screen: Result<(), &str>, kept: &[&str]) -> Rc<FakeMachine> {
+            Rc::new(FakeMachine {
+                offer,
+                screen: screen.map_err(str::to_string),
+                kept: std::cell::RefCell::new(kept.iter().map(|s| s.to_string()).collect()),
+                did: Default::default(),
+                had: Default::default(),
+            })
+        }
+
+        fn did(&self) -> Vec<String> {
+            self.did.borrow().clone()
+        }
+
+        fn grant_for(&self, what: &str, session_id: &str) -> Result<epilot::Grant, String> {
+            self.did.borrow_mut().push(format!("{what} {session_id}"));
+            Ok(epilot::Grant { url: "http://127.0.0.1:9/mcp".to_string(), token: format!("{what}-token") })
+        }
+    }
+
+    impl crate::computer_place::Machine for FakeMachine {
+        fn space_offer(&self) -> crate::computer_place::Offer {
+            self.did.borrow_mut().push("offer".to_string());
+            self.offer
+        }
+
+        fn screen(&self) -> Result<(), String> {
+            self.screen.clone()
+        }
+
+        fn kept(&self, session_id: &str) -> bool {
+            self.kept.borrow().iter().any(|kept| kept == session_id)
+        }
+
+        fn close_space(&self, session_id: &str) {
+            self.kept.borrow_mut().retain(|kept| kept != session_id);
+            self.did.borrow_mut().push(format!("close {session_id}"));
+        }
+
+        fn grant(&self, session_id: &str, _label: &str) -> Result<epilot::Grant, String> {
+            self.grant_for("grant", session_id)
+        }
+
+        fn grant_space(&self, session_id: &str, _label: &str, had_space: bool) -> Result<epilot::Grant, String> {
+            self.had.borrow_mut().push(had_space);
+            self.grant_for("grant_space", session_id)
+        }
+    }
+
+    /// #EXP-1514: the run record names the host keeping the session's space
+    /// (this one after a space run's launch, nobody after any other launch)
+    /// and says whether the session had one, which its next space grant
+    /// hears (a first call that then finds none says new and empty).
+    #[test]
+    fn the_run_record_names_the_space_host_and_keeps_had_space() {
+        use crate::computer_place::Offer;
+        let dir = temp_dir("computer-record");
+        let session = "cu-record";
+        let deps_for = |pick: Option<&str>| {
+            let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
+            let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+            deps.settings.computer_use = true;
+            deps.settings.computer_use_display_id = pick.map(str::to_string);
+            deps.device_id = Some("dev-here".to_string());
+            deps
+        };
+        let mut req = session_request(row(session, None), &[]);
+        req.session.computer_use = true;
+        let machine = FakeMachine::new(Offer::Offered, Ok(()), &[]);
+        crate::computer_place::with_machine(machine.clone(), || ready(launch(req, &deps_for(None))));
+        let record = crate::run_registry::get(&dir.0, session).expect("record");
+        assert_eq!((record.space_host(), record.had_space()), (Some("dev-here"), false));
+        assert_eq!(*machine.had.borrow(), [false]);
+        assert_eq!(crate::run_registry::space_sessions(&dir.0, "dev-here"), [session]);
+
+        // Its first space was made (ePilot's observer); the next launch says so.
+        crate::run_registry::note_space_made(&dir.0, session);
+        let resume = |pick: Option<&str>, machine: Rc<FakeMachine>| {
+            let mut req = resume_request(crate::run_registry::get(&dir.0, session).unwrap());
+            req.session.computer_use = true;
+            crate::computer_place::with_machine(machine, || ready(launch(req, &deps_for(pick))));
+            crate::run_registry::get(&dir.0, session).unwrap()
+        };
+        let machine = FakeMachine::new(Offer::Offered, Ok(()), &[session]);
+        let record = resume(None, machine.clone());
+        assert_eq!(*machine.had.borrow(), [true]);
+        assert_eq!((record.space_host(), record.had_space()), (Some("dev-here"), true));
+
+        // A display is picked: a person run; no host keeps a space for it.
+        let machine = FakeMachine::new(Offer::Offered, Ok(()), &[session]);
+        let record = resume(Some("output:DP-1"), machine.clone());
+        assert_eq!(machine.did(), [format!("close {session}"), format!("grant {session}")]);
+        assert_eq!((record.space_host(), record.had_space()), (None, true));
+        assert!(crate::run_registry::space_sessions(&dir.0, "dev-here").is_empty());
+    }
+
+    /// #EXP-1514 (the state table's rows 2 to 5): where a launch's computer
+    /// use happens is asked at the first start AND at every resume: a space
+    /// (the space section; a desktop that did not answer too), the person's
+    /// screen (today's section; a session that had a space has it closed
+    /// FIRST), nothing for `Agent space only` without a space (no tools, no
+    /// words), nothing with ONE line saying why when nothing can be driven.
+    #[test]
+    fn the_place_is_asked_at_the_first_start_and_at_every_resume() {
+        use crate::computer_place::Offer;
+        let space_words = "You have an agent space on this device";
+        let person_words = "own screen, pointer and keyboard, in the foreground";
+        struct Row {
+            name: &'static str,
+            pick: Option<&'static str>,
+            offer: Offer,
+            screen: Result<(), &'static str>,
+            kept: bool,
+            did: &'static [&'static str],
+            section: Option<&'static str>,
+            line: Option<&'static str>,
+        }
+        let rows = [
+            Row { name: "2: Auto, a space offered", pick: None, offer: Offer::Offered, screen: Ok(()), kept: false, did: &["offer", "grant_space"], section: Some(space_words), line: None },
+            Row { name: "2: Auto, the desktop did not answer", pick: None, offer: Offer::Unknown, screen: Ok(()), kept: true, did: &["offer", "grant_space"], section: Some(space_words), line: None },
+            Row { name: "2: Agent space only, offered", pick: Some("space"), offer: Offer::Offered, screen: Err("unasked"), kept: false, did: &["offer", "grant_space"], section: Some(space_words), line: None },
+            Row { name: "3: a display is picked, the session had a space", pick: Some("output:DP-1"), offer: Offer::Offered, screen: Ok(()), kept: true, did: &["close", "grant"], section: Some(person_words), line: None },
+            Row { name: "3: Auto, no space offered", pick: None, offer: Offer::No, screen: Ok(()), kept: true, did: &["offer", "close", "grant"], section: Some(person_words), line: None },
+            Row { name: "4: Agent space only, none offered", pick: Some("space"), offer: Offer::No, screen: Ok(()), kept: true, did: &["offer", "close"], section: None, line: None },
+            Row { name: "5: Auto, no space and no screen", pick: None, offer: Offer::No, screen: Err("No display session (DISPLAY is not set)."), kept: false, did: &["offer"], section: None, line: Some("no computer tools: No display session (DISPLAY is not set).") },
+            Row { name: "5: a display is picked, no screen", pick: Some("output:DP-1"), offer: Offer::Offered, screen: Err("No display session (DISPLAY is not set)."), kept: false, did: &[], section: None, line: Some("No display session (DISPLAY is not set). If the task needs the screen, say so.") },
+        ];
+        let dir = temp_dir("computer-place");
+        for (n, case) in rows.iter().enumerate() {
+            for resume in [false, true] {
+                let name = format!("{} ({})", case.name, if resume { "resume" } else { "first start" });
+                let session = format!("cu-{n}-{resume}");
+                let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
+                let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+                deps.settings.computer_use = true;
+                deps.settings.computer_use_display_id = case.pick.map(str::to_string);
+                let mut req = if resume {
+                    resume_request(resume_record(&dir.0, &session))
+                } else {
+                    session_request(row(&session, None), &[])
+                };
+                req.session.computer_use = true;
+                let kept: &[&str] = if case.kept { &[session.as_str()] } else { &[] };
+                let machine = FakeMachine::new(case.offer, case.screen, kept);
+                let prepared = crate::computer_place::with_machine(machine.clone(), || ready(launch(req, &deps)));
+                let expected: Vec<String> = case
+                    .did
+                    .iter()
+                    .map(|what| if *what == "offer" { what.to_string() } else { format!("{what} {session}") })
+                    .collect();
+                assert_eq!(machine.did(), expected, "{name}");
+                let computer = prepared.acp.servers.iter().any(|server| server.name == epilot::SERVER_NAME);
+                assert_eq!(computer, case.section.is_some(), "{name}: the computer server");
+                let append = &prepared.acp.system_append;
+                assert_eq!(append.contains(space_words), case.section == Some(space_words), "{name}: {append}");
+                assert_eq!(append.contains(person_words), case.section == Some(person_words), "{name}");
+                assert_eq!(append.contains(crate::skill::COMPUTER_USE_UNAVAILABLE_LEAD), case.line.is_some(), "{name}");
+                if let Some(line) = case.line {
+                    assert!(append.contains(line), "{name}: {append}");
+                    assert_eq!(append.matches(crate::skill::COMPUTER_USE_UNAVAILABLE_LEAD).count(), 1);
+                }
+                // The launch's context layout counts all of it as the launcher's.
+                assert_eq!(prepared.acp.context_layers.team_bytes, None, "{name}");
+            }
+        }
+    }
+
+    /// #EXP-1514 (L1): a space grant that fails launches without computer
+    /// use: never the person's screen instead.
+    #[test]
+    fn a_failed_space_grant_is_never_the_screen() {
+        struct Refusing;
+        impl crate::computer_place::Machine for Refusing {
+            fn space_offer(&self) -> crate::computer_place::Offer {
+                crate::computer_place::Offer::Unknown
+            }
+            fn screen(&self) -> Result<(), String> {
+                Ok(())
+            }
+            fn kept(&self, _: &str) -> bool {
+                false
+            }
+            fn close_space(&self, _: &str) {}
+            fn grant(&self, _: &str, _: &str) -> Result<epilot::Grant, String> {
+                panic!("never the person's seat")
+            }
+            fn grant_space(&self, _: &str, _: &str, _: bool) -> Result<epilot::Grant, String> {
+                Err("no free port".to_string())
+            }
+        }
+        let dir = temp_dir("computer-space-refused");
+        let mut deps = make_deps("http://127.0.0.1:1", &dir.0, fake_worktrees(&dir.0.join("wt")));
+        deps.settings.computer_use = true;
+        let mut on = row("s-refused", None);
+        on.computer_use = true;
+        let options = session_launch_options(&on, &base_options(), &deps.settings);
+        let mut mcp = ResolvedMcp::default();
+        let placed = crate::computer_place::with_machine(Rc::new(Refusing), || attach_computer_use(&deps, &options, &mut mcp, "s-refused", "EXP-1", false));
+        assert_eq!(placed, crate::computer_place::Placed::None(None));
         assert_eq!(mcp, ResolvedMcp::default());
     }
 
@@ -4450,7 +4633,7 @@ mod tests {
         // Saved while the launch prepared (the hosts' `set_work_display`).
         epilot::set_work_display(Some("display-2".to_string()));
         let mut mcp = ResolvedMcp::default();
-        attach_computer_use(&deps, &options, &mut mcp, "s-pick", "EXP-1");
+        attach_computer_use(&deps, &options, &mut mcp, "s-pick", "EXP-1", false);
         epilot::revoke("s-pick");
         assert_eq!(epilot::work_display().as_deref(), Some("display-2"));
     }
@@ -4743,10 +4926,10 @@ mod tests {
     /// NEW-1: a ROOT with a repository works itself — a worktree on its
     /// `exp/<IDENT>` branch cut from the default, exactly like a child, with
     /// the coding playbook;
-    /// NEW-5: a worktree run is never confined, a repo-less one is confined
-    /// to its scratch dir.
+    /// #EXP-1890: a repo-less run carries the same flag layer as a worktree
+    /// run (no scratch confinement).
     #[test]
-    fn a_root_works_in_its_own_worktree_and_only_a_repo_less_run_confines() {
+    fn a_root_works_in_its_own_worktree_and_a_repo_less_run_is_not_confined() {
         let dir = temp_dir("root-worktree");
         let worktree = dir.0.join("wt");
         fs::create_dir_all(&worktree).unwrap();
@@ -4758,7 +4941,6 @@ mod tests {
         let prepared = ready(launch(session_request(root, &["EXP-42"]), &deps));
         assert_eq!(prepared.branch, "exp/EXP-42");
         assert_eq!(prepared.worktree, worktree);
-        assert_eq!(prepared.acp.confine_to, None, "a worktree run is never confined");
         let seen = worktrees.seen.lock().unwrap().clone();
         assert_eq!((seen[0].1.as_str(), seen[0].2.as_str()), ("main", "exp/EXP-42"));
         let append = &prepared.acp.system_append;
@@ -4771,26 +4953,13 @@ mod tests {
         assert_eq!(record.issues, vec!["EXP-42".to_string()]);
         assert!(!record.extra.contains_key("dispatch"), "nothing writes the legacy flag");
 
-        // Repo-less: the scratch dir, confined to it.
+        // Repo-less: the scratch dir, with the plain flag layer.
         let base = canned_server(vec![(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
         let prepared = ready(launch(session_request(row("scratch-1", None), &[]), &deps));
         assert!(crate::scratch::is_scratch_dir(&dir.0, &prepared.worktree));
-        assert_eq!(prepared.acp.confine_to.as_deref(), Some(prepared.worktree.as_path()));
-        // N-5: its claude flag layer carries the scratch-dir sandbox.
         let anchor = prepared.acp.reaper_settings_path.as_ref().expect("reaper anchor");
-        let settings: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(anchor).unwrap()).expect("valid json");
-        assert_eq!(settings["sandbox"]["enabled"], true);
-        assert_eq!(settings["sandbox"]["filesystem"]["allowRead"][0], prepared.worktree.display().to_string());
-    }
-
-    /// N-5: a repo-backed run's flag layer is EXACTLY the EXP-1124 one — no
-    /// deny rules, no sandbox.
-    #[test]
-    fn a_repo_backed_run_keeps_the_plain_flag_settings() {
-        let settings = claude_flag_settings(None, Some(Path::new("/Users/a")), Path::new("/Users/a/repos"));
-        assert_eq!(settings, CLAUDE_FLAG_SETTINGS);
+        assert_eq!(fs::read_to_string(anchor).unwrap(), CLAUDE_FLAG_SETTINGS, "no sandbox, no deny rules");
     }
 
     /// NEW-58 (screen-memory.json TOOL): screen memory only for a voice
@@ -4808,52 +4977,6 @@ mod tests {
         let mut mcp = ResolvedMcp::default();
         assert!(!attach_screen_memory(false, &mut mcp, "sess-s"));
         assert!(mcp.servers.is_empty());
-    }
-
-    /// N-5: a repo-less run denies the file tools on the repos root, and its
-    /// Bash runs in the CLI sandbox: home read-denied except the scratch dir
-    /// and the toolchains, no unsandboxed escape, network open.
-    #[test]
-    fn a_confined_run_denies_the_checkouts_and_sandboxes_bash_to_the_scratch_dir() {
-        let scratch = Path::new("/Users/a/Library/Application Support/at.exponential/scratch/r/s");
-        let raw = claude_flag_settings(Some(scratch), Some(Path::new("/Users/a/")), Path::new("/Users/a/Exponential/repos"));
-        let settings: serde_json::Value = serde_json::from_str(&raw).expect("valid json");
-        assert_eq!(settings["permissions"]["disableAutoMode"], "disable", "EXP-1124 stays");
-        let deny: Vec<&str> = settings["permissions"]["deny"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|rule| rule.as_str().unwrap())
-            .collect();
-        assert_eq!(
-            deny,
-            [
-                "Read(//Users/a/Exponential/repos/**)",
-                "Edit(//Users/a/Exponential/repos/**)",
-            ]
-        );
-        let sandbox = &settings["sandbox"];
-        assert_eq!(sandbox["enabled"], true);
-        assert_eq!(sandbox["autoAllowBashIfSandboxed"], true);
-        assert_eq!(sandbox["allowUnsandboxedCommands"], false);
-        // The repos root sits under the home: one deny covers both.
-        assert_eq!(sandbox["filesystem"]["denyRead"], serde_json::json!(["/Users/a"]));
-        let allow = sandbox["filesystem"]["allowRead"].as_array().unwrap();
-        assert_eq!(allow[0], scratch.display().to_string());
-        assert!(allow.contains(&serde_json::json!("/Users/a/.cargo")));
-        assert!(!allow.iter().any(|path| path == "/Users/a/.config" || path == "/Users/a/.local/share"));
-        assert_eq!(sandbox["network"]["allowedDomains"], serde_json::json!(["*"]));
-        assert_eq!(sandbox["network"]["allowLocalBinding"], true);
-        assert!(sandbox.get("failIfUnavailable").is_none(), "a missing sandbox never bricks the run");
-    }
-
-    /// N-5: a repos root outside the home is read-denied on its own.
-    #[test]
-    fn a_repos_root_outside_the_home_is_read_denied_too() {
-        let raw = claude_flag_settings(Some(Path::new("/data/scratch/r/s")), Some(Path::new("/home/a")), Path::new("/srv/repos"));
-        let settings: serde_json::Value = serde_json::from_str(&raw).unwrap();
-        assert_eq!(settings["sandbox"]["filesystem"]["denyRead"], serde_json::json!(["/home/a", "/srv/repos"]));
-        assert_eq!(settings["permissions"]["deny"][0], "Read(//srv/repos/**)");
     }
 
     /// A child whose brief names no parent branch cuts from the repo default
@@ -5620,6 +5743,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
                 mcp_server_ids: Vec::new(),
                 account: None,
                 computer_use: None,
+                computer_place: Default::default(),
             },
             repository_id: "repo-1".to_string(),
             full_name: "acme/web".to_string(),

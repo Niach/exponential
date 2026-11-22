@@ -1,3 +1,10 @@
+- The Work screen offers an agent space, or an agent space only, when your device has one
+- Calls from your phone follow the same rules as on the desktop; a late opening line no longer crashes the app
+- Find in chat reaches every message of the chat, older ones included
+- Global search finds chats and opens them on the matching message
+- The app icon's long-press menu lists your Assistant and newest chats
+- Sharing pictures into Exponential stages them like the chat's composer
+- Settings values draw in the muted value colour
 - A call opens with the agent's own words in its own voice; when you hang up, a summary lands in the chat
 - Each call is one card in the chat; during a call, Chat and Voice tabs let you read and write while you talk
 - Find in chat: search the chat you have open
@@ -49,11 +56,3 @@
 - Large chats open instantly from what was stored last time
 - The MCP picker shows each server's brand mark
 - Settings › MCP is one list of servers
-- Large chats open fast on their newest messages and load earlier ones as you scroll up
-- Smoother scrolling in busy sessions
-- An account's card says which login is active
-- Closing a sign-in stops it on the machine
-- Add a passkey from Settings › Account › Passkeys
-- An app's action saves all its records together, or none of them
-- Apps show their own fallback where a value is missing
-- Charts, lists, disabled fields and pictures in apps look the same as on the other apps

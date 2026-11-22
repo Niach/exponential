@@ -85,6 +85,9 @@ pub struct EngineParts<A> {
     /// EXP-1292: write the Conversation (replies, consumes) through this
     /// instead of the run's tRPC client — a test's recording fake.
     pub conversation: Option<Arc<dyn crate::outbox::ConversationApi>>,
+    /// #EXP-1514: tell the device's computer use through this instead of
+    /// ePilot — a test's recorder. `None` = ePilot.
+    pub computer: Option<Arc<dyn crate::lifecycle::RunComputer>>,
 }
 
 /// Open an ENDED run's transcript read-only (a Past row on the desktop).
@@ -176,6 +179,7 @@ impl EngineSession {
                 mcp_server_ids: Vec::new(),
                 account: None,
                 computer_use: None,
+                computer_place: Default::default(),
             },
             // A replay never talks to MCP: it reads history and stops.
             mcp: coding::AgentMcp::ClaudeFile,
@@ -195,8 +199,6 @@ impl EngineSession {
             context_layers: coding::ContextLayers::default(),
             name_conversation: false,
             aside: false,
-            // A replay never runs a tool.
-            confine_to: None,
             skills_dir: None,
             exit: child_exit.clone(),
         })?;
@@ -214,6 +216,8 @@ impl EngineSession {
             attachments: None,
             embeds: steer::ImageEmbeds::default(),
             audience: None,
+            computer: None,
+            space_run: false,
         }));
         let session = SessionSpec {
             session_id,
@@ -326,8 +330,6 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         context_layers: acp.context_layers.clone(),
         name_conversation: names_conversation(&start.data_dir, &start.prepared),
         aside: is_aside_run(&start.data_dir, &start.prepared.session_id),
-        // N-5 / NEW-5: a repo-less run is confined to its scratch dir.
-        confine_to: acp.confine_to.clone(),
         // #EXP-1658: the session's team skills.
         skills_dir: acp.skills_dir.clone(),
         exit: child_exit.clone(),
@@ -340,6 +342,7 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
             child_exit,
             sink: None,
             conversation: None,
+            computer: None,
         },
     )
 }
@@ -393,6 +396,8 @@ where
         attachments: Some(hook),
         embeds,
         audience: prepared.audience.clone(),
+        computer: parts.computer,
+        space_run: acp.computer_space,
     }));
     let session = SessionSpec {
         session_id: prepared.session_id.clone(),

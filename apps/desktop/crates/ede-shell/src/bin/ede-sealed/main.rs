@@ -13,7 +13,12 @@
 //!   process.
 //! - `exponential-sealed polkit`: the polkit authentication agent for the session
 //!   (`exponential-polkit-agent.service`): polkitd's `BeginAuthentication` opens
-//!   the prompt, polkit's helper checks the password; it stays up between prompts.
+//!   the prompt, polkit's helper checks the password; it stays up between prompts,
+//!   its renderer up from its start (#EDE-184).
+//!   A request from an agent space is refused and opens nothing (#EDE-127);
+//!   one from outside the person's login session opens the prompt without
+//!   the keyboard (on demand: the person clicks into it) and names the
+//!   asking process (#EDE-143).
 //! - `exponential-sealed consent --title T --body B [--allow A] [--deny D]`: a
 //!   question to the person; prints `allow` or `deny`, exits 0 or 1.
 //! - `exponential-sealed share`: the screen-share chooser the portal runs
@@ -91,18 +96,25 @@ struct Open {
 /// A sealed document as a full-screen overlay with the keyboard, on the
 /// first output.
 fn open(doc: &str, data: Value, acts: mpsc::Sender<Act>, cx: &mut App) -> Option<Open> {
+    open_taking(doc, data, acts, true, cx)
+}
+
+/// [`open`]; `keyboard` = the prompt takes the keyboard as it shows
+/// (Exclusive), else on the person's click (OnDemand: #EDE-143, a polkit
+/// request from outside their session).
+fn open_taking(doc: &str, data: Value, acts: mpsc::Sender<Act>, keyboard: bool, cx: &mut App) -> Option<Open> {
     let (w, h) = ede_protocol::Client::connect_env()
         .ok()
         .and_then(|mut c| c.outputs().ok())
         .and_then(|o| o.into_iter().find(|o| o.is_persons()).map(|o| (o.width as f32, o.height as f32)))
         .unwrap_or((1280.0, 720.0));
-    open_on(doc, data, acts, None, (w, h), cx)
+    open_on(doc, data, acts, None, (w, h), Layer::Overlay, if keyboard { KeyboardInteractivity::Exclusive } else { KeyboardInteractivity::OnDemand }, cx)
 }
 
 /// [`open`] on `display` (`None` = the compositor's choice), whose logical
 /// size is `w`×`h`: the root fills it in px (a layer window takes its
-/// content's size otherwise) and the surface asks for it.
-fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<DisplayId>, (w, h): (f32, f32), cx: &mut App) -> Option<Open> {
+/// content's size otherwise) and the surface asks for it, on `layer`.
+fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<DisplayId>, (w, h): (f32, f32), layer: Layer, keyboard: KeyboardInteractivity, cx: &mut App) -> Option<Open> {
     let mut parsed: Value = serde_json::from_str(doc).expect("a sealed document");
     if let Some(style) = parsed["root"].get_mut("style").and_then(Value::as_object_mut) {
         style.insert("width".into(), json!(w));
@@ -119,12 +131,12 @@ fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<Disp
     let host: Rc<dyn HostPlugin> = Rc::new(Host { acts });
     let kind = WindowKind::LayerShell(LayerShellOptions {
         namespace: "exponential-sealed".into(),
-        layer: Layer::Overlay,
+        layer,
         anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
         exclusive_zone: Some(px(-1.0)),
         exclusive_edge: None,
         margin: None,
-        keyboard_interactivity: KeyboardInteractivity::Exclusive,
+        keyboard_interactivity: keyboard,
     });
     let view_out: Rc<RefCell<Option<Entity<SurfaceView>>>> = Rc::new(RefCell::new(None));
     let out = view_out.clone();
@@ -163,7 +175,7 @@ fn open_on(doc: &str, data: Value, acts: mpsc::Sender<Act>, display: Option<Disp
     let open = match opened {
         Ok(handle) => view_out.borrow().clone().map(|view| Open { handle, view }),
         Err(e) => {
-            tracing::error!("window: {e}");
+            tracing::error!(error = %e, "a sealed window could not open");
             None
         }
     };
@@ -207,6 +219,27 @@ fn close(open: Open, cx: &mut App) {
     let _ = open.handle.update(cx, |_, window, _| window.remove_window());
 }
 
+/// #EDE-184: what a process's first window pays for (wgpu's instance,
+/// adapter and device, which gpui keeps for the process, the shaders and
+/// the prompt's fonts) the polkit agent pays at its start: a prompt laid
+/// out and painted once, on the background layer without the keyboard,
+/// and closed before the compositor ever configures it, so it never shows
+/// and never takes input. Without it the first prompt after login came up
+/// seconds late on llvmpipe, and what the person typed meanwhile went to
+/// the window under it.
+fn warm(cx: &mut App) {
+    let started = std::time::Instant::now();
+    let data = json!({"message": "Authentication is needed to run `/usr/bin/true' as the super user", "identity": "org.freedesktop.policykit.exec · as root", "asker": "Asked by /usr/bin/bash (process 1)"});
+    let (acts, _) = mpsc::channel();
+    match open_on(POLKIT, data, acts, None, (1280.0, 720.0), Layer::Background, KeyboardInteractivity::None, cx) {
+        Some(open) => {
+            close(open, cx);
+            tracing::info!(ms = started.elapsed().as_millis() as u64, "the renderer is up");
+        }
+        None => tracing::warn!("the renderer is not up ahead of the first prompt"),
+    }
+}
+
 /// `HH:MM` local time.
 fn clock() -> String {
     if let Some(fixed) = std::env::var_os("EDE_SHELL_CLOCK").filter(|v| !v.is_empty()) {
@@ -232,6 +265,15 @@ fn user_name() -> String {
 fn usage() -> ! {
     eprintln!("usage: exponential-sealed lock | polkit | consent --title TITLE --body BODY [--allow LABEL] [--deny LABEL] | share (the ask as JSON on stdin)");
     std::process::exit(2)
+}
+
+/// #ERR-29: a dialog's failure exits: what is queued for GlitchTip gets out
+/// first (the exit skips the diagnostics guard's drop). An answer's exit
+/// does not wait on the network, nor does the lock's (the compositor
+/// starts it again, and reports its end itself).
+fn exit(code: i32) -> ! {
+    ede_observability::flush();
+    std::process::exit(code)
 }
 
 fn run_app(f: impl FnOnce(&mut App) + 'static) {
@@ -299,7 +341,7 @@ fn cover_outputs(shown: &mut Vec<Shown>, seen: &mut Vec<(DisplayId, Bounds<Pixel
         if shown.iter().any(|s| s.display == display) {
             continue;
         }
-        match open_on(LOCK, data.clone(), acts.clone(), Some(display), (size.0 as f32, size.1 as f32), cx) {
+        match open_on(LOCK, data.clone(), acts.clone(), Some(display), (size.0 as f32, size.1 as f32), Layer::Overlay, KeyboardInteractivity::Exclusive, cx) {
             Some(open) => shown.push(Shown { display, size, open }),
             None => std::process::exit(1),
         }
@@ -348,7 +390,7 @@ fn lock() {
                                 return;
                             }
                             Err(e) => {
-                                tracing::error!("unlock refused: {e}");
+                                tracing::error!(error = %e, "the compositor refused the unlock");
                                 cx.update(|cx| {
                                     for s in &shown {
                                         set(&s.open, "/busy", json!(false), cx);
@@ -390,7 +432,7 @@ fn lock() {
 /// The polkit agent: a prompt per request.
 fn polkit_agent() {
     let (ui_tx, ui_rx) = mpsc::channel::<polkit::UiEvent>();
-    let conn = match zbus::blocking::connection::Builder::system().and_then(|b| b.serve_at(polkit::AGENT_PATH, polkit::Agent { to_ui: ui_tx })).and_then(|b| b.build()) {
+    let conn = match zbus::blocking::connection::Builder::system().and_then(|b| b.serve_at(polkit::AGENT_PATH, polkit::Agent { to_ui: ui_tx, space_of: std::sync::Arc::new(polkit::space_of) })).and_then(|b| b.build()) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("exponential-sealed polkit: no system bus: {e}");
@@ -408,6 +450,7 @@ fn polkit_agent() {
         // #EDE-87: gpui quits when its last window closes; the agent's
         // last window is the prompt, and the agent outlives every prompt.
         cx.set_quit_mode(gpui::QuitMode::Explicit);
+        warm(cx);
         let (acts_tx, acts_rx) = mpsc::channel::<Act>();
         // The open prompt and its answer channel.
         let mut current: Option<(String, Open, mpsc::Sender<polkit::Answer>)> = None;
@@ -421,9 +464,13 @@ fn polkit_agent() {
                                 cx.update(|cx| close(open, cx));
                             }
                             let identity = format!("{} · as {}", request.action_id, request.users.join(" or "));
-                            let data = json!({"message": request.message, "identity": identity, "password": "", "busy": false, "error": ""});
+                            // #EDE-143: a request from outside the person's
+                            // session names who asks and waits for a click.
+                            let asker = request.asker.as_ref().map(|asker| format!("Asked by {asker}")).unwrap_or_default();
+                            let keyboard = request.asker.is_none();
+                            let data = json!({"message": request.message, "identity": identity, "asker": asker, "password": "", "busy": false, "error": ""});
                             let tx = acts_tx.clone();
-                            if let Some(open) = cx.update(|cx| open(POLKIT, data, tx, cx)) {
+                            if let Some(open) = cx.update(|cx| open_taking(POLKIT, data, tx, keyboard, cx)) {
                                 current = Some((request.cookie, open, answer));
                             }
                             password.clear();
@@ -500,7 +547,7 @@ fn consent(args: &[String]) {
         let (acts_tx, acts_rx) = mpsc::channel::<Act>();
         let open = open(CONSENT, json!({"title": title, "body": body, "allow": allow, "deny": deny}), acts_tx, cx);
         if open.is_none() {
-            std::process::exit(1);
+            exit(1);
         }
         cx.spawn(async move |cx| {
             loop {
@@ -547,7 +594,7 @@ fn share() {
         let data = json!({"title": title, "body": body, "outputs": outputs.clone(), "windows": windows.clone(), "remoteControl": remote, "allow": false});
         let open = Rc::new(open(SHARE, data, acts_tx, cx));
         if open.is_none() {
-            std::process::exit(1);
+            exit(1);
         }
         let mut picks: Vec<String> = Vec::new();
         let mut allow = false;
@@ -608,14 +655,27 @@ fn share() {
 }
 
 fn main() {
-    tracing_subscriber::fmt().with_writer(std::io::stderr).with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+    // A crash-monitor process (ede-observability) runs and exits here.
+    ede_observability::run_crash_monitor_if_requested();
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match args.first().map(String::as_str) {
-        Some("lock") => lock(),
-        Some("polkit") => polkit_agent(),
-        Some("consent") => consent(&args[1..]),
-        Some("share") => share(),
+    let mode = args.first().map(String::as_str).unwrap_or_default();
+    let component = match mode {
+        "lock" => "sealed-lock",
+        "polkit" => "sealed-polkit",
+        "consent" => "sealed-consent",
+        "share" => "sealed-share",
         _ => usage(),
+    };
+    // #ERR-29: the compositor's diagnostics (panics, errors, native
+    // crashes), tagged per mode; stdout is consent's and share's answer. A
+    // report says where a line was logged, never what it said.
+    let _diagnostics = ede_observability::init_with(component, "info", ede_observability::Output::Stderr, ede_observability::Trail::Places);
+    ede_observability::watch_native_crashes(component);
+    match mode {
+        "lock" => lock(),
+        "polkit" => polkit_agent(),
+        "consent" => consent(&args[1..]),
+        _ => share(),
     }
 }
 
@@ -648,6 +708,38 @@ mod tests {
         writeln!(write, "{grant}").unwrap();
         drop(write);
         assert_eq!(grant_from(read.into_raw_fd()).map(|t| t.as_str().to_string()), Some(grant));
+    }
+
+    /// The nodes from `node` down to the one with `id`, in that order.
+    fn path_to<'a>(node: &'a Value, id: &str) -> Option<Vec<&'a Value>> {
+        if node["id"] == id {
+            return Some(vec![node]);
+        }
+        node["children"].as_array()?.iter().find_map(|child| path_to(child, id)).map(|mut path| {
+            path.insert(0, node);
+            path
+        })
+    }
+
+    /// #EDE-181: every sealed prompt's card is opaque in both modes: an
+    /// opaque colour lies under it in its document (the lock's screen, the
+    /// others' `backing`). The dark theme's card is translucent, so a card
+    /// over nothing let the window under the prompt show through its words.
+    #[test]
+    fn every_sealed_card_lies_on_an_opaque_colour() {
+        let theme = eui_core::themes::builtin_theme("exponential").expect("the exponential theme");
+        for (name, doc) in [("lock", LOCK), ("polkit", POLKIT), ("consent", CONSENT), ("share", SHARE)] {
+            let parsed: Value = serde_json::from_str(doc).expect(name);
+            let path = path_to(&parsed["root"], "card").unwrap_or_else(|| panic!("{name} has a card"));
+            for mode in [Mode::Light, Mode::Dark] {
+                let colors = &theme.modes.get(mode).color;
+                let opaque = path.iter().filter_map(|n| n["style"]["backgroundColor"].as_str()).any(|c| {
+                    let hex = c.strip_prefix("$color.").map_or(Some(c), |token| colors.get(token).map(String::as_str)).unwrap_or_else(|| panic!("{name}: {c} is no colour"));
+                    hex.get(7..9).map_or(hex.len() == 7, |alpha| alpha.eq_ignore_ascii_case("ff"))
+                });
+                assert!(opaque, "{name}'s card lies on nothing opaque in {mode:?}");
+            }
+        }
     }
 
     /// Every call a sealed document makes is one this binary handles, and

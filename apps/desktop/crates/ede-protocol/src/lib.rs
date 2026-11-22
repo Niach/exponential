@@ -18,6 +18,19 @@
 //! holding only what the caller names and drops the root connection
 //! (#EDE-22: grants by default). A process handed a grant in `EDE_TOKEN`
 //! (the sealed lock, a sandboxed agent) keeps that one.
+//!
+//! #EDE-172, channels: a grant can live on connections instead of in a
+//! string. A connection the compositor made (inherited at spawn,
+//! [`Client::inherited`], or a test's `--control-fd`) already holds its
+//! grant and says hello without a token. [`Request::OpenChannel`] answers
+//! with one more such connection, a descriptor next to its reply frame
+//! ([`Client::open_channel`]): on the caller's own grant, or on a child of
+//! it no wider and no longer-lived. A child is bound: its token is never
+//! taken at hello (the wire [`Grant`] keeps the field; for a bound grant it
+//! is the grant's id, which [`Request::RevokeGrant`] takes), and revoking
+//! it, or the end of its parent, ends its connections. Until eDE's flip
+//! the token file stays and every reader falls back to it; an older
+//! compositor answers `open_channel` with [`Error::Unsupported`].
 
 use std::{
     io::{Read, Write},
@@ -25,11 +38,20 @@ use std::{
 };
 
 #[cfg(unix)]
-use std::{collections::VecDeque, os::unix::net::UnixStream};
+use std::{
+    collections::VecDeque,
+    os::{fd::OwnedFd, unix::net::UnixStream},
+};
 
 pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, SpaceId, Token, WindowId};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
+pub mod process;
+
+/// The hello's version, which both sides must speak. An additive change (an
+/// op, a field, a capability, an error code, a message type, a membership)
+/// never bumps it: each side reads what it does not know (#EXP-1994), and
+/// [`Hello::features`] says what a compositor does beyond v1.
 pub const PROTOCOL_VERSION: u32 = 1;
 /// Largest frame either side accepts (an 8K capture fits).
 pub const MAX_FRAME: usize = 160 << 20;
@@ -72,6 +94,18 @@ pub fn token_path(runtime_dir: &Path, wayland_display: &str) -> PathBuf {
     runtime_dir.join("exponential-desktop").join(format!("{wayland_display}.token"))
 }
 
+/// #EDE-172: the descriptor number of the control connection a process was
+/// started with ([`Client::inherited`]); the compositor sets it for what it
+/// spawns.
+pub const CONTROL_FD_ENV: &str = "EDE_CONTROL_FD";
+
+/// Where the compositor serving `wayland_display` keeps its agent spaces'
+/// directories, each `space-n` (#EDE-125): a launch into a space has its
+/// directory as `XDG_RUNTIME_DIR` ([`process::space_in`]).
+pub fn spaces_path(runtime_dir: &Path, wayland_display: &str) -> PathBuf {
+    runtime_dir.join("exponential-desktop").join(format!("{wayland_display}.spaces"))
+}
+
 /// A call: `{"id": 1, "op": "list_windows", …}`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Call {
@@ -83,8 +117,16 @@ pub struct Call {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
-    /// First call on every connection.
-    Hello { version: u32, token: Token },
+    /// First call on every connection. `token` = the grant to act under;
+    /// none on a connection that already holds its grant (#EDE-172: one the
+    /// compositor made, [`Request::OpenChannel`]'s), whose reply also names
+    /// that grant (`grant`, its token or a bound grant's id). A bound
+    /// grant's token is refused here.
+    Hello {
+        version: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        token: Option<Token>,
+    },
     ListWindows,
     ListOutputs,
     /// Raises and activates a window; a parked one brings its workspace
@@ -159,7 +201,30 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         expires_at: Option<i64>,
     },
-    RevokeGrant { token: Token },
+    /// Ends a grant: by its token, or a bound one (#EDE-172) by its id, the
+    /// `token` of the reply that opened it (also read as `grant`). A bound
+    /// grant's connections end with it, and so do its children's. `system`
+    /// ends any grant but the root; any grant ends itself and what was
+    /// opened on it.
+    RevokeGrant {
+        #[serde(alias = "grant")]
+        token: Token,
+    },
+    /// #EDE-172: one more connection holding a grant, as a descriptor
+    /// (`SCM_RIGHTS`) that comes with the reply frame; the reply is that
+    /// connection's [`Grant`] (for a child: bound, its `token` its id).
+    /// `session_id` none = the caller's own grant as it is (`capabilities`
+    /// exactly what it holds, no `expires_at`); named = a child of it,
+    /// holding no more than it and expiring no later. Any valid grant asks;
+    /// never a space grant, and no child holds `space` (a space grant is
+    /// minted: [`Request::MintGrant`]).
+    OpenChannel {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<SessionId>,
+        capabilities: Vec<Capability>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expires_at: Option<i64>,
+    },
     /// Global shortcuts for `owner` (the portal's session), replacing what
     /// it held (#EDE-15). Triggers follow the XDG shortcuts spec
     /// (`CTRL+SHIFT+a`, `LOGO+F5`); one that does not parse, takes a plain
@@ -221,10 +286,64 @@ pub enum Request {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
     },
+    /// The agent space process `pid` belongs to (#EDE-127), and whether it
+    /// is the person's session's (#EDE-143): a [`ProcessAnswer`]. eDE's
+    /// polkit agent asks before it shows the person a prompt: it refuses a
+    /// request from a space, and shows one from outside the session
+    /// without the keyboard. `system` only.
+    SpaceOfProcess { pid: u32 },
+    /// Whether this desktop gives a person's runs an agent space now
+    /// (#EXP-1514): [`SpaceReadiness`]. Any valid person-scope grant (as
+    /// `list_windows`); never a space grant's. Asked only of a compositor
+    /// whose hello says [`FEATURE_SPACE_READINESS`]; an older one cannot
+    /// read it ([`Error::Unsupported`]).
+    SpaceReadiness,
+    /// The caller's space counts as busy for [`SPACE_BUSY_SECS`] (#EXP-1514,
+    /// D 10): its session's turn runs, so a full desktop does not close it
+    /// for a new space. A space grant only, its own space only.
+    SpaceBusy,
 }
+
+/// How long one [`Request::SpaceBusy`] keeps a space from giving way.
+pub const SPACE_BUSY_SECS: u64 = 90;
 
 /// In [`Hello::features`]: this compositor makes agent spaces.
 pub const FEATURE_SPACES: &str = "spaces";
+
+/// In [`Hello::features`]: this compositor answers
+/// [`Request::SpaceReadiness`] (#EXP-1514). `spaces` alone (eDE 0.2.29)
+/// does not offer a space to anyone: a client makes one only after a
+/// `ready` answer.
+pub const FEATURE_SPACE_READINESS: &str = "space-readiness";
+
+/// A [`Request::SpaceReadiness`] reply.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceReadiness {
+    pub ready: bool,
+    /// Why not, when not ready: `no_user_manager`, `guard` (the space
+    /// guard or polkit, #EDE-146..148), `session`, `driver`, or a block
+    /// this build does not know (still a no).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block: Option<String>,
+    /// How many spaces this desktop holds at most: a refused
+    /// [`Request::CreateSpace`] (`limit`) with that many spaces open is a
+    /// full desktop, with fewer it is out of memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u32>,
+}
+
+/// #EXP-2024: the layer-shell namespace of the shell's pinned view of an
+/// agent space (`space-view.json`): black in every capture of the person's
+/// output, so a space's pixels never reach a screenshot, screen memory or a
+/// screen share through it.
+pub const SPACE_VIEW_NAMESPACE: &str = "exponential-shell:space-view";
+
+/// #EXP-2041: the namespace of the taskbar's Agent spaces list, a hosted
+/// Popover (an `xdg_popup` of the taskbar layer) that shows each space's
+/// picture: the shell names the popup with it through
+/// `protocols/exponential-popup-namespace-v1.xml`, and the compositor draws
+/// it black in every capture of the person's output, as it draws the view.
+pub const SPACE_LIST_NAMESPACE: &str = "exponential-shell:taskbar:agent_spaces";
 
 /// An agent space ([`Request::CreateSpace`]).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -238,6 +357,74 @@ pub struct SpaceInfo {
     pub height: i32,
     /// The absolute path of its Wayland socket (a `WAYLAND_DISPLAY`).
     pub wayland_display: String,
+}
+
+/// What ties a process to an agent space ([`ProcessSpace::by`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Membership {
+    /// It runs in a scope of the space's own systemd slice (#EDE-138): the
+    /// first sign looked at, and the one a process keeps when it leaves
+    /// its group, its environment and its parent.
+    Cgroup,
+    /// It was launched into the space ([`Request::Launch`]).
+    Launch,
+    /// It is in the process group of a launch (also after its parent died).
+    Group,
+    /// It is connected to the space's socket.
+    Client,
+    /// Its environment names the space's directory (`XDG_RUNTIME_DIR` or
+    /// `WAYLAND_DISPLAY`), as every launch's does.
+    Environment,
+    /// A tie this build does not know (a newer compositor's, #EXP-1994):
+    /// still the space's.
+    #[serde(other)]
+    Unknown,
+}
+
+/// The asked process, or the process `pid` it descends from, is tied to
+/// `space` `by` that ([`ProcessAnswer::space`]).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessSpace {
+    pub space: SpaceId,
+    pub by: Membership,
+    pub pid: u32,
+}
+
+/// A [`Request::SpaceOfProcess`] reply (#EDE-127, #EDE-143): the space the
+/// process belongs to, if any, and what the polkit agent needs to tell the
+/// person's own processes from everything else of their user.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessAnswer {
+    pub space: Option<ProcessSpace>,
+    /// It runs in the compositor's own cgroup (the person's login session
+    /// scope): a process no space can get back into.
+    #[serde(default)]
+    pub session: bool,
+    /// A space of this compositor has launches alive outside systemd
+    /// scopes (no user manager): such a process can sit in the session's
+    /// cgroup too, so `session` vouches for no one meanwhile.
+    #[serde(default)]
+    pub unscoped_launches: bool,
+    /// No agent space of this compositor exists: none open, no closed one's
+    /// slice still stopping, no launch alive. The polkit agent then gives
+    /// every prompt the keyboard, as before #EDE-143. `false` from a
+    /// compositor that does not say.
+    #[serde(default)]
+    pub no_space: bool,
+}
+
+impl ProcessAnswer {
+    /// The reply as it comes: this answer, or an older compositor's (`null`
+    /// for the person's, a bare [`ProcessSpace`]), which says nothing of
+    /// the session.
+    pub fn from_wire(value: serde_json::Value) -> Result<Self, serde_json::Error> {
+        match value {
+            serde_json::Value::Null => Ok(Self::default()),
+            serde_json::Value::Object(ref fields) if fields.contains_key("by") => Ok(Self { space: Some(serde_json::from_value(value)?), ..Self::default() }),
+            other => serde_json::from_value(other),
+        }
+    }
 }
 
 /// A [`Request::Launch`] reply.
@@ -407,7 +594,9 @@ impl Request {
     /// The capability the op needs; `None` = any valid grant.
     pub fn capability(&self) -> Option<Capability> {
         match self {
-            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe | Request::PointerPosition => None,
+            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::ListWorkspaces | Request::Subscribe | Request::PointerPosition | Request::SpaceReadiness => None,
+            // #EDE-172: what the channel holds is checked against the grant.
+            Request::OpenChannel { .. } => None,
             Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } => Some(Capability::Ui),
             Request::SetOutput { .. } => Some(Capability::System),
             Request::Capture { .. } => Some(Capability::Capture),
@@ -415,9 +604,11 @@ impl Request {
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => {
                 Some(Capability::InputPerson)
             }
-            Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => Some(Capability::System),
-            Request::CreateSpace { .. } | Request::Launch { .. } => Some(Capability::Space),
-            Request::DestroySpace { .. } | Request::ListSpaces => Some(Capability::System),
+            Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::LaunchToken => Some(Capability::System),
+            // #EDE-172: `system` ends any grant, a holder its own lineage (checked in the arm).
+            Request::RevokeGrant { .. } => None,
+            Request::CreateSpace { .. } | Request::Launch { .. } | Request::SpaceBusy => Some(Capability::Space),
+            Request::DestroySpace { .. } | Request::ListSpaces | Request::SpaceOfProcess { .. } => Some(Capability::System),
         }
     }
 
@@ -428,7 +619,7 @@ impl Request {
     /// wildcard arm: a new op is outside until it is written here.
     pub fn in_space(&self) -> bool {
         match self {
-            Request::Hello { .. } | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } => true,
+            Request::Hello { .. } | Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceBusy => true,
             Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::PointerPosition => true,
             Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText => true,
             Request::Capture { target, .. } => matches!(target, CaptureTarget::Output { .. } | CaptureTarget::Space { .. }),
@@ -436,6 +627,7 @@ impl Request {
             Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } => false,
             Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } => false,
             Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => false,
+            Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::OpenChannel { .. } => false,
         }
     }
 }
@@ -480,19 +672,82 @@ pub struct PointerInfo {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Message {
     Reply { id: u64, result: serde_json::Value },
-    Error { id: u64, error: Failure },
+    Error {
+        id: u64,
+        #[serde(deserialize_with = "lenient_failure")]
+        error: Failure,
+    },
     Event { event: Envelope },
+    /// A message type this build does not know (a newer compositor's):
+    /// read and skipped (#EXP-1994).
+    #[serde(other)]
+    Unknown,
+}
+
+/// #EXP-1994: a [`Failure`] with a code this build does not know (a newer
+/// compositor's) still reads: as [`ErrorCode::Internal`], its code kept in
+/// front of the message. `retryable` absent = the code's default.
+fn lenient_failure<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Failure, D::Error> {
+    #[derive(Deserialize)]
+    struct Wire {
+        code: String,
+        message: String,
+        #[serde(default)]
+        retryable: Option<bool>,
+    }
+    let wire = Wire::deserialize(deserializer)?;
+    let (code, message) = match ErrorCode::parse(&wire.code) {
+        Some(code) => (code, wire.message),
+        None => (ErrorCode::Internal, ecore::clamp_message(&format!("{}: {}", wire.code, wire.message))),
+    };
+    Ok(Failure { code, message, retryable: wire.retryable.unwrap_or(code.default_retryable()) })
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(from = "WireHello", into = "WireHello")]
 pub struct Hello {
     pub version: u32,
+    /// What the grant holds, of the capabilities this build knows.
     pub capabilities: Vec<Capability>,
     pub session_id: SessionId,
     /// What this compositor can do beyond v1 ([`FEATURE_SPACES`]); an
     /// older one sends none. Absent on the wire when empty.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
+    /// #EXP-1994: what else the grant holds, capabilities a newer
+    /// compositor names that this build does not know: the hello still
+    /// reads, and a client that needs an exact grant sees it is not.
+    pub unknown_capabilities: Vec<String>,
+}
+
+/// [`Hello`] on the wire: capabilities as their names, so one this build
+/// does not know parses.
+#[derive(Serialize, Deserialize)]
+struct WireHello {
+    version: u32,
+    capabilities: Vec<String>,
+    session_id: SessionId,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    features: Vec<String>,
+}
+
+impl From<WireHello> for Hello {
+    fn from(wire: WireHello) -> Self {
+        let mut hello = Hello { version: wire.version, capabilities: Vec::new(), session_id: wire.session_id, features: wire.features, unknown_capabilities: Vec::new() };
+        for name in wire.capabilities {
+            match Capability::parse(&name) {
+                Some(capability) => hello.capabilities.push(capability),
+                None => hello.unknown_capabilities.push(name),
+            }
+        }
+        hello
+    }
+}
+
+impl From<Hello> for WireHello {
+    fn from(hello: Hello) -> Self {
+        let capabilities = hello.capabilities.iter().map(|capability| capability.as_str().to_string()).chain(hello.unknown_capabilities).collect();
+        WireHello { version: hello.version, capabilities, session_id: hello.session_id, features: hello.features }
+    }
 }
 
 impl Hello {
@@ -500,6 +755,11 @@ impl Hello {
     /// asks for one and never falls back to the person's seat.
     pub fn offers_spaces(&self) -> bool {
         self.features.iter().any(|f| f == FEATURE_SPACES)
+    }
+
+    /// The compositor answers [`Request::SpaceReadiness`] (#EXP-1514).
+    pub fn says_space_readiness(&self) -> bool {
+        self.features.iter().any(|f| f == FEATURE_SPACE_READINESS)
     }
 }
 
@@ -649,6 +909,10 @@ pub struct CaptureInfo {
     /// Nothing was drawn since `since`: no pixel frame follows.
     #[serde(default)]
     pub unchanged: bool,
+    /// #EDE-162: what the space's own agent must know, once (an app whose
+    /// GPU path failed and the space that now draws in software).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -709,14 +973,26 @@ pub enum Error {
     Io(std::io::Error),
     /// The compositor said no (or failed).
     Failed(Failure),
+    /// #EXP-1994: the compositor could not read the call (it answered
+    /// without the call's id): an op, or a value in one, it does not know.
+    /// It is older than this client; what it said is kept.
+    Unsupported(Failure),
     Protocol(String),
+}
+
+impl Error {
+    /// The compositor answered the call with `code` ([`Error::Failed`]):
+    /// what a client matches, never the message's words.
+    pub fn has_code(&self, code: ErrorCode) -> bool {
+        matches!(self, Error::Failed(failure) if failure.code == code)
+    }
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Io(e) => write!(f, "{e}"),
-            Error::Failed(e) => write!(f, "{e}"),
+            Error::Failed(e) | Error::Unsupported(e) => write!(f, "{e}"),
             Error::Protocol(e) => write!(f, "protocol: {e}"),
         }
     }
@@ -737,9 +1013,16 @@ pub struct Client {
     stream: UnixStream,
     next_id: u64,
     events: VecDeque<Envelope>,
+    /// The descriptors that came with the frames read so far (#EDE-172:
+    /// an `open_channel` reply's), oldest first.
+    fds: VecDeque<OwnedFd>,
+    /// What the hello said, or for a connection that held its grant
+    /// already, the `grant` its hello's reply named.
     token: Token,
     pub hello: Hello,
     call_timeout: std::time::Duration,
+    /// [`Client::connect_within`]: no call of this connection waits past it.
+    deadline: Option<std::time::Instant>,
 }
 
 /// How long a call waits for the compositor to take it and to answer
@@ -754,17 +1037,88 @@ impl Client {
         Self::over(UnixStream::connect(socket)?, token)
     }
 
+    /// [`Client::connect`] under ONE deadline over the connect, the hello
+    /// and every call after it (#EXP-1514: a client asking whether a space
+    /// is ready must not wait [`CALL_TIMEOUT`] per step on a desktop that
+    /// does not answer). Past it a call fails `TimedOut` at once.
+    pub fn connect_within(socket: &Path, token: Token, deadline: std::time::Duration) -> Result<Self, Error> {
+        let until = std::time::Instant::now() + deadline;
+        let stream = UnixStream::connect(socket)?;
+        Self::over_until(stream, token, CALL_TIMEOUT, Some(until))
+    }
+
     /// Hello over an already connected stream.
     pub fn over(stream: UnixStream, token: Token) -> Result<Self, Error> {
         Self::over_within(stream, token, CALL_TIMEOUT)
     }
 
     fn over_within(stream: UnixStream, token: Token, call_timeout: std::time::Duration) -> Result<Self, Error> {
+        Self::over_until(stream, token, call_timeout, None)
+    }
+
+    fn over_until(stream: UnixStream, token: Token, call_timeout: std::time::Duration, deadline: Option<std::time::Instant>) -> Result<Self, Error> {
+        Self::handshake(stream, Some(token), call_timeout, deadline)
+    }
+
+    /// The hello: with `token`, or none on a connection that holds its
+    /// grant already, whose reply names it (`grant`).
+    fn handshake(stream: UnixStream, token: Option<Token>, call_timeout: std::time::Duration, deadline: Option<std::time::Instant>) -> Result<Self, Error> {
         stream.set_write_timeout(Some(call_timeout))?;
-        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), token: token.clone(), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap(), features: vec![] }, call_timeout };
-        let hello = client.call(Request::Hello { version: PROTOCOL_VERSION, token })?;
+        let pending = Token::new("0".repeat(64)).expect("64 hex");
+        let mut client = Self { stream, next_id: 1, events: VecDeque::new(), fds: VecDeque::new(), token: token.clone().unwrap_or(pending), hello: Hello { version: 0, capabilities: vec![], session_id: SessionId::new("pending").unwrap(), features: vec![], unknown_capabilities: vec![] }, call_timeout, deadline };
+        let hello = client.call(Request::Hello { version: PROTOCOL_VERSION, token: token.clone() })?;
+        if token.is_none() {
+            let grant = hello.get("grant").and_then(serde_json::Value::as_str).ok_or_else(|| Error::Protocol("a tokenless hello's reply names no grant".into()))?;
+            client.token = Token::new(grant).map_err(|e| Error::Protocol(format!("{e:?}")))?;
+        }
         client.hello = serde_json::from_value(hello).map_err(|e| Error::Protocol(e.to_string()))?;
         Ok(client)
+    }
+
+    /// #EDE-172: hello over a connection that already holds its grant (one
+    /// the compositor made: [`Client::open_channel`]'s descriptor, an
+    /// inherited one). No token goes over it.
+    pub fn from_fd(fd: OwnedFd) -> Result<Self, Error> {
+        Self::handshake(UnixStream::from(fd), None, CALL_TIMEOUT, None)
+    }
+
+    /// #EDE-172: the control connection this process was started with: the
+    /// descriptor [`CONTROL_FD_ENV`] names (the compositor's spawn hands it
+    /// over at fd 3), or `None` without one. It is taken once: the variable
+    /// is removed (call this before other threads read the environment) and
+    /// the descriptor is closed on exec, so what this process starts
+    /// inherits neither. A descriptor that is not a socket is refused.
+    pub fn inherited() -> Option<Result<Self, Error>> {
+        use std::os::fd::FromRawFd;
+        static TAKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let named = std::env::var(CONTROL_FD_ENV).ok()?;
+        std::env::remove_var(CONTROL_FD_ENV);
+        if TAKEN.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Some(Err(Error::Protocol("the inherited control connection was taken already".into())));
+        }
+        let Some(raw) = named.trim().parse::<i32>().ok().filter(|fd| *fd > 2) else {
+            return Some(Err(Error::Protocol(format!("{CONTROL_FD_ENV}={named:?} names no descriptor"))));
+        };
+        // Safety: the descriptor is this process's by inheritance, named
+        // for it by its parent, and taken once (above); nothing else here
+        // owns it. A number that is not open fails `fstat` below and is
+        // forgotten again without being closed.
+        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
+        match rustix::fs::fstat(&fd) {
+            Ok(stat) if rustix::fs::FileType::from_raw_mode(stat.st_mode) == rustix::fs::FileType::Socket => {}
+            Ok(_) => {
+                std::mem::forget(fd);
+                return Some(Err(Error::Protocol(format!("descriptor {raw} is not a socket"))));
+            }
+            Err(e) => {
+                std::mem::forget(fd);
+                return Some(Err(Error::Io(e.into())));
+            }
+        }
+        if let Err(e) = rustix::io::fcntl_setfd(&fd, rustix::io::FdFlags::CLOEXEC) {
+            return Some(Err(Error::Io(e.into())));
+        }
+        Some(Self::from_fd(fd))
     }
 
     /// The compositor of `$WAYLAND_DISPLAY` with `token` (a minted grant).
@@ -807,9 +1161,41 @@ impl Client {
         Self::connect_with_token(Self::mint_env(session_id, capabilities, expires_at)?)
     }
 
-    /// The token this connection said hello with.
+    /// How long each call of this connection waits for its answer from now
+    /// on ([`CALL_TIMEOUT`] by default); a call past it ends the connection.
+    pub fn set_call_timeout(&mut self, timeout: std::time::Duration) {
+        self.call_timeout = timeout;
+        let _ = self.stream.set_write_timeout(Some(timeout));
+    }
+
+    /// The token this connection said hello with; on one that held its
+    /// grant already (#EDE-172), the grant its hello's reply named: a
+    /// bound grant's id, refused at hello and taken by
+    /// [`Client::revoke_grant`].
     pub fn token(&self) -> &Token {
         &self.token
+    }
+
+    /// #EDE-172 ([`Request::OpenChannel`]): one more connection, holding
+    /// this connection's own grant (`session_id` none, `capabilities`
+    /// what it holds) or a child of it for `session_id`, no wider and no
+    /// longer-lived; and that connection's grant (a child's `token` is its
+    /// id). An older compositor answers [`Error::Unsupported`].
+    pub fn open_channel(&mut self, session_id: Option<SessionId>, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<(Client, Grant), Error> {
+        // A descriptor left over from a call that failed after it arrived is no one's.
+        self.fds.clear();
+        let mut grant = self.call(Request::OpenChannel { session_id, capabilities, expires_at })?;
+        let fd = self.fds.pop_front().ok_or_else(|| Error::Protocol("open_channel answered without a descriptor".into()))?;
+        if let Some(serde_json::Value::Array(capabilities)) = grant.get_mut("capabilities") {
+            capabilities.retain(|capability| capability.as_str().and_then(Capability::parse).is_some());
+        }
+        let grant: Grant = serde_json::from_value(grant).map_err(|e| Error::Protocol(e.to_string()))?;
+        Ok((Client::from_fd(fd)?, grant))
+    }
+
+    /// [`Request::RevokeGrant`]: `grant` = a token, or a bound grant's id.
+    pub fn revoke_grant(&mut self, grant: &Token) -> Result<(), Error> {
+        self.call(Request::RevokeGrant { token: grant.clone() }).map(|_| ())
     }
 
     pub fn call(&mut self, request: Request) -> Result<serde_json::Value, Error> {
@@ -821,11 +1207,12 @@ impl Client {
             loop {
                 match client.read_message()? {
                     Message::Event { event } => client.events.push_back(event),
+                    Message::Unknown => {}
                     Message::Reply { id: rid, result } if rid == id => return Ok(result),
                     Message::Error { id: rid, error } if rid == id => return Err(Error::Failed(error)),
                     // A call the compositor could not parse (an op it does not
                     // know: an older compositor) comes back without its id.
-                    Message::Error { id: 0, error } => return Err(Error::Failed(error)),
+                    Message::Error { id: 0, error } => return Err(Error::Unsupported(error)),
                     other => return Err(Error::Protocol(format!("unexpected {other:?}"))),
                 }
                 if std::time::Instant::now() >= deadline {
@@ -841,9 +1228,19 @@ impl Client {
     /// of what this connection held). Waiting for events keeps its own
     /// timeout ([`Client::set_read_timeout`]).
     fn within<T>(&mut self, exchange: impl FnOnce(&mut Self, std::time::Instant) -> Result<T, Error>) -> Result<T, Error> {
+        let now = std::time::Instant::now();
+        let until = self.deadline.map_or(now + self.call_timeout, |deadline| deadline.min(now + self.call_timeout));
+        let left = until.saturating_duration_since(now);
+        if left.is_zero() {
+            let _ = self.stream.shutdown(std::net::Shutdown::Both);
+            return Err(Error::Io(std::io::ErrorKind::TimedOut.into()));
+        }
         let events = self.stream.read_timeout().ok().flatten();
-        let _ = self.stream.set_read_timeout(Some(self.call_timeout));
-        let out = exchange(self, std::time::Instant::now() + self.call_timeout);
+        let _ = self.stream.set_read_timeout(Some(left));
+        if self.deadline.is_some() {
+            let _ = self.stream.set_write_timeout(Some(left));
+        }
+        let out = exchange(self, until);
         let _ = self.stream.set_read_timeout(events);
         if matches!(out, Err(Error::Io(_))) {
             let _ = self.stream.shutdown(std::net::Shutdown::Both);
@@ -856,7 +1253,7 @@ impl Client {
     }
 
     fn read_message(&mut self) -> Result<Message, Error> {
-        let frame = read_frame(&mut self.stream)?;
+        let frame = read_frame(&mut Receiving { stream: &self.stream, fds: &mut self.fds })?;
         serde_json::from_slice(&frame).map_err(|e| Error::Protocol(e.to_string()))
     }
 
@@ -878,7 +1275,7 @@ impl Client {
         if info.unchanged {
             return Ok(None);
         }
-        let pixels = self.within(|client, _| Ok(read_frame(&mut client.stream)?))?;
+        let pixels = self.within(|client, _| Ok(read_frame(&mut Receiving { stream: &client.stream, fds: &mut client.fds })?))?;
         if pixels.len() != (info.stride * info.height) as usize {
             return Err(Error::Protocol("capture size mismatch".into()));
         }
@@ -918,8 +1315,13 @@ impl Client {
         self.call(Request::Input { event, bindings: true }).map(|_| ())
     }
 
+    /// The grant reads with the capabilities this build knows (#EXP-1994).
     pub fn mint(&mut self, session_id: SessionId, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<Grant, Error> {
-        self.call_as(Request::MintGrant { session_id, run_id: None, capabilities, expires_at })
+        let mut grant = self.call(Request::MintGrant { session_id, run_id: None, capabilities, expires_at })?;
+        if let Some(serde_json::Value::Array(capabilities)) = grant.get_mut("capabilities") {
+            capabilities.retain(|capability| capability.as_str().and_then(Capability::parse).is_some());
+        }
+        serde_json::from_value(grant).map_err(|e| Error::Protocol(e.to_string()))
     }
 
     pub fn subscribe(&mut self) -> Result<(), Error> {
@@ -1005,6 +1407,24 @@ impl Client {
         self.call_as::<Launched>(Request::Launch { argv, env, cwd }).map(|l| l.pid)
     }
 
+    /// [`Request::SpaceReadiness`]: ask only when the hello
+    /// [`Hello::says_space_readiness`].
+    pub fn space_readiness(&mut self) -> Result<SpaceReadiness, Error> {
+        self.call_as(Request::SpaceReadiness)
+    }
+
+    /// [`Request::SpaceBusy`]: this grant's space is busy for [`SPACE_BUSY_SECS`].
+    pub fn space_busy(&mut self) -> Result<(), Error> {
+        self.call(Request::SpaceBusy).map(|_| ())
+    }
+
+    /// [`Request::SpaceOfProcess`]: the space `pid` belongs to (`None` =
+    /// none), whether it runs in the person's session, and whether spaces
+    /// have launches outside systemd scopes.
+    pub fn space_of_process(&mut self, pid: u32) -> Result<ProcessAnswer, Error> {
+        ProcessAnswer::from_wire(self.call(Request::SpaceOfProcess { pid })?).map_err(|e| Error::Protocol(e.to_string()))
+    }
+
     /// [`Request::LaunchToken`]: for the environment of a launch the person made.
     pub fn launch_token(&mut self) -> Result<String, Error> {
         self.call_as::<LaunchToken>(Request::LaunchToken).map(|t| t.token)
@@ -1028,6 +1448,39 @@ impl Client {
 
     pub fn set_read_timeout(&self, timeout: Option<std::time::Duration>) -> std::io::Result<()> {
         self.stream.set_read_timeout(timeout)
+    }
+}
+
+/// #EDE-172: the client's reads, which keep the descriptors that come with
+/// the bytes (`SCM_RIGHTS`; a plain read drops them, closed). Only an
+/// `open_channel` reply carries one.
+#[cfg(unix)]
+struct Receiving<'a> {
+    stream: &'a UnixStream,
+    fds: &'a mut VecDeque<OwnedFd>,
+}
+
+#[cfg(unix)]
+impl Read for Receiving<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags};
+        let mut space = [std::mem::MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(4))];
+        let mut control = RecvAncillaryBuffer::new(&mut space);
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let flags = RecvFlags::CMSG_CLOEXEC;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        let flags = RecvFlags::empty();
+        let received = rustix::net::recvmsg(self.stream, &mut [std::io::IoSliceMut::new(buf)], &mut control, flags)?;
+        for message in control.drain() {
+            if let RecvAncillaryMessage::ScmRights(fds) = message {
+                for fd in fds {
+                    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+                    let _ = rustix::io::fcntl_setfd(&fd, rustix::io::FdFlags::CLOEXEC);
+                    self.fds.push_back(fd);
+                }
+            }
+        }
+        Ok(received.bytes)
     }
 }
 
@@ -1258,6 +1711,53 @@ mod tests {
         assert_eq!(serde_json::to_value(Launched { pid: 7 }).unwrap(), serde_json::json!({"pid": 7}));
     }
 
+    /// #EDE-127: `space_of_process` and its answer on the wire; `null` is the person's.
+    #[test]
+    fn space_of_process_is_flat_json_and_round_trips() {
+        let call = Call { id: 1, request: Request::SpaceOfProcess { pid: 4242 } };
+        let json = serde_json::json!({"id": 1, "op": "space_of_process", "pid": 4242});
+        assert_eq!(serde_json::to_value(&call).unwrap(), json);
+        assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
+        let tied = Some(ProcessSpace { space: SpaceId::new("space-2").unwrap(), by: Membership::Environment, pid: 4241 });
+        let wire = serde_json::json!({"space": "space-2", "by": "environment", "pid": 4241});
+        assert_eq!(serde_json::to_value(&tied).unwrap(), wire);
+        assert_eq!(serde_json::from_value::<Option<ProcessSpace>>(wire).unwrap(), tied);
+        assert_eq!(serde_json::from_value::<Option<ProcessSpace>>(serde_json::Value::Null).unwrap(), None);
+        for (by, name) in [(Membership::Cgroup, "cgroup"), (Membership::Launch, "launch"), (Membership::Group, "group"), (Membership::Client, "client"), (Membership::Environment, "environment")] {
+            assert_eq!(serde_json::to_value(by).unwrap(), serde_json::json!(name));
+        }
+        // #EDE-143: the answer with the session's flags, and what an older
+        // compositor sends (`null`, a bare tie, no `no_space`) read as one;
+        // one that does not say there is no space is taken to have one.
+        let answer = ProcessAnswer { space: tied.clone(), session: false, unscoped_launches: true, no_space: false };
+        let json = serde_json::to_value(&answer).unwrap();
+        assert_eq!(json, serde_json::json!({"space": {"space": "space-2", "by": "environment", "pid": 4241}, "session": false, "unscoped_launches": true, "no_space": false}));
+        assert_eq!(ProcessAnswer::from_wire(json).unwrap(), answer);
+        let none = ProcessAnswer { space: None, session: false, unscoped_launches: false, no_space: true };
+        assert_eq!(ProcessAnswer::from_wire(serde_json::to_value(&none).unwrap()).unwrap(), none);
+        assert_eq!(ProcessAnswer::from_wire(serde_json::json!({"space": null, "session": true, "unscoped_launches": false})).unwrap(), ProcessAnswer { space: None, session: true, unscoped_launches: false, no_space: false });
+        assert_eq!(ProcessAnswer::from_wire(serde_json::Value::Null).unwrap(), ProcessAnswer::default());
+        assert_eq!(ProcessAnswer::from_wire(serde_json::json!({"space": "space-2", "by": "environment", "pid": 4241})).unwrap(), ProcessAnswer { space: tied, ..ProcessAnswer::default() });
+    }
+
+    /// #EXP-1514: `space_readiness` and its answer on the wire; a block and
+    /// a count are absent when there is none, and a block this build does
+    /// not know still reads (as a no).
+    #[test]
+    fn space_readiness_is_flat_json_and_round_trips() {
+        for (request, op) in [(Request::SpaceReadiness, "space_readiness"), (Request::SpaceBusy, "space_busy")] {
+            let call = Call { id: 1, request };
+            let json = serde_json::json!({"id": 1, "op": op});
+            assert_eq!(serde_json::to_value(&call).unwrap(), json);
+            assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
+        }
+        let ready = SpaceReadiness { ready: true, block: None, max: Some(8) };
+        assert_eq!(serde_json::to_value(&ready).unwrap(), serde_json::json!({"ready": true, "max": 8}));
+        let blocked: SpaceReadiness = serde_json::from_value(serde_json::json!({"ready": false, "block": "later"})).unwrap();
+        assert_eq!(blocked, SpaceReadiness { ready: false, block: Some("later".into()), max: None });
+        assert_eq!(serde_json::from_value::<SpaceReadiness>(serde_json::to_value(&blocked).unwrap()).unwrap(), blocked);
+    }
+
     /// `Hello` as it was before `features`: what an old client parses a reply into.
     #[derive(Deserialize)]
     #[allow(dead_code)]
@@ -1271,15 +1771,127 @@ mod tests {
     /// an old client reads one that has them.
     #[test]
     fn hello_features_are_additive() {
-        let hello = |features: &[&str]| Hello { version: 1, capabilities: vec![Capability::Space], session_id: SessionId::new("run-1").unwrap(), features: features.iter().map(|f| f.to_string()).collect() };
+        let hello = |features: &[&str]| Hello { version: 1, capabilities: vec![Capability::Space], session_id: SessionId::new("run-1").unwrap(), features: features.iter().map(|f| f.to_string()).collect(), unknown_capabilities: vec![] };
         assert_eq!(serde_json::to_string(&hello(&[])).unwrap(), r#"{"version":1,"capabilities":["space"],"session_id":"run-1"}"#);
         let old: Hello = serde_json::from_str(r#"{"version":1,"capabilities":["space"],"session_id":"run-1"}"#).unwrap();
         assert!(old.features.is_empty() && !old.offers_spaces(), "an older compositor offers no spaces");
         let new = hello(&[FEATURE_SPACES, "later"]);
         assert!(new.offers_spaces());
+        // #EXP-1514: eDE 0.2.29 says `spaces` and cannot say a space is ready.
+        assert!(!new.says_space_readiness() && hello(&[FEATURE_SPACES, FEATURE_SPACE_READINESS]).says_space_readiness());
         let wire = serde_json::to_string(&new).unwrap();
         assert_eq!(serde_json::from_str::<Hello>(&wire).unwrap(), new);
         assert_eq!(serde_json::from_str::<OldHello>(&wire).unwrap().version, 1);
+    }
+
+    /// #EXP-1994: what a NEWER compositor sends reads in this build: a
+    /// capability, a feature, a field, an error code, a message type and a
+    /// membership it does not know.
+    #[test]
+    fn a_newer_compositors_words_parse() {
+        let hello: Hello = serde_json::from_value(serde_json::json!({"version": 1, "capabilities": ["capture", "telepathy", "input:person"], "session_id": "epilot", "features": ["spaces", "teleport"], "motd": "hi"})).unwrap();
+        assert_eq!(hello.capabilities, [Capability::Capture, Capability::InputPerson]);
+        assert_eq!(hello.unknown_capabilities, ["telepathy"], "kept, so an exact grant can tell");
+        assert!(hello.offers_spaces());
+        let wire = serde_json::to_value(&hello).unwrap();
+        assert_eq!(wire["capabilities"], serde_json::json!(["capture", "input:person", "telepathy"]), "written back whole");
+        assert_eq!(serde_json::from_value::<Hello>(wire).unwrap(), hello);
+
+        let error: Message = serde_json::from_value(serde_json::json!({"type": "error", "id": 3, "error": {"code": "overloaded", "message": "try later", "retryable": true}})).unwrap();
+        assert_eq!(error, Message::Error { id: 3, error: Failure { code: ErrorCode::Internal, message: "overloaded: try later".into(), retryable: true } });
+        let known: Message = serde_json::from_value(serde_json::json!({"type": "error", "id": 3, "error": {"code": "timeout", "message": "slow"}})).unwrap();
+        assert_eq!(known, Message::Error { id: 3, error: Failure::new(ErrorCode::Timeout, "slow") }, "a missing retryable is the code's default");
+        assert_eq!(serde_json::from_value::<Message>(serde_json::json!({"type": "progress", "id": 3, "done": 0.5})).unwrap(), Message::Unknown);
+        assert_eq!(serde_json::from_value::<Membership>(serde_json::json!("ptrace")).unwrap(), Membership::Unknown);
+
+        // A failure this build writes reads as before.
+        let failure = Failure::new(ErrorCode::NotFound, "no such window");
+        let wire = serde_json::to_value(Message::Error { id: 4, error: failure.clone() }).unwrap();
+        assert_eq!(wire, serde_json::json!({"type": "error", "id": 4, "error": {"code": "not_found", "message": "no such window", "retryable": false}}));
+        assert_eq!(serde_json::from_value::<Message>(wire).unwrap(), Message::Error { id: 4, error: failure });
+    }
+
+    /// A compositor on a socketpair: it answers each call it reads with
+    /// `answer`'s messages (`None` = it could not read the call).
+    #[cfg(unix)]
+    fn compositor(hello: serde_json::Value, answer: impl Fn(&serde_json::Value) -> Vec<serde_json::Value> + Send + 'static) -> Client {
+        let (ours, mut theirs) = UnixStream::pair().unwrap();
+        std::thread::spawn(move || {
+            let call: serde_json::Value = serde_json::from_slice(&read_frame(&mut theirs).unwrap()).unwrap();
+            let reply = serde_json::json!({"type": "reply", "id": call["id"], "result": hello});
+            write_frame(&mut theirs, &serde_json::to_vec(&reply).unwrap()).unwrap();
+            while let Ok(frame) = read_frame(&mut theirs) {
+                let call: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+                for message in answer(&call) {
+                    write_frame(&mut theirs, &serde_json::to_vec(&message).unwrap()).unwrap();
+                }
+            }
+        });
+        Client::over(ours, Token::new("0".repeat(64)).unwrap()).unwrap()
+    }
+
+    /// #EXP-1994, this client against a NEWER compositor: its hello with a
+    /// capability we do not know, a message type we do not know before the
+    /// reply, an error code we do not know; the calls go on.
+    #[cfg(unix)]
+    #[test]
+    fn an_older_client_keeps_working_with_a_newer_compositor() {
+        let hello = serde_json::json!({"version": PROTOCOL_VERSION, "capabilities": ["system", "capture", "lend:window"], "session_id": "shell", "features": ["spaces", "later"]});
+        let mut client = compositor(hello, |call| {
+            let id = call["id"].clone();
+            match call["op"].as_str() {
+                Some("list_windows") => vec![serde_json::json!({"type": "progress", "id": id}), serde_json::json!({"type": "reply", "id": id, "result": []})],
+                Some("mint_grant") => vec![serde_json::json!({"type": "reply", "id": id, "result": {"token": "1".repeat(64), "sessionId": "run-1", "capabilities": ["capture", "capture:audio"]}})],
+                _ => vec![serde_json::json!({"type": "error", "id": id, "error": {"code": "busy", "message": "the seat is busy", "retryable": true}})],
+            }
+        });
+        assert!(client.hello.capabilities.contains(&Capability::System) && client.hello.offers_spaces());
+        assert_eq!(client.hello.unknown_capabilities, ["lend:window"]);
+        assert_eq!(client.windows().unwrap(), vec![], "the unknown message is skipped, the reply read");
+        let grant = client.mint(SessionId::new("run-1").unwrap(), vec![Capability::Capture], None).unwrap();
+        assert_eq!(grant.capabilities, [Capability::Capture]);
+        match client.pointer() {
+            Err(Error::Failed(failure)) => assert_eq!((failure.code, failure.retryable, failure.message.as_str()), (ErrorCode::Internal, true, "busy: the seat is busy")),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(client.windows().unwrap(), vec![], "still in step");
+    }
+
+    /// #EXP-1994, this client against an OLDER compositor: a hello without
+    /// features, an op it cannot read (answered without the call's id) is
+    /// `Unsupported`, never a matched text; the connection goes on.
+    #[cfg(unix)]
+    #[test]
+    fn a_newer_client_keeps_working_with_an_older_compositor() {
+        /// What an older compositor reads a call into: no clipboard ops.
+        #[derive(Deserialize)]
+        #[serde(tag = "op", rename_all = "snake_case")]
+        #[allow(dead_code)]
+        enum OldRequest {
+            ListWindows,
+            FocusWindow { window: WindowId },
+        }
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct OldCall {
+            id: u64,
+            #[serde(flatten)]
+            request: OldRequest,
+        }
+        let hello = serde_json::json!({"version": PROTOCOL_VERSION, "capabilities": ["capture", "input:person", "ui"], "session_id": "epilot"});
+        let mut client = compositor(hello, |call| match serde_json::from_value::<OldCall>(call.clone()) {
+            Ok(OldCall { id, request: OldRequest::ListWindows }) => vec![serde_json::json!({"type": "reply", "id": id, "result": []})],
+            Ok(OldCall { id, .. }) => vec![serde_json::json!({"type": "error", "id": id, "error": Failure::new(ErrorCode::NotFound, "no such window")})],
+            // As the compositor does: it never read the call, so no id.
+            Err(e) => vec![serde_json::to_value(Message::Error { id: 0, error: Failure::new(ErrorCode::Invalid, &e.to_string()) }).unwrap()],
+        });
+        assert!(!client.hello.offers_spaces() && client.hello.unknown_capabilities.is_empty());
+        let unsupported = client.clipboard_serial().unwrap_err();
+        assert!(matches!(unsupported, Error::Unsupported(_)), "{unsupported:?}");
+        assert!(!unsupported.has_code(ErrorCode::Invalid), "a refusal is a call it read");
+        let missing = client.focus(WindowId::new("w9").unwrap()).unwrap_err();
+        assert!(missing.has_code(ErrorCode::NotFound), "{missing:?}");
+        assert_eq!(client.windows().unwrap(), vec![], "still in step");
     }
 
     /// #EDE-126: what a space grant may ask at all. Every variant is here:
@@ -1290,7 +1902,8 @@ mod tests {
         let space = || SpaceId::new("space-1").unwrap();
         let key = InputEvent::Key { key: 30, pressed: true };
         let table = [
-            (Request::Hello { version: 1, token: Token::new("0".repeat(64)).unwrap() }, true),
+            (Request::Hello { version: 1, token: Some(Token::new("0".repeat(64)).unwrap()) }, true),
+            (Request::Hello { version: 1, token: None }, true),
             (Request::ListWindows, true),
             (Request::ListOutputs, true),
             (Request::FocusWindow { window: w() }, true),
@@ -1329,18 +1942,27 @@ mod tests {
             (Request::DestroySpace { space: space() }, true),
             (Request::ListSpaces, true),
             (Request::Launch { argv: vec!["foot".into()], env: Default::default(), cwd: None }, true),
+            (Request::SpaceOfProcess { pid: 42 }, false),
+            (Request::SpaceReadiness, false),
+            (Request::SpaceBusy, true),
+            (Request::OpenChannel { session_id: None, capabilities: vec![Capability::Space], expires_at: None }, false),
         ];
         let mut seen = std::collections::BTreeSet::new();
         for (request, allowed) in &table {
             assert_eq!(request.in_space(), *allowed, "{request:?}");
             seen.insert(listed(request));
         }
-        assert_eq!(seen.len(), 36, "one row per variant at least");
+        assert_eq!(seen.len(), 40, "one row per variant at least");
         // The new ops name `space`, or `system` where the person's side may ask.
         assert_eq!(Request::CreateSpace { width: 1, height: 1 }.capability(), Some(Capability::Space));
         assert_eq!(Request::Launch { argv: vec![], env: Default::default(), cwd: None }.capability(), Some(Capability::Space));
         assert_eq!(Request::DestroySpace { space: space() }.capability(), Some(Capability::System));
         assert_eq!(Request::ListSpaces.capability(), Some(Capability::System));
+        assert_eq!(Request::SpaceOfProcess { pid: 42 }.capability(), Some(Capability::System));
+        // #EXP-1514: any person-scope grant asks it, as `list_windows`.
+        assert_eq!(Request::SpaceReadiness.capability(), None);
+        // D 10: a space grant's own word for its own space.
+        assert_eq!(Request::SpaceBusy.capability(), Some(Capability::Space));
     }
 
     /// The op's name; no wildcard, so a new variant fails to compile here
@@ -1383,6 +2005,10 @@ mod tests {
             Request::DestroySpace { .. } => "destroy_space",
             Request::ListSpaces => "list_spaces",
             Request::Launch { .. } => "launch",
+            Request::SpaceOfProcess { .. } => "space_of_process",
+            Request::SpaceReadiness => "space_readiness",
+            Request::SpaceBusy => "space_busy",
+            Request::OpenChannel { .. } => "open_channel",
         }
     }
 
@@ -1391,7 +2017,7 @@ mod tests {
     fn silent_after_hello() -> (UnixStream, UnixStream, Token) {
         let (ours, mut theirs) = UnixStream::pair().unwrap();
         let token = Token::new("0".repeat(64)).unwrap();
-        let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap(), features: vec![] };
+        let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap(), features: vec![], unknown_capabilities: vec![] };
         let reply = Message::Reply { id: 1, result: serde_json::to_value(hello).unwrap() };
         write_frame(&mut theirs, &serde_json::to_vec(&reply).unwrap()).unwrap();
         (ours, theirs, token)
@@ -1429,6 +2055,46 @@ mod tests {
         assert!(failed);
     }
 
+    /// #EXP-1514: one deadline over the hello and every call after it, not
+    /// [`CALL_TIMEOUT`] per step: a desktop that does not answer, or
+    /// answers the hello and then nothing, fails inside it.
+    #[cfg(unix)]
+    #[test]
+    fn connect_within_keeps_one_deadline() {
+        let dir = std::env::temp_dir().join(format!("ede-within-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bind = |name: &str| {
+            let socket = dir.join(name);
+            let _ = std::fs::remove_file(&socket);
+            (std::os::unix::net::UnixListener::bind(&socket).unwrap(), socket)
+        };
+        let token = Token::new("0".repeat(64)).unwrap();
+        // Accepted by the kernel, never answered (a stopped compositor).
+        let (_stopped, socket) = bind("stopped.sock");
+        let started = std::time::Instant::now();
+        assert!(finishes("a silent hello", { let token = token.clone(); move || Client::connect_within(&socket, token, SHORT).is_err() }));
+        assert!(started.elapsed() < SHORT * 5, "{:?}", started.elapsed());
+        // The hello answered, the call never: the call fails by the same deadline.
+        let (listener, socket) = bind("silent.sock");
+        let peer = std::thread::spawn(move || {
+            let (mut theirs, _) = listener.accept().unwrap();
+            let _ = read_frame(&mut theirs);
+            let hello = Hello { version: PROTOCOL_VERSION, capabilities: vec![], session_id: SessionId::new("test").unwrap(), features: vec![FEATURE_SPACE_READINESS.into()], unknown_capabilities: vec![] };
+            write_frame(&mut theirs, &serde_json::to_vec(&Message::Reply { id: 1, result: serde_json::to_value(hello).unwrap() }).unwrap()).unwrap();
+            // Read the call, answer nothing, until the client lets go.
+            while read_frame(&mut theirs).is_ok() {}
+        });
+        let started = std::time::Instant::now();
+        let failed = finishes("a silent answer", move || {
+            let mut client = Client::connect_within(&socket, token, SHORT * 2).unwrap();
+            assert!(client.hello.says_space_readiness());
+            client.space_readiness().is_err()
+        });
+        assert!(failed && started.elapsed() < SHORT * 5, "{:?}", started.elapsed());
+        peer.join().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_call_nobody_reads_fails_instead_of_blocking() {
@@ -1438,6 +2104,126 @@ mod tests {
             client.clipboard_set(vec![ClipboardItem { mime: "a".into(), data: vec![0; 4 << 20] }], false).is_err()
         });
         assert!(failed);
+    }
+
+    /// #EDE-172: the channel ops on the wire. A hello without a token
+    /// leaves the field out; `revoke_grant` takes a bound grant's id as
+    /// `grant` too.
+    #[test]
+    fn channel_ops_are_flat_json_and_round_trip() {
+        let token = || Token::new("ab".repeat(32)).unwrap();
+        for (request, json) in [
+            (Request::Hello { version: 1, token: None }, serde_json::json!({"id": 1, "op": "hello", "version": 1})),
+            (Request::Hello { version: 1, token: Some(token()) }, serde_json::json!({"id": 1, "op": "hello", "version": 1, "token": "ab".repeat(32)})),
+            (Request::OpenChannel { session_id: None, capabilities: vec![Capability::Ui], expires_at: None }, serde_json::json!({"id": 1, "op": "open_channel", "capabilities": ["ui"]})),
+            (
+                Request::OpenChannel { session_id: Some(SessionId::new("run-1").unwrap()), capabilities: vec![Capability::Capture, Capability::InputPerson], expires_at: Some(9) },
+                serde_json::json!({"id": 1, "op": "open_channel", "session_id": "run-1", "capabilities": ["capture", "input:person"], "expires_at": 9}),
+            ),
+            (Request::RevokeGrant { token: token() }, serde_json::json!({"id": 1, "op": "revoke_grant", "token": "ab".repeat(32)})),
+        ] {
+            let call = Call { id: 1, request };
+            assert_eq!(serde_json::to_value(&call).unwrap(), json);
+            assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
+        }
+        let by_id: Call = serde_json::from_value(serde_json::json!({"id": 2, "op": "revoke_grant", "grant": "ab".repeat(32)})).unwrap();
+        assert_eq!(by_id.request, Request::RevokeGrant { token: token() });
+        assert_eq!(Request::OpenChannel { session_id: None, capabilities: vec![], expires_at: None }.capability(), None, "any grant; the arm checks what it holds");
+        assert_eq!(Request::RevokeGrant { token: token() }.capability(), None, "system, or the grant's own lineage: the arm checks");
+    }
+
+    /// One frame written with `fd` riding on its first byte, as the
+    /// compositor sends an `open_channel` reply.
+    #[cfg(unix)]
+    fn send_with_fd(stream: &UnixStream, message: &serde_json::Value, fd: Option<&OwnedFd>) {
+        use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags};
+        use std::os::fd::AsFd;
+        let json = serde_json::to_vec(message).unwrap();
+        let mut frame = (json.len() as u32).to_le_bytes().to_vec();
+        frame.extend_from_slice(&json);
+        let mut space = [std::mem::MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
+        let mut control = SendAncillaryBuffer::new(&mut space);
+        let fds = fd.map(|fd| [fd.as_fd()]);
+        if let Some(fds) = &fds {
+            assert!(control.push(SendAncillaryMessage::ScmRights(fds)));
+        }
+        let sent = rustix::net::sendmsg(stream, &[std::io::IoSlice::new(&frame)], &mut control, SendFlags::empty()).unwrap();
+        assert_eq!(sent, frame.len());
+    }
+
+    /// A compositor's side of a connection that already holds its grant:
+    /// it answers the tokenless hello, naming the grant, then `answer` per call.
+    #[cfg(unix)]
+    fn bound_peer(theirs: UnixStream, grant: &str, answer: impl Fn(&UnixStream, &serde_json::Value) + Send + 'static) -> std::thread::JoinHandle<()> {
+        let grant = grant.to_string();
+        std::thread::spawn(move || {
+            let mut theirs = theirs;
+            let Ok(frame) = read_frame(&mut theirs) else { return };
+            let call: serde_json::Value = serde_json::from_slice(&frame).unwrap();
+            assert_eq!(call["op"], "hello");
+            assert!(call.get("token").is_none(), "no token over a bound connection: {call}");
+            let hello = serde_json::json!({"version": PROTOCOL_VERSION, "capabilities": ["ui"], "session_id": "apps", "grant": grant});
+            send_with_fd(&theirs, &serde_json::json!({"type": "reply", "id": call["id"], "result": hello}), None);
+            while let Ok(frame) = read_frame(&mut theirs) {
+                answer(&theirs, &serde_json::from_slice(&frame).unwrap());
+            }
+        })
+    }
+
+    /// #EDE-172: an `open_channel` reply brings its descriptor along, also
+    /// when an event was read in the same go before it; the client says a
+    /// tokenless hello over it and holds the grant the reply names. A
+    /// reply without a descriptor is a protocol error, never a connection.
+    #[cfg(unix)]
+    #[test]
+    fn a_descriptor_comes_with_its_reply_frame() {
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        let child_id = "c".repeat(64);
+        let peer = bound_peer(theirs, &"e".repeat(64), {
+            let child_id = child_id.clone();
+            move |theirs, call| {
+                let id = call["id"].clone();
+                match call["op"].as_str() {
+                    Some("open_channel") if call["session_id"] == "apps" => {
+                        let (channel, other_end) = UnixStream::pair().unwrap();
+                        let _ = bound_peer(channel, &child_id, |_, _| {});
+                        send_with_fd(theirs, &serde_json::json!({"type": "event", "event": Envelope::new("ev-1", events::HOTKEY, 1, EVENT_SOURCE, None, serde_json::json!({"name": "menu.toggle"}))}), None);
+                        let grant = serde_json::json!({"token": child_id, "sessionId": "apps", "capabilities": ["ui", "lend:window"]});
+                        send_with_fd(theirs, &serde_json::json!({"type": "reply", "id": id, "result": grant}), Some(&OwnedFd::from(other_end)));
+                    }
+                    _ => send_with_fd(theirs, &serde_json::json!({"type": "reply", "id": id, "result": {"token": "d".repeat(64), "sessionId": "x", "capabilities": []}}), None),
+                }
+            }
+        });
+        let mut client = Client::from_fd(OwnedFd::from(ours)).unwrap();
+        assert_eq!(client.token().as_str(), "e".repeat(64), "the grant the reply named");
+        assert_eq!(client.hello.session_id.as_str(), "apps");
+        let (child, grant) = client.open_channel(Some(SessionId::new("apps").unwrap()), vec![Capability::Ui], None).unwrap();
+        assert_eq!((grant.token.as_str(), grant.capabilities.as_slice()), (child_id.as_str(), &[Capability::Ui][..]), "a capability this build does not know is dropped, as mint's");
+        assert_eq!(child.token().as_str(), child_id, "the new connection said hello over the descriptor");
+        assert_eq!(client.next_event().unwrap().kind, events::HOTKEY, "the event before the reply is kept");
+        let missing = client.open_channel(Some(SessionId::new("other").unwrap()), vec![Capability::Ui], None).err().unwrap();
+        assert!(matches!(missing, Error::Protocol(_)), "{missing:?}");
+        drop(client);
+        drop(child);
+        peer.join().unwrap();
+    }
+
+    /// #EDE-172: only a socket is taken as the inherited control connection.
+    #[cfg(unix)]
+    #[test]
+    fn an_inherited_descriptor_must_be_a_socket() {
+        use std::os::fd::IntoRawFd;
+        let file = std::fs::File::open("/dev/null").unwrap();
+        let raw = file.into_raw_fd();
+        std::env::set_var(CONTROL_FD_ENV, raw.to_string());
+        let refused = Client::inherited().expect("named").err().unwrap();
+        assert!(matches!(refused, Error::Protocol(_)), "{refused:?}");
+        assert!(std::env::var_os(CONTROL_FD_ENV).is_none(), "the variable goes with the first look");
+        // Not closed by the refusal: still this test's to close.
+        // Safety: `raw` came from `into_raw_fd` above and is closed once here.
+        drop(unsafe { <OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(raw) });
+        assert!(Client::inherited().is_none(), "nothing named any more");
     }
 
     #[test]

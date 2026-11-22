@@ -82,12 +82,14 @@ export async function loginUser(
 
 // Drives the post-signup onboarding wizard (EXP-188, reordered in EXP-725):
 // create-or-join choice → team name → first board → invite (skipped) →
-// devices (skipped), ending on the new team's page.
+// devices (skipped), ending on the new team's page. #EXP-2027: on md+ there
+// is no active team, so the team's page forwards to the team-less Home; the
+// new team's slug is returned either way.
 export async function createTeamThroughOnboarding(
   page: Page,
   teamName: string,
   boardName: string
-) {
+): Promise<string> {
   await expect(page).toHaveURL(/\/onboarding\/?$/)
   await page.getByRole(`button`, { name: /Create a team/ }).click()
 
@@ -112,16 +114,24 @@ export async function createTeamThroughOnboarding(
   // The invite and devices steps, skipped; each arrives once the row it
   // waits on has synced, which can take a while on a busy dev stack.
   const skip = page.getByRole(`button`, { name: `Skip for now`, exact: true })
-  const onTeam = () => /\/t\/[^/]+/.test(new URL(page.url()).pathname)
+  const landed = () => /^\/(t\/[^/]+|home)(\/|$)/.test(new URL(page.url()).pathname)
   for (let step = 0; step < 4; step += 1) {
     await expect
-      .poll(async () => onTeam() || (await skip.isVisible()), { timeout: 60_000 })
+      .poll(async () => landed() || (await skip.isVisible()), { timeout: 60_000 })
       .toBe(true)
-    if (onTeam()) break
+    if (landed()) break
     await skip.click()
     await page.waitForTimeout(300)
   }
-  await expect(page).toHaveURL(/\/t\/[^/]+/, { timeout: 30_000 })
+  await expect(page).toHaveURL(/\/(t\/[^/]+|home)/, { timeout: 30_000 })
+  const fromUrl = /^\/t\/([^/]+)/.exec(new URL(page.url()).pathname)?.[1]
+  if (fromUrl) return fromUrl
+  const response = await page.request.get(`/api/trpc/teams.getDefault`)
+  expect(response.ok()).toBe(true)
+  const body = (await response.json()) as { result: { data: { team: { slug: string } | null } } }
+  const slug = body.result.data.team?.slug
+  expect(slug).toBeTruthy()
+  return slug!
 }
 
 export async function logoutUser(page: Page) {

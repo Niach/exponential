@@ -1,10 +1,17 @@
 //! Manual probe of the computer-use backend, the way a host runs it:
-//! `cargo run -p epilot --example serve -- [TOOL [JSON_ARGS]]...` calls
+//! `cargo run -p epilot --example serve -- [--space] [TOOL [JSON_ARGS]]...` calls
 //! each tool through a granted run and prints the result (images elided;
 //! `EXP_SHOT=/path.png` also writes the last screenshot there), then serves
 //! the loopback MCP endpoint until Ctrl-C, printing its URL and token for a
 //! hand-written MCP client. The lock engages on the first call and the
 //! person's Esc aborts, as in a run: watch the log for both.
+//!
+//! `--space` first (#EXP-1514): the run is a space run (`grant_space`), on
+//! Exponential Desktop only, through the same gate as a host's: nothing is
+//! made unless the desktop says a space is ready (#EXP-2011: its user
+//! manager, the space guard and polkit); one that is not answers the first
+//! call with why. The release suite's live test drives a space through it
+//! (`apps/desktop/crates/epilot/scripts/space-live.sh`).
 //!
 //! The test matrix (EXP-1273) on a machine, in this order:
 //! `screenshot`, `list_windows`, `left_click '{"x":..,"y":..}'` into a
@@ -23,9 +30,23 @@ fn main() {
         Some(label) => println!("[presence] Computer use in progress · {label} · Esc to abort"),
         None => println!("[presence] released"),
     });
-    let grant = epilot::grant("probe", "Probe").expect("grant");
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let space = args.first().is_some_and(|first| first == "--space");
+    let grant = if space {
+        args.remove(0);
+        // The cache answers at once (an older desktop until its first
+        // refresh heard one that can answer), and a desktop that just
+        // started is still asking its guard and polkit: give both a moment.
+        let asked = std::time::Instant::now();
+        while epilot::space_offer() != epilot::SpaceOffer::Offered && asked.elapsed() < std::time::Duration::from_secs(20) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        println!("space offer: {:?}", epilot::space_offer());
+        epilot::grant_space("probe", "Probe", false).expect("grant_space")
+    } else {
+        epilot::grant("probe", "Probe").expect("grant")
+    };
     println!("url: {}\ntoken: {}", grant.url, grant.token);
-    let args: Vec<String> = std::env::args().skip(1).collect();
     let mut args = args.into_iter().peekable();
     while let Some(tool) = args.next() {
         let arguments = match args.peek() {

@@ -1,18 +1,20 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   FIND_IN_CHAT_HITS_MAX,
-  findEventKey,
   findInChatCounter,
   findInChatLand,
+  findInChatOlder,
   findInChatStatus,
   findInChatStep,
   findInChatStops,
-  type FindOlderHit,
   type FindRow as FindRowSpec,
   type FindSearchPhase,
   type FindStop,
+  type FindStoreHit,
+  type FindSynced,
 } from "@exp/domain-contract/find-in-chat"
 import type { ChatHit } from "@exp/domain-contract/chat-store"
+import { globalChatStart } from "@exp/domain-contract/search-list"
 import { HIGHLIGHT_NAMES } from "@exponential_app/eui/web"
 import { chatStoreCall } from "@/lib/chat-store/client"
 import type { SteerSearchResult } from "@exp/domain-contract/steer-enet"
@@ -25,9 +27,11 @@ import type { FindInChat, FindPaint } from "@/components/chat/find-in-chat"
 // (reveal it in the window, open its group or fold, page an older one in,
 // centre, ring) and reports the counter and status line to the bar.
 
-/** A loaded row with what landing needs: the feed item to reveal. */
+/** A loaded row with what landing needs: the feed item to reveal (#EXP-1975:
+ *  null = a bubble drawn outside the feed: the synced tail, the own tail,
+ *  the sent inputs; always mounted, found by its `data-find-key`). */
 export interface TranscriptFindRow extends FindRowSpec {
-  itemId: number
+  itemId: number | null
   /** Its output's matches (the hint), 0 = none. */
   outputCount: number
 }
@@ -48,9 +52,13 @@ export interface TranscriptFindInput {
   search: (query: string, beforeSeq?: number) => Promise<SteerSearchResult | null>
   /** Make the painted window hold this feed item. */
   reveal: (itemId: number) => void
-  /** Page older rows in (the Load earlier path). */
-  pageOlder: () => void
-  canPageOlder: boolean
+  /** #EXP-1998: the synced messages the screen draws as bubbles (null = a
+   *  live transcript holds them as its rows). */
+  synced: FindSynced | null
+  /** Page older rows in toward `stop` (an event: the Load earlier path; a
+   *  message, #EXP-1998: widen the drawn synced messages, load older ones). */
+  pageOlder: (stop: FindStop) => void
+  canPageOlder: (stop: FindStop) => boolean
   scrollRef: { current: HTMLElement | null }
 }
 
@@ -93,7 +101,13 @@ export function useTranscriptFind(input: TranscriptFindInput): { paint: FindPain
   const rows = useMemo(() => (query ? input.rowsFor(query) : []), [query, input.rowsFor]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Older hits (store, then device) ──────────────────────────────────────
-  const [older, setOlder] = useState<{ query: string; store: FindOlderHit[]; device: FindOlderHit[]; storePhase: FindSearchPhase; devicePhase: FindSearchPhase }>({
+  const [older, setOlder] = useState<{
+    query: string
+    store: FindStoreHit[]
+    device: { seq: number; kind: string }[]
+    storePhase: FindSearchPhase
+    devicePhase: FindSearchPhase
+  }>({
     query: ``,
     store: [],
     device: [],
@@ -117,15 +131,13 @@ export function useTranscriptFind(input: TranscriptFindInput): { paint: FindPain
       .catch(() => undefined)
       .then((result) => {
         if (!live) return
-        const hits = (result?.hits ?? [])
-          .filter((hit) => hit.sessionId === sessionId && typeof hit.seq === `number`)
-          .map((hit) => ({ key: findEventKey(sessionId, hit.seq!), output: hit.kind === `tool_output` }))
+        const hits = result?.hits ?? []
         setOlder((prev) => (prev.query === query ? { ...prev, store: hits, storePhase: `done` } : prev))
       })
     if (askDevice) {
       void search(query, lowestRef.current).then((result) => {
         if (!live) return
-        const hits = (result?.hits ?? []).map((hit) => ({ key: findEventKey(sessionId, hit.seq), output: hit.kind === `tool_output` }))
+        const hits = (result?.hits ?? []).map((hit) => ({ seq: hit.seq, kind: hit.kind }))
         setOlder((prev) => (prev.query === query ? { ...prev, device: hits, devicePhase: `done` } : prev))
       })
     }
@@ -134,16 +146,17 @@ export function useTranscriptFind(input: TranscriptFindInput): { paint: FindPain
     }
   }, [query, rootId, sessionId])
 
-  // An older hit is one BELOW the loaded stretch.
+  // #EXP-1998 (`olderCases`): an older hit is an event BELOW the loaded
+  // stretch, or a synced message the screen would draw but does not show.
   const lowest = input.lowestSeq
-  const olderHits = useMemo(() => {
-    if (older.query !== query) return []
-    const below = (hit: FindOlderHit) => {
-      const seq = Number(hit.key.slice(hit.key.lastIndexOf(`:`) + 1))
-      return lowest === undefined || seq < lowest
-    }
-    return [...older.store, ...older.device].filter(below)
-  }, [older, query, lowest])
+  const synced = input.synced
+  const olderHits = useMemo(
+    () =>
+      older.query !== query
+        ? []
+        : findInChatOlder({ sessionId, lowestSeq: lowest, store: older.store, device: older.device, synced }),
+    [older, query, lowest, sessionId, synced]
+  )
   const stops = useMemo(() => findInChatStops(rows, olderHits), [rows, olderHits])
 
   // ── The current stop (kept by identity while answers arrive) ─────────────
@@ -156,13 +169,24 @@ export function useTranscriptFind(input: TranscriptFindInput): { paint: FindPain
   let index = current ? stops.findIndex((stop) => sameStop(stop, current)) : -1
   if (index < 0 && stops.length > 0) index = stops.length - 1
   const shown = index >= 0 ? stops[index]! : null
-  // A new query starts at the newest stop and lands there.
+  // A new query starts at the newest stop and lands there; #EDE-99: a
+  // global search pick starts at ITS hit's stop (search-list.json
+  // `globalChatStart`), waiting for the store's answer before it falls back.
+  const target = find?.target ?? null
+  const dropTarget = find?.dropTarget
+  const storeDone = older.query === query && older.storePhase !== `searching`
   useEffect(() => {
-    if (current === null && shown) {
-      setCurrent(shown)
-      setLanding((prev) => ({ stop: shown, n: (prev?.n ?? 0) + 1 }))
+    if (current !== null || !shown) return
+    let start = shown
+    if (target && target.query === query) {
+      const found = stops.findIndex((stop) => stop.key === target.key && stop.output === target.output)
+      if (found < 0 && !storeDone) return
+      start = stops[globalChatStart(stops, target) ?? stops.length - 1]!
+      dropTarget?.()
     }
-  }, [current, shown])
+    setCurrent(start)
+    setLanding((prev) => ({ stop: start, n: (prev?.n ?? 0) + 1 }))
+  }, [current, shown, target, query, stops, storeDone, dropTarget])
   const step = find?.step
   const stepRef = useRef(step?.n ?? 0)
   useEffect(() => {
@@ -198,7 +222,7 @@ export function useTranscriptFind(input: TranscriptFindInput): { paint: FindPain
       const group = land.openGroup
       setOpenGroups((prev) => (prev.has(group) ? prev : new Set([...prev, group])))
     }
-    if (live) reveal(live.itemId)
+    if (live && live.itemId !== null) reveal(live.itemId)
     // Centre once the row (and its marks) painted: a revealed window or an
     // opened group mounts on the next frames.
     let tries = 0
@@ -226,7 +250,7 @@ export function useTranscriptFind(input: TranscriptFindInput): { paint: FindPain
       setPaging(null)
       return
     }
-    if (canPageOlder) pageOlder()
+    if (canPageOlder(paging)) pageOlder(paging)
     else setPaging(null)
   }, [paging, rowsByKey, canPageOlder, pageOlder])
 

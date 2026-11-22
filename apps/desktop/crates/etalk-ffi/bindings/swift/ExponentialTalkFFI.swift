@@ -1173,33 +1173,20 @@ public func FfiConverterTypeTalkUplink_lower(_ value: TalkUplink) -> UInt64 {
 
 
 /**
- * `availabilityCases` input.
+ * `availabilityCases` input (EXP-1991): ONE desktop.
  */
 public struct TalkCallAvailabilityInput: Equatable, Hashable {
     /**
-     * The member has a voice Assistant (`voice.get` agentId non-null).
+     * The desktop's name.
      */
-    public var agent: Bool
-    public var platform: TalkCallPlatform
-    /**
-     * The voice device's name; None = none.
-     */
-    public var device: String?
+    public var device: String
     public var online: Bool
-    /**
-     * THIS client is the voice device.
-     */
-    public var here: Bool
     /**
      * None = no `speech` row yet.
      */
     public var speech: TalkCallSpeech?
     /**
-     * A call this client does not run already runs on the voice device.
-     */
-    public var busy: Bool
-    /**
-     * A meeting runs on the voice device.
+     * A meeting runs on it.
      */
     public var meeting: Bool
 
@@ -1207,30 +1194,17 @@ public struct TalkCallAvailabilityInput: Equatable, Hashable {
     // declare one manually.
     public init(
         /**
-         * The member has a voice Assistant (`voice.get` agentId non-null).
-         */agent: Bool, platform: TalkCallPlatform, 
-        /**
-         * The voice device's name; None = none.
-         */device: String?, online: Bool, 
-        /**
-         * THIS client is the voice device.
-         */here: Bool, 
+         * The desktop's name.
+         */device: String, online: Bool, 
         /**
          * None = no `speech` row yet.
          */speech: TalkCallSpeech?, 
         /**
-         * A call this client does not run already runs on the voice device.
-         */busy: Bool, 
-        /**
-         * A meeting runs on the voice device.
+         * A meeting runs on it.
          */meeting: Bool) {
-        self.agent = agent
-        self.platform = platform
         self.device = device
         self.online = online
-        self.here = here
         self.speech = speech
-        self.busy = busy
         self.meeting = meeting
     }
 
@@ -1250,25 +1224,17 @@ public struct FfiConverterTypeTalkCallAvailabilityInput: FfiConverterRustBuffer 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TalkCallAvailabilityInput {
         return
             try TalkCallAvailabilityInput(
-                agent: FfiConverterBool.read(from: &buf), 
-                platform: FfiConverterTypeTalkCallPlatform.read(from: &buf), 
-                device: FfiConverterOptionString.read(from: &buf), 
+                device: FfiConverterString.read(from: &buf), 
                 online: FfiConverterBool.read(from: &buf), 
-                here: FfiConverterBool.read(from: &buf), 
                 speech: FfiConverterOptionTypeTalkCallSpeech.read(from: &buf), 
-                busy: FfiConverterBool.read(from: &buf), 
                 meeting: FfiConverterBool.read(from: &buf)
         )
     }
 
     public static func write(_ value: TalkCallAvailabilityInput, into buf: inout [UInt8]) {
-        FfiConverterBool.write(value.agent, into: &buf)
-        FfiConverterTypeTalkCallPlatform.write(value.platform, into: &buf)
-        FfiConverterOptionString.write(value.device, into: &buf)
+        FfiConverterString.write(value.device, into: &buf)
         FfiConverterBool.write(value.online, into: &buf)
-        FfiConverterBool.write(value.here, into: &buf)
         FfiConverterOptionTypeTalkCallSpeech.write(value.speech, into: &buf)
-        FfiConverterBool.write(value.busy, into: &buf)
         FfiConverterBool.write(value.meeting, into: &buf)
     }
 }
@@ -1454,6 +1420,10 @@ public struct TalkCallState: Equatable, Hashable {
     public var speaker: Bool
     public var device: String
     /**
+     * EXP-1857: the device is not the agent's own (the view's `via`).
+     */
+    public var fallback: Bool
+    /**
      * The ring's earliest answer passed.
      */
     public var rang: Bool
@@ -1482,6 +1452,9 @@ public struct TalkCallState: Equatable, Hashable {
          * Phones: the loudspeaker (false = the earpiece).
          */speaker: Bool, device: String, 
         /**
+         * EXP-1857: the device is not the agent's own (the view's `via`).
+         */fallback: Bool = false, 
+        /**
          * The ring's earliest answer passed.
          */rang: Bool, 
         /**
@@ -1500,6 +1473,7 @@ public struct TalkCallState: Equatable, Hashable {
         self.muted = muted
         self.speaker = speaker
         self.device = device
+        self.fallback = fallback
         self.rang = rang
         self.ready = ready
         self.noSound = noSound
@@ -1528,6 +1502,7 @@ public struct FfiConverterTypeTalkCallState: FfiConverterRustBuffer {
                 muted: FfiConverterBool.read(from: &buf), 
                 speaker: FfiConverterBool.read(from: &buf), 
                 device: FfiConverterString.read(from: &buf), 
+                fallback: FfiConverterBool.read(from: &buf), 
                 rang: FfiConverterBool.read(from: &buf), 
                 ready: FfiConverterBool.read(from: &buf), 
                 noSound: FfiConverterBool.read(from: &buf), 
@@ -1542,6 +1517,7 @@ public struct FfiConverterTypeTalkCallState: FfiConverterRustBuffer {
         FfiConverterBool.write(value.muted, into: &buf)
         FfiConverterBool.write(value.speaker, into: &buf)
         FfiConverterString.write(value.device, into: &buf)
+        FfiConverterBool.write(value.fallback, into: &buf)
         FfiConverterBool.write(value.rang, into: &buf)
         FfiConverterBool.write(value.ready, into: &buf)
         FfiConverterBool.write(value.noSound, into: &buf)
@@ -1568,6 +1544,346 @@ public func FfiConverterTypeTalkCallState_lower(_ value: TalkCallState) -> RustB
 
 
 /**
+ * What a press on the telephone does (`tapCases`).
+ */
+public struct TalkCallTap: Equatable, Hashable {
+    public var call: Bool
+    /**
+     * A phone's tap on a disabled telephone toasts its reason.
+     */
+    public var toast: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(call: Bool, 
+        /**
+         * A phone's tap on a disabled telephone toasts its reason.
+         */toast: String?) {
+        self.call = call
+        self.toast = toast
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TalkCallTap: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTalkCallTap: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TalkCallTap {
+        return
+            try TalkCallTap(
+                call: FfiConverterBool.read(from: &buf), 
+                toast: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TalkCallTap, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.call, into: &buf)
+        FfiConverterOptionString.write(value.toast, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTalkCallTap_lift(_ buf: RustBuffer) throws -> TalkCallTap {
+    return try FfiConverterTypeTalkCallTap.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTalkCallTap_lower(_ value: TalkCallTap) -> RustBuffer {
+    return FfiConverterTypeTalkCallTap.lower(value)
+}
+
+
+/**
+ * Where a call's speech runs; `device` None = the telephone is disabled
+ * with `reason`.
+ */
+public struct TalkCallTarget: Equatable, Hashable {
+    public var enabled: Bool
+    public var reason: String?
+    /**
+     * The target's id and name.
+     */
+    public var device: String?
+    public var name: String?
+    /**
+     * The target is not the agent's own device: the call starts with
+     * `fallback` (the view's `via`).
+     */
+    public var fallback: Bool
+    /**
+     * The target is this client's own desktop: it runs the call itself.
+     */
+    public var local: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(enabled: Bool, reason: String?, 
+        /**
+         * The target's id and name.
+         */device: String?, name: String?, 
+        /**
+         * The target is not the agent's own device: the call starts with
+         * `fallback` (the view's `via`).
+         */fallback: Bool, 
+        /**
+         * The target is this client's own desktop: it runs the call itself.
+         */local: Bool) {
+        self.enabled = enabled
+        self.reason = reason
+        self.device = device
+        self.name = name
+        self.fallback = fallback
+        self.local = local
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TalkCallTarget: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTalkCallTarget: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TalkCallTarget {
+        return
+            try TalkCallTarget(
+                enabled: FfiConverterBool.read(from: &buf), 
+                reason: FfiConverterOptionString.read(from: &buf), 
+                device: FfiConverterOptionString.read(from: &buf), 
+                name: FfiConverterOptionString.read(from: &buf), 
+                fallback: FfiConverterBool.read(from: &buf), 
+                local: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TalkCallTarget, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.enabled, into: &buf)
+        FfiConverterOptionString.write(value.reason, into: &buf)
+        FfiConverterOptionString.write(value.device, into: &buf)
+        FfiConverterOptionString.write(value.name, into: &buf)
+        FfiConverterBool.write(value.fallback, into: &buf)
+        FfiConverterBool.write(value.local, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTalkCallTarget_lift(_ buf: RustBuffer) throws -> TalkCallTarget {
+    return try FfiConverterTypeTalkCallTarget.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTalkCallTarget_lower(_ value: TalkCallTarget) -> RustBuffer {
+    return FfiConverterTypeTalkCallTarget.lower(value)
+}
+
+
+/**
+ * EXP-1857: one of the member's own desktops (EXP-1858: or servers) as
+ * [`call_target`] reads it.
+ */
+public struct TalkCallTargetDevice: Equatable, Hashable {
+    public var id: String
+    public var name: String
+    public var online: Bool
+    /**
+     * Its doctor row `speech` through [`call_speech_of`] (None = none yet).
+     */
+    public var speech: TalkCallSpeech?
+    /**
+     * A meeting runs on it.
+     */
+    public var meeting: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String, online: Bool, 
+        /**
+         * Its doctor row `speech` through [`call_speech_of`] (None = none yet).
+         */speech: TalkCallSpeech?, 
+        /**
+         * A meeting runs on it.
+         */meeting: Bool) {
+        self.id = id
+        self.name = name
+        self.online = online
+        self.speech = speech
+        self.meeting = meeting
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TalkCallTargetDevice: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTalkCallTargetDevice: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TalkCallTargetDevice {
+        return
+            try TalkCallTargetDevice(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                online: FfiConverterBool.read(from: &buf), 
+                speech: FfiConverterOptionTypeTalkCallSpeech.read(from: &buf), 
+                meeting: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TalkCallTargetDevice, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterBool.write(value.online, into: &buf)
+        FfiConverterOptionTypeTalkCallSpeech.write(value.speech, into: &buf)
+        FfiConverterBool.write(value.meeting, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTalkCallTargetDevice_lift(_ buf: RustBuffer) throws -> TalkCallTargetDevice {
+    return try FfiConverterTypeTalkCallTargetDevice.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTalkCallTargetDevice_lower(_ value: TalkCallTargetDevice) -> RustBuffer {
+    return FfiConverterTypeTalkCallTargetDevice.lower(value)
+}
+
+
+/**
+ * `targetCases` input.
+ */
+public struct TalkCallTargetInput: Equatable, Hashable {
+    /**
+     * THIS client's own desktop (None on phones and web).
+     */
+    public var here: String?
+    /**
+     * The called agent's Runs on device.
+     */
+    public var agentDevice: String?
+    /**
+     * The member's own desktops, newest `lastSeenAt` first.
+     */
+    public var desktops: [TalkCallTargetDevice]
+    /**
+     * EXP-1858: the member's own servers (CLI daemons): a candidate only as
+     * the agent's device, never here nor a fallback.
+     */
+    public var servers: [TalkCallTargetDevice]
+    /**
+     * A call this client does not run already runs on the target.
+     */
+    public var busy: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * THIS client's own desktop (None on phones and web).
+         */here: String?, 
+        /**
+         * The called agent's Runs on device.
+         */agentDevice: String?, 
+        /**
+         * The member's own desktops, newest `lastSeenAt` first.
+         */desktops: [TalkCallTargetDevice], 
+        /**
+         * EXP-1858: the member's own servers (CLI daemons): a candidate only as
+         * the agent's device, never here nor a fallback.
+         */servers: [TalkCallTargetDevice], 
+        /**
+         * A call this client does not run already runs on the target.
+         */busy: Bool) {
+        self.here = here
+        self.agentDevice = agentDevice
+        self.desktops = desktops
+        self.servers = servers
+        self.busy = busy
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TalkCallTargetInput: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTalkCallTargetInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TalkCallTargetInput {
+        return
+            try TalkCallTargetInput(
+                here: FfiConverterOptionString.read(from: &buf), 
+                agentDevice: FfiConverterOptionString.read(from: &buf), 
+                desktops: FfiConverterSequenceTypeTalkCallTargetDevice.read(from: &buf), 
+                servers: FfiConverterSequenceTypeTalkCallTargetDevice.read(from: &buf), 
+                busy: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TalkCallTargetInput, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.here, into: &buf)
+        FfiConverterOptionString.write(value.agentDevice, into: &buf)
+        FfiConverterSequenceTypeTalkCallTargetDevice.write(value.desktops, into: &buf)
+        FfiConverterSequenceTypeTalkCallTargetDevice.write(value.servers, into: &buf)
+        FfiConverterBool.write(value.busy, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTalkCallTargetInput_lift(_ buf: RustBuffer) throws -> TalkCallTargetInput {
+    return try FfiConverterTypeTalkCallTargetInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTalkCallTargetInput_lower(_ value: TalkCallTargetInput) -> RustBuffer {
+    return FfiConverterTypeTalkCallTargetInput.lower(value)
+}
+
+
+/**
  * What the call surface shows.
  */
 public struct TalkCallView: Equatable, Hashable {
@@ -1579,6 +1895,11 @@ public struct TalkCallView: Equatable, Hashable {
      * The line under the name; None = the call's timer ([`call_timer`]).
      */
     public var status: String?
+    /**
+     * EXP-1857: `Voice on {device}` while the call falls back (a second
+     * status line); None otherwise.
+     */
+    public var via: String?
     public var caption: String
     public var muted: Bool
     public var speaker: Bool
@@ -1596,12 +1917,17 @@ public struct TalkCallView: Equatable, Hashable {
          */activity: String, 
         /**
          * The line under the name; None = the call's timer ([`call_timer`]).
-         */status: String?, caption: String, muted: Bool, speaker: Bool, buttons: [TalkCallButton], 
+         */status: String?, 
+        /**
+         * EXP-1857: `Voice on {device}` while the call falls back (a second
+         * status line); None otherwise.
+         */via: String?, caption: String, muted: Bool, speaker: Bool, buttons: [TalkCallButton], 
         /**
          * The end button's label (shown under it while ringing).
          */end: String) {
         self.activity = activity
         self.status = status
+        self.via = via
         self.caption = caption
         self.muted = muted
         self.speaker = speaker
@@ -1627,6 +1953,7 @@ public struct FfiConverterTypeTalkCallView: FfiConverterRustBuffer {
             try TalkCallView(
                 activity: FfiConverterString.read(from: &buf), 
                 status: FfiConverterOptionString.read(from: &buf), 
+                via: FfiConverterOptionString.read(from: &buf), 
                 caption: FfiConverterString.read(from: &buf), 
                 muted: FfiConverterBool.read(from: &buf), 
                 speaker: FfiConverterBool.read(from: &buf), 
@@ -1638,6 +1965,7 @@ public struct FfiConverterTypeTalkCallView: FfiConverterRustBuffer {
     public static func write(_ value: TalkCallView, into buf: inout [UInt8]) {
         FfiConverterString.write(value.activity, into: &buf)
         FfiConverterOptionString.write(value.status, into: &buf)
+        FfiConverterOptionString.write(value.via, into: &buf)
         FfiConverterString.write(value.caption, into: &buf)
         FfiConverterBool.write(value.muted, into: &buf)
         FfiConverterBool.write(value.speaker, into: &buf)
@@ -1744,7 +2072,11 @@ public func FfiConverterTypeTalkCallButton_lower(_ value: TalkCallButton) -> Rus
 
 public enum TalkCallEvent: Equatable, Hashable {
     
-    case start(device: String, language: String?
+    /**
+     * EXP-1857: `fallback` = the device is not the agent's own
+     * ([`TalkCallTarget::fallback`]).
+     */
+    case start(device: String, language: String?, fallback: Bool = false
     )
     /**
      * The ring's earliest answer ([`call_ring_ms`]) passed.
@@ -1801,7 +2133,7 @@ public struct FfiConverterTypeTalkCallEvent: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .start(device: try FfiConverterString.read(from: &buf), language: try FfiConverterOptionString.read(from: &buf)
+        case 1: return .start(device: try FfiConverterString.read(from: &buf), language: try FfiConverterOptionString.read(from: &buf), fallback: try FfiConverterBool.read(from: &buf)
         )
         
         case 2: return .rang
@@ -1849,10 +2181,11 @@ public struct FfiConverterTypeTalkCallEvent: FfiConverterRustBuffer {
         switch value {
         
         
-        case let .start(device,language):
+        case let .start(device,language,fallback):
             writeInt(&buf, Int32(1))
             FfiConverterString.write(device, into: &buf)
             FfiConverterOptionString.write(language, into: &buf)
+            FfiConverterBool.write(fallback, into: &buf)
             
         
         case .rang:
@@ -2451,6 +2784,31 @@ fileprivate struct FfiConverterSequenceInt16: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeTalkCallTargetDevice: FfiConverterRustBuffer {
+    typealias SwiftType = [TalkCallTargetDevice]
+
+    public static func write(_ value: [TalkCallTargetDevice], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeTalkCallTargetDevice.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [TalkCallTargetDevice] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [TalkCallTargetDevice]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeTalkCallTargetDevice.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeTalkCallButton: FfiConverterRustBuffer {
     typealias SwiftType = [TalkCallButton]
 
@@ -2580,6 +2938,35 @@ public func callStep(state: TalkCallState, event: TalkCallEvent) -> TalkCallStat
 })
 }
 /**
+ * #EXP-1878 (`tapCases`): a press on the telephone whose `reason` is
+ * [`call_target`]'s (None = enabled): it calls, or (a phone's tap on a
+ * disabled one) toasts the reason; web and desktop show it as the disabled
+ * control's tooltip.
+ */
+public func callTap(platform: TalkCallPlatform, reason: String?) -> TalkCallTap  {
+    return try!  FfiConverterTypeTalkCallTap_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_etalk_ffi_fn_func_call_tap(
+        FfiConverterTypeTalkCallPlatform_lower(platform),
+        FfiConverterOptionString.lower(reason),uniffiCallStatus
+    )
+})
+}
+/**
+ * EXP-1857 (`targetCases`): where a call's speech runs: the first that
+ * speaks of the agent's device (EXP-1858: a desktop or a server of the
+ * member's), the desktop you're at, the other desktops newest first. None
+ * speaks = disabled with the first candidate's reason.
+ */
+public func callTarget(input: TalkCallTargetInput) -> TalkCallTarget  {
+    return try!  FfiConverterTypeTalkCallTarget_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_etalk_ffi_fn_func_call_target(
+        FfiConverterTypeTalkCallTargetInput_lower(input),uniffiCallStatus
+    )
+})
+}
+/**
  * The call's timer since it was answered: mm:ss, h:mm:ss from an hour.
  */
 public func callTimer(ms: UInt64) -> String  {
@@ -2591,7 +2978,7 @@ public func callTimer(ms: UInt64) -> String  {
 })
 }
 /**
- * None = the telephone is enabled; Some = disabled, with the reason.
+ * None = the desktop can take the call; Some = it cannot, with the reason.
  */
 public func callUnavailable(input: TalkCallAvailabilityInput) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
@@ -2681,10 +3068,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_etalk_ffi_checksum_func_call_step() != 62821) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_etalk_ffi_checksum_func_call_tap() != 28971) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_etalk_ffi_checksum_func_call_target() != 57070) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_etalk_ffi_checksum_func_call_timer() != 29389) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_etalk_ffi_checksum_func_call_unavailable() != 38799) {
+    if (uniffi_etalk_ffi_checksum_func_call_unavailable() != 54339) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_etalk_ffi_checksum_func_call_view() != 16228) {

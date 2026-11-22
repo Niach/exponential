@@ -182,6 +182,7 @@ impl Harness {
                 ready_tx.send(()).ok();
                 event_loop
                     .run(None, &mut state, |state| {
+                        state.spaces_after_frames();
                         let _ = state.display_handle.flush_clients();
                     })
                     .expect("event loop");
@@ -236,6 +237,14 @@ impl Harness {
         ede_protocol::Client::over(ours, token).expect("ede-protocol hello")
     }
 
+    /// #EDE-172: a connection holding the root grant from the start (what
+    /// `--control-fd` hands over): its hello names no token.
+    pub fn root_channel(&self) -> ede_protocol::Client {
+        let (ours, theirs) = UnixStream::pair().expect("socketpair");
+        assert!(self.with(move |state| state.ipc_insert_root_channel(theirs)), "the root channel");
+        ede_protocol::Client::from_fd(ours.into()).expect("ede-protocol hello")
+    }
+
     /// An `ede-protocol` connection with `token`.
     pub fn ipc_with(&self, token: ede_protocol::Token) -> Result<ede_protocol::Client, ede_protocol::Error> {
         let (ours, theirs) = UnixStream::pair().expect("socketpair");
@@ -257,6 +266,87 @@ impl Drop for Harness {
         let _ = self.tx.send(Box::new(|state, _| state.loop_signal.stop()));
         if let Some(t) = self.thread.take() {
             let _ = t.join();
+        }
+    }
+}
+
+/// #EDE-162, a dev and proof rig: `EDE_HEADLESS_GLES=/dev/dri/renderDN`
+/// draws the headless person's outputs every tick on GLES on that render
+/// node, as udev draws a monitor (render what changed, then wait for the
+/// GPU before the frame counts as shown), and offers the person's clients
+/// linux-dmabuf on it. The person's frame times are recorded as udev's are
+/// (`EXP_FRAME_STATS=1`), so the cost of agent spaces to the person can be
+/// measured without a display or a seat. Not a mode for people.
+#[cfg(feature = "gpu")]
+pub struct GlesClock {
+    renderer: smithay::backend::renderer::gles::GlesRenderer,
+    /// Per output: its buffer, damage tracker, buffer age and size.
+    targets: std::collections::HashMap<String, (smithay::backend::renderer::gles::GlesRenderbuffer, smithay::backend::renderer::damage::OutputDamageTracker, usize, (i32, i32))>,
+}
+
+#[cfg(feature = "gpu")]
+impl GlesClock {
+    /// The rig on `node`, installed on `state`: the person's dmabuf global
+    /// and importer, and captures of the person's outputs on it.
+    pub fn start(node: &std::path::Path, state: &mut Ede) -> Result<std::rc::Rc<std::cell::RefCell<GlesClock>>, String> {
+        use smithay::{
+            backend::renderer::{gles::GlesRenderer, ImportDma},
+            wayland::dmabuf::DmabufFeedbackBuilder,
+        };
+        let context = crate::spaces::frames::gpu::open_context(node)?;
+        // Safety: the context is ours and used on this thread only.
+        let renderer = unsafe { GlesRenderer::new(context) }.map_err(|e| e.to_string())?;
+        let formats = renderer.dmabuf_formats();
+        let dev = smithay::backend::drm::DrmNode::from_path(node).map_err(|e| e.to_string())?.dev_id();
+        let feedback = DmabufFeedbackBuilder::new(dev, formats).build().map_err(|e| e.to_string())?;
+        state.dmabuf_state.create_global_with_filter_and_default_feedback::<Ede, _>(&state.display_handle, &feedback, crate::desk::on_person);
+        let clock = std::rc::Rc::new(std::cell::RefCell::new(GlesClock { renderer, targets: Default::default() }));
+        let importer = clock.clone();
+        state.dmabuf_importer = Some(Box::new(move |dmabuf| importer.borrow_mut().renderer.import_dmabuf(dmabuf, None).is_ok()));
+        let capturer = clock.clone();
+        state.capture_renderer = Some(Box::new(move |state, what| super::capture_on_gles(&mut capturer.borrow_mut().renderer, state, what)));
+        tracing::warn!("EDE_HEADLESS_GLES: the person's headless outputs draw on {} (a measuring rig)", node.display());
+        Ok(clock)
+    }
+
+    pub fn tick(&mut self, state: &mut Ede, outputs: &[Output]) {
+        use smithay::backend::{
+            allocator::Fourcc,
+            renderer::{damage::OutputDamageTracker, gles::GlesRenderbuffer, Bind, Offscreen},
+        };
+        self.targets.retain(|name, _| outputs.iter().any(|o| o.name() == *name));
+        for output in outputs {
+            let Some(mode) = output.current_mode() else { continue };
+            let started = std::time::Instant::now();
+            let elements = super::output_elements(state, output, &mut self.renderer);
+            let size = (mode.size.w, mode.size.h);
+            if self.targets.get(&output.name()).is_none_or(|t| t.3 != size) {
+                let Ok(buffer) = Offscreen::<GlesRenderbuffer>::create_buffer(&mut self.renderer, Fourcc::Abgr8888, size.into()) else { continue };
+                self.targets.insert(output.name(), (buffer, OutputDamageTracker::from_output(output), 0, size));
+            }
+            let (buffer, tracker, age, _) = self.targets.get_mut(&output.name()).expect("just made");
+            let Ok(mut fb) = self.renderer.bind(buffer) else { continue };
+            let presented = match tracker.render_output(&mut self.renderer, &mut fb, *age, &elements, state.clear_color()) {
+                Ok(result) => {
+                    // As udev: the frame is shown once the GPU finished it.
+                    let waited = std::time::Instant::now();
+                    let _ = result.sync.wait();
+                    if waited.elapsed() > std::time::Duration::from_millis(50) {
+                        tracing::warn!("EDE_HEADLESS_GLES: {} waited {:?} for the GPU", output.name(), waited.elapsed());
+                    }
+                    result.damage.is_some()
+                }
+                Err(e) => {
+                    tracing::warn!("EDE_HEADLESS_GLES: {e:?}");
+                    false
+                }
+            };
+            *age = 1;
+            drop(fb);
+            if presented {
+                ede_observability::record_frame(&output.name(), started.elapsed());
+            }
+            super::frame_done(state, output, presented);
         }
     }
 }

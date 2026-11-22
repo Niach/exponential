@@ -93,6 +93,46 @@ object FindInChat {
     /** An older hit (store, then device), newest first. */
     data class OlderHit(val key: String, val output: Boolean = false)
 
+    /** #EXP-1998: a store hit as [older] reads it (an event's carries its
+     *  [seq], a synced message's its [messageId]). */
+    data class StoreHit(val sessionId: String, val seq: Long? = null, val messageId: String? = null, val kind: String)
+
+    /** #EXP-1998: a device's hit (always the shown session's event). */
+    data class DeviceHit(val seq: Long, val kind: String)
+
+    /** #EXP-1998: the synced messages the host draws as bubbles (null = a
+     *  live transcript, which holds them as its own rows): [loaded] = every
+     *  loaded synced message of the session, [drawable] = those it would draw
+     *  with no cap, [more] = older ones exist unloaded. */
+    data class Synced(val loaded: List<String>, val drawable: List<String>, val more: Boolean)
+
+    /** #EXP-1998 (`olderCases`): the store's and the device's hits OLDER than
+     *  the loaded rows, store first, first key wins. */
+    fun older(sessionId: String, lowestSeq: Long?, store: List<StoreHit>, device: List<DeviceHit>, synced: Synced?): List<OlderHit> {
+        val loaded = synced?.loaded?.toHashSet().orEmpty()
+        val drawable = synced?.drawable?.toHashSet().orEmpty()
+        val seen = HashSet<String>()
+        val out = ArrayList<OlderHit>()
+        fun push(key: String, output: Boolean) {
+            if (seen.add(key)) out += OlderHit(key, output)
+        }
+        fun event(seq: Long, kind: String) {
+            if (lowestSeq == null || seq < lowestSeq) push(eventKey(sessionId, seq), kind == "tool_output")
+        }
+        for (hit in store) {
+            if (hit.sessionId != sessionId) continue
+            val seq = hit.seq
+            val id = hit.messageId
+            if (seq != null) {
+                event(seq, hit.kind)
+            } else if (id != null && synced != null) {
+                if (if (id in loaded) id in drawable else synced.more) push(messageKey(id), false)
+            }
+        }
+        for (hit in device) event(hit.seq, hit.kind)
+        return out
+    }
+
     /** One stop of the counter. */
     data class Stop(
         val key: String,

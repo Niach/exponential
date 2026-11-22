@@ -12,9 +12,6 @@ vi.mock(`@tanstack/react-router`, () => ({
 vi.mock(`@/components/issue-actions-menu`, () => ({
   IssueActionsMenu: () => <button type="button">More</button>,
 }))
-vi.mock(`@/components/pin-toggle-button`, () => ({
-  PinToggleButton: () => <button type="button">Pin</button>,
-}))
 
 import { IssueMobileHeader } from "@/components/issue-mobile-header"
 
@@ -54,10 +51,9 @@ describe(`IssueMobileHeader`, () => {
     ).toBeTruthy()
   })
 
-  it(`always carries the pin and the context menu`, () => {
+  it(`always carries the context menu`, () => {
     renderHeader()
     expect(screen.getByText(`LOWER`)).toBeTruthy()
-    expect(screen.getByText(`Pin`)).toBeTruthy()
     expect(screen.getByText(`More`)).toBeTruthy()
     expect(screen.queryByTestId(`pr-graph-badge`)).toBeNull()
   })

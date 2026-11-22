@@ -26,6 +26,29 @@ pub(crate) struct Image {
     pub rgba: Vec<u8>,
 }
 
+impl Image {
+    /// #EXP-1994: a capture of 32-bit pixels in B, G, R, A (or X) byte
+    /// order, rows `stride` bytes apart (macOS, Windows, X11's common
+    /// visual, eDE's `argb8888`), as opaque RGBA8: the one conversion of
+    /// every backend. Bytes past a row's pixels are padding; the last row
+    /// needs none. `None` = a row is missing, or wider than `stride`.
+    pub(crate) fn from_bgra(bytes: &[u8], width: u32, height: u32, stride: usize) -> Option<Image> {
+        let row = usize::try_from(width).ok()?.checked_mul(4)?;
+        if stride < row {
+            return None;
+        }
+        let rows = usize::try_from(height).ok()?;
+        let mut rgba = Vec::with_capacity(row.checked_mul(rows)?);
+        for y in 0..rows {
+            let start = y.checked_mul(stride)?;
+            for pixel in bytes.get(start..start.checked_add(row)?)?.chunks_exact(4) {
+                rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
+            }
+        }
+        Some(Image { width, height, rgba })
+    }
+}
+
 /// One display (monitor) of the screen, in screen units.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct DisplayInfo {
@@ -101,6 +124,21 @@ pub(crate) fn twin_id(base: &str, connector: &str) -> String {
     format!("{}{suffix}", base.chars().take(room).collect::<String>())
 }
 
+/// #EXP-1994: the tail of every backend's [`Backend::displays`]: nobody
+/// marked primary makes the first one primary, then [`finish_ids`] with
+/// `connectors[i]` beside `displays[i]`. `None` = no display, which each
+/// backend answers its own way (an error; X11 the whole root).
+pub(crate) fn finish_displays(mut displays: Vec<DisplayInfo>, connectors: &[Option<String>]) -> Option<Vec<DisplayInfo>> {
+    if displays.is_empty() {
+        return None;
+    }
+    if !displays.iter().any(|display| display.primary) {
+        displays[0].primary = true;
+    }
+    finish_ids(&mut displays, connectors);
+    Some(displays)
+}
+
 /// FNV-1a 64: a hash that stays the same across builds (X11's `edid:` id).
 #[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
 pub(crate) fn stable_hash(bytes: &[u8]) -> u64 {
@@ -128,11 +166,53 @@ pub(crate) struct WindowInfo {
     pub fullscreen: bool,
 }
 
+/// How long an accepted activation may take to put the window in front
+/// (X11, macOS; Windows waits [`ACTIVATE_WAIT_WINDOWS`]).
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", test)), allow(dead_code))]
+pub(crate) const ACTIVATE_WAIT: std::time::Duration = std::time::Duration::from_millis(600);
+/// Windows' own wait, as it was.
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+pub(crate) const ACTIVATE_WAIT_WINDOWS: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// #EXP-1994: the end of every `activate_window` that waits for the OS (X11,
+/// macOS, Windows; eDE's compositor answers once it focused the window):
+/// `is_active` is read at once and every 20 ms after, until it holds
+/// (`true`) or `wait` ran out (`false`: the agent's keys would go to the
+/// window in front, so the call fails).
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn wait_active(wait: std::time::Duration, mut is_active: impl FnMut() -> bool) -> bool {
+    let until = std::time::Instant::now() + wait;
+    loop {
+        if is_active() {
+            return true;
+        }
+        if std::time::Instant::now() >= until {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Button {
     Left,
     Middle,
     Right,
+}
+
+/// #EXP-1994: the strokes that press (`down`) or release `key` with the
+/// modifiers its character needs held around it (X11's Shift and AltGr,
+/// Windows' Shift): a press is the modifiers in order, then the key; a
+/// release is the key, then the modifiers in reverse. eDE's compositor
+/// does the same for a keysym; macOS puts the Shift flag on the key's own
+/// event.
+#[cfg_attr(not(any(target_os = "linux", target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn with_modifiers<T: Copy>(modifiers: &[T], key: T, down: bool) -> Vec<(T, bool)> {
+    if down {
+        modifiers.iter().map(|&modifier| (modifier, true)).chain([(key, true)]).collect()
+    } else {
+        [(key, false)].into_iter().chain(modifiers.iter().rev().map(|&modifier| (modifier, false))).collect()
+    }
 }
 
 /// #EXP-1921: the keys and buttons the person held when a lock engaged,
@@ -169,13 +249,60 @@ impl<const N: usize> HeldAtEngage<N> {
             *slot = false;
         }
     }
+
+    /// Of the slots `indexes` (the mouse buttons), the ones still held, as
+    /// bits in that order ([`PERSON_BUTTONS`]).
+    pub(crate) fn armed(&self, indexes: impl IntoIterator<Item = usize>) -> u32 {
+        indexes.into_iter().take(32).enumerate().filter(|&(_, index)| self.0.get(index).copied().unwrap_or(false)).fold(0, |bits, (bit, _)| bits | 1 << bit)
+    }
+}
+
+/// #EXP-1979: the mouse buttons the person held when their lock engaged and
+/// has not let go of yet ([`HeldAtEngage::armed`]; 0 = none, or no lock).
+/// The lock keeps it; while it is set the agent's pointer waits
+/// ([`wait_for_person_buttons`]): moving or clicking would drag what the
+/// person holds, and a release of ours would drop it.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+pub(crate) static PERSON_BUTTONS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// How long the agent's pointer waits for the person to let go.
+pub(crate) const PERSON_BUTTON_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// What a wait for the person's buttons ended with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ButtonWait {
+    /// None held (any more): the pointer may act.
+    Free,
+    /// The run was interrupted (Esc, Stop) meanwhile.
+    Interrupted,
+    /// Still held after the wait.
+    Held,
+}
+
+/// #EXP-1979: before the agent's pointer acts: wait while `held` (the
+/// person still holds a button they held when the lock engaged), at most
+/// `wait`, unless `interrupted`.
+pub(crate) fn wait_for_person_buttons(held: impl Fn() -> bool, interrupted: impl Fn() -> bool, wait: std::time::Duration) -> ButtonWait {
+    let until = std::time::Instant::now() + wait;
+    loop {
+        if interrupted() {
+            return ButtonWait::Interrupted;
+        }
+        if !held() {
+            return ButtonWait::Free;
+        }
+        if std::time::Instant::now() >= until {
+            return ButtonWait::Held;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
 }
 
 /// #EXP-1921: the start of a lock on its own thread, both ends. `take`
 /// waits a while for the thread's answer; a thread that gets there after
 /// `take` gave up must tear its lock down at once, since no guard will
-/// ever release it.
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+/// ever release it. [`LockThread::start`] is both ends at once.
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
 pub(crate) fn lock_start<T>() -> (LockReady<T>, LockStart<T>) {
     let (tx, rx) = std::sync::mpsc::channel();
     let abandoned = std::sync::Arc::new(std::sync::Mutex::new(false));
@@ -188,7 +315,7 @@ pub(crate) struct LockReady<T> {
     abandoned: std::sync::Arc<std::sync::Mutex<bool>>,
 }
 
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
 impl<T> LockReady<T> {
     /// Hand `value` to `take`. `false` = `take` gave up: tear the lock down.
     pub(crate) fn send(self, value: T) -> bool {
@@ -203,7 +330,7 @@ pub(crate) struct LockStart<T> {
     abandoned: std::sync::Arc<std::sync::Mutex<bool>>,
 }
 
-#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
 impl<T> LockStart<T> {
     /// The thread's answer within `timeout`. On a timeout the thread hears
     /// it was abandoned; an answer sent before it heard is handed to `late`,
@@ -220,9 +347,99 @@ impl<T> LockStart<T> {
     }
 }
 
+/// How long a lock waits for its thread to say the lock is in place.
+pub(crate) const LOCK_START_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// #EXP-1994: the thread a lock lives on, every OS's (macOS' event tap,
+/// Windows' hooks, X11's grabs): named `computer-use-lock`, its start
+/// answered through [`lock_start`] within [`LOCK_START_WAIT`], and joined
+/// when its guard drops, unless the drop runs on it (`on_esc` dropping the
+/// guard: a thread never joins itself).
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) struct LockThread(Option<std::thread::JoinHandle<()>>);
+
+/// Why a lock's thread did not say it started.
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) enum LockStartError {
+    /// The OS started no thread (the reason).
+    Spawn(String),
+    /// No answer within the wait; one that comes later is torn down.
+    Timeout,
+    /// The thread ended without an answer.
+    Died,
+}
+
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+impl LockThread {
+    /// Run `body` on a new lock thread and wait for what it hands
+    /// [`LockReady::send`], at most [`LOCK_START_WAIT`]. An answer sent
+    /// just as the wait gave up goes to `late`, which tears that lock down.
+    pub(crate) fn start<T: Send + 'static>(body: impl FnOnce(LockReady<T>) + Send + 'static, late: impl FnOnce(T)) -> Result<(T, LockThread), LockStartError> {
+        Self::start_within(LOCK_START_WAIT, body, late)
+    }
+
+    fn start_within<T: Send + 'static>(wait: std::time::Duration, body: impl FnOnce(LockReady<T>) + Send + 'static, late: impl FnOnce(T)) -> Result<(T, LockThread), LockStartError> {
+        let (ready, start) = lock_start();
+        let thread = std::thread::Builder::new()
+            .name("computer-use-lock".into())
+            .spawn(move || body(ready))
+            .map_err(|err| LockStartError::Spawn(format!("lock thread: {err}")))?;
+        // Without an answer the thread is left to end on its own.
+        match start.wait(wait, late) {
+            Ok(answer) => Ok((answer, LockThread(Some(thread)))),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(LockStartError::Timeout),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(LockStartError::Died),
+        }
+    }
+
+    /// Wait for the thread to end (its lock torn down), unless this is it.
+    pub(crate) fn join(&mut self) {
+        if let Some(thread) = self.0.take() {
+            if thread.thread().id() != std::thread::current().id() {
+                let _ = thread.join();
+            }
+        }
+    }
+
+    /// Let the thread go without waiting for it (it never heard its stop).
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    pub(crate) fn detach(&mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for LockThread {
+    fn drop(&mut self) {
+        self.join();
+    }
+}
+
 /// Released on drop. Dropping from the lock's own thread (inside `on_esc`)
-/// must not join that thread.
+/// must not join that thread ([`LockThread::join`]).
 pub(crate) trait LockGuard: Send {}
+
+/// #EXP-1994: a lock's decision on one of the person's events (macOS' tap,
+/// Windows' hooks; X11's grab takes whole devices).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+pub(crate) enum Verdict {
+    /// On to its window: ours, or the one release of what the person held
+    /// at engage ([`HeldAtEngage`]).
+    Pass,
+    Swallow,
+    /// The person's Esc: swallowed, and the lock ends.
+    Esc,
+}
+
+/// #EXP-1994: the person's Esc under a lock, every OS's: their input is let
+/// go first (`release`: the tap, the hooks or the grabs come out), then
+/// `on_esc` runs, on the lock's thread, never inside an event callback.
+#[cfg_attr(not(any(target_os = "linux", target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn escape(release: impl FnOnce(), on_esc: &(dyn Fn() + Send + Sync)) {
+    release();
+    on_esc();
+}
 
 /// What the clipboard held before a `paste_text` / `copy_selection` took
 /// it: every format the OS let us read, as (the OS's name of the format,
@@ -251,6 +468,30 @@ pub(crate) enum Pasted {
     /// Nobody took it within the timeout (or another program took the
     /// clipboard first).
     Missed,
+}
+
+/// #EXP-1994: the most of the person's clipboard a save keeps, every format
+/// together (macOS, Windows, X11; eDE's compositor caps its own snapshot,
+/// `ede_protocol::CLIPBOARD_TOTAL_MAX`). A format past it is left out: the
+/// save is partial.
+pub(crate) const CLIPBOARD_SAVE_MAX: usize = 32 << 20;
+
+/// Where the OS cannot tell when the focused window read the clipboard
+/// (macOS, Windows): how long a paste settles after its key.
+pub(crate) const PASTE_SETTLE: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// #EXP-1994: [`Clipboard::wait_pasted`] where the OS cannot tell (macOS,
+/// Windows): after the settle (at most `timeout`), `Settled` while the
+/// clipboard's change count (`now`) is still the one our `set_text` left
+/// (`set`); another program's copy since, or no `set_text` at all, is
+/// `Missed`.
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows", test)), allow(dead_code))]
+pub(crate) fn settle_paste(timeout: std::time::Duration, set: Option<u64>, now: impl FnOnce() -> u64) -> Pasted {
+    std::thread::sleep(timeout.min(PASTE_SETTLE));
+    match set {
+        Some(set) if now() == set => Pasted::Settled,
+        _ => Pasted::Missed,
+    }
 }
 
 /// The clipboard, for the agent's own copy and paste only (`tools.rs`):
@@ -293,11 +534,29 @@ pub(crate) enum Target {
     Space(u32),
 }
 
+/// How long a typed character's key stays down ([`type_with`]).
+pub(crate) const CHAR_HOLD: std::time::Duration = std::time::Duration::from_millis(6);
+
+/// #EXP-1994: typing one character, every backend's: `stroke`'s press,
+/// [`CHAR_HOLD`], its release. A press that failed is not released.
+pub(crate) fn type_with(stroke: impl Fn(bool) -> Result<(), String>) -> Result<(), String> {
+    stroke(true)?;
+    std::thread::sleep(CHAR_HOLD);
+    stroke(false)
+}
+
 pub(crate) trait Backend: Send {
     /// The target this backend drives ([`open`]'s). A backend for another
     /// target than the person's must override it.
     fn target(&self) -> Target {
         Target::Person
+    }
+    /// Whether what this backend holds down is let go without it: `true`
+    /// where the compositor releases a run's keys and buttons itself once
+    /// its hold or connection ends (eDE), so a release it refuses leaves
+    /// nothing pressed (#ERR-29).
+    fn lets_go_itself(&self) -> bool {
+        false
     }
     /// Every display, the primary marked; never empty.
     fn displays(&self) -> Result<Vec<DisplayInfo>, String>;
@@ -317,8 +576,18 @@ pub(crate) trait Backend: Send {
     /// Press or release one key. A character that needs Shift on this
     /// layout gets it from the backend.
     fn key(&self, key: Key, down: bool) -> Result<(), String>;
+    /// Press or release one character, whatever the layout: a half of
+    /// [`Backend::type_char`].
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String>;
     /// Type one character (press + release), whatever the layout.
-    fn type_char(&self, ch: char) -> Result<(), String>;
+    fn type_char(&self, ch: char) -> Result<(), String> {
+        type_with(|down| self.char_stroke(ch, down))
+    }
+    /// #EXP-1979: whether the person still holds a mouse button they held
+    /// when the lock engaged ([`PERSON_BUTTONS`]).
+    fn person_holds_button(&self) -> bool {
+        false
+    }
     /// Take the person's keyboard and pointer: nothing they do reaches any
     /// window, our own input still lands; `on_esc` fires on their Esc.
     /// `Err` = the OS refused (another grab, a missing permission).
@@ -328,10 +597,25 @@ pub(crate) trait Backend: Send {
     fn launch(&self, _argv: &[String], _cwd: Option<&str>) -> Result<u32, String> {
         Err("Only a run in an agent space starts programs.".to_string())
     }
+    /// #EDE-162: what the desktop said with the last screenshot that the
+    /// agent must read, once (an app whose GPU path failed in its space).
+    fn take_notice(&self) -> Option<String> {
+        None
+    }
     /// The clipboard (`paste_text`, `copy_selection`, `read_clipboard`).
     fn clipboard(&self) -> Result<Box<dyn Clipboard + '_>, String> {
         Err("This desktop has no clipboard computer use can drive.".to_string())
     }
+}
+
+/// #ERR-29: the input lock lost its hold on the person's input (its
+/// connection gone, a release that never reached its thread): an error, a
+/// GlitchTip event, its text fixed so they group; the detail (the OS
+/// error, nothing of the person's) in the warning before it.
+#[cfg_attr(not(any(target_os = "linux", target_os = "windows")), allow(dead_code))]
+pub(crate) fn lock_lost(message: &'static str, detail: &dyn std::fmt::Display) {
+    log::warn!("{message}: {detail}");
+    log::error!("{message}");
 }
 
 /// Why this machine cannot drive anything, if so (no display, Wayland):
@@ -404,24 +688,119 @@ pub(crate) fn before_exit() {
 }
 
 /// #EXP-1925: `run` ended: what was granted at the desktop for it ends
-/// (eDE).
+/// (eDE). #EXP-1514 (row 13): a space run's space and kept grant stay with
+/// the host for its session's next run.
 pub(crate) fn end_run(target: Target, run: &str) {
-    // A space run's grant ends the same way, and its space with it.
-    let _ = target;
     #[cfg(target_os = "linux")]
-    ede::end_run(run);
+    match target {
+        Target::Person => ede::end_run(run),
+        Target::Space(_) => ede::end_space_run(run),
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (target, run);
+}
+
+/// #EXP-1514: a space run of `run` was admitted ([`crate::grant_space`]).
+pub(crate) fn admit_space(run: &str, had_space: bool) {
+    #[cfg(target_os = "linux")]
+    ede::admit(run, had_space);
+    #[cfg(not(target_os = "linux"))]
+    let _ = (run, had_space);
+}
+
+/// #EXP-1514 (D 10): `run`'s turn started or ended.
+pub(crate) fn turn(run: &str, running: bool) {
+    #[cfg(target_os = "linux")]
+    ede::turn(run, running);
+    #[cfg(not(target_os = "linux"))]
+    let _ = (run, running);
+}
+
+/// [`crate::set_space_made_observer`].
+pub(crate) fn set_space_made(hook: std::sync::Arc<dyn Fn(&str) + Send + Sync>) {
+    #[cfg(target_os = "linux")]
+    ede::set_space_made(hook);
+    #[cfg(not(target_os = "linux"))]
+    drop(hook);
+}
+
+/// [`crate::close_space`]: eDE only; nothing elsewhere has spaces.
+pub(crate) fn close_space(run: &str) {
+    #[cfg(target_os = "linux")]
+    if let Some(Ok(session)) = ede::session() {
+        ede::close_space(&session, run);
+    }
     #[cfg(not(target_os = "linux"))]
     let _ = run;
 }
 
-/// #EDE-126: can a run get an agent space here? `Err` = why not (not eDE,
-/// or an eDE that makes none).
-pub(crate) fn spaces_offered() -> Result<(), String> {
+/// [`crate::kept_spaces`].
+pub(crate) fn kept_spaces() -> Vec<String> {
     #[cfg(target_os = "linux")]
-    if let Some(session) = ede::session() {
-        return ede::spaces_offered(&session?);
+    if let Some(Ok(session)) = ede::session() {
+        return ede::kept_spaces(&session);
     }
-    Err("Agent spaces need Exponential Desktop.".to_string())
+    Vec::new()
+}
+
+/// [`crate::adopt_spaces`], step 1.
+pub(crate) fn hold_spaces(registry: &[String], switch_on: bool) {
+    #[cfg(target_os = "linux")]
+    if let Some(Ok(session)) = ede::session() {
+        ede::hold_spaces(&session, registry, switch_on, ede::SPACE_TIMING);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (registry, switch_on);
+}
+
+/// [`crate::Adoption::settle`], step 2.
+pub(crate) fn settle_spaces(here: &dyn Fn(&str) -> crate::SessionHere, live_run: &dyn Fn(&str) -> bool) {
+    #[cfg(target_os = "linux")]
+    if let Some(Ok(session)) = ede::session() {
+        ede::settle_spaces(&session, here, live_run);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (here, live_run);
+}
+
+/// #EXP-1514: whether this desktop gives a run an agent space now
+/// ([`crate::space_offer`]): not Exponential Desktop is a local fact, an
+/// eDE session's answer comes from its compositor, read without waiting.
+pub(crate) fn space_offer() -> crate::SpaceOffer {
+    #[cfg(target_os = "linux")]
+    return space_offer_of(ede::session());
+    #[cfg(not(target_os = "linux"))]
+    crate::SpaceOffer::No(crate::SpaceBlock::NotDesktop)
+}
+
+/// #EXP-1514: [`space_offer`] for a process that asks once and ends
+/// ([`crate::space_offer_settled`]).
+pub(crate) fn space_offer_settled(within: std::time::Duration) -> crate::SpaceOffer {
+    #[cfg(target_os = "linux")]
+    if let Some(Ok(session)) = ede::session() {
+        return ede::space_offer_settled(&session, within);
+    }
+    let _ = within;
+    space_offer()
+}
+
+/// [`space_offer`] for this eDE session (`None` = not eDE).
+#[cfg(target_os = "linux")]
+pub(crate) fn space_offer_of(session: Option<Result<ede::Session, String>>) -> crate::SpaceOffer {
+    match session {
+        None => crate::SpaceOffer::No(crate::SpaceBlock::NotDesktop),
+        Some(Ok(session)) => ede::space_offer(&session),
+        Some(Err(reason)) => crate::SpaceOffer::No(crate::SpaceBlock::Unavailable(reason)),
+    }
+}
+
+/// #EXP-1514: an eDE session, where a run can be admitted into a space
+/// without asking (its calls ask the desktop, [`crate::grant_space`]).
+pub(crate) fn makes_spaces() -> bool {
+    #[cfg(target_os = "linux")]
+    return ede::session().is_some();
+    #[cfg(not(target_os = "linux"))]
+    false
 }
 
 /// The switch turned off: a grant minted at the desktop ends (eDE).
@@ -505,6 +884,29 @@ mod tests {
         assert!(displays.iter().all(|display| display.id.chars().count() == 128));
     }
 
+    /// #EXP-1994: a typed character is its press, a hold, its release, on
+    /// every backend; a press that failed is never released.
+    #[test]
+    fn a_typed_character_is_press_hold_release() {
+        let strokes = std::cell::RefCell::new(Vec::new());
+        let started = std::time::Instant::now();
+        let stroke = |down| {
+            strokes.borrow_mut().push((down, started.elapsed()));
+            Ok(())
+        };
+        assert_eq!(type_with(stroke), Ok(()));
+        let strokes = strokes.into_inner();
+        assert_eq!(strokes.iter().map(|(down, _)| *down).collect::<Vec<_>>(), [true, false]);
+        assert!(strokes[1].1 - strokes[0].1 >= CHAR_HOLD);
+
+        let tried = std::cell::RefCell::new(Vec::new());
+        let refused = type_with(|down| {
+            tried.borrow_mut().push(down);
+            Err("no key".to_string())
+        });
+        assert_eq!((refused, tried.into_inner()), (Err("no key".to_string()), vec![true]));
+    }
+
     /// #FEED-164: `work-screen.json` `idCases`, and a reorder of twins keeps
     /// each one's id.
     #[test]
@@ -526,6 +928,20 @@ mod tests {
         assert_eq!((before[0].id.as_str(), before[1].id.as_str()), (after[1].id.as_str(), after[0].id.as_str()));
     }
 
+    /// #EXP-1994: every backend's display list ends the same way: none is
+    /// `None`, the OS's primary stays, nobody primary makes the first one,
+    /// and twins carry their connector.
+    #[test]
+    fn every_display_list_ends_alike() {
+        assert_eq!(finish_displays(Vec::new(), &[]), None);
+        let primary = |displays: &[DisplayInfo]| displays.iter().map(|display| display.primary).collect::<Vec<_>>();
+        let second = vec![display("a"), DisplayInfo { primary: true, ..display("b") }];
+        assert_eq!(primary(&finish_displays(second, &[]).unwrap()), [false, true], "the OS's primary stays");
+        let twins = finish_displays(vec![display("uuid"), display("uuid")], &[Some("1".into()), Some("2".into())]).unwrap();
+        assert_eq!(primary(&twins), [true, false], "nobody primary: the first");
+        assert_eq!(twins.iter().map(|display| (display.id.as_str(), display.connector.as_deref())).collect::<Vec<_>>(), [("uuid@1", Some("1")), ("uuid@2", Some("2"))]);
+    }
+
     #[test]
     fn what_was_held_at_engage_passes_its_release_once() {
         let mut held = HeldAtEngage::<4>::NONE;
@@ -539,6 +955,61 @@ mod tests {
         held.ours(2);
         assert!(!held.passes(2, false), "the agent pressed or released it since");
         held.ours(9);
+    }
+
+    /// #EXP-1994: a shifted character's key goes inside its modifiers on
+    /// every backend: pressed after them, released before them.
+    #[test]
+    fn a_key_is_pressed_inside_its_modifiers() {
+        assert_eq!(with_modifiers(&["shift", "altgr"], "q", true), [("shift", true), ("altgr", true), ("q", true)]);
+        assert_eq!(with_modifiers(&["shift", "altgr"], "q", false), [("q", false), ("altgr", false), ("shift", false)]);
+        assert_eq!(with_modifiers(&[], 'a', true), [('a', true)]);
+        assert_eq!(with_modifiers(&[], 'a', false), [('a', false)]);
+    }
+
+    /// #EXP-1979: the pointer waits while the person holds a button, frees
+    /// on its release, gives up after the wait, and an interrupt ends it.
+    #[test]
+    fn the_pointer_waits_for_the_persons_buttons_at_most_the_wait() {
+        let mut held = HeldAtEngage::<8>::NONE;
+        held.0[1] = true;
+        held.0[5] = true;
+        assert_eq!(held.armed([1, 2, 5]), 0b101);
+        held.ours(5);
+        assert_eq!(held.armed([1, 2, 5]), 0b001);
+        let short = std::time::Duration::from_millis(60);
+        assert_eq!(wait_for_person_buttons(|| true, || false, short), ButtonWait::Held);
+        assert_eq!(wait_for_person_buttons(|| false, || false, short), ButtonWait::Free);
+        assert_eq!(wait_for_person_buttons(|| true, || true, short), ButtonWait::Interrupted);
+        let polls = std::cell::Cell::new(0);
+        let held_twice = || {
+            polls.set(polls.get() + 1);
+            polls.get() <= 2
+        };
+        assert_eq!(wait_for_person_buttons(held_twice, || false, std::time::Duration::from_secs(5)), ButtonWait::Free);
+    }
+
+    /// #EXP-1994: an activation counts once the window is active, read at
+    /// once and again until the wait runs out, on every OS that waits.
+    #[test]
+    fn an_activation_waits_until_the_window_is_active_at_most_the_wait() {
+        let reads = std::cell::Cell::new(0);
+        assert!(wait_active(std::time::Duration::ZERO, || {
+            reads.set(reads.get() + 1);
+            true
+        }));
+        assert_eq!(reads.get(), 1, "read at once, even without a wait");
+        let started = std::time::Instant::now();
+        assert!(!wait_active(std::time::Duration::from_millis(60), || false));
+        assert!(started.elapsed() >= std::time::Duration::from_millis(60));
+        reads.set(0);
+        let third = || {
+            reads.set(reads.get() + 1);
+            reads.get() >= 3
+        };
+        assert!(wait_active(std::time::Duration::from_secs(5), third));
+        assert_eq!(reads.get(), 3);
+        assert!(ACTIVATE_WAIT > ACTIVATE_WAIT_WINDOWS);
     }
 
     /// #EXP-1921: a lock thread that answers after `take` gave up hears so
@@ -563,6 +1034,71 @@ mod tests {
         assert_eq!(start.wait(std::time::Duration::from_secs(5), |_| panic!("not late")), Ok(7));
     }
 
+    /// #EXP-1994: every OS's lock thread: named, its answer taken, one that
+    /// never comes or comes late refused (the late one hears it), joined on
+    /// the guard's drop, and never joined by itself.
+    #[test]
+    fn a_lock_thread_answers_once_and_is_joined_unless_it_drops_itself() {
+        use std::sync::mpsc::channel;
+        let (answer, thread) = LockThread::start(|ready| {
+            ready.send(std::thread::current().name().map(str::to_string));
+        }, |_| panic!("not late"))
+        .unwrap();
+        assert_eq!(answer.as_deref(), Some("computer-use-lock"));
+        drop(thread);
+
+        assert_eq!(LockThread::start(|_: LockReady<()>| {}, |_| panic!("not late")).err(), Some(LockStartError::Died));
+
+        let (heard_tx, heard) = channel();
+        let short = std::time::Duration::from_millis(20);
+        let late = LockThread::start_within(short, move |ready| {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            heard_tx.send(ready.send(())).unwrap();
+        }, |_| {});
+        assert_eq!(late.err(), Some(LockStartError::Timeout));
+        assert!(!heard.recv().unwrap(), "the late thread hears it was given up and tears down");
+
+        // The guard's drop waits for the thread to end its lock.
+        let (stop_tx, stop) = channel::<()>();
+        let (ended_tx, ended) = channel();
+        let ((), thread) = LockThread::start(move |ready| {
+            ready.send(());
+            let _ = stop.recv();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            ended_tx.send(()).unwrap();
+        }, |_| panic!("not late"))
+        .unwrap();
+        stop_tx.send(()).unwrap();
+        drop(thread);
+        assert!(ended.try_recv().is_ok(), "joined: the thread had ended");
+
+        // `on_esc` drops the guard on the lock's own thread: no self-join.
+        let (guard_tx, guard) = channel::<LockThread>();
+        let (dropped_tx, dropped) = channel();
+        let ((), thread) = LockThread::start(move |ready| {
+            ready.send(());
+            drop(guard.recv().unwrap());
+            dropped_tx.send(()).unwrap();
+        }, |_| panic!("not late"))
+        .unwrap();
+        guard_tx.send(thread).unwrap();
+        dropped.recv_timeout(std::time::Duration::from_secs(5)).expect("the thread dropped its own guard and went on");
+    }
+
+    /// #EXP-1994: on the person's Esc their input is theirs again before
+    /// `on_esc` runs.
+    #[test]
+    fn an_esc_lets_go_of_the_input_before_on_esc() {
+        let released = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let on_esc = {
+            let (released, seen) = (released.clone(), seen.clone());
+            move || *seen.lock().unwrap() = Some(released.load(std::sync::atomic::Ordering::SeqCst))
+        };
+        escape(|| released.store(true, std::sync::atomic::Ordering::SeqCst), &on_esc);
+        assert_eq!(*seen.lock().unwrap(), Some(true), "on_esc ran, with the input already let go");
+    }
+
     #[test]
     fn the_overlap_is_the_shared_area() {
         let display = DisplayInfo { x: 100, ..display("a") };
@@ -571,9 +1107,46 @@ mod tests {
         assert_eq!(display.overlap(-1000, -1000, 5000, 5000), 100 * 100);
     }
 
+    /// #EXP-1994: every backend's capture becomes RGBA8 by one rule: opaque,
+    /// the row padding skipped, a short capture `None` whatever the backend.
+    #[test]
+    fn bgra_rows_become_opaque_rgba_and_skip_the_row_padding() {
+        // 2x2, stride 12 (4 bytes of padding per row).
+        let data = [1, 2, 3, 0, 4, 5, 6, 9, 0xee, 0xee, 0xee, 0xee, 7, 8, 9, 0, 10, 11, 12, 0, 0xee, 0xee, 0xee, 0xee];
+        let image = Image::from_bgra(&data, 2, 2, 12).unwrap();
+        assert_eq!((image.width, image.height), (2, 2));
+        assert_eq!(image.rgba, [3, 2, 1, 255, 6, 5, 4, 255, 9, 8, 7, 255, 12, 11, 10, 255]);
+        // The last row needs no padding: 20 bytes hold both rows, 19 do not.
+        assert!(Image::from_bgra(&data[..20], 2, 2, 12).is_some());
+        assert!(Image::from_bgra(&data[..19], 2, 2, 12).is_none());
+        // Packed rows (Windows, X11): the alpha byte never shows.
+        assert_eq!(Image::from_bgra(&[1, 2, 3, 0, 10, 20, 30, 7], 2, 1, 8).unwrap().rgba, [3, 2, 1, 255, 30, 20, 10, 255]);
+        // eDE's `argb8888` words, little-endian.
+        let words: Vec<u8> = [0xff10_2030u32, 0xff00_00ff, 0].iter().flat_map(|word| word.to_le_bytes()).collect();
+        assert_eq!(Image::from_bgra(&words, 2, 1, 12).unwrap().rgba, [0x10, 0x20, 0x30, 255, 0, 0, 0xff, 255]);
+        assert!(Image::from_bgra(&words, 4, 1, 12).is_none(), "a row wider than its stride");
+        assert!(Image::from_bgra(&[], 1, 1, 4).is_none());
+        assert_eq!(Image::from_bgra(&[], 0, 0, 0).unwrap().rgba, Vec::<u8>::new());
+    }
+
     #[test]
     fn the_stable_hash_is_fnv1a() {
         assert_eq!(stable_hash(b""), 0xcbf2_9ce4_8422_2325);
         assert_eq!(stable_hash(b"a"), 0xaf63_dc4c_8601_ec8c);
+    }
+
+    /// #EXP-1994: where the OS cannot see the paste (macOS, Windows) it has
+    /// settled while the clipboard still holds our text; another copy since,
+    /// or nothing set, missed; the settle never outlasts the timeout.
+    #[test]
+    fn a_paste_settles_while_the_clipboard_is_still_ours() {
+        let no_wait = std::time::Duration::ZERO;
+        assert_eq!(settle_paste(no_wait, Some(7), || 7), Pasted::Settled);
+        assert_eq!(settle_paste(no_wait, Some(7), || 8), Pasted::Missed, "another program copied since");
+        assert_eq!(settle_paste(no_wait, None, || panic!("nothing set: nothing to read")), Pasted::Missed);
+        let started = std::time::Instant::now();
+        settle_paste(std::time::Duration::from_millis(20), Some(1), || 1);
+        let settled = started.elapsed();
+        assert!(settled >= std::time::Duration::from_millis(20) && settled < PASTE_SETTLE, "{settled:?}");
     }
 }

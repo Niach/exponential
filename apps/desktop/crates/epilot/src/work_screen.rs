@@ -49,6 +49,12 @@ pub(crate) fn is_input(tool: &str) -> bool {
     input_tools().iter().any(|input| input == tool)
 }
 
+/// #EXP-1979: whether `tool` moves or presses the pointer: an input tool
+/// that neither presses keys (`keyTools`) nor activates a window.
+pub(crate) fn is_pointer(tool: &str) -> bool {
+    is_input(tool) && !is_key(tool) && tool != "activate_window"
+}
+
 /// #EXP-1898: whether `tool` DRIVES (`inputTools`, plus the clipboard's
 /// `read_clipboard`): it takes the person's input for the call and queues
 /// with the other driving calls. Looking and waiting (`screenshot`,
@@ -71,6 +77,20 @@ pub const NOT_WORK_SCREEN: &str = "notWorkScreen";
 pub const WINDOW_ELSEWHERE: &str = "windowElsewhere";
 pub const GAMING: &str = "gaming";
 pub const KEYS_ELSEWHERE: &str = "keysElsewhere";
+/// #EXP-1514: the pick is the agent space only (`spaceGateCases`).
+pub const SPACE_ONLY: &str = "spaceOnly";
+
+/// #EXP-1514: the reserved Work screen pick `space.value`: agents work in
+/// an agent space only, never on this device's screen. No display id is
+/// ever that bare word.
+pub const SPACE_PICK: &str = "space";
+
+/// The pick as the SCREEN readers take it (screen memory, the voice
+/// overlay's screen state): `space` restricts driving only, so for them it
+/// is Auto (C 11, `screen-memory.json` `spaceCases`).
+pub(crate) fn display_pick(picked: Option<&str>) -> Option<&str> {
+    picked.filter(|picked| *picked != SPACE_PICK)
+}
 
 /// What the gate reads (`gateCases[].state`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -87,6 +107,9 @@ pub struct State {
     /// The OS window list was read (`windowsRead`); `false` = input fails
     /// closed.
     pub windows_read: bool,
+    /// #EXP-1514: the stored pick is [`SPACE_PICK`] (`spaceOnly`): nothing
+    /// is done on this screen.
+    pub space_only: bool,
 }
 
 /// One tool call as the gate sees it (`gateCases[].calls[].call`).
@@ -113,6 +136,9 @@ pub struct Refusal {
 /// The 0-based displays agents may drive: the picked one while connected,
 /// else every display without a fullscreen app.
 pub fn work_displays(state: &State) -> Vec<usize> {
+    if state.space_only {
+        return Vec::new();
+    }
     if let Some(picked) = state.picked {
         // A picked display that is gone = none: a hot-unplug never widens
         // the set the person allowed.
@@ -146,6 +172,10 @@ pub fn gate(state: &State, call: Call<'_>) -> Result<(), Refusal> {
     let work = work_displays(state);
     if call.tool == "wait" {
         return Ok(());
+    }
+    // #EXP-1514: the pick Agent space only, checked first.
+    if state.space_only {
+        return Err(refuse(SPACE_ONLY, Fields::default(), &work));
     }
     if state.picked.is_some() && work.is_empty() {
         return Err(refuse(PICKED_GONE, Fields::default(), &work));
@@ -338,6 +368,7 @@ pub(crate) fn state_of(displays: &[DisplayInfo], windows: &[WindowInfo], picked:
         active: active.and_then(|window| window_display(displays, window)),
         active_fullscreen: active.is_some_and(|window| window.fullscreen),
         windows_read: true,
+        space_only: false,
     }
 }
 
@@ -386,7 +417,7 @@ pub(crate) fn screen_state() -> Option<ScreenState> {
         log::debug!("[computer] no window list for the work screen ({reason})");
         Vec::new()
     });
-    let picked = resolve(&displays, picked(Target::Person).as_deref());
+    let picked = resolve(&displays, display_pick(picked(Target::Person).as_deref()));
     let state = state_of(&displays, &windows, picked);
     let work = work_displays(&state);
     Some(ScreenState {
@@ -411,7 +442,7 @@ pub(crate) fn view_of(
     app_id: impl Fn(u32) -> Option<String>,
 ) -> crate::ScreenView {
     let infos: Vec<DisplayInfo> = displays.iter().map(|(display, _)| display.clone()).collect();
-    let picked = resolve(&infos, picked);
+    let picked = resolve(&infos, display_pick(picked));
     let work = work_displays(&state_of(&infos, windows, picked)).into_iter().map(|index| index as u32 + 1).collect();
     let mut tops: Vec<crate::TopWindow> = Vec::new();
     for window in windows {
@@ -485,7 +516,8 @@ mod tests {
 
     #[test]
     fn the_gate_replays_every_gate_case() {
-        for case in fixture()["gateCases"].as_array().unwrap() {
+        let cases = fixture()["gateCases"].as_array().unwrap().iter().chain(fixture()["spaceGateCases"].as_array().unwrap());
+        for case in cases {
             let name = case["name"].as_str().unwrap();
             let raw = &case["state"];
             let state = State {
@@ -495,6 +527,7 @@ mod tests {
                 active: index(&raw["active"]),
                 active_fullscreen: raw["activeFullscreen"].as_bool().unwrap(),
                 windows_read: raw["windowsRead"].as_bool().unwrap_or(true),
+                space_only: raw["spaceOnly"].as_bool().unwrap_or(false),
             };
             assert_eq!(work_displays(&state), indexes(&case["work"]), "{name}: work");
             for step in case["calls"].as_array().unwrap() {
@@ -518,6 +551,17 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// #EXP-1514: the reserved pick is the fixture's, and only the driving
+    /// side reads it: the screen readers take it as Auto.
+    #[test]
+    fn the_space_pick_restricts_driving_only() {
+        assert_eq!(fixture()["space"]["value"], SPACE_PICK);
+        assert_eq!(fixture()["pickerKeys"]["space"], SPACE_PICK);
+        assert_eq!(display_pick(Some(SPACE_PICK)), None);
+        assert_eq!(display_pick(Some("output:DP-1")), Some("output:DP-1"));
+        assert_eq!(display_pick(None), None);
     }
 
     #[test]
@@ -585,7 +629,7 @@ mod tests {
         // A focused game on display 2, a plain window on display 1, one off-screen.
         let windows = [window(1000, true, true), window(0, false, false), window(5000, false, true)];
         let state = state_of(&displays, &windows, None);
-        assert_eq!(state, State { count: 2, picked: None, fullscreen: vec![1], active: Some(1), active_fullscreen: true, windows_read: true });
+        assert_eq!(state, State { count: 2, picked: None, fullscreen: vec![1], active: Some(1), active_fullscreen: true, windows_read: true, space_only: false });
         assert_eq!(work_displays(&state), [0]);
         assert_eq!(state_of(&displays, &[], Some(2)).active, None);
     }

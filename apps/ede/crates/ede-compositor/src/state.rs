@@ -71,8 +71,9 @@ pub struct Ede {
     /// GLES, which reads the GPU clients' dmabufs pixman cannot, #EDE-100);
     /// `None` = pixman (headless).
     pub capture_renderer: Option<crate::backend::CaptureRenderer>,
-    /// Explicit sync (drm-syncobj), when the primary GPU supports it.
-    #[cfg(feature = "udev")]
+    /// Explicit sync (drm-syncobj), when the primary GPU (udev) or the
+    /// spaces' GPU (#EDE-162) supports it.
+    #[cfg(feature = "gpu")]
     pub syncobj_state: Option<smithay::wayland::drm_syncobj::DrmSyncobjState>,
 
     #[cfg(feature = "xwayland")]
@@ -83,6 +84,9 @@ pub struct Ede {
     /// Xwayland's display number (`DISPLAY=:N`).
     #[cfg(feature = "xwayland")]
     pub xdisplay: Option<u32>,
+    /// #EDE-138: the person's Xwayland's source, X authority and deaths.
+    #[cfg(feature = "xwayland")]
+    pub(crate) person_x11: crate::handlers::xwayland::PersonX11,
 
     /// ext-session-lock: while locked only the lock client is shown and
     /// gets input ([`crate::lock`]).
@@ -125,6 +129,13 @@ pub struct Ede {
     /// sets it (the headless tests): no protocol request, no config key
     /// and no environment variable ever does. Always `None` in a session.
     pub sealed_stand_in: Option<u32>,
+    /// #EXP-2024: a test's own process standing in for `exponential-shell`:
+    /// a layer it maps meanwhile with the space view's namespace is the
+    /// shell's pinned view ([`crate::sealed::origin_of`]), a popup it names
+    /// meanwhile the Agent spaces list's namespace is the shell's list
+    /// (#EXP-2041, [`crate::popup_namespace`]). As `sealed_stand_in`, only
+    /// the headless tests set it; `None` in a session.
+    pub shell_stand_in: Option<u32>,
     /// Counts presented frames ([`crate::backend::frame_done`]); a capture
     /// with `since` equal to it carries no pixels.
     pub frame_serial: u64,
@@ -197,6 +208,8 @@ impl Ede {
             })
             .expect("insert the display source");
 
+        // #EXP-2041: the shell names its Agent spaces list (black in captures).
+        crate::popup_namespace::create_global(&dh);
         let idle_notifier = smithay::wayland::idle_notify::IdleNotifierState::new(&dh, loop_handle.clone());
         crate::idle::start_timer(&loop_handle);
 
@@ -240,7 +253,7 @@ impl Ede {
             dmabuf_state: smithay::wayland::dmabuf::DmabufState::new(),
             dmabuf_importer: None,
             capture_renderer: None,
-            #[cfg(feature = "udev")]
+            #[cfg(feature = "gpu")]
             syncobj_state: None,
             #[cfg(feature = "xwayland")]
             xwayland_shell_state: smithay::wayland::xwayland_shell::XWaylandShellState::new::<Self>(&dh),
@@ -248,6 +261,8 @@ impl Ede {
             xwm: None,
             #[cfg(feature = "xwayland")]
             xdisplay: None,
+            #[cfg(feature = "xwayland")]
+            person_x11: Default::default(),
             session_lock_state: smithay::wayland::session_lock::SessionLockManagerState::new::<Self, _>(&dh, on_person),
             lock: crate::lock::LockState::default(),
             idle_notifier,
@@ -267,6 +282,7 @@ impl Ede {
             fatal: None,
             debug_captures: false,
             sealed_stand_in: None,
+            shell_stand_in: None,
             frame_serial: 0,
             config_path: None,
         }
@@ -291,13 +307,21 @@ impl Ede {
             }
             // The agent spaces' directories live beside it; nothing of an
             // earlier compositor of this name is kept (#EDE-125).
-            self.spaces.open(std::path::Path::new(&runtime).join("exponential-desktop").join(format!("{}.spaces", name.to_string_lossy())));
+            self.spaces.open(ede_protocol::spaces_path(std::path::Path::new(&runtime), &name.to_string_lossy()));
+            // #EDE-138: their homes on disk, not in the runtime directory.
+            let cache = std::env::var_os("XDG_CACHE_HOME").filter(|dir| !dir.is_empty()).map(std::path::PathBuf::from).or_else(|| std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".cache")));
+            if let Some(cache) = cache {
+                self.spaces.open_homes(cache.join("exponential-desktop").join("spaces"));
+            }
         }
         Ok(name)
     }
 
     /// Starts Xwayland if enabled, then the autostart commands.
     pub fn start_session(&mut self) {
+        self.start_space_units();
+        // #EDE-138: X11 apps in spaces too, each space with its own Xwayland.
+        self.spaces.x11 = cfg!(feature = "xwayland") && self.config.xwayland;
         #[cfg(feature = "xwayland")]
         if self.config.xwayland {
             // Autostart runs from the Ready/Error event.
@@ -341,13 +365,17 @@ impl Ede {
     pub fn client_command(&self, argv: &[String]) -> Option<std::process::Command> {
         let (program, args) = argv.split_first()?;
         let mut cmd = std::process::Command::new(program);
-        cmd.args(args).env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY");
+        cmd.args(args).env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY").env_remove("XAUTHORITY");
         if let Some(socket) = &self.socket_name {
             cmd.env("WAYLAND_DISPLAY", socket);
         }
         #[cfg(feature = "xwayland")]
         if let Some(n) = self.xdisplay {
             cmd.env("DISPLAY", format!(":{n}"));
+            // #EDE-138: the cookie our Xwayland asks for.
+            if let Some(xauthority) = self.xauthority(DeskId::PERSON) {
+                cmd.env("XAUTHORITY", xauthority);
+            }
         }
         Some(cmd)
     }
@@ -371,36 +399,20 @@ impl Ede {
             Some([x, y]) => (x, y),
             None => (self.desk.space.outputs().filter_map(|o| self.desk.space.output_geometry(o)).map(|g| g.loc.x + g.size.w).max().unwrap_or(0), 0),
         };
-        self.desk.space.map_output(output, at);
+        self.place_output(output, at.into());
         layer_map_for_output(output).arrange();
         self.sealed_rehome();
         self.output_changed(output.name());
     }
 
     /// Unplugged: the rest close ranks left to right, and the windows that
-    /// were on it (or end up on no output) reopen on the first one.
+    /// were on it (or end up on no output) reopen on the first one
+    /// ([`Self::relayout`]).
     pub fn remove_output(&mut self, output: &Output) {
-        let center = |space: &Space<Window>, w: &Window| {
-            space.element_geometry(w).map(|g| g.loc.to_f64() + g.size.to_f64().to_point().downscale(2.0))
-        };
-        let gone = self.desk.space.output_geometry(output);
-        let on_it: Vec<Window> = self
-            .desk.space
-            .elements()
-            .filter(|w| gone.zip(center(&self.desk.space, w)).is_some_and(|(g, c)| g.to_f64().contains(c)))
-            .cloned()
-            .collect();
+        let before = self.laid_out();
         self.desk.space.unmap_output(output);
         self.lock_output_removed(output);
-        let outputs: Vec<Output> = self.desk.space.outputs().cloned().collect();
-        let mut x = 0;
-        for o in outputs {
-            let w = self.desk.space.output_geometry(&o).map(|g| g.size.w).unwrap_or(0);
-            self.desk.space.map_output(&o, (x, 0));
-            layer_map_for_output(&o).arrange();
-            x += w;
-        }
-        self.rehome_lost_windows(&on_it);
+        self.relayout(&before);
     }
 
     /// Windows in `also`, and any whose centre is on no output, reopen on
@@ -409,7 +421,7 @@ impl Ede {
         let center = |space: &Space<Window>, w: &Window| {
             space.element_geometry(w).map(|g| g.loc.to_f64() + g.size.to_f64().to_point().downscale(2.0))
         };
-        let Some(area) = self.desk.space.outputs().next().and_then(|o| self.work_area(o)) else { return };
+        let Some(first) = self.desk.space.outputs().next().cloned() else { return };
         let orphans: Vec<Window> = self
             .desk.space
             .elements()
@@ -417,16 +429,47 @@ impl Ede {
             .cloned()
             .collect();
         for w in orphans {
-            // A tiled window becomes floating again at its old size.
-            let mut size = self.restore_size(&w).unwrap_or(w.geometry().size);
-            self.untile(&w, None);
-            let fh = self.frame_height(&w);
-            size.h += fh;
-            let taken: Vec<_> = self.desk.space.elements().filter(|o| *o != &w).filter_map(|o| self.desk.space.element_location(o)).collect();
-            let mut loc = layout::place_new(size, area, &taken, 32);
-            loc.y += fh;
-            self.move_window(&w, loc, false);
+            self.rehome(&w, &first);
         }
+    }
+
+    /// `window` reopens in a free spot of `output`'s work area, where it
+    /// stands in the stack: a tiled one floating again at its old size, a
+    /// fullscreen one filling `output`, leaving fullscreen to that spot
+    /// (#EDE-139: never to the place on an output that went away).
+    pub fn rehome(&mut self, window: &Window, output: &Output) {
+        let st = window_state(window);
+        let size = st.restore.or(st.fullscreen).map_or(window.geometry().size, |r| r.size);
+        let Some(loc) = self.free_spot(window, size, output) else { return };
+        if st.fullscreen.is_some() {
+            set_window_state(window, WindowState { fullscreen: Some(Rectangle::new(loc, size)), tile: None, restore: None, ..st });
+            self.fit_fullscreen(window, output);
+            return;
+        }
+        self.untile(window, None);
+        self.relocate_window(window, loc);
+    }
+
+    /// Where a `size` window (its title bar not counted) opens in
+    /// `output`'s work area beside the other windows.
+    pub(crate) fn free_spot(&self, window: &Window, size: Size<i32, Logical>, output: &Output) -> Option<Point<i32, Logical>> {
+        let area = self.work_area(output)?;
+        let fh = self.frame_height(window);
+        let taken: Vec<_> = self.desk.space.elements().filter(|o| *o != window).filter_map(|o| self.desk.space.element_location(o)).collect();
+        let mut loc = layout::place_new((size.w, size.h + fh).into(), area, &taken, 32);
+        loc.y += fh;
+        Some(loc)
+    }
+
+    /// `r` moved by `delta` along with `output`; one `output` no longer
+    /// holds (it shrank) gets a free spot on it instead.
+    pub(crate) fn moved_along(&self, window: &Window, r: Rect, delta: Point<i32, Logical>, output: &Output) -> Rect {
+        let r = Rectangle::new(r.loc + delta, r.size);
+        let center = r.loc.to_f64() + r.size.to_f64().to_point().downscale(2.0);
+        if self.desk.space.output_geometry(output).is_some_and(|g| g.to_f64().contains(center)) {
+            return r;
+        }
+        self.free_spot(window, r.size, output).map_or(r, |loc| Rectangle::new(loc, r.size))
     }
 
     /// The output's area minus exclusive layer-shell zones (a panel), inset
@@ -531,6 +574,7 @@ impl Ede {
         {
             self.desk_mut(desk).pending_x11_focus = window.as_ref().filter(|_| surface.is_none()).and_then(|w| w.x11_surface().cloned());
         }
+        #[cfg(feature = "xwayland")]
         let unset = surface.is_none();
         keyboard.set_focus(self, surface, serial);
         // The seat reports no change when the keyboard goes to nothing, so
@@ -559,6 +603,16 @@ impl Ede {
     /// they are (their position is part of their state).
     pub fn move_window(&mut self, window: &Window, loc: Point<i32, Logical>, activate: bool) {
         self.desk.space.map_element(window.clone(), loc, activate);
+        #[cfg(feature = "xwayland")]
+        if let Some(x11) = window.x11_surface() {
+            let _ = x11.configure(Some(Rectangle::new(loc, x11.last_configure().size)));
+        }
+    }
+
+    /// [`Self::move_window`] where it stands in the stack: who is in front
+    /// and who is activated stay (a display change, #EDE-139).
+    pub fn relocate_window(&mut self, window: &Window, loc: Point<i32, Logical>) {
+        self.remap(window, loc);
         #[cfg(feature = "xwayland")]
         if let Some(x11) = window.x11_surface() {
             let _ = x11.configure(Some(Rectangle::new(loc, x11.last_configure().size)));
@@ -649,7 +703,16 @@ impl Ede {
     pub fn tile(&mut self, window: &Window, tile: Tile) {
         let Some(geo) = self.desk.space.element_geometry(window) else { return };
         let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
-        let Some(area) = self.output_at(center).and_then(|o| self.work_area(&o)) else { return };
+        if let Some(output) = self.output_at(center) {
+            self.tile_on(window, tile, &output);
+        }
+    }
+
+    /// [`Self::tile`] on `output`, whichever output its old tile's centre
+    /// lies on now (#EDE-139: the outputs moved under it).
+    pub fn tile_on(&mut self, window: &Window, tile: Tile, output: &Output) {
+        let Some(geo) = self.desk.space.element_geometry(window) else { return };
+        let Some(area) = self.work_area(output) else { return };
         let mut st = window_state(window);
         if st.fullscreen.is_some() {
             return;
@@ -662,6 +725,20 @@ impl Ede {
         let rect = self.without_frame(window, tile.rect(area));
         self.configure_window(window, Some(rect), Some(tile), false);
         self.remap(window, rect.loc);
+    }
+
+    /// `output`'s work area changed (a panel's exclusive zone came, changed
+    /// or went, #EDE-139): its tiled and maximized windows fill the new one,
+    /// in place (who is in front stays).
+    pub fn refit_tiles(&mut self, output: &Output) {
+        for w in self.desk.space.elements().cloned().collect::<Vec<_>>() {
+            let Some(tile) = window_state(&w).tile else { continue };
+            let Some(geo) = self.desk.space.element_geometry(&w) else { continue };
+            let center = geo.loc.to_f64() + geo.size.to_f64().to_point().downscale(2.0);
+            if self.desk.space.output_under(center).next() == Some(output) {
+                self.tile(&w, tile);
+            }
+        }
     }
 
     /// `rect` minus the title bar at its top (what the window itself gets).
@@ -732,6 +809,14 @@ impl Ede {
                 (None, None) => {}
             }
         }
+    }
+
+    /// A fullscreen `window` covers `output` as it is now (its mode, scale
+    /// or place changed, or the window came over from another, #EDE-139).
+    pub fn fit_fullscreen(&mut self, window: &Window, output: &Output) {
+        let Some(out) = self.desk.space.output_geometry(output) else { return };
+        self.configure_window(window, Some(out), None, true);
+        self.remap(window, out.loc);
     }
 
     /// The output background until the shell draws a wallpaper; black
@@ -838,6 +923,9 @@ pub struct ClientState {
     pub compositor_state: CompositorClientState,
     /// The desk its socket belongs to; the person's unless said otherwise.
     pub desk: DeskId,
+    /// #EDE-162: its space draws on the GPU (decided when it connected): it
+    /// sees the spaces' linux-dmabuf and drm-syncobj ([`crate::desk::on_gpu_space`]).
+    pub gpu: bool,
 }
 
 impl ClientData for ClientState {

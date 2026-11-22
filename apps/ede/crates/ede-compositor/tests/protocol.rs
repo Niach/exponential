@@ -501,17 +501,43 @@ fn global_shortcuts_fire_from_the_person_and_keep_the_key() {
     app.roundtrip();
     assert!(!app.state.keys.contains(&(R - 8)), "the shortcut's key reached the client");
 
-    // Synthetic input never fires a shortcut; a protected prompt blocks it.
-    portal.input(InputEvent::Key { key: R - 8, pressed: true }).ok();
+    // #EDE-140: every key below is let go again, so none is absorbed as
+    // held, and the chord fires again at the end (the control). A key
+    // that reaches the window was not taken by a shortcut.
+    let shortcuts = |portal: &mut Client| {
+        portal.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+        std::iter::from_fn(|| portal.next_event().ok()).filter(|e| e.kind.starts_with("shortcut.")).map(|e| e.kind).collect::<Vec<_>>()
+    };
+    let released = |h: &Harness| h.with(|ede| ede.desk.seat.get_keyboard().unwrap().pressed_keys().is_empty());
+
+    // Synthetic input never fires a shortcut: the whole chord, through the protocol, reaches the window.
+    for (code, pressed) in [(CTRL, true), (ALT, true), (R, true), (R, false), (ALT, false), (CTRL, false)] {
+        portal.input(InputEvent::Key { key: code - 8, pressed }).unwrap();
+    }
+    assert_eq!(shortcuts(&mut portal), Vec::<String>::new(), "a synthetic chord fired a shortcut");
+    wait_for(&mut app, |c| c.state.keys.contains(&(R - 8)));
+    assert!(released(&h));
+
+    // A protected prompt blocks the person's chord: its keys are the prompt's.
     let secret = app.toplevel("prompt");
     secret.toplevel.set_app_id("gcr-prompter".into());
     app.draw(&secret, 300, 200, RED);
     wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&secret.surface));
+    let typed = app.state.keys.len();
     chord(&h);
-    portal.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
-    while let Ok(e) = portal.next_event() {
-        assert!(!e.kind.starts_with("shortcut."), "a shortcut fired over a protected prompt");
-    }
+    assert_eq!(shortcuts(&mut portal), Vec::<String>::new(), "a shortcut fired over a protected prompt");
+    wait_for(&mut app, |c| c.state.keys[typed..].contains(&(R - 8)));
+    assert!(released(&h));
+
+    // The prompt goes: the same chord fires again.
+    secret.toplevel.destroy();
+    secret.xdg_surface.destroy();
+    secret.surface.destroy();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&t.surface));
+    chord(&h);
+    portal.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let fired: Vec<_> = std::iter::from_fn(|| portal.next_event().ok()).filter(|e| e.kind.starts_with("shortcut.")).take(2).map(|e| e.kind).collect();
+    assert_eq!(fired, [events::SHORTCUT_ACTIVATED, events::SHORTCUT_DEACTIVATED], "the chord no longer fires");
 
     // The owner's connection goes, its shortcuts go.
     drop(portal);
@@ -613,6 +639,36 @@ fn relative_motion_and_scrolling() {
     assert_eq!((at.x, at.y), (125.0, 90.0));
     ipc.input(InputEvent::PointerAxis { dx: 0.0, dy: 30.0 }).unwrap();
     ipc.input(InputEvent::PointerAxisDiscrete { dx: 0, dy: -2 }).unwrap();
+}
+
+/// #EDE-140: what the window under the pointer hears of a scroll (ePilot's
+/// `scroll` on eDE): a notch is 15 and one discrete step, down and right
+/// are positive, a smooth scroll has no steps.
+#[test]
+fn a_wheel_notch_scrolls_the_window_under_the_pointer() {
+    const VERTICAL: u32 = 0;
+    const HORIZONTAL: u32 = 1;
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.pointer();
+    let t = app.toplevel("notes");
+    app.draw(&t, 300, 200, BLUE);
+    let mut ipc = h.ipc();
+    let w = ipc.windows().unwrap().into_iter().next().unwrap();
+    ipc.input(InputEvent::PointerMotion { x: (w.x + w.width / 2) as f64, y: (w.y + w.height / 2) as f64 }).unwrap();
+    wait_for(&mut app, |c| c.state.pointer_at.is_some());
+
+    ipc.input(InputEvent::PointerAxisDiscrete { dx: 0, dy: 2 }).unwrap();
+    wait_for(&mut app, |c| !c.state.axes.is_empty());
+    assert_eq!((app.state.axes.as_slice(), app.state.axis_steps.as_slice()), (&[(VERTICAL, 30.0)][..], &[(VERTICAL, 2)][..]), "two notches down");
+
+    ipc.input(InputEvent::PointerAxisDiscrete { dx: -1, dy: 0 }).unwrap();
+    wait_for(&mut app, |c| c.state.axes.len() == 2);
+    assert_eq!((app.state.axes[1], app.state.axis_steps[1..].to_vec()), ((HORIZONTAL, -15.0), vec![(HORIZONTAL, -1)]), "one notch left");
+
+    ipc.input(InputEvent::PointerAxis { dx: 0.0, dy: -12.5 }).unwrap();
+    wait_for(&mut app, |c| c.state.axes.len() == 3);
+    assert_eq!((app.state.axes[2], app.state.axis_steps.len()), ((VERTICAL, -12.5), 2), "a smooth scroll up, no steps");
 }
 
 fn item(mime: &str, data: &[u8]) -> ede_protocol::ClipboardItem {
@@ -797,7 +853,7 @@ fn the_clipboard_crosses_xwayland_both_ways() {
         assert!(Instant::now() < deadline, "Xwayland never became ready");
         std::thread::sleep(Duration::from_millis(20));
     };
-    let (conn, screen) = x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland");
+    let (conn, screen) = (common::x11_connect(display, h.with(|ede| ede.xauthority(ede_compositor::desk::DeskId::PERSON)).as_deref()).expect("connect to Xwayland"), 0usize);
     let root = conn.setup().roots[screen].root;
     let win = conn.generate_id().unwrap();
     conn.create_window(x11rb::COPY_DEPTH_FROM_PARENT, win, root, 0, 0, 200, 100, 0, WindowClass::INPUT_OUTPUT, 0, &CreateWindowAux::new().event_mask(EventMask::PROPERTY_CHANGE))

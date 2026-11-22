@@ -15,6 +15,14 @@ use crate::{desk::DeskId, ipc::ROOT_SESSION, state::Ede};
 /// What an op answers.
 pub(crate) type Reply = Result<Option<(serde_json::Value, Option<Vec<u8>>)>, Failure>;
 
+/// The call an op serves: its reply can come later
+/// ([`Ede::ipc_reply_later`]), when a space's capture waits its turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Caller {
+    pub conn: u64,
+    pub call: u64,
+}
+
 /// What [`Ede::space_scope_call`] made of a space connection's call.
 pub(crate) enum Scoped {
     /// Answered here.
@@ -69,7 +77,7 @@ impl Ede {
     /// Every call of a space connection after its hello. Outside the
     /// allowlist: `forbidden`. Unbound, only `create_space` and
     /// `list_spaces` pass, the rest is `not_found`.
-    pub(crate) fn space_scope_call(&mut self, session: &SessionId, grant: &Grant, now: i64, request: Request) -> Result<Scoped, Failure> {
+    pub(crate) fn space_scope_call(&mut self, session: &SessionId, grant: &Grant, now: i64, request: Request, caller: Caller) -> Result<Scoped, Failure> {
         let fail = |code, message: &str| Err(Failure::new(code, message));
         if !request.in_space() {
             return fail(ErrorCode::Forbidden, "not an op of an agent space");
@@ -82,6 +90,12 @@ impl Ede {
             Request::Hello { .. } => unreachable!("hello is answered before the scope"),
             Request::CreateSpace { width, height } => Ok(Scoped::Reply(Some((serde_json::to_value(self.space_create(session, width, height)?).unwrap(), None)))),
             Request::ListSpaces => Ok(Scoped::Reply(Some((serde_json::to_value(self.space_infos(Some(session))).unwrap(), None)))),
+            // #EXP-1514 (D 10): its session's turn runs.
+            Request::SpaceBusy => {
+                let Some(desk) = bound else { return fail(ErrorCode::NotFound, "this grant has no space") };
+                self.space_mark_busy(desk);
+                Ok(Scoped::Reply(Some((serde_json::Value::Null, None))))
+            }
             Request::DestroySpace { space } => {
                 self.space_destroy(Some(session), &space)?;
                 Ok(Scoped::Reply(Some((serde_json::Value::Null, None))))
@@ -89,14 +103,27 @@ impl Ede {
             request @ (Request::Launch { .. } | Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } | Request::Input { .. } | Request::PointerPosition | Request::ClipboardSerial | Request::ClipboardSnapshot | Request::ClipboardSet { .. } | Request::ClipboardTaken { .. } | Request::ClipboardText) => {
                 let Some(desk) = bound else { return fail(ErrorCode::NotFound, "this grant has no space") };
                 match request {
-                    Request::Launch { argv, env, cwd } => Ok(Scoped::Reply(Some((serde_json::to_value(self.space_launch(desk, argv, env, cwd)?).unwrap(), None)))),
-                    Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } => self.space_call(desk, request).map(Scoped::Reply),
+                    Request::Launch { argv, env, cwd } => {
+                        let app = argv.first().cloned().unwrap_or_default();
+                        // #EDE-162: a space that draws on the GPU starts its
+                        // programs with the GPU (F3's switch off), from the
+                        // first one on, whose user manager keeps that
+                        // environment; a latch turns it back on (`frames::net`).
+                        if self.space_gpu_allowed(desk) {
+                            self.set_space_software_rendering(desk, false);
+                        }
+                        let launched = self.space_launch(desk, argv, env, cwd)?;
+                        // #EDE-162: a GPU space watches how it starts.
+                        self.space_net_launched(desk, launched.pid, &app);
+                        Ok(Scoped::Reply(Some((serde_json::to_value(launched).unwrap(), None))))
+                    }
+                    Request::ListWindows | Request::ListOutputs | Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::Capture { .. } => self.space_call(desk, request, caller).map(Scoped::Reply),
                     through => Ok(Scoped::Through(desk, through)),
                 }
             }
             // `in_space` refused these above; named so that a new op has to
             // be placed here by hand.
-            Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } | Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken => fail(ErrorCode::Forbidden, "not an op of an agent space"),
+            Request::MoveWindow { .. } | Request::MinimizeWindow { .. } | Request::RestoreWindow { .. } | Request::ListWorkspaces | Request::SwitchWorkspace { .. } | Request::MoveToWorkspace { .. } | Request::HoldInput | Request::ReleaseInput | Request::Subscribe | Request::BindShortcuts { .. } | Request::UnbindShortcuts { .. } | Request::SetOutput { .. } | Request::ReloadConfig | Request::Lock | Request::Logout | Request::Unlock | Request::MintGrant { .. } | Request::RevokeGrant { .. } | Request::LaunchToken | Request::SpaceOfProcess { .. } | Request::SpaceReadiness | Request::OpenChannel { .. } => fail(ErrorCode::Forbidden, "not an op of an agent space"),
         }
     }
 }

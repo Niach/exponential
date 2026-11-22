@@ -40,6 +40,9 @@ jobs:
   # Cargo.lock's wasm-bindgen.
   enet-wasm:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@v4
       - name: wasm toolchain
@@ -48,10 +51,14 @@ jobs:
           rustup target add wasm32-unknown-unknown
           rustup component add llvm-tools
           echo "WASM_BINDGEN_VERSION=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_ENV"
+      # Saves on master only (a v* tag's entry no other ref reads); the
+      # drop-master-caches step keeps it to one master entry.
       - uses: Swatinem/rust-cache@v2
+        id: cache
         with:
           workspaces: apps/desktop
           key: enet-wasm
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - uses: ./.github/actions/cargo-fetch
       - uses: taiki-e/install-action@v2
         with:
@@ -71,6 +78,10 @@ jobs:
           path: apps/web/public/chat-store
           if-no-files-found: error
           retention-days: 1
+      - uses: ./.github/actions/drop-master-caches
+        with:
+          prefix: v0-rust-enet-wasm-
+          restored-exact: ${{ steps.cache.outputs.cache-hit }}
 
   # EXP-1364: no test gate here any more. Every change reaches master through
   # a pull request whose `test / gate` check is REQUIRED (branch protection),
@@ -140,7 +151,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           load: true
           tags: exponential-web:smoke
-          cache-from: type=gha,scope=web-${{ env.PLATFORM_PAIR }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }}
 
       - uses: ./.github/actions/setup-bun
 
@@ -178,8 +189,12 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=web-${{ env.PLATFORM_PAIR }}
-          cache-to: type=gha,mode=max,scope=web-${{ env.PLATFORM_PAIR }}
+          # CI review P1 (d): the layer cache lives on ghcr as the tag
+          # `buildcache-<platform>` of this package, not in the 10 GB Actions
+          # cache (~1.6 GB there, crowding the rust caches out). Not an image:
+          # pull a semver tag. image-manifest: ghcr takes no cache index.
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ env.PLATFORM_PAIR }},mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Export digest
         run: |

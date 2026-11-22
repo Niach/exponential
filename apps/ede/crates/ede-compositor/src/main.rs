@@ -1,10 +1,24 @@
-//! `exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [--debug-captures] [-- command args…]`
+//! `exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [--debug-captures] [--control-fd N] [--test-token-file PATH] [-- command args…]`
 //! `--debug-captures`: ede-protocol captures show protected surfaces and the
 //! lock (pictures of them in a VM); refused with --udev, a real screen is
 //! never captured unredacted.
+//! `--control-fd N` (#EDE-172): descriptor N, one end of a socketpair the
+//! parent made, is a connection holding the root grant (no token: a test's
+//! way in). `--test-token-file PATH`: the root token is written to PATH
+//! too (0600), for the scripts that drive a test compositor; headless and
+//! nested only, refused with --udev.
 //! `exponential-compositor doctor`: what this machine is missing for eDE.
 //! `exponential-compositor recovery --reason … [--next …]`: the message a failed
 //! session leaves on the displays, without a GPU ([`ede_compositor::fallback`]).
+//! `exponential-compositor space-run <launch> -- program …`: what the compositor
+//! starts a launch into an agent space as; it puts itself into the space's
+//! systemd scope (`space-enter` is the first program there, `space-exec`
+//! the last) and becomes the program ([`ede_compositor::spaces::slice`]).
+//! `exponential-compositor space-enter <spaces> -- argv`: the first program
+//! in every systemd scope into a space; it becomes `argv`.
+//! `exponential-compositor space-end <pid>`: ends what the agent spaces of the
+//! compositor with that process id left; exponential-session runs it when
+//! its compositor has ended.
 //!
 //! A run that cannot drive the display ends with [`FATAL_EXIT`] and the
 //! reason in [`failure_file`] (#EDE-40), which exponential-session shows; a crash
@@ -31,12 +45,41 @@ fn failure_file() -> Option<std::path::PathBuf> {
 }
 
 fn main() {
+    // #EDE-138: a launch into a space (it becomes the program, or ends),
+    // and the end of a compositor's spaces.
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
+        Some("space-run") => ede_compositor::spaces::slice::run_main(args),
+        Some("space-enter") => ede_compositor::spaces::slice::enter_main(args),
+        Some("space-exec") => ede_compositor::spaces::slice::exec_main(args),
+        Some("space-end") => ede_compositor::spaces::slice::end_main(args),
+        _ => {}
+    }
     // #ERR-12: the crash monitor (this binary) runs and exits here.
     ede_observability::run_crash_monitor_if_requested();
     if let Err(e) = run() {
         eprintln!("exponential-compositor: {e}");
         std::process::exit(1);
     }
+}
+
+/// `--control-fd N`: descriptor N, a socket this process inherited; it is
+/// closed on exec, so what the compositor starts never inherits it.
+fn control_fd(named: &str) -> Result<std::os::fd::OwnedFd, Box<dyn std::error::Error>> {
+    use smithay::reexports::rustix::{fs, io};
+    use std::os::fd::FromRawFd;
+    let raw: i32 = named.parse().ok().filter(|fd| *fd > 2).ok_or("--control-fd needs a descriptor number above 2")?;
+    // Safety: only `fstat` looks at the number; one that is not open fails
+    // there (EBADF) and is never used.
+    let stat = fs::fstat(unsafe { std::os::fd::BorrowedFd::borrow_raw(raw) }).map_err(|e| format!("--control-fd {raw}: {e}"))?;
+    if fs::FileType::from_raw_mode(stat.st_mode) != fs::FileType::Socket {
+        return Err(format!("--control-fd {raw} is not a socket").into());
+    }
+    // Safety: an open descriptor (fstat above) this process inherited for
+    // this flag, taken once here.
+    let fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(raw) };
+    io::fcntl_setfd(&fd, io::FdFlags::CLOEXEC)?;
+    Ok(fd)
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -82,6 +125,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut no_xwayland = false;
     let mut safe_mode = false;
     let mut debug_captures = false;
+    let mut test_token_file: Option<std::path::PathBuf> = None;
     let mut udev = std::env::var_os("DISPLAY").is_none() && std::env::var_os("WAYLAND_DISPLAY").is_none();
     let mut config_path = Config::default_path();
     let mut command: Vec<String> = Vec::new();
@@ -99,9 +143,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--safe-mode" => safe_mode = true,
             "--debug-captures" => debug_captures = true,
             "--config" => config_path = Some(args.next().ok_or("--config needs a path")?.into()),
+            "--control-fd" => ede_compositor::ipc::hand_control_fd(control_fd(&args.next().ok_or("--control-fd needs a descriptor")?)?),
+            "--test-token-file" => test_token_file = Some(args.next().ok_or("--test-token-file needs a path")?.into()),
             "--" => command.extend(args.by_ref()),
             "-h" | "--help" => {
-                println!("usage: exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [-- command args…]\n       exponential-compositor doctor [--json]\n       exponential-compositor recovery --reason TEXT [--next TEXT] [--timeout SECS] [--png PATH --size WxH]");
+                println!("usage: exponential-compositor [--udev | --headless WxH] [--no-xwayland] [--safe-mode] [--config PATH] [--control-fd N] [--test-token-file PATH] [-- command args…]\n       exponential-compositor doctor [--json]\n       exponential-compositor recovery --reason TEXT [--next TEXT] [--timeout SECS] [--png PATH --size WxH]");
                 return Ok(());
             }
             other => return Err(format!("unknown argument {other:?} (try --help)").into()),
@@ -128,6 +174,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     if debug_captures && udev && headless.is_none() {
         return Err("--debug-captures never applies to a real screen (udev)".into());
+    }
+    // #EDE-172: a real session's desk is never a file.
+    if let Some(path) = test_token_file {
+        if udev && headless.is_none() {
+            return Err("--test-token-file is for a test compositor (headless or nested), never a real screen (udev)".into());
+        }
+        ede_compositor::ipc::write_test_token_to(path);
     }
     if udev && headless.is_none() {
         #[cfg(feature = "udev")]
@@ -175,12 +228,29 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             h.add_output(&mut state, "HEADLESS-1", size);
             let outputs = h.outputs.clone();
-            let mut clock = ede_compositor::backend::headless::FrameClock::new()?;
             let tick = ede_compositor::backend::headless::FrameClock::TICK;
-            event_loop.handle().insert_source(smithay::reexports::calloop::timer::Timer::from_duration(tick), move |_, _, state| {
-                clock.tick(state, &outputs);
-                smithay::reexports::calloop::timer::TimeoutAction::ToDuration(tick)
-            })?;
+            // #EDE-162: the measuring rig draws the person's output on a GPU.
+            #[cfg(feature = "gpu")]
+            let rig = std::env::var_os("EDE_HEADLESS_GLES").filter(|v| !v.is_empty());
+            #[cfg(not(feature = "gpu"))]
+            let rig: Option<std::ffi::OsString> = None;
+            match rig {
+                #[cfg(feature = "gpu")]
+                Some(node) => {
+                    let clock = ede_compositor::backend::headless::GlesClock::start(std::path::Path::new(&node), &mut state)?;
+                    event_loop.handle().insert_source(smithay::reexports::calloop::timer::Timer::from_duration(tick), move |_, _, state| {
+                        clock.borrow_mut().tick(state, &outputs);
+                        smithay::reexports::calloop::timer::TimeoutAction::ToDuration(tick)
+                    })?;
+                }
+                _ => {
+                    let mut clock = ede_compositor::backend::headless::FrameClock::new()?;
+                    event_loop.handle().insert_source(smithay::reexports::calloop::timer::Timer::from_duration(tick), move |_, _, state| {
+                        clock.tick(state, &outputs);
+                        smithay::reexports::calloop::timer::TimeoutAction::ToDuration(tick)
+                    })?;
+                }
+            }
             Some(h)
         }
         #[cfg(feature = "winit")]
@@ -193,9 +263,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     state.start_session();
+    // #EDE-162: agent spaces on a GPU when there is one (headless and nested).
+    state.start_space_gpu(safe_mode || std::env::var_os("EDE_SAFE_MODE").is_some_and(|v| !v.is_empty()));
     ede_compositor::backend::watch_main_loop(&event_loop.handle());
+    ede_compositor::backend::watch_space_lateness(&event_loop.handle(), state.spaces_stats_on());
 
     event_loop.run(None, &mut state, |state| {
+        // #EDE-162: after the person's frames, the spaces' captures.
+        state.spaces_after_frames();
         let _ = state.display_handle.flush_clients();
     })?;
     Ok(())

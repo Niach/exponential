@@ -341,38 +341,11 @@ pub struct IssueRelation {
     pub updated_at: Option<String>,
 }
 
-/// `pins` shape row (EXP-778) — one personal pin (`user_id = me`, static
-/// per-user shape, NOT team/trash scoped). `kind` is a contract `pinKind`
-/// (`issue` | `session`; NEW-8: a legacy `action` pin is ignored) and its
-/// target id is set; every non-PK field is `Option` like `Notification` so an unknown
-/// kind or an absent target degrades to a hidden row, never a wedged
-/// hydration. `sort_order` ascending = display order (a new pin appends).
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct Pin {
-    pub id: String,
-    #[serde(default)]
-    pub user_id: Option<String>,
-    #[serde(default)]
-    pub team_id: Option<String>,
-    #[serde(default)]
-    pub kind: Option<String>,
-    #[serde(default)]
-    pub issue_id: Option<String>,
-    #[serde(default)]
-    pub session_id: Option<String>,
-    #[serde(default, deserialize_with = "tolerant_opt_f64")]
-    pub sort_order: Option<f64>,
-    #[serde(default)]
-    pub created_at: Option<String>,
-    #[serde(default)]
-    pub updated_at: Option<String>,
-}
-
 /// `sidebar_layout` shape row (#EXP-1832, sidebar-folders.json): one node
 /// of the member's own sidebar (static per-user shape, `user_id = me`, like
-/// pins). `section` = board | agent | app, `kind` = folder | item; an item
+/// `issue_drafts`). `section` = board | agent | app, `kind` = folder | item; an item
 /// places `target_id` (inside `parent_id`, a folder), a folder carries
-/// `name`. Every non-PK field is `Option` like [`Pin`];
+/// `name`. Every non-PK field is `Option` like `Notification`;
 /// [`crate::sidebar_folders::sidebar_entries`] reads one team's section.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct SidebarLayoutRow {
@@ -423,10 +396,10 @@ pub struct ComposerDraftRow {
 /// `issue_drafts` shape row (EXP-878) — one unfiled create-issue dialog,
 /// from a STATIC per-user shape (`user_id = me`), neither team- nor
 /// trash-scoped. A row renders only once its `board_id` resolves in the
-/// boards collection (the pins rule), so a draft on a trashed board is
+/// boards collection, so a draft on a trashed board is
 /// simply hidden rather than an error.
 ///
-/// Every non-PK field is `Option` like [`Pin`]: a partial row degrades to a
+/// Every non-PK field is `Option` like `Notification`: a partial row degrades to a
 /// blank field, never a dropped draft. `label_ids` arrives as a Postgres
 /// `uuid[]` cell (`{a,b}`, a JSON array, or a single id) — the same tolerant
 /// list parse `DeviceRow::shared_team_ids` takes.

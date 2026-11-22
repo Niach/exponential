@@ -16,6 +16,12 @@
 //! to that DSN). `EXP_FRAME_STATS=1` prints a frame-time summary to stderr
 //! with or without Sentry ([`stats`]).
 //!
+//! #EDE-185: the thread that logs never writes the line itself. Every line
+//! (the tracing fmt layer's and [`log_line`]'s) goes to a bounded queue
+//! that one thread writes to stderr: a log file or a journald stream that
+//! waits on a busy disk holds that thread, never the compositor's main
+//! loop. A full queue drops lines and says how many (`log_thread`).
+//!
 //! Native crashes (#ERR-12): a long-running binary calls
 //! [`watch_native_crashes`]; a monitor process (the same binary, see
 //! [`run_crash_monitor_if_requested`]) writes a walked report of every
@@ -24,10 +30,13 @@
 //!
 //! Privacy: `send_default_pii` off, the hostname dropped, the user is the
 //! account's pseudonymous id alone, and [`scrub`] filters credentials out
-//! of every event, breadcrumb and log.
+//! of every event, breadcrumb and log. A binary the person's content
+//! passes through (the shell, the sealed surfaces) sends no line's text at
+//! all below an error ([`Trail::Places`], #ERR-29).
 
 pub mod config;
 mod limit;
+mod log_thread;
 pub mod scrub;
 pub mod stats;
 pub mod transport;
@@ -43,6 +52,7 @@ use tracing_subscriber::{
     EnvFilter, Layer,
 };
 
+pub use log_thread::line as log_line;
 pub use stats::{record_frame, LoopWatch, HANG, LONG_FRAME, TICK};
 
 /// `exponential-ede@<version>`: one release name for every eDE binary.
@@ -68,40 +78,145 @@ pub fn watch_native_crashes(component: &'static str) {
     }
 }
 
-/// Keeps the Sentry client alive; dropping it flushes what is queued.
-pub struct Guard(Option<sentry::ClientInitGuard>);
+/// Keeps the Sentry client and the log's thread alive; dropping it writes
+/// the queued log lines (up to 1 s), then flushes what Sentry has queued.
+pub struct Guard {
+    sentry: Option<sentry::ClientInitGuard>,
+    log: Option<log_thread::Log>,
+}
 
 impl Guard {
     /// Whether this process reports to Sentry.
     pub fn enabled(&self) -> bool {
-        self.0.is_some()
+        self.sentry.is_some()
     }
 }
 
-/// Where the human-readable log goes.
+impl Drop for Guard {
+    fn drop(&mut self) {
+        if let Some(log) = &self.log {
+            log.flush(log_thread::EXIT_FLUSH);
+        }
+    }
+}
+
+/// Where the human-readable log goes (from the log's own thread).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Output {
     Stdout,
     Stderr,
 }
 
+/// What of a binary's log lines a report carries (#ERR-29). Panics, native
+/// crashes and `error!` lines are events either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trail {
+    /// Every INFO+ line with its fields as a breadcrumb, WARN+ also as a
+    /// log, `ede` spans as transactions: a binary whose lines are written
+    /// to be sent (the compositor, the session, the services, the portal,
+    /// the shell's supervisor).
+    Lines,
+    /// Only WHERE a line was logged (its target, level and `file:line`),
+    /// never its text or fields, and no logs or transactions: a binary the
+    /// person's content passes through (the shell, the sealed surfaces),
+    /// whose lines name chats, notifications, accounts and paths. Its
+    /// `error!` lines are the events, so they carry nothing personal.
+    Places,
+}
+
+/// [`Trail::Places`]: one breadcrumb per INFO+ line, saying where.
+struct Places<F>(F);
+
+/// The breadcrumb of a line at `metadata`: nothing of the line itself.
+fn place(metadata: &tracing::Metadata<'_>) -> sentry::Breadcrumb {
+    let level = match *metadata.level() {
+        Level::ERROR => sentry::Level::Error,
+        Level::WARN => sentry::Level::Warning,
+        _ => sentry::Level::Info,
+    };
+    // From the crate on: a path dependency's `file!()` is the build
+    // machine's absolute path.
+    fn within(file: &str) -> &str {
+        file.rsplit_once("crates/").or_else(|| file.split_once("/registry/src/").and_then(|(_, rest)| rest.split_once('/'))).map_or(file, |(_, rest)| rest)
+    }
+    let at = match (metadata.file(), metadata.line()) {
+        (Some(file), Some(line)) => format!("{}:{line}", within(file)),
+        _ => metadata.name().to_owned(),
+    };
+    sentry::Breadcrumb { ty: "log".into(), category: Some(metadata.target().to_owned()), level, message: Some(at), ..Default::default() }
+}
+
+impl<S: tracing::Subscriber, F: Fn(sentry::Breadcrumb) + 'static> Layer<S> for Places<F> {
+    fn on_event(&self, event: &tracing::Event<'_>, _: tracing_subscriber::layer::Context<'_, S>) {
+        // #ERR-32: a library's `log` line comes through tracing-log's one
+        // callsite per level (target `log`, no file): its place is the
+        // record's own.
+        use tracing_log::NormalizeEvent as _;
+        let record = event.normalized_metadata();
+        (self.0)(place(record.as_ref().unwrap_or_else(|| event.metadata())));
+    }
+}
+
+/// [`Trail::Places`]' events: this binary's own `error!` lines. A
+/// library's `log::error!` (tracing-log's bridge) is no event of ours: its
+/// text may be anyone's, so it is a place on the next one. #ERR-32: told
+/// apart by its callsite, not by a name: the bridge asks `enabled` about a
+/// "log record" and then sends a "log event", so a check of the name let
+/// every library error through, with its text.
+struct OwnErrors;
+
+impl<S> tracing_subscriber::layer::Filter<S> for OwnErrors {
+    fn enabled(&self, metadata: &tracing::Metadata<'_>, _: &tracing_subscriber::layer::Context<'_, S>) -> bool {
+        *metadata.level() == Level::ERROR
+    }
+
+    fn event_enabled(&self, event: &tracing::Event<'_>, _: &tracing_subscriber::layer::Context<'_, S>) -> bool {
+        use tracing_log::NormalizeEvent as _;
+        !event.is_log()
+    }
+
+    fn max_level_hint(&self) -> Option<LevelFilter> {
+        Some(LevelFilter::ERROR)
+    }
+}
+
+/// [`Trail::Places`]: a breadcrumb per INFO+ line saying where, and this
+/// binary's own `error!` lines as the events.
+fn places<S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>>() -> impl Layer<S> {
+    use sentry::integrations::tracing::ErrorLayer;
+    Places(|crumb| sentry::add_breadcrumb(crumb)).with_filter(LevelFilter::INFO).and_then(ErrorLayer::new().with_filter(OwnErrors))
+}
+
+/// [`init_with`] sending every line ([`Trail::Lines`]).
+pub fn init(component: &'static str, default_filter: &str, output: Output) -> Guard {
+    init_with(component, default_filter, output, Trail::Lines)
+}
+
 /// The process's tracing subscriber (`RUST_LOG`, else `default_filter`, to
 /// `output`) plus, when diagnostics are on and the server enabled them, the
-/// Sentry client and its tracing layers. `component` tags every event
-/// (`compositor`, `session`, `services`).
-pub fn init(component: &'static str, default_filter: &str, output: Output) -> Guard {
+/// Sentry client and its tracing layers, sending `trail` of the lines.
+/// `component` tags every event (`compositor`, `session`, `services`,
+/// `shell`, `sealed-<mode>`, `portal`, `ui-supervise`).
+pub fn init_with(component: &'static str, default_filter: &str, output: Output, trail: Trail) -> Guard {
+    limit::started();
     // The ring provider for every rustls user in the process (the tunnel's
     // reqwest has none of its own); a second install is a no-op.
     let _ = rustls::crypto::ring::default_provider().install_default();
     let plan = config::resolve();
 
-    let writer = match output {
-        Output::Stdout => BoxMakeWriter::new(std::io::stdout),
-        Output::Stderr => BoxMakeWriter::new(std::io::stderr),
+    // #EDE-185: from the log's own thread; directly if it cannot start.
+    let log = log_thread::install(output);
+    let writer = match (log, output) {
+        (Some(log), _) => BoxMakeWriter::new(log_thread::Writer(log.clone())),
+        (None, Output::Stdout) => BoxMakeWriter::new(std::io::stdout),
+        (None, Output::Stderr) => BoxMakeWriter::new(std::io::stderr),
     };
+    let log = log.cloned();
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| default_filter.into());
     let fmt = tracing_subscriber::fmt::layer().with_writer(writer).with_filter(env_filter);
-    let sentry_layers = plan.is_some().then(|| {
+    // The person's content passes through this binary: where, never what.
+    let places = (plan.is_some() && trail == Trail::Places).then(places);
+    let sentry_layers = (plan.is_some() && trail == Trail::Lines).then(|| {
         use sentry::integrations::tracing::{BreadcrumbLayer, ErrorLayer, LogLayer, SpanLayer};
         // Static filters only (callsite interest + a level hint), so the
         // renderer's trace!/debug! callsites stay disabled. Spans: ours only
@@ -115,7 +230,7 @@ pub fn init(component: &'static str, default_filter: &str, output: Output) -> Gu
             .and_then(ErrorLayer::new().with_filter(LevelFilter::ERROR))
             .and_then(LogLayer::new().with_filter(Targets::new().with_default(Level::WARN).with_target("ede", Level::INFO)))
     });
-    tracing_subscriber::registry().with(fmt).with(sentry_layers).init();
+    tracing_subscriber::registry().with(fmt).with(sentry_layers).with(places).init();
 
     // The answer for the next launch (never this one: no waiting on the
     // network before the desktop starts).
@@ -126,41 +241,65 @@ pub fn init(component: &'static str, default_filter: &str, output: Output) -> Gu
             crash_monitor::discard_pending(&crashes_dir());
         }
         stats::init(false);
-        return Guard(None);
+        return Guard { sentry: None, log };
     };
-    let user_id = plan.user_id.clone();
+    let user = plan.user_id.clone().map(|id| sentry::User { id: Some(id), ..Default::default() });
     let guard = sentry::init(options(&plan));
     sentry::configure_scope(|scope| {
         scope.set_tag("component", component);
-        if let Some(id) = user_id {
-            scope.set_user(Some(sentry::User { id: Some(id), ..Default::default() }));
+        if let Some(user) = user.clone() {
+            scope.set_user(Some(user));
         }
     });
     stats::init(guard.is_enabled());
     if guard.is_enabled() {
         // #ERR-12: the last launches' native crashes, each with its release.
         // Deleted once flushed, off the startup path.
-        let hub = sentry::Hub::current();
+        let hub = reports_hub(sentry::Hub::current().client(), user);
         let _ = std::thread::Builder::new().name("ede-crash-reports".into()).spawn(move || {
-            let sent = crash_monitor::send_pending(
-                &crashes_dir(),
-                |event| {
-                    hub.capture_event(event);
-                },
-                || hub.client().is_some_and(|client| client.flush(Some(Duration::from_secs(10)))),
-            );
+            let sent = send_pending_reports(&hub, &crashes_dir());
             if sent > 0 {
                 tracing::info!(sent, "native crash reports sent");
             }
         });
     }
     tracing::info!(environment = %plan.environment, "diagnostics on");
-    Guard(Some(guard))
+    Guard { sentry: Some(guard), log }
 }
 
-/// Sends what is queued (up to 2 s): before a `std::process::exit`, which
-/// skips the [`Guard`]'s drop.
+/// The reports another launch left, through `hub`; deleted once flushed.
+/// #ERR-29: and only while its client is still open. A binary that stops
+/// right after its start (the portal without a compositor, a shell that
+/// cannot open its directory) closes the client under this thread: what it
+/// captures then goes nowhere, and a flush of a closed client says "all
+/// sent". Those reports wait for the next launch.
+fn send_pending_reports(hub: &sentry::Hub, dir: &std::path::Path) -> usize {
+    crash_monitor::send_pending(
+        dir,
+        |event| {
+            hub.capture_event(event);
+        },
+        || hub.client().is_some_and(|client| client.flush(Some(Duration::from_secs(10))) && client.is_enabled()),
+    )
+}
+
+/// #ERR-29: the hub the reports another launch left go through (a native
+/// crash, of whichever binary): the client and the person's id, and none
+/// of this process's tags, so a report keeps the `component` it was
+/// written with (seven binaries send each other's). Its own hub: a scope
+/// pushed on the process's would hide this process's tag from its own
+/// events meanwhile.
+fn reports_hub(client: Option<std::sync::Arc<sentry::Client>>, user: Option<sentry::User>) -> sentry::Hub {
+    let mut scope = sentry::Scope::default();
+    scope.set_user(user);
+    sentry::Hub::new(client, std::sync::Arc::new(scope))
+}
+
+/// Writes the queued log lines (up to 1 s) and sends what Sentry has
+/// queued (up to 2 s): before a `std::process::exit` or an exec, which skip
+/// the [`Guard`]'s drop (an exit writes the log lines on its own too).
 pub fn flush() {
+    log_thread::flush(log_thread::EXIT_FLUSH);
     if let Some(client) = sentry::Hub::current().client() {
         client.flush(Some(Duration::from_secs(2)));
     }
@@ -187,4 +326,170 @@ fn options(plan: &config::Plan) -> sentry::ClientOptions {
     // Parsed once in `config` (the builder's `dsn()` panics on a bad one).
     options.dsn = Some(plan.dsn.clone());
     options
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    /// #ERR-29: a binary the person's content passes through sends where a
+    /// line was logged, never its text or its fields.
+    #[test]
+    fn a_place_says_where_and_never_what() {
+        let crumbs = Arc::new(Mutex::new(Vec::<sentry::Breadcrumb>::new()));
+        let seen = crumbs.clone();
+        let subscriber = tracing_subscriber::registry().with(Places(move |crumb| seen.lock().unwrap().push(crumb)).with_filter(LevelFilter::INFO));
+        tracing::subscriber::with_default(subscriber, || {
+            let (email, summary) = ("ada@example.com", "Lunch at 12?");
+            tracing::info!(account = %email, "account sync");
+            tracing::warn!("send the message: {summary}");
+            tracing::debug!("below INFO: no breadcrumb");
+        });
+        let crumbs = crumbs.lock().unwrap();
+        assert_eq!(crumbs.len(), 2, "{crumbs:?}");
+        let sent = format!("{crumbs:?}");
+        assert!(!sent.contains("ada@example.com") && !sent.contains("Lunch") && !sent.contains("account sync"), "{sent}");
+        for crumb in crumbs.iter() {
+            assert!(crumb.data.is_empty(), "no fields: {crumb:?}");
+            assert_eq!(crumb.category.as_deref(), Some(module_path!()));
+            let at = crumb.message.as_deref().unwrap();
+            assert!(at.starts_with("ede-observability/src/lib.rs:") && at.ends_with(|c: char| c.is_ascii_digit()), "file:line, from the crate on: {at}");
+        }
+        assert_eq!((crumbs[0].level, crumbs[1].level), (sentry::Level::Info, sentry::Level::Warning));
+    }
+
+    /// #ERR-32: a library's `log` line (api, sync, gpui…, through
+    /// tracing-log's bridge) is placed where IT was logged, never with its
+    /// text, and nothing below INFO.
+    #[test]
+    fn a_libraries_log_line_is_placed_where_it_was_logged() {
+        use log::Log as _;
+        let crumbs = Arc::new(Mutex::new(Vec::<sentry::Breadcrumb>::new()));
+        let seen = crumbs.clone();
+        let subscriber = tracing_subscriber::registry().with(Places(move |crumb| seen.lock().unwrap().push(crumb)).with_filter(LevelFilter::INFO));
+        tracing::subscriber::with_default(subscriber, || {
+            let bridge = tracing_log::LogTracer::new();
+            let summary = "Lunch at 12?";
+            bridge.log(&log::Record::builder().level(log::Level::Error).target("sync::shapes").file(Some("/build/apps/desktop/crates/sync/src/shapes.rs")).line(Some(42)).args(format_args!("send the message: {summary}")).build());
+            bridge.log(&log::Record::builder().level(log::Level::Debug).target("gpui::window").file(Some("/build/gpui/src/window.rs")).line(Some(7)).args(format_args!("below INFO: no breadcrumb")).build());
+        });
+        let crumbs = crumbs.lock().unwrap();
+        assert_eq!(crumbs.len(), 1, "{crumbs:?}");
+        assert!(!format!("{crumbs:?}").contains("Lunch"), "{crumbs:?}");
+        assert_eq!((crumbs[0].category.as_deref(), crumbs[0].message.as_deref(), crumbs[0].level), (Some("sync::shapes"), Some("sync/src/shapes.rs:42"), sentry::Level::Error));
+        assert!(crumbs[0].data.is_empty(), "no fields: {:?}", crumbs[0]);
+    }
+
+    /// #ERR-32: the shell's stack (`Trail::Places`) sends its own `error!`
+    /// as an event and a library's `log::error!` as a place on it: never
+    /// an event of its own, never its text.
+    #[test]
+    fn a_libraries_log_error_is_a_place_and_never_an_event() {
+        use log::Log as _;
+        struct Collect(Arc<Mutex<Vec<sentry::Envelope>>>);
+        impl sentry::Transport for Collect {
+            fn send_envelope(&self, envelope: sentry::Envelope) {
+                self.0.lock().unwrap().push(envelope);
+            }
+        }
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let collected = sent.clone();
+        let mut options = sentry::ClientOptions::new().transport(move |_: &sentry::ClientOptions| -> Arc<dyn sentry::Transport> { Arc::new(Collect(collected.clone())) });
+        options.dsn = Some("https://publickey@glitchtip.example/9".parse().unwrap());
+        let hub = Arc::new(sentry::Hub::new(Some(Arc::new(sentry::Client::from(options))), Arc::new(sentry::Scope::default())));
+        sentry::Hub::run(hub, || {
+            tracing::subscriber::with_default(tracing_subscriber::registry().with(places()), || {
+                let bridge = tracing_log::LogTracer::new();
+                let summary = "Lunch at 12?";
+                bridge.log(&log::Record::builder().level(log::Level::Error).target("sync::shapes").file(Some("/build/apps/desktop/crates/sync/src/shapes.rs")).line(Some(42)).args(format_args!("send the message: {summary}")).build());
+                tracing::error!("the ui directory could not be opened");
+            });
+        });
+        let sent = sent.lock().unwrap();
+        let events: Vec<&sentry::protocol::Event<'static>> = sent.iter().filter_map(|envelope| envelope.event()).collect();
+        assert_eq!(events.len(), 1, "one event, the binary's own: {events:?}");
+        assert_eq!(events[0].message.as_deref(), Some("the ui directory could not be opened"));
+        let crumbs: Vec<(Option<&str>, Option<&str>)> = events[0].breadcrumbs.values.iter().map(|crumb| (crumb.category.as_deref(), crumb.message.as_deref())).collect();
+        assert_eq!(crumbs.first(), Some(&(Some("sync::shapes"), Some("sync/src/shapes.rs:42"))), "{crumbs:?}");
+        for envelope in sent.iter() {
+            let mut bytes = Vec::new();
+            envelope.to_writer(&mut bytes).unwrap();
+            assert!(!String::from_utf8_lossy(&bytes).contains("Lunch"), "the library's text stays home");
+        }
+    }
+
+    /// #ERR-29: reports a closed client could not send stay for the next
+    /// launch; an open one sends them and they go.
+    #[test]
+    fn a_report_waits_while_the_client_is_closed() {
+        struct Collect(Arc<Mutex<Vec<sentry::Envelope>>>);
+        impl sentry::Transport for Collect {
+            fn send_envelope(&self, envelope: sentry::Envelope) {
+                self.0.lock().unwrap().push(envelope);
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let report = dir.path().join("6c8f0b2c-9c55-4c8a-9b0f-0f3c1f0e9a11.json");
+        std::fs::write(
+            &report,
+            format!(r#"{{"id":"6c8f0b2c-9c55-4c8a-9b0f-0f3c1f0e9a11","release":"exponential-ede@0.2.28","component":"portal","timestamp":{now},"os":"Linux","os_version":null,"arch":"x86_64","kind":"SIGSEGV","reason":"SIGSEGV / SEGV_MAPERR","address":0,"thread_id":7,"thread_name":null,"frames":[{{"address":4096,"module":0,"trust":"context"}}],"modules":[{{"code_file":"/usr/bin/x","base":0,"size":65536,"debug_id":"b0b1b2b3-b4b5-b6b7-b8b9-babbbcbdbebf","code_id":null,"debug_file":null,"main":true}}]}}"#),
+        )
+        .unwrap();
+        let client = |sent: &Arc<Mutex<Vec<sentry::Envelope>>>| {
+            let collected = sent.clone();
+            let mut options = sentry::ClientOptions::new().transport(move |_: &sentry::ClientOptions| -> Arc<dyn sentry::Transport> { Arc::new(Collect(collected.clone())) });
+            options.dsn = Some("https://publickey@glitchtip.example/9".parse().unwrap());
+            Arc::new(sentry::Client::from(options))
+        };
+        // The binary stopped: its client closed before the reports went.
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let closed = client(&sent);
+        closed.close(None);
+        assert_eq!(send_pending_reports(&reports_hub(Some(closed), None), dir.path()), 1);
+        assert!(sent.lock().unwrap().is_empty() && report.exists(), "nothing went, so the report waits");
+        // The next launch sends it.
+        let open = client(&sent);
+        assert_eq!(send_pending_reports(&reports_hub(Some(open), None), dir.path()), 1);
+        assert_eq!(sent.lock().unwrap().len(), 1);
+        assert!(!report.exists(), "sent, then deleted");
+    }
+
+    /// #ERR-29: a crash report another binary left is sent under ITS
+    /// component, with the person's id, while this process's own events
+    /// keep this process's (a scope's tags win over an event's).
+    #[test]
+    fn a_crash_report_keeps_the_component_it_was_written_with() {
+        struct Collect(Arc<Mutex<Vec<sentry::Envelope>>>);
+        impl sentry::Transport for Collect {
+            fn send_envelope(&self, envelope: sentry::Envelope) {
+                self.0.lock().unwrap().push(envelope);
+            }
+        }
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let collected = sent.clone();
+        let mut options = sentry::ClientOptions::new().transport(move |_: &sentry::ClientOptions| -> Arc<dyn sentry::Transport> { Arc::new(Collect(collected.clone())) });
+        options.dsn = Some("https://publickey@glitchtip.example/9".parse().unwrap());
+        let client = Arc::new(sentry::Client::from(options));
+        let person = sentry::User { id: Some("u-1".into()), ..Default::default() };
+        let process = sentry::Hub::new(Some(client.clone()), Arc::new(sentry::Scope::default()));
+        process.configure_scope(|scope| {
+            scope.set_tag("component", "shell");
+            scope.set_user(Some(person.clone()));
+        });
+        let reports = reports_hub(Some(client), Some(person));
+        let mut tags = sentry::protocol::Map::new();
+        tags.insert("component".to_owned(), "sealed-lock".to_owned());
+        reports.capture_event(sentry::protocol::Event { message: Some("SIGSEGV".into()), tags, ..Default::default() });
+        process.capture_message("the shell's own", sentry::Level::Error);
+        let events: Vec<(Option<String>, Option<String>)> = sent
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|envelope| envelope.event())
+            .map(|event| (event.tags.get("component").cloned(), event.user.as_ref().and_then(|user| user.id.clone())))
+            .collect();
+        assert_eq!(events, [(Some("sealed-lock".to_owned()), Some("u-1".to_owned())), (Some("shell".to_owned()), Some("u-1".to_owned()))]);
+    }
 }

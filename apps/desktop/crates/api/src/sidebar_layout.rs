@@ -3,7 +3,11 @@
 //!
 //! - `sidebarLayout.save({teamId, section, upserts, deletes})` → `{txId}`:
 //!   one move's rows, the output of `domain::sidebar_folders::sidebar_move` /
-//!   `sidebar_ungroup` ([`SidebarWrites`]).
+//!   `sidebar_ungroup` ([`SidebarWrites`]). Section `team` (#EXP-2027,
+//!   sidebar-tree.json): every item target must be one of the team's boards,
+//!   agents, apps or root sessions the caller sees (else BAD_REQUEST).
+//! - `sidebarLayout.remove({targetId})` → `{txId}`: `Remove from sidebar`,
+//!   the caller's `team` item entries for that target go.
 //! - `sidebarLayout.rename({id, name})` → `{txId, name}`: the saved name
 //!   (trimmed, at most 80 characters, empty = `New folder`).
 //!
@@ -55,6 +59,16 @@ pub fn sidebar_layout_save(trpc: &TrpcClient, input: &SidebarLayoutSaveInput) ->
     trpc.mutation("sidebarLayout.save", input)
 }
 
+/// `sidebarLayout.remove` — mutation (#EXP-2027).
+pub fn sidebar_layout_remove(trpc: &TrpcClient, target_id: &str) -> Result<SidebarLayoutSaveOutput, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        target_id: &'a str,
+    }
+    trpc.mutation("sidebarLayout.remove", &Input { target_id })
+}
+
 /// `sidebarLayout.rename` — mutation.
 pub fn sidebar_layout_rename(trpc: &TrpcClient, id: &str, name: &str) -> Result<SidebarLayoutRenameOutput, ApiError> {
     #[derive(Serialize)]
@@ -100,6 +114,24 @@ mod tests {
         assert!(request.ends_with(
             r#"{"teamId":"t-1","section":"board","upserts":[{"id":null,"kind":"item","targetId":"b-1","parentId":"f-1","name":null,"sortOrder":2}],"deletes":["f-0"]}"#
         ));
+    }
+
+    #[test]
+    fn save_posts_the_team_section() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":8}}}"#);
+        let input = SidebarLayoutSaveInput::new("t-1", SidebarSection::Team, &SidebarWrites::default());
+        assert_eq!(sidebar_layout_save(&client(&base), &input).unwrap().tx_id, Some(8));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"teamId":"t-1","section":"team","upserts":[],"deletes":[]}"#));
+    }
+
+    #[test]
+    fn remove_posts_the_target_id() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"txId":11}}}"#);
+        assert_eq!(sidebar_layout_remove(&client(&base), "s-1").unwrap().tx_id, Some(11));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/sidebarLayout.remove HTTP/1.1"));
+        assert!(request.ends_with(r#"{"targetId":"s-1"}"#));
     }
 
     #[test]

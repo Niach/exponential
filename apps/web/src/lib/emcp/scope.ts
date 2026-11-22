@@ -8,6 +8,7 @@ import {
   type Column,
   type SQL,
 } from "drizzle-orm"
+import { fill, rules as eagentRules } from "@exp/eagent/copy"
 import { db } from "@/db/connection"
 import { mcpGrants, oauthAccessTokens, boards } from "@/db/schema"
 import { boardVisible } from "@/lib/board-visibility"
@@ -22,7 +23,8 @@ import { hashOAuthToken } from "@/lib/auth/oauth-token-hash"
 // must re-run the consent flow. The scope is enforced in the MCP tool layer;
 // neither OAuth tokens nor scoped keys are accepted anywhere else (see
 // resolveSession), so the tool layer is the complete surface.
-export type McpAccessOrigin = `oauth` | `apiKey` | `agent`
+/** `session` (#EXP-2027): a chat's or the Assistant's tree clamp. */
+export type McpAccessOrigin = `oauth` | `apiKey` | `agent` | `session`
 
 export interface McpAccess {
   full: boolean
@@ -149,7 +151,9 @@ export async function resolveMcpTokenAccess(
 
 // Both wordings keep "not granted access": clients and tests key on it.
 const deniedMessage = (target: string, access: McpAccess) =>
-  access.origin === `agent`
+  access.origin === `session`
+    ? fill(eagentRules.copy.sessionNotGranted, { target })
+    : access.origin === `agent`
     ? `This agent session was not granted access to ${target}: a team agent works only in its own team.`
     : access.origin === `apiKey`
     ? `This API key was not granted access to ${target}. Create a new key under Settings → Security with a wider team/board selection (a key's scope cannot be changed).`
@@ -174,24 +178,26 @@ export function clampMcpAccessToTeam(
 export function clampMcpAccessToTeams(
   access: McpAccess,
   teamIds: readonly string[],
-  boardTeamIds: ReadonlyMap<string, string> = new Map()
+  boardTeamIds: ReadonlyMap<string, string> = new Map(),
+  origin: McpAccessOrigin = `agent`
 ): McpAccess {
   const allowed = new Set(teamIds)
   if (access.full) {
-    return buildMcpAccess({ allTeams: false, teamIds: [...allowed], boardIds: [] }, new Map(), `agent`)
+    return buildMcpAccess({ allTeams: false, teamIds: [...allowed], boardIds: [] }, new Map(), origin)
   }
   const grantedBoardIds = new Set(
     [...access.grantedBoardIds].filter((boardId) => allowed.has(boardTeamIds.get(boardId) ?? ``))
   )
   const fullTeamIds = new Set([...access.fullTeamIds].filter((id) => allowed.has(id)))
   const visibleTeamIds = new Set([...access.visibleTeamIds].filter((id) => allowed.has(id)))
-  return { full: false, origin: `agent`, fullTeamIds, grantedBoardIds, visibleTeamIds }
+  return { full: false, origin, fullTeamIds, grantedBoardIds, visibleTeamIds }
 }
 
 /** `clampMcpAccessToTeams` with the granted boards' teams looked up. */
 export async function resolveMcpAccessClampedToTeams(
   access: McpAccess,
-  teamIds: readonly string[]
+  teamIds: readonly string[],
+  origin: McpAccessOrigin = `agent`
 ): Promise<McpAccess> {
   const map = new Map<string, string>()
   if (!access.full && access.grantedBoardIds.size > 0) {
@@ -201,7 +207,7 @@ export async function resolveMcpAccessClampedToTeams(
       .where(inArray(boards.id, [...access.grantedBoardIds]))
     for (const row of rows) map.set(row.id, row.teamId)
   }
-  return clampMcpAccessToTeams(access, teamIds, map)
+  return clampMcpAccessToTeams(access, teamIds, map, origin)
 }
 
 /** `clampMcpAccessToTeam` with the granted boards' teams looked up. */

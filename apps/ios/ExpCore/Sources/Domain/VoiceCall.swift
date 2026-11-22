@@ -1,7 +1,7 @@
 import Foundation
 
 // NEW-69 (voice V5): CALLER MODE on the phones. A port of the TS reference
-// `packages/etalk/src/voice-call.ts` (desktop `domain::voice_call`,
+// `packages/etalk/src/voice-call.ts` (desktop `etalk::call`,
 // Android `domain/VoiceCall.kt`), byte-locked by `fixtures/voice-call.json`
 // (`copy`, `testIds`, `icons`, `constants`, `wire`, `surfaceSpecimens`, every
 // `availabilityCases`, `targetCases` and `flowCases` row, replayed by
@@ -33,13 +33,9 @@ public enum VoiceCall {
         /// EXP-1857: the second status line while the call falls back.
         public static let via = "Voice on {device}"
 
-        /// Why the telephone is disabled (`callAvailability`, in order).
+        /// Why the telephone is disabled (`callTarget`, `callAvailability`).
         public enum Reasons {
-            /// NEW-99: the member has no voice Assistant yet.
-            public static let noAgent = "Set up your Assistant in Settings → Agents"
-            public static let noVoiceDevice = "Run your Assistant on a desktop in Settings → Assistant"
             public static let offline = "{device} is offline"
-            public static let notHere = "Calls run on {device}"
             public static let preparing = "{device} is getting its voice ready"
             /// NEW-99: the voice device's voice failed to load.
             public static let voiceFailed = "{device} couldn't load its voice: restart Exponential there"
@@ -282,33 +278,20 @@ public enum VoiceCall {
     /// The voice device's doctor row `speech` as a caller reads it.
     public enum Speech: String, Sendable { case ok, preparing, noGpu, failed }
 
+    /// EXP-1991: ONE desktop, as `callTarget` reads it for its reason.
     public struct AvailabilityInput: Equatable, Sendable {
-        /// NEW-99: the member has a voice Assistant (`voice.get` agentId).
-        public var agent: Bool
-        public var platform: Platform
-        /// The voice device's name; nil = none picked (or its row is gone).
-        public var device: String?
+        /// The desktop's name.
+        public var device: String
         public var online: Bool
-        /// THIS client is the voice device.
-        public var here: Bool
         /// nil = no `speech` row yet.
         public var speech: Speech?
-        /// A call already runs on the voice device.
-        public var busy: Bool
-        /// #NEW-57: a meeting runs on the voice device (`meetingStartedAt` set).
+        /// #NEW-57: a meeting runs on it (`meetingStartedAt` set).
         public var meeting: Bool
 
-        public init(
-            agent: Bool, platform: Platform, device: String?, online: Bool,
-            here: Bool, speech: Speech?, busy: Bool, meeting: Bool = false
-        ) {
-            self.agent = agent
-            self.platform = platform
+        public init(device: String, online: Bool, speech: Speech?, meeting: Bool = false) {
             self.device = device
             self.online = online
-            self.here = here
             self.speech = speech
-            self.busy = busy
             self.meeting = meeting
         }
     }
@@ -341,22 +324,18 @@ public enum VoiceCall {
         return Tap(call: false, toast: platform == .phone ? availability.reason : nil)
     }
 
-    /// Whether the telephone is enabled, and the reason when it is not
-    /// (first match wins). S-3: a voice that is still downloading rings
-    /// until it is ready.
+    /// Whether a desktop can take a call, and the reason when it cannot
+    /// (`availabilityCases`, first match wins). S-3: a voice that is still
+    /// downloading rings until it is ready.
     public static func callAvailability(_ input: AvailabilityInput) -> Availability {
         func off(_ reason: String) -> Availability {
-            Availability(enabled: false, reason: reason.replacingOccurrences(of: "{device}", with: input.device ?? ""))
+            Availability(enabled: false, reason: reason.replacingOccurrences(of: "{device}", with: input.device))
         }
-        if !input.agent { return off(Copy.Reasons.noAgent) }
-        guard input.device != nil else { return off(Copy.Reasons.noVoiceDevice) }
         if !input.online { return off(Copy.Reasons.offline) }
         if input.meeting { return off(Copy.Reasons.meeting) }
-        if input.platform == .desktop && !input.here { return off(Copy.Reasons.notHere) }
         if input.speech == nil { return off(Copy.Reasons.preparing) }
         if input.speech == .failed { return off(Copy.Reasons.voiceFailed) }
         if input.speech == .noGpu { return off(Copy.Reasons.noGpu) }
-        if input.busy { return off(Copy.Reasons.busy) }
         return Availability(enabled: true, reason: nil)
     }
 
@@ -387,7 +366,6 @@ public enum VoiceCall {
     }
 
     public struct TargetInput: Equatable, Sendable {
-        public var platform: Platform
         /// THIS client's own desktop (nil on phones and web).
         public var here: String?
         /// The called agent's Runs on device.
@@ -400,8 +378,7 @@ public enum VoiceCall {
         /// A call this client does not run already runs on the target.
         public var busy: Bool
 
-        public init(platform: Platform, here: String?, agentDevice: String?, desktops: [TargetDevice], servers: [TargetDevice] = [], busy: Bool) {
-            self.platform = platform
+        public init(here: String?, agentDevice: String?, desktops: [TargetDevice], servers: [TargetDevice] = [], busy: Bool) {
             self.here = here
             self.agentDevice = agentDevice
             self.desktops = desktops
@@ -451,8 +428,7 @@ public enum VoiceCall {
         guard let target = candidates.first(where: \.speaks) else {
             guard let first = candidates.first else { return off(Copy.Reasons.noDesktop) }
             return off(callAvailability(AvailabilityInput(
-                agent: true, platform: input.platform, device: first.name, online: first.online,
-                here: true, speech: first.speech, busy: false, meeting: first.meeting
+                device: first.name, online: first.online, speech: first.speech, meeting: first.meeting
             )).reason)
         }
         if input.busy { return off(Copy.Reasons.busy.replacingOccurrences(of: "{device}", with: target.name)) }

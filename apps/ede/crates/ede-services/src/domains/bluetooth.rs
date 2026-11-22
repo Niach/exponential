@@ -4,7 +4,7 @@ use ede_protocol::Capability;
 use serde_json::{json, Value};
 use zbus::zvariant::Value as ZValue;
 
-use super::{bool_of, by_path, managed_objects, polled_system_bus, set_prop, str_of, system_bus, Managed};
+use super::{bool_of, by_path, call_asking, managed_objects, polled_system_bus, set_prop, str_of, system_bus, Managed};
 use crate::{unavailable, ActionSpec, Service};
 
 const BLUEZ: &str = "org.bluez";
@@ -51,12 +51,12 @@ impl Service for Bluetooth {
             }
             "discover" => {
                 let on = args["on"].as_bool().unwrap_or(true);
-                conn.call_method(Some(BLUEZ), adapter.as_str(), Some("org.bluez.Adapter1"), if on { "StartDiscovery" } else { "StopDiscovery" }, &()).map_err(|e| e.to_string())?;
+                call_asking::<_, ()>(&conn, BLUEZ, &adapter, "org.bluez.Adapter1", if on { "StartDiscovery" } else { "StopDiscovery" }, &())?;
                 Ok(json!({"discovering": on}))
             }
             "connect" | "disconnect" => {
                 let device = args["device"].as_str().ok_or("device")?;
-                conn.call_method(Some(BLUEZ), device, Some("org.bluez.Device1"), if action == "connect" { "Connect" } else { "Disconnect" }, &()).map_err(|e| e.to_string())?;
+                call_asking::<_, ()>(&conn, BLUEZ, device, "org.bluez.Device1", if action == "connect" { "Connect" } else { "Disconnect" }, &())?;
                 Ok(json!({"device": device, "connected": action == "connect"}))
             }
             other => Err(format!("no action {other}")),

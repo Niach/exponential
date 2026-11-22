@@ -9,10 +9,13 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** NEW-59: [WorkScreen] replays `work-screen.json` (copy, testIds, optionCases, pickerKeyCases). */
+/** NEW-59: [WorkScreen] replays `work-screen.json` (copy, testIds, optionCases, pickerKeyCases;
+ *  #EXP-1514 space, spaceOptionCases, spaceKeyCases). */
 class WorkScreenTest {
 
     private val fixture: JsonObject =
@@ -20,6 +23,24 @@ class WorkScreenTest {
 
     private fun strOrNull(element: kotlinx.serialization.json.JsonElement?): String? =
         element?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
+
+    private fun displaysOf(case: JsonObject): List<WorkScreenDisplay>? =
+        case["displays"]?.takeIf { it !is JsonNull }?.jsonArray?.map {
+            val d = it.jsonObject
+            WorkScreenDisplay(
+                id = d.getValue("id").jsonPrimitive.content,
+                number = d.getValue("number").jsonPrimitive.int,
+                width = d.getValue("width").jsonPrimitive.int,
+                height = d.getValue("height").jsonPrimitive.int,
+                primary = d.getValue("primary").jsonPrimitive.boolean,
+            )
+        }
+
+    private fun expectOf(case: JsonObject): List<WorkScreenOption> =
+        case.getValue("expect").jsonArray.map {
+            val o = it.jsonObject
+            WorkScreenOption(strOrNull(o["value"]), o.getValue("label").jsonPrimitive.content)
+        }
 
     @Test
     fun copyMatchesTheFixture() {
@@ -42,22 +63,68 @@ class WorkScreenTest {
         for (element in cases) {
             val case = element.jsonObject
             val name = case.getValue("name").jsonPrimitive.content
-            val displays = case["displays"]?.takeIf { it !is JsonNull }?.jsonArray?.map {
-                val d = it.jsonObject
-                WorkScreenDisplay(
-                    id = d.getValue("id").jsonPrimitive.content,
-                    number = d.getValue("number").jsonPrimitive.int,
-                    width = d.getValue("width").jsonPrimitive.int,
-                    height = d.getValue("height").jsonPrimitive.int,
-                    primary = d.getValue("primary").jsonPrimitive.boolean,
-                )
-            }
-            val expect = case.getValue("expect").jsonArray.map {
-                val o = it.jsonObject
-                WorkScreenOption(strOrNull(o["value"]), o.getValue("label").jsonPrimitive.content)
-            }
-            assertEquals(name, expect, workScreenOptions(displays, strOrNull(case["stored"])))
+            assertEquals(name, expectOf(case), workScreenOptions(displaysOf(case), strOrNull(case["stored"])))
         }
+    }
+
+    // ── #EXP-1514: the agent space ──────────────────────────────────────────
+
+    @Test
+    fun spaceMatchesTheFixture() {
+        // The picker's words live in `space`, never in `copy` (copyMatchesTheFixture locks that set).
+        val space = fixture.getValue("space").jsonObject
+        assertEquals(space.keys, WorkScreen.Space.all.keys)
+        for ((key, value) in WorkScreen.Space.all) {
+            assertEquals(key, space.getValue(key).jsonPrimitive.content, value)
+        }
+        val keys = fixture.getValue("pickerKeys").jsonObject
+        assertEquals(keys.getValue("space").jsonPrimitive.content, WorkScreen.PickerKeys.SPACE)
+        assertEquals(WorkScreen.Space.VALUE, WorkScreen.PickerKeys.SPACE)
+    }
+
+    @Test
+    fun everySpaceOptionCaseReplays() {
+        val cases = fixture.getValue("spaceOptionCases").jsonArray
+        assert(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case.getValue("name").jsonPrimitive.content
+            val offered = case.getValue("spaceOffered").jsonPrimitive.boolean
+            assertEquals(
+                name,
+                expectOf(case),
+                workScreenOptions(displaysOf(case), strOrNull(case["stored"]), offered),
+            )
+        }
+    }
+
+    @Test
+    fun everySpaceKeyCaseReplays() {
+        val cases = fixture.getValue("spaceKeyCases").jsonArray
+        assert(cases.isNotEmpty())
+        for (element in cases) {
+            val case = element.jsonObject
+            val value = strOrNull(case["value"])
+            val key = case.getValue("key").jsonPrimitive.content
+            assertEquals(key, WorkScreen.pickerKey(value))
+            assertEquals(value, WorkScreen.pickedId(key))
+        }
+    }
+
+    @Test
+    fun spaceOfferedIsAnAgentSpaceItemInStateOk() {
+        // device-doctor.json #EXP-1514: the `agent_space` row under computer_use.
+        fun doctor(space: String?) = parseDeviceDoctor(
+            """{"items":[{"key":"git","group":"required","state":"ok"},""" +
+                """{"key":"computer_use","group":"computer_use","state":"ok"}""" +
+                (space?.let { """,{"key":"agent_space","group":"computer_use","parent":"computer_use","label":"Agent space","state":"$it"}""" } ?: "") +
+                "]}",
+        )
+        assertTrue(WorkScreen.spaceOffered(doctor("ok")))
+        assertFalse(WorkScreen.spaceOffered(doctor("missing")))
+        assertFalse(WorkScreen.spaceOffered(doctor(null)))
+        assertFalse(WorkScreen.spaceOffered(parseDeviceDoctor("""{"items":[]}""")))
+        assertFalse(WorkScreen.spaceOffered(null))
     }
 
     @Test

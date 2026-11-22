@@ -174,11 +174,13 @@ fn down_compose_stacks(session_id: &str, worktree: &Path) -> Vec<String> {
 }
 
 /// Runs `program args` with stdin closed, killed at `timeout`: `(success,
-/// stdout)`, `None` when it never started or timed out.
+/// stdout)`, `None` when it never started or timed out. On the login
+/// shell's PATH, like the manifest's commands (launchd's has no docker).
 fn run_bounded(program: &str, args: &[&str], timeout: Duration) -> Option<(bool, String)> {
     use std::io::Read as _;
     let mut child = terminal::process::background_command(program)
         .args(args)
+        .env("PATH", terminal::pty::login_path())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -274,6 +276,180 @@ pub fn ended_with_scopes(rows: &[SessionRow], scoped: &[String], live: &HashSet<
         .filter(|session| rows.iter().any(|row| row.id == **session && row.is_ended()))
         .cloned()
         .collect()
+}
+
+// ---- #EXP-1514: the agent spaces this host keeps for its sessions ----
+//
+// A space lives with its SESSION (D 5), kept by the host that launched its
+// space run: the run's end leaves it (row 13), and only these close it: an
+// attached engine's end for a session that ended, was deleted or left this
+// device (`engine::lifecycle`), this host's sweep beat for one that did so
+// while no run of it was live here ([`sweep_spaces`]), the person signing out
+// ([`close_account_spaces`]), the switch going off (`epilot::shutdown`) and
+// the list's Close. A person's chat never ends by itself, so these are all.
+// At its start a host takes its own sessions' spaces over ([`start_spaces`],
+// [`settle_spaces`], row 15); never another host's (the desktop app and the
+// daemon are two devices on one machine and share the run records).
+
+/// #EXP-1514: the kept sessions whose row this process has seen (a launch
+/// here, the adoption's settle, a sweep): gone after that = deleted.
+static SPACE_ROWS_SEEN: std::sync::Mutex<Option<HashSet<String>>> = std::sync::Mutex::new(None);
+
+fn spaces_seen<T>(with: impl FnOnce(&mut HashSet<String>) -> T) -> T {
+    let mut seen = SPACE_ROWS_SEEN.lock().unwrap_or_else(|p| p.into_inner());
+    with(seen.get_or_insert_with(HashSet::new))
+}
+
+/// #EXP-1514: a launch here made `session_id` a space run: its row exists.
+pub fn saw_space_row(session_id: &str) {
+    spaces_seen(|seen| seen.insert(session_id.to_string()));
+}
+
+/// #EXP-1514 (row 15): where a session is, as this host's synced row says:
+/// ended, or on another device = `Ended`; no row = `Unknown`, never ended.
+pub fn space_session_here(row: Option<&SessionRow>, device_id: &str) -> crate::computer::SessionHere {
+    match row {
+        None => crate::computer::SessionHere::Unknown,
+        Some(row) if row.is_ended() || !row.on_device(device_id) => crate::computer::SessionHere::Ended,
+        Some(_) => crate::computer::SessionHere::Live,
+    }
+}
+
+/// #EXP-1514 (row 15), step 1, at the host's start, before any launch: its
+/// run record notes each session's first space from now on (`had_space`),
+/// the offer's cache starts to fill (the first launch then reads a real
+/// answer), and the spaces of the sessions whose records name THIS host
+/// (`device_id`) are held, or destroyed when the switch is off. Settle the
+/// answer once the rows are in sync ([`settle_spaces`]).
+pub fn start_spaces(data_dir: &Path, device_id: &str, switch_on: bool) -> crate::computer::Adoption {
+    let records = data_dir.to_path_buf();
+    crate::computer::set_space_made_observer(move |session_id| crate::run_registry::note_space_made(&records, session_id));
+    let _ = crate::computer::space_offer();
+    let ours = crate::run_registry::space_sessions(data_dir, device_id);
+    if !ours.is_empty() {
+        log::info!("computer use: adopting the agent spaces of {} session(s) of this host (switch {})", ours.len(), if switch_on { "on" } else { "off" });
+    }
+    crate::computer::adopt_spaces(&ours, switch_on)
+}
+
+/// #EXP-1514 (row 15), step 2: the held spaces as this host's synced rows
+/// say: live here = kept; ended or elsewhere = destroyed unless a host
+/// process here drives a run of it (the run registry, read right before);
+/// no row = the hold goes and its own grants decide. Blocking (the
+/// compositor): off any UI thread.
+pub fn settle_spaces(adoption: crate::computer::Adoption, data_dir: &Path, rows: &[SessionRow], device_id: &str) {
+    adoption.settle(
+        |session_id| {
+            let row = rows.iter().find(|row| row.id == session_id);
+            if row.is_some() {
+                saw_space_row(session_id);
+            }
+            space_session_here(row, device_id)
+        },
+        |session_id| live_on_host(data_dir, session_id),
+    );
+}
+
+/// #EXP-1514 (row 14), pure: which of this host's kept spaces (`kept`)
+/// close on its sweep beat: those whose session is ended, on another
+/// device, or gone after this host saw its row (`seen`: deleted). Judged
+/// only by the rows of the account they belong to (`account_of`, their run
+/// record's: an account switch is no deletion), never while a host process
+/// here drives a run of them (`live`: its engine's end decides). A row this
+/// host never saw says nothing: kept. Notes the rows it sees in `seen`.
+pub fn spaces_to_close(
+    kept: &[String],
+    rows: &[SessionRow],
+    account_id: &str,
+    device_id: &str,
+    seen: &mut HashSet<String>,
+    account_of: &dyn Fn(&str) -> Option<String>,
+    live: &dyn Fn(&str) -> bool,
+) -> Vec<String> {
+    seen.retain(|session| kept.contains(session));
+    let mut close = Vec::new();
+    for session in kept {
+        if account_of(session).is_some_and(|account| account != account_id) {
+            continue;
+        }
+        let row = rows.iter().find(|row| row.id == *session);
+        if row.is_some() {
+            seen.insert(session.clone());
+        }
+        if live(session) {
+            continue;
+        }
+        let gone = match row {
+            Some(row) => row.is_ended() || !row.on_device(device_id),
+            None => seen.contains(session),
+        };
+        if gone {
+            close.push(session.clone());
+        }
+    }
+    close
+}
+
+/// #EXP-1514 (row 14): the host's sweep beat (the daemon's and the desktop
+/// app's, every [`crate::computer::kept_spaces`] against `rows`, which must
+/// be in sync and of `account_id`): a kept session that ended, was deleted
+/// or left this device while no run of it was live here has its space
+/// closed now. Blocking (the compositor). Returns the sessions closed.
+pub fn sweep_spaces(data_dir: &Path, rows: &[SessionRow], account_id: &str, device_id: &str) -> Vec<String> {
+    let kept = crate::computer::kept_spaces();
+    if kept.is_empty() {
+        return Vec::new();
+    }
+    let close = spaces_seen(|seen| {
+        spaces_to_close(
+            &kept,
+            rows,
+            account_id,
+            device_id,
+            seen,
+            &|session| crate::run_registry::get(data_dir, session).map(|record| record.account_id),
+            &|session| live_on_host(data_dir, session),
+        )
+    });
+    for session in &close {
+        log::info!("session teardown [{session}]: ended, deleted or moved away: its agent space closes");
+        crate::computer::close_space(session);
+    }
+    close
+}
+
+/// #EXP-1514 (row 14), pure: the kept spaces a sign-out of `account_id`
+/// closes: its sessions' (by their run records), and any whose record is
+/// gone.
+pub fn spaces_of_account(kept: &[String], account_id: &str, account_of: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
+    kept.iter().filter(|session| account_of(session).is_none_or(|account| account == account_id)).cloned().collect()
+}
+
+/// #EXP-1514 (row 14): the person signs out of `account_id` here: every
+/// space this host keeps for that account's sessions closes. Blocking (the
+/// compositor): off any UI thread.
+pub fn close_account_spaces(data_dir: &Path, account_id: &str) -> Vec<String> {
+    let kept = crate::computer::kept_spaces();
+    let close = spaces_of_account(&kept, account_id, &|session| crate::run_registry::get(data_dir, session).map(|record| record.account_id));
+    for session in &close {
+        log::info!("session teardown [{session}]: signed out: its agent space closes");
+        crate::computer::close_space(session);
+    }
+    close
+}
+
+/// #EXP-1514 (row 14): a sign-out in a process that keeps nothing (the
+/// CLI's `logout`, beside the daemon): the spaces of `account_id`'s
+/// sessions whose records name the host `device_id` close at the desktop.
+pub fn close_recorded_spaces(data_dir: &Path, device_id: &str, account_id: &str) -> Vec<String> {
+    let close: Vec<String> = crate::run_registry::space_sessions(data_dir, device_id)
+        .into_iter()
+        .filter(|session| crate::run_registry::get(data_dir, session).is_some_and(|record| record.account_id == account_id))
+        .collect();
+    for session in &close {
+        crate::computer::close_space(session);
+    }
+    close
 }
 
 #[cfg(test)]
@@ -379,6 +555,92 @@ sibling\t/repos/acme.worktrees/exp-session-c026c74a2\t/repos/acme.worktrees/exp-
 
     fn row(id: &str, status: &str) -> SessionRow {
         serde_json::from_value(serde_json::json!({ "id": id, "status": status })).unwrap()
+    }
+
+    fn on_device(id: &str, status: &str, device: &str) -> SessionRow {
+        serde_json::from_value(serde_json::json!({ "id": id, "status": status, "device_id": device })).unwrap()
+    }
+
+    /// #EXP-1514 (row 14): a chat that ended and one deleted after its idle
+    /// release (no engine of either here) are closed within a beat; a chat
+    /// that idles (released, or this host restarted) keeps its space.
+    #[test]
+    fn an_ended_and_a_deleted_chat_close_within_a_beat_an_idle_one_keeps_its_space() {
+        let kept: Vec<String> = ["ended", "deleted", "idle"].iter().map(|s| s.to_string()).collect();
+        let mut seen = HashSet::new();
+        let account = |_: &str| Some("acct".to_string());
+        let nobody = |_: &str| false;
+        // The beat while all three rows are there: the ended one goes.
+        let rows = vec![on_device("ended", "ended", "dev"), on_device("deleted", "idle", "dev"), on_device("idle", "idle", "dev")];
+        assert_eq!(spaces_to_close(&kept, &rows, "acct", "dev", &mut seen, &account, &nobody), ["ended"]);
+        // The person deletes the released chat: its row is gone by the next beat.
+        let kept: Vec<String> = ["deleted", "idle"].iter().map(|s| s.to_string()).collect();
+        let rows = vec![on_device("idle", "idle", "dev")];
+        assert_eq!(spaces_to_close(&kept, &rows, "acct", "dev", &mut seen, &account, &nobody), ["deleted"]);
+        // Beats go by: the idle chat keeps its space.
+        let kept = vec!["idle".to_string()];
+        for _ in 0..3 {
+            assert!(spaces_to_close(&kept, &rows, "acct", "dev", &mut seen, &account, &nobody).is_empty());
+        }
+    }
+
+    /// #EXP-1514: a missing row is unknown: a session whose row this host
+    /// never saw keeps its space (a cold store, another team), and the
+    /// adoption asks it as `Unknown`, never `Ended`.
+    #[test]
+    fn a_missing_row_is_unknown() {
+        let kept = vec!["never-seen".to_string()];
+        let mut seen = HashSet::new();
+        assert!(spaces_to_close(&kept, &[], "acct", "dev", &mut seen, &|_| None, &|_| false).is_empty());
+        assert!(seen.is_empty());
+        assert_eq!(space_session_here(None, "dev"), crate::computer::SessionHere::Unknown);
+        assert_eq!(space_session_here(Some(&on_device("s", "idle", "dev")), "dev"), crate::computer::SessionHere::Live);
+        assert_eq!(space_session_here(Some(&on_device("s", "running", "dev")), "dev"), crate::computer::SessionHere::Live);
+        assert_eq!(space_session_here(Some(&on_device("s", "ended", "dev")), "dev"), crate::computer::SessionHere::Ended);
+        assert_eq!(space_session_here(Some(&on_device("s", "idle", "other")), "dev"), crate::computer::SessionHere::Ended);
+    }
+
+    /// #EXP-1514: the desktop app and the daemon are two devices on one
+    /// machine sharing the run records: each adopts only the spaces its
+    /// own launches made, a session that moved to the other is closed only
+    /// while no run of it is live there, and another account's sessions are
+    /// never judged by this account's rows.
+    #[test]
+    fn the_app_never_closes_a_daemon_sessions_space_and_the_other_way_round() {
+        let dir = std::env::temp_dir().join(format!("exp-spaces-hosts-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (session, host) in [("s-app", Some("dev-app")), ("s-cli", Some("dev-cli")), ("s-none", None)] {
+            let mut record = crate::run_registry::sample_record(session);
+            record.set_space_host(host);
+            crate::run_registry::record(&dir, record);
+        }
+        assert_eq!(crate::run_registry::space_sessions(&dir, "dev-app"), ["s-app"]);
+        assert_eq!(crate::run_registry::space_sessions(&dir, "dev-cli"), ["s-cli"]);
+        // The app keeps s-app; its row moved to the daemon, which drives it now.
+        let kept = vec!["s-app".to_string()];
+        let rows = vec![on_device("s-app", "running", "dev-cli")];
+        let mut seen = HashSet::new();
+        let account = |_: &str| Some("acct".to_string());
+        assert!(spaces_to_close(&kept, &rows, "acct", "dev-app", &mut seen, &account, &|_| true).is_empty(), "a live run there");
+        assert_eq!(spaces_to_close(&kept, &rows, "acct", "dev-app", &mut seen, &account, &|_| false), ["s-app"], "it left: no run of it is live");
+        // Another account's session is not judged by these rows.
+        let other = |_: &str| Some("acct-2".to_string());
+        assert!(spaces_to_close(&kept, &[], "acct", "dev-app", &mut seen, &other, &|_| false).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #EXP-1514 (row 14): a sign-out closes every space this host keeps
+    /// for the account's sessions (and any whose record is gone), never
+    /// another signed-in account's.
+    #[test]
+    fn a_sign_out_closes_every_kept_space_of_the_account() {
+        let kept: Vec<String> = ["mine-1", "mine-2", "theirs", "no-record"].iter().map(|s| s.to_string()).collect();
+        let account_of = |session: &str| match session {
+            "theirs" => Some("acct-2".to_string()),
+            "no-record" => None,
+            _ => Some("acct".to_string()),
+        };
+        assert_eq!(spaces_of_account(&kept, "acct", &account_of), ["mine-1", "mine-2", "no-record"]);
     }
 
     #[test]

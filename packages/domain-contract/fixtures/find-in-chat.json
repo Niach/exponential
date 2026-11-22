@@ -1,5 +1,5 @@
 {
-  "$comment": "#EDE-129 (part a of #EDE-94, approved with Danny's drafts 2026-11-17): FIND IN CHAT ×4 (web + desktop IDE + eDE now, iOS + Android in #EDE-130). Reference src/find-in-chat.ts; mirrors: desktop `domain::find_in_chat` (the IDE and eDE share it). OPENING: the chat screen's `…` menu (session-screen.json `sessionScreenMenu`) gets `search` (copy `menu`) as its FIRST entry in its own group (`menuCases`: every kind with a transcript, `session`, `agent`, `assistant`; never `app`), with the shortcut hint (`shortcut.mac` on Apple platforms, else `shortcut.other`; phones show no hint) through the menu's existing trailing shortcut slot. KEYS (`keyCases`): Ctrl/Cmd+F while a chat screen is open (focus anywhere in it, the composer too) = find in chat (an open bar re-focuses its field with the query selected); Ctrl/Cmd+F with no chat open stays THE global search; Ctrl/Cmd+K is the global search everywhere, a chat too; inside the field Enter = previous (OLDER, the way a chat is read back), Shift+Enter = next (newer), Escape = close; nothing else is bound. WHERE THE BAR SITS: WIDE (web desktop, the desktop IDE, eDE) = a band right under the chat header across the chat column, above the transcript: search icon, the field (placeholder `placeholder`), the counter (`counter`, muted), previous (chevron up), next (chevron down), close (×); COMPACT (phones, web-mobile) = the bar REPLACES the chat header while open: back (closes), the field, the counter (`counterCompact`), previous, next. Existing components only: genUI Input, icon Buttons (ghost), muted Text. The STATUS LINE (`statusCases`, muted Text, the transcript's first line under the bar while it has one): `searchingOlder` while the store answers, `searchingDevice` while the running device answers (#EDE-96 `search`), `deviceOffline` when the loaded stretch does not reach the session's first event and its device is offline (the store's hits still count); none otherwise. QUERY (`queryCases`): the field's text is the query AFTER the chat store's collapse (chat-store.json / steer-enet.json SEARCH: every run of ASCII whitespace = one space, trimmed, the first `queryMaxChars` code points), the same literal goes to the genUI `highlight` (text-highlight.json: fold per scalar, NFD, lower case, marks dropped) and to every search; a blank query = no matches, no counter, nothing asked. Typing re-searches after `debounceMs`; a new query drops the answers of the old one. WHAT IS SEARCHED = the WHOLE chat (every session of the tree): (1) the LOADED rows at once, as painted: each row's `count` = the genUI highlight count of what it shows (`nodeHighlightCount`: a bubble's or narration's markdown, a tool row's title, a card's text), PLUS one stop for a tool row whose output matches (`outputHit`, never painted inside the output; the row shows `outputHint` beside its title and the stop RINGS the row), never thoughts or slots (chat-store.json INDEX SCOPE); a row inside a FOLDED tool group counts like any row (`group` = the group's key); (2) OLDER history = what lies BELOW the loaded stretch (an event with a seq under the lowest loaded seq of its session; a message the client has not loaded): the chat store's `searchChat(rootId, query, hitsMax)` (desktop, web), and, while the shown session's device is online and the loaded stretch does not reach its first event, that device's `search` frame with `beforeSeq` = the lowest loaded seq (#EDE-96; its journal is the whole transcript), answers merged as one list (`older`): the store's hits in its order, then the device's (newest first), first key wins; an older hit whose `key` is a loaded row's is that row (dropped from `older`). The screen shows ONE session's transcript (the root's, or an opened child's): hits of other sessions of the tree are dropped, and so is a hit the host does not draw as a row of its own (a synced message its transcript already shows as an input or narration row, a card the host draws outside the transcript). KEYS of a hit: an event = `e:<sessionId>:<seq>` (seq = the tool row's for output), a synced message = `m:<messageId>` (a loaded row carries the same key). COUNTING ORDER (`matchCases`) = READING ORDER, newest LAST: every older hit (not loaded) first, ONE stop each, oldest first (the reverse of `older`), then the loaded rows top to bottom, each row's `count` stops then its `outputHit` stop. The counter = `counter` with n = the current stop's 1-based place, m = all stops known; `noResults` when the search finished with none; no counter while nothing is known yet (the status line says it is searching). START + STEPS (`stepCases`): a new query starts at the NEWEST stop (m of m: the chat sits at its bottom); previous / next move one stop and WRAP (previous from 1 = m, next from m = 1). ANSWERS ARRIVING (`resultCases`): the current stop stays the SAME stop (same key and local index) while older hits arrive (its number grows by what was added before it) and while new rows stream in; a stop that vanished (its row left) falls back to the newest stop. LANDING on a stop (`landCases`): a loaded stop = its row scrolls to centre and that match paints `matchCurrent` (every other match `match`; the row's genUI `highlight.current` = the stop's local index, none for an output stop); a stop in a FOLDED group OPENS that group first (it stays open after the bar closes, like a tap); an OUTPUT stop rings the row; an OLDER stop pages its row in (THE deep-link scroll path: page older until the row is loaded, centre, ring), after which it counts as a loaded row (its full `count` + output stop, the same stop stays current: the first of its row's stops, or its output stop for an output hit). CLOSING (Escape, ×, back): clears every mark, keeps the scroll and the opened groups, forgets nothing else; reopening in the same chat shows the last query selected (memory only, per chat). A hit of a kind the host does not know is skipped. eDE (synced rows only): its chat has no transcript, so its rows are the synced messages (`m:` keys) and its older hits come from the chat store when one is wired, else none.",
+  "$comment": "#EDE-129 (part a of #EDE-94, approved with Danny's drafts 2026-11-17): FIND IN CHAT ×4 (web + desktop IDE + eDE now, iOS + Android in #EDE-130). Reference src/find-in-chat.ts; mirrors: desktop `domain::find_in_chat` (the IDE and eDE share it). OPENING: the chat screen's `…` menu (session-screen.json `sessionScreenMenu`) gets `search` (copy `menu`) as its FIRST entry in its own group (`menuCases`: every kind with a transcript, `session`, `agent`, `assistant`; never `app`), with the shortcut hint (`shortcut.mac` on Apple platforms, else `shortcut.other`; phones show no hint) through the menu's existing trailing shortcut slot. KEYS (`keyCases`): Ctrl/Cmd+F while a chat screen is open (focus anywhere in it, the composer too) = find in chat (an open bar re-focuses its field with the query selected); Ctrl/Cmd+F with no chat open stays THE global search; Ctrl/Cmd+K is the global search everywhere, a chat too; inside the field Enter = previous (OLDER, the way a chat is read back), Shift+Enter = next (newer), Escape = close; nothing else is bound. WHERE THE BAR SITS: WIDE (web desktop, the desktop IDE, eDE) = a band right under the chat header across the chat column, above the transcript: search icon, the field (placeholder `placeholder`), the counter (`counter`, muted), previous (chevron up), next (chevron down), close (×); COMPACT (phones, web-mobile) = the bar REPLACES the chat header while open: back (closes), the field, the counter (`counterCompact`), previous, next. Existing components only: genUI Input, icon Buttons (ghost), muted Text. The STATUS LINE (`statusCases`, muted Text, the transcript's first line under the bar while it has one): `searchingOlder` while the store answers, `searchingDevice` while the running device answers (#EDE-96 `search`), `deviceOffline` when the loaded stretch does not reach the session's first event and its device is offline (the store's hits still count); none otherwise. QUERY (`queryCases`): the field's text is the query AFTER the chat store's collapse (chat-store.json / steer-enet.json SEARCH: every run of ASCII whitespace = one space, trimmed, the first `queryMaxChars` code points), the same literal goes to the genUI `highlight` (text-highlight.json: fold per scalar, NFD, lower case, marks dropped) and to every search; a blank query = no matches, no counter, nothing asked. Typing re-searches after `debounceMs`; a new query drops the answers of the old one. WHAT IS SEARCHED = the WHOLE chat (every session of the tree): (1) the LOADED rows at once, as painted: #EXP-1975: a loaded row = EVERY bubble the chat screen shows, whichever layer draws it, in its drawn order: the live (or cached) transcript's rows, the SYNCED TAIL a not-live transcript draws after them (steer-enet.json SYNCED TAIL: the agent's and the people's synced messages, `m:` keys; a device offline, a chat with no live transcript), the viewer's OWN TAIL (message-delivery.json: own rows the device has not consumed = `m:<messageId>`, an outbox entry with no row yet = `o:<clientId>`), and, while the screen shows its no-transcript placeholder (`No live transcript`, a device away, starting), the SENT INPUTS above it (`m:`) then the own tail; every such bubble PAINTS its own marks (`match` / `matchCurrent`), the viewer's own bubble included, whoever draws it (a host row, a document bubble); each row's `count` = the genUI highlight count of what it shows (`nodeHighlightCount`: a bubble's or narration's markdown, a tool row's title, a card's text), PLUS one stop for a tool row whose output matches (`outputHit`, never painted inside the output; the row shows `outputHint` beside its title and the stop RINGS the row), never thoughts or slots (chat-store.json INDEX SCOPE); a row inside a FOLDED tool group counts like any row (`group` = the group's key); (2) OLDER history = what lies BELOW the loaded stretch (an event with a seq under the lowest loaded seq of its session; a message the client has not loaded): the chat store's `searchChat(rootId, query, hitsMax)` (desktop, web), and, while the shown session's device is online and the loaded stretch does not reach its first event, that device's `search` frame with `beforeSeq` = the lowest loaded seq (#EDE-96; its journal is the whole transcript), answers merged as one list (`older`): the store's hits in its order, then the device's (newest first), first key wins; an older hit whose `key` is a loaded row's is that row (dropped from `older`). #EXP-1998 WHICH HITS ARE OLDER (`olderCases`, reference `findInChatOlder`): a hit of another session of the tree is dropped; an EVENT hit (it carries a seq) counts when its seq is under the lowest loaded seq (nothing loaded = every one; `output` = a `tool_output` hit); a MESSAGE hit (`m:<messageId>`, no seq) counts only while the host draws the session's synced messages as bubbles (`synced`: the synced tail of a not-live transcript, or the sent inputs above the no-transcript placeholder; a live transcript = null, it holds them as input and narration rows): a LOADED message counts when the host would draw it with no cap (`drawable`: `steerSyncedTail` / `steerNoFeedInputs` without their max; one the screen shows already is that row, dropped by the stops), an UNLOADED one (older than the client's loaded messages) counts while older synced messages exist unloaded (`more`); store hits first, then the device's, first key wins. Landing on an older MESSAGE stop pages it in the same way: the host widens what it draws (the tail / the sent inputs show every drawable message from that one on, until the chat closes) and loads older synced messages until it is loaded; one that turns out not drawable vanishes (the newest stop takes over). The screen shows ONE session's transcript (the root's, or an opened child's): hits of other sessions of the tree are dropped, and so is a hit the host does not draw as a row of its own (a synced message its transcript already shows as an input or narration row, a card the host draws outside the transcript). KEYS of a hit: an event = `e:<sessionId>:<seq>` (seq = the tool row's for output), a synced message = `m:<messageId>` (a loaded row carries the same key). COUNTING ORDER (`matchCases`) = READING ORDER, newest LAST: every older hit (not loaded) first, ONE stop each, oldest first (the reverse of `older`), then the loaded rows top to bottom, each row's `count` stops then its `outputHit` stop. The counter = `counter` with n = the current stop's 1-based place, m = all stops known; `noResults` when the search finished with none; no counter while nothing is known yet (the status line says it is searching). START + STEPS (`stepCases`): a new query starts at the NEWEST stop (m of m: the chat sits at its bottom); previous / next move one stop and WRAP (previous from 1 = m, next from m = 1). ANSWERS ARRIVING (`resultCases`): the current stop stays the SAME stop (same key and local index) while older hits arrive (its number grows by what was added before it) and while new rows stream in; a stop that vanished (its row left) falls back to the newest stop. LANDING on a stop (`landCases`): a loaded stop = its row scrolls to centre and that match paints `matchCurrent` (every other match `match`; the row's genUI `highlight.current` = the stop's local index, none for an output stop); a stop in a FOLDED group OPENS that group first (it stays open after the bar closes, like a tap); an OUTPUT stop rings the row; an OLDER stop pages its row in (THE deep-link scroll path: page older until the row is loaded, centre, ring; a message stop widens the drawn synced messages and loads older ones, #EXP-1998, also under the no-transcript placeholder, which has no transcript to page), after which it counts as a loaded row (its full `count` + output stop, the same stop stays current: the first of its row's stops, or its output stop for an output hit). CLOSING (Escape, ×, back): clears every mark, keeps the scroll and the opened groups, forgets nothing else; reopening in the same chat shows the last query selected (memory only, per chat). A hit of a kind the host does not know is skipped. eDE (synced rows only): its chat has no transcript, so its rows are the synced messages (`m:` keys) and its older hits come from the chat store when one is wired, else none.",
   "queryMaxChars": 200,
   "hitsMax": 50,
   "debounceMs": 150,
@@ -96,7 +96,163 @@
         { "key": "m:a2", "local": 0, "loaded": true, "group": null, "output": false }
       ]
     },
+    {
+      "name": "a synced-tail-only chat (its device offline, no live transcript): the synced bubbles are the loaded rows, the viewer's own included",
+      "rows": [
+        { "key": "m:u1", "count": 1 },
+        { "key": "m:a1", "count": 0 },
+        { "key": "m:u2", "count": 2 }
+      ],
+      "older": [],
+      "expected": [
+        { "key": "m:u1", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:u2", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:u2", "local": 1, "loaded": true, "group": null, "output": false }
+      ]
+    },
+    {
+      "name": "a no-transcript agent chat: the sent inputs above the placeholder, then the own tail (an unsent outbox entry = o:)",
+      "rows": [
+        { "key": "m:in1", "count": 1 },
+        { "key": "m:in2", "count": 0 },
+        { "key": "m:own1", "count": 1 },
+        { "key": "o:c1", "count": 1 }
+      ],
+      "older": [],
+      "expected": [
+        { "key": "m:in1", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:own1", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "o:c1", "local": 0, "loaded": true, "group": null, "output": false }
+      ]
+    },
+    {
+      "name": "a store hit that is a loaded synced row is that row (never a second stop)",
+      "rows": [
+        { "key": "m:u1", "count": 1 }
+      ],
+      "older": [{ "key": "m:u1" }],
+      "expected": [
+        { "key": "m:u1", "local": 0, "loaded": true, "group": null, "output": false }
+      ]
+    },
+    {
+      "name": "#EXP-1998: a synced-tail-only chat: a store message hit older than the shown tail numbers first, the shown ones are their rows",
+      "rows": [
+        { "key": "m:u9", "count": 1 },
+        { "key": "m:a9", "count": 1 }
+      ],
+      "older": [
+        { "key": "m:a9" },
+        { "key": "m:u2" },
+        { "key": "m:a1" }
+      ],
+      "expected": [
+        { "key": "m:a1", "local": 0, "loaded": false, "group": null, "output": false },
+        { "key": "m:u2", "local": 0, "loaded": false, "group": null, "output": false },
+        { "key": "m:u9", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:a9", "local": 0, "loaded": true, "group": null, "output": false }
+      ]
+    },
     { "name": "nothing matches", "rows": [{ "key": "m:a1", "count": 0 }], "older": [], "expected": [] }
+  ],
+  "olderCases": [
+    {
+      "name": "a live transcript: event hits under the lowest loaded seq, output kept; message hits are its input rows (dropped)",
+      "sessionId": "s1",
+      "lowestSeq": 20,
+      "store": [
+        { "sessionId": "s1", "seq": 30, "kind": "narration" },
+        { "sessionId": "s1", "seq": 12, "kind": "tool_output" },
+        { "sessionId": "s1", "messageId": "u1", "kind": "message" },
+        { "sessionId": "s2", "seq": 3, "kind": "narration" }
+      ],
+      "device": [
+        { "seq": 8, "kind": "user_message" },
+        { "seq": 12, "kind": "tool_output" }
+      ],
+      "synced": null,
+      "expected": [
+        { "key": "e:s1:12", "output": true },
+        { "key": "e:s1:8", "output": false }
+      ]
+    },
+    {
+      "name": "nothing loaded: every event hit is older",
+      "sessionId": "s1",
+      "lowestSeq": null,
+      "store": [
+        { "sessionId": "s1", "seq": 4, "kind": "narration" }
+      ],
+      "device": [],
+      "synced": null,
+      "expected": [
+        { "key": "e:s1:4", "output": false }
+      ]
+    },
+    {
+      "name": "a synced-tail-only chat (device offline): a loaded drawable message counts, a hidden one does not, an unloaded one while more exist",
+      "sessionId": "s1",
+      "lowestSeq": null,
+      "store": [
+        { "sessionId": "s1", "messageId": "a9", "kind": "message" },
+        { "sessionId": "s1", "messageId": "sys1", "kind": "message" },
+        { "sessionId": "s1", "messageId": "u2", "kind": "message" },
+        { "sessionId": "s1", "messageId": "a0", "kind": "message" },
+        { "sessionId": "s2", "messageId": "x1", "kind": "message" }
+      ],
+      "device": [],
+      "synced": { "loaded": ["u2", "sys1", "a9"], "drawable": ["u2", "a9"], "more": true },
+      "expected": [
+        { "key": "m:a9", "output": false },
+        { "key": "m:u2", "output": false },
+        { "key": "m:a0", "output": false }
+      ]
+    },
+    {
+      "name": "every message loaded: an unloaded hit is none of this session's drawn ones",
+      "sessionId": "s1",
+      "lowestSeq": null,
+      "store": [
+        { "sessionId": "s1", "messageId": "u2", "kind": "message" },
+        { "sessionId": "s1", "messageId": "gone", "kind": "message" }
+      ],
+      "device": [],
+      "synced": { "loaded": ["u2"], "drawable": ["u2"], "more": false },
+      "expected": [
+        { "key": "m:u2", "output": false }
+      ]
+    },
+    {
+      "name": "a cached transcript with a synced tail: older events and older drawable messages, first key wins",
+      "sessionId": "s1",
+      "lowestSeq": 40,
+      "store": [
+        { "sessionId": "s1", "messageId": "a7", "kind": "message" },
+        { "sessionId": "s1", "seq": 31, "kind": "narration" },
+        { "sessionId": "s1", "messageId": "a7", "kind": "message" }
+      ],
+      "device": [
+        { "seq": 31, "kind": "narration" },
+        { "seq": 2, "kind": "tool" }
+      ],
+      "synced": { "loaded": ["a7"], "drawable": ["a7"], "more": false },
+      "expected": [
+        { "key": "m:a7", "output": false },
+        { "key": "e:s1:31", "output": false },
+        { "key": "e:s1:2", "output": false }
+      ]
+    },
+    {
+      "name": "a hit with neither seq nor message is skipped",
+      "sessionId": "s1",
+      "lowestSeq": null,
+      "store": [
+        { "sessionId": "s1", "kind": "narration" }
+      ],
+      "device": [],
+      "synced": { "loaded": [], "drawable": [], "more": true },
+      "expected": []
+    }
   ],
   "counterCases": [
     { "name": "wide", "current": 1, "total": 7, "done": false, "compact": false, "expected": "2 of 7" },
@@ -145,6 +301,20 @@
       "expected": 0
     },
     {
+      "name": "#EXP-1998: a paged-in synced message keeps its row's first stop",
+      "before": [
+        { "key": "m:u2", "local": 0, "loaded": false, "group": null, "output": false },
+        { "key": "m:u9", "local": 0, "loaded": true, "group": null, "output": false }
+      ],
+      "current": 0,
+      "after": [
+        { "key": "m:u2", "local": 0, "loaded": true, "group": null, "output": false },
+        { "key": "m:u2", "local": 1, "loaded": true, "group": null, "output": false },
+        { "key": "m:u9", "local": 0, "loaded": true, "group": null, "output": false }
+      ],
+      "expected": 0
+    },
+    {
       "name": "a paged-in older output hit keeps its output stop",
       "before": [
         { "key": "e:s1:30", "local": 0, "loaded": false, "group": null, "output": true },
@@ -183,7 +353,8 @@
     { "name": "a loaded match", "match": { "key": "m:a2", "local": 1, "loaded": true, "group": null, "output": false }, "expected": { "openGroup": null, "pageIn": false, "scroll": "centre", "ring": false, "current": 1 } },
     { "name": "a match in a folded group opens it", "match": { "key": "e:s1:4", "local": 0, "loaded": true, "group": "g1", "output": false }, "expected": { "openGroup": "g1", "pageIn": false, "scroll": "centre", "ring": false, "current": 0 } },
     { "name": "an output stop rings the row", "match": { "key": "e:s1:6", "local": 0, "loaded": true, "group": "g1", "output": true }, "expected": { "openGroup": "g1", "pageIn": false, "scroll": "centre", "ring": true, "current": null } },
-    { "name": "an older stop pages its row in", "match": { "key": "m:old1", "local": 0, "loaded": false, "group": null, "output": false }, "expected": { "openGroup": null, "pageIn": true, "scroll": "centre", "ring": true, "current": null } }
+    { "name": "an older stop pages its row in", "match": { "key": "m:old1", "local": 0, "loaded": false, "group": null, "output": false }, "expected": { "openGroup": null, "pageIn": true, "scroll": "centre", "ring": true, "current": null } },
+    { "name": "#EXP-1998: an older synced message pages in (the tail widens, older messages load)", "match": { "key": "m:u2", "local": 0, "loaded": false, "group": null, "output": false }, "expected": { "openGroup": null, "pageIn": true, "scroll": "centre", "ring": true, "current": null }}
   ],
   "statusCases": [
     { "name": "idle", "input": { "store": "done", "device": "none", "deviceName": "Alex's MacBook" }, "expected": null },

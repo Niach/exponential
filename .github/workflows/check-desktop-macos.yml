@@ -36,8 +36,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: apps/desktop
           key: macos-check
+          # The seed (seed-rust-caches-windows-macos.yml) has another job id.
+          add-job-id-key: 'false'
       - uses: ./.github/actions/cargo-fetch
       - name: cargo check
         run: cargo check --locked --manifest-path apps/desktop/Cargo.toml -p app -p exp-cli
+      # #EDE-140: computer use's macOS backend has tests of its own that no
+      # Linux job compiles. They run in release-suite's desktop-macos
+      # (#EXP-1979); this compiles them on the PR.
+      - name: cargo check (ePilot's tests)
+        run: cargo check --locked --manifest-path apps/desktop/Cargo.toml -p epilot --tests

@@ -118,15 +118,20 @@ object AgentSettings {
      *  for the Assistant and every team agent, top to bottom. */
     const val SECTION_IDENTITY = "identity"
     const val SECTION_RUNS_ON = "runs-on"
+    /** #EXP-1988 (`assistant.teamPicks`): the Assistant's page only, ONE
+     *  per synced team of its member, right after Runs on. */
+    const val SECTION_TEAM_PICKS = "team-picks"
     const val SECTION_TRIGGERS = "triggers"
     const val SECTION_VOICE = "voice"
     const val SECTION_INSTRUCTIONS = "instructions"
     const val SECTION_DELETE = "delete"
     val PAGE_SECTIONS = listOf(
-        SECTION_IDENTITY, SECTION_RUNS_ON, SECTION_TRIGGERS, SECTION_VOICE, SECTION_INSTRUCTIONS, SECTION_DELETE,
+        SECTION_IDENTITY, SECTION_RUNS_ON, SECTION_TEAM_PICKS, SECTION_TRIGGERS, SECTION_VOICE, SECTION_INSTRUCTIONS, SECTION_DELETE,
     )
     /** The Runs on rows, in order. */
     val RUNS_ON_ROWS = listOf("device", "account", "model", "skills", McpRow.ID)
+    /** #EXP-1988: a team section's rows (the Assistant's Runs on drops them). */
+    val TEAM_PICKS_ROWS = listOf("skills", McpRow.ID)
 
     // #EXP-1846 (agent-settings.json `checkIn`): THE Check in = the ONE
     // schedule trigger carrying `preset`, any agent's; the mirror of TS
@@ -566,6 +571,27 @@ object AgentSettings {
             return if (global != null) listOf(global) + own else own
         }
 
+        /** #EXP-1988 (`teamPicks.pickAgentCases`, TS `assistantPickAgent`):
+         *  the agent a team section of the Assistant's page edits = the
+         *  viewer's Assistant [agentsInTeam] lists in [teamId] (switch off:
+         *  that team's own; on: the global one), else the page's. */
+        fun <T> pickAgent(
+            agents: List<T>,
+            teamId: String,
+            teamIds: Collection<String>,
+            me: String?,
+            pageAgentId: String?,
+            id: (T) -> String,
+            row: (T) -> TeamAgentLike,
+        ): String? = agentsInTeam(agents, teamId, teamIds, me, row)
+            .firstOrNull { row(it).let { r -> isAssistant(r.role) && r.ownerId == me } }
+            ?.let(id) ?: pageAgentId
+
+        /** #EXP-1988 (`teamPickCases`, TS `teamPick`): the picks for [teamId]
+         *  in a flat list = the listed ids whose row is that team's, pick order. */
+        fun teamPick(ids: List<String>, rowTeams: Map<String, String>, teamId: String): List<String> =
+            ids.distinct().filter { rowTeams[it] == teamId }
+
         /** #EXP-1714: the team a composer BROWSES (`/` prompts, `#` issues,
          *  `@` members): its own team when that is a synced team, else the
          *  active one (the global Assistant's personal team never syncs).
@@ -577,6 +603,14 @@ object AgentSettings {
          *  sessions that sit in no synced team (their personal team). */
         fun inTeamOrPersonal(sessionTeamId: String, userId: String?, teamId: String, teamIds: Collection<String>, me: String?): Boolean =
             sessionTeamId == teamId || (me != null && userId == me && teamIds.isNotEmpty() && sessionTeamId !in teamIds)
+
+        /** #EXP-1987: THE ASSISTANT'S CHAT IS THE MEMBER'S OWN: a chat whose
+         *  team is none of the synced teams (their personal team after the
+         *  move) and whose starter is the viewer gives the viewer a member's
+         *  rights in it. No synced teams yet = not decided (false). */
+        fun ownChat(chatTeamId: String?, starterId: String?, teamIds: Collection<String>, me: String?): Boolean =
+            !me.isNullOrEmpty() && starterId == me && !chatTeamId.isNullOrEmpty() &&
+                teamIds.isNotEmpty() && chatTeamId !in teamIds
     }
 }
 

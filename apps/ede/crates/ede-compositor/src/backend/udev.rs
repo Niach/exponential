@@ -198,6 +198,7 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
 
     // Input.
     let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());
+    crate::libinput_log::route(&libinput);
     libinput.udev_assign_seat(&seat_name).map_err(|()| "libinput could not take the seat")?;
     event_loop.handle().insert_source(LibinputInputBackend::new(libinput.clone()), move |event, _, state| {
         if !matches!(event, InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. }) {
@@ -306,7 +307,8 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
         let fd = primary_node.and_then(|n| u.devices.get(&n)).map(|d| d.manager.device().device_fd().clone());
         match fd {
             Some(fd) if supports_syncobj_eventfd(&fd) => {
-                state.syncobj_state = Some(DrmSyncobjState::new_with_filter::<Ede, _>(&state.display_handle, fd, crate::desk::on_person));
+                // #EDE-162: and a GPU space's clients.
+                state.syncobj_state = Some(DrmSyncobjState::new_with_filter::<Ede, _>(&state.display_handle, fd, |c| crate::desk::on_person(c) || crate::desk::on_gpu_space(c)));
                 tracing::info!("explicit sync (drm-syncobj) on");
             }
             _ => tracing::info!("explicit sync (drm-syncobj) unavailable on this GPU/kernel"),
@@ -381,7 +383,10 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
     // A wake-up each second: the recovery screen (#EDE-16) appears on an
     // idle desktop without waiting for input.
     event_loop.handle().insert_source(Timer::from_duration(Duration::from_secs(1)), |_, _, _| TimeoutAction::ToDuration(Duration::from_secs(1)))?;
+    // #EDE-162: agent spaces on a GPU of their own choosing, never in safe mode.
+    state.start_space_gpu(udev.borrow().safe_mode);
     super::watch_main_loop(&event_loop.handle());
+    super::watch_space_lateness(&event_loop.handle(), state.spaces_stats_on());
 
     // Every loop turn: repaint outputs that are not waiting for a vblank.
     // Clean frames submit nothing, so an idle desktop stays idle.
@@ -391,6 +396,9 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
         for node in nodes {
             render_device(&u, state, node);
         }
+        // #EDE-162: a space's capture never runs between a vblank and the
+        // person's frame: only after the outputs of this turn were drawn.
+        state.spaces_after_frames();
         let _ = state.display_handle.flush_clients();
     })?;
     match state.fatal.take() {

@@ -30,6 +30,9 @@ pub fn logout(args: &[String]) -> CommandResult {
         }
     }
     ctx.auth.sign_out(&ctx.account.id);
+    // #EXP-1514 (row 14): the agent spaces of this account's daemon
+    // sessions close (their records name this machine's CLI device).
+    coding::session_teardown::close_recorded_spaces(&ctx.data_dir, &ctx.device_id(), &ctx.account.id);
     // #EDE-120 (`chat-store.json` SIGN-OUT): a deliberate sign-out deletes
     // the account's chat store (it holds chats decrypted), never another
     // account's; the daemon holds none.

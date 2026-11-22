@@ -268,6 +268,47 @@ fn a_commit_waits_for_another_git_holding_the_index() {
     assert_eq!(summaries(&ui)[0], "Clock");
 }
 
+/// #EDE-153: a reload whose commit cannot run (another git holds the
+/// index past the wait, or `HEAD`) takes the edit in on the next reload.
+/// Before, the file counted as read, so the edit was never committed nor
+/// reported again: the supervisor never heard of it.
+#[test]
+fn a_reload_whose_commit_fails_takes_the_edit_in_on_the_next_one() {
+    for held in ["index.lock", "HEAD.lock"] {
+        let tmp = tempfile::tempdir().unwrap();
+        let (mut ui, _) = open(tmp.path());
+        fs::write(tmp.path().join("panel.json"), serde_json::to_vec_pretty(&panel("by hand")).unwrap()).unwrap();
+        let lock = tmp.path().join(".git").join(held);
+        fs::write(&lock, b"").unwrap();
+        assert!(ui.reload().is_err(), "{held}: the commit cannot run");
+        fs::remove_file(&lock).unwrap();
+        let changes = ui.reload().unwrap();
+        assert!(matches!(changes.as_slice(), [Change::Applied { commit: Some(_), .. }]), "{held}: {changes:?}");
+        assert_eq!(summaries(&ui)[0], "Edit panel.json", "{held}");
+    }
+}
+
+/// #EDE-153: the watcher tries a failed reload again (no new file event
+/// comes for what it read): an edit whose commit was held is reported
+/// once the lock goes.
+#[test]
+fn the_watcher_tries_a_failed_reload_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (ui, _) = open(tmp.path());
+    let ui = Arc::new(Mutex::new(ui));
+    let (tx, rx) = mpsc::channel();
+    let _watcher = ede_ui::watch(ui.clone(), move |changes| tx.send(changes).unwrap()).unwrap();
+    let lock = tmp.path().join(".git/index.lock");
+    fs::write(&lock, b"").unwrap();
+    fs::write(tmp.path().join("panel.json"), serde_json::to_vec(&panel("12:00")).unwrap()).unwrap();
+    // The reload waits for the index (2 s), fails; the lock goes after it.
+    std::thread::sleep(Duration::from_secs(4));
+    fs::remove_file(&lock).unwrap();
+    let changes = rx.recv_timeout(Duration::from_secs(15)).expect("the edit is reported once the lock goes");
+    assert!(matches!(changes.as_slice(), [Change::Applied { commit: Some(_), .. }]), "{changes:?}");
+    assert_eq!(summaries(&ui.lock().unwrap())[0], "Edit panel.json");
+}
+
 #[test]
 fn the_watcher_reloads_on_change() {
     let tmp = tempfile::tempdir().unwrap();

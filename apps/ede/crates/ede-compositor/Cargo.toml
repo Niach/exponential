@@ -8,7 +8,10 @@ license.workspace = true
 publish = false
 
 [features]
-default = ["winit", "xwayland"]
+default = ["winit", "xwayland", "gpu"]
+# #EDE-162: agent spaces render on a GPU's render node (EGL device platform,
+# GLES); without it they render in software.
+gpu = ["smithay/backend_drm"]
 # X11 apps and games through Xwayland (needs the Xwayland binary at runtime).
 xwayland = ["smithay/xwayland"]
 # Nested in a window on X11 or Wayland (Cinnamon/X11 for development).
@@ -17,6 +20,7 @@ winit = ["smithay/backend_winit", "smithay/backend_drm"]
 # The real session: libseat, udev, DRM/KMS + GBM, libinput. Needs
 # libudev, libinput, libgbm, libseat and libdrm headers to build.
 udev = [
+    "gpu",
     "smithay/backend_drm",
     "smithay/backend_gbm",
     "smithay/backend_libinput",
@@ -32,6 +36,8 @@ ede-protocol = { path = "../../../desktop/crates/ede-protocol" }
 serde_json = "1"
 # #LOGS-2: Sentry (through the server's tunnel) + frame-time and hang spans.
 ede-observability = { path = "../ede-observability" }
+# #EDE-146..148: `space-enter` asks the space guard (its client only).
+ede-space-guard = { path = "../ede-space-guard" }
 smithay = { workspace = true, features = ["wayland_frontend", "desktop", "renderer_gl", "renderer_pixman"] }
 serde.workspace = true
 toml.workspace = true
@@ -44,6 +50,9 @@ xcursor = { version = "0.3", optional = true }
 swash = "0.2.9"
 # The recovery message as a file (`ede-compositor recovery --png`, #EDE-40).
 png = "0.17"
+# #EXP-2041: `exponential_popup_namespace_v1` (ede-protocol's protocols/),
+# the server code from its XML (the version smithay's protocols already use).
+wayland-scanner = "0.31"
 
 [dev-dependencies]
 wayland-client = "0.31.10"
@@ -51,7 +60,13 @@ wayland-protocols = { version = "0.32.8", features = ["client", "staging", "unst
 wayland-protocols-wlr = { version = "0.3.8", features = ["client"] }
 wayland-protocols-misc = { version = "0.3.8", features = ["client"] }
 tempfile = "3"
+# #EDE-172: the acceptance test's foreign process (ptrace, pidfd_getfd) and
+# the descriptors the tests hand a compositor they start.
+libc = "0.2"
 x11rb = "0.13"
+# #EDE-127: polkitd's side of the real polkit agent in `tests/sealed_client.rs`
+# (the version ede-services already resolves).
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 
 # The installed name (Exponential Desktop); the crate keeps its ede- name.
 [[bin]]

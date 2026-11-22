@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 /// The first commit of a fresh ui directory (never reverted).
 pub const INITIAL_MESSAGE: &str = "exponential-ui: history starts";
 
-/// How long a git command waits for another one's `index.lock`: 40 × 50 ms.
+/// How long a git command waits for another one's lock (`index.lock`,
+/// `HEAD.lock`, a ref's: #EDE-153): 40 × 50 ms.
 const INDEX_LOCK_TRIES: u32 = 40;
 const INDEX_LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(50);
 
@@ -59,13 +60,14 @@ impl Repo {
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE")
             .env_remove("GIT_INDEX_FILE");
-        // Another process's git holds the index for a moment (`exponential-ui
-        // set` or `undo` against the supervisor's reload): wait for it. A
-        // reload whose commit failed here lost the edit (#EDE-116).
+        // Another process's git holds the index or a ref for a moment
+        // (`exponential-ui set` or `undo` against the supervisor's reload):
+        // wait for it. Its path names the lock in any language git speaks.
+        // A reload whose commit still fails is tried again (#EDE-153).
         let mut tries = 0;
         loop {
             let out = git.output()?;
-            if out.status.success() || tries == INDEX_LOCK_TRIES || !String::from_utf8_lossy(&out.stderr).contains("index.lock") {
+            if out.status.success() || tries == INDEX_LOCK_TRIES || !String::from_utf8_lossy(&out.stderr).contains(".lock") {
                 return Ok(out);
             }
             tries += 1;
@@ -133,7 +135,16 @@ impl Repo {
         }
         let mut commit = vec!["commit", "--quiet", "-m", message, "--only", "--"];
         commit.extend(files.iter().map(String::as_str));
-        self.ok(&commit, "commit")?;
+        let out = self.git(&commit)?;
+        if !out.status.success() {
+            // #EDE-153: another process committed the same change between the
+            // diff and the commit (the supervisor's reload and `exponential-ui
+            // set` on one file): nothing is left to commit, which is no error.
+            if self.git(&diff)?.status.success() {
+                return Ok(None);
+            }
+            return Err(failed("commit", &out));
+        }
         self.head().map(Some)
     }
 

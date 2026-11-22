@@ -58,6 +58,7 @@ use state::NodeCache;
 
 pub(crate) use input::Field;
 pub use composer_paste::{clipboard_has_files, clipboard_images, PastedImage};
+pub use events::ListExternalPhase;
 pub use motion::NodeEntrance;
 pub use state::{focus_order, is_focusable, next_focus, NodeFlags};
 
@@ -407,6 +408,9 @@ pub struct SurfaceView {
     just_dismissed: Option<String>,
     /// VAPP-281: the hosted popup layers the host last heard of.
     hosted_popups: Vec<Layer>,
+    /// #EXP-2045: how much of each hosted layer its host last painted, and
+    /// how many times it did.
+    hosted_shown: HashMap<String, (f32, u64)>,
     unknown_version: Option<u64>,
     /// The host scroller's offset over the surface last given to the core.
     host_scroll: Option<(f32, f32)>,
@@ -430,8 +434,9 @@ pub struct SurfaceView {
     anim_start: RefCell<HashMap<SharedString, Instant>>,
     /// Each Image's last decoded picture (by painted id): a new `src` keeps
     /// it on screen until its own decode lands, as a browser's `<img>` does
-    /// (#EDE-65: live thumbnails blanked at every refresh).
-    pub(crate) held_images: RefCell<HashMap<SharedString, std::sync::Arc<gpui::RenderImage>>>,
+    /// (#EDE-65: live thumbnails blanked at every refresh); a `data:`
+    /// picture it moves off is released (#EXP-2024).
+    pub(crate) held_images: RefCell<crate::media::HeldImages>,
     /// When the pending repaint of the `shimmer` Texts fires (they share one).
     shimmer_armed_until: Cell<Option<Instant>>,
     /// When the pending repaint of the looping keyframe animations fires
@@ -671,6 +676,7 @@ impl SurfaceView {
             layer_return: HashMap::new(),
             just_dismissed: None,
             hosted_popups: Vec::new(),
+            hosted_shown: HashMap::new(),
             unknown_version: None,
             host_scroll: None,
             drag: None,
@@ -685,7 +691,7 @@ impl SurfaceView {
             wheel_watchdog: None,
             sticky: HashMap::new(),
             anim_start: RefCell::new(HashMap::new()),
-            held_images: RefCell::new(HashMap::new()),
+            held_images: RefCell::new(crate::media::HeldImages::default()),
             shimmer_armed_until: Cell::new(None),
             loop_armed_until: Cell::new(None),
             entrance: None,
@@ -1408,8 +1414,9 @@ impl SurfaceView {
             self.anim_start
                 .borrow_mut()
                 .retain(|id, _| cache.by_id.get(id.as_ref()).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed && !n.hidden));
-            self.held_images.borrow_mut().retain(|id, _| cache.by_id.get(id.as_ref()).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed));
+            self.held_images.borrow_mut().retain(|id| cache.by_id.get(id).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed));
         }
+        crate::media::release_let_go(window, cx);
         self.rtl = out.direction == "rtl";
         self.surface_height = out.surface_height;
         self.sync_toasts(&out.toasts, window, cx);
@@ -1418,9 +1425,19 @@ impl SurfaceView {
         self.layers_changed(&layers, now, window, cx);
         // VAPP-281: the host hears the hosted popups when they change.
         let hosted: Vec<Layer> = layers.iter().filter(|l| l.hosted).cloned().collect();
-        if hosted != self.hosted_popups {
+        let hosted_moved = hosted != self.hosted_popups;
+        if hosted_moved {
             self.host.on_hosted_popups(&hosted);
             self.hosted_popups = hosted;
+        }
+        self.hosted_shown.retain(|owner, _| self.hosted_popups.iter().any(|l| &l.owner == owner));
+        // #EXP-2045: the host's popup windows paint the hosted layers from
+        // these caches, and the change that woke this pass woke them too:
+        // one may have drawn first, from the caches before it (a row's new
+        // picture stayed the old one until the next change). While one is
+        // open, a pass that changed anything draws them again.
+        if !self.hosted_popups.is_empty() && (hosted_moved || !changed.is_empty() || self.frames != previous) {
+            cx.notify();
         }
         self.layers = layers;
         {

@@ -197,6 +197,42 @@ class DeviceDoctorTest {
     }
 
     @Test
+    fun `the agent space row hides under an off computer use parent`() {
+        // #EXP-1514: the device's ONE row under computer_use, with its own label.
+        val copy = fixture["copy"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content }
+        val label = copy.getValue("agentSpaceLabel")
+        fun doctor(parent: String, space: String = "ok", detail: String = copy.getValue("spaceReady")) =
+            parseDeviceDoctor(
+                """{"items":[{"key":"git","group":"required","state":"ok","detail":"2.55.0"},""" +
+                    """{"key":"computer_use","group":"computer_use","state":"$parent"},""" +
+                    """{"key":"agent_space","group":"computer_use","parent":"computer_use","label":"$label",""" +
+                    """ "state":"$space","detail":"$detail"}]}""",
+            )!!
+        fun computerUseRows(doctor: DeviceDoctor, computerUseOn: Boolean? = null) =
+            DeviceReadiness.groups(doctor, remote = true, computerUseOn = computerUseOn)
+                .first { it.key == DeviceReadiness.GROUP_COMPUTER_USE }.rows
+
+        // The parent on: one indented row with its own label, never a problem.
+        val on = computerUseRows(doctor("ok"))
+        assertEquals(listOf("computer_use", "agent_space"), on.map { it.key })
+        val space = on[1]
+        assertEquals(label, space.label)
+        assertEquals(copy.getValue("spaceReady"), space.detail)
+        assertTrue(space.indented)
+        assertFalse(space.isSwitch)
+        assertEquals(DoctorGlyph.Check, space.glyph)
+        assertNull(space.action)
+        val missing = doctor("ok", space = "missing", detail = copy.getValue("spaceDriver"))
+        assertEquals(copy.getValue("spaceDriver"), computerUseRows(missing)[1].detail)
+        assertEquals(emptyList<String>(), DeviceReadiness.attentionRows(missing).map { it.key })
+
+        // The device reports the parent off: no row.
+        assertEquals(listOf("computer_use"), computerUseRows(doctor("off")).map { it.key })
+        // The local switch turned off ahead of the next heartbeat: no row either.
+        assertEquals(listOf("computer_use"), computerUseRows(doctor("ok"), computerUseOn = false).map { it.key })
+    }
+
+    @Test
     fun `the composer shows only the failing row of the picked agent, Git first`() {
         val ready = doctorOf(cases[0])
         assertNull(DeviceReadiness.failingRow(ready, "claude"))

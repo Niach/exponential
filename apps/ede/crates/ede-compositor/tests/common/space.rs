@@ -13,7 +13,11 @@ pub fn start_with_spaces(outputs: &[(i32, i32)]) -> (Harness, tempfile::TempDir)
     let h = Harness::start(Config::default(), outputs);
     let dir = tempfile::tempdir().expect("temp dir");
     let spaces = dir.path().join("wayland-test.spaces");
-    h.with(move |state| state.spaces.open(spaces));
+    let homes = dir.path().join("homes");
+    h.with(move |state| {
+        state.spaces.open(spaces);
+        state.spaces.open_homes(homes);
+    });
     (h, dir)
 }
 

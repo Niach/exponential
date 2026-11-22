@@ -7,7 +7,7 @@ use std::{borrow::Cow, path::PathBuf, sync::Arc};
 use gpui::{px, size, AppContext as _, AssetSource, Entity, HeadlessAppContext, SharedString, Window};
 use serde_json::json;
 
-use uicore_model::ide::{IdeActiveInput, IdeAgentInput, IdeAppInput, IdeBoardInput, IdeCount, IdeLayout, IdeLayoutEntry, IdePinInput, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTone};
+use uicore_model::ide::{IdeActiveInput, IdeCount, IdeDeviceInput, IdeItemInput, IdeLayoutEntry, IdePrInput, IdeRepoInput, IdeSidebarInput, IdeTeamInput, IdeTone};
 
 use crate::navigation::nav_for_window;
 use crate::sidebar::RailView;
@@ -50,7 +50,7 @@ fn shell_header() {
     let handle = cx
         .open_window(size(px(SIDEBAR.0), px(64.)), |window: &mut Window, cx| {
             let nav = nav_for_window(window, cx);
-            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let _ = &nav;
             crate::shell_regions::HeaderRegion::new(nav, window, cx)
         })
         .expect("a headless window");
@@ -224,6 +224,61 @@ fn the_more_menu_opens_below_the_top_band() {
     std::mem::forget(cx);
 }
 
+/// #EXP-2052: the footer's account menu (What's new, About, Sign out) opens
+/// ABOVE its row and inside the window, at a small window and a large one
+/// (it flipped under the row, off the window's bottom edge, so Sign out
+/// could not be reached): the footer's popups are placed against the
+/// window, not the row's own box.
+#[test]
+fn the_account_menu_opens_above_the_footer() {
+    use gpui::{Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PlatformInput};
+    if !gpu_or_skip("the_account_menu_opens_above_the_footer") {
+        return;
+    }
+    let mut cx = headless();
+    cx.update(seeded);
+    for (window_w, window_h) in [(777., 465.), (2228., 1423.)] {
+        let handle = open(&mut cx, size(px(window_w), px(window_h)));
+        let window: gpui::AnyWindowHandle = handle.into();
+        let footer = cx.update(|cx| handle.entity(cx).expect("the rail").read(cx).region().read(cx).footer());
+        let settle = |cx: &mut HeadlessAppContext| {
+            for _ in 0..4 {
+                draw(window, cx);
+                cx.run_until_parked();
+            }
+        };
+        let input = |cx: &mut HeadlessAppContext, event: PlatformInput| {
+            cx.update_window(window, |_, window, cx| {
+                window.dispatch_event(event, cx);
+            })
+            .expect("the window");
+        };
+        settle(&mut cx);
+        let row = cx.update(|cx| footer.read(cx).painted_bounds("ide_account_trigger")).expect("the account row painted");
+        assert!(f32::from(row.bottom()) <= window_h && f32::from(row.bottom()) > window_h - 60., "{window_w}x{window_h}: the row sits at the window's bottom: {row:?}");
+        assert!(cx.update(|cx| footer.read(cx).layers().is_empty()), "closed until the row is pressed");
+        let at = row.center();
+        input(&mut cx, PlatformInput::MouseMove(MouseMoveEvent { position: at, pressed_button: None, modifiers: Modifiers::default() }));
+        input(&mut cx, PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Left, position: at, modifiers: Modifiers::default(), click_count: 1, first_mouse: false }));
+        input(&mut cx, PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: at, modifiers: Modifiers::default(), click_count: 1 }));
+        settle(&mut cx);
+        let (menu, sign_out) = cx.update(|cx| {
+            let view = footer.read(cx);
+            let layer = view.layers().iter().find(|l| l.owner == "ide_account").expect("the row opens the account menu");
+            let origin = view.origin();
+            let menu = view.frame(layer.root).map(|f| (f32::from(origin.x) + f.x, f32::from(origin.y) + f.y, f.w, f.h)).expect("the menu's frame");
+            let sign_out = view.placed_nodes().iter().find(|n| n.component == "Text" && n.props.get("text").and_then(|t| t.as_str()) == Some("Sign out")).and_then(|n| view.painted_bounds(&n.id));
+            (menu, sign_out)
+        });
+        let (x, y, w, h) = menu;
+        assert!(h > 0. && y >= 0. && y + h <= f32::from(row.top()), "{window_w}x{window_h}: the menu opens above the row {row:?}: {menu:?}");
+        assert!(x >= 0. && x + w <= window_w, "{window_w}x{window_h}: inside the window: {menu:?}");
+        let sign_out = sign_out.expect("Sign out painted");
+        assert!(f32::from(sign_out.top()) >= 0. && f32::from(sign_out.bottom()) <= f32::from(row.top()), "{window_w}x{window_h}: Sign out shows above the row: {sign_out:?}");
+    }
+    std::mem::forget(cx);
+}
+
 #[test]
 #[ignore]
 fn shell_tab_bar_frames() {
@@ -322,15 +377,12 @@ fn seeded(cx: &mut gpui::App) {
     seed(&c.issues, json!([
         {"id": "i1", "board_id": "b1", "number": 1, "identifier": "APP-1", "title": "Crash on launch", "status": "todo"}
     ]), cx);
-    seed(&c.pins, json!([
-        {"id": "p1", "team_id": "t1", "kind": "issue", "issue_id": "i1", "sort_order": 1}
-    ]), cx);
 }
 
 fn open(cx: &mut HeadlessAppContext, bounds: gpui::Size<gpui::Pixels>) -> gpui::WindowHandle<RailView> {
     cx.open_window(bounds, |window: &mut Window, cx| {
         let nav = nav_for_window(window, cx);
-        nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+        let _ = &nav;
         cx.new(|cx| RailView::new(window, cx))
     })
     .expect("a headless window")
@@ -397,31 +449,41 @@ fn shell_chat_rows() {
     std::mem::forget(cx);
 }
 
-/// Every row kind the sidebar draws: counts, selection, a hover gear.
+/// #EXP-2027: one item of a team's list.
+fn item(kind: &str, id: &str, name: &str) -> IdeItemInput {
+    IdeItemInput { kind: kind.into(), id: id.into(), name: name.into(), icon: if kind == "agent" { "settings-agents".into() } else if kind == "app" { "ui-file".into() } else if kind == "session" { "nav-chats".into() } else { format!("ide:board:{id}") }, slug: (kind == "app").then(|| id.into()), ..Default::default() }
+}
+
+/// #EXP-2027: the owner-approved draft's tree: Devices with three rows,
+/// Acme open (a Mobile folder of a board, an agent, an app and a placed
+/// session; boards, an agent and an app at its top level), Side project
+/// folded with its needs-you count.
 fn sample() -> IdeSidebarInput {
-    let agent = |id: &str, name: &str, needs_you, unread| IdeAgentInput { id: id.into(), name: name.into(), icon: "settings-agents".into(), needs_you, unread };
-    let board = |id: &str, name: &str| IdeBoardInput { id: id.into(), name: name.into(), icon: format!("ide:board:{id}") };
-    let app = |id: &str, name: &str, icon: &str| IdeAppInput { id: id.into(), slug: id.into(), name: name.into(), icon: icon.into() };
     let pr = |id: &str, n: u32, title: &str, subtitle: &str, depth| IdePrInput { id: id.into(), identifier: format!("#{n}"), title: title.into(), subtitle: subtitle.into(), depth, session: None };
+    let device = |id: &str, name: &str, online: bool, team_mark: Option<&str>| IdeDeviceInput { id: id.into(), name: name.into(), icon: if team_mark.is_some() { "ui-server".into() } else { "nav-devices".into() }, online, team_mark: team_mark.map(Into::into) };
     IdeSidebarInput {
-        screen: "board:b1".into(),
-        needs_you: 5,
-        drafts: 2,
-        chats: IdeCount { count: 3, tone: IdeTone::Attention },
-        owner: true,
-        pins: vec![IdePinInput { id: "i1".into(), identifier: "APP-1".into(), title: "Crash on launch".into() }],
-        agents: vec![agent("a1", "Triage", true, 0), agent("a2", "Release", false, 2), agent("a3", "Designer", false, 0)],
-        apps: vec![app("x1", "CRM", "ui-file"), app("x2", "Leave planner", "ui-file")],
-        boards: vec![board("b1", "Mobile App"), board("b2", "Website"), board("b3", "Infrastructure")],
-        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true }],
+        screen: "home".into(),
+        needs_you: 0,
+        drafts: 0,
+        chats: IdeCount { count: 1, tone: IdeTone::Attention },
+        devices: vec![device("d1", "Alex's MacBook Pro", true, None), device("d2", "Mint workstation", true, None), device("d3", "Acme build server", false, Some("ide:team:t1"))],
+        devices_open: true,
+        teams: vec![
+            IdeTeamInput {
+                id: "t1".into(),
+                name: "Acme".into(),
+                mark: "ui-team".into(),
+                open: true,
+                owner: true,
+                needs_you: 0,
+                items: vec![item("board", "b1", "Mobile App"), item("board", "b2", "Launch Marketing"), item("board", "b3", "Product Feedback"), item("agent", "a1", "Triage"), item("agent", "a2", "Release"), item("app", "x1", "CRM"), item("app", "x2", "Release checklist"), item("session", "s1", "Store screenshots")],
+                layout: vec![entry("f1", "folder", None, None, Some("Mobile"), 1.), entry("e1", "item", Some("b1"), Some("f1"), None, 1.), entry("e2", "item", Some("a2"), Some("f1"), None, 2.), entry("e3", "item", Some("x2"), Some("f1"), None, 3.), entry("e4", "item", Some("s1"), Some("f1"), None, 4.)],
+            },
+            IdeTeamInput { id: "t2".into(), name: "Side project".into(), mark: "ui-team".into(), open: false, owner: true, needs_you: 2, items: vec![item("board", "b9", "Site")], layout: Vec::new() },
+        ],
+        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], unread: true, team_mark: Some("ui-team".into()), team: Some("t1".into()) }],
         repos: vec![IdeRepoInput { id: "repo1".into(), name: "engine".into(), prs: vec![pr("p2", 2, "Faster sync", "sync → main", 0), pr("p3", 3, "Sync tests", "sync-tests → sync", 1)] }],
-        // #EXP-1832: an open folder of boards and a folded one of agents.
-        layout: IdeLayout {
-            board: vec![entry("f1", "folder", None, None, Some("Web"), 2.), entry("e2", "item", Some("b2"), Some("f1"), None, 1.), entry("e3", "item", Some("b3"), Some("f1"), None, 2.), entry("e1", "item", Some("b1"), None, None, 1.)],
-            agent: vec![entry("f2", "folder", None, None, Some("Bots"), 2.), entry("e4", "item", Some("a2"), Some("f2"), None, 1.), entry("e5", "item", Some("a3"), Some("f2"), None, 2.), entry("e6", "item", Some("a1"), None, None, 1.)],
-            app: Vec::new(),
-        },
-        closed: vec!["f2".into()],
+        closed: Vec::new(),
         editing_folder: None,
     }
 }
@@ -496,7 +558,7 @@ fn shell_tab_placement() {
     let handle = cx
         .open_window(size(px(1400.), px(860.)), |window: &mut Window, cx| {
             let nav = nav_for_window(window, cx);
-            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let _ = &nav;
             let shell = cx.new(|cx| crate::Shell::new(0, window, cx));
             cx.new(|cx| gpui_component::Root::new(shell, window, cx))
         })
@@ -551,7 +613,7 @@ fn shell_toast_above_fab() {
     let handle = cx
         .open_window(size(px(1440.), px(900.)), |window: &mut Window, cx| {
             let nav = nav_for_window(window, cx);
-            nav.update(cx, |nav, _| nav.team_id = Some("t1".into()));
+            let _ = &nav;
             let shell = cx.new(|cx| crate::Shell::new(0, window, cx));
             cx.new(|cx| gpui_component::Root::new(shell, window, cx))
         })
@@ -626,7 +688,7 @@ fn shell_sidebar_folders() {
 
     // CRM lifted to Release checklist's top edge: a line, before it.
     show(&mut cx, demo(Vec::new(), None));
-    let (from, to) = (bounds(&mut cx, "ide_app_row.x4"), bounds(&mut cx, "ide_app_row.x3"));
+    let (from, to) = (bounds(&mut cx, "ide_item_row.x4"), bounds(&mut cx, "ide_item_row.x3"));
     // Held by its bottom edge: the lifted copy rides above the pointer.
     let grab = gpui::point(from.center().x, from.origin.y + from.size.height - px(2.));
     press(&mut cx, grab);
@@ -637,7 +699,7 @@ fn shell_sidebar_folders() {
     settle(&mut cx);
 
     // Leave planner held over Ops desk's middle: the row lights, drop INTO.
-    let (from, to) = (bounds(&mut cx, "ide_app_row.x5"), bounds(&mut cx, "ide_app_row.x6"));
+    let (from, to) = (bounds(&mut cx, "ide_item_row.x5"), bounds(&mut cx, "ide_item_row.x6"));
     let grab = gpui::point(from.center().x, from.origin.y + from.size.height - px(2.));
     press(&mut cx, grab);
     move_to(&mut cx, gpui::point(grab.x, grab.y + px(6.)));
@@ -647,14 +709,14 @@ fn shell_sidebar_folders() {
     settle(&mut cx);
 
     // A folder's right-click menu: Rename puts its name in place, Esc keeps it.
-    let folder = bounds(&mut cx, "ide_app_folder_row.fa");
+    let folder = bounds(&mut cx, "ide_folder_row.fa");
     input(&mut cx, PlatformInput::MouseDown(MouseDownEvent { button: MouseButton::Right, position: folder.center(), modifiers: Modifiers::default(), click_count: 1, first_mouse: false }));
     input(&mut cx, PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Right, position: folder.center(), modifiers: Modifiers::default(), click_count: 1 }));
-    assert!(cx.update(|cx| surface.read(cx).layers().iter().any(|l| l.owner == "ide_app_folder_menu.fa")), "the folder menu opened");
-    let rename = bounds(&mut cx, "ide_app_folder_menu.fa.item.0").center();
+    assert!(cx.update(|cx| surface.read(cx).layers().iter().any(|l| l.owner == "ide_folder_menu.fa")), "the folder menu opened");
+    let rename = bounds(&mut cx, "ide_folder_menu.fa.item.0").center();
     press(&mut cx, rename);
     input(&mut cx, PlatformInput::MouseUp(MouseUpEvent { button: MouseButton::Left, position: rename, modifiers: Modifiers::default(), click_count: 1 }));
-    let name = "ide_app_folder_name.fa.field";
+    let name = "ide_folder_name.fa.field";
     assert_eq!(cx.update(|cx| surface.read(cx).field_text(name, cx)).as_deref(), Some("Ops tools"), "Rename edits the name in place");
     cx.update_window(window, |_, window, cx| {
         assert!(surface.update(cx, |v, cx| v.focus_field(name, window, cx)));
@@ -666,41 +728,217 @@ fn shell_sidebar_folders() {
 
     // That drop: both rows in a new folder, its name an Input in place.
     let mut after = demo(Vec::new(), None);
-    after.layout.app.extend([entry("fn", "folder", None, None, None, 3.), entry("e9", "item", Some("x6"), Some("fn"), None, 1.), entry("e10", "item", Some("x5"), Some("fn"), None, 2.)]);
+    after.teams[0].layout.extend([entry("fn", "folder", None, None, None, 4.), entry("e9", "item", Some("x6"), Some("fn"), None, 1.), entry("e10", "item", Some("x5"), Some("fn"), None, 2.)]);
     show(&mut cx, after);
     cx.update(|cx| region.update(cx, |region, cx| region.show_editing(Some("fn"), cx)));
     settle(&mut cx);
     // The region focuses it on the next frame, which a headless window never
     // requests: focus the same field by hand.
     cx.update_window(window, |_, window, cx| {
-        assert!(surface.update(cx, |v, cx| v.focus_field("ide_app_folder_name.fn.field", window, cx)), "the name Input");
+        assert!(surface.update(cx, |v, cx| v.focus_field("ide_folder_name.fn.field", window, cx)), "the name Input");
     })
     .expect("the window");
     settle(&mut cx);
-    assert_eq!(cx.update(|cx| surface.read(cx).field_text("ide_app_folder_name.fn.field", cx)).as_deref(), Some("New folder"));
+    assert_eq!(cx.update(|cx| surface.read(cx).field_text("ide_folder_name.fn.field", cx)).as_deref(), Some("New folder"));
     shoot(&mut cx, "folders-rename.png");
     std::mem::forget(cx);
 }
 
-/// The seeded demo's rows (seed-screenshots.ts), Mobile App open.
+/// #EXP-2027 (sidebar-tree.json `drop`): a Chats row dragged over the
+/// sidebar is an outside row of the tree's List: its own team's rows take
+/// the drop the List draws (a folder's middle = into), another team's never
+/// do, and an Esc'd drag leaves nothing drawn.
+#[test]
+fn a_chats_row_drops_only_into_its_team_list() {
+    use domain::chats::{ChatLead, ChatPreview, ChatPreviewKind, ChatRow};
+    use eui_core::list_reorder::ListDropPosition;
+    if !gpu_or_skip("a_chats_row_drops_only_into_its_team_list") {
+        return;
+    }
+    let mut cx = headless();
+    cx.update(seeded);
+    let handle = open(&mut cx, size(px(SIDEBAR.0), px(SIDEBAR.1)));
+    let window: gpui::AnyWindowHandle = handle.into();
+    let region = cx.update(|cx| handle.entity(cx).expect("the rail").read(cx).region());
+    let surface = cx.update(|cx| region.read(cx).surface());
+    cx.update(|cx| surface.update(cx, |v, _| v.record_bounds(true)));
+    let mut input = demo(Vec::new(), None);
+    input.teams.push(IdeTeamInput { id: "t2".into(), name: "Side project".into(), mark: "ui-team".into(), open: true, owner: true, needs_you: 0, items: vec![item("board", "b9", "Site")], layout: Vec::new() });
+    cx.update(|cx| region.update(cx, |region, cx| region.show(input, None, cx)));
+    for _ in 0..3 {
+        draw(window, &mut cx);
+        cx.run_until_parked();
+    }
+    let row = ChatRow { session_id: "s1".into(), team_id: "t1".into(), title: "Store screenshots".into(), device_id: None, group: domain::session_tree::ChatsListKey::Recent, lead: ChatLead::Open, preview: ChatPreview { kind: ChatPreviewKind::Agent, text: String::new() }, activity_at: String::new(), time: "9:41".into(), unread_count: 0, needs_you: false, busy: false, word: None, waiting: None, wall: None, dim: false };
+    // The Chats row sits outside the sidebar, below every tree row.
+    let bounds = std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::new(gpui::point(px(400.), px(2000.)), size(px(500.), px(40.)))));
+    let drag = crate::chats_view::ChatRowDrag { id: "s1".into(), team_id: "t1".into(), bounds, row, mark: None };
+    let painted = |cx: &mut HeadlessAppContext, id: &str| cx.update(|cx| surface.read(cx).painted_bounds(id)).unwrap_or_else(|| panic!("{id} painted"));
+    let drop_at = |cx: &mut HeadlessAppContext, at: gpui::Point<gpui::Pixels>| {
+        cx.update(|cx| region.update(cx, |region, cx| region.chat_drag_move(&drag, at, cx)));
+        let paint = cx.update(|cx| surface.read(cx).surface().list_drag_paint());
+        assert_eq!(paint.len(), 1, "the tree's List shows the drag");
+        assert!(paint[0].external, "an outside row: the List paints only the drop");
+        paint[0].drop.as_ref().map(|d| (d.key.clone(), d.position))
+    };
+    let folder = painted(&mut cx, "ide_folder_row.fb");
+    assert_eq!(drop_at(&mut cx, folder.center()), Some(("fb".into(), ListDropPosition::Into)), "into a folder of its team");
+    let shoot = |cx: &mut HeadlessAppContext, name: &str| {
+        let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+        for _ in 0..3 {
+            draw(window, cx);
+            cx.run_until_parked();
+        }
+        cx.capture_screenshot(window).expect("the frame").save(PathBuf::from(dir).join(name)).expect("the PNG");
+    };
+    shoot(&mut cx, "chats-drag-into.png");
+    let beside = painted(&mut cx, "ide_item_row.b1");
+    assert_eq!(drop_at(&mut cx, gpui::point(beside.center().x, beside.origin.y + beside.size.height - px(2.))), Some(("b1".into(), ListDropPosition::After)), "beside a row of its team");
+    shoot(&mut cx, "chats-drag-line.png");
+    let other = painted(&mut cx, "ide_item_row.b9");
+    assert_eq!(drop_at(&mut cx, other.center()), None, "another team's row never takes it");
+    // Esc on the Chats page: the drag's sidebar drops it.
+    cx.update(crate::shell_regions::cancel_chat_drag);
+    assert!(cx.update(|cx| surface.read(cx).surface().list_drag_paint()).is_empty(), "a cancelled drag draws nothing");
+    std::mem::forget(cx);
+}
+
+/// The seeded demo's rows (seed-screenshots.ts) as ONE team list.
 fn demo(closed: Vec<String>, editing: Option<&str>) -> IdeSidebarInput {
-    let agent = |id: &str, name: &str| IdeAgentInput { id: id.into(), name: name.into(), icon: "settings-agents".into(), needs_you: false, unread: 0 };
-    let board = |id: &str, name: &str| IdeBoardInput { id: id.into(), name: name.into(), icon: format!("ide:board:{id}") };
-    let app = |id: &str, name: &str| IdeAppInput { id: id.into(), slug: id.into(), name: name.into(), icon: "ui-file".into() };
     IdeSidebarInput {
         screen: "board:b1".into(),
         chats: IdeCount { count: 0, tone: IdeTone::Muted },
-        owner: true,
-        agents: vec![agent("a1", "Triage"), agent("a2", "Release"), agent("a3", "Designer")],
-        apps: vec![app("x1", "Working hours"), app("x2", "Team dashboard"), app("x3", "Release checklist"), app("x4", "CRM"), app("x5", "Leave planner"), app("x6", "Ops desk")],
-        boards: vec![board("b1", "Mobile App"), board("b2", "Launch Marketing"), board("b3", "Product Feedback")],
-        layout: IdeLayout {
-            board: vec![entry("e1", "item", Some("b1"), None, None, 1.), entry("fb", "folder", None, None, Some("Product"), 2.), entry("e2", "item", Some("b2"), Some("fb"), None, 1.), entry("e3", "item", Some("b3"), Some("fb"), None, 2.)],
-            agent: Vec::new(),
-            app: vec![entry("fa", "folder", None, None, Some("Ops tools"), 1.), entry("e4", "item", Some("x2"), Some("fa"), None, 1.), entry("e5", "item", Some("x1"), Some("fa"), None, 2.)],
-        },
+        teams: vec![IdeTeamInput {
+            id: "t1".into(),
+            name: "Acme".into(),
+            mark: "ui-team".into(),
+            open: true,
+            owner: true,
+            needs_you: 0,
+            items: vec![item("board", "b1", "Mobile App"), item("board", "b2", "Launch Marketing"), item("board", "b3", "Product Feedback"), item("agent", "a1", "Triage"), item("app", "x1", "Working hours"), item("app", "x2", "Team dashboard"), item("app", "x3", "Release checklist"), item("app", "x4", "CRM"), item("app", "x5", "Leave planner"), item("app", "x6", "Ops desk")],
+            layout: vec![entry("e1", "item", Some("b1"), None, None, 1.), entry("fb", "folder", None, None, Some("Product"), 2.), entry("e2", "item", Some("b2"), Some("fb"), None, 1.), entry("e3", "item", Some("b3"), Some("fb"), None, 2.), entry("fa", "folder", None, None, Some("Ops tools"), 3.), entry("e4", "item", Some("x2"), Some("fa"), None, 1.), entry("e5", "item", Some("x1"), Some("fa"), None, 2.)],
+        }],
         closed,
         editing_folder: editing.map(Into::into),
         ..Default::default()
     }
 }
+
+/// #EXP-2027: the whole IDE window over a seeded two-team account, each new
+/// screen pictured: Home with the sidebar tree, the team menu (its New
+/// submenu open), a device's page and settings page, the team's settings,
+/// the personal settings and New board. `EXP_SKIP_ONBOARDING=1`.
+#[test]
+#[ignore]
+fn shell_sidebar_tree_pages() {
+    use crate::navigation::{NewItemKind, Screen};
+    let Some(dir) = std::env::var_os("EXP_SHELL_SHOTS") else { return };
+    let dir = PathBuf::from(dir);
+    let mut cx = headless();
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().to_path_buf();
+    std::fs::write(data.join("accounts.json"), json!({"accounts": [{"id": "acc", "instanceUrl": "https://app.exponential.at", "userId": "u1", "email": "demo@exponential.at", "name": "Alex Carter", "onboardingCompletedAt": "2026-01-01T00:00:00Z"}]}).to_string()).unwrap();
+    let (_changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+    let now = chrono::Utc::now().to_rfc3339();
+    cx.update(|cx| {
+        crate::init(cx);
+        let auth = api::AuthStore::load_with_token_store(data.clone(), api::TokenStore::file_only(data.clone()));
+        cx.set_global(crate::AuthContext { auth, client: Arc::new(api::AuthClient::new()), data_dir: data.clone() });
+        let store = sync::Store::open(cx, None, None);
+        cx.set_global(store);
+        sync::Store::global(cx).clone().connect_local("acc", &data.join("sync.sqlite"), rx, cx).expect("the store");
+        let c = sync::Store::global(cx).collections().clone();
+        seed(&c.teams, json!([{"id": "t1", "name": "Acme", "slug": "acme"}, {"id": "t2", "name": "Side project", "slug": "side"}]), cx);
+        seed(&c.team_members, json!([{"id": "m1", "team_id": "t1", "user_id": "u1", "role": "owner"}, {"id": "m2", "team_id": "t2", "user_id": "u1", "role": "owner"}]), cx);
+        seed(&c.boards, json!([
+            {"id": "b1", "team_id": "t1", "name": "Mobile App", "slug": "mobile-app", "prefix": "APP", "color": "#8b5cf6", "icon": "code", "sort_order": 1},
+            {"id": "b2", "team_id": "t1", "name": "Launch Marketing", "slug": "launch", "prefix": "MKT", "color": "#f59e0b", "sort_order": 2},
+            {"id": "b3", "team_id": "t1", "name": "Product Feedback", "slug": "feedback", "prefix": "FB", "color": "#22c55e", "icon": "megaphone", "sort_order": 3},
+            {"id": "b9", "team_id": "t2", "name": "Site", "slug": "site", "prefix": "SITE", "color": "#3b82f6", "sort_order": 1}
+        ]), cx);
+        seed(&c.agents, json!([
+            {"id": "as1", "team_id": "t1", "name": "Assistant", "role": "assistant", "owner_id": "u1"},
+            {"id": "a1", "team_id": "t1", "name": "Triage", "role": "agent", "icon": "bug", "color": "#a855f7", "sort_order": 1},
+            {"id": "a2", "team_id": "t1", "name": "Release", "role": "agent", "icon": "package", "color": "#22c55e", "sort_order": 2}
+        ]), cx);
+        seed(&c.devices, json!([
+            {"id": "d1", "user_id": "u1", "device_id": "dev-1", "label": "Alex's MacBook Pro", "kind": "desktop", "platform": "macos", "version": "0.14.171", "last_seen_at": now, "shared_team_ids": "{}"},
+            {"id": "d2", "user_id": "u1", "device_id": "dev-2", "label": "Mint workstation", "kind": "desktop", "platform": "linux", "version": "0.14.171", "last_seen_at": now, "shared_team_ids": "{}"},
+            {"id": "d3", "user_id": "u2", "device_id": "dev-3", "label": "Acme build server", "kind": "server", "platform": "linux", "version": "0.14.170", "last_seen_at": "2026-11-01T00:00:00Z", "shared_team_ids": "{t1}"}
+        ]), cx);
+        seed(&c.sessions, json!([
+            {"id": "s1", "team_id": "t1", "root_id": "s1", "user_id": "u1", "status": "running", "shared": true, "title": "Store screenshots", "device_id": "dev-1", "created_at": now, "updated_at": now},
+            {"id": "s2", "team_id": "t2", "root_id": "s2", "user_id": "u1", "status": "running", "shared": true, "title": "Landing page copy", "created_at": now, "updated_at": now}
+        ]), cx);
+        seed(&c.sidebar_layout, json!([
+            {"id": "f1", "user_id": "u1", "team_id": "t1", "section": "team", "kind": "folder", "name": "Mobile", "sort_order": 1},
+            {"id": "e1", "user_id": "u1", "team_id": "t1", "section": "team", "kind": "item", "target_id": "b1", "parent_id": "f1", "sort_order": 1},
+            {"id": "e2", "user_id": "u1", "team_id": "t1", "section": "team", "kind": "item", "target_id": "a2", "parent_id": "f1", "sort_order": 2}
+        ]), cx);
+    });
+    let handle = cx
+        .open_window(size(px(1440.), px(900.)), |window: &mut Window, cx| {
+            let shell = cx.new(|cx| crate::Shell::new(0, window, cx));
+            cx.new(|cx| gpui_component::Root::new(shell, window, cx))
+        })
+        .expect("a headless window");
+    let window: gpui::AnyWindowHandle = handle.into();
+    // The left column slides between the rail and the settings nav on the
+    // wall clock: let every transition finish.
+    let settle = |cx: &mut HeadlessAppContext| {
+        for _ in 0..14 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            cx.advance_clock(std::time::Duration::from_millis(50));
+            draw(window, cx);
+            cx.run_until_parked();
+        }
+    };
+    let shoot = |cx: &mut HeadlessAppContext, name: &str| {
+        let shot = cx.capture_screenshot(window).expect("the frame");
+        shot.save(dir.join(name)).expect("the PNG");
+    };
+    let go = |cx: &mut HeadlessAppContext, screen: Screen| {
+        cx.update_window(window, |_, window, cx| crate::navigation::navigate(window, cx, screen)).unwrap();
+    };
+    go(&mut cx, Screen::Home);
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-sidebar-tree.png");
+    // The `sidebar-team-menu` drive (`EXP_DEV_TEAM_MENU`): the first team's
+    // `…` opens its menu on the next derive.
+    go(&mut cx, Screen::Chats);
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-chats.png");
+    std::env::set_var("EXP_DEV_TEAM_MENU", "1");
+    go(&mut cx, Screen::Drafts);
+    settle(&mut cx);
+    go(&mut cx, Screen::Home);
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-sidebar-team-menu.png");
+    std::env::remove_var("EXP_DEV_TEAM_MENU");
+    cx.update_window(window, |_, window, cx| {
+        window.dispatch_event(gpui::PlatformInput::KeyDown(gpui::KeyDownEvent { keystroke: gpui::Keystroke::parse("escape").unwrap(), is_held: false, prefer_character_input: false }), cx);
+    })
+    .unwrap();
+    settle(&mut cx);
+    go(&mut cx, Screen::Device { device_id: "d1".into() });
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-device.png");
+    go(&mut cx, Screen::DeviceSettings { device_id: "d1".into() });
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-device-settings.png");
+    cx.update_window(window, |_, window, cx| crate::navigation::open_settings(window, cx, Some("t1".into()))).unwrap();
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-team-settings.png");
+    cx.update_window(window, |_, window, cx| crate::navigation::open_settings(window, cx, None)).unwrap();
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-personal-settings.png");
+    go(&mut cx, Screen::NewItem { team_id: "t1".into(), kind: NewItemKind::Board });
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-new-board.png");
+    go(&mut cx, Screen::NewItem { team_id: "t1".into(), kind: NewItemKind::App });
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-new-app.png");
+    std::mem::forget(cx);
+    std::mem::forget(root);
+}
+

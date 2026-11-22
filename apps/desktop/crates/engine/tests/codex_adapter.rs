@@ -339,6 +339,7 @@ fn spec() -> engine::adapters::AdapterSpec {
             mcp_server_ids: Vec::new(),
             account: None,
             computer_use: None,
+            computer_place: Default::default(),
         },
         mcp: coding::AgentMcp::CodexOverrides {
             url: "https://example.test/api/mcp".to_string(),
@@ -355,7 +356,6 @@ fn spec() -> engine::adapters::AdapterSpec {
         system_append: coding::skill::system_append(None),
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
-        confine_to: None,
         skills_dir: None,
         aside: false,
         exit: engine::ChildExitLink::new(),

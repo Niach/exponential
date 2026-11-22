@@ -109,6 +109,7 @@
     "os-linux"
   ],
   "semantic": {
+    "nav-home": "house",
     "nav-search": "search",
     "nav-inbox": "inbox",
     "nav-needs-you": "triangle-alert",
@@ -449,7 +450,9 @@
     "ui-hold": "hand",
     "ui-maximize": "arrow-up-left",
     "ui-minimize": "minus",
-    "voice-level": "audio-lines"
+    "voice-level": "audio-lines",
+    "search-chat": "message-circle",
+    "search-agent": "bot"
   },
   "imported": {
     "os-apple": {

@@ -48,6 +48,13 @@ xkeysym = "0.2"
 # dependency inside this repository, so the git tag carries it (#EDE-22).
 ede-protocol = { path = "../ede-protocol" }
 
+# #EDE-140: the live eDE test (`headless_ede`) maps windows of its own: a
+# minimal xdg-shell client (`src/backend/ede_test_client.rs`). Both are in
+# the tree already (gpui).
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client"] }
+
 # macOS: CGEvent input + CGDisplay capture + the event tap lock (all in
 # core-graphics, already in the tree), the window list off
 # CGWindowListCopyWindowInfo, activation through AppKit.
@@ -76,6 +83,10 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[features]
+# #ERR-29: `log_capture`, for the tests of epilot-screen's dead ends.
+test-support = []
 
 [[example]]
 name = "serve"

@@ -99,8 +99,40 @@ pub fn prop<T: TryFrom<OwnedValue>>(conn: &Connection, dest: &str, path: &str, i
     T::try_from(value).ok()
 }
 
+/// An action's property write, through [`call_asking`].
 pub fn set_prop<'a>(conn: &Connection, dest: &str, path: &str, iface: &str, name: &str, value: zbus::zvariant::Value<'a>) -> Result<(), String> {
-    conn.call_method(Some(dest), path, Some("org.freedesktop.DBus.Properties"), "Set", &(iface, name, value)).map(|_| ()).map_err(|e| e.to_string())
+    call_asking::<_, ()>(conn, dest, path, "org.freedesktop.DBus.Properties", "Set", &(iface, name, value))
+}
+
+/// An action's method call (#EDE-182): the message carries
+/// ALLOW_INTERACTIVE_AUTHORIZATION, so a daemon that checks polkit lets the
+/// person's agent ask instead of refusing ("interactive authentication has
+/// not been enabled by the calling program"). No timeout: it waits as long
+/// as the prompt is open, so it never runs on a UI thread. The snapshots'
+/// reads never ask ([`polled_system_bus`]).
+pub fn call_asking<B, R>(conn: &Connection, dest: &str, path: &str, iface: &str, method: &str, body: &B) -> Result<R, String>
+where
+    B: serde::Serialize + zbus::zvariant::DynamicType,
+    R: for<'d> zbus::zvariant::DynamicDeserialize<'d>,
+{
+    let proxy: zbus::blocking::Proxy<'_> = zbus::blocking::proxy::Builder::new(conn)
+        .destination(dest)
+        .and_then(|b| b.path(path))
+        .and_then(|b| b.interface(iface))
+        .and_then(|b| b.cache_properties(zbus::proxy::CacheProperties::No).build())
+        .map_err(|e| e.to_string())?;
+    proxy.call_with_flags(method, zbus::proxy::MethodFlags::AllowInteractiveAuth.into(), body).map_err(refusal)?.ok_or_else(|| format!("{method}: no reply"))
+}
+
+/// What a refused call says, as a failed action's toast describes it: the
+/// daemon's own sentence (`org.freedesktop.DBus.Error.AccessDenied:
+/// Permission denied` reads `Permission denied`), its error's name when it
+/// gave none.
+pub fn refusal(e: zbus::Error) -> String {
+    match e {
+        zbus::Error::MethodError(name, message, _) => message.map(|m| m.trim().to_string()).filter(|m| !m.is_empty()).unwrap_or_else(|| name.to_string()),
+        other => other.to_string(),
+    }
 }
 
 pub fn str_of(props: &HashMap<String, OwnedValue>, key: &str) -> String {
@@ -155,6 +187,82 @@ pub fn command_within(program: &str, args: &[&str], limit: Duration) -> Option<S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    /// A dbus-daemon of the test's own, never the machine's system bus.
+    struct PrivateBus {
+        child: std::process::Child,
+        address: String,
+        _dir: tempfile::TempDir,
+    }
+
+    impl PrivateBus {
+        fn start() -> PrivateBus {
+            let dir = tempfile::tempdir().unwrap();
+            let socket = dir.path().join("bus");
+            let config = dir.path().join("bus.conf");
+            std::fs::write(&config, format!(r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig><type>session</type><listen>unix:path={}</listen><policy context="default"><allow send_destination="*" eavesdrop="true"/><allow eavesdrop="true"/><allow own="*"/></policy></busconfig>"#, socket.display())).unwrap();
+            let child = Command::new("dbus-daemon").arg("--nofork").arg(format!("--config-file={}", config.display())).stdout(Stdio::null()).spawn().expect("dbus-daemon");
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !socket.exists() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            PrivateBus { child, address: format!("unix:path={}", socket.display()), _dir: dir }
+        }
+
+        fn connect(&self) -> zbus::blocking::connection::Builder<'static> {
+            zbus::blocking::connection::Builder::address(self.address.as_str()).unwrap()
+        }
+    }
+
+    impl Drop for PrivateBus {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    /// logind's stand-in: each call as (method, whether the message allowed
+    /// interactive authorization, its `interactive` argument); `Reboot`
+    /// answers as systemd does when the person cancels the prompt.
+    #[derive(Clone, Default)]
+    struct Login(Arc<Mutex<Vec<(String, bool, bool)>>>);
+
+    impl Login {
+        fn note(&self, method: &str, header: &zbus::message::Header<'_>, interactive: bool) {
+            let asked = header.primary().flags().contains(zbus::message::Flags::AllowInteractiveAuth);
+            self.0.lock().unwrap().push((method.to_string(), asked, interactive));
+        }
+    }
+
+    #[zbus::interface(name = "org.freedesktop.login1.Manager")]
+    impl Login {
+        async fn power_off(&self, #[zbus(header)] header: zbus::message::Header<'_>, interactive: bool) {
+            self.note("PowerOff", &header, interactive);
+        }
+
+        async fn reboot(&self, #[zbus(header)] header: zbus::message::Header<'_>, interactive: bool) -> zbus::fdo::Result<()> {
+            self.note("Reboot", &header, interactive);
+            Err(zbus::fdo::Error::AccessDenied("Permission denied".into()))
+        }
+    }
+
+    /// #EDE-182: an action's call lets polkit ask (the flag on the message,
+    /// logind's `interactive` true), and a refusal reads as the daemon's
+    /// sentence, never a bus dump.
+    #[test]
+    fn actions_let_polkit_ask_and_a_refusal_says_the_daemons_sentence() {
+        let bus = PrivateBus::start();
+        let login = Login::default();
+        let _logind = bus.connect().name("org.freedesktop.login1").unwrap().serve_at("/org/freedesktop/login1", login.clone()).unwrap().build().unwrap();
+        let conn = bus.connect().build().unwrap();
+        assert_eq!(power::login(&conn, "poweroff"), Ok(()));
+        assert_eq!(power::login(&conn, "reboot"), Err("Permission denied".into()), "a cancelled prompt");
+        assert!(power::login(&conn, "dance").is_err());
+        assert_eq!(*login.0.lock().unwrap(), vec![("PowerOff".to_string(), true, true), ("Reboot".to_string(), true, true)]);
+        assert_eq!(call_asking::<_, ()>(&conn, "org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "Halt", &(true,)), Err("Unknown method 'Halt'".into()), "the sentence, not `org.freedesktop.DBus.Error.UnknownMethod: …`");
+    }
 
     #[test]
     fn a_command_that_hangs_is_killed_at_its_limit() {

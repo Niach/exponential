@@ -9,7 +9,7 @@ use std::{io::Write, os::fd::AsFd, os::unix::net::UnixStream};
 
 use wayland_client::{
     delegate_noop,
-    protocol::{wl_buffer, wl_callback, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_region, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
+    protocol::{wl_buffer, wl_callback, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_region, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_subcompositor, wl_subsurface, wl_surface},
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
@@ -23,12 +23,33 @@ use wayland_protocols::{
 };
 use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
 
+/// #EXP-2041: `exponential_popup_namespace_v1`, the client side (gpui's in
+/// the shell), from ede-protocol's XML.
+#[allow(dead_code, non_camel_case_types, unused_unsafe, unused_variables, non_upper_case_globals, non_snake_case, unused_imports, missing_docs, clippy::all)]
+pub mod popup_namespace {
+    use wayland_client;
+    use wayland_client::protocol::*;
+
+    pub mod __interfaces {
+        use wayland_client::backend as wayland_backend;
+        use wayland_client::protocol::__interfaces::*;
+        wayland_scanner::generate_interfaces!("../../../desktop/crates/ede-protocol/protocols/exponential-popup-namespace-v1.xml");
+    }
+    use self::__interfaces::*;
+
+    wayland_scanner::generate_client_code!("../../../desktop/crates/ede-protocol/protocols/exponential-popup-namespace-v1.xml");
+}
+use popup_namespace::exponential_popup_namespace_v1::ExponentialPopupNamespaceV1;
+
 #[derive(Default)]
 pub struct Client {
     pub compositor: Option<wl_compositor::WlCompositor>,
+    pub subcompositor: Option<wl_subcompositor::WlSubcompositor>,
     pub shm: Option<wl_shm::WlShm>,
     pub wm_base: Option<xdg_wm_base::XdgWmBase>,
     pub layer_shell: Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>,
+    /// #EXP-2041: the popup namespace global (the person's clients only).
+    pub popup_namespace: Option<ExponentialPopupNamespaceV1>,
     pub outputs: Vec<wl_output::WlOutput>,
     /// The name and the current mode each bound wl_output announced.
     pub output_names: Vec<String>,
@@ -64,6 +85,10 @@ pub struct Client {
     pub pointer_enters: u32,
     pub pointer_motions: u32,
     pub buttons: Vec<(u32, bool)>,
+    /// Every scroll it heard (#EDE-140): each `axis` (0 = vertical, 1 =
+    /// horizontal) with its value, each `axis_discrete` with its steps.
+    pub axes: Vec<(u32, f64)>,
+    pub axis_steps: Vec<(u32, i32)>,
     pub idle_notifier: Option<ext_idle_notifier_v1::ExtIdleNotifierV1>,
     /// `idled` and `resumed` on our idle notifications.
     pub idled: u32,
@@ -210,10 +235,15 @@ impl Session {
 
     /// Acks the last configure and commits a `w`×`h` buffer of `argb`.
     pub fn draw(&mut self, t: &Toplevel, w: i32, h: i32, argb: u32) {
+        self.draw_with(t, w, h, |_, _| argb);
+    }
+
+    /// [`Session::draw`] with the pixel at (x, y) from `argb`.
+    pub fn draw_with(&mut self, t: &Toplevel, w: i32, h: i32, argb: impl Fn(i32, i32) -> u32) {
         if let Some(serial) = self.state.toplevels[t.index].pending_serial.take() {
             t.xdg_surface.ack_configure(serial);
         }
-        let buffer = self.buffer(w, h, argb);
+        let buffer = self.buffer_with(w, h, argb);
         t.surface.attach(Some(&buffer), 0, 0);
         t.surface.damage_buffer(0, 0, w, h);
         t.surface.commit();
@@ -264,7 +294,15 @@ impl Session {
     /// A drawn `w`×`h` `xdg_popup` under the layer surface `l` (the shell's
     /// start menu under its taskbar); `grab` = it asks for the grab, that
     /// is for the keyboard (#EDE-86).
-    pub fn layer_popup(&mut self, l: &Layer, (w, h): (i32, i32), grab: bool, argb: u32) -> Popup {
+    pub fn layer_popup(&mut self, l: &Layer, size: (i32, i32), grab: bool, argb: u32) -> Popup {
+        self.named_layer_popup(l, (0, 0), size, grab, argb, None)
+    }
+
+    /// [`Self::layer_popup`] anchored at `at` of the layer (its top-left
+    /// corner there: anchor and gravity bottom right of a 1×1 rect), named
+    /// `namespace` before its first commit through
+    /// `exponential_popup_namespace_v1`, as gpui names the shell's (#EXP-2041).
+    pub fn named_layer_popup(&mut self, l: &Layer, at: (i32, i32), (w, h): (i32, i32), grab: bool, argb: u32, namespace: Option<&str>) -> Popup {
         let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
         let index = self.state.toplevels.len();
         self.state.toplevels.push(ToplevelState::default());
@@ -272,10 +310,17 @@ impl Session {
         let xdg_surface = wm_base.get_xdg_surface(&surface, &self.qh, index);
         let positioner = wm_base.create_positioner(&self.qh, ());
         positioner.set_size(w, h);
-        positioner.set_anchor_rect(0, 0, 1, 1);
+        positioner.set_anchor_rect(at.0, at.1, 1, 1);
+        if at != (0, 0) {
+            positioner.set_anchor(xdg_positioner::Anchor::TopLeft);
+            positioner.set_gravity(xdg_positioner::Gravity::BottomRight);
+        }
         let popup = xdg_surface.get_popup(None, &positioner, &self.qh, ());
         l.layer.get_popup(&popup);
         positioner.destroy();
+        if let Some(namespace) = namespace {
+            self.state.popup_namespace.as_ref().expect("the popup namespace global advertised").set_namespace(&surface, namespace.into());
+        }
         if grab {
             // No press to name: a hotkey opened it.
             popup.grab(self.state.seat.as_ref().expect("seat advertised"), 0);
@@ -459,9 +504,11 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
                 "ext_idle_notifier_v1" => state.idle_notifier = Some(registry.bind(name, 1, qh, ())),
                 "wl_seat" => state.seat = Some(registry.bind(name, version.min(7), qh, ())),
                 "wl_compositor" => state.compositor = Some(registry.bind(name, version.min(5), qh, ())),
+                "wl_subcompositor" => state.subcompositor = Some(registry.bind(name, 1, qh, ())),
                 "wl_shm" => state.shm = Some(registry.bind(name, 1, qh, ())),
                 "xdg_wm_base" => state.wm_base = Some(registry.bind(name, version.min(5), qh, ())),
                 "zwlr_layer_shell_v1" => state.layer_shell = Some(registry.bind(name, version.min(4), qh, ())),
+                "exponential_popup_namespace_v1" => state.popup_namespace = Some(registry.bind(name, 1, qh, ())),
                 "wl_output" => state.outputs.push(registry.bind(name, version.min(4), qh, ())),
                 "wl_data_device_manager" => state.data_device_manager = Some(registry.bind(name, version.min(3), qh, ())),
                 "zxdg_decoration_manager_v1" => state.decoration_manager = Some(registry.bind(name, 1, qh, ())),
@@ -620,6 +667,8 @@ impl Dispatch<wl_pointer::WlPointer, ()> for Client {
                     state.press_at = state.pointer_at;
                 }
             }
+            wl_pointer::Event::Axis { axis: WEnum::Value(axis), value, .. } => state.axes.push((axis.into(), value)),
+            wl_pointer::Event::AxisDiscrete { axis: WEnum::Value(axis), discrete } => state.axis_steps.push((axis.into(), discrete)),
             _ => {}
         }
     }
@@ -749,6 +798,7 @@ impl Dispatch<wl_callback::WlCallback, ()> for Client {
 }
 
 delegate_noop!(Client: ignore wl_data_device_manager::WlDataDeviceManager);
+delegate_noop!(Client: ignore ExponentialPopupNamespaceV1);
 delegate_noop!(Client: ignore ext_idle_notifier_v1::ExtIdleNotifierV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1);
@@ -756,6 +806,8 @@ delegate_noop!(Client: ignore ext_session_lock_manager_v1::ExtSessionLockManager
 delegate_noop!(Client: ignore zwp_idle_inhibit_manager_v1::ZwpIdleInhibitManagerV1);
 delegate_noop!(Client: ignore zwp_idle_inhibitor_v1::ZwpIdleInhibitorV1);
 delegate_noop!(Client: ignore wl_compositor::WlCompositor);
+delegate_noop!(Client: ignore wl_subcompositor::WlSubcompositor);
+delegate_noop!(Client: ignore wl_subsurface::WlSubsurface);
 delegate_noop!(Client: ignore wl_surface::WlSurface);
 delegate_noop!(Client: wl_region::WlRegion);
 delegate_noop!(Client: ignore wl_shm::WlShm);
@@ -824,5 +876,49 @@ impl Session {
         }
         Popup { surface, xdg_surface, popup }
     }
+
+    /// Commits one new `w`×`h` buffer per colour of `argbs`, back to back,
+    /// without waiting for a frame or a roundtrip between them (an app
+    /// with vsync off).
+    pub fn draw_burst(&mut self, t: &Toplevel, w: i32, h: i32, argbs: &[u32]) {
+        if let Some(serial) = self.state.toplevels[t.index].pending_serial.take() {
+            t.xdg_surface.ack_configure(serial);
+        }
+        for &argb in argbs {
+            let buffer = self.buffer(w, h, argb);
+            t.surface.attach(Some(&buffer), 0, 0);
+            t.surface.damage_buffer(0, 0, w, h);
+            t.surface.commit();
+        }
+        self.roundtrip();
+    }
+
+    /// A drawn `w`x`h` subsurface of `parent` at `at` (synchronized: it
+    /// shows with the parent's next commit, which this makes).
+    pub fn subsurface(&mut self, parent: &wl_surface::WlSurface, at: (i32, i32), (w, h): (i32, i32), argb: u32) -> (wl_surface::WlSurface, wl_subsurface::WlSubsurface) {
+        let surface = self.state.compositor.as_ref().unwrap().create_surface(&self.qh, ());
+        let sub = self.state.subcompositor.as_ref().expect("wl_subcompositor advertised").get_subsurface(&surface, parent, &self.qh, ());
+        sub.set_position(at.0, at.1);
+        let buffer = self.buffer(w, h, argb);
+        surface.attach(Some(&buffer), 0, 0);
+        surface.damage_buffer(0, 0, w, h);
+        surface.commit();
+        parent.commit();
+        self.roundtrip();
+        (surface, sub)
+    }
 }
 
+/// #EDE-138: a connection to the Xwayland on `:display` that shows the
+/// cookie in `xauthority` (`None`: none, as a stranger to that server).
+#[cfg(feature = "xwayland")]
+pub fn x11_connect(display: u32, xauthority: Option<&std::path::Path>) -> Result<x11rb::rust_connection::RustConnection, x11rb::errors::ConnectError> {
+    use x11rb::{
+        reexports::x11rb_protocol::parse_display::ConnectAddress,
+        rust_connection::{DefaultStream, RustConnection},
+    };
+    let (stream, _) = DefaultStream::connect(&ConnectAddress::Socket(format!("/tmp/.X11-unix/X{display}").into()))?;
+    let cookie = xauthority.and_then(|path| ede_compositor::xauth::cookie_for(path, display));
+    let (name, data) = cookie.map_or((Vec::new(), Vec::new()), |cookie| (ede_compositor::xauth::MIT_MAGIC_COOKIE.to_vec(), cookie));
+    RustConnection::connect_to_stream_with_auth_info(stream, 0, name, data)
+}

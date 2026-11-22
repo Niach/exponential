@@ -54,15 +54,3 @@ export const PLANS: Plan[] = [
     cta: { label: `Self-host`, href: `/docs/get-started/self-host/` },
   },
 ]
-
-/* Exponential against Linear (published pricing, 2026). */
-export const COMPARISON: { label: string; exponential: string; linear: string }[] = [
-  { label: `Free tier`, exponential: `3 seats, full product`, linear: `Limited issues` },
-  { label: `Paid plan`, exponential: `€12 / seat / mo billed yearly, everything included`, linear: `$10–14 / user / mo, features split across tiers` },
-  { label: `Feedback widget`, exponential: `Built in, one seat price`, linear: `Separate tools, separately billed` },
-  { label: `AI coding`, exponential: `Bring your own agents, run them locally`, linear: `Cloud agents, billed per use` },
-  { label: `Self-hosting`, exponential: `Full-featured, free for everyone`, linear: `Not available` },
-  { label: `Desktop app`, exponential: `Native Rust`, linear: `Electron` },
-  { label: `Mobile apps`, exponential: `Native iOS & Android`, linear: `Yes` },
-  { label: `Source`, exponential: `Open source (Apache-2.0)`, linear: `Proprietary` },
-]

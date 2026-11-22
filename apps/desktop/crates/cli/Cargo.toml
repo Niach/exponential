@@ -78,3 +78,7 @@ eui-motion = { path = "../eui-motion", features = ["raster"] }
 eengine-bundle = { path = "../eengine-bundle" }
 gif = "0.13"
 base64 = "0.22"
+
+[dev-dependencies]
+# #ERR-29: etalk's log capture, for the voice host's tests of its dead ends.
+etalk = { path = "../etalk", default-features = false, features = ["test-support"] }

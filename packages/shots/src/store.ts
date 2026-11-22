@@ -73,6 +73,8 @@ export interface WriteShotResult {
   bytes: number
   /** Fraction of pixels that differed, when a comparison happened. */
   changedRatio?: number
+  /** eDE only: the fraction the faint pass (`EDE_FAINT_CHECK`) counted. */
+  faintRatio?: number
 }
 
 /**
@@ -83,10 +85,33 @@ export interface WriteShotResult {
  */
 const PIXELMATCH_OPTIONS = { threshold: 0.1, includeAA: false } as const
 
-/** The tolerance that applies to one view: explicit → per-view → catalog default. */
-export function toleranceFor(viewId: string, override?: number): number {
+/**
+ * #EDE-140: an eDE golden's tolerance, one pixel in 10,000 (92 of 1280×720).
+ *
+ * eDE's captures have a fixed clock, date, demo data and fonts
+ * (apps/ede/scripts/shots.sh), so one commit draws one picture: a developer's
+ * machine and the Mint's runner byte for byte, the GitHub-hosted fallback
+ * within a level or two at glyph edges. Measured on one commit (28c8fc56c7,
+ * all 21 views) between the two runners: at most 4 pixels at this pass. The
+ * default tolerance (0.5 %, tuned for web views whose seed timestamps drift)
+ * keeps a taskbar icon that went and a renamed label.
+ */
+export const EDE_TOLERANCE = 0.0001
+
+/**
+ * #EDE-140: eDE's second pass, for a change too faint for the first: a colour
+ * distance of about 6 grey levels (the loose pass needs 26) over 2 % of the
+ * frame. A surface token that moved from #171717 to #252525 changed 2 to 54 %
+ * of nine goldens and not one pixel of the loose pass; all nine were kept.
+ * The two runners differ in at most 0.43 % at this distance (ede-chat, the
+ * densest text).
+ */
+export const EDE_FAINT_CHECK = { threshold: 0.02, tolerance: 0.02 } as const
+
+/** The tolerance that applies to one view: explicit → per-view → the platform's → catalog default. */
+export function toleranceFor(viewId: string, override?: number, platform?: Platform): number {
   if (override !== undefined) return override
-  return viewById(viewId)?.diffTolerance ?? STORE_DEFAULT_TOLERANCE
+  return viewById(viewId)?.diffTolerance ?? (platform === `ede` ? EDE_TOLERANCE : STORE_DEFAULT_TOLERANCE)
 }
 
 /** One written shot, as the run log reports it. */
@@ -96,6 +121,9 @@ export interface ShotDiffReport {
   state: ShotState
   changedRatio?: number
   tolerance: number
+  /** eDE only: the faint pass's fraction and its tolerance. */
+  faintRatio?: number
+  faintTolerance?: number
 }
 
 /** The share of its tolerance above which a KEPT shot is flagged as a near miss. */
@@ -138,25 +166,34 @@ export const WRITE_ANY_CHANGE_FLOOR = 0.0002
  * rather than silently dropped.
  */
 export function formatDiffReport(results: ShotDiffReport[]): string[] {
-  const share = (entry: ShotDiffReport): number => (entry.changedRatio ?? 0) / entry.tolerance
+  // #EDE-140: an eDE shot has two passes; the one closer to its tolerance speaks.
+  const faintShare = (entry: ShotDiffReport): number =>
+    entry.faintTolerance ? (entry.faintRatio ?? 0) / entry.faintTolerance : 0
+  const share = (entry: ShotDiffReport): number =>
+    Math.max((entry.changedRatio ?? 0) / entry.tolerance, faintShare(entry))
+  const faint = (entry: ShotDiffReport, of: string): string =>
+    faintShare(entry) > 0 ? `  faint ${entry.faintRatio!.toFixed(4)} ${of} ${entry.faintTolerance!.toFixed(4)}` : ``
   const updated = results
     .filter((entry) => entry.state === `updated` && entry.changedRatio !== undefined)
     .sort((a, b) => (b.changedRatio ?? 0) - (a.changedRatio ?? 0))
   const kept = results
-    .filter((entry) => entry.state === `kept` && (entry.changedRatio ?? 0) > 0)
+    .filter((entry) => entry.state === `kept` && share(entry) > 0)
     .sort((a, b) => share(b) - share(a))
   const lines: string[] = []
   for (const entry of updated) {
-    const under = entry.changedRatio! <= entry.tolerance
+    const under = share(entry) <= 1
     lines.push(
       `  updated  ${`${entry.viewId}/${entry.platform}`.padEnd(32)}${entry.changedRatio!.toFixed(4)} (tolerance ${entry.tolerance.toFixed(4)})` +
+        (faintShare(entry) > 0 ? `${faint(entry, `(tolerance`)})` : ``) +
         (under ? `  ← under tolerance, eyeball it` : ``)
     )
   }
   for (const entry of kept) {
     const percent = Math.round(share(entry) * 100)
     lines.push(
-      `  kept     ${`${entry.viewId}/${entry.platform}`.padEnd(32)}${entry.changedRatio!.toFixed(4)} of ${entry.tolerance.toFixed(4)} (${percent}%)` +
+      `  kept     ${`${entry.viewId}/${entry.platform}`.padEnd(32)}${entry.changedRatio!.toFixed(4)} of ${entry.tolerance.toFixed(4)}` +
+        faint(entry, `of`) +
+        ` (${percent}%)` +
         (share(entry) >= NEAR_MISS_SHARE ? `  ← near miss` : ``)
     )
   }
@@ -212,18 +249,20 @@ export async function writeShot(
   }
 
   const [before, after] = await Promise.all([toRawRgba(existing), toRawRgba(candidate.buf)])
-  const changed = pixelmatch(
-    before.data,
-    after.data,
-    undefined,
-    before.width,
-    before.height,
-    PIXELMATCH_OPTIONS
-  )
-  const changedRatio = changed / (before.width * before.height)
-  const tolerance = toleranceFor(viewId, opts.tolerance)
+  const pixels = before.width * before.height
+  const ratio = (options: { threshold: number; includeAA: boolean }): number =>
+    pixelmatch(before.data, after.data, undefined, before.width, before.height, options) / pixels
+  const changedRatio = ratio(PIXELMATCH_OPTIONS)
+  // #EDE-140: eDE's faint pass, unless the caller named a tolerance of its own.
+  const faintRatio =
+    platform === `ede` && opts.tolerance === undefined
+      ? ratio({ ...PIXELMATCH_OPTIONS, threshold: EDE_FAINT_CHECK.threshold })
+      : undefined
+  const tolerance = toleranceFor(viewId, opts.tolerance, platform)
   const limit = opts.writeAnyChange ? Math.min(WRITE_ANY_CHANGE_FLOOR, tolerance) : tolerance
-  if (changedRatio > limit) return updated(changedRatio)
+  if (changedRatio > limit || (faintRatio ?? 0) > EDE_FAINT_CHECK.tolerance) {
+    return { ...updated(changedRatio), faintRatio }
+  }
 
   return {
     state: `kept`,
@@ -232,6 +271,7 @@ export async function writeShot(
     height: existingSize.height,
     bytes: existing.byteLength,
     changedRatio,
+    faintRatio,
   }
 }
 

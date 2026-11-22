@@ -1,5 +1,8 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.data.steer.tailFeedRow
+import com.exponential.app.domain.FindInChat
+import com.exponential.app.domain.MessageDelivery
 import com.exponential.app.domain.TaskQueue
 import com.exponential.app.ui.theme.ExpMono
 import com.exponential.app.domain.contentType
@@ -116,6 +119,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import com.exponential.app.domain.DetailChrome
@@ -518,10 +522,16 @@ fun AgentSessionScreen(
     val row = session
     // S-3: no Stop/End in the header (the composer's stop-turn is the one).
     val rootId = row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id
+    // #EDE-99 (search-list.json A PICK): a global search hit said in this
+    // (child) session opens it with find in chat on the query, at the hit.
+    val find = com.exponential.app.ui.chat.rememberFindInChat("session:$sessionId")
+    androidx.compose.runtime.LaunchedEffect(find) {
+        com.exponential.app.ui.chat.FindInChatSeeds.take(sessionId)?.let { pick -> find.seed(pick.query, pick.target) }
+    }
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
-            SessionHeaderBar(
+            if (find.open) com.exponential.app.ui.chat.FindInChatHeader(find) else SessionHeaderBar(
                 chatTitle = header?.chatTitle,
                 sessionName = header?.sessionName ?: row?.title?.takeIf { it.isNotBlank() } ?: "",
                 agent = row?.cli,
@@ -532,7 +542,10 @@ fun AgentSessionScreen(
         },
     ) { padding ->
         val agentMarks by viewModel.agentMarks.collectAsStateWithLifecycle()
-        CompositionLocalProvider(com.exponential.app.ui.components.LocalAgentMarks provides agentMarks) {
+        CompositionLocalProvider(
+            com.exponential.app.ui.components.LocalAgentMarks provides agentMarks,
+            com.exponential.app.ui.chat.LocalFindInChat provides find,
+        ) {
         RunFace(
             viewModel = viewModel,
             padding = padding,
@@ -713,20 +726,32 @@ private fun RunFaceContent(
     // followed by the session's synced messages after it, so the agent's
     // answer shows whether or not its device is reachable. A live feed is
     // the authority (its replay holds the same lines).
-    val tailMessages by viewModel.tailMessages.collectAsStateWithLifecycle()
+    // #EXP-1998: read with the loaded window in ONE state (find in chat).
+    val syncedWindow by viewModel.syncedWindow.collectAsStateWithLifecycle()
+    val tailMessages = syncedWindow.messages
     val feedLive = phase == AgentPhase.Live
     // An EMPTY feed takes it only while the live transcript cannot be
     // loaded (the OFFLINE LINE's condition): a reachable device's replay
     // is on its way.
     val tailUnreachable = if (session?.isEnded == true) history == HistoryState.DeviceOffline else hostDevice.offline
-    val syncedTail = remember(activity.feed, feedLive, tailMessages, ownTail, tailUnreachable) {
+    // #EXP-1998 (find-in-chat.json): every message the tail would draw with
+    // no cap (find in chat counts them); it shows the newest `syncedTailMax`,
+    // or every one from the message find in chat landed on ([findWiden],
+    // until the chat closes).
+    val syncedTailAll = remember(activity.feed, feedLive, tailMessages, ownTail, tailUnreachable) {
         com.exponential.app.data.steer.syncedTailItems(
             activity.feed,
             feedLive,
             tailMessages,
             ownTail.mapNotNullTo(HashSet()) { it.messageId },
             unreachable = tailUnreachable,
+            max = Int.MAX_VALUE,
         )
+    }
+    val syncedTailAllIds = remember(syncedTailAll) { syncedTailAll.mapNotNull(::syncedMessageId) }
+    var findWiden by remember(viewModel) { mutableStateOf<String?>(null) }
+    val syncedTail = remember(syncedTailAll, syncedTailAllIds, findWiden) {
+        syncedTailAll.drop(findWidenedSkip(syncedTailAllIds, com.exponential.app.data.steer.STEER_SYNCED_TAIL_MAX, findWiden))
     }
     val feed = if (syncedTail.isEmpty()) activity.feed else activity.feed + syncedTail
     val latestDiff = activity.latestDiff
@@ -803,7 +828,16 @@ private fun RunFaceContent(
         }.toMap()
     }
     // Android 0.14.134 (steer-enet.json SENT INPUTS): under a no-feed placeholder.
-    val noFeedInputs by viewModel.noFeedInputs.collectAsStateWithLifecycle()
+    // #EXP-1998 (find-in-chat.json): every loaded sent input (find in chat
+    // counts them); the newest `noFeedInputsMax` show, or every one from the
+    // message find in chat landed on.
+    val newestInputs by viewModel.noFeedInputs.collectAsStateWithLifecycle()
+    val noFeedInputsAll = remember(newestInputs, tailMessages) { sentInputBubbles(newestInputs, tailMessages) }
+    val noFeedInputs = remember(noFeedInputsAll, findWiden) {
+        noFeedInputsAll.drop(
+            findWidenedSkip(noFeedInputsAll.map { it.key }, com.exponential.app.data.steer.STEER_NO_FEED_INPUTS_MAX, findWiden),
+        )
+    }
     val pendingImages by viewModel.pendingImages.collectAsStateWithLifecycle()
     // EXP-621: the draft lives with the connection, not in a `remember` — so a
     // half-typed message survives a reconnect, a back-tap and a rotation.
@@ -1212,11 +1246,87 @@ private fun RunFaceContent(
                 // Run face body in BOTH modes, once it has something to show.
                 .then(if (bodyPlaceholder) Modifier else Modifier.testTag("agent-feed")),
         ) {
+            // #EDE-130 (find-in-chat.json): what find in chat asks of this
+            // session (its keys, the store, the device and its name).
+            val findHost = remember(viewModel, session?.rootId, hostDevice.displayLabel, hostDevice.online) {
+                TranscriptFindHost(
+                    sessionId = viewModel.codingSessionId,
+                    rootId = session?.rootId?.takeIf { it.isNotEmpty() } ?: viewModel.codingSessionId,
+                    deviceOnline = hostDevice.online,
+                    deviceName = hostDevice.displayLabel,
+                    searchStore = viewModel::findInStore,
+                    searchDevice = viewModel::findOnDevice,
+                )
+            }
             // EXP-893: the diff is the Changes face and Merge lives in the
             // header. An ended run's byline heads the feed as its first row
             // (so it scrolls with it), or sits above a placeholder.
             if (bodyPlaceholder) {
                 Spacer(Modifier.height(topInset))
+                // #EXP-1975 (find-in-chat.json): the placeholder's loaded
+                // rows = the sent inputs above it, then the own tail; find
+                // counts and paints them (no transcript to page in).
+                val placeholderInputs = if (!sessionEnded) noFeedInputs else emptyList()
+                val placeholderBubbles = remember(placeholderInputs, ownTail) { placeholderInputs + ownTail }
+                // #EXP-1998: the sent inputs are the synced messages drawn
+                // here (a live or an ended placeholder draws none); an older
+                // one pages in by widening them and loading older messages.
+                val placeholderSynced = remember(feedLive, sessionEnded, syncedWindow, noFeedInputsAll, placeholderInputs) {
+                    val drawable = noFeedInputsAll.map { it.key }
+                    TranscriptFindSynced(
+                        synced = if (feedLive || sessionEnded) {
+                            null
+                        } else {
+                            FindInChat.Synced((syncedWindow.loaded + drawable).distinct(), drawable, syncedWindow.more)
+                        },
+                        shown = placeholderInputs.mapTo(HashSet()) { it.key },
+                        widen = { findWiden = it },
+                        loadOlder = viewModel::loadOlderSynced,
+                    )
+                }
+                val placeholderFind = rememberTranscriptFind(
+                    find = com.exponential.app.ui.chat.LocalFindInChat.current,
+                    host = findHost,
+                    feed = emptyList(),
+                    workflowIds = emptySet(),
+                    liveRowId = null,
+                    agent = catalogAgent,
+                    canLoadEarlier = false,
+                    ownBubbles = placeholderBubbles,
+                    synced = placeholderSynced.synced,
+                )
+                // #EXP-1998: the bubbles are ONE scrolling column (at its
+                // bottom until find lands), so a landing centres and rings one.
+                val bubbleScroll = rememberScrollState()
+                val bubbleColumn = remember { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(1) }
+                val bubbleCentres = remember { HashMap<String, Int>() }
+                val bubbleKeys = remember(placeholderBubbles) { placeholderBubbles.mapTo(HashSet(), ::ownBubbleFindKey) }
+                val bubbleRing = rememberBubbleFindLanding(
+                    request = placeholderFind.request,
+                    ring = placeholderFind.ring,
+                    scroll = bubbleScroll,
+                    centreOf = { key -> if (key in bubbleKeys) bubbleCentres[key] else null },
+                    more = { key -> findMessageId(key)?.let(placeholderSynced::canPage) == true },
+                    loadedMark = { placeholderSynced.mark },
+                    page = { key -> findMessageId(key)?.let(placeholderSynced::page) },
+                )
+                val bubbleLanding = remember(bubbleRing) {
+                    FindBubbleLanding(bubbleRing) { key, coordinates ->
+                        val column = bubbleColumn[0]?.takeIf { it.isAttached }
+                        if (column != null && coordinates.isAttached) {
+                            val top = column.localPositionOf(coordinates, androidx.compose.ui.geometry.Offset.Zero).y
+                            bubbleCentres[key] = (top + coordinates.size.height / 2f).toInt()
+                        }
+                    }
+                }
+                val findLanded = placeholderFind.request != null
+                LaunchedEffect(bubbleScroll.maxValue, findLanded) {
+                    if (!findLanded) bubbleScroll.scrollTo(bubbleScroll.maxValue)
+                }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalFindPaint provides placeholderFind.paint,
+                    LocalFindBubbleLanding provides bubbleLanding,
+                ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1229,9 +1339,22 @@ private fun RunFaceContent(
                     // mechanism: the consumed inputs stand in for the
                     // transcript (`read`), then the own tail (unconsumed rows,
                     // the outbox) with their marks.
-                    if (!sessionEnded && noFeedInputs.isNotEmpty()) {
+                    if (placeholderBubbles.isNotEmpty()) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            // The placeholder's copy keeps its share of the pane.
+                            .layout { measurable, constraints ->
+                                val max = if (constraints.hasBoundedHeight) constraints.maxHeight * 2 / 3 else constraints.maxHeight
+                                val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = max))
+                                layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                            }
+                            .verticalScroll(bubbleScroll)
+                            .onGloballyPositioned { bubbleColumn[0] = it },
+                    ) {
+                    if (placeholderInputs.isNotEmpty()) {
                         com.exponential.app.ui.chat.OwnTailBubbles(
-                            noFeedInputs,
+                            placeholderInputs,
                             viewModel::ownBubbleAction,
                             modifier = Modifier.padding(top = 8.dp).testTag("transcript-sent-inputs"),
                         )
@@ -1245,6 +1368,8 @@ private fun RunFaceContent(
                             startsGroup = sessionEnded || noFeedInputs.isEmpty(),
                         )
                     }
+                    }
+                    }
                     Box(Modifier.fillMaxWidth().weight(1f)) { placeholderBody() }
                     if (waitingCardRows.isNotEmpty()) {
                         Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())) {
@@ -1255,6 +1380,7 @@ private fun RunFaceContent(
                     }
                     // #EXP-1732: the host's rows under the empty-feed placeholder.
                     LocalFeedFooter.current?.invoke()
+                }
                 }
             } else {
                 // #FEED-260 (steer-enet.json OFFLINE LINE): a transcript the
@@ -1285,21 +1411,25 @@ private fun RunFaceContent(
                 } else {
                     hostFooter
                 }
-                // #EDE-130 (find-in-chat.json): what find in chat asks of this
-                // session (its keys, the store, the device and its name).
-                val findHost = remember(viewModel, session?.rootId, hostDevice.displayLabel, hostDevice.online) {
-                    TranscriptFindHost(
-                        sessionId = viewModel.codingSessionId,
-                        rootId = session?.rootId?.takeIf { it.isNotEmpty() } ?: viewModel.codingSessionId,
-                        deviceOnline = hostDevice.online,
-                        deviceName = hostDevice.displayLabel,
-                        searchStore = viewModel::findInStore,
-                        searchDevice = viewModel::findOnDevice,
+                // #EXP-1998 (find-in-chat.json): the synced tail is the
+                // synced messages drawn here (a live transcript holds them
+                // as its rows); nothing older than the feed's newest row is
+                // ever drawn, so no older load reaches one.
+                val tailSynced = remember(feedLive, activity.feed, syncedWindow, syncedTailAllIds, syncedTail) {
+                    val feedAt = activity.feed.mapNotNull { it.tailFeedRow()?.at }.maxOrNull()
+                    val oldestAt = syncedWindow.oldestAt?.let(com.exponential.app.domain.WireTimestamps::parseEpochMs)
+                    val reachesFeed = activity.feed.isNotEmpty() && (feedAt == null || (oldestAt != null && oldestAt <= feedAt))
+                    TranscriptFindSynced(
+                        synced = if (feedLive) null else FindInChat.Synced(syncedWindow.loaded, syncedTailAllIds, syncedWindow.more && !reachesFeed),
+                        shown = syncedTail.mapNotNullTo(HashSet(), ::syncedMessageId),
+                        widen = { findWiden = it },
+                        loadOlder = viewModel::loadOlderSynced,
                     )
                 }
                 androidx.compose.runtime.CompositionLocalProvider(
                     LocalFeedFooter provides transcriptFooter,
                     LocalTranscriptFindHost provides findHost,
+                    LocalTranscriptFindSynced provides tailSynced,
                 ) {
                 ActivityFeed(
                     feed = feed,
@@ -1926,6 +2056,7 @@ private fun ActivityFeed(
     val liveRowId = remember(feed, live) { if (live) liveToolRowId(feed) else null }
     // #EDE-130 (find-in-chat.json): find in chat over the WHOLE loaded feed
     // plus the store's and the device's older hits (the chat's root only).
+    val findSynced = LocalTranscriptFindSynced.current
     val transcriptFind = rememberTranscriptFind(
         find = com.exponential.app.ui.chat.LocalFindInChat.current,
         host = LocalTranscriptFindHost.current,
@@ -1934,6 +2065,9 @@ private fun ActivityFeed(
         liveRowId = liveRowId,
         agent = agent,
         canLoadEarlier = onCanLoadEarlier(),
+        // #EXP-1975: the own tail drawn after the rows is loaded rows too.
+        ownBubbles = ownTail,
+        synced = findSynced?.synced,
     )
     val shownRows = remember(feed, windowStart, workflowIds, docked) {
         // #EXP-1772: a hidden marker (a system input the agent answered with
@@ -2052,20 +2186,44 @@ private fun ActivityFeed(
     // #EDE-130: find in chat's landing = THE deep-link scroll path: page
     // older until the stop's row is loaded, centre it, ring it (an output
     // or an older stop).
+    // #EXP-1975: the own tail's stops land on its item (the list's last but
+    // the host's footer).
+    val ownFindKeys = remember(ownTail) { ownTail.mapTo(HashSet(), ::ownBubbleFindKey) }
+    val hasFeedFooter = LocalFeedFooter.current != null
     val findLink = rememberDeepLink(
         listState = listState,
         request = transcriptFind.request,
         indexOf = { key ->
             if (focused != null) {
                 null
+            } else if (key in ownFindKeys) {
+                val total = listState.layoutInfo.totalItemsCount
+                (total - 1 - (if (hasFeedFooter) 1 else 0)).takeIf { it >= 0 }
             } else {
                 val at = rows.indexOfFirst { findRowHolds(it, key, transcriptFind.keys) }
                 if (at < 0) null else (if (canLoadEarlier) 1 else 0) + sessionCards.head.size + at
             }
         },
-        more = { canLoadEarlier },
-        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size).hashCode() },
-        page = loadEarlier,
+        // #EXP-1998: an older synced MESSAGE stop pages in by widening the
+        // tail to it (loading older messages first); one the tail draws
+        // outside the painted window grows the window.
+        more = {
+            val id = findSynced?.let { findMessageId(transcriptFind.request?.id) }
+            when {
+                id == null -> canLoadEarlier
+                id in findSynced.shown -> windowStart > 0
+                else -> findSynced.canPage(id)
+            }
+        },
+        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size, findSynced?.mark).hashCode() },
+        page = {
+            val id = findSynced?.let { findMessageId(transcriptFind.request?.id) }
+            when {
+                id == null -> loadEarlier()
+                id in findSynced.shown -> windowFrom = feed[maxOf(0, windowStart - FEED_WINDOW_STEP)].id
+                else -> findSynced.page(id)
+            }
+        },
         onTake = {
             onFollowChange(false)
             if (agentTab != null) onAgentTabChange(null)
@@ -6999,7 +7157,7 @@ private fun ColumnScope.DockWatchesSheet(watches: List<Dock.Watch>, onCancel: (S
  *  token; lit fast, fading out slow) around a row an output or an older
  *  stop landed on. */
 @Composable
-private fun Modifier.findRing(on: Boolean): Modifier {
+internal fun Modifier.findRing(on: Boolean): Modifier {
     val alpha by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (on) 1f else 0f,
         animationSpec = tween(if (on) 150 else 500),
@@ -7010,4 +7168,29 @@ private fun Modifier.findRing(on: Boolean): Modifier {
     } else {
         this
     }
+}
+
+/** #EXP-1998 (find-in-chat.json): every LOADED sent input (steer-enet.json
+ *  SENT INPUTS without its max), oldest first: the newest ones the screen
+ *  shows ([newest]) and the consumed person inputs of the loaded synced
+ *  messages ([loaded]), once each. */
+internal fun sentInputBubbles(
+    newest: List<MessageDelivery.Bubble>,
+    loaded: List<com.exponential.app.data.steer.SyncedTailMessage>,
+): List<MessageDelivery.Bubble> {
+    val seen = newest.mapTo(HashSet()) { it.key }
+    val older = loaded
+        .filter { it.authorKind == "user" && it.consumedAt != null && it.body.isNotBlank() && seen.add(it.id) }
+        .map { row ->
+            MessageDelivery.Bubble(
+                key = row.id,
+                text = row.body,
+                createdAt = row.createdAt,
+                state = MessageDelivery.State.Read,
+                stored = true,
+                clientId = null,
+                messageId = row.id,
+            )
+        }
+    return if (older.isEmpty()) newest else (older + newest).sortedWith(compareBy({ it.createdAt }, { it.key }))
 }

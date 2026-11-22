@@ -401,6 +401,7 @@ fn spec_env(
             mcp_server_ids: Vec::new(),
             account: None,
             computer_use: None,
+            computer_place: Default::default(),
         },
         mcp: coding::AgentMcp::ClaudeInline {
             url: "https://app.example/api/mcp".to_string(),
@@ -417,7 +418,6 @@ fn spec_env(
         system_append: coding::skill::system_append(None),
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
-        confine_to: None,
         skills_dir: None,
         aside: false,
         exit: engine::ChildExitLink::new(),
@@ -1530,6 +1530,11 @@ async fn a_second_quiet_without_a_new_message_ends_the_turn() {
 /// the prompt into it, so the run sat silent until the stall watchdog ended
 /// it 45 minutes later. It now stops that child and spawns a fresh one,
 /// which runs the turn.
+///
+/// #EXP-2053: the first child never answers, whatever its window, so 1.5 s
+/// is enough to see it silent; the restart gets 20 s of its own (inside the
+/// run's 30 s budget). With 1.5 s for both, a restarted fake that a loaded
+/// runner had not let answer yet failed the start ("2 times in a row").
 #[tokio::test]
 async fn a_cli_silent_at_startup_is_restarted_and_runs_the_turn() {
     let _session = one_session_at_a_time();
@@ -1544,7 +1549,7 @@ async fn a_cli_silent_at_startup_is_restarted_and_runs_the_turn() {
         &[
             ("EXP_FAKE_CLAUDE_HANGS", "1"),
             ("EXP_FAKE_CLAUDE_SPAWNS", spawns_env.as_str()),
-            (engine::adapters::claude::START_TIMEOUT_ENV, "1500"),
+            (engine::adapters::claude::START_TIMEOUT_ENV, "1500,20000"),
         ],
         reject_all(),
         cancel_elicitations(),

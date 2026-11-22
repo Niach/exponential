@@ -12,10 +12,11 @@ use ede_compositor::{
 use smithay::output::{Output, PhysicalProperties, Subpixel};
 
 /// What only a client of the person's desk is told about.
-const PERSONS: [&str; 7] = [
+const PERSONS: [&str; 8] = [
     "wl_seat",
     "wl_output",
     "zwlr_layer_shell_v1",
+    "exponential_popup_namespace_v1",
     "zxdg_decoration_manager_v1",
     "ext_session_lock_manager_v1",
     "zwp_input_method_manager_v2",

@@ -91,6 +91,8 @@ Mint's icon-only `taskbar.json`). The IDE's Local desktops are `elocal`
 | Taskbar: grouped window list | `taskbarButtons`, `taskbarPress`, `taskbarScroll`, `taskbar.hover` | Toolbar, Button, Badge (running dot) | button 40 |
 | Taskbar: hover previews | `taskbar.previews` | Popover (`hostedPopups`), Image, Text | tile 184 × 110 |
 | Taskbar: applets + clock (right end) | the host's data (`/time`, tray, notifications) | Button (icon) ×n, Text, Popover | applet 32 |
+| Taskbar: Agent spaces (#EXP-2024, only while a space exists) | `spaceRows` (`fixtures/spaces.json`), the host's `/spaces` | Button (icon `nav-computer`), Popover (`hostedPopups`), Heading, ScrollArea, List, Row (`leading` Image, `trailing` Button) | thumbnail 96 × 60, list 380 |
+| Pinned space view (#EXP-2024, `space-view.json`) | `spaceView` (`fixtures/spaces.json`), the host's `/spaceView` | Box, Stack, Text, Button (icon) ×2, Image | 640 or a third of the display wide at the space's aspect, header 40, above the taskbar at the panel margin |
 | Workspace badges | `workspaceBadges`, `workspace.switched` | Segmented (rail), Badge (count) | row 28 |
 | Sidebar section Workspaces | `sidebar.workspacesOpen` | Section (`collapsible`), Row, Badge | label 24, rows 28 |
 | Alt-Tab switcher | `altTab.*`, `altTabOrder` | Box, Image, Text (`switcher.json` today) | overlay sized to its tiles (208 px each), 204 high |

@@ -58,7 +58,7 @@ use gpui_component::{
 };
 use sync::Store;
 
-use coding::device_doctor::DoctorAction;
+use coding::device_doctor::{DoctorAction, DoctorState};
 use coding::CodingAgent;
 
 use crate::coding_flow::CodingHub;
@@ -450,6 +450,10 @@ pub struct DeviceSettingsView {
     body_h: Rc<std::cell::Cell<gpui::Pixels>>,
     /// The content height the window was last fitted to.
     fitted: Option<gpui::Pixels>,
+    /// #EXP-2027 (sidebar-tree.json): the body hosted as a PAGE in the
+    /// content card ([`crate::device_page::DeviceSettingsPage`]): no window
+    /// fit, no scroll pane of its own, a Remove goes back instead of closing.
+    page: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -519,11 +523,16 @@ impl DeviceSettingsView {
         let computer_use_model_select =
             crate::coding_selects::model_select(CodingAgent::Claude, &seeded.computer_use_model, window, cx);
         let work_screen_displays = Self::displays_for(Some(&row), own, cx);
-        let work_screen_options =
-            domain::work_screen::work_screen_options(&work_screen_displays, seeded.computer_use_display_id.as_deref());
+        let space_offered = Self::space_offered_for(Some(&row), own, cx);
+        let work_screen_options = domain::work_screen::work_screen_options(
+            &work_screen_displays,
+            seeded.computer_use_display_id.as_deref(),
+            space_offered,
+        );
         let work_screen_select = crate::coding_selects::work_screen_select(
             &work_screen_displays,
             seeded.computer_use_display_id.as_deref(),
+            space_offered,
             window,
             cx,
         );
@@ -626,8 +635,16 @@ impl DeviceSettingsView {
             content_h: Rc::default(),
             body_h: Rc::default(),
             fitted: None,
+            page: false,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// #EXP-2027: the same body for the device settings PAGE.
+    pub(crate) fn new_page(device_row_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let mut view = Self::new(device_row_id, window, cx);
+        view.page = true;
+        view
     }
 
     // -- data ------------------------------------------------------------------
@@ -689,19 +706,38 @@ impl DeviceSettingsView {
         (seeded, editor_agents)
     }
 
-    /// NEW-59: the machine's reported displays (`doctor.displays`): own =
-    /// the live local doctor, remote = the synced row's.
+    /// NEW-59: the machine's doctor: own = the live local doctor, remote =
+    /// the synced row's.
+    fn doctor_for(
+        row: Option<&domain::rows::DeviceRow>,
+        own: bool,
+        cx: &mut App,
+    ) -> Option<coding::device_doctor::DeviceDoctor> {
+        if own {
+            CodingHub::global(cx).read(cx).doctor.device.clone()
+        } else {
+            device_readiness::parse(row.and_then(|row| row.doctor.as_ref()))
+        }
+    }
+
+    /// #EXP-1514: whether the machine offers an agent space (its doctor's
+    /// `agent_space` row is `ok`), what lists the space in the Work screen
+    /// picker.
+    fn space_offered_for(row: Option<&domain::rows::DeviceRow>, own: bool, cx: &mut App) -> bool {
+        Self::doctor_for(row, own, cx).is_some_and(|doctor| {
+            domain::work_screen::space_offered(
+                doctor.items.iter().map(|item| (item.key.as_str(), item.state == DoctorState::Ok)),
+            )
+        })
+    }
+
+    /// NEW-59: the machine's reported displays (`doctor.displays`).
     fn displays_for(
         row: Option<&domain::rows::DeviceRow>,
         own: bool,
         cx: &mut App,
     ) -> Vec<domain::work_screen::WorkScreenDisplay> {
-        let doctor = if own {
-            CodingHub::global(cx).read(cx).doctor.device.clone()
-        } else {
-            device_readiness::parse(row.and_then(|row| row.doctor.as_ref()))
-        };
-        doctor
+        Self::doctor_for(row, own, cx)
             .map(|doctor| {
                 doctor
                     .displays
@@ -721,7 +757,8 @@ impl DeviceSettingsView {
     }
 
     /// NEW-59: re-list the Work screen options when the reported displays
-    /// (or the pick a gone display keeps listed) moved, and select `pick`.
+    /// (or the pick a gone display keeps listed, or #EXP-1514 the space
+    /// offer) moved, and select `pick`.
     fn refresh_work_screen(
         &mut self,
         row: Option<&domain::rows::DeviceRow>,
@@ -730,13 +767,14 @@ impl DeviceSettingsView {
         cx: &mut gpui::Context<Self>,
     ) {
         let displays = Self::displays_for(row, self.own, cx);
-        let options = domain::work_screen::work_screen_options(&displays, pick);
+        let space_offered = Self::space_offered_for(row, self.own, cx);
+        let options = domain::work_screen::work_screen_options(&displays, pick, space_offered);
         let value = crate::coding_selects::work_screen_value(pick);
         let listed = self.work_screen_select.read(cx).selected_value().cloned();
         if options == self.work_screen_options && listed.as_ref() == Some(&value) {
             return;
         }
-        let items = crate::coding_selects::work_screen_items(&displays, pick);
+        let items = crate::coding_selects::work_screen_items(&displays, pick, space_offered);
         self.work_screen_options = options;
         self.work_screen_select.update(cx, |select, cx| {
             select.set_items(items, window, cx);
@@ -1987,7 +2025,9 @@ impl DeviceSettingsView {
 impl Render for DeviceSettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "DeviceSettingsView").entered();
-        self.fit_window(window, cx);
+        if !self.page {
+            self.fit_window(window, cx);
+        }
         let view_id = cx.entity_id();
         let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());
         let row = self.row(cx);
@@ -1997,7 +2037,14 @@ impl Render for DeviceSettingsView {
         // close DEFERS, so calling it from a render is safe (and the confirm's
         // `on_ok` runs inside the alert window, which cannot close this one).
         if self.removed {
-            native_dialog::close_dialog_window(window, cx);
+            if self.page {
+                // #EXP-2027: the page has no window to close: back to where
+                // the person came from, once.
+                self.removed = false;
+                window.defer(cx, |window, cx| crate::navigation::go_back(window, cx));
+            } else {
+                native_dialog::close_dialog_window(window, cx);
+            }
         }
         let muted = cx.theme().muted_foreground;
         let server = row
@@ -2122,6 +2169,10 @@ impl Render for DeviceSettingsView {
         // EXP-1020: ONE column. The second one (EXP-762/798) existed to park
         // the worktrees beside the settings, and a machine's worktrees are a
         // LOCAL surface now — Settings → Worktrees.
+        // #EXP-2027: the page's scaffold scrolls; the body goes in as it is.
+        if self.page {
+            return div().w_full().min_w_0().child(body).into_any_element();
+        }
         let body = div().w_full().child(body.pr_2().pb_2()).on_prepaint(move |bounds, _, cx| {
             if content_slot.get() != bounds.size.height {
                 content_slot.set(bounds.size.height);
@@ -2151,6 +2202,7 @@ impl Render for DeviceSettingsView {
                         }
                     }),
             )
+            .into_any_element()
     }
 }
 
@@ -2190,7 +2242,7 @@ mod tests {
         assert_eq!(seeded.computer_use_display_id.as_deref(), Some("uuid-c"));
         assert_eq!(super::remote_baseline(Some(&serde_json::json!({}))).computer_use_display_id, None);
         let displays = crate::coding_selects::demo_displays();
-        let items = crate::coding_selects::work_screen_items(&displays, seeded.computer_use_display_id.as_deref());
+        let items = crate::coding_selects::work_screen_items(&displays, seeded.computer_use_display_id.as_deref(), false);
         let values: Vec<&str> = items.iter().map(|item| item.value.as_ref()).collect();
         assert_eq!(values, ["auto", "id:uuid-a", "id:uuid-b", "id:uuid-c"]);
         assert_eq!(items[3].label.as_ref(), "Not connected");
@@ -2198,6 +2250,33 @@ mod tests {
         assert_eq!(crate::coding_selects::work_screen_value(None).as_ref(), "auto");
         assert_eq!(domain::work_screen::work_screen_picked_id("id:uuid-b").as_deref(), Some("uuid-b"));
         assert_eq!(domain::work_screen::work_screen_picked_id("auto"), None);
+    }
+
+    /// #EXP-1514: while the machine offers an agent space Auto says it lands
+    /// there and Agent space only follows it (the space's picker key); a
+    /// stored space stays listed where no space is offered, never as Not
+    /// connected, and the select's pick reads back as the space's value.
+    #[test]
+    fn the_work_screen_row_lists_the_agent_space() {
+        let displays = crate::coding_selects::demo_displays();
+        let listed = |stored: Option<&str>, offered: bool| {
+            crate::coding_selects::work_screen_items(&displays, stored, offered)
+                .into_iter()
+                .map(|item| (item.value.to_string(), item.label.to_string()))
+                .collect::<Vec<_>>()
+        };
+        let offered = listed(None, true);
+        assert_eq!(offered[0], ("auto".into(), "Auto · Agent space".into()));
+        assert_eq!(offered[1], ("space".into(), "Agent space only".into()));
+        assert_eq!(offered.len(), 4);
+        assert_eq!(listed(None, false).iter().map(|(value, _)| value.as_str()).collect::<Vec<_>>(), ["auto", "id:uuid-a", "id:uuid-b"]);
+        let kept = listed(Some("space"), false);
+        assert_eq!(kept[1], ("space".into(), "Agent space only".into()));
+        assert!(kept.iter().all(|(_, label)| label != "Not connected"));
+        let seeded = super::remote_baseline(Some(&serde_json::json!({ "computerUseDisplayId": "space" })));
+        assert_eq!(seeded.computer_use_display_id.as_deref(), Some("space"));
+        assert_eq!(crate::coding_selects::work_screen_value(Some("space")).as_ref(), "space");
+        assert_eq!(domain::work_screen::work_screen_picked_id("space").as_deref(), Some("space"));
     }
 
     /// EXP-765: the code field is offered for a REMOTE machine only — the own

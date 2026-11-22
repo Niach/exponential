@@ -389,6 +389,10 @@ pub(crate) struct ChatScreenView {
     /// #EXP-1715 (composer-menu.json `teamsPick`): the Assistant's Teams
     /// pick while it is the row's pick (`None` = every team).
     teams_picked: crate::teams_pick::TeamsPick,
+    /// #EXP-2027 (sidebar-tree.json): the composer's PRIMARY team when it is
+    /// not the screen's: a team menu's New › Session, or a plain chat's
+    /// Teams pick that left the screen's team out.
+    team_override: Option<String>,
     /// Stale-probe guard (old results must not land after a subject swap).
     probe_generation: u64,
     /// The team's saved prompts — live off the synced `prompts` shape;
@@ -581,6 +585,7 @@ impl ChatScreenView {
             subject: Subject::None,
             agent_pick: None,
             teams_picked: None,
+            team_override: None,
             probe_generation: 0,
             actions: Vec::new(),
             actions_ready: false,
@@ -811,7 +816,7 @@ impl ChatScreenView {
     /// Point every per-team read at the active team; a switch resets the
     /// subject and the picks (screens are team-scoped).
     fn sync_team(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let team_id = navigation::active_team_id(&self.nav, cx);
+        let team_id = self.team_override.clone().or_else(|| navigation::screen_team_id(&self.nav, cx));
         if team_id == self.team_id {
             return;
         }
@@ -877,6 +882,15 @@ impl ChatScreenView {
     /// Apply a [`ChatSeed`]: its issues become the subject, a device seed
     /// is a sticky explicit pick, text lands on an EMPTY draft.
     fn apply_seed(&mut self, seed: ChatSeed, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // #EXP-2027: New › Session = this team as the primary team and pick.
+        if let Some(team) = seed.team_id.clone() {
+            self.team_override = Some(team);
+            self.teams_picked = None;
+            self.sync_team(window, cx);
+            // A session, not a message to the Assistant: the agent row's
+            // Temporary session.
+            self.agent_pick = Some("temporary".to_string());
+        }
         // S-3 (`agentRow.seedCases`): a seeded launch starts the agent row on
         // Temporary session, so the send is a launch with the subject, never
         // a message to the Assistant.
@@ -1219,8 +1233,53 @@ impl ChatScreenView {
         self.selected_agent(cx).is_some_and(|agent| crate::teams_pick::is_my_assistant(&agent, cx))
     }
 
+    /// #EXP-2027 (eagent tree.json): a plain chat (no agent) carries the
+    /// Teams pick too: its own team plus the picked others (`None` = its own
+    /// team only).
+    fn plain_chat(&self, cx: &App) -> bool {
+        !self.to_agent(cx)
+    }
+
+    /// #EXP-2027: the plain chat's pick as the picker shows it (its own team
+    /// at least).
+    fn plain_picked(&self) -> Option<Vec<String>> {
+        Some(self.teams_picked.clone().unwrap_or_else(|| self.team_id.clone().into_iter().collect()))
+    }
+
+    /// #EXP-2027: a plain chat's new pick (`None` from the picker = every
+    /// team); the primary team stays unless the pick left it out.
+    fn set_plain_pick(&mut self, next: crate::teams_pick::TeamsPick, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let all: Vec<String> = crate::teams_pick::pick_teams(cx).into_iter().map(|team| team.id).collect();
+        let next = next.unwrap_or(all);
+        if let Some(first) = next.first().filter(|_| self.team_id.as_ref().is_none_or(|team| !next.contains(team))) {
+            self.team_override = Some(first.clone());
+            self.sync_team(window, cx);
+        }
+        self.teams_picked = Some(next);
+        cx.notify();
+    }
+
+    /// #EXP-2027 (#3194 `sessions.send`): a plain chat's `scopeTeamIds` = the
+    /// picked teams other than the primary one; omitted while none.
+    fn plain_scope(&self) -> Option<Vec<String>> {
+        let primary = self.team_id.as_deref()?;
+        let others: Vec<String> = self.teams_picked.iter().flatten().filter(|team| team.as_str() != primary).cloned().collect();
+        (!others.is_empty()).then_some(others)
+    }
+
     /// #EXP-1715: the picked teams as the strip's chips (a subset only).
     fn render_team_chips(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        if self.plain_chat(cx) {
+            let picked = self.plain_picked().filter(|picked| picked.len() > 1)?;
+            let teams = crate::teams_pick::pick_teams(cx);
+            let view = cx.entity().downgrade();
+            let on_change: crate::teams_pick::OnTeamsPick = Rc::new(move |next, window, cx| {
+                if let Some(view) = view.upgrade() {
+                    view.update(cx, |this, cx| this.set_plain_pick(next, window, cx));
+                }
+            });
+            return crate::teams_pick::chips_row("chat-chip", &teams, Some(&picked), self.sending, on_change, cx);
+        }
         if !self.to_assistant(cx) {
             return None;
         }
@@ -1851,6 +1910,10 @@ impl ChatScreenView {
         );
         // #EXP-1660: the "+" › Skills pick, only while non-empty.
         input.skill_ids = self.launch_ref().skill_ids();
+        // #EXP-2027: the plain chat's other picked teams.
+        if let Some(scope) = self.plain_scope() {
+            input.scope_team_ids = Some(Some(scope));
+        }
         Ok((input, StartRoute::Root))
     }
 
@@ -2514,7 +2577,8 @@ impl ChatScreenView {
             repos: self.team_repos.clone(),
             repo_picked: self.chat_repo.as_ref().map(|repo| repo.id.clone()),
             prompts: self.actions.iter().map(crate::slash_commands::SlashPrompt::from).collect(),
-            teams: self.to_assistant(cx).then(|| crate::teams_pick::pick_teams(cx)),
+            // #EXP-2027: the Assistant's pick, and a plain chat's.
+            teams: (self.to_assistant(cx) || self.plain_chat(cx)).then(|| crate::teams_pick::pick_teams(cx)),
             ..RunnerMenu::default()
         };
         if let Some(launch) = self.launch.as_ref() {
@@ -3105,7 +3169,8 @@ pub(crate) struct ComposerMenuConditions {
     pub(crate) computer_use: bool,
     /// #EXP-1434: the team has at least one prompt.
     pub(crate) prompts: bool,
-    /// #EXP-1715: the message goes to the viewer's Assistant.
+    /// #EXP-1715: the message goes to the viewer's Assistant; #EXP-2027:
+    /// or starts a plain chat (both carry the Teams pick).
     pub(crate) assistant: bool,
     /// #EXP-1715: the viewer belongs to more than one team.
     pub(crate) teams: bool,
@@ -3364,14 +3429,21 @@ pub(crate) fn plus_menu(
                     menu,
                     "chat-teams",
                     Rc::new(move |cx: &App| {
-                        let picked = state_view.upgrade().and_then(|view| view.read(cx).teams_picked.clone());
+                        let picked = state_view.upgrade().and_then(|view| {
+                            let view = view.read(cx);
+                            if view.plain_chat(cx) { view.plain_picked() } else { view.teams_picked.clone() }
+                        });
                         (crate::teams_pick::pick_teams(cx), picked)
                     }),
-                    Rc::new(move |next, _window, cx| {
+                    Rc::new(move |next, window, cx| {
                         if let Some(view) = change_view.upgrade() {
                             view.update(cx, |this, cx| {
-                                this.teams_picked = next;
-                                cx.notify();
+                                if this.plain_chat(cx) {
+                                    this.set_plain_pick(next, window, cx);
+                                } else {
+                                    this.teams_picked = next;
+                                    cx.notify();
+                                }
                             });
                         }
                     }),

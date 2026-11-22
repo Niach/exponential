@@ -60,6 +60,7 @@ fn windows(h: &Harness) -> Vec<(String, Rectangle<i32, smithay::utils::Logical>)
     })
 }
 
+#[track_caller]
 fn wait_for(client: &mut Session, mut ok: impl FnMut(&mut Session) -> bool) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !ok(client) {
@@ -386,6 +387,58 @@ fn a_panel_layer_reserves_its_zone_and_windows_place_and_tile_around_it() {
     assert_eq!(frame.at(5, 795), GREEN);
 }
 
+/// #EDE-139: a window maximized or snapped before the taskbar's zone is
+/// there (at login the app can map first; the shell restarting) fills the
+/// work area once it comes, again when it changes and when it goes, in
+/// place: who is in front stays.
+#[test]
+fn tiled_windows_follow_a_panels_exclusive_zone_as_it_comes_changes_and_goes() {
+    let h = harness(&[(1280, 800)]);
+    let mut c = Session::connect(h.connect());
+    let max = c.toplevel("max");
+    c.draw(&max, 400, 300, RED);
+    let left = c.toplevel("left");
+    c.draw(&left, 300, 200, BLUE);
+    wait_for(&mut c, |_| windows(&h).len() == 2);
+    max.toplevel.set_maximized();
+    c.roundtrip();
+    h.with(|ede| {
+        let w = ede.desk.space.elements().last().cloned().unwrap();
+        ede.tile(&w, Tile::Left);
+    });
+    wait_for(&mut c, |c| c.state.toplevels[0].size == (1280, 800) && c.state.toplevels[1].size == (640, 800));
+    c.draw_configured(&max, 0, 0, RED);
+    c.draw_configured(&left, 0, 0, BLUE);
+    let sizes = |c: &Session| (c.state.toplevels[0].size, c.state.toplevels[1].size);
+
+    let mut shell = Session::connect(h.connect());
+    let panel = shell.layer("panel", Anchor::Bottom | Anchor::Left | Anchor::Right, (0, 40), 40);
+    shell.draw_layer(&panel, GREEN);
+    wait_for(&mut c, |c| sizes(c) == ((1280, 760), (640, 760)));
+    c.draw_configured(&max, 0, 0, RED);
+    c.draw_configured(&left, 0, 0, BLUE);
+    let fitted = |h: &Harness| windows(h).into_iter().map(|(t, g)| (t, (g.loc.x, g.loc.y, g.size.w, g.size.h))).collect::<Vec<_>>();
+    wait_for(&mut c, |_| fitted(&h) == [("max".into(), (0, 0, 1280, 760)), ("left".into(), (0, 0, 640, 760))]);
+    assert_eq!(h.capture(0).at(640, 780), GREEN, "the panel is drawn below the windows");
+
+    // The panel grows to 60 px.
+    panel.layer.set_size(0, 60);
+    panel.layer.set_exclusive_zone(60);
+    panel.surface.commit();
+    shell.roundtrip();
+    shell.draw_layer(&panel, GREEN);
+    wait_for(&mut c, |c| sizes(c) == ((1280, 740), (640, 740)));
+
+    // And goes (the shell quit).
+    panel.layer.destroy();
+    panel.surface.destroy();
+    shell.roundtrip();
+    wait_for(&mut c, |c| sizes(c) == ((1280, 800), (640, 800)));
+    c.draw_configured(&max, 0, 0, RED);
+    c.draw_configured(&left, 0, 0, BLUE);
+    wait_for(&mut c, |_| fitted(&h) == [("max".into(), (0, 0, 1280, 800)), ("left".into(), (0, 0, 640, 800))]);
+}
+
 #[test]
 fn outputs_line_up_left_to_right_and_windows_open_on_the_pointers_output() {
     let h = harness(&[(1280, 800), (1920, 1080)]);
@@ -566,7 +619,7 @@ fn an_x11_window_through_xwayland_opens_centred_takes_focus_and_is_drawn() {
         std::thread::sleep(Duration::from_millis(20));
     };
 
-    let (conn, screen) = x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland");
+    let (conn, screen) = (common::x11_connect(display, h.with(|ede| ede.xauthority(ede_compositor::desk::DeskId::PERSON)).as_deref()).expect("connect to Xwayland"), 0usize);
     let root = conn.setup().roots[screen].root;
     let win = conn.generate_id().unwrap();
     conn.create_window(
@@ -634,7 +687,7 @@ fn xwayland(h: &Harness) -> Option<x11rb::rust_connection::RustConnection> {
         assert!(Instant::now() < deadline, "Xwayland never became ready");
         std::thread::sleep(Duration::from_millis(20));
     };
-    Some(x11rb::connect(Some(&format!(":{display}"))).expect("connect to Xwayland").0)
+    Some(common::x11_connect(display, h.with(|ede| ede.xauthority(ede_compositor::desk::DeskId::PERSON)).as_deref()).expect("connect to Xwayland"))
 }
 
 /// Maps a 320×240 X11 window (key presses selected) with `motif` as its

@@ -23,7 +23,7 @@ use sync::Store;
 use crate::controls::PointerContextMenuExt as _;
 use crate::scroll_pane::page_scaffold_with;
 use crate::icons::registry;
-use crate::navigation::{active_team_id, nav_for_window, Navigation};
+use crate::navigation::{screen_team_id, nav_for_window, Navigation};
 
 /// The page column's cap — the web Drafts page's `md:max-w-5xl` (EXP-1647).
 const DRAFTS_COLUMN_W: f32 = 1024.;
@@ -173,15 +173,18 @@ impl DraftsView {
 impl Render for DraftsView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "DraftsView").entered();
-        let team_id = active_team_id(&self.nav, cx);
         let is_ready = Store::try_global(cx).is_some_and(|store| {
             let collections = store.collections();
             collections.issue_drafts.read(cx).is_ready() && collections.boards.read(cx).is_ready()
         });
-        let drafts = team_id
-            .as_deref()
-            .map(|team_id| crate::drafts::drafts_in_team(team_id, cx))
-            .unwrap_or_default();
+        // #EXP-2027: the drafts of every member team, newest first.
+        let mut drafts: Vec<_> = Store::try_global(cx)
+            .map(|store| store.collections().teams_sorted(cx))
+            .unwrap_or_default()
+            .iter()
+            .flat_map(|team| crate::drafts::drafts_in_team(&team.id, cx))
+            .collect();
+        crate::drafts::sort_drafts(&mut drafts);
 
         // §4.1 `is_ready`: a skeleton while the shape has not caught up —
         // an empty collection before that is "still syncing", never "no

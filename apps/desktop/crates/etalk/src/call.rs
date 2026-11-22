@@ -9,16 +9,16 @@ use std::sync::LazyLock;
 
 use serde::Deserialize;
 
+/// #EXP-1992: the host side of a call (`hostCases`): the one machine the
+/// desktop app and the CLI daemon run their calls on.
+pub mod host;
+
 pub const VOICE_CALL_JSON: &str = include_str!("../../../../../packages/etalk/fixtures/voice-call.json");
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallReasons {
-    /// NEW-99: the member has no voice Assistant yet.
-    pub no_agent: String,
-    pub no_voice_device: String,
     pub offline: String,
-    pub not_here: String,
     pub preparing: String,
     pub no_gpu: String,
     /// NEW-99: the voice failed to load on the voice device.
@@ -323,7 +323,8 @@ pub struct HostVoice {
 }
 
 /// FEED-276 (`hostVoice`): the agent's own voice on the call's host.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum CallVoice {
     /// The agent has no clip: the built-in voice IS its voice.
     #[default]
@@ -609,54 +610,36 @@ pub fn call_speech_of(state: Option<&str>) -> Option<CallSpeech> {
     })
 }
 
+/// EXP-1991: ONE desktop, as [`call_target`] reads it for its reason.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallAvailabilityInput<'a> {
-    /// NEW-99: the member has a voice Assistant (`voice.get` agentId).
-    pub agent: bool,
-    pub platform: CallPlatform,
-    /// The voice device's name; None = none picked.
-    pub device: Option<&'a str>,
+    /// The desktop's name.
+    pub device: &'a str,
     pub online: bool,
-    /// THIS client is the voice device.
-    pub here: bool,
     /// None = no `speech` row yet.
     pub speech: Option<CallSpeech>,
-    /// A call this client does not run already runs on the voice device.
-    pub busy: bool,
-    /// #NEW-57: a meeting runs on the voice device.
+    /// #NEW-57: a meeting runs on it.
     pub meeting: bool,
 }
 
-/// None = the telephone is enabled; Some = disabled, with the reason. S-3:
-/// a voice that is still downloading rings until it is ready.
+/// None = the desktop can take the call; Some = it cannot, with the reason
+/// (`availabilityCases`, first match wins). S-3: a voice that is still
+/// downloading rings until it is ready.
 pub fn call_unavailable(input: &CallAvailabilityInput<'_>) -> Option<String> {
     let reasons = &VOICE_CALL.copy.reasons;
-    let off = |reason: &str| Some(reason.replace("{device}", input.device.unwrap_or_default()));
-    if !input.agent {
-        return off(&reasons.no_agent);
-    }
-    if input.device.is_none() {
-        return off(&reasons.no_voice_device);
-    }
+    let off = |reason: &str| Some(reason.replace("{device}", input.device));
     if !input.online {
         return off(&reasons.offline);
     }
     if input.meeting {
         return off(&reasons.meeting);
     }
-    if input.platform == CallPlatform::Desktop && !input.here {
-        return off(&reasons.not_here);
-    }
     match input.speech {
-        None => return off(&reasons.preparing),
-        Some(CallSpeech::Failed) => return off(&reasons.voice_failed),
-        Some(CallSpeech::NoGpu) => return off(&reasons.no_gpu),
-        Some(CallSpeech::Ok | CallSpeech::Preparing) => {}
+        None => off(&reasons.preparing),
+        Some(CallSpeech::Failed) => off(&reasons.voice_failed),
+        Some(CallSpeech::NoGpu) => off(&reasons.no_gpu),
+        Some(CallSpeech::Ok | CallSpeech::Preparing) => None,
     }
-    if input.busy {
-        return off(&reasons.busy);
-    }
-    None
 }
 
 /// EXP-1857: one of the member's own desktops as [`call_target`] reads it.
@@ -673,7 +656,6 @@ pub struct CallTargetDevice {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallTargetInput<'a> {
-    pub platform: CallPlatform,
     /// THIS client's own desktop (None on phones and web).
     pub here: Option<&'a str>,
     /// The called agent's Runs on device.
@@ -726,13 +708,9 @@ pub fn call_target(input: &CallTargetInput<'_>) -> CallTarget {
     let Some(target) = candidates.iter().copied().find(|device| speaks(device)) else {
         let Some(first) = candidates.first() else { return off(VOICE_CALL.copy.reasons.no_desktop.clone()) };
         let reason = call_unavailable(&CallAvailabilityInput {
-            agent: true,
-            platform: input.platform,
-            device: Some(&first.name),
+            device: &first.name,
             online: first.online,
-            here: true,
             speech: first.speech,
-            busy: false,
             meeting: first.meeting,
         });
         return off(reason.unwrap_or_default());
@@ -746,6 +724,24 @@ pub fn call_target(input: &CallTargetInput<'_>) -> CallTarget {
         name: Some(target.name.clone()),
         fallback: Some(target.id.as_str()) != input.agent_device,
         local: Some(target.id.as_str()) == input.here,
+    }
+}
+
+/// #EXP-1878 (`tapCases`): what a press on the telephone does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallTap {
+    pub call: bool,
+    /// A phone's tap on a disabled telephone toasts its reason.
+    pub toast: Option<String>,
+}
+
+/// #EXP-1878 (`tapCases`): an enabled telephone (`reason` None) calls; a
+/// disabled one never does, and a PHONE's tap toasts the reason (web and
+/// the desktop show it as the disabled control's tooltip).
+pub fn call_tap(platform: CallPlatform, reason: Option<&str>) -> CallTap {
+    match reason {
+        None => CallTap { call: true, toast: None },
+        Some(reason) => CallTap { call: false, toast: (platform == CallPlatform::Phone).then(|| reason.to_string()) },
     }
 }
 
@@ -1234,13 +1230,9 @@ mod tests {
                 other => panic!("unknown speech {other}"),
             });
             let reason = call_unavailable(&CallAvailabilityInput {
-                agent: input["agent"].as_bool().unwrap(),
-                platform: platform(&input["platform"]),
-                device: input["device"].as_str(),
+                device: input["device"].as_str().unwrap(),
                 online: input["online"].as_bool().unwrap(),
-                here: input["here"].as_bool().unwrap(),
                 speech,
-                busy: input["busy"].as_bool().unwrap(),
                 meeting: input["meeting"].as_bool().unwrap_or(false),
             });
             let expected = &case["expected"];
@@ -1280,7 +1272,6 @@ mod tests {
             };
             let (desktops, servers) = (devices("desktops"), devices("servers"));
             let target = call_target(&CallTargetInput {
-                platform: platform(&input["platform"]),
                 here: input["here"].as_str(),
                 agent_device: input["agentDevice"].as_str(),
                 desktops: &desktops,
@@ -1295,6 +1286,16 @@ mod tests {
             assert_eq!(target.name.as_deref(), expected["name"].as_str(), "{name}");
             assert_eq!(target.fallback, expected["fallback"].as_bool().unwrap(), "{name}");
             assert_eq!(target.local, expected["local"].as_bool().unwrap(), "{name}");
+        }
+    }
+
+    #[test]
+    fn tap_matches_the_fixture() {
+        for case in fixture()["tapCases"].as_array().unwrap() {
+            let (input, expected, name) = (&case["input"], &case["expected"], &case["name"]);
+            let tap = call_tap(platform(&input["platform"]), input["availability"]["reason"].as_str());
+            assert_eq!(tap.call, expected["call"].as_bool().unwrap(), "{name}");
+            assert_eq!(tap.toast.as_deref(), expected["toast"].as_str(), "{name}");
         }
     }
 

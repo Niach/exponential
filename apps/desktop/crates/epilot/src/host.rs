@@ -251,7 +251,9 @@ impl Host {
         let (label, seq) = (lock.label.clone(), lock.seq);
         drop(lock);
         if engaged {
-            log::info!("[computer] input locked for {label}");
+            // #ERR-33: the session's id, never its label (a title: the
+            // breadcrumbs of a report carry this line).
+            log::info!("[computer] input locked for session {session_id}");
             self.announce(seq, Some(label));
             self.start_janitor();
         }
@@ -351,6 +353,19 @@ impl Host {
                 None
             }
         };
+        if let Some(taken) = taken {
+            self.released(&taken);
+        }
+    }
+
+    /// #EXP-1514 (row 11): the Work screen became Agent space only: the
+    /// person's hold goes now, not after [`IDLE`], once the driving call in
+    /// flight returned (its next step would be undone by a release under
+    /// it); the runs are not aborted, their next seat call is refused
+    /// `spaceOnly` by the gate.
+    pub(crate) fn release_hold(&self) {
+        let _driving = self.calls.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let taken = Self::take(&mut self.lock.lock().unwrap());
         if let Some(taken) = taken {
             self.released(&taken);
         }
@@ -616,6 +631,14 @@ impl Hosts {
         }
     }
 
+    /// [`Host::release_hold`] of the person's seat.
+    pub(crate) fn release_person_hold(&self) {
+        let person = self.hosts.lock().unwrap().get(&Target::Person).cloned();
+        if let Some(person) = person {
+            person.release_hold();
+        }
+    }
+
     pub(crate) fn shutdown(&self) {
         let hosts: Vec<Arc<Host>> = self.hosts.lock().unwrap().values().cloned().collect();
         for host in hosts {
@@ -696,6 +719,37 @@ mod tests {
         assert_eq!(seen.lock().unwrap().as_slice(), [None, Some("EXP-1".to_string()), None]);
     }
 
+    /// #EXP-1514 (row 11): the pick Agent space only releases the hold a
+    /// person run still has at once, not after the idle time, once the
+    /// driving call in flight returned; nobody is aborted.
+    #[test]
+    fn the_pick_agent_space_only_releases_a_held_input() {
+        let host = Host::new();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        host.set_presence({
+            let seen = seen.clone();
+            Arc::new(move |label| seen.lock().unwrap().push(label))
+        });
+        let backend = tools::tests::FakeBackend::default();
+        assert!(host.lease("s1", "EXP-1", &backend).is_ok());
+        host.lock.lock().unwrap().in_call = false;
+        // A driving call is in flight: the release waits for it.
+        let driving = host.calls.lock().unwrap();
+        let releasing = std::thread::spawn({
+            let host = host.clone();
+            move || host.release_hold()
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(host.engaged(), "released under a driving call");
+        drop(driving);
+        releasing.join().unwrap();
+        assert!(!host.engaged());
+        assert!(!host.aborted("s1"), "a release, not an Esc");
+        assert_eq!(seen.lock().unwrap().as_slice(), [None, Some("EXP-1".to_string()), None]);
+        host.release_hold();
+        assert_eq!(seen.lock().unwrap().len(), 3, "nothing held, nothing said");
+    }
+
     #[test]
     fn the_last_users_end_releases_and_a_refused_lock_does_nothing() {
         let host = Host::new();
@@ -755,6 +809,9 @@ mod tests {
         }
         fn key(&self, key: crate::keys::Key, down: bool) -> Result<(), String> {
             self.inner.key(key, down)
+        }
+        fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+            self.inner.char_stroke(ch, down)
         }
         fn type_char(&self, ch: char) -> Result<(), String> {
             if let Some(hook) = &self.on_type {

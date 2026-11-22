@@ -1,0 +1,2 @@
+ALTER TABLE "sidebar_layout" DROP CONSTRAINT "sidebar_layout_section_check";--> statement-breakpoint
+ALTER TABLE "sidebar_layout" ADD CONSTRAINT "sidebar_layout_section_check" CHECK (section IN ('team', 'board', 'agent', 'app'));

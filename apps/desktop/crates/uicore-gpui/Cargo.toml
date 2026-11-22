@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 eui-core = { path = "../eui-core" }
 eui-gpui = { path = "../eui-gpui", default-features = false, features = ["overlay-anchor", "vendored-spinner"] }
-ede-ui = { path = "../../../ede/crates/ede-ui" }
+ede-ui = { path = "../../../ede/crates/ede-ui", default-features = false }
 uicore-data = { path = "../uicore-data" }
 uicore-docs = { path = "../uicore-docs" }
 # #EDE-65: the rail glyphs' tokens and the Claude mark's brand colour, as the IDE paints them.
@@ -24,3 +24,8 @@ gpui_platform = { workspace = true, features = ["test-support"] }
 gpui-component.workspace = true
 image = { workspace = true, features = ["png"] }
 rust-embed = "8"
+
+# #EXP-2046: gpui's real Linux text system (the clock's width in the
+# shell's own Inter), as eui-gpui's font tests use it.
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dev-dependencies]
+gpui_wgpu = { workspace = true }

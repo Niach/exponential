@@ -3,7 +3,8 @@
 //! paints its four surfaces with eui-gpui's `ExponentialHost`, layered
 //! `app`, `consent`, `permissions`, `toast`; nothing else is painted. The
 //! window's events drive lifecycle.json. No updater, no logger: diagnostics
-//! are compiled out of the release build (`log`'s `release_max_level_off`).
+//! are compiled out of the release build (`log`'s `release_max_level_off`,
+//! through the `runner` feature this binary requires).
 
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 

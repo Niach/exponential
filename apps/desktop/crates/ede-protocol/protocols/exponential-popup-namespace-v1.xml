@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="exponential_popup_namespace_v1">
+  <copyright>
+    SPDX-License-Identifier: Apache-2.0
+  </copyright>
+
+  <description summary="a namespace for an xdg_popup, as a layer surface has one">
+    #EXP-2041: Exponential Desktop's compositor keeps some of its shell's
+    popups out of captures of the person's output (the taskbar's Agent
+    spaces list shows the agent spaces' pictures). A layer surface names
+    itself with its layer-shell namespace; an xdg_popup has no name. This
+    global gives a popup's surface one.
+
+    The compositor reads a name only from the shell's own process, as it
+    reads a layer's namespace (the shell's pinned space view, #EXP-2024):
+    another client naming a popup the same is still in every capture. The
+    one client in eDE that sends it is the shell (gpui's Wayland client,
+    `apps/desktop/vendor/gpui-pre-linux`).
+  </description>
+
+  <interface name="exponential_popup_namespace_v1" version="1">
+    <description summary="names popup surfaces">
+      The global, announced to the person's clients only.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the object">
+        The names already given stay.
+      </description>
+    </request>
+
+    <request name="set_namespace">
+      <description summary="name a popup's surface">
+        Names the surface that has, or will have, the xdg_popup role. Send
+        it before the popup's first commit: the compositor decides once,
+        when the name arrives, and a surface keeps the first name it is
+        given (a later one is ignored).
+      </description>
+      <arg name="surface" type="object" interface="wl_surface"/>
+      <arg name="namespace" type="string"/>
+    </request>
+  </interface>
+</protocol>

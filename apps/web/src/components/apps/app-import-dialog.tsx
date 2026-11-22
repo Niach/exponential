@@ -34,6 +34,9 @@ type ImportCheck = Awaited<ReturnType<typeof trpc.apps.validateImport.mutate>>
 // records only with the switch on) and opens its editor.
 // #VAPP-254 (apps.json `upstreamPickerCases`): an owner picks which team
 // server fills each upstream the file declares.
+// #EXP-2027: the flow is `AppImportForm`, the dialog's body; the team menu's
+// New › App page renders the same form inline (`layout="page"`), never a
+// dialog. `layout` only picks the frame.
 
 export function AppImportDialog({
   open,
@@ -47,6 +50,35 @@ export function AppImportDialog({
   teamSlug: string
 }) {
   const navigate = useNavigate()
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md" data-testid="app-import-dialog">
+        <DialogHeader>
+          <DialogTitle>{APP_EXPORT_COPY.importTitle}</DialogTitle>
+        </DialogHeader>
+        {/* The content unmounts on close, so a reopen starts clean. */}
+        <AppImportForm
+          teamId={teamId}
+          onImported={(slug) => {
+            onOpenChange(false)
+            void navigate({ to: `/t/$teamSlug/app-editor/$appSlug`, params: { teamSlug, appSlug: slug } })
+          }}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function AppImportForm({
+  teamId,
+  onImported,
+  layout = `dialog`,
+}: {
+  teamId: string
+  /** The imported app's slug, once it has synced (or the wait timed out). */
+  onImported: (slug: string) => void
+  layout?: `dialog` | `page`
+}) {
   const [text, setText] = useState(``)
   const [issues, setIssues] = useState<ImportIssue[] | null>(null)
   const [check, setCheck] = useState<Pick<ImportCheck, `upstreams` | `servers`>>({ upstreams: [], servers: [] })
@@ -58,7 +90,6 @@ export function AppImportDialog({
 
   // The server is the one authority: a debounced check as the text changes.
   useEffect(() => {
-    if (!open) return
     if (!text.trim()) {
       setCheck({ upstreams: [], servers: [] })
       return void setIssues(null)
@@ -78,7 +109,7 @@ export function AppImportDialog({
       live = false
       clearTimeout(timer)
     }
-  }, [open, text, teamId])
+  }, [text, teamId])
 
   const reset = () => {
     setText(``)
@@ -90,8 +121,7 @@ export function AppImportDialog({
 
   const opened = (slug: string) => {
     reset()
-    onOpenChange(false)
-    void navigate({ to: `/t/$teamSlug/app-editor/$appSlug`, params: { teamSlug, appSlug: slug } })
+    onImported(slug)
   }
 
   const pickTemplate = async (template: string) => {
@@ -123,100 +153,100 @@ export function AppImportDialog({
     }
   }
 
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) reset()
-        onOpenChange(next)
-      }}
-    >
-      <DialogContent className="sm:max-w-md" data-testid="app-import-dialog">
-        <DialogHeader>
-          <DialogTitle>{APP_EXPORT_COPY.importTitle}</DialogTitle>
-        </DialogHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-4">
-          <DialogBody className="space-y-3">
-            <GlassSectionHeader label={APP_TEMPLATES_COPY.title} />
-            <GlassGroup>
-              {APP_TEMPLATES.map((template) => (
-                <ListRow
-                  key={template.id}
-                  interactive={picking === null}
-                  onClick={() => void pickTemplate(template.id)}
-                  aria-disabled={picking !== null}
-                  className="gap-3 px-4 py-2.5 text-sm"
-                  data-testid={`${APP_TEMPLATES_TEST_IDS.row}-${template.id}`}
-                >
-                  <BoardGlyph board={template} />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate font-medium">{template.name}</span>
-                    <span className="truncate text-xs text-muted-foreground">{template.description}</span>
-                  </span>
-                </ListRow>
-              ))}
-            </GlassGroup>
-            <GlassGroup>
-              <label className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                {APP_TEMPLATES_COPY.includeRecords}
-                <Switch checked={withRecords} onCheckedChange={setWithRecords} disabled={picking !== null} data-testid={APP_TEMPLATES_TEST_IDS.records} />
-              </label>
-            </GlassGroup>
-            <Textarea
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              placeholder={APP_EXPORT_COPY.importPlaceholder}
-              rows={6}
-              spellCheck={false}
-              className="field-sizing-fixed font-mono text-xs"
-              data-testid="app-import-text"
-            />
-            <input
-              ref={fileInput}
-              type="file"
-              accept=".json,application/json"
-              className="hidden"
-              onChange={(event) => void event.target.files?.[0]?.text().then(setText)}
-            />
-            <Button type="button" variant="outline" size="sm" onClick={() => fileInput.current?.click()} data-testid="app-import-file">
-              {APP_EXPORT_COPY.chooseFile}
-            </Button>
-            {issues && issues.length > 0 && (
-              <ul className="space-y-1 font-mono text-xs text-destructive" data-testid="app-import-issues">
-                {issues.slice(0, APP_EXPORT_LIMITS.issuesShown).map((issue, i) => (
-                  <li key={i} className="break-words">{`${issue.path}: ${issue.message}`}</li>
-                ))}
-                {issues.length > APP_EXPORT_LIMITS.issuesShown && (
-                  <li>{APP_EXPORT_COPY.moreIssues.replace(`{n}`, String(issues.length - APP_EXPORT_LIMITS.issuesShown))}</li>
-                )}
-              </ul>
-            )}
-            {issues?.length === 0 && check.upstreams.length > 0 && check.servers.length > 0 && (
-              <div className="space-y-1" data-testid={APPS_TEST_IDS.importUpstreams}>
-                <GlassSectionHeader label={APPS_COPY.accounts.title} />
-                <GlassGroup>
-                  {check.upstreams.map((upstream) => {
-                    const picked = picks[upstream.name]
-                    const server = picked ? (check.servers.find((s) => s.id === picked) ?? null) : null
-                    const row = picked ? { name: upstream.name, serverId: server?.id ?? null, serverName: server?.name ?? null } : upstream
-                    return (
-                      <div key={upstream.name} className="flex items-center gap-3 px-4 py-2.5" data-testid={`${APPS_TEST_IDS.importUpstream}-${upstream.name}`}>
-                        <div className="min-w-0 flex-1 truncate text-sm">{upstream.name}</div>
-                        <UpstreamPickerSelect row={row} servers={check.servers} disabled={submitting} testId={`${APPS_TEST_IDS.importUpstream}-${upstream.name}-picker`} onPick={(value) => setPicks((prev) => ({ ...prev, [upstream.name]: value }))} />
-                      </div>
-                    )
-                  })}
-                </GlassGroup>
-              </div>
-            )}
-          </DialogBody>
-          <DialogFooter>
-            <Button onClick={() => void runImport()} disabled={!issues || issues.length > 0} pending={submitting} data-testid="app-import-confirm">
-              {APP_EXPORT_COPY.importAction}
-            </Button>
-          </DialogFooter>
+  const fields = (
+    <>
+      <GlassSectionHeader label={APP_TEMPLATES_COPY.title} />
+      <GlassGroup>
+        {APP_TEMPLATES.map((template) => (
+          <ListRow
+            key={template.id}
+            interactive={picking === null}
+            onClick={() => void pickTemplate(template.id)}
+            aria-disabled={picking !== null}
+            className="gap-3 px-4 py-2.5 text-sm"
+            data-testid={`${APP_TEMPLATES_TEST_IDS.row}-${template.id}`}
+          >
+            <BoardGlyph board={template} />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate font-medium">{template.name}</span>
+              <span className="truncate text-xs text-muted-foreground">{template.description}</span>
+            </span>
+          </ListRow>
+        ))}
+      </GlassGroup>
+      <GlassGroup>
+        <label className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+          {APP_TEMPLATES_COPY.includeRecords}
+          <Switch checked={withRecords} onCheckedChange={setWithRecords} disabled={picking !== null} data-testid={APP_TEMPLATES_TEST_IDS.records} />
+        </label>
+      </GlassGroup>
+      <Textarea
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        placeholder={APP_EXPORT_COPY.importPlaceholder}
+        rows={6}
+        spellCheck={false}
+        className="field-sizing-fixed font-mono text-xs"
+        data-testid="app-import-text"
+      />
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={(event) => void event.target.files?.[0]?.text().then(setText)}
+      />
+      <Button type="button" variant="outline" size="sm" onClick={() => fileInput.current?.click()} data-testid="app-import-file">
+        {APP_EXPORT_COPY.chooseFile}
+      </Button>
+      {issues && issues.length > 0 && (
+        <ul className="space-y-1 font-mono text-xs text-destructive" data-testid="app-import-issues">
+          {issues.slice(0, APP_EXPORT_LIMITS.issuesShown).map((issue, i) => (
+            <li key={i} className="break-words">{`${issue.path}: ${issue.message}`}</li>
+          ))}
+          {issues.length > APP_EXPORT_LIMITS.issuesShown && (
+            <li>{APP_EXPORT_COPY.moreIssues.replace(`{n}`, String(issues.length - APP_EXPORT_LIMITS.issuesShown))}</li>
+          )}
+        </ul>
+      )}
+      {issues?.length === 0 && check.upstreams.length > 0 && check.servers.length > 0 && (
+        <div className="space-y-1" data-testid={APPS_TEST_IDS.importUpstreams}>
+          <GlassSectionHeader label={APPS_COPY.accounts.title} />
+          <GlassGroup>
+            {check.upstreams.map((upstream) => {
+              const picked = picks[upstream.name]
+              const server = picked ? (check.servers.find((s) => s.id === picked) ?? null) : null
+              const row = picked ? { name: upstream.name, serverId: server?.id ?? null, serverName: server?.name ?? null } : upstream
+              return (
+                <div key={upstream.name} className="flex items-center gap-3 px-4 py-2.5" data-testid={`${APPS_TEST_IDS.importUpstream}-${upstream.name}`}>
+                  <div className="min-w-0 flex-1 truncate text-sm">{upstream.name}</div>
+                  <UpstreamPickerSelect row={row} servers={check.servers} disabled={submitting} testId={`${APPS_TEST_IDS.importUpstream}-${upstream.name}-picker`} onPick={(value) => setPicks((prev) => ({ ...prev, [upstream.name]: value }))} />
+                </div>
+              )
+            })}
+          </GlassGroup>
         </div>
-      </DialogContent>
-    </Dialog>
+      )}
+    </>
+  )
+  const submit = (
+    <Button onClick={() => void runImport()} disabled={!issues || issues.length > 0} pending={submitting} data-testid="app-import-confirm">
+      {APP_EXPORT_COPY.importAction}
+    </Button>
+  )
+
+  if (layout === `page`) {
+    return (
+      <div className="space-y-3" data-testid="app-import-form">
+        {fields}
+        <div className="flex justify-end">{submit}</div>
+      </div>
+    )
+  }
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <DialogBody className="space-y-3">{fields}</DialogBody>
+      <DialogFooter>{submit}</DialogFooter>
+    </div>
   )
 }

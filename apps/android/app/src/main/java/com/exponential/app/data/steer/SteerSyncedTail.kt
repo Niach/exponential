@@ -38,12 +38,16 @@ fun syncedTailItems(
     exclude: Set<String> = emptySet(),
     /** The live transcript cannot be loaded (the OFFLINE LINE's condition). */
     unreachable: Boolean = false,
+    /** #EXP-1998: the cap (`Int.MAX_VALUE` = every drawable one; the caller
+     *  cuts the shown stretch). */
+    max: Int = STEER_SYNCED_TAIL_MAX,
 ): List<AgentFeedItem> {
     if (live || messages.isEmpty()) return emptyList()
     val picked = steerSyncedTail(
         live = false,
         feed = feed.mapNotNull { it.tailFeedRow() },
         messages = messages.filter { it.id !in exclude },
+        max = max,
         unreachable = unreachable,
     ) { m ->
         SteerTailMessage(
@@ -61,7 +65,7 @@ fun syncedTailItems(
         if (m.authorKind == "agent") {
             AgentFeedItem.Narration(id = id, text = m.body.trim(), messageId = "synced:${m.id}", at = m.createdAtMs)
         } else {
-            AgentFeedItem.UserMessage(id = id, text = m.body.trim(), at = m.createdAtMs)
+            AgentFeedItem.UserMessage(id = id, text = m.body.trim(), at = m.createdAtMs, messageId = "synced:${m.id}")
         }
     }
 }

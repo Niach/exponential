@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::backend::{Backend, Button, DisplayInfo, Image, Pasted, Target, WindowInfo};
+use crate::backend::{Backend, Button, ButtonWait, DisplayInfo, Image, Pasted, Target, WindowInfo};
 use crate::keys::{parse_combo, Key, Named};
 use crate::work_screen;
 
@@ -219,6 +219,13 @@ impl Screen {
             let work = (0..displays.len()).collect();
             return Ok(Screen { displays, windows, state, work });
         }
+        // #EXP-1514: the pick Agent space only: nothing is done here, so
+        // nothing is read either; the gate refuses it first.
+        if picked == Some(work_screen::SPACE_PICK) {
+            let mut state = work_screen::state_of(&displays, &[], None);
+            state.space_only = true;
+            return Ok(Screen { displays, windows: Ok(Vec::new()), state, work: Vec::new() });
+        }
         // #FEED-161: the stored id names the display, whatever its index now.
         let picked = work_screen::resolve(&displays, picked);
         // A connected pick is the work screen whatever is fullscreen: only
@@ -372,6 +379,15 @@ fn dispatch(
     }
     // Every other tool passed the gate, so a work display exists.
     let current = current.ok_or("No work screen.")?;
+    // #EXP-1979: the pointer never moves while the person still holds a
+    // button they held when the hold engaged: it would drag what they hold.
+    if work_screen::is_pointer(name) {
+        match crate::backend::wait_for_person_buttons(|| backend.person_holds_button(), interrupted, crate::backend::PERSON_BUTTON_WAIT) {
+            ButtonWait::Free => {}
+            ButtonWait::Interrupted => return Err(ABORTED.to_string()),
+            ButtonWait::Held => return Err(PERSON_HOLDS_A_BUTTON.to_string()),
+        }
+    }
     let displays = &screen.displays;
     let frame = Frame::fit(&displays[current]);
     match name {
@@ -558,6 +574,23 @@ enum Press {
     Button(Button),
 }
 
+/// #ERR-29: the error of a release that failed twice.
+const STAYS_PRESSED: &str = "[computer] a key or button stays pressed after its release retries";
+/// #ERR-29: the error of a paste or copy that left the agent's text (a
+/// secret, after a sensitive paste) on the person's clipboard.
+const CLIPBOARD_NOT_BACK: &str = "[computer] the person's clipboard was not put back";
+
+/// Put the person's clipboard back; a failure is an error (#ERR-29), never
+/// with the clipboard's text.
+fn restore_clipboard(clipboard: &dyn crate::backend::Clipboard, saved: crate::backend::SavedClipboard) -> Result<(), String> {
+    let restored = clipboard.restore(saved);
+    if let Err(err) = &restored {
+        log::warn!("[computer] clipboard restore: {err}");
+        log::error!("{CLIPBOARD_NOT_BACK}");
+    }
+    restored
+}
+
 /// What a tool holds down on the person's seat (#EXP-1895): released in
 /// reverse on EVERY exit path, a failed step's early return included, so
 /// no button or modifier stays pressed. A release that fails is tried once
@@ -593,7 +626,17 @@ impl<'a> Held<'a> {
             Press::Key(key) => self.backend.key(key, false),
             Press::Button(button) => self.backend.mouse_button(button, false),
         };
-        release().or_else(|_| release())
+        let released = release().or_else(|_| release());
+        if let Err(err) = &released {
+            // #ERR-29: still down after the retries: the person's key or
+            // button stays pressed. An error (a GlitchTip event), its text
+            // fixed so they group; the backend's words in the warning.
+            log::warn!("[computer] a release failed after its retry ({err})");
+            if !self.backend.lets_go_itself() {
+                log::error!("{STAYS_PRESSED}");
+            }
+        }
+        released
     }
 
     /// Release everything, last press first; the first failure is the answer.
@@ -760,7 +803,7 @@ fn paste(backend: &dyn Backend, text: &str, sensitive: bool, combo: &crate::keys
         }
         Ok(pasted)
     })();
-    let restored = clipboard.restore(saved);
+    let restored = restore_clipboard(&*clipboard, saved);
     let pasted = pasted?;
     let note = match &restored {
         Ok(()) => "the clipboard is as it was".to_string(),
@@ -795,7 +838,7 @@ fn copy(backend: &dyn Backend, combo: &crate::keys::Combo, interrupted: &dyn Fn(
         }
         clipboard.text()
     })();
-    let restored = clipboard.restore(saved);
+    let restored = restore_clipboard(&*clipboard, saved);
     let Some(text) = copied? else {
         return Err("Nothing was copied: the selection is empty, not text, or the window ignored the shortcut.".to_string());
     };
@@ -804,6 +847,9 @@ fn copy(backend: &dyn Backend, combo: &crate::keys::Combo, interrupted: &dyn Fn(
 }
 
 /// What a call answers once the person pressed Esc.
+/// #EXP-1979: a pointer tool whose wait for the person's button ran out.
+pub(crate) const PERSON_HOLDS_A_BUTTON: &str = "The person is holding a mouse button, so nothing was moved or clicked. Try again once they let go.";
+
 pub(crate) const ABORTED: &str = "The person pressed Esc: computer use is aborted. Stop driving the screen and say so in your reply; drive again only when they ask.";
 
 fn press(backend: &dyn Backend, key: Key) -> Result<(), String> {
@@ -824,9 +870,11 @@ fn screenshot(backend: &dyn Backend, screen: &Screen, current: usize, frame: Fra
     let shot = backend.screenshot(&screen.displays[current])?;
     let png = encode_png(&shot, frame.image)?;
     let which = if screen.displays.len() > 1 { format!(" of display {current} ({} work displays)", screen.work.len()) } else { String::new() };
+    // #EDE-162: an app whose GPU path failed in the space, said once.
+    let notice = backend.take_notice().map(|n| format!(" {n}")).unwrap_or_default();
     Ok(json!({
         "content": [
-            { "type": "text", "text": format!("Screenshot {}x{}{} (its pixels are {}x{}); coordinates are in this image's pixels.", frame.image.0, frame.image.1, which, frame.screen.0, frame.screen.1) },
+            { "type": "text", "text": format!("Screenshot {}x{}{} (its pixels are {}x{}); coordinates are in this image's pixels.{notice}", frame.image.0, frame.image.1, which, frame.screen.0, frame.screen.1) },
             { "type": "image", "data": base64(&png), "mimeType": "image/png" }
         ],
         "structuredContent": { "width": frame.image.0, "height": frame.image.1, "display": current, "displays": screen.displays_json(current) }
@@ -894,11 +942,22 @@ pub(crate) mod tests {
         pub space: Option<u32>,
         /// `launch` fails with this (the compositor's refusal).
         pub no_launch: Option<String>,
+        /// The person holds a mouse button they held at engage (#EXP-1979).
+        pub holding: AtomicBool,
+        /// #ERR-29: every release fails (a key that stays down).
+        pub fail_ups: bool,
+        /// #ERR-29: the compositor releases what it holds (eDE).
+        pub lets_go: bool,
+        /// #EDE-162: what the space's compositor says with the next screenshot.
+        pub notice: Mutex<Option<String>>,
     }
 
     impl FakeBackend {
         /// One input step: logged, or failed when it is `fail_step`.
         fn step(&self, line: String) -> Result<(), String> {
+            if self.fail_ups && line.ends_with(" up") {
+                return Err(format!("`{line}` stays pressed."));
+            }
             if self.fail_step == Some(self.steps.fetch_add(1, Ordering::SeqCst)) {
                 return Err(format!("the compositor refused `{line}`"));
             }
@@ -917,6 +976,8 @@ pub(crate) mod tests {
         pub refuses_paste: bool,
         /// It also holds something `save` cannot keep (a large image).
         pub partial: bool,
+        /// #ERR-29: putting the saved clipboard back fails.
+        pub fails_restore: bool,
     }
 
     struct FakeClipboard<'a>(&'a FakeBackend);
@@ -953,6 +1014,9 @@ pub(crate) mod tests {
         fn restore(&self, saved: crate::backend::SavedClipboard) -> Result<(), String> {
             self.log(format!("clip restore {}", saved.formats.len()));
             let mut clip = self.0.clip.lock().unwrap();
+            if clip.fails_restore {
+                return Err("the clipboard's new owner went away".to_string());
+            }
             clip.text = saved.formats.into_iter().next().map(|(_, bytes)| String::from_utf8(bytes).unwrap());
             clip.count += 1;
             Ok(())
@@ -963,8 +1027,17 @@ pub(crate) mod tests {
     }
 
     impl Backend for FakeBackend {
+        fn person_holds_button(&self) -> bool {
+            self.holding.load(Ordering::SeqCst)
+        }
         fn target(&self) -> crate::backend::Target {
             self.space.map_or(crate::backend::Target::Person, crate::backend::Target::Space)
+        }
+        fn lets_go_itself(&self) -> bool {
+            self.lets_go
+        }
+        fn take_notice(&self) -> Option<String> {
+            self.notice.lock().unwrap().take()
         }
         fn displays(&self) -> Result<Vec<DisplayInfo>, String> {
             Ok(vec![
@@ -1026,6 +1099,10 @@ pub(crate) mod tests {
             self.log.lock().unwrap().push(format!("launch {argv:?} {cwd:?}"));
             Ok(77)
         }
+        fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+            self.step(format!("stroke {ch} {}", if down { "down" } else { "up" }))
+        }
+        // One line per character, without the hold: the tools' tests read it.
         fn type_char(&self, ch: char) -> Result<(), String> {
             self.step(format!("type {ch}"))
         }
@@ -1159,6 +1236,19 @@ pub(crate) mod tests {
         assert_eq!(backend.log.lock().unwrap().as_slice(), ["move 0,0", "Left down", "Left up", "Left down", "Left up"]);
     }
 
+    /// #EDE-162: an app whose GPU path failed in the space is named with
+    /// the next screenshot, once, so the agent starts it again.
+    #[test]
+    fn a_space_notice_comes_with_the_next_screenshot_once() {
+        let backend = FakeBackend { space: Some(41), ..Default::default() };
+        *backend.notice.lock().unwrap() = Some("vkcube ended at start on the GPU (exit 134); this space now draws in software: start it again.".into());
+        let shot = one(&backend, "screenshot", json!({}));
+        let text = shot["content"][0]["text"].as_str().unwrap();
+        assert!(text.ends_with("vkcube ended at start on the GPU (exit 134); this space now draws in software: start it again."), "{text}");
+        let again = one(&backend, "screenshot", json!({}));
+        assert!(!again["content"][0]["text"].as_str().unwrap().contains("vkcube"), "said once");
+    }
+
     #[test]
     fn the_screenshot_is_a_fitted_png_and_windows_report_in_frame_pixels() {
         let backend = FakeBackend::default();
@@ -1254,6 +1344,41 @@ pub(crate) mod tests {
         }
     }
 
+    /// #ERR-29: a release that fails after its retry is an error, the
+    /// level GlitchTip sends (the person's key or button stays down).
+    #[test]
+    fn a_release_that_keeps_failing_is_an_error() {
+        crate::log_capture::start();
+        let backend = FakeBackend { fail_ups: true, ..Default::default() };
+        let reply = one(&backend, "left_click", json!({ "x": 10, "y": 10 }));
+        assert_eq!(reply["isError"], true, "{reply}");
+        assert!(crate::log_capture::error_logged(STAYS_PRESSED), "{:?}", crate::log_capture::records());
+    }
+
+    /// #ERR-29: on eDE the compositor releases what a run drove (and refuses
+    /// a release after the person's Esc): a refused release is no stuck key.
+    #[test]
+    fn a_refused_release_is_no_error_where_the_compositor_lets_go() {
+        crate::log_capture::start();
+        let backend = FakeBackend { fail_ups: true, lets_go: true, ..Default::default() };
+        let reply = one(&backend, "left_click", json!({ "x": 10, "y": 10 }));
+        assert_eq!(reply["isError"], true, "{reply}");
+        assert!(!crate::log_capture::error_logged(STAYS_PRESSED), "{:?}", crate::log_capture::records());
+    }
+
+    /// #ERR-29: a clipboard that was not put back is an error, without its text.
+    #[test]
+    fn a_clipboard_not_put_back_is_an_error() {
+        crate::log_capture::start();
+        let backend = FakeBackend::default();
+        person_clipboard(&backend, "the person's");
+        backend.clip.lock().unwrap().fails_restore = true;
+        let reply = one(&backend, "paste_text", json!({ "text": "hunter2", "sensitive": true }));
+        assert!(reply.to_string().contains("could not be put back"), "{reply}");
+        assert!(crate::log_capture::error_logged(CLIPBOARD_NOT_BACK), "{:?}", crate::log_capture::records());
+        assert!(!crate::log_capture::records().iter().any(|(_, text)| text.contains("hunter2")), "never the text");
+    }
+
     #[test]
     fn a_failed_step_in_a_drag_releases_the_button() {
         fails_at_every_step("drag", json!({ "from_x": 10, "from_y": 10, "to_x": 90, "to_y": 50 }));
@@ -1314,6 +1439,32 @@ pub(crate) mod tests {
         // A path whose size reads 0 and never ends: the read is bounded too.
         #[cfg(unix)]
         assert_eq!(paste_source(&json!({ "file": "/dev/zero" })), Err(format!("`file` is over the limit of {PASTE_MAX_CHARS} characters.")));
+    }
+
+    /// #EXP-1514 (`spaceGateCases`, row 11): with the pick Agent space only
+    /// every seat call but `wait` is refused `spaceOnly`, first, whatever is
+    /// connected; nothing is read, driven or locked.
+    #[test]
+    fn the_pick_agent_space_only_refuses_every_seat_call_but_wait() {
+        let backend = FakeBackend::default();
+        let engaged = std::cell::Cell::new(0);
+        let engage = || {
+            engaged.set(engaged.get() + 1);
+            Ok(())
+        };
+        let mut display = None;
+        let mut run = |name: &str, args: Value| {
+            call(&backend, name, &args, &mut CallContext { interrupted: &never, display: &mut display, copy_mark: &mut None, picked: Some(work_screen::SPACE_PICK.to_string()), engage: &engage })
+        };
+        let text = "This device keeps agents in agent spaces. Nothing is done on its screen.";
+        for (name, args) in [("screenshot", json!({})), ("left_click", json!({ "x": 1, "y": 1 })), ("list_windows", json!({})), ("type", json!({ "text": "a" })), ("activate_window", json!({ "id": 7 }))] {
+            let refused = run(name, args);
+            assert_eq!(refused["structuredContent"], json!({ "refusal": "wrong_display", "kind": "spaceOnly", "work": [] }), "{name}");
+            assert_eq!(refused["content"][0]["text"], text);
+        }
+        assert_eq!(run("wait", json!({ "seconds": 0 }))["isError"], Value::Null);
+        assert_eq!(engaged.get(), 0, "never the person's input");
+        assert!(backend.log.lock().unwrap().is_empty(), "nothing done on the screen");
     }
 
     #[test]
@@ -1414,6 +1565,36 @@ pub(crate) mod tests {
         let mut clip = backend.clip.lock().unwrap();
         clip.text = Some(text.to_string());
         clip.count = 10;
+    }
+
+    /// #EXP-1979: while the person holds a mouse button they held when the
+    /// hold engaged, a pointer tool waits for its release (then acts); keys
+    /// and screenshots never wait; Esc meanwhile aborts.
+    #[test]
+    fn the_pointer_waits_while_the_person_holds_a_button() {
+        assert!(["mouse_move", "left_click", "right_click", "middle_click", "double_click", "drag", "scroll"].into_iter().all(work_screen::is_pointer));
+        assert!(!["type", "key", "paste_text", "copy_selection", "activate_window", "screenshot", "wait"].into_iter().any(work_screen::is_pointer));
+        let backend = FakeBackend::default();
+        backend.holding.store(true, Ordering::SeqCst);
+        let shot = one(&backend, "screenshot", json!({}));
+        assert_eq!(shot["isError"], Value::Null, "{shot}");
+        let key = one(&backend, "key", json!({ "combo": "Return" }));
+        assert_eq!(key["isError"], Value::Null, "{key}");
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(150));
+                assert!(backend.log.lock().unwrap().iter().all(|line| !line.starts_with("move")), "nothing moved while held");
+                backend.holding.store(false, Ordering::SeqCst);
+            });
+            let clicked = one(&backend, "left_click", json!({ "x": 10, "y": 10 }));
+            assert_eq!(clicked["isError"], Value::Null, "{clicked}");
+        });
+        assert!(backend.log.lock().unwrap().iter().any(|line| line.starts_with("move")));
+        backend.holding.store(true, Ordering::SeqCst);
+        let mut display = None;
+        let aborted = call(&backend, "mouse_move", &json!({ "x": 1, "y": 1 }), &mut CallContext { interrupted: &|| true, display: &mut display, copy_mark: &mut None, picked: None, engage: &engaged });
+        assert_eq!(aborted["isError"], true);
+        assert_eq!(aborted["content"][0]["text"], ABORTED);
     }
 
     #[test]

@@ -10,6 +10,7 @@ import {
   type MessageCard,
   type SessionAnswerInput,
 } from "@exp/db-schema/domain"
+import { sessionAnswerVerdict } from "@exp/domain-contract/waiting-cards"
 import { db } from "@/db/connection"
 import { messages, sessions, type Session } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
@@ -141,12 +142,22 @@ export async function stampAnsweredCard(
 export async function answerSessionCardInTx(
   tx: Tx,
   target: Pick<Session, `id` | `rootId` | `agentId` | `userId`>,
-  input: SessionAnswerInput
+  input: SessionAnswerInput,
+  callerId: string | null = null
 ): Promise<{ messageId: string }> {
   // #NEW-79: a session never answers a voice conversation's proposal card
   // (an agent would approve its own calls); its member does, in person.
-  if (await isVoiceConversation(target, tx)) {
-    throw new TRPCError({ code: `FORBIDDEN`, message: VOICE_CARD_OWNER_ONLY })
+  // #FEED-287: the conversation itself may WITHDRAW (dismiss) its own card.
+  const verdict = sessionAnswerVerdict({
+    voice: await isVoiceConversation(target, tx),
+    own: callerId === target.id,
+    dismissed: input.dismissed === true,
+  })
+  if (verdict === `voiceOwnerOnly`) {
+    throw new TRPCError({
+      code: `FORBIDDEN`,
+      message: `${VOICE_CARD_OWNER_ONLY}; the conversation itself may withdraw its own card (answer: {dismissed: true})`,
+    })
   }
   const [message] = await tx
     .select({ id: messages.id, card: messages.card, answeredAt: messages.answeredAt })

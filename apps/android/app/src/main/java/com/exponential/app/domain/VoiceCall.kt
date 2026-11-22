@@ -3,11 +3,13 @@ package com.exponential.app.domain
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
 
 /**
  * NEW-69 (voice V5): caller mode on phones. A port of the TS reference
- * `packages/etalk/src/voice-call.ts` (desktop `domain::voice_call`,
+ * `packages/etalk/src/voice-call.ts` (desktop `etalk::call`,
  * iOS `VoiceCall.swift`), byte-locked by `fixtures/voice-call.json` (`copy`,
  * `testIds`, `icons`, `constants`, `wire`, `surfaceSpecimens` and every
  * `availabilityCases` / `flowCases` row, replayed by `VoiceCallTest`). The
@@ -39,11 +41,7 @@ object VoiceCall {
         const val QUEUED = "{count} queued · {text}"
 
         object Reasons {
-            /** NEW-99: the member has no voice Assistant yet. */
-            const val NO_AGENT = "Set up your Assistant in Settings → Agents"
-            const val NO_VOICE_DEVICE = "Run your Assistant on a desktop in Settings → Assistant"
             const val OFFLINE = "{device} is offline"
-            const val NOT_HERE = "Calls run on {device}"
             const val PREPARING = "{device} is getting its voice ready"
             /** NEW-99: the voice device's `speech` row reads error. */
             const val VOICE_FAILED = "{device} couldn't load its voice: restart Exponential there"
@@ -312,20 +310,14 @@ object VoiceCall {
     /** The voice device's doctor row `speech` as a caller reads it. */
     enum class Speech(val wire: String) { Ok("ok"), Preparing("preparing"), NoGpu("noGpu"), Failed("failed") }
 
+    /** EXP-1991: ONE desktop, as [callTarget] reads it for its reason. */
     data class AvailabilityInput(
-        /** NEW-99: the member has a voice Assistant (`voice.get` agentId). */
-        val agent: Boolean,
-        val platform: Platform,
-        /** The voice device's name; null = none picked. */
-        val device: String?,
+        /** The desktop's name. */
+        val device: String,
         val online: Boolean,
-        /** THIS client is the voice device. */
-        val here: Boolean,
         /** null = no `speech` row yet. */
         val speech: Speech?,
-        /** A call this client does not run already runs on the voice device. */
-        val busy: Boolean,
-        /** #NEW-57: a meeting runs on the voice device (`meetingStartedAt` set). */
+        /** #NEW-57: a meeting runs on it (`meetingStartedAt` set). */
         val meeting: Boolean = false,
     )
 
@@ -340,21 +332,18 @@ object VoiceCall {
         if (availability.enabled) Tap(call = true, toast = null)
         else Tap(call = false, toast = availability.reason.takeIf { platform == Platform.Phone })
 
-    /** Whether the telephone is enabled, and the reason when it is not. S-3:
-     *  a voice that is still downloading rings until it is ready. */
+    /** Whether a desktop can take a call, and the reason when it cannot
+     *  (`availabilityCases`, first match wins). S-3: a voice that is still
+     *  downloading rings until it is ready. */
     fun callAvailability(input: AvailabilityInput): Availability {
-        fun off(reason: String) = Availability(enabled = false, reason = reason.replace("{device}", input.device ?: ""))
+        fun off(reason: String) = Availability(enabled = false, reason = reason.replace("{device}", input.device))
         val r = Copy.Reasons
         return when {
-            !input.agent -> off(r.NO_AGENT)
-            input.device == null -> off(r.NO_VOICE_DEVICE)
             !input.online -> off(r.OFFLINE)
             input.meeting -> off(r.MEETING)
-            input.platform == Platform.Desktop && !input.here -> off(r.NOT_HERE)
             input.speech == null -> off(r.PREPARING)
             input.speech == Speech.Failed -> off(r.VOICE_FAILED)
             input.speech == Speech.NoGpu -> off(r.NO_GPU)
-            input.busy -> off(r.BUSY)
             else -> Availability(enabled = true, reason = null)
         }
     }
@@ -371,7 +360,6 @@ object VoiceCall {
     )
 
     data class TargetInput(
-        val platform: Platform,
         /** THIS client's own desktop (null on phones and web). */
         val here: String?,
         /** The called agent's Runs on device. */
@@ -424,13 +412,9 @@ object VoiceCall {
             return off(
                 callAvailability(
                     AvailabilityInput(
-                        agent = true,
-                        platform = input.platform,
                         device = first.name,
                         online = first.online,
-                        here = true,
                         speech = first.speech,
-                        busy = false,
                         meeting = first.meeting,
                     ),
                 ).reason,
@@ -792,4 +776,201 @@ object VoiceCall {
             ),
         ),
     )
+
+    /**
+     * #EXP-1993: the phone caller's session as one pure machine
+     * (`fixtures/voice-call.json` `caller`, whose `$comment` is the spec; iOS
+     * replays the same cases). `VoiceCallController` only does the effects,
+     * in order, and hands in what happened.
+     */
+    object Caller {
+        /**
+         * Where the session is: the tap went ([Holding]), it rings and asks
+         * the ticket ([Asking]), the ticket's url was dialled ([Dialed]),
+         * `call_ready` came ([Paired]).
+         */
+        enum class Stage(val wire: String) { Idle("idle"), Holding("holding"), Asking("asking"), Dialed("dialed"), Paired("paired") }
+
+        data class State(
+            /** The flow ([callStep]). */
+            val call: VoiceCall.State = CALL_IDLE,
+            val stage: Stage = Stage.Idle,
+            /** The ticket's `seal`: mute rides inside every sealed frame. */
+            val sealed: Boolean = false,
+        )
+
+        val IDLE = State()
+
+        /** One control frame off the socket (`wire.control`, the relay's `error` / `bye`), a sealed call's opened first. */
+        sealed interface Frame {
+            data object Ready : Frame
+            /** [event] null = an event this build does not know. */
+            data class HostEvent(val event: Event?) : Frame
+            data class End(val reason: String?) : Frame
+            data class Error(val code: String?) : Frame
+            data class Bye(val outcome: String?) : Frame
+            data object Alive : Frame
+            data object Other : Frame
+
+            companion object {
+                fun of(json: JsonObject): Frame {
+                    fun str(key: String): String? = (json[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                    return when (str("t")) {
+                        "call_ready" -> Ready
+                        "call_event" -> HostEvent((json["event"] as? JsonObject)?.let(Event::of))
+                        "call_end" -> End(str("reason"))
+                        "error" -> Error(str("code"))
+                        "bye" -> Bye(str("outcome"))
+                        "call_alive" -> Alive
+                        else -> Other
+                    }
+                }
+            }
+        }
+
+        /** What happened (the fixture's `t`). */
+        sealed interface Input {
+            /** The tap, on the device `callTarget` named. */
+            data class Start(val device: String, val language: String?, val fallback: Boolean) : Input
+            /** The hold's answer; a refusal fails the call with [code] (null = dropped). */
+            data class Held(val ok: Boolean, val code: String? = null) : Input
+            /** `voice.startCall`'s usable answer (EXP-1857: its device and fallback win). */
+            data class Ticket(val device: String?, val fallback: Boolean?, val sealed: Boolean) : Input
+            /** Its refusal, in this platform's words. */
+            data class Refused(val message: String) : Input
+            data class Received(val frame: Frame) : Input
+            /** The socket went away. */
+            data object Closed : Input
+            /** The call's own failure; [told] = the seal line sent its own `call_end`. */
+            data class Failed(val code: String, val told: Boolean = false) : Input
+            /** The ring's bound (`ring`'s `ms`) passed. */
+            data object RingTimeout : Input
+            data object Mute : Input
+            data object Speaker : Input
+            /** End call (also an account switch). */
+            data object End : Input
+        }
+
+        /** A control frame the caller sends. */
+        sealed interface Outgoing {
+            val json: JsonObject
+
+            data class End(val reason: String?) : Outgoing {
+                override val json: JsonObject get() = buildJsonObject {
+                    put("t", "call_end")
+                    reason?.let { put("reason", it) }
+                }
+            }
+
+            data class Mute(val muted: Boolean) : Outgoing {
+                override val json: JsonObject get() = buildJsonObject {
+                    put("t", "call_mute")
+                    put("muted", muted)
+                }
+            }
+        }
+
+        /** What to do (the fixture's `do`), in order. */
+        sealed interface Effect {
+            data object Hold : Effect
+            /** The ring tone, looped; [Input.RingTimeout] after [ms]. */
+            data class Ring(val ms: Int) : Effect
+            data object Ticket : Effect
+            data object Dial : Effect
+            data object StartAudio : Effect
+            /** Answered: the ring stops, the timer starts. */
+            data object StopRing : Effect
+            /** Barge-in: the buffered reply goes. */
+            data object Flush : Effect
+            data class Mute(val muted: Boolean) : Effect
+            data class Speaker(val on: Boolean) : Effect
+            /** On the call's socket (nothing while it still connects). */
+            data class Send(val frame: Outgoing) : Effect
+            /** `call_alive`: the liveness deadline starts. */
+            data object Alive : Effect
+            /** Everything the call holds goes. */
+            data object Release : Effect
+            data class Toast(val text: String) : Effect
+        }
+
+        data class Stepped(val state: State, val effects: List<Effect>)
+
+        fun step(state: State, input: Input): Stepped {
+            val stay = Stepped(state, emptyList())
+            if (input is Input.Start) {
+                if (state.stage != Stage.Idle) return stay
+                return Stepped(State(callStep(state.call, Event.Start(input.device, input.language, input.fallback)), Stage.Holding), listOf(Effect.Hold))
+            }
+            if (state.stage == Stage.Idle) return stay
+            val dialled = state.stage == Stage.Dialed || state.stage == Stage.Paired
+            // A call ends once: the flow steps [event], everything goes, then its toast.
+            fun ended(event: Event, first: List<Effect> = emptyList()): Stepped {
+                val call = callStep(state.call, event)
+                return Stepped(State(call), first + Effect.Release + listOfNotNull(call.toast?.let(Effect::Toast)))
+            }
+            // The host learns an own failure from the caller, once dialled.
+            fun own(code: String, told: Boolean = false) =
+                ended(Event.Failed(code), if (dialled && !told) listOf(Effect.Send(Outgoing.End(HangUpRules.FAILED_CODE))) else emptyList())
+            fun wire(code: String?) = if (code.isNullOrEmpty()) HangUpRules.FAILED_CODE else Seal.wireCode(code)
+            return when (input) {
+                is Input.Start -> stay
+                is Input.Held -> when {
+                    state.stage != Stage.Holding -> stay
+                    !input.ok -> own(input.code ?: HangUpRules.FAILED_CODE)
+                    else -> Stepped(state.copy(stage = Stage.Asking), listOf(Effect.Ring(Constants.MAX_RING_MS), Effect.Ticket))
+                }
+                is Input.Ticket -> if (state.stage != Stage.Asking) stay else Stepped(
+                    state.copy(
+                        stage = Stage.Dialed,
+                        sealed = input.sealed,
+                        call = state.call.copy(device = input.device ?: state.call.device, fallback = input.fallback ?: state.call.fallback),
+                    ),
+                    listOf(Effect.Dial),
+                )
+                is Input.Refused -> if (state.stage != Stage.Asking) stay else Stepped(IDLE, listOf(Effect.Release, Effect.Toast(input.message)))
+                is Input.Received -> if (!dialled) stay else when (val frame = input.frame) {
+                    Frame.Ready -> if (state.stage != Stage.Dialed) stay else Stepped(state.copy(stage = Stage.Paired), listOf(Effect.StartAudio))
+                    is Frame.HostEvent -> when (val event = frame.event ?: return stay) {
+                        is Event.Start, Event.Mute, Event.Unmute, is Event.Speaker -> stay
+                        // #EXP-1936: as a `call_end` would.
+                        Event.End -> ended(Event.HungUp(null))
+                        is Event.HungUp -> ended(Event.HungUp(event.reason))
+                        // The host failed the call (its `call_end` follows): nothing goes back.
+                        is Event.Failed -> ended(Event.Failed(wire(event.code)))
+                        else -> {
+                            val call = callStep(state.call, event)
+                            Stepped(
+                                state.copy(call = call),
+                                listOfNotNull(
+                                    Effect.Flush.takeIf { event == Event.SpeechStarted },
+                                    Effect.StopRing.takeIf { state.call.phase == Phase.Ringing && call.phase != Phase.Ringing },
+                                ),
+                            )
+                        }
+                    }
+                    is Frame.End -> ended(Event.HungUp(frame.reason))
+                    is Frame.Error -> ended(Event.Failed(wire(frame.code)))
+                    is Frame.Bye -> ended(Event.Failed(wire(frame.outcome)))
+                    Frame.Alive -> Stepped(state, listOf(Effect.Alive))
+                    Frame.Other -> stay
+                }
+                Input.Closed -> if (dialled) ended(Event.Failed(HangUpRules.FAILED_CODE)) else stay
+                is Input.Failed -> own(input.code, input.told)
+                Input.RingTimeout -> if (state.call.phase == Phase.Ringing) own("unavailable") else stay
+                Input.Mute -> {
+                    val muted = !state.call.muted
+                    // A sealed call sends no `call_mute`: mute rides inside every sealed frame.
+                    Stepped(
+                        state.copy(call = callStep(state.call, if (muted) Event.Mute else Event.Unmute)),
+                        listOf(Effect.Mute(muted)) + listOfNotNull(Effect.Send(Outgoing.Mute(muted)).takeIf { state.stage == Stage.Paired && !state.sealed }),
+                    )
+                }
+                Input.Speaker -> {
+                    val on = !state.call.speaker
+                    Stepped(state.copy(call = callStep(state.call, Event.Speaker(on))), listOf(Effect.Speaker(on)))
+                }
+                Input.End -> ended(Event.End, if (dialled) listOf(Effect.Send(Outgoing.End(null))) else emptyList())
+            }
+        }
+    }
 }

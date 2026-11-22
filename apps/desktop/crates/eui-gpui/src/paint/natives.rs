@@ -927,36 +927,28 @@ pub(crate) fn render_image(source: &ImageSource, window: &mut Window, cx: &mut A
 /// (the placeholder while loading and on failure), clipped to the leaf's
 /// (and its rounded ancestors') corners. `focalX` / `focalY` (CSS
 /// `object-position`) place the decoded image with [`focal_bounds`].
-/// An Image's decode now against its last picture: a decoded one becomes
-/// the held one, a failed one drops it, and while one loads the held one
-/// is what to paint (`Some`).
-pub(crate) fn hold(decoded: Option<Result<Arc<RenderImage>, ()>>, id: &gpui::SharedString, held: &mut std::collections::HashMap<gpui::SharedString, Arc<RenderImage>>) -> Option<Arc<RenderImage>> {
-    match decoded {
-        Some(Ok(data)) => {
-            held.insert(id.clone(), data);
-            None
-        }
-        Some(Err(())) => {
-            held.remove(id);
-            None
-        }
-        None => held.get(id).cloned(),
-    }
-}
-
-/// `held` = the view's last decoded picture of this node (by painted id):
-/// while a changed `src` loads, the previous picture stays.
-pub fn image(cx: &LeafCx, around: ImageSurround, held: Option<(&gpui::SharedString, &std::cell::RefCell<std::collections::HashMap<gpui::SharedString, Arc<RenderImage>>>)>, window: &mut Window, app: &mut App) -> AnyElement {
+/// `held` = the view's last decoded pictures (by painted id): while a
+/// changed `src` loads, the previous picture stays; a `data:` picture the
+/// Image moves off is released (#EXP-2024, `media::HeldImages`).
+pub fn image(cx: &LeafCx, around: ImageSurround, held: Option<(&gpui::SharedString, &std::cell::RefCell<crate::media::HeldImages>)>, window: &mut Window, app: &mut App) -> AnyElement {
     let src = cx.str("src");
-    let Some(mut source) = crate::media::image_source(cx.host, src) else {
+    let Some(key) = crate::media::image_key(cx.host, src) else {
+        if let Some((id, held)) = held {
+            held.borrow_mut().forget(id);
+            crate::media::release_let_go(window, app);
+        }
         return rounded(div().size_full().overflow_hidden(), cx.radii).child(image_placeholder(cx, around)).into_any_element();
     };
+    let mut previous = None;
     if let Some((id, held)) = held {
-        let decoded = render_image(&source, window, app);
-        if let Some(previous) = hold(decoded, id, &mut held.borrow_mut()) {
-            source = ImageSource::Render(previous);
-        }
+        let decoded = window.use_asset::<crate::media::MediaLoader>(&key, app).map(|r| r.map_err(|_| ()));
+        previous = held.borrow_mut().paint(id, &key, decoded);
+        crate::media::release_let_go(window, app);
     }
+    let source = match previous {
+        Some(previous) => ImageSource::Render(previous),
+        None => crate::media::key_source(key),
+    };
     let fit_name = match cx.str("fit") {
         f @ ("contain" | "fill" | "none" | "scaleDown") => f,
         _ => "cover",
@@ -1813,21 +1805,6 @@ mod tests {
         // #EDE-66: a centred portrait thumbnail (68×110) in the taskbar's
         // 192×110 box stays inside it, the whole window visible.
         assert_eq!(focal_bounds("contain", (0.0, 0.0, 192.0, 110.0), (68.0, 110.0), (0.5, 0.5)), (62.0, 0.0, 68.0, 110.0));
-    }
-
-    /// #EDE-65: a changed `src` keeps the last picture until its own lands.
-    #[test]
-    fn an_image_holds_its_last_picture_while_the_next_loads() {
-        let picture = |shade: u8| Arc::new(RenderImage::new([image::Frame::new(image::RgbaImage::from_pixel(2, 2, image::Rgba([shade, 0, 0, 255])))]));
-        let (id, mut held) = (gpui::SharedString::from("thumb"), std::collections::HashMap::new());
-        assert!(hold(None, &id, &mut held).is_none(), "nothing yet: the placeholder");
-        let first = picture(1);
-        assert!(hold(Some(Ok(first.clone())), &id, &mut held).is_none(), "decoded: paint it");
-        assert!(Arc::ptr_eq(&hold(None, &id, &mut held).unwrap(), &first), "the next one loading: the first stays");
-        let second = picture(2);
-        assert!(hold(Some(Ok(second.clone())), &id, &mut held).is_none());
-        assert!(Arc::ptr_eq(&hold(None, &id, &mut held).unwrap(), &second));
-        assert!(hold(Some(Err(())), &id, &mut held).is_none() && held.is_empty(), "a failed one drops it");
     }
 
     #[test]

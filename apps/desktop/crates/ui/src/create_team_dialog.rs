@@ -34,7 +34,7 @@ use crate::native_dialog::{self, DialogContent, DialogSpec};
 
 use crate::actions::CreateTeam;
 use crate::icons::registry;
-use crate::navigation::switch_team;
+use crate::navigation::reveal_team as switch_team;
 use crate::queries;
 
 /// Register the App-global [`CreateTeam`] handler (call once from

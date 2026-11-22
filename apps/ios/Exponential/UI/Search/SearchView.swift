@@ -17,6 +17,7 @@ struct SearchView: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(TeamState.self) private var teamState
+    @Environment(SessionListsModel.self) private var lists
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: SearchViewModel?
     @State private var query = ""
@@ -27,6 +28,7 @@ struct SearchView: View {
 
             if let vm = viewModel {
                 let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                let shown = sections(vm)
                 // The results are the view model's STATE (ranked off the main
                 // actor, #EXP-1382) — the input paints every keystroke at once.
                 SearchListView(
@@ -35,16 +37,25 @@ struct SearchView: View {
                     // EXP-922: the ×4 copy set — same words on web, desktop,
                     // iOS and Android (web `lib/issue-search.ts`;
                     // `issue-search-surfaces.test.ts` greps this file).
-                    placeholder: "Search issues",
+                    // #EDE-99: with a chat store the search finds chats too.
+                    placeholder: vm.hasChatStore ? SearchList.GlobalChats.Copy.placeholder : "Search issues",
                     inputIdentifier: "search-field",
                     autofocus: true,
                     // No empty state while the rank is still owed (#EXP-1382).
-                    emptyText: trimmed.isEmpty || vm.isRanking ? nil : "No issues match",
+                    emptyText: trimmed.isEmpty || vm.isRanking ? nil
+                        : vm.hasChatStore ? SearchList.GlobalChats.Copy.noResults : "No issues match",
                     onPick: { issueId in
                         pushRoute(.issue(accountId: accountId, id: issueId))
                     },
                     leading: AnyView(backButton),
-                    fieldChrome: true
+                    fieldChrome: true,
+                    sections: shown.titled ? SearchListSections(
+                        issuesTitle: SearchList.GlobalChats.Copy.issues,
+                        count: vm.isRanking && vm.results.isEmpty ? nil : shown.count,
+                        empty: shown.empty,
+                        after: chatsSection(vm, shown: shown),
+                        submit: { if let top = vm.chatRows.first { pick(top, vm: vm) } }
+                    ) : nil
                 )
                 .overlay {
                     if trimmed.isEmpty { searchHint.allowsHitTesting(false) }
@@ -72,6 +83,13 @@ struct SearchView: View {
         .onDisappear {
             viewModel?.stopObserving()
         }
+        // #EDE-99: the Chats rows name the ACTIVE team's synced roots.
+        .onChange(of: lists.searchRoots(teamId: teamState.activeTeamId), initial: true) { _, roots in
+            viewModel?.setChatRoots(roots)
+        }
+        .onChange(of: viewModel != nil) { _, _ in
+            viewModel?.setChatRoots(lists.searchRoots(teamId: teamState.activeTeamId))
+        }
         .onChange(of: query) { _, newValue in
             // Debounced + cancelled-on-keystroke inside the VM — never blocks
             // typing.
@@ -93,6 +111,89 @@ struct SearchView: View {
             color: status.color,
             identifier: issue.identifier
         )
+    }
+
+    // MARK: - Chats (#EDE-99, search-list.json CHATS)
+
+    /// Which sections show (`globalSections`): no store = today's list.
+    private func sections(_ vm: SearchViewModel) -> SearchList.GlobalSections {
+        SearchList.globalSections(
+            query: query,
+            issues: vm.results.count,
+            chats: vm.hasChatStore ? (rows: vm.chatRows.count, loading: vm.chatsLoading) : nil
+        )
+    }
+
+    /// The Chats Section after the issues: THE Section band (count, the
+    /// spinner while a newer query runs) over THE picker rows, each body the
+    /// title, the snippet with genUI's `highlight` and the muted date.
+    private func chatsSection(_ vm: SearchViewModel, shown: SearchList.GlobalSections) -> AnyView? {
+        guard let section = shown.sections.first(where: { $0.key == .chats }) else { return nil }
+        let preselect = vm.results.isEmpty ? vm.chatRows.first?.key : nil
+        return AnyView(
+            VStack(spacing: GlassPickerTokens.rowSpacing) {
+                GlassSectionBand(SearchList.GlobalChats.Copy.chats, count: section.count, loading: section.loading)
+                    .padding(.top, vm.results.isEmpty ? 0 : 8)
+                    .accessibilityIdentifier(SearchList.GlobalChats.TestIds.chats)
+                ForEach(vm.chatRows) { row in
+                    GlassPickerSheetRow(
+                        item: PickerItem(value: row.key, label: row.title, icon: AppIcons.conceptOrName(row.icon) ?? row.icon),
+                        checked: .none,
+                        style: GlassPickerTokens.selectionStyle(for: .single),
+                        content: AnyView(chatBody(row))
+                    ) {
+                        pick(row, vm: vm)
+                    }
+                    .background(
+                        row.key == preselect ? GlassTokens.fillActive : Color.clear,
+                        in: RoundedRectangle(cornerRadius: GlassPickerTokens.rowRadius)
+                    )
+                    .accessibilityIdentifier(SearchList.GlobalChats.TestIds.chatRow)
+                    .accessibilityAddTraits(row.key == preselect ? .isSelected : [])
+                }
+            }
+        )
+    }
+
+    private func chatBody(_ row: SearchList.GlobalChatRow) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.title)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.primary))
+                    .lineLimit(1)
+                subtitle(row)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(row.trailing)
+                .font(.subheadline)
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .frame(minHeight: CGFloat(SearchList.GlobalChats.chatHeightPhone) - 12)
+    }
+
+    /// The snippet with every match painted `match` (text-highlight.json, no
+    /// current).
+    private func subtitle(_ row: SearchList.GlobalChatRow) -> Text {
+        guard let marks = FindMarks.title(row.subtitle, mark: FindMark(query: row.highlight, current: nil)) else {
+            return Text(row.subtitle)
+        }
+        return Text(marks.painted(row.subtitle))
+    }
+
+    /// A pick opens the hit's session with find in chat on the query, its
+    /// start the hit's stop (`globalChatPick`).
+    private func pick(_ row: SearchList.GlobalChatRow, vm: SearchViewModel) {
+        let pick = SearchList.globalChatPick(query: query, hit: row.hit)
+        pushRoute(.chat(accountId: accountId, chatId: row.rootId, child: .find(ChatFindSeed(
+            sessionId: pick.sessionId == row.rootId ? nil : pick.sessionId, query: pick.query, target: pick.target
+        ))))
     }
 
     /// Web's ghost `icon-xs` back button: the bare `ui-back` arrow, muted.

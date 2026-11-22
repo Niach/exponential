@@ -5,6 +5,11 @@
 //! never written) through `sync::sealed::Opener`, the code the app's own
 //! ingest opens rows with. A key the app fetches later reaches the chat on
 //! the next read (the file is read again when it changed).
+//!
+//! #EDE-194: the agent spaces' titles open with every keyring the account's
+//! installs keep on this machine ([`space_opener`]): the app's and the CLI
+//! daemon's (`cli-seal-keys`). A space's session runs on this machine, so
+//! its host, the app or the daemon, holds the key it sealed the title with.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -61,19 +66,75 @@ impl Opens for KeyringFile {
         enet_core::sealed::open_card(card, &self.cached(root_id))
     }
     fn open_title(&self, row: &SessionRow) -> Option<String> {
-        let sealed = row.sealed_title.as_deref().filter(|title| !title.is_empty())?;
-        let opened = enet_core::sealed::open_body(sealed, &self.cached(row.root_id_or_self()));
-        opened.text.filter(|_| matches!(opened.status, sync::sealed::OpenStatus::Opened | sync::sealed::OpenStatus::Plain))
+        let sealed = sealed_title(row)?;
+        opened_title(enet_core::sealed::open_body(sealed, &self.cached(row.root_id_or_self())))
+    }
+}
+
+/// A row's sealed title (an envelope), if it has one.
+fn sealed_title(row: &SessionRow) -> Option<&str> {
+    row.sealed_title.as_deref().filter(|title| !title.is_empty())
+}
+
+/// An opened title's text (`None` = it did not open: keep `title`).
+fn opened_title(opened: OpenedBody) -> Option<String> {
+    opened.text.filter(|_| matches!(opened.status, sync::sealed::OpenStatus::Opened | sync::sealed::OpenStatus::Plain))
+}
+
+/// #EDE-194: several keyring files of one account as one: a tree's secret
+/// from whichever holds it.
+pub struct Keyrings(Vec<KeyringFile>);
+
+impl Keyrings {
+    pub fn new(paths: impl IntoIterator<Item = PathBuf>) -> Self {
+        Self(paths.into_iter().map(KeyringFile::new).collect())
+    }
+
+    fn cached(&self, root_id: &str) -> impl Fn(u32) -> Option<[u8; 32]> {
+        let secrets: Vec<Arc<Secrets>> = self.0.iter().map(KeyringFile::secrets).collect();
+        let root = root_id.to_string();
+        move |epoch| secrets.iter().find_map(|s| s.get(&root)?.get(&epoch).copied())
+    }
+}
+
+impl Opens for Keyrings {
+    fn open_body(&self, root_id: &str, body: &str) -> OpenedBody {
+        enet_core::sealed::open_body(body, &self.cached(root_id))
+    }
+    fn open_card(&self, root_id: &str, card: &Value) -> OpenedCard {
+        enet_core::sealed::open_card(card, &self.cached(root_id))
+    }
+    fn open_title(&self, row: &SessionRow) -> Option<String> {
+        let sealed = sealed_title(row)?;
+        opened_title(enet_core::sealed::open_body(sealed, &self.cached(row.root_id_or_self())))
     }
 }
 
 /// An account's opener over the app's keyring.
 pub fn opener(account_id: &str) -> Opener {
-    Opener::new(Arc::new(KeyringFile::new(api::seal_keyring_path(&api::default_data_dir(), account_id, false))))
+    Opener::new(Arc::new(KeyringFile::new(keyring_path(account_id))))
+}
+
+/// #EDE-194: the opener of the agent spaces' titles: every keyring of the
+/// account on this machine ([`space_keyring_paths`]).
+pub fn space_opener(account_id: &str) -> Opener {
+    Opener::new(Arc::new(Keyrings::new(space_keyring_paths(&api::default_data_dir(), account_id))))
+}
+
+/// The app's keyring file of an account.
+pub fn keyring_path(account_id: &str) -> PathBuf {
+    api::seal_keyring_path(&api::default_data_dir(), account_id, false)
+}
+
+/// #EDE-194: every keyring the account's installs keep in `data_dir`: the
+/// app's (`seal-keys`) and the CLI daemon's (`cli-seal-keys`).
+pub fn space_keyring_paths(data_dir: &std::path::Path, account_id: &str) -> [PathBuf; 2] {
+    [api::seal_keyring_path(data_dir, account_id, false), api::seal_keyring_path(data_dir, account_id, true)]
 }
 
 /// The rows the chat reads, opened in place: the sessions first (the
 /// opener learns each session's root), then the messages.
+#[cfg(test)]
 pub fn open(opener: &Opener, sessions: &mut [SessionRow], messages: &mut [MessageRow]) {
     for session in sessions.iter_mut() {
         opener.open_session(session);
@@ -147,6 +208,28 @@ mod tests {
         let mut again = vec![message(&body, "r1")];
         open(&opener, &mut [], &mut again);
         assert!(again[0].locked().is_none(), "{:?}", again[0].body);
+    }
+
+    /// #EDE-194: the spaces' opener reads the app's and the CLI daemon's
+    /// keyrings of the account; a tree's secret opens from either.
+    #[test]
+    fn the_spaces_open_with_the_app_s_and_the_daemon_s_keyrings() {
+        let fx = fixture();
+        let dir = tempfile::tempdir().unwrap();
+        let paths = space_keyring_paths(dir.path(), "a1");
+        assert!(paths[0].ends_with("accounts/a1/seal-keys") && paths[1].ends_with("accounts/a1/cli-seal-keys"), "{paths:?}");
+        let daemon_dir = dir.path().join("daemon");
+        std::fs::create_dir_all(&daemon_dir).unwrap();
+        let held = keyring(&daemon_dir, "r1", &fx);
+        let keys = Keyrings::new([dir.path().join("missing"), held]);
+        let sealed = case(&fx, "sealed, epoch 1");
+        let body = sealed["body"].as_str().unwrap();
+        assert_eq!(keys.open_body("r1", body).text.as_deref(), sealed["text"].as_str(), "the second file holds the tree");
+        let row: SessionRow = serde_json::from_value(json!({"id": "r1", "sealed_title": body})).unwrap();
+        assert_eq!(keys.open_title(&row).as_deref(), sealed["text"].as_str());
+        let other: SessionRow = serde_json::from_value(json!({"id": "r2", "sealed_title": body})).unwrap();
+        assert_eq!(keys.open_title(&other), None, "no keyring holds that tree");
+        assert_eq!(Keyrings::new(Vec::new()).open_title(&row), None);
     }
 
     #[test]

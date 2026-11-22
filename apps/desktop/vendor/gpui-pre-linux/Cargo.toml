@@ -55,6 +55,7 @@ wayland = [
     "wayland-protocols",
     "wayland-protocols-plasma",
     "wayland-protocols-wlr",
+    "wayland-scanner",
     "filedescriptor",
     "xkbcommon/wayland",
     "open",
@@ -242,6 +243,12 @@ optional = true
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies.wayland-protocols-wlr]
 version = "0.3.9"
 features = ["client"]
+optional = true
+
+# Exponential patch (#EXP-2041): exponential_popup_namespace_v1's client code
+# from ede-protocol's XML (src/linux/wayland/popup_namespace.rs).
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies.wayland-scanner]
+version = "0.31.11"
 optional = true
 
 [target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies.x11rb]

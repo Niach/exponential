@@ -17,6 +17,7 @@ use ede_compositor::{
 };
 use ede_protocol::{Error, ErrorCode};
 use smithay::backend::input::{ButtonState, KeyState};
+use smithay::reexports::wayland_server::Resource as _;
 
 const RED: u32 = 0xffff_0000;
 const BLUE: u32 = 0xff00_00ff;
@@ -153,14 +154,32 @@ fn a_dead_lock_client_leaves_the_session_locked_until_a_new_one_unlocks() {
     app.draw(&t, 300, 200, RED);
     let (x, y) = window_center(&h);
 
-    let mut locker = Session::connect(h.connect());
+    // #EDE-170: a second copy of the lock client's socket, the way a process
+    // another test spawns holds one from its fork to its exec. The compositor
+    // hears the hang-up only once the last copy closes, so it comes late.
+    let stream = h.connect();
+    let copy = stream.try_clone().unwrap();
+    let mut locker = Session::connect(stream);
     let lock = locker.lock();
     wait_for(&mut locker, |c| c.state.locked);
     let surfaces = locker.lock_surfaces(&lock);
     locker.draw_lock(&surfaces[0], BLUE);
     drop((surfaces, lock, locker)); // the lock client crashes
+    let late = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        drop(copy);
+    });
 
-    std::thread::sleep(Duration::from_millis(100));
+    // Until the compositor has heard the client go, the client's last frame
+    // is what shows (it is alive as far as anyone can tell). Wait for the
+    // death itself, never a guessed time: a late hang-up (a starved runner,
+    // a copy of the socket) outlasts any.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while h.with(|ede| matches!(&ede.lock, LockState::Locked(l) if l.lock.is_alive())) {
+        assert!(Instant::now() < deadline, "the compositor never heard the lock client go");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    late.join().unwrap();
     assert!(is_locked(&h));
     assert_eq!(h.capture(0).at(x, y), BLACK, "the desktop shows after the lock client died");
 
@@ -314,31 +333,48 @@ fn a_sealed_prompt_on_the_desktop_is_black_in_every_capture() {
     assert_eq!((preview.at(300, 200), preview.at(5, 5)), (RED, RED), "a window's preview is the window alone");
 }
 
+/// #EDE-140: each key is let go before the next, so the seat never absorbs
+/// a press as already held, and the prompt's going is the control: the
+/// same key then reaches the window below.
 #[test]
 fn a_virtual_keyboard_cannot_type_into_a_protected_window() {
+    const KEY_B: u32 = 48;
     let h = harness(Config::default());
     let mut app = Session::connect(h.connect());
     app.keyboard();
     let mut typist = Session::connect(h.connect());
     typist.keyboard();
     let vk = typist.virtual_keyboard();
+    let mut time = 0;
+    let mut tap = |typist: &mut Session, key: u32| {
+        for state in [1, 0] {
+            vk.key(time, key, state);
+            time += 1;
+        }
+        typist.roundtrip();
+    };
 
     let notes = app.toplevel("notes");
     app.draw(&notes, 200, 200, BLUE);
     wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&notes.surface));
-    vk.key(0, KEY_A, 1);
-    typist.roundtrip();
-    wait_for(&mut app, |c| c.state.keys == [KEY_A]);
+    tap(&mut typist, KEY_A);
+    wait_for(&mut app, |c| (c.state.keys.as_slice(), c.state.key_releases.as_slice()) == (&[KEY_A][..], &[KEY_A][..]));
 
     let secret = app.toplevel("pinentry");
     secret.toplevel.set_app_id("pinentry-gnome3".into());
     app.draw(&secret, 200, 200, RED);
     wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&secret.surface));
-    vk.key(1, KEY_A, 1);
-    typist.roundtrip();
+    tap(&mut typist, KEY_B);
     std::thread::sleep(Duration::from_millis(50));
     app.roundtrip();
     assert_eq!(app.state.keys, [KEY_A], "the virtual keyboard typed into a password prompt");
+
+    secret.toplevel.destroy();
+    secret.xdg_surface.destroy();
+    secret.surface.destroy();
+    wait_for(&mut app, |c| c.state.keyboard_focus.as_ref() == Some(&notes.surface));
+    tap(&mut typist, KEY_B);
+    wait_for(&mut app, |c| c.state.keys == [KEY_A, KEY_B]);
 }
 
 #[test]

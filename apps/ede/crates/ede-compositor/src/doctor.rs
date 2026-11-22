@@ -83,6 +83,96 @@ pub fn check_xwayland(binary: Option<&Path>, version_output: Option<&str>) -> Ch
     }
 }
 
+/// #EDE-138: what an agent space starts runs in a systemd slice of its
+/// own when the user manager can be asked; `found` is its systemd's
+/// version, or why it cannot (what the session's start finds: the same
+/// questions, a scope of a moment included).
+pub fn check_spaces(found: Result<(u32, String), String>) -> Check {
+    let name = "Agent spaces";
+    match found {
+        Ok((version, limits)) => Check { name, level: Level::Ok, detail: format!("systemd {version}: a slice per space; {limits} ([spaces] in compositor.toml)") },
+        Err(reason) => Check {
+            name,
+            level: Level::Warn,
+            detail: format!(
+                "{reason}: what an agent space starts runs in your login session, without limits (needs a systemd user manager from {} on, with systemd-run and busctl)",
+                crate::spaces::slice::SYSTEMD_FLOOR
+            ),
+        },
+    }
+}
+
+/// #EDE-138: a space's Vulkan apps draw on lavapipe (Mesa's software
+/// Vulkan) while spaces have no GPU path ([`crate::spaces::render`]);
+/// `lavapipe` = its manifests found.
+pub fn check_space_rendering(lavapipe: &[PathBuf]) -> Check {
+    let name = "Agent spaces: Vulkan";
+    if lavapipe.is_empty() {
+        return Check {
+            name,
+            level: Level::Warn,
+            detail: "no lavapipe (Mesa's software Vulkan): a Vulkan app in an agent space does not start (install mesa-vulkan-drivers; on Arch vulkan-swrast)".into(),
+        };
+    }
+    let names: Vec<String> = lavapipe.iter().filter_map(|icd| icd.file_name()).map(|name| name.to_string_lossy().into_owned()).collect();
+    Check { name, level: Level::Ok, detail: format!("lavapipe ({}): Vulkan apps in an agent space draw on the CPU", names.join(", ")) }
+}
+
+/// What the guard closes in this build (#EDE-148, #EDE-146, #EDE-147).
+pub const GUARD_CLOSES: &str = "sound and camera devices, /dev/input, /dev/uinput, HID raw and USB traffic, writes to rfkill, I2C and raw USB; the system bus, your session bus, user manager and eDE's sockets, PID 1 and logind for root, wpa_supplicant, VPN daemons, docker, libvirt and lxd; your sound servers";
+/// #EDE-145: what a guard of this build also closes, by its path (also as
+/// a snap's link to it spells it): the person's Wayland socket. The
+/// session's state file says whether the guard that answered is one.
+pub const GUARD_CLOSES_WAYLAND: &str = "your Wayland socket (also through a snap's link to it)";
+/// What stays open to a space in this build. #EDE-138: the guard leaves
+/// your Xwayland's socket open, but the server admits only the cookie that
+/// your session's programs are given, which a space's are not.
+pub const GUARD_LEAVES: &str = "your Xwayland's socket (the server asks for your session's X cookie, which a space has not)";
+/// #EDE-145: the person's Wayland socket where the guard that answered is
+/// one from before: a program in a space that names it
+/// (`WAYLAND_DISPLAY=/run/user/<uid>/wayland-1`) opens its windows on the
+/// person's desk.
+pub const GUARD_LEAVES_WAYLAND: &str = "your Wayland socket (a program there that names it opens its windows on your desk: the running guard is an older one)";
+
+/// #EDE-146..148: what the RUNNING compositor decided about the space
+/// guard: `state` = its state file's text (`None` = no Exponential Desktop
+/// session runs here).
+pub fn check_space_guard(state: Option<&str>) -> Check {
+    let name = "Space guard";
+    let Some(state) = state else {
+        return Check { name, level: Level::Warn, detail: "no Exponential Desktop session runs here: the guard is the session's to ask".into() };
+    };
+    let field = |key: &str| state.lines().find_map(|line| line.strip_prefix(key).map(str::trim)).unwrap_or_default().to_string();
+    let (guard, probe, units, polkit) = (field("guard "), field("probe "), field("user-manager "), field("polkit "));
+    if guard != "required" {
+        return Check { name, level: Level::Warn, detail: "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices, and open their windows on your desk through your Wayland socket".into() };
+    }
+    if units != "yes" {
+        return Check { name, level: Level::Warn, detail: "no systemd user manager: nothing starts in an agent space".into() };
+    }
+    match probe.as_str() {
+        "ok" if polkit == "ok" => {
+            // No such line: a compositor from before, whose guard is not
+            // known to refuse it.
+            let (closed, open) = if field("wayland ") == "closed" { (format!("{GUARD_CLOSES}; {GUARD_CLOSES_WAYLAND}"), GUARD_LEAVES.to_string()) } else { (GUARD_CLOSES.to_string(), format!("{GUARD_LEAVES_WAYLAND}, {GUARD_LEAVES}")) };
+            Check { name, level: Level::Ok, detail: format!("this session asks it before anything runs in an agent space; closed there: {closed}; open: {open}") }
+        }
+        "ok" if polkit == "pending" => Check { name, level: Level::Warn, detail: "this session is still asking polkit".into() },
+        "ok" => Check { name, level: Level::Warn, detail: format!("{polkit}: programs in an agent space may get polkit's yes without a prompt") },
+        "pending" => Check { name, level: Level::Warn, detail: "this session is still asking it".into() },
+        reason => Check { name, level: Level::Warn, detail: format!("{reason}: nothing starts in an agent space until it answers") },
+    }
+}
+
+/// The running compositor's guard state file (`$XDG_RUNTIME_DIR`,
+/// `$WAYLAND_DISPLAY` of the session the doctor runs in).
+fn running_guard_state() -> Option<String> {
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")?;
+    let display = std::env::var("WAYLAND_DISPLAY").ok()?;
+    let spaces = ede_protocol::spaces_path(std::path::Path::new(&runtime), &display);
+    std::fs::read_to_string(crate::spaces::guard::state_file(&spaces)).ok()
+}
+
 /// `root.join(absolute)`: the system's files under another root in tests.
 fn under(root: &Path, absolute: &str) -> PathBuf {
     root.join(absolute.trim_start_matches('/'))
@@ -753,7 +843,7 @@ pub fn probe_renderer(render_node: &Path) -> Result<RendererProbe, String> {
 }
 
 /// Software renderers Mesa falls back to (a VM without 3D, no GPU driver).
-const SOFTWARE_RENDERERS: [&str; 3] = ["llvmpipe", "softpipe", "swrast"];
+pub(crate) const SOFTWARE_RENDERERS: [&str; 3] = ["llvmpipe", "softpipe", "swrast"];
 
 /// `None` = this binary has no udev backend, so nothing was probed.
 /// `gpu_driver` = the probed node belongs to a real GPU's driver, where
@@ -967,6 +1057,12 @@ pub fn run_checks() -> Vec<Check> {
         check_vulkan(vulkan.as_deref(), &icds, compositor_gpu),
         check_keyboard(system_keyboard.as_ref()),
         check_xwayland(binary.as_deref(), xwayland.as_deref()),
+        check_spaces(crate::spaces::slice::Units::probe().map(|units| {
+            let config = crate::config::Config::default_path().map(|path| crate::config::Config::load(&path).0).unwrap_or_default();
+            (units.version, crate::spaces::slice::described(&config.spaces, units.machine))
+        })),
+        check_space_rendering(&crate::spaces::render::lavapipe_icds(root, std::env::var_os("XDG_DATA_DIRS").as_deref())),
+        check_space_guard(running_guard_state().as_deref()),
     ]);
     let nvidia = Nvidia::read(root).map(|mut nv| {
         nv.suspend_units = command_output("systemctl", &["is-enabled", "nvidia-suspend.service", "nvidia-resume.service"]);
@@ -1036,6 +1132,62 @@ mod tests {
         assert_eq!(check_xwayland(bin, Some("Xwayland Version 24.1.4")).level, Level::Ok);
         assert_eq!(check_xwayland(bin, Some("Xwayland Version 25.0.0")).level, Level::Ok);
         assert!(check_xwayland(None, None).detail.contains("apt install xwayland"));
+    }
+
+    /// #EDE-146..148: the doctor says what the running session decided.
+    /// #EDE-145: the person's Wayland socket is open but where this build's
+    /// guard answered.
+    #[test]
+    fn doctor_says_what_the_running_session_decided_about_the_space_guard() {
+        use crate::spaces::guard::state_text;
+        use ede_space_guard::client::Probed;
+        let (ok_, yes) = (Ok(Probed::Wayland), Ok(()));
+        let ok = check_space_guard(Some(&state_text(true, Some(&ok_), true, Some(&yes))));
+        assert_eq!(ok.level, Level::Ok);
+        assert_eq!(ok.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; {GUARD_CLOSES_WAYLAND}; open: {GUARD_LEAVES}"));
+        assert!(ok.detail.ends_with("; your Wayland socket (also through a snap's link to it); open: your Xwayland's socket (the server asks for your session's X cookie, which a space has not)"), "{}", ok.detail);
+        // A guard from before, and the state file of a compositor from before.
+        let older = check_space_guard(Some(&state_text(true, Some(&Ok(Probed::Older)), true, Some(&yes))));
+        let before = check_space_guard(Some("guard required\nprobe ok\nuser-manager yes\npolkit ok\n"));
+        for check in [older, before] {
+            assert_eq!(check.level, Level::Ok);
+            assert_eq!(check.detail, format!("this session asks it before anything runs in an agent space; closed there: {GUARD_CLOSES}; open: {GUARD_LEAVES_WAYLAND}, {GUARD_LEAVES}"));
+            assert!(check.detail.contains("; open: your Wayland socket (a program there that names it opens its windows on your desk"), "{}", check.detail);
+        }
+        for (state, says) in [
+            (None, "no Exponential Desktop session runs here: the guard is the session's to ask".to_string()),
+            (Some(state_text(false, None, true, None)), "not installed (exponential-space-guard.socket): programs in an agent space can use your microphone, camera, radio switches and input devices, and open their windows on your desk through your Wayland socket".into()),
+            (Some(state_text(true, Some(&ok_), false, None)), "no systemd user manager: nothing starts in an agent space".into()),
+            (Some(state_text(true, None, true, None)), "this session is still asking it".into()),
+            (Some(state_text(true, Some(&Err("the space guard: busy".into())), true, None)), "the space guard: busy: nothing starts in an agent space until it answers".into()),
+            (Some(state_text(true, Some(&ok_), true, None)), "this session is still asking polkit".into()),
+            (Some(state_text(true, Some(&ok_), true, Some(&Err("polkit authorizes a space's programs".into())))), "polkit authorizes a space's programs: programs in an agent space may get polkit's yes without a prompt".into()),
+        ] {
+            let check = check_space_guard(state.as_deref());
+            assert_eq!((check.level, check.detail), (Level::Warn, says));
+        }
+    }
+
+    /// #EDE-138: no user manager (or an old one) is a warning that says
+    /// what the person gets instead.
+    #[test]
+    fn doctor_says_where_an_agent_spaces_programs_run() {
+        let ok = check_spaces(Ok((255, "8 spaces at most".into())));
+        assert_eq!((ok.level, ok.detail.as_str()), (Level::Ok, "systemd 255: a slice per space; 8 spaces at most ([spaces] in compositor.toml)"));
+        let old = check_spaces(Err("systemd 249 is older than 252".into()));
+        assert_eq!(old.level, Level::Warn);
+        assert!(old.detail.starts_with("systemd 249 is older than 252: what an agent space starts runs in your login session, without limits"), "{}", old.detail);
+    }
+
+    /// #EDE-138: without lavapipe a space's Vulkan apps do not start: a
+    /// warning that names the package.
+    #[test]
+    fn doctor_says_whether_a_spaces_vulkan_apps_can_draw() {
+        let ok = check_space_rendering(&[PathBuf::from("/usr/share/vulkan/icd.d/lvp_icd.x86_64.json")]);
+        assert_eq!((ok.level, ok.detail.as_str()), (Level::Ok, "lavapipe (lvp_icd.x86_64.json): Vulkan apps in an agent space draw on the CPU"));
+        let none = check_space_rendering(&[]);
+        assert_eq!(none.level, Level::Warn);
+        assert!(none.detail.contains("install mesa-vulkan-drivers"), "{}", none.detail);
     }
 
     #[test]

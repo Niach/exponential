@@ -59,7 +59,7 @@ use eui_gpui::host::HostPlugin;
 use eui_gpui::view::SurfaceView;
 
 use crate::native_dialog::{self, AlertSpec};
-use crate::navigation::{active_team_id, Navigation};
+use crate::navigation::{screen_team_id, Navigation};
 use crate::queries;
 
 use super::doc::{and, empty_state, hex, mount_with, not, path, IdeToasts, Ink, SM, VALUE_ALPHA, XS};
@@ -273,7 +273,7 @@ impl MembersPane {
         if let Some(shot) = &self.shot {
             return shot.team.clone();
         }
-        active_team_id(&self.nav, cx)
+        screen_team_id(&self.nav, cx)
     }
 
     fn pane_owner(&self, team_id: &str, cx: &App) -> bool {

@@ -61,6 +61,38 @@ pub fn inbox_row_target(
     }
 }
 
+/// #EXP-1987 (`listCases`, TS `inboxRowListed`): whether team `team_id`'s
+/// inbox (`None` = every team) lists a row, its badge and Mark all read
+/// alike. `row_team_id` = the row's own team, else its issue's board's team
+/// (`None` = unknown: an issue the client has not synced); `team_ids` = the
+/// synced teams rows (never a personal team). `agent_signed_out` and a
+/// session row of a team the viewer does not sync (the Assistant's chat in
+/// their personal team) list in every team.
+pub fn inbox_row_listed(
+    kind: Option<&str>,
+    row_team_id: Option<&str>,
+    issue_id: Option<&str>,
+    team_id: Option<&str>,
+    team_ids: &[&str],
+) -> bool {
+    if non_empty(issue_id).is_some() {
+        return row_team_id.is_some() && team_id.is_none_or(|team| row_team_id == Some(team));
+    }
+    if kind == Some(NOTIFICATION_TYPE_AGENT_SIGNED_OUT) {
+        return true;
+    }
+    if kind != Some(NOTIFICATION_TYPE_AGENT_MESSAGE) && kind != Some(NOTIFICATION_TYPE_SESSION_BLOCKED) {
+        return false;
+    }
+    let Some(team_id) = team_id else {
+        return true;
+    };
+    match row_team_id {
+        None => true,
+        Some(row_team) => row_team == team_id || !team_ids.contains(&row_team),
+    }
+}
+
 /// Where a session opens (the S-3 inter-session rule, web `lib/session-back.ts`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionTarget {
@@ -156,6 +188,25 @@ mod tests {
                 row["deviceId"].as_str(),
             );
             assert_eq!(got, expected_row(&case["expected"]), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn every_list_case_matches() {
+        let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
+        let cases = fixture["listCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let row = &case["row"];
+            let team_ids: Vec<&str> = case["teamIds"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            let got = inbox_row_listed(
+                row["type"].as_str(),
+                row["teamId"].as_str(),
+                row["issueId"].as_str(),
+                case["teamId"].as_str(),
+                &team_ids,
+            );
+            assert_eq!(got, case["expected"].as_bool().unwrap(), "{}", case["name"]);
         }
     }
 

@@ -174,9 +174,14 @@ async function recipeOpenAppImport(page: Page): Promise<void> {
   const { default: fixture } = await import(`@exp/domain-contract/fixtures/app-export.json`, { with: { type: `json` } })
   // VAPP-242: Import… is THE NEW MENU's second item (the sidebar's or the
   // phone band's `+`).
-  const plus = page.getByTestId(`apps-new`).filter({ visible: true }).first()
-  await plus.waitFor({ state: `visible`, timeout: 15_000 })
-  await plus.click()
+  // #EXP-2027: md+ imports on the New app PAGE (its Import… row, inline);
+  // phones keep the Apps band's + menu.
+  const onNewAppPage = /\/new\/app$/.test(new URL(page.url()).pathname)
+  if (!onNewAppPage) {
+    const plus = page.getByTestId(`apps-new`).filter({ visible: true }).first()
+    await plus.waitFor({ state: `visible`, timeout: 15_000 })
+    await plus.click()
+  }
   const importButton = page.getByTestId(`apps-import`).filter({ visible: true }).first()
   await importButton.waitFor({ state: `visible`, timeout: 15_000 })
   await importButton.click()
@@ -186,7 +191,8 @@ async function recipeOpenAppImport(page: Page): Promise<void> {
 
 /** VAPP-217: the RecordTable's Add: the RecordForm for the kind. */
 async function recipeOpenRecordForm(page: Page): Promise<void> {
-  const add = page.getByRole(`button`, { name: `Add` }).filter({ visible: true }).first()
+  // exact: the sidebar's Devices + is "Add device" (#EXP-2027).
+  const add = page.getByRole(`button`, { name: `Add`, exact: true }).filter({ visible: true }).first()
   await add.waitFor({ state: `visible`, timeout: 30_000 })
   await add.click()
   await page.getByRole(`dialog`).getByRole(`button`, { name: `Save` }).waitFor({ state: `visible`, timeout: 15_000 })
@@ -920,6 +926,21 @@ async function recipeOpenAddServer(page: Page): Promise<void> {
   await page.getByText(/EXP_INSTANCE=/).first().waitFor({ timeout: 15_000 })
 }
 
+/**
+ * #EXP-2027 (sidebar-tree.json `teamMenu`): a team row's `…` opens THE team
+ * menu; hovering New opens its submenu (Board, Agent, App, Session).
+ */
+async function recipeOpenSidebarTeamMenu(page: Page): Promise<void> {
+  const button = page.getByTestId(`sidebar-team-menu-button`).first()
+  await button.waitFor({ state: `attached`, timeout: 30_000 })
+  await page.getByTestId(`sidebar-team-row`).first().hover()
+  await button.click()
+  const next = page.getByRole(`menuitem`, { name: `New`, exact: true }).first()
+  await next.waitFor({ timeout: 15_000 })
+  await next.hover()
+  await page.getByRole(`menuitem`, { name: `Session`, exact: true }).first().waitFor({ timeout: 15_000 })
+}
+
 // ---------------------------------------------------------------- actions
 // --------------------------------------------------------------- settings
 
@@ -1075,6 +1096,7 @@ export const RECIPES: Record<string, Recipe> = {
   openMachineSettings: recipeOpenMachineSettings,
   previewDeviceLimits: recipePreviewDeviceLimits,
   openAddServer: recipeOpenAddServer,
+  openSidebarTeamMenu: recipeOpenSidebarTeamMenu,
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,
   openGettingStartedPhone: recipeOpenGettingStartedPhone,

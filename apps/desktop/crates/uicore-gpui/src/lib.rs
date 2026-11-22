@@ -190,14 +190,19 @@ pub fn bound_roots(source: &Value) -> std::collections::BTreeSet<String> {
 pub struct Placed {
     pub kind: WindowKind,
     pub bounds: Bounds<Pixels>,
+    /// A popup's name for the compositor, sent as the window's app id
+    /// (#EXP-2041: eDE reads it as the popup's namespace, as a layer has
+    /// one; gpui's Wayland client names the `xdg_popup` with it). `None`:
+    /// the application's app id.
+    pub namespace: Option<String>,
 }
 
 /// How a document's surface becomes a window.
 pub trait ShellHost {
-    /// A layer document (`surface.layer`).
-    fn layer(&self, header: &SurfaceHeader) -> Placed;
-    /// A popup document (`surface.popup`) under `anchor_rect` of `parent`.
-    fn popup(&self, parent: &Region, anchor_rect: Bounds<Pixels>, placement: Placement, size: (u32, u32), cx: &mut App) -> Placed;
+    /// A layer document (`surface.layer`) named `name`.
+    fn layer(&self, name: &str, header: &SurfaceHeader) -> Placed;
+    /// A popup document (`surface.popup`) named `name` under `anchor_rect` of `parent`.
+    fn popup(&self, name: &str, parent: &Region, anchor_rect: Bounds<Pixels>, placement: Placement, size: (u32, u32), cx: &mut App) -> Placed;
     /// A hosted Popover / Menu layer of `parent` (VAPP-281).
     fn hosted(&self, parent: &Region, layer: &Layer, cx: &mut App) -> Option<Placed>;
     /// Hosted layers go to the host (true) or stay painted inside their surface.
@@ -219,6 +224,21 @@ impl Default for LayerShellHost {
     fn default() -> Self {
         Self { namespace: "exponential-shell".into() }
     }
+}
+
+/// A layer document's layer-shell namespace: the host's prefix and the
+/// document's name (`exponential-shell:space-view`, the name the compositor
+/// keeps out of captures of the person's output, #EXP-2024).
+pub fn layer_namespace(prefix: &str, name: &str) -> String {
+    format!("{prefix}:{name}")
+}
+
+/// A hosted layer's popup name: the host's prefix, its document's name and
+/// its owner (`exponential-shell:taskbar:agent_spaces`, the Agent spaces
+/// list the compositor keeps out of captures of the person's output,
+/// #EXP-2041). A popup document is named as a layer is ([`layer_namespace`]).
+pub fn hosted_namespace(prefix: &str, document: &str, owner: &str) -> String {
+    format!("{prefix}:{document}:{owner}")
 }
 
 /// Normal windows: `--windowed`, macOS.
@@ -317,19 +337,19 @@ fn popup_bounds(anchor_rect: Bounds<Pixels>, size_px: (f32, f32)) -> Bounds<Pixe
 
 #[cfg(target_os = "linux")]
 impl ShellHost for LayerShellHost {
-    fn layer(&self, header: &SurfaceHeader) -> Placed {
-        let (kind, bounds) = layer_options(&self.namespace, header);
-        Placed { kind, bounds }
+    fn layer(&self, name: &str, header: &SurfaceHeader) -> Placed {
+        let (kind, bounds) = layer_options(&layer_namespace(&self.namespace, name), header);
+        Placed { kind, bounds, namespace: None }
     }
 
-    fn popup(&self, parent: &Region, anchor_rect: Bounds<Pixels>, placement: Placement, size: (u32, u32), _cx: &mut App) -> Placed {
+    fn popup(&self, name: &str, parent: &Region, anchor_rect: Bounds<Pixels>, placement: Placement, size: (u32, u32), _cx: &mut App) -> Placed {
         let (anchor, gravity) = placement_anchor(placement);
         let parent_handle: AnyWindowHandle = parent.handle.into();
         // A popup document grabs: it takes the keyboard as it maps, whatever
         // its parent layer does (#EDE-86: the start menu under the taskbar).
         // A hosted popover (a hover preview) never does.
         let kind = WindowKind::AnchoredPopup(PopupOptions { parent: parent_handle, anchor_rect, anchor, gravity, constraint_adjustment: PopupConstraintAdjustment::SLIDE_X | PopupConstraintAdjustment::SLIDE_Y | PopupConstraintAdjustment::FLIP_Y, offset: point(px(0.0), px(POPUP_GAP)), grab: true });
-        Placed { kind, bounds: popup_bounds(anchor_rect, (size.0 as f32, size.1 as f32)) }
+        Placed { kind, bounds: popup_bounds(anchor_rect, (size.0 as f32, size.1 as f32)), namespace: Some(layer_namespace(&self.namespace, name)) }
     }
 
     fn hosted(&self, parent: &Region, layer: &Layer, _cx: &mut App) -> Option<Placed> {
@@ -348,26 +368,26 @@ impl ShellHost for LayerShellHost {
             OverlaySide::Left | OverlaySide::Right => PopupConstraintAdjustment::SLIDE_Y | PopupConstraintAdjustment::FLIP_X,
         };
         let kind = WindowKind::AnchoredPopup(PopupOptions { parent: parent_handle, anchor_rect, anchor, gravity, constraint_adjustment: adjustment, offset, grab: false });
-        Some(Placed { kind, bounds: Bounds { origin: root.origin, size: root.size } })
+        Some(Placed { kind, bounds: Bounds { origin: root.origin, size: root.size }, namespace: Some(hosted_namespace(&self.namespace, &parent.name, &layer.owner)) })
     }
 }
 
 impl ShellHost for WindowedHost {
-    fn layer(&self, header: &SurfaceHeader) -> Placed {
-        Placed { kind: WindowKind::Normal, bounds: layer_bounds(header) }
+    fn layer(&self, _name: &str, header: &SurfaceHeader) -> Placed {
+        Placed { kind: WindowKind::Normal, bounds: layer_bounds(header), namespace: None }
     }
 
-    fn popup(&self, parent: &Region, anchor_rect: Bounds<Pixels>, _placement: Placement, size: (u32, u32), cx: &mut App) -> Placed {
+    fn popup(&self, _name: &str, parent: &Region, anchor_rect: Bounds<Pixels>, _placement: Placement, size: (u32, u32), cx: &mut App) -> Placed {
         let origin = parent.handle.update(cx, |_, window, _| window.bounds().origin).unwrap_or_default();
         let mut bounds = popup_bounds(anchor_rect, (size.0 as f32, size.1 as f32));
         bounds.origin = point(origin.x + bounds.origin.x, origin.y + bounds.origin.y);
-        Placed { kind: WindowKind::PopUp, bounds }
+        Placed { kind: WindowKind::PopUp, bounds, namespace: None }
     }
 
     fn hosted(&self, parent: &Region, layer: &Layer, cx: &mut App) -> Option<Placed> {
         let (root, _) = hosted_frames(layer)?;
         let origin = parent.handle.update(cx, |_, window, _| window.bounds().origin).unwrap_or_default();
-        Some(Placed { kind: WindowKind::PopUp, bounds: Bounds { origin: point(origin.x + root.origin.x, origin.y + root.origin.y), size: root.size } })
+        Some(Placed { kind: WindowKind::PopUp, bounds: Bounds { origin: point(origin.x + root.origin.x, origin.y + root.origin.y), size: root.size }, namespace: None })
     }
 }
 
@@ -431,7 +451,7 @@ impl Surfaces {
                 kind: placed.kind,
                 window_bounds: Some(WindowBounds::Windowed(placed.bounds)),
                 titlebar: None,
-                app_id: Some(self.app_id.clone()),
+                app_id: Some(placed.namespace.unwrap_or_else(|| self.app_id.clone())),
                 focus: false,
                 is_resizable: false,
                 window_background: WindowBackgroundAppearance::Transparent,
@@ -474,7 +494,7 @@ impl Surfaces {
         if self.open.contains_key(&doc.name) || !matches!(doc.surface, SurfaceHeader::Layer { .. }) {
             return false;
         }
-        let placed = self.host.layer(&doc.surface);
+        let placed = self.host.layer(&doc.name, &doc.surface);
         match self.open_window(doc, placed, feed, cx) {
             Some(region) => {
                 tracing::info!(document = %doc.name, "surface opened");
@@ -497,7 +517,7 @@ impl Surfaces {
             return false;
         };
         let anchor_rect = parent.view.read(cx).painted_bounds(&popup.anchor).unwrap_or(Bounds { origin: point(px(0.0), px(0.0)), size: size(px(120.0), px(DEFAULT_SIZE.1)) });
-        let placed = self.host.popup(&parent, anchor_rect, popup.placement, (popup.size.width, popup.size.height), cx);
+        let placed = self.host.popup(&doc.name, &parent, anchor_rect, popup.placement, (popup.size.width, popup.size.height), cx);
         match self.open_window(doc, placed, feed, cx) {
             Some(region) => {
                 tracing::info!(document = %doc.name, "popup opened");
@@ -573,7 +593,7 @@ impl Surfaces {
             let view = parent.view.clone();
             let owner = layer.owner.clone();
             let opened = cx.open_window(
-                WindowOptions { kind: placed.kind, window_bounds: Some(WindowBounds::Windowed(placed.bounds)), titlebar: None, app_id: Some(self.app_id.clone()), focus: false, is_resizable: false, window_background: WindowBackgroundAppearance::Transparent, ..Default::default() },
+                WindowOptions { kind: placed.kind, window_bounds: Some(WindowBounds::Windowed(placed.bounds)), titlebar: None, app_id: Some(placed.namespace.unwrap_or_else(|| self.app_id.clone())), focus: false, is_resizable: false, window_background: WindowBackgroundAppearance::Transparent, ..Default::default() },
                 move |_, cx| cx.new(|_| SurfaceRoot { view, hosted: Some(owner), input: None }),
             );
             match opened {
@@ -585,6 +605,11 @@ impl Surfaces {
                 Err(e) => tracing::warn!(document, owner = %layer.owner, "hosted popup: {e}"),
             }
         }
+    }
+
+    /// The popup window that shows `document`'s hosted layer `owner`.
+    pub fn hosted_window(&self, document: &str, owner: &str) -> Option<gpui::AnyWindowHandle> {
+        self.hosted.get(&(document.to_string(), owner.to_string())).map(|h| (*h).into())
     }
 
     /// The hosted layers [`dismiss_hosted`] closes, each with its surface.

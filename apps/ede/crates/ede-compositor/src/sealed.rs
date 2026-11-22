@@ -47,6 +47,10 @@ pub struct LayerOrigin {
     pub pid: u32,
     /// The process's executable is `exponential-sealed`.
     pub sealed: bool,
+    /// #EXP-2024: the shell's pinned view of an agent space (the namespace
+    /// [`ede_protocol::SPACE_VIEW_NAMESPACE`] from `exponential-shell`): black
+    /// in captures of the person's output, as a sealed surface is.
+    pub space_view: bool,
 }
 
 #[derive(Debug)]
@@ -90,16 +94,36 @@ pub fn sealed_binary() -> String {
         .unwrap_or_else(|| "exponential-sealed".into())
 }
 
-pub fn origin_of(ede: &Ede, surface: &WlSurface) -> LayerOrigin {
+/// A process's executable name as `/proc/<pid>/exe` links it: a binary
+/// replaced while it runs (a package upgrade, a rebuild) reads
+/// `<name> (deleted)` there, and is still that program.
+pub fn exe_name(link: &std::path::Path) -> Option<String> {
+    let name = link.file_name()?.to_string_lossy();
+    Some(name.strip_suffix(" (deleted)").unwrap_or(&name).to_string())
+}
+
+/// The executable name of process `pid` ([`exe_name`]).
+fn exe_of(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{pid}/exe")).ok().and_then(|p| exe_name(&p))
+}
+
+/// Process `pid` is the shell, `exponential-shell` (or the headless tests'
+/// stand-in for it): its space view (#EXP-2024) and its Agent spaces list
+/// (#EXP-2041) are black in captures of the person's output.
+pub fn is_shell(ede: &Ede, pid: u32) -> bool {
+    pid != 0 && (ede.shell_stand_in == Some(pid) || exe_of(pid).is_some_and(|n| n == "exponential-shell"))
+}
+
+pub fn origin_of(ede: &Ede, surface: &WlSurface, namespace: &str) -> LayerOrigin {
     let pid = ede.display_handle.get_client(surface.id()).ok().and_then(|c| c.get_credentials(&ede.display_handle).ok()).map(|c| c.pid as u32).unwrap_or(0);
-    let sealed = pid != 0
-        && (ede.sealed_stand_in == Some(pid)
-            || std::fs::read_link(format!("/proc/{pid}/exe")).ok().and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned())).is_some_and(|n| n == "exponential-sealed"));
-    LayerOrigin { pid, sealed }
+    let sealed = pid != 0 && (ede.sealed_stand_in == Some(pid) || exe_of(pid).is_some_and(|n| n == "exponential-sealed"));
+    // Only the shell's own view hides: another client naming the namespace stays in captures.
+    let space_view = namespace == ede_protocol::SPACE_VIEW_NAMESPACE && is_shell(ede, pid);
+    LayerOrigin { pid, sealed, space_view }
 }
 
 pub fn layer_origin(layer: &LayerSurface) -> LayerOrigin {
-    layer.user_data().get::<LayerOrigin>().copied().unwrap_or(LayerOrigin { pid: 0, sealed: false })
+    layer.user_data().get::<LayerOrigin>().copied().unwrap_or(LayerOrigin { pid: 0, sealed: false, space_view: false })
 }
 
 impl Ede {
@@ -255,7 +279,9 @@ impl Ede {
         }
         if let Some(child) = s.child.as_mut() {
             match child.try_wait() {
-                Ok(Some(status)) => tracing::warn!(%status, "the lock client ended while locked"),
+                // #ERR-29: the session stays locked with nothing to unlock
+                // it until the next start: an error (a GlitchTip event).
+                Ok(Some(status)) => tracing::error!(%status, "the lock client ended while locked"),
                 _ if s.seen.elapsed() < NO_SURFACE => return,
                 _ => {
                     tracing::warn!("the lock client shows nothing; starting it again");

@@ -1,9 +1,13 @@
 # `etalk-ffi`: Voice for Swift and Kotlin
 
 The UniFFI 0.32 facade over [`etalk`](../etalk) (the call machine) and
-[`etalk-codec`](../etalk-codec) (Opus) for iOS, macOS and Android, so a phone
-places the same call as the desktop (#EXP-1441): an xcframework / an Android
-`.so` plus the generated bindings. gpui-free, engine-free, no app crate.
+[`etalk-codec`](../etalk-codec) (Opus) for iOS, macOS and Android, so a Swift
+or Kotlin app runs the call machine Exponential's desktop, web and phones run
+(#EXP-1441): where a call rings, its ring and flow, what its screen shows. An
+xcframework / an Android `.so` plus the generated bindings. gpui-free,
+engine-free, no app crate. Exponential's own phone apps carry hand-written
+twins of the same machine (`VoiceCall.swift`, `VoiceCall.kt`), replaying the
+same fixture.
 
 Audio I/O stays native (AVAudioEngine; Oboe / AudioRecord): the facade takes
 and returns PCM frames. Transport is not Voice's job: the packets ride P2P's
@@ -16,12 +20,21 @@ TypeScript reference is `packages/etalk/src/voice-call.ts`.
 
 - The call machine, pure functions over plain records:
   - `callIdle()` → `callStep(state, event)` → `callView(state, platform)`
-    (None = no call surface). `TalkCallEvent` = `start {device, language}`,
+    (None = no call surface). `TalkCallEvent` = `start {device, language,
+    fallback}` (#EXP-1857: `fallback` = the device is not the agent's own;
+    the view's `via` then reads `Voice on {device}`),
     `rang`, `ready`, `noSound`, `partial`, `said`, `speechStarted`,
     `queued {count, text}`, `replyStarted`, `replyFinished`, `mute`, `unmute`,
     `speaker {on}`, `end`, `hungUp {reason?}`, `failed {code}`. A finished
     call with a failure leaves `state.toast`.
-  - `callUnavailable(input)` (None = the telephone is enabled) and
+  - `callTarget(input)` (#EXP-1857, #EXP-1858): where the call rings, from
+    `here` (this client's own desktop, None on phones), `agentDevice`, the
+    member's `desktops` and `servers` and `busy`: the target's `device`,
+    `name`, `fallback` and `local`, or `enabled` false with the `reason`.
+  - `callTap(platform, reason)` (#EXP-1878): a press on the telephone calls,
+    or (a phone's tap on a disabled one) toasts the reason.
+  - `callUnavailable(input)` (one desktop's reason; None = it can take the
+    call) and
     `callSpeechOf(doctor row state)`.
   - The ring (#EXP-1423): the HOST draws `callRingRandom()` once per call and
     steps `rang` at `callRingMs(random)`; `ready` = the voice device's warm-up

@@ -13,7 +13,8 @@
 //! exponential-ctl space create [WxH] [--session NAME]    an agent space (#EDE-126): mints a space grant, makes its space, prints it with the grant's token
 //! exponential-ctl space list | space destroy <id>        the spaces (all of them with the root token); close one
 //! exponential-ctl launch [--cwd DIR] [--env K=V]… -- ARGV…   start a program in the space of the token in $EDE_TOKEN
-//! exponential-ctl capture --space ID --png FILE          a space's screen (the root token, or the space's own)
+//! exponential-ctl capture --space ID --png FILE          a space's screen (the root token, or the space's own; with
+//!                                                       the space's own, a notice for its agent comes along)
 //! ```
 //!
 //! With a space's token in `$EDE_TOKEN` the other commands act in that
@@ -84,7 +85,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (w, h) = (capture.info.width, capture.info.height);
             let first = capture.at(0, 0);
             let uniform = (0..h).all(|y| (0..w).all(|x| capture.at(x, y) == first));
-            println!("{{\"width\":{w},\"height\":{h},\"uniform\":{uniform}}}");
+            // #EDE-162: what the space's agent is told with this capture (a
+            // space's own token only), when there is something.
+            match &capture.info.notice {
+                Some(notice) => println!("{{\"width\":{w},\"height\":{h},\"uniform\":{uniform},\"notice\":{}}}", serde_json::to_string(notice)?),
+                None => println!("{{\"width\":{w},\"height\":{h},\"uniform\":{uniform}}}"),
+            }
             if let Some(path) = png {
                 write_png(&path, w as u32, h as u32, &capture.pixels)?;
             }

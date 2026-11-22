@@ -239,6 +239,15 @@ impl WaylandSurfaceState {
             };
             positioner.destroy();
 
+            // Exponential patch (#EXP-2041): an xdg_popup has no app id, so a
+            // popup's app id names it to eDE's compositor (its namespace, as a
+            // layer surface has one), before its first commit. eDE's shell
+            // names its hosted popups `exponential-shell:<document>:<owner>`;
+            // the Agent spaces list's name keeps it out of captures.
+            if let (Some(names), Some(namespace)) = (globals.popup_namespace.as_ref(), params.app_id.as_ref()) {
+                names.set_namespace(surface, namespace.clone());
+            }
+
             if let Some((serial, seat)) = popup_grab {
                 xdg_popup.grab(&seat, serial);
             }

@@ -7835,10 +7835,10 @@
           "name": "depth",
           "type": "number",
           "required": false,
-          "bindable": false,
+          "bindable": true,
           "responsive": false,
           "default": 0,
-          "description": "Under a tree Section (0 = root)."
+          "description": "Under a tree Section (0 = root); bound = indent only."
         },
         {
           "name": "open",

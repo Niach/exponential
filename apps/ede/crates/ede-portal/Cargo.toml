@@ -15,6 +15,8 @@ path = "src/main.rs"
 # (libpipewire-0.3-dev + libclang to build).
 [dependencies]
 ede-protocol = { path = "../../../desktop/crates/ede-protocol" }
+# #ERR-29: reports like the compositor (panics, errors, native crashes).
+ede-observability = { path = "../ede-observability" }
 pipewire = { version = "0.9", features = ["v0_3_34"] }
 blocking = "1"
 png = "0.18"
@@ -33,6 +35,8 @@ wayland-client = "0.31.10"
 wayland-protocols = { version = "0.32.8", features = ["client", "staging", "unstable"] }
 wayland-protocols-wlr = { version = "0.3.8", features = ["client"] }
 wayland-protocols-misc = { version = "0.3.8", features = ["client"] }
+# #EXP-2041: the shared client's exponential_popup_namespace_v1 code.
+wayland-scanner = "0.31"
 smithay = { workspace = true }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 pipewire = "0.9"

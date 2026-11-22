@@ -951,6 +951,13 @@ impl<'a, 'b> Builder<'a, 'b> {
         if let Some(def) = def {
             display_text_props(def, &mut props);
         }
+        // #EXP-1843: a Row's bound `depth` resolves to whatever the data
+        // holds; every painter (gpui, SwiftUI, Compose) and the layout get
+        // the ONE number the web painters compute (`treeGuideDepth`).
+        if node.component == "TreeGuides" {
+            let depth = crate::tree_guides::tree_guide_depth(props.get("depth"));
+            props.insert("depth".into(), Value::from(depth));
+        }
         self.local_overrides(&node.id, &node.component, &mut props);
         // VAPP-200: a read-only surface disables its writing controls as if
         // their author had (before the Form cascade: a disabled Form

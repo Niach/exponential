@@ -22,8 +22,8 @@ final class TranscriptFind {
 
     private struct Older: Equatable {
         var query = ""
-        var store: [FindInChat.OlderHit] = []
-        var device: [FindInChat.OlderHit] = []
+        var store: [FindInChat.StoreHit] = []
+        var device: [FindInChat.DeviceHit] = []
         var storePhase: FindInChat.Phase = .none
         var devicePhase: FindInChat.Phase = .none
     }
@@ -43,7 +43,14 @@ final class TranscriptFind {
     /// The ringed row's key while its ring shows (`DeepLinkScroll`).
     var ringKey: String?
 
+    /// #EDE-99: a global search pick's start, re-resolved as stops arrive
+    /// until found or the store's answer is in.
+    private var pendingTarget: SearchList.GlobalChatTarget?
     private var lowestSeq: Int?
+    private var sessionId = ""
+    /// #EXP-1998: the synced messages the screen draws as bubbles (nil = a
+    /// live transcript, or none drawn).
+    private var synced: FindInChat.Synced?
     @ObservationIgnored private var searches: [Task<Void, Never>] = []
 
     /// Find is searching: the follow pin holds (the reader stays on the stop).
@@ -60,11 +67,16 @@ final class TranscriptFind {
     /// A new query (or none): drop the old answers, ask the store and, while
     /// the loaded feed does not reach the first event and the device is
     /// online, the device; start at the newest stop.
-    func search(_ next: String, model: AgentSessionModel, accountId: String, rootId: String, sessionId: String) {
+    func search(
+        _ next: String, target: SearchList.GlobalChatTarget? = nil,
+        model: AgentSessionModel, inputs: [NoFeedInput], synced: FindInChat.Synced?,
+        accountId: String, rootId: String, sessionId: String
+    ) {
         guard next != query else { return }
         for task in searches { task.cancel() }
         searches = []
         query = next
+        pendingTarget = next.isEmpty ? nil : target
         current = nil
         focus = nil
         ringKey = nil
@@ -81,7 +93,7 @@ final class TranscriptFind {
             query: next, storePhase: .searching,
             devicePhase: fromStart ? .none : askDevice ? .searching : online == false ? .offline : .none
         )
-        recount(model: model, sessionId: sessionId)
+        recount(model: model, inputs: inputs, synced: synced, sessionId: sessionId)
         searches.append(Task { [weak self] in
             let json = await Task.detached(priority: .userInitiated) {
                 ChatStoreHub.shared.searchChat(accountId: accountId, rootId: rootId, query: next, limit: FindInChat.hitsMax)
@@ -96,7 +108,7 @@ final class TranscriptFind {
             searches.append(Task { [weak self, weak model] in
                 let result = await model?.search(query: next, beforeSeq: before)
                 guard let self, !Task.isCancelled, self.older.query == next else { return }
-                self.older.device = FindInChat.deviceHits((result?.hits ?? []).map { (seq: $0.seq, kind: $0.kind) }, sessionId: sessionId)
+                self.older.device = FindInChat.deviceHits((result?.hits ?? []).map { (seq: $0.seq, kind: $0.kind) })
                 self.older.devicePhase = .done
                 self.restop()
             })
@@ -105,10 +117,12 @@ final class TranscriptFind {
 
     /// The feed moved (a streamed row, a page paged in): count it again,
     /// keeping the current stop.
-    func recount(model: AgentSessionModel, sessionId: String) {
+    func recount(model: AgentSessionModel, inputs: [NoFeedInput], synced: FindInChat.Synced?, sessionId: String) {
         guard !query.isEmpty else { return }
-        let next = Self.rows(model, sessionId: sessionId, query: query)
+        let next = Self.rows(model, inputs: inputs, sessionId: sessionId, query: query)
         lowestSeq = model.findLowestSeq
+        self.sessionId = sessionId
+        self.synced = synced
         if next != rows { rows = next }
         restop()
     }
@@ -117,16 +131,35 @@ final class TranscriptFind {
     func step(_ request: ChatFind.StepRequest?) {
         guard let request, request.n != lastStep else { return }
         lastStep = request.n
+        pendingTarget = nil
         guard let next = FindInChat.step(current: index, total: stops.count, request.dir) else { return }
         land(stops[next])
     }
 
     private func restop() {
-        let hits = FindInChat.below(older.store + older.device, lowestSeq: lowestSeq)
+        // #EXP-1998 (`olderCases`): the store's message hits count too.
+        let hits = FindInChat.older(
+            sessionId: sessionId, lowestSeq: lowestSeq, store: older.store, device: older.device, synced: synced
+        )
         let next = FindInChat.stops(rows: rows.map(\.row), older: hits)
         if next != stops { stops = next }
+        // #EDE-99: a pick starts at the hit's stop (`globalChatStart`); it
+        // waits for it until the store's answer is in, then the newest.
+        if current == nil, let target = pendingTarget {
+            let start = SearchList.globalChatStart(stops, target: target)
+            let found = start.map { stops[$0].key == target.key && stops[$0].output == target.output } ?? false
+            guard found || older.storePhase != .searching else { return }
+            pendingTarget = nil
+            if let start { land(stops[start]) }
+            return
+        }
         // A new query starts at the NEWEST stop and lands there.
-        if current == nil, let newest = stops.last { land(newest) }
+        if current == nil, let newest = stops.last { return land(newest) }
+        // A paged-in older message that turned out not drawn vanished while
+        // it was being landed on: the newest stop takes over.
+        if let current, !current.loaded, focus?.id == current.key, !stops.contains(where: { $0.same(current) }), let newest = stops.last {
+            land(newest)
+        }
     }
 
     // MARK: - Landing
@@ -182,12 +215,16 @@ final class TranscriptFind {
     /// The loaded transcript's countable rows for `query`, top to bottom:
     /// a narration's and a person's bubble text (as the bubbles draw it), a
     /// plain tool line's title (+ its output's stop), a folded run's members
-    /// (`group`); never thoughts, cards or markers.
-    static func rows(_ model: AgentSessionModel, sessionId: String, query: String) -> [Row] {
+    /// (`group`); never thoughts, cards or markers. #EXP-1975: EVERY bubble
+    /// the screen shows: the transcript, its synced tail (`m:`), the sent
+    /// inputs over the no-transcript placeholder (`inputs`, `m:`), then the
+    /// viewer's own tail (`m:` rows, `o:` outbox entries).
+    static func rows(_ model: AgentSessionModel, inputs: [NoFeedInput], sessionId: String, query: String) -> [Row] {
         var out: [Row] = []
         var seen: Set<String> = []
         func key(_ id: Int) -> String {
-            let base = model.findSeq(id).map { FindInChat.eventKey(sessionId: sessionId, seq: $0) } ?? "i:\(id)"
+            let base = model.findSeq(id).map { FindInChat.eventKey(sessionId: sessionId, seq: $0) }
+                ?? model.findMessageId(id).map(FindInChat.messageKey) ?? "i:\(id)"
             defer { seen.insert(base) }
             return seen.contains(base) ? "\(base)#\(id)" : base
         }
@@ -219,7 +256,39 @@ final class TranscriptFind {
                 continue
             }
         }
+        func bubble(_ key: String, text: String) {
+            guard !seen.contains(key) else { return }
+            seen.insert(key)
+            let shown = shownText(text)
+            let count = shown.isEmpty ? 0 : FindMarks.markdownCount(shown, query: query)
+            out.append(Row(row: FindInChat.Row(key: key, count: count), itemId: bubbleItemId(key), outputCount: 0))
+        }
+        for input in inputs { bubble(FindInChat.messageKey(input.id), text: input.text) }
+        for own in model.ownBubbles { bubble(ownKey(own), text: own.text) }
         return out
+    }
+
+    /// #EXP-1975: an own-tail bubble's find key: its row (`m:`), else its
+    /// outbox entry (`o:`).
+    static func ownKey(_ bubble: OwnPendingBubble) -> String {
+        bubble.messageId.map(FindInChat.messageKey) ?? "o:\(bubble.clientId ?? bubble.id)"
+    }
+
+    /// #EXP-1975: the paint id of a bubble drawn outside the feed (a sent
+    /// input, the own tail): far above every feed and synced-tail id,
+    /// stable per key (FNV-1a).
+    static func bubbleItemId(_ key: String) -> Int {
+        var hash: UInt32 = 2_166_136_261
+        for byte in key.utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
+        return (1 << 53) + Int(hash)
+    }
+
+    /// What `UserMessageBubble` paints as text: an image message's caption
+    /// (`""` = images alone).
+    private static func shownText(_ text: String) -> String {
+        let parsed = SteerImageMessage.parse(text)
+        guard !parsed.attachmentIds.isEmpty || !parsed.files.isEmpty else { return text }
+        return parsed.markers.isEmpty ? parsed.text : ""
     }
 
     /// What a person's line draws as a bubble (nil = a marker, divider or
@@ -229,9 +298,7 @@ final class TranscriptFind {
         if Chats.commandDivider(text) != nil { return nil }
         if SlashCommands.command(for: text, agent: model.catalogAgent) != nil { return nil }
         if let input = TranscriptGrouping.crossSessionInput(text) { return input.body }
-        let parsed = SteerImageMessage.parse(text)
-        guard !parsed.attachmentIds.isEmpty || !parsed.files.isEmpty else { return text }
-        return parsed.markers.isEmpty ? parsed.text : ""
+        return shownText(text)
     }
 
     /// A plain tool line (`ToolRow`'s generic row): its title's matches and
@@ -265,6 +332,12 @@ struct TranscriptFindDriver: ViewModifier {
     let find: ChatFind?
     let transcriptFind: TranscriptFind
     let model: AgentSessionModel
+    /// #EXP-1975: the sent inputs the no-transcript placeholder shows (none
+    /// while it does not).
+    let inputs: [NoFeedInput]
+    /// #EXP-1998: the synced messages the screen draws as bubbles (the
+    /// synced tail, the sent inputs; nil = a live transcript).
+    let synced: FindInChat.Synced?
     let accountId: String
     let rootId: String
     let sessionId: String
@@ -274,10 +347,24 @@ struct TranscriptFindDriver: ViewModifier {
         content
             .onChange(of: query, initial: true) { _, next in
                 transcriptFind.deviceName = model.hostDevice.displayLabel
-                transcriptFind.search(next, model: model, accountId: accountId, rootId: rootId, sessionId: sessionId)
+                transcriptFind.search(
+                    next, target: find?.target, model: model, inputs: inputs, synced: synced,
+                    accountId: accountId, rootId: rootId, sessionId: sessionId
+                )
             }
             .onChange(of: query.isEmpty ? -1 : model.findRevision) { _, _ in
-                transcriptFind.recount(model: model, sessionId: sessionId)
+                transcriptFind.recount(model: model, inputs: inputs, synced: synced, sessionId: sessionId)
+            }
+            // #EXP-1975: the own tail and the sent inputs are loaded rows too.
+            .onChange(of: query.isEmpty ? [] : model.ownBubbles) { _, _ in
+                transcriptFind.recount(model: model, inputs: inputs, synced: synced, sessionId: sessionId)
+            }
+            .onChange(of: query.isEmpty ? [] : inputs) { _, _ in
+                transcriptFind.recount(model: model, inputs: inputs, synced: synced, sessionId: sessionId)
+            }
+            // #EXP-1998: more synced messages read (a widened tail, the inputs).
+            .onChange(of: query.isEmpty ? nil : synced) { _, _ in
+                transcriptFind.recount(model: model, inputs: inputs, synced: synced, sessionId: sessionId)
             }
             .onChange(of: find?.step) { _, step in
                 transcriptFind.step(step)

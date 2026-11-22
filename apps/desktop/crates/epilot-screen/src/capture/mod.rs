@@ -14,6 +14,18 @@ use std::time::Instant;
 
 use crate::store::Rect;
 
+/// #ERR-29: the error of a capture stream that failed: nothing reopens it,
+/// so screen memory stays off until its switch is toggled or the app
+/// restarts. Its text is fixed so GlitchTip groups them.
+pub(crate) const STREAM_FAILED: &str = "[screen] a screen capture stream failed";
+
+/// A failed capture stream: the reason in a warning, then the error.
+#[cfg_attr(not(all(target_os = "linux", feature = "portal")), allow(dead_code))]
+pub(crate) fn stream_failed(stream: usize, reason: &dyn std::fmt::Display) {
+    log::warn!("[screen] screen stream {stream} failed: {reason}");
+    log::error!("{STREAM_FAILED}");
+}
+
 /// One display's pixels, 8 bits per channel, physical resolution, as the
 /// OS hands them out: rows `stride` bytes apart, RGBA or BGRA. Only a frame
 /// the ring keeps is ever copied (cut to its window on the encode worker),

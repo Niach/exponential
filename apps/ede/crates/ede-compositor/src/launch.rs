@@ -48,6 +48,7 @@ impl Ede {
     /// (X11: `_NET_STARTUP_ID` too), or it was activated with one before it
     /// mapped? Uses the token up.
     pub fn person_started(&mut self, window: &Window) -> bool {
+        #[cfg_attr(not(feature = "xwayland"), allow(unused_mut))]
         let mut tokens: Vec<String> = self.window_pid(window).map(environ_tokens).unwrap_or_default();
         #[cfg(feature = "xwayland")]
         tokens.extend(window.x11_surface().and_then(|x| x.startup_id()));

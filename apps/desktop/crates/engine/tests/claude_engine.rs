@@ -84,6 +84,7 @@ fn options() -> coding::LaunchOptions {
         mcp_server_ids: Vec::new(),
         account: None,
         computer_use: None,
+        computer_place: Default::default(),
     }
 }
 
@@ -119,7 +120,6 @@ fn adapter_spec(scenario: &str, work: &Path, session_id: &str, exit: ChildExitLi
         system_append: coding::skill::system_append(None),
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
-        confine_to: None,
         skills_dir: None,
         aside: false,
         exit,
@@ -151,8 +151,8 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
             context_layers: coding::ContextLayers::default(),
             servers: Vec::new(),
             mcp_secrets: Default::default(),
-            confine_to: None,
             skills_dir: None,
+            computer_space: false,
         },
         tab_title: "claude · EXP-12".to_string(),
         tab_title_prefix: "EXP-12".to_string(),
@@ -205,6 +205,7 @@ fn start(scenario: &str, seed: Option<String>) -> Harness {
             child_exit,
             sink: Some(sink.clone() as Arc<dyn EventSink>),
             conversation: None,
+            computer: None,
         },
     )
     .expect("the engine starts");

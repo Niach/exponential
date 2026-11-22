@@ -90,7 +90,7 @@ fun button(v: Any?) = when (v) {
 fun event(e: Map<String, Any?>): TalkCallEvent {
     val text = (e["text"] as String?) ?: ""
     return when (e["t"]) {
-        "start" -> TalkCallEvent.Start(e["device"] as String, e["language"] as String?)
+        "start" -> TalkCallEvent.Start(e["device"] as String, e["language"] as String?, (e["fallback"] as Boolean?) ?: false)
         "rang" -> TalkCallEvent.Rang
         "ready" -> TalkCallEvent.Ready
         "noSound" -> TalkCallEvent.NoSound
@@ -124,8 +124,7 @@ fun main(args: Array<String>) {
         val i = obj(c["input"])
         val e = obj(c["expected"])
         val reason = callUnavailable(TalkCallAvailabilityInput(
-            i["agent"] as Boolean, platform(i["platform"]), i["device"] as String?, i["online"] as Boolean, i["here"] as Boolean,
-            (i["speech"] as String?)?.let(::speech), i["busy"] as Boolean, (i["meeting"] as Boolean?) ?: false))
+            i["device"] as String, i["online"] as Boolean, (i["speech"] as String?)?.let(::speech), (i["meeting"] as Boolean?) ?: false))
         check(reason == e["reason"]) { "availability ${c["name"]}: $reason" }
         check((reason == null) == e["enabled"]) { "availability ${c["name"]} enabled" }
     }
@@ -154,6 +153,7 @@ fun main(args: Array<String>) {
         } else {
             check(view.activity == expected["activity"]) { "$name: activity ${view.activity}" }
             check(view.status == expected["status"]) { "$name: status ${view.status}" }
+            check(view.via == expected["via"]) { "$name: via ${view.via}" }
             check(view.caption == expected["caption"]) { "$name: caption ${view.caption}" }
             check(view.muted == expected["muted"]) { "$name: muted" }
             check(view.speaker == expected["speaker"]) { "$name: speaker" }
@@ -161,6 +161,30 @@ fun main(args: Array<String>) {
             check(view.end == expected["end"]) { "$name: end ${view.end}" }
         }
         check(state.toast == c["toast"]) { "$name: toast ${state.toast}" }
+    }
+
+    // EXP-1857 / EXP-1858: where the call rings; #EXP-1878: what a tap does
+    fun devices(v: Any?) = ((v as List<Any?>?) ?: emptyList()).map(::obj).map { d ->
+        TalkCallTargetDevice(d["id"] as String, d["name"] as String, d["online"] as Boolean, (d["speech"] as String?)?.let(::speech), (d["meeting"] as Boolean?) ?: false)
+    }
+    for (c in list(fixture["targetCases"]).map(::obj)) {
+        val i = obj(c["input"])
+        val e = obj(c["expected"])
+        val name = c["name"]
+        val target = callTarget(TalkCallTargetInput(i["here"] as String?, i["agentDevice"] as String?, devices(i["desktops"]), devices(i["servers"]), i["busy"] as Boolean))
+        check(target.enabled == e["enabled"]) { "target $name: enabled" }
+        check(target.reason == e["reason"]) { "target $name: reason ${target.reason}" }
+        check(target.device == e["device"]) { "target $name: device ${target.device}" }
+        check(target.name == e["name"]) { "target $name: name" }
+        check(target.fallback == e["fallback"]) { "target $name: fallback" }
+        check(target.local == e["local"]) { "target $name: local" }
+    }
+    for (c in list(fixture["tapCases"]).map(::obj)) {
+        val i = obj(c["input"])
+        val e = obj(c["expected"])
+        val tap = callTap(platform(i["platform"]), obj(i["availability"])["reason"] as String?)
+        check(tap.call == e["call"]) { "tap ${c["name"]}: call" }
+        check(tap.toast == e["toast"]) { "tap ${c["name"]}: toast ${tap.toast}" }
     }
 
     // the ring + the timer

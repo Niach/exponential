@@ -98,6 +98,44 @@ describe(`a reorderable List (React)`, () => {
     expect(el(`f1`)!.getAttribute(`data-reorder-depth`)).toBe(`1`)
     expect(el(`f1`)!.getAttribute(`data-reorder-indent`)).toBe(String(TREE_GUIDE_COLUMN))
   })
+  // #EXP-1843: a templated folder tree: each item Row binds `depth` to its
+  // item's field and indents by it (the core's `treeGuideDepth`: floored, a
+  // string or a negative = 0), with no elbow (a template item has no siblings).
+  it(`a template Row indents by its BOUND depth: one 14 px column a level, no connector`, () => {
+    const items = [
+      { id: `a`, title: `apps`, depth: 0 },
+      { id: `b`, title: `web`, depth: 1 },
+      { id: `c`, title: `routes`, depth: 2 },
+      { id: `d`, title: `fraction`, depth: 2.9 },
+      { id: `e`, title: `text`, depth: `2` },
+      { id: `f`, title: `below`, depth: -1 },
+      { id: `g`, title: `none` },
+    ]
+    const r = reduceNested(
+      {
+        id: `root`,
+        component: `Box`,
+        children: [
+          { id: `tree`, component: `List`, props: { reorderable: true, maxDepth: 3 }, template: { component: `node`, path: `/rows`, key: `id` }, children: [] },
+          { id: `node`, component: `Row`, props: { title: { "@path": `title` }, depth: { "@path": `depth` } } },
+        ],
+      } as unknown as NestedNode,
+      { catalogId: CORE_CATALOG_ID }
+    )
+    expect(r.issues).toEqual([])
+    const { container } = render(<ExponentialSurface root={r.root} templates={r.templates} data={{ rows: items }} theme="neutral" id="ft" />)
+    const guides = (key: string) => container.querySelector<HTMLElement>(`[data-xui-id="node.guides.${key}"]`)
+    const cols = (key: string) => guides(key)?.querySelectorAll(`.xui-tree-col`).length
+    expect(guides(`a`)).toBeNull()
+    expect(cols(`b`)).toBe(1)
+    expect(cols(`c`)).toBe(2)
+    expect(cols(`d`)).toBe(2)
+    expect(cols(`e`) ?? 0).toBe(0)
+    expect(guides(`f`)).toBeNull()
+    expect(guides(`g`)).toBeNull()
+    expect(container.querySelectorAll(`.xui-TreeGuides-line`).length).toBe(0)
+    expect(container.querySelector(`[data-reorder-key="c"]`)!.getAttribute(`data-reorder-indent`)).toBe(String(2 * TREE_GUIDE_COLUMN))
+  })
   it(`Esc cancels: no move, the row undimmed`, () => {
     const { actions, el } = mount(rows, 2)
     pointer(el(`a`)!, `pointerdown`, 10, 15)

@@ -7,7 +7,8 @@
 //! through the foreground window's keyboard layout (`VkKeyScanExW`); a
 //! character the layout has no plain or Shift key for (AltGr, another
 //! script) is a `KEYEVENTF_UNICODE` stroke instead, except a letter or digit
-//! of a shortcut, which is its own VK (#EXP-1922). The process is per-monitor
+//! of a shortcut, which is its own VK (#EXP-1922), a digit without the Shift
+//! a layout types it with (#EXP-1980). The process is per-monitor
 //! DPI aware (v2), so every rect and point here is physical pixels of the
 //! virtual screen. The screen is a GDI blit of the desktop; the windows are
 //! `EnumWindows` cut down to what a person can see and switch to.
@@ -17,11 +18,12 @@
 //! abort) and the release of a key or button they held when the lock
 //! engaged (so no modifier stays stuck under our typing, no button under
 //! our moves: #EXP-1921), unless our own input pressed or released it first
-//! (#EXP-1979). Buttons are the logical ones everywhere: on a left-handed
-//! mouse the primary is the physical right button. Windows silently drops
-//! a hook that answers slower than `LowLevelHooksTimeout`, so the hook procs
-//! only decide and post; `on_esc` runs off the message loop, hooks already
-//! gone.
+//! (#EXP-1979); while such a button is still down the agent's pointer
+//! waits for its release ([`PERSON_BUTTONS`]). Buttons are the logical ones
+//! everywhere: on a left-handed mouse the primary is the physical right
+//! button. Windows silently drops a hook that answers slower than
+//! `LowLevelHooksTimeout`, so the hook procs only decide and post; `on_esc`
+//! runs off the message loop, hooks already gone.
 //!
 //! The UIPI boundary: without elevation we can neither drive nor lock an
 //! elevated window or the secure desktop (UAC prompts, the sign-in screen).
@@ -34,9 +36,9 @@ use std::ffi::c_void;
 use std::mem::{size_of, zeroed};
 use std::path::Path;
 use std::ptr::{null, null_mut};
-use std::sync::{mpsc, Once};
-use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::sync::atomic::Ordering;
+use std::sync::Once;
+use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, GlobalFree, BOOL, HANDLE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
@@ -80,8 +82,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_EX_TOOLWINDOW, XBUTTON1, XBUTTON2,
 };
 
-use crate::backend::{Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo};
+use crate::backend::{settle_paste, Backend, Button, Clipboard, DisplayInfo, HeldAtEngage, Image, LockGuard, Pasted, SavedClipboard, WindowInfo, CLIPBOARD_SAVE_MAX, PERSON_BUTTONS};
 use crate::keys::{Key, Named};
+use crate::backend::{LockStartError, LockThread, Verdict};
 
 /// Our tag on every INPUT ("EXP1"): the lock's hooks let these through.
 const MAGIC: usize = 0x4558_5031;
@@ -220,6 +223,19 @@ fn shortcut_vk(ch: char, modified: bool) -> Option<VIRTUAL_KEY> {
     (modified && ch.is_ascii_alphanumeric()).then(|| VIRTUAL_KEY::from(ch.to_ascii_uppercase() as u8))
 }
 
+/// #EXP-1980: how `key` sends `ch`: a VK and whether Shift goes with it,
+/// `None` = a Unicode packet. `on_layout` = its key on the foreground layout
+/// ([`layout_stroke`]); under a shortcut (`modified`) apps bind a letter or
+/// digit to its own VK, so a digit goes without the Shift French AZERTY
+/// types it with (Ctrl+1, never Ctrl+Shift+1) and a capital the layout
+/// lacks (Russian) keeps its Shift (Ctrl+Shift+T).
+fn char_key(ch: char, on_layout: Option<(VIRTUAL_KEY, bool)>, modified: bool) -> Option<(VIRTUAL_KEY, bool)> {
+    match shortcut_vk(ch, modified) {
+        Some(vk) if ch.is_ascii_digit() || on_layout.is_none() => Some((vk, ch.is_ascii_uppercase())),
+        _ => on_layout,
+    }
+}
+
 /// Whether `vk` is down now.
 fn pressed(vk: VIRTUAL_KEY) -> bool {
     // SAFETY: no pointers. The high bit = down.
@@ -288,14 +304,6 @@ fn wheel_notches(dx: i32, dy: i32) -> Vec<(MOUSE_EVENT_FLAGS, i32)> {
     let vertical = std::iter::repeat_n((MOUSEEVENTF_WHEEL, -dy.signum() * notch), dy.unsigned_abs() as usize);
     let horizontal = std::iter::repeat_n((MOUSEEVENTF_HWHEEL, dx.signum() * notch), dx.unsigned_abs() as usize);
     vertical.chain(horizontal).collect()
-}
-
-fn bgra_to_rgba(bgra: &[u8]) -> Vec<u8> {
-    let mut rgba = Vec::with_capacity(bgra.len());
-    for pixel in bgra.chunks_exact(4) {
-        rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
-    }
-    rgba
 }
 
 fn rect_size(rect: &RECT) -> (u32, u32) {
@@ -489,14 +497,7 @@ impl Backend for Win32 {
                 connector: None,
             });
         }
-        if displays.is_empty() {
-            return Err("Windows reports no display.".to_string());
-        }
-        if !displays.iter().any(|display| display.primary) {
-            displays[0].primary = true;
-        }
-        crate::backend::finish_ids(&mut displays, &connectors);
-        Ok(displays)
+        crate::backend::finish_displays(displays, &connectors).ok_or_else(|| "Windows reports no display.".to_string())
     }
 
     fn screenshot(&self, display: &DisplayInfo) -> Result<Image, String> {
@@ -565,7 +566,8 @@ impl Backend for Win32 {
         // SAFETY: the DIB holds width × height 32-bit pixels at `bits`, alive
         // until `_bitmap` drops, after this borrow ends.
         let bgra = unsafe { std::slice::from_raw_parts(bits.cast::<u8>(), len) };
-        Ok(Image { width: display.width, height: display.height, rgba: bgra_to_rgba(bgra) })
+        // A 32-bit DIB's rows are packed.
+        Image::from_bgra(bgra, display.width, display.height, display.width as usize * 4).ok_or_else(|| "The screen capture came back short.".to_string())
     }
 
     fn cursor_position(&self) -> Result<(i32, i32), String> {
@@ -645,18 +647,10 @@ impl Backend for Win32 {
             // SAFETY: no pointers.
             unsafe { SetForegroundWindow(window) };
         }
-        let until = Instant::now() + Duration::from_millis(500);
-        loop {
-            if foreground() == window {
-                return Ok(());
-            }
-            if Instant::now() >= until {
-                return Err(format!(
-                    "Windows refused to activate window {id} (an elevated window cannot be driven without elevation)."
-                ));
-            }
-            std::thread::sleep(Duration::from_millis(20));
+        if crate::backend::wait_active(crate::backend::ACTIVATE_WAIT_WINDOWS, || foreground() == window) {
+            return Ok(());
         }
+        Err(format!("Windows refused to activate window {id} (an elevated window cannot be driven without elevation)."))
     }
 
     fn mouse_move(&self, x: i32, y: i32) -> Result<(), String> {
@@ -697,35 +691,28 @@ impl Backend for Win32 {
                 let (vk, extended) = named_vk(named);
                 send(&[vk_input(vk, extended, !down)])
             }
-            Key::Char(ch) => match layout_stroke(ch) {
-                Some((vk, shift)) => {
-                    let mut inputs = Vec::with_capacity(2);
-                    if shift && down {
-                        inputs.push(vk_input(VK_SHIFT, false, false));
+            Key::Char(ch) => {
+                let modified = [VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN].into_iter().any(pressed);
+                // A release follows its press: the VK, if that is down.
+                let held = |vk: VIRTUAL_KEY| !down && pressed(vk);
+                match char_key(ch, layout_stroke(ch), modified).or_else(|| shortcut_vk(ch, true).filter(|&vk| held(vk)).map(|vk| (vk, ch.is_ascii_uppercase()))) {
+                    Some((vk, shift)) => {
+                        let shift: &[VIRTUAL_KEY] = if shift { &[VK_SHIFT] } else { &[] };
+                        let inputs: Vec<INPUT> = crate::backend::with_modifiers(shift, vk, down).into_iter().map(|(vk, down)| vk_input(vk, false, !down)).collect();
+                        send(&inputs)
                     }
-                    inputs.push(vk_input(vk, false, !down));
-                    if shift && !down {
-                        inputs.push(vk_input(VK_SHIFT, false, true));
-                    }
-                    send(&inputs)
+                    None => send(&unicode_inputs(ch, !down)),
                 }
-                None => {
-                    // A release follows its press: the VK, if that is down.
-                    let modified = [VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN].into_iter().any(pressed);
-                    let held = |vk: VIRTUAL_KEY| !down && pressed(vk);
-                    match shortcut_vk(ch, modified).or_else(|| shortcut_vk(ch, true).filter(|&vk| held(vk))) {
-                        Some(vk) => send(&[vk_input(vk, false, !down)]),
-                        None => send(&unicode_inputs(ch, !down)),
-                    }
-                }
-            },
+            }
         }
     }
 
-    fn type_char(&self, ch: char) -> Result<(), String> {
-        send(&unicode_inputs(ch, false))?;
-        std::thread::sleep(Duration::from_millis(6));
-        send(&unicode_inputs(ch, true))
+    fn char_stroke(&self, ch: char, down: bool) -> Result<(), String> {
+        send(&unicode_inputs(ch, !down))
+    }
+
+    fn person_holds_button(&self) -> bool {
+        person_holds_button()
     }
 
     fn lock(&self, on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Box<dyn LockGuard>, String> {
@@ -741,13 +728,6 @@ impl Backend for Win32 {
 /// carries the injected flag, let alone our tag).
 fn is_ours(injected: bool, extra_info: usize) -> bool {
     injected && extra_info == MAGIC
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Verdict {
-    Pass,
-    Swallow,
-    Esc,
 }
 
 /// The keyboard hook's decision. `held` = the keys down when the lock
@@ -872,6 +852,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             let mut buttons = held.get();
             let verdict = judge_mouse(ours, wparam as u32, event.mouseData, &mut buttons);
             held.set(buttons);
+            publish_buttons(&buttons);
             verdict
         });
         if verdict != Verdict::Pass {
@@ -908,15 +889,20 @@ impl Drop for Hook {
 /// until Esc, after which the hooks go and the thread waits for the drop).
 struct Lock {
     thread_id: u32,
-    thread: Option<JoinHandle<()>>,
+    thread: LockThread,
 }
 
 impl Lock {
     fn take(on_esc: Box<dyn Fn() + Send + Sync>) -> Result<Lock, String> {
-        let (ready, start) = crate::backend::lock_start::<Result<u32, String>>();
-        let thread = std::thread::Builder::new()
-            .name("computer-use-lock".into())
-            .spawn(move || {
+        // A start that answered just as the wait gave up is ended here.
+        let late = |answer: Result<u32, String>| {
+            if let Ok(thread_id) = answer {
+                // SAFETY: no pointers; the thread's queue exists (peeked).
+                unsafe { PostThreadMessageW(thread_id, WM_QUIT, 0, 0) };
+            }
+        };
+        let started = LockThread::start(
+            move |ready: crate::backend::LockReady<Result<u32, String>>| {
                 // SAFETY: MSG is plain data.
                 let mut msg: MSG = unsafe { zeroed() };
                 // SAFETY: `msg` is a live MSG. Peeking makes this thread's
@@ -934,34 +920,44 @@ impl Lock {
                 // After the hooks: a key released between this snapshot
                 // and the hooks cannot be missed. No hook runs before the
                 // loop below pumps.
-                HELD.with(|held| held.set(pressed_keys()));
+                let held = pressed_keys();
+                HELD.with(|slot| slot.set(held));
+                publish_buttons(&held);
                 // SAFETY: no pointers.
                 if !ready.send(Ok(unsafe { GetCurrentThreadId() })) {
                     // #EXP-1921: `take` gave up waiting; nobody would ever
                     // release these hooks.
                     log::warn!("[computer] the input hooks started after the lock gave up: removed");
+                    PERSON_BUTTONS.store(0, Ordering::Release);
                     return;
                 }
                 hold(hooks, &*on_esc, &mut msg);
-            })
-            .map_err(|err| format!("lock thread: {err}"))?;
-        // A start that answered just as the wait gave up is ended here.
-        let late = |answer: Result<u32, String>| {
-            if let Ok(thread_id) = answer {
-                // SAFETY: no pointers; the thread's queue exists (peeked).
-                unsafe { PostThreadMessageW(thread_id, WM_QUIT, 0, 0) };
-            }
-        };
-        match start.wait(Duration::from_secs(5), late) {
-            Ok(Ok(thread_id)) => Ok(Lock { thread_id, thread: Some(thread) }),
-            Ok(Err(reason)) => {
-                let _ = thread.join();
-                Err(reason)
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => Err("The input lock's thread died.".to_string()),
-            Err(mpsc::RecvTimeoutError::Timeout) => Err("The input hooks did not start.".to_string()),
+                PERSON_BUTTONS.store(0, Ordering::Release);
+            },
+            late,
+        );
+        match started {
+            Ok((Ok(thread_id), thread)) => Ok(Lock { thread_id, thread }),
+            // Dropping the thread joins it: it ends right after its answer.
+            Ok((Err(reason), _)) => Err(reason),
+            Err(LockStartError::Spawn(reason)) => Err(reason),
+            Err(LockStartError::Died) => Err("The input lock's thread died.".to_string()),
+            Err(LockStartError::Timeout) => Err("The input hooks did not start.".to_string()),
         }
     }
+}
+
+/// The mouse buttons' VKs, in [`PERSON_BUTTONS`]' bit order.
+const BUTTON_VKS: [VIRTUAL_KEY; 5] = [VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2];
+
+/// #EXP-1979: the mouse buttons of `held` the person still holds, for the
+/// pointer tools ([`PERSON_BUTTONS`]).
+fn publish_buttons(held: &HeldAtEngage<256>) {
+    PERSON_BUTTONS.store(held.armed(BUTTON_VKS.map(usize::from)), Ordering::Release);
+}
+
+fn person_holds_button() -> bool {
+    PERSON_BUTTONS.load(Ordering::Acquire) != 0
 }
 
 /// Every key (and button: VK 1..6, the hook's logical ones) down right now.
@@ -987,9 +983,13 @@ fn hold(hooks: (Hook, Hook), on_esc: &(dyn Fn() + Send + Sync), msg: &mut MSG) {
         }
         if msg.message == WM_ESC {
             if let Some(hooks) = hooks.take() {
-                drop(hooks);
-                log::info!("[computer] Esc: the input lock is released");
-                on_esc();
+                let release = || {
+                    drop(hooks);
+                    log::info!("[computer] Esc: the input lock is released");
+                };
+                crate::backend::escape(release, on_esc);
+                // The hooks are gone: the person's release is theirs again.
+                PERSON_BUTTONS.store(0, Ordering::Release);
             }
         }
     }
@@ -999,16 +999,17 @@ impl LockGuard for Lock {}
 
 impl Drop for Lock {
     fn drop(&mut self) {
-        let Some(thread) = self.thread.take() else { return };
+        PERSON_BUTTONS.store(0, Ordering::Release);
         // SAFETY: no pointers; the id names the lock thread, which lives
         // until it takes this WM_QUIT.
         if unsafe { PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0) } == 0 {
-            log::warn!("[computer] {}", last_error("Releasing the input lock"));
+            // #ERR-29: the hooks stay and keep the person's input until Esc.
+            super::lock_lost("[computer] the input lock was not released", &last_error("Releasing the input lock"));
+            // It never hears the quit: waiting for it would never end.
+            self.thread.detach();
             return;
         }
-        if thread.thread().id() != std::thread::current().id() {
-            let _ = thread.join();
-        }
+        self.thread.join();
     }
 }
 
@@ -1020,9 +1021,6 @@ struct WinClipboard {
     /// The sequence number right after our own `set_text`.
     set_sequence: Cell<Option<u32>>,
 }
-
-/// Every saved format together stays under this.
-const CLIPBOARD_SAVE_CAP: usize = 32 * 1024 * 1024;
 
 /// Formats whose data is a GDI or other OS handle, not HGLOBAL memory.
 const HANDLE_FORMATS: [u16; 8] = [
@@ -1204,7 +1202,7 @@ impl Clipboard for WinClipboard {
             };
             // SAFETY: the clipboard is open and `format` is an HGLOBAL
             // format (`keep_format`).
-            let bytes = unsafe { global_bytes(GetClipboardData(format), CLIPBOARD_SAVE_CAP - used) };
+            let bytes = unsafe { global_bytes(GetClipboardData(format), CLIPBOARD_SAVE_MAX - used) };
             match bytes {
                 Some(bytes) => {
                     used += bytes.len();
@@ -1250,13 +1248,8 @@ impl Clipboard for WinClipboard {
 
     fn wait_pasted(&self, timeout: Duration) -> Pasted {
         // Windows does not tell when a program reads the clipboard: settle.
-        std::thread::sleep(timeout.min(Duration::from_millis(400)));
         // SAFETY: no arguments, reads a counter.
-        let now = unsafe { GetClipboardSequenceNumber() };
-        match self.set_sequence.get() {
-            Some(set) if set == now => Pasted::Settled,
-            _ => Pasted::Missed,
-        }
+        settle_paste(timeout, self.set_sequence.get().map(u64::from), || u64::from(unsafe { GetClipboardSequenceNumber() }))
     }
 
     fn restore(&self, saved: SavedClipboard) -> Result<(), String> {
@@ -1360,6 +1353,29 @@ mod tests {
         assert_eq!(judge_key(false, u32::from(VK_RCONTROL), false, &mut held), Verdict::Pass, "never touched by us");
     }
 
+    /// #EXP-1979: a button the person held when the hooks went in holds the
+    /// pointer tools back until its release passes the hook, at most the
+    /// wait; a held key holds nothing back.
+    #[test]
+    fn the_pointer_waits_for_the_release_of_a_button_held_at_engage() {
+        let wait = |millis| crate::backend::wait_for_person_buttons(person_holds_button, || false, Duration::from_millis(millis));
+        let mut held = HeldAtEngage::<256>::NONE;
+        held.0[usize::from(VK_SHIFT)] = true;
+        publish_buttons(&held);
+        assert_eq!(wait(60), crate::backend::ButtonWait::Free, "a key never holds the pointer back");
+        held.0[usize::from(VK_LBUTTON)] = true;
+        publish_buttons(&held);
+        assert_eq!(wait(60), crate::backend::ButtonWait::Held, "the wait ran out");
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            assert_eq!(judge_mouse(false, WM_LBUTTONUP, 0, &mut held), Verdict::Pass);
+            publish_buttons(&held);
+        });
+        assert_eq!(wait(5000), crate::backend::ButtonWait::Free, "the person let go");
+        release.join().unwrap();
+        PERSON_BUTTONS.store(0, Ordering::Release);
+    }
+
     /// #EXP-1979: on a left-handed mouse the primary is the physical right
     /// button: GetAsyncKeyState names it VK_RBUTTON, the hook WM_LBUTTON*.
     /// The snapshot and the agent's clicks speak the hook's buttons.
@@ -1378,6 +1394,27 @@ mod tests {
         assert_eq!(button_flags(Button::Left, true, false), MOUSEEVENTF_LEFTDOWN);
     }
 
+    /// #EXP-1980, on what VkKeyScanExW answers there: under a shortcut a
+    /// digit is its own VK without the Shift French AZERTY types it with, a
+    /// capital the layout lacks keeps its Shift; typing keeps the layout's
+    /// key, or goes as Unicode.
+    #[test]
+    fn a_shortcut_letter_or_digit_is_its_own_vk_on_any_layout() {
+        // French AZERTY: '1' = Shift + VK_1, '&' = VK_1, 'a' = VK_A.
+        assert_eq!(char_key('1', char_stroke(0x0131), true), Some((0x31, false)), "ctrl+1, never ctrl+shift+1");
+        assert_eq!(char_key('1', char_stroke(0x0131), false), Some((0x31, true)));
+        assert_eq!(char_key('&', char_stroke(0x0031), true), Some((0x31, false)));
+        assert_eq!(char_key('a', char_stroke(0x0041), true), Some((0x41, false)));
+        // German QWERTZ: 'z' = VK_Z, 'Z' = Shift + VK_Z.
+        assert_eq!(char_key('z', char_stroke(0x005a), true), Some((0x5a, false)));
+        assert_eq!(char_key('Z', char_stroke(0x015a), true), Some((0x5a, true)));
+        // Russian: no Latin letters.
+        assert_eq!(char_key('v', char_stroke(-1), true), Some((0x56, false)));
+        assert_eq!(char_key('T', char_stroke(-1), true), Some((0x54, true)), "ctrl+T keeps Shift");
+        assert_eq!(char_key('v', char_stroke(-1), false), None);
+        assert_eq!(char_key('-', char_stroke(-1), true), None);
+    }
+
     #[test]
     fn wheel_signs_follow_the_trait() {
         let delta = WHEEL_DELTA as i32;
@@ -1387,9 +1424,45 @@ mod tests {
         assert!(wheel_notches(0, 0).is_empty());
     }
 
+    /// #EDE-140 (#EXP-1900): what `save` keeps of the person's clipboard.
+    /// Windows lists what the program set first, then what it makes from
+    /// those, so of the text formats and of the DIBs only the first is the
+    /// program's own; a GDI, display or private handle is no memory to copy;
+    /// everything else (a registered format: HTML, a file list) is kept.
     #[test]
-    fn bgra_becomes_opaque_rgba() {
-        assert_eq!(bgra_to_rgba(&[1, 2, 3, 0, 10, 20, 30, 7]), vec![3, 2, 1, 255, 30, 20, 10, 255]);
+    fn save_keeps_the_first_of_a_group_and_never_a_handle() {
+        let [unicode, text, oem, dib, dibv5] = [CF_UNICODETEXT, CF_TEXT, CF_OEMTEXT, CF_DIB, CF_DIBV5].map(u32::from);
+        const HDROP: u32 = 15;
+        const LOCALE: u32 = 16;
+        // Unicode text was set: the two after it are Windows' own.
+        assert!(keep_format(unicode, &[]));
+        assert!(!keep_format(text, &[unicode, LOCALE]));
+        assert!(!keep_format(oem, &[unicode, LOCALE, text]));
+        // An older program set CF_TEXT: that is the one to keep.
+        assert!(keep_format(text, &[]));
+        assert!(!keep_format(unicode, &[text]));
+        // A picture: the first DIB of either kind, whatever text came before.
+        assert!(keep_format(dibv5, &[unicode]));
+        assert!(!keep_format(dib, &[unicode, dibv5]));
+        assert!(keep_format(dib, &[text]));
+        // Handles: every GDI and display format, the private and GDI-object ranges.
+        for handle in HANDLE_FORMATS {
+            assert!(!keep_format(u32::from(handle), &[]), "{handle}");
+        }
+        for handle in [0x200, 0x2FF, 0x300, 0x3FF] {
+            assert!(!keep_format(handle, &[]), "{handle:#x}");
+        }
+        // Everything else stays, registered formats (0xC000 and up) included.
+        for kept in [HDROP, LOCALE, 0x1FF, 0x400, 0xC000, 0xC1A5, 0x1_0000] {
+            assert!(keep_format(kept, &[unicode, dib]), "{kept:#x}");
+        }
+
+        // What a restore cannot bring back (`partial`): a format left out that Windows does not make again.
+        let lost = |formats: &[u32]| formats.iter().enumerate().any(|(at, &format)| !keep_format(format, &formats[..at]) && !remade(format));
+        assert!(!lost(&[unicode, LOCALE, text, oem]), "copied text");
+        assert!(!lost(&[u32::from(CF_BITMAP), dib, dibv5, u32::from(CF_PALETTE)]), "a copied picture: Windows makes the bitmap again from the DIB");
+        assert!(lost(&[u32::from(CF_ENHMETAFILE), unicode]), "a metafile is gone");
+        assert!(lost(&[unicode, 0x250]), "a private handle is gone");
     }
 
     #[test]

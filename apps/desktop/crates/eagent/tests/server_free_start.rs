@@ -843,6 +843,58 @@ fn only_the_persons_message_answers_an_esc() {
     assert!(harness.session.wait_timeout(BUDGET).is_some());
 }
 
+/// #EXP-1514 (D 10): [`NoBackend`] that records the turn signal's edges
+/// ([`RunBackend::turn`]) beside the Esc answers.
+struct TurnEdges {
+    inner: NoBackend,
+    edges: Arc<Mutex<Vec<bool>>>,
+    answers: Arc<AtomicUsize>,
+}
+
+impl RunBackend for TurnEdges {
+    fn end(&self, ctx: &SessionCtx, outcome: &str, child: Option<eagent::spawn::ChildExit>, error: Option<String>) {
+        self.inner.end(ctx, outcome, child, error);
+    }
+
+    fn turn_started(&self, _session_id: &str) {
+        self.answers.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn turn(&self, _session_id: &str, running: bool) {
+        self.edges.lock().unwrap().push(running);
+    }
+}
+
+/// #EXP-1514 (D 10): EVERY turn reaches the backend once as it starts and
+/// once as it ends, whoever opened it (a report as well as the person),
+/// while the Esc answer stays the person's; the run's start (no turn yet)
+/// is no edge.
+#[test]
+fn every_turn_is_one_start_and_one_end_edge() {
+    let edges = Arc::new(Mutex::new(Vec::new()));
+    let answers = Arc::new(AtomicUsize::new(0));
+    let (heard, counted) = (edges.clone(), answers.clone());
+    let harness = start_fake_with("turn-edges", None, move |host| {
+        Arc::new(TurnEdges { inner: NoBackend::with_host(host), edges: heard, answers: counted })
+    });
+    until("the live phase", || harness.session.phase() == Some(EnginePhase::Live));
+    assert!(edges.lock().unwrap().is_empty(), "no turn yet: {:?}", edges.lock().unwrap());
+    let turns = |count: usize| {
+        until("the turn's prompt", || harness.state.prompts.lock().unwrap().len() == count);
+        until("the turn's end", || harness.session.turn_signal().is_idle());
+        until("the end edge", || edges.lock().unwrap().len() == 2 * count);
+    };
+    harness.session.deliver_wake("r-1".to_string(), "stream".to_string());
+    turns(1);
+    harness.session.deliver("m-1".to_string(), "stream".to_string());
+    turns(2);
+    assert_eq!(*edges.lock().unwrap(), [true, false, true, false]);
+    assert_eq!(answers.load(Ordering::SeqCst), 1, "the Esc answer stays the person's");
+    harness.session.kill("killed");
+    assert!(harness.session.wait_timeout(BUDGET).is_some());
+    assert_eq!(edges.lock().unwrap().len(), 4, "a run that ends between turns has no edge left");
+}
+
 /// EXP-1910: a kill sent while the handshake is still open (a wedged CLI, a
 /// long `session/load`) ends the run at once, and the seed prompt never goes
 /// out. It used to sit unread until the handshake's own deadline (3 or 10

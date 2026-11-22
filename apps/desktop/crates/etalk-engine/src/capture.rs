@@ -366,7 +366,10 @@ mod platform {
     /// its own: a push-to-talk open never waits for the sound server's tools.
     fn describe_default_source(recorder: &'static str) {
         let _ = std::thread::Builder::new().name("voice-capture-info".into()).spawn(move || {
-            eprintln!("microphone open: {recorder} at {} Hz mono, {}", crate::listen::RATE, default_source());
+            eprintln!("microphone open: {recorder} at {} Hz mono", crate::listen::RATE);
+            // #ERR-29: the source's name is the person's device (a
+            // headset's address): a debug line, never in a report.
+            crate::debug(&default_source());
         });
     }
 
@@ -512,12 +515,10 @@ mod platform {
                     let channels = usize::from(supported.channels());
                     let rate = supported.sample_rate().0;
                     // S-3: what is recorded, at every open.
-                    eprintln!(
-                        "microphone open: {} at {rate} Hz, {channels} channel(s), {:?} (resampled to {} Hz mono)",
-                        device.name().unwrap_or_else(|_| "an unnamed input".into()),
-                        supported.sample_format(),
-                        crate::listen::RATE
-                    );
+                    eprintln!("microphone open: {rate} Hz, {channels} channel(s), {:?} (resampled to {} Hz mono)", supported.sample_format(), crate::listen::RATE);
+                    // #ERR-29: the device's name is the person's: a debug
+                    // line, never in a report.
+                    crate::debug(&format!("microphone: {}", device.name().unwrap_or_else(|_| "an unnamed input".into())));
                     let config: cpal::StreamConfig = supported.config();
                     let stream = match supported.sample_format() {
                         cpal::SampleFormat::F32 => build::<f32>(&device, &config, channels, rate, tx.clone(), lost.clone()),

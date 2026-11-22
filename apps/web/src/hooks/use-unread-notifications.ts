@@ -1,7 +1,8 @@
 import { useMemo } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { boardCollection, issueCollection, notificationCollection } from "@/lib/collections"
+import { inboxRowListed } from "@exp/domain-contract/inbox-route"
+import { boardCollection, issueCollection, notificationCollection, teamCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 
 // Unread inbox count shared by the sidebar badge and the mobile topbar badge.
@@ -11,8 +12,9 @@ import { trpc } from "@/lib/trpc-client"
 // Chat 58cb32df (chats.json PHONE SHELL): phones show ONE active team, so
 // their inbox dot and "Mark all read" count only `teamId`'s notifications —
 // a row's own `teamId`, else its issue's board's team (issue notifications
-// carry no team, like the server's `markAllRead({teamId})`). No `teamId` =
-// every team.
+// carry no team, like the server's `markAllRead({teamId})`), plus the rows
+// every team lists (#EXP-1987: `agent_signed_out`, the Assistant's chat in
+// the personal team). No `teamId` = every team.
 export function useUnreadNotificationCount(teamId?: string | null): number {
   const { data: notifs } = useLiveQuery((query) =>
     query.from({ n: notificationCollection })
@@ -25,13 +27,30 @@ export function useUnreadNotificationCount(teamId?: string | null): number {
     teamId ? query.from({ b: boardCollection }).select(({ b }) => ({ id: b.id, teamId: b.teamId })) : undefined,
     [teamId]
   )
+  const { data: teams } = useLiveQuery(
+    (query) => (teamId ? query.from({ t: teamCollection }).select(({ t }) => ({ id: t.id })) : undefined),
+    [teamId]
+  )
   return useMemo(() => {
     const unread = (notifs ?? []).filter((n) => !n.readAt)
     if (!teamId) return unread.length
     const boardTeam = new Map((boards ?? []).map((b) => [b.id, b.teamId]))
     const issueTeam = new Map((issues ?? []).map((i) => [i.id, boardTeam.get(i.boardId)]))
-    return unread.filter((n) => (n.teamId ?? (n.issueId ? issueTeam.get(n.issueId) : null)) === teamId).length
-  }, [notifs, issues, boards, teamId])
+    const teamIds = (teams ?? []).map((t) => t.id)
+    // #EXP-1987 (inbox-route.json `listCases`): exactly the rows the team's
+    // inbox lists, the Assistant's personal-team rows in every team.
+    return unread.filter((n) =>
+      inboxRowListed(
+        {
+          type: String(n.type),
+          teamId: n.teamId ?? (n.issueId ? (issueTeam.get(n.issueId) ?? null) : null),
+          issueId: n.issueId ?? null,
+        },
+        teamId,
+        teamIds
+      )
+    ).length
+  }, [notifs, issues, boards, teams, teamId])
 }
 
 /** Mark all read ×4 (`teamId` = only that team's rows, absent = every team);
