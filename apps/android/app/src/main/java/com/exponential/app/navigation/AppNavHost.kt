@@ -326,6 +326,7 @@ fun AppNavHost() {
                 }
                 // THE composer: the Agent tab root, its default agent row.
                 AppShortcuts.Target.NewChat -> guarded {
+                    deepLinkBus.requestComposerFocus()
                     navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false)
                 }
                 AppShortcuts.Target.Search -> guarded {
@@ -820,10 +821,14 @@ private fun AuthenticatedNav(
             )
         }
         composable(AGENT_TAB_ROUTE) {
+            val composerFocusBus = applicationDeepLinkBus()
             // The Agent TAB: the composer with an EMPTY seed (its ViewModel
             // finds no args on this route), no back button, the bar over it.
             AgentScreen(
                 onBack = null,
+                // The New chat shortcut: the composer focused.
+                pendingComposerFocus = composerFocusBus.pendingComposerFocus.collectAsStateWithLifecycle().value,
+                onComposerFocused = composerFocusBus::consumeComposerFocus,
                 onOpenSession = { sessionId -> navController.navigate(Routes.session(sessionId)) },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
