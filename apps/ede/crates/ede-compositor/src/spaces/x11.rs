@@ -23,9 +23,9 @@
 //! hold is counted there, and at the limit the kernel ends it. Not in the
 //! space's slice: a CPU quota or a `MemoryHigh` would slow it down, and its
 //! window manager's round trips run on the compositor's thread. Those have
-//! a time limit ([`ROUND_TRIP_LIMIT`]): a server that floods, grabs or
-//! starves past it is cut off and ended, so a slow space server costs the
-//! space, not the person's frames.
+//! a time limit ([`ROUND_TRIP_LIMIT`] a second, together): a server that
+//! answers a flood late, stops or starves past it is cut off and ended, so
+//! a slow space server costs the space, not the person's frames.
 
 use std::process::Stdio;
 
@@ -51,12 +51,13 @@ pub const FIRST_DISPLAY: u32 = 10;
 /// Where the search for a free display number gives up.
 const LAST_DISPLAY: u32 = 99;
 
-/// #EDE-149: how long the compositor waits for a space's X server per
-/// call of its window manager (a reply, a flush, a send). A server that
-/// takes longer (a client floods it or grabs it, it is short of memory) is
-/// cut off and ended: a slow space server costs the space, never more than
-/// this of the person's frames, once. A healthy server answers in a few
-/// milliseconds.
+/// #EDE-149: how long the compositor waits for a space's X server a
+/// second, all calls of its window manager together (replies, flushes,
+/// sends). A server that takes longer (it is stopped or short of memory,
+/// or a client floods it and every answer comes late) is cut off and
+/// ended: a slow space server costs the space, never more than this of
+/// the person's frames, once. A healthy server answers in well under a
+/// millisecond.
 pub const ROUND_TRIP_LIMIT: std::time::Duration = std::time::Duration::from_millis(200);
 
 /// The process of the Xwayland whose Wayland client `client` is, while
@@ -387,7 +388,7 @@ impl Ede {
             let slow = self.spaces.get(desk).and_then(|space| space.x11.as_ref()?.xwm.as_ref()).is_some_and(|wm| wm.timed_out());
             if slow {
                 let limit = ROUND_TRIP_LIMIT.as_millis();
-                tracing::warn!("space Xwayland :{number} did not answer its window manager within {limit} ms: it is ended, the space's next launch starts another");
+                tracing::warn!("space Xwayland :{number} kept its window manager waiting {limit} ms in a second: it is ended, the space's next launch starts another");
             } else {
                 tracing::warn!("space Xwayland :{number} ended while its space lives");
             }

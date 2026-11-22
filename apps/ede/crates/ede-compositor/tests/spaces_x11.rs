@@ -321,7 +321,7 @@ fn a_space_server_that_stops_answering_costs_the_space_not_the_compositor() {
     let answered = h.with(move |state| state.space_xwm_round_trip(desk));
     let waited = asked.elapsed();
     assert_eq!(answered, Some(false), "a stopped server cannot answer");
-    assert!(waited >= ROUND_TRIP_LIMIT && waited < ROUND_TRIP_LIMIT + Duration::from_secs(1), "the compositor waited {waited:?} for the space's server");
+    assert!(waited + Duration::from_millis(50) >= ROUND_TRIP_LIMIT && waited < ROUND_TRIP_LIMIT + Duration::from_secs(1), "the compositor waited {waited:?} for the space's server");
     // Then the compositor answers at once again, and the server goes.
     let deadline = Instant::now() + Duration::from_secs(30);
     while h.with(move |state| state.spaces.get(desk).is_some_and(|s| s.x11().is_some())) {
