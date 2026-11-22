@@ -9,11 +9,14 @@
 //!
 //! - **at most 3 threads of its own per session** (the engine thread, the
 //!   child's stdout reader and its waiter); everything else is a task on
-//!   the shared runtime. Master spent 9 (5 drains/pumps/tickers, 2 outbox
-//!   workers, the stderr reader, the exit forwarder) and fails here;
+//!   the shared runtime. Master spent 8 here (161 for 20: the ticker, 2
+//!   outbox workers, the stderr reader, the exit forwarder on top; a
+//!   publishing run adds 3 drains and the kill pump) and fails;
 //! - **the shared runtime stays bounded** (its workers + its blocking pool);
-//! - **no churn while idle**: over a few idle seconds no thread dies (a
-//!   blocking-pool thread used to die after 10 s idle and be made again).
+//! - **no churn while idle**: over a few idle seconds no thread dies. A
+//!   guard, not a master failure: tokio's default pool dropped an idle
+//!   thread after 10 s, longer than this window; the 10 min keep-alive is
+//!   what ends that churn.
 //!
 //! Linux only: it reads `/proc/self/task`, the same numbers the issue came
 //! from. Its own test binary, so no other test's threads are counted.
