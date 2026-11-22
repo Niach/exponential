@@ -142,6 +142,16 @@ impl Ede {
         self.spaces.get(desk).and_then(|space| space.x11.as_ref()).is_some_and(|x11| x11.xwm.is_some())
     }
 
+    /// #EDE-149: one round trip of space `desk`'s window manager to its
+    /// server, on this thread, as on every new window (its primary output
+    /// asked): whether the server answered. `None`: no window manager.
+    /// Measures what a slow space server costs the compositor's thread.
+    #[doc(hidden)]
+    pub fn space_xwm_round_trip(&self, desk: DeskId) -> Option<bool> {
+        let wm = self.spaces.get(desk)?.x11.as_ref()?.xwm.as_ref()?;
+        Some(wm.get_randr_primary_output().is_ok())
+    }
+
     /// A space's window manager, or a closed space's that is still parked.
     pub(crate) fn space_xwm_state(&mut self, xwm: XwmId) -> Option<&mut X11Wm> {
         if let Some(at) = self.spaces.closing_xwms.iter().position(|wm| wm.id() == xwm) {

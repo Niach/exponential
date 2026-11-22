@@ -995,6 +995,18 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   X11 CLIPBOARD are never involved. A drag the space's X11 app starts runs
   on the space's seat. A space that closes in the middle of a paste ends
   it there (an agent's read is answered `unavailable`).
+- **A space's Xwayland costs the space (#EDE-149).** Right after its start
+  it leaves the person's login session for a scope of its own in
+  `app.slice` (`exponential-p<compositor>-s<space>-x11-<n>.scope`) whose
+  one limit is one space's `MemoryMax` (no swap): what an X11 app makes
+  it hold is counted there, and at the limit the kernel ends it (the next
+  launch starts another). Never a CPU quota or a `MemoryHigh`: those
+  would slow the server down, and its window manager asks it on the
+  compositor's thread. Those questions have a time limit of 200 ms each:
+  a server that does not answer in time (flooded, stopped, short of
+  memory) is cut off and ended, so it costs the person's frames that
+  once at most. Without the person's user manager it stays in the
+  session's scope.
 - **X authority, both sides.** Every Xwayland of the compositor admits
   only a client that shows its cookie (MIT-MAGIC-COOKIE-1). The person's
   file is `$XDG_RUNTIME_DIR/xauth_<wayland socket>`. Its path stays the

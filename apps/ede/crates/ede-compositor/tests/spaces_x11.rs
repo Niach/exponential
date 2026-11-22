@@ -298,12 +298,13 @@ fn a_spaces_xwayland_that_dies_comes_back_and_goes_with_its_space() {
     common::space::spaces_settled(&h);
 }
 
-/// #EDE-149: an X11 client of a space grabs its server and maps a window.
-/// The space's window manager asks that server about the window (on the
-/// compositor's thread) and gets no answer while the grab holds: past
-/// `ROUND_TRIP_LIMIT` its connection is cut and the server is ended. The
-/// compositor waited that long once, the person's Xwayland and the space
-/// live on, and the space's next launch gets a new server.
+/// #EDE-149: a space's X server stops answering (stopped: as slow as a
+/// server gets; a flood or a grab only slows it down) while its window
+/// manager asks it something on the compositor's thread, as it does about
+/// every new window. Past `ROUND_TRIP_LIMIT` its connection is cut and
+/// the server is ended: the compositor waited that long once, the
+/// person's Xwayland and the space live on, and the space's next launch
+/// gets a new server.
 #[test]
 fn a_space_server_that_stops_answering_costs_the_space_not_the_compositor() {
     use ede_compositor::spaces::x11::ROUND_TRIP_LIMIT;
@@ -312,22 +313,24 @@ fn a_space_server_that_stops_answering_costs_the_space_not_the_compositor() {
     let (mut agent, space, display) = space_with_x11(&h, dir.path(), "run-1");
     let desk = space_desk(&space);
     let pid = xwayland_pid(display).expect("the space's Xwayland process");
+    assert_eq!(h.with(move |state| state.space_xwm_round_trip(desk)), Some(true), "a healthy server answers");
 
-    let grabber = common::x11_connect(display, h.with(move |state| state.xauthority(desk)).as_deref()).expect("the space's display");
-    grabber.grab_server().unwrap();
-    x11_window(&grabber, BLUE);
-
-    // The compositor answers on while the window manager waits: once for
-    // the limit at most (and the harness's own turn), then at once.
-    let (mut longest, deadline) = (Duration::ZERO, Instant::now() + Duration::from_secs(30));
+    // SAFETY: a signal to our own child.
+    assert_eq!(unsafe { libc::kill(pid as i32, libc::SIGSTOP) }, 0);
+    let asked = Instant::now();
+    let answered = h.with(move |state| state.space_xwm_round_trip(desk));
+    let waited = asked.elapsed();
+    assert_eq!(answered, Some(false), "a stopped server cannot answer");
+    assert!(waited >= ROUND_TRIP_LIMIT && waited < ROUND_TRIP_LIMIT + Duration::from_secs(1), "the compositor waited {waited:?} for the space's server");
+    // Then the compositor answers at once again, and the server goes.
+    let deadline = Instant::now() + Duration::from_secs(30);
     while h.with(move |state| state.spaces.get(desk).is_some_and(|s| s.x11().is_some())) {
-        assert!(Instant::now() < deadline, "the space's server that stopped answering was never cut off");
+        assert!(Instant::now() < deadline, "the space's server that stopped answering was never let go of");
         let asked = Instant::now();
         h.with(|_| ());
-        longest = longest.max(asked.elapsed());
+        assert!(asked.elapsed() < Duration::from_millis(500), "the compositor waited {:?} again", asked.elapsed());
         std::thread::sleep(Duration::from_millis(5));
     }
-    assert!(longest < ROUND_TRIP_LIMIT + Duration::from_secs(1), "the compositor waited {longest:?} for the space's server");
     let gone = |pid: u32| std::fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| stat.rsplit(')').next().unwrap_or_default().trim_start().starts_with('Z'));
     let deadline = Instant::now() + Duration::from_secs(10);
     while !gone(pid) {
