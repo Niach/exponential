@@ -50,9 +50,20 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    // The raw OS codes for "disk full" and "over quota": `libc::EDQUOT` does
+    // not exist on Windows, whose equivalents std maps to the same kinds.
+    #[cfg(unix)]
+    const DISK_FULL: i32 = libc::ENOSPC;
+    #[cfg(unix)]
+    const QUOTA_EXCEEDED: i32 = libc::EDQUOT;
+    #[cfg(windows)]
+    const DISK_FULL: i32 = 112; // ERROR_DISK_FULL
+    #[cfg(windows)]
+    const QUOTA_EXCEEDED: i32 = 1295; // ERROR_DISK_QUOTA_EXCEEDED
+
     #[test]
     fn a_full_disk_is_noted_until_the_writer_succeeds_again() {
-        let full = || std::io::Result::<()>::Err(std::io::Error::from_raw_os_error(libc::ENOSPC));
+        let full = || std::io::Result::<()>::Err(std::io::Error::from_raw_os_error(DISK_FULL));
         let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
         note_at("test-b", &full(), t0);
         note_at("test-a", &full(), t0 + Duration::from_secs(5));
@@ -65,7 +76,9 @@ mod tests {
         note_at("test-a", &Ok(()), t0);
         note_at("test-b", &Ok(()), t0);
         assert!(failing().is_none_or(|(writers, _)| !writers.iter().any(|w| w.starts_with("test-"))));
-        assert!(is_disk_full(&std::io::Error::from_raw_os_error(libc::EDQUOT)));
+        assert!(is_disk_full(&std::io::Error::from_raw_os_error(QUOTA_EXCEEDED)));
+        #[cfg(windows)]
+        assert!(is_disk_full(&std::io::Error::from_raw_os_error(39))); // ERROR_HANDLE_DISK_FULL
         assert!(!is_disk_full(&std::io::ErrorKind::NotFound.into()));
     }
 }
