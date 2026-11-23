@@ -19,7 +19,9 @@
 //!   `build/<pkg>-<hash>/`; build-script compile or run), an
 //!   `incremental/<crate>-<id>/` dir. Top-level artifacts are never touched.
 //! - **Kept:** per crate and kind the [`KEEP_NEWEST`] newest units; any unit
-//!   written in the last [`MIN_AGE`]; any unit a running process holds open.
+//!   written in the last [`MIN_AGE`] ([`URGENT_MIN_AGE`] once free space is
+//!   under half the threshold, #EXP-1996); any unit a running process holds
+//!   open.
 //!   Everything else goes, with the `.fingerprint/<pkg>-<hash>` of a gone
 //!   hash (cargo treats a missing output or fingerprint as stale and
 //!   rebuilds that unit).
@@ -28,11 +30,14 @@
 //!   `.cargo-artifact-lock`, the flocks cargo itself takes while it builds,
 //!   in its order). A running build skips the profile; a build starting
 //!   mid-sweep waits for us. The walk and the open-file probe happen before
-//!   the lock; each unit's mtime is re-read under it.
-//! - **Report:** one log line per sweep, and the last sweep that found
-//!   something in `<data_dir>/cargo-sweep.json` for the doctor's `Build
-//!   cache` row. `dryRun` reports without deleting; `enabled: false` turns
-//!   it off.
+//!   the lock; each unit's mtime is re-read under it. #EXP-1996: a profile
+//!   skipped that way is swept again as soon as its locks free
+//!   ([`retry_skipped`], the same sweep with a fresh probe), instead of at
+//!   the next [`INTERVAL`].
+//! - **Report:** one log line per sweep (what it freed, and the bytes it
+//!   kept by reason), and the low-disk episode in
+//!   `<data_dir>/cargo-sweep.json` for the doctor's `Build cache` row.
+//!   `dryRun` reports without deleting; `enabled: false` turns it off.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File, OpenOptions};
@@ -53,8 +58,24 @@ pub const KEEP_NEWEST: usize = 2;
 /// A unit written more recently than this is never deleted.
 pub const MIN_AGE: Duration = Duration::from_secs(2 * 60 * 60);
 
+/// #EXP-1996: the age floor once free space is under HALF the threshold.
+/// With parallel sessions most of a target is younger than [`MIN_AGE`]
+/// (8,721 of 9,284 `debug/deps` files on 2026-11-19), so a sweep freed 1.3
+/// of 30 GB. The floor is only about rebuild cost: what a build or a
+/// process needs is held by the profile's locks, the newest
+/// [`KEEP_NEWEST`] and the open-file probe, whatever its age.
+pub const URGENT_MIN_AGE: Duration = Duration::from_secs(30 * 60);
+
 /// How often one target is walked while its disk stays low.
 pub const INTERVAL: Duration = Duration::from_secs(15 * 60);
+
+/// #EXP-1996: how often the locks of a profile a sweep skipped are tried
+/// again (three `flock` tries, no walk) until the next [`INTERVAL`].
+pub const RETRY_POLL: Duration = Duration::from_secs(10);
+
+/// #EXP-1996: sweeps of one target less than this apart are ONE low-disk
+/// episode in the record (the row's total).
+pub const EPISODE_GAP: Duration = Duration::from_secs(60 * 60);
 
 /// Cargo's per-profile locks, in the order cargo takes them.
 const LOCK_FILES: [&str; 3] = [".cargo-build-lock", ".cargo-lock", ".cargo-artifact-lock"];
@@ -62,7 +83,7 @@ const LOCK_FILES: [&str; 3] = [".cargo-build-lock", ".cargo-lock", ".cargo-artif
 /// The settings.json key holding [`Config`].
 const SETTINGS_KEY: &str = "cargoSweep";
 
-/// The last sweep that found something, under the data dir.
+/// The low-disk episode's record, under the data dir.
 const RECORD_FILE: &str = "cargo-sweep.json";
 
 /// `settings.json` → `cargoSweep` (a missing or broken key = the defaults).
@@ -116,6 +137,34 @@ impl Options {
     pub fn new(dry_run: bool) -> Self {
         Self { keep: KEEP_NEWEST, min_age: MIN_AGE, dry_run, now: SystemTime::now() }
     }
+
+    /// The rule for a volume with `free` bytes left of a `threshold`.
+    pub fn for_free(dry_run: bool, free: Option<u64>, threshold: u64) -> Self {
+        Self { min_age: min_age_for(free, threshold), ..Self::new(dry_run) }
+    }
+}
+
+/// [`URGENT_MIN_AGE`] under half the threshold, else [`MIN_AGE`] (an
+/// unreadable volume = not urgent).
+pub fn min_age_for(free: Option<u64>, threshold: u64) -> Duration {
+    if free.is_some_and(|free| free < threshold / 2) {
+        URGENT_MIN_AGE
+    } else {
+        MIN_AGE
+    }
+}
+
+/// #EXP-1996: the bytes a sweep left, by the rule that kept them.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Kept {
+    /// Among the newest `keep` of its crate and kind.
+    pub newest: u64,
+    /// Older than those, written within `min_age`.
+    pub young: u64,
+    /// Stale, but a process holds a file in it.
+    pub open: u64,
+    /// Stale, in a profile a build held the lock of.
+    pub locked: u64,
 }
 
 /// Outcome of one sweep.
@@ -129,6 +178,11 @@ pub struct SweepReport {
     pub units_removed: usize,
     /// Stale units left because a process holds a file in them.
     pub kept_open: usize,
+    /// What stayed, by reason.
+    pub kept: Kept,
+    /// The rule it ran with (the log line names them).
+    pub keep: usize,
+    pub min_age: Duration,
     /// Profile dirs skipped because a build held their lock.
     pub skipped_locked: Vec<PathBuf>,
     /// The open-file probe failed: nothing was deleted.
@@ -152,9 +206,17 @@ impl SweepReport {
             self.bytes_freed,
             self.units_removed,
         );
-        if self.kept_open > 0 {
-            line.push_str(&format!(", kept {} open", self.kept_open));
-        }
+        let size = crate::worktree_lifecycle::format_free;
+        line.push_str(&format!(
+            "; kept {} newest-{}, {} young (< {} min), {} open ({} units), {} locked",
+            size(self.kept.newest),
+            self.keep,
+            size(self.kept.young),
+            self.min_age.as_secs() / 60,
+            size(self.kept.open),
+            self.kept_open,
+            size(self.kept.locked),
+        ));
         if !self.skipped_locked.is_empty() {
             line.push_str(&format!(", skipped building {:?}", self.skipped_locked));
         }
@@ -165,13 +227,15 @@ impl SweepReport {
     }
 }
 
-/// The last sweep that freed (or, dry, found) something, and when the
-/// sweep last ran at all.
+/// The low-disk episode the doctor's `Build cache` row shows.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SweepRecord {
-    /// Unix seconds.
+    /// Unix seconds of the episode's last sweep that freed (or, dry, found)
+    /// something; none yet = its first sweep.
     pub at: i64,
+    /// #EXP-1996: the TOTAL the episode's sweeps freed (a dry run: what the
+    /// last one found), 0 included.
     pub freed_bytes: u64,
     pub dry_run: bool,
     pub target: PathBuf,
@@ -179,6 +243,14 @@ pub struct SweepRecord {
     /// sweep shows as an old one); absent in records before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub checked_at: Option<i64>,
+    /// #EXP-1996: the profiles the LAST sweep skipped because a build held
+    /// their lock.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub skipped_locked: usize,
+}
+
+fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 /// The record the doctor's `Build cache` row reads.
@@ -187,21 +259,29 @@ pub fn last_sweep(data_dir: &Path) -> Option<SweepRecord> {
     serde_json::from_str(&raw).ok()
 }
 
-/// Record one sweep: a sweep that freed something replaces the record; one
-/// that freed nothing only moves `checkedAt` (no record yet = none).
+/// Record one sweep, freeing or not (#EXP-1996: before, a sweep that freed
+/// nothing left the last freeing one standing as if it were the news): a
+/// sweep of the same target within [`EPISODE_GAP`] of the last adds to the
+/// episode's total, any other starts one. A dry run never adds up (every
+/// one finds the same bytes again).
 fn record(data_dir: &Path, report: &SweepReport, at: SystemTime) {
     let at = at.duration_since(SystemTime::UNIX_EPOCH).map_or(0, |since| since.as_secs() as i64);
-    let record = if report.bytes_freed > 0 {
-        SweepRecord {
-            at,
-            freed_bytes: report.bytes_freed,
-            dry_run: report.dry_run,
-            target: report.target.clone(),
-            checked_at: Some(at),
-        }
-    } else {
-        let Some(last) = last_sweep(data_dir) else { return };
-        SweepRecord { checked_at: Some(at), ..last }
+    let episode = last_sweep(data_dir).filter(|last| {
+        !report.dry_run
+            && !last.dry_run
+            && last.target == report.target
+            && at.saturating_sub(last.checked_at.unwrap_or(last.at)) <= EPISODE_GAP.as_secs() as i64
+    });
+    let record = SweepRecord {
+        at: match &episode {
+            Some(last) if report.bytes_freed == 0 => last.at,
+            _ => at,
+        },
+        freed_bytes: episode.as_ref().map_or(0, |last| last.freed_bytes).saturating_add(report.bytes_freed),
+        dry_run: report.dry_run,
+        target: report.target.clone(),
+        checked_at: Some(at),
+        skipped_locked: report.skipped_locked.len(),
     };
     if let Ok(rendered) = serde_json::to_string(&record) {
         if let Err(err) = api::atomic_file::write_atomic(&data_dir.join(RECORD_FILE), &rendered) {
@@ -254,15 +334,25 @@ pub fn sweep_if_due(clone: &Path, data_dir: &Path) -> Option<SweepReport> {
             return None;
         }
     }
-    Some(sweep_now(&target, data_dir, config.dry_run))
+    let report = sweep_now(&target, data_dir, config.dry_run);
+    if !report.dry_run && !report.skipped_locked.is_empty() {
+        spawn_retry(report.target.clone(), data_dir.to_path_buf(), report.skipped_locked.clone());
+    }
+    Some(report)
 }
 
 /// One sweep of `target` now (no trigger check): probe the open files,
-/// sweep, log one line, record it (what it freed, or only that it ran).
+/// sweep, log one line, record it.
 pub fn sweep_now(target: &Path, data_dir: &Path, dry_run: bool) -> SweepReport {
-    let options = Options::new(dry_run);
+    sweep_profiles_now(target, data_dir, dry_run, None)
+}
+
+/// [`sweep_now`], over `only` these profile dirs when given.
+fn sweep_profiles_now(target: &Path, data_dir: &Path, dry_run: bool, only: Option<&[PathBuf]>) -> SweepReport {
+    let free = crate::worktree_lifecycle::free_bytes(target);
+    let options = Options::for_free(dry_run, free, Config::load(data_dir).threshold_bytes());
     let report = match fs::canonicalize(target).ok().and_then(|root| Some((open_files_under(&root)?, root))) {
-        Some((open, root)) => sweep_with(&root, &options, &open),
+        Some((open, root)) => sweep_inner(&root, &options, &open, only, &mut |_| {}),
         None => SweepReport {
             target: target.to_path_buf(),
             dry_run,
@@ -275,10 +365,57 @@ pub fn sweep_now(target: &Path, data_dir: &Path, dry_run: bool) -> SweepReport {
     report
 }
 
+/// #EXP-1996: the profiles a sweep skipped, swept as soon as their locks
+/// free, on a thread of their own, until the next [`INTERVAL`]'s sweep
+/// takes over. On 2026-11-16 a sweep that found `debug` and `release`
+/// building freed 0 of 29 GB and the next try was 15 minutes away.
+fn spawn_retry(target: PathBuf, data_dir: PathBuf, skipped: Vec<PathBuf>) {
+    let deadline = Instant::now() + INTERVAL.saturating_sub(RETRY_POLL * 3);
+    let spawned = std::thread::Builder::new().name("cargo-sweep-retry".to_string()).spawn(move || {
+        retry_skipped(skipped, RETRY_POLL, deadline, &mut |free| {
+            let config = Config::load(&data_dir);
+            if !config.enabled || !config.is_low(&target) {
+                return None;
+            }
+            Some(sweep_profiles_now(&target, &data_dir, config.dry_run, Some(free)))
+        });
+    });
+    if let Err(err) = spawned {
+        log::warn!("cargo-target sweep: couldn't start the retry: {err}");
+    }
+}
+
+/// Every `poll` until `deadline`: the `skipped` profiles whose cargo locks
+/// are free right now go to `sweep` (the SAME sweep as any other: its own
+/// open-file probe and walk, deletion only under the locks it takes
+/// itself); a profile it swept is done, one a build took again first stays
+/// for the next poll. `sweep` returning `None` (disk no longer low, sweep
+/// off) ends it.
+fn retry_skipped(
+    mut skipped: Vec<PathBuf>,
+    poll: Duration,
+    deadline: Instant,
+    sweep: &mut dyn FnMut(&[PathBuf]) -> Option<SweepReport>,
+) {
+    while !skipped.is_empty() && Instant::now() + poll <= deadline {
+        std::thread::sleep(poll);
+        let free: Vec<PathBuf> = skipped
+            .iter()
+            .filter(|profile| try_lock_profile(profile).is_some())
+            .cloned()
+            .collect();
+        if free.is_empty() {
+            continue;
+        }
+        let Some(report) = sweep(&free) else { return };
+        skipped.retain(|profile| !free.contains(profile) || report.skipped_locked.contains(profile));
+    }
+}
+
 /// The sweep over an explicit target, rule and open-file list (paths
 /// under the CANONICAL target).
 pub fn sweep_with(target: &Path, options: &Options, open: &[PathBuf]) -> SweepReport {
-    sweep_inner(target, options, open, &mut |_| {})
+    sweep_inner(target, options, open, None, &mut |_| {})
 }
 
 /// [`sweep_with`] with a hook that runs while a profile's locks are held
@@ -287,11 +424,14 @@ fn sweep_inner(
     target: &Path,
     options: &Options,
     open: &[PathBuf],
+    only: Option<&[PathBuf]>,
     under_lock: &mut dyn FnMut(&Path),
 ) -> SweepReport {
     let mut report = SweepReport {
         target: target.to_path_buf(),
         dry_run: options.dry_run,
+        keep: options.keep,
+        min_age: options.min_age,
         ..SweepReport::default()
     };
     if !is_cargo_target(target) {
@@ -299,11 +439,15 @@ fn sweep_inner(
     }
     let cutoff = options.now.checked_sub(options.min_age).unwrap_or(SystemTime::UNIX_EPOCH);
     for profile in profile_dirs(target) {
-        let doomed = stale_units(&profile, options.keep, cutoff, open, &mut report.kept_open);
+        if only.is_some_and(|only| !only.contains(&profile)) {
+            continue;
+        }
+        let doomed = stale_units(&profile, options.keep, cutoff, open, &mut report);
         if doomed.is_empty() {
             continue;
         }
         let Some(_locks) = try_lock_profile(&profile) else {
+            report.kept.locked += doomed.iter().flat_map(|unit| &unit.paths).map(|path| tree_size(path)).sum::<u64>();
             report.skipped_locked.push(profile);
             continue;
         };
@@ -311,6 +455,7 @@ fn sweep_inner(
         for unit in doomed {
             // Under the lock: a unit a build rewrote since the walk stays.
             if newest_mtime_of(&unit.paths).is_some_and(|mtime| mtime >= cutoff) {
+                report.kept.young += unit.size;
                 continue;
             }
             let mut freed = 0;
@@ -345,17 +490,20 @@ struct Unit {
     hash: Option<String>,
     paths: Vec<PathBuf>,
     mtime: SystemTime,
+    /// Bytes of `paths` at the walk (without the fingerprints added later).
+    size: u64,
 }
 
 /// The profile's units that go: everything but the newest `keep` per group,
-/// the recently written and the held open (counted in `kept_open`), plus
-/// the fingerprints of hashes that go entirely.
+/// the recently written and the held open (each counted in the report's
+/// `kept`, by the first of those rules that holds it), plus the
+/// fingerprints of hashes that go entirely.
 fn stale_units(
     profile: &Path,
     keep: usize,
     cutoff: SystemTime,
     open: &[PathBuf],
-    kept_open: &mut usize,
+    report: &mut SweepReport,
 ) -> Vec<Unit> {
     let mut groups: BTreeMap<(&'static str, String, Kind), Vec<Unit>> = BTreeMap::new();
     for unit in units(profile) {
@@ -368,14 +516,18 @@ fn stale_units(
         units.sort_by(|a, b| (b.mtime, &b.paths).cmp(&(a.mtime, &a.paths)));
         for (index, unit) in units.into_iter().enumerate() {
             let held = unit.paths.iter().any(|path| open.iter().any(|file| file.starts_with(path)));
-            if index < keep || unit.mtime >= cutoff || held {
-                if index >= keep && unit.mtime < cutoff {
-                    *kept_open += 1;
-                }
-                kept_hashes.extend(unit.hash);
+            if index < keep {
+                report.kept.newest += unit.size;
+            } else if unit.mtime >= cutoff {
+                report.kept.young += unit.size;
+            } else if held {
+                report.kept.open += unit.size;
+                report.kept_open += 1;
             } else {
                 doomed.push(unit);
+                continue;
             }
+            kept_hashes.extend(unit.hash);
         }
     }
     let fingerprints = fingerprint_dirs(profile);
@@ -446,7 +598,8 @@ fn units(profile: &Path) -> Vec<Unit> {
 
 fn unit(group: (&'static str, String, Kind), hash: Option<String>, paths: Vec<PathBuf>) -> Option<Unit> {
     let mtime = newest_mtime_of(&paths)?;
-    Some(Unit { group, hash, paths, mtime })
+    let size = paths.iter().map(|path| tree_size(path)).sum();
+    Some(Unit { group, hash, paths, mtime, size })
 }
 
 /// A build-script RUN dir holds its output (`run/` in the new layout,
@@ -857,6 +1010,16 @@ mod tests {
         assert_eq!(report.bytes_freed, 2 * 112 + 2 * 40 + 15 + 40 + 112);
         assert_eq!(report.units_removed, 7);
         assert!(report.skipped_locked.is_empty());
+        // #EXP-1996: what stayed, by reason. Newest two: foo 1+2 (111 each
+        // without their fingerprints), foo's test binary (51), bar 7+8 (40
+        // each) and its compile dir (30), baz 12+13 (15 each), qux aaa+bbb
+        // (40 each), ffi 21+22 (111 each). Young: foo 3.
+        assert_eq!(report.kept, Kept { newest: 4 * 111 + 51 + 80 + 30 + 30 + 80, young: 111, open: 0, locked: 0 });
+        let line = report.summary();
+        assert!(
+            line.contains("; kept 0.0 GB newest-2, 0.0 GB young (< 120 min), 0.0 GB open (0 units), 0.0 GB locked"),
+            "{line}"
+        );
         // Nothing stale left: a second sweep frees nothing.
         assert_eq!(sweep(&target, &[]).bytes_freed, 0);
     }
@@ -885,6 +1048,7 @@ mod tests {
         assert!(debug.join(format!("build/bar/{}", hash(10))).exists());
         assert!(!rlib(&debug, "foo", 4).exists());
         assert_eq!(report.kept_open, 2);
+        assert_eq!(report.kept.open, 111 + 40);
     }
 
     #[test]
@@ -901,6 +1065,96 @@ mod tests {
         // The other profile still goes.
         assert!(!rlib(&target.join("aarch64-apple-ios/release"), "ffi", 23).exists());
         assert_eq!(report.bytes_freed, 112);
+        // #EXP-1996: what the lock kept = what the debug profile would have
+        // freed (foo 4+5, bar 9+10, baz 14, qux ccc).
+        assert_eq!(report.kept.locked, 2 * 112 + 2 * 40 + 15 + 40);
+        assert!(report.summary().contains(", skipped building ["), "{}", report.summary());
+    }
+
+    /// #EXP-1996: under half the threshold the age floor drops to
+    /// [`URGENT_MIN_AGE`]; the newest two, the open and the locked stay
+    /// exactly as before.
+    #[test]
+    fn under_half_the_threshold_the_age_floor_is_shorter() {
+        let threshold = 20_000_000_000;
+        assert_eq!(min_age_for(Some(10_000_000_000), threshold), MIN_AGE);
+        assert_eq!(min_age_for(Some(9_999_999_999), threshold), URGENT_MIN_AGE);
+        assert_eq!(min_age_for(None, threshold), MIN_AGE);
+        assert!(URGENT_MIN_AGE < MIN_AGE);
+        let tmp = temp_dir("urgent");
+        let target = seed(&tmp.0);
+        let debug = target.join("debug");
+        // One more, just built.
+        lib(&debug, "foo", &hash(30), 0);
+        let held = rlib(&debug, "foo", 5);
+        let options = Options::for_free(false, Some(4_000_000_000), threshold);
+        assert_eq!(options.min_age, URGENT_MIN_AGE);
+        let report = sweep_with(&target, &options, &[held.clone()]);
+        // Newest two: foo 30 and foo 1 (30 min, kept by count). foo 2 (1 h)
+        // is the third: young under the 2 h floor, stale under this one.
+        assert!(rlib(&debug, "foo", 30).exists());
+        assert!(rlib(&debug, "foo", 1).exists());
+        for gone in [2, 3, 4] {
+            assert!(!rlib(&debug, "foo", gone).exists(), "foo {gone}");
+        }
+        assert!(held.exists(), "a held unit stays whatever the floor");
+        assert_eq!(report.kept.open, 111);
+        assert!(report.summary().contains("young (< 30 min)"), "{}", report.summary());
+        // A build holding the profile still wins.
+        lib(&debug, "foo", &hash(31), 4);
+        lib(&debug, "foo", &hash(32), 6);
+        let build = File::open(debug.join(".cargo-lock")).unwrap();
+        build.lock().unwrap();
+        let report = sweep_with(&target, &Options::for_free(false, Some(0), threshold), &[]);
+        assert_eq!(report.skipped_locked, vec![debug.clone()]);
+        assert!(rlib(&debug, "foo", 32).exists());
+    }
+
+    /// #EXP-1996: a profile a build holds is swept as soon as the build
+    /// lets go, not at the next interval; while it builds nothing in it
+    /// goes.
+    #[test]
+    fn a_skipped_profile_is_swept_once_its_lock_frees() {
+        let tmp = temp_dir("retry");
+        let target = seed(&tmp.0);
+        let debug = target.join("debug");
+        let ios = target.join("aarch64-apple-ios/release");
+        let build = File::open(debug.join(".cargo-build-lock")).unwrap();
+        build.lock().unwrap();
+        let first = sweep(&target, &[]);
+        assert_eq!(first.skipped_locked, vec![debug.clone()]);
+        // Something new and stale in the profile that was NOT skipped: the
+        // retry leaves it to the next full sweep.
+        lib(&ios, "ffi", &hash(24), 30);
+        let poll = Duration::from_millis(20);
+        let mut sweeps = Vec::new();
+        let run = |deadline: Duration, sweeps: &mut Vec<SweepReport>| {
+            retry_skipped(first.skipped_locked.clone(), poll, Instant::now() + deadline, &mut |free| {
+                let report = sweep_inner(&target, &Options::new(false), &[], Some(free), &mut |_| {});
+                sweeps.push(report.clone());
+                Some(report)
+            });
+        };
+        // Still building: polled to the deadline, nothing swept.
+        run(Duration::from_millis(200), &mut sweeps);
+        assert!(sweeps.is_empty());
+        assert!(rlib(&debug, "foo", 5).exists());
+        // The build ends mid-wait.
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            drop(build);
+        });
+        run(Duration::from_secs(30), &mut sweeps);
+        release.join().unwrap();
+        assert_eq!(sweeps.len(), 1, "one sweep, then done");
+        assert_eq!(sweeps[0].bytes_freed, 2 * 112 + 2 * 40 + 15 + 40);
+        assert!(!rlib(&debug, "foo", 5).exists());
+        assert!(rlib(&debug, "foo", 3).exists(), "the same rule as any sweep");
+        assert!(rlib(&ios, "ffi", 24).exists(), "only the skipped profile");
+        // The sweep saying "no longer low" ends the retry at once.
+        let started = Instant::now();
+        retry_skipped(vec![debug.clone()], poll, Instant::now() + Duration::from_secs(30), &mut |_| None);
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 
     #[test]
@@ -984,23 +1238,54 @@ mod tests {
         assert_eq!(sweep_if_due(&bare, &tmp.0), None);
     }
 
-    /// #EXP-1892: every sweep moves `checkedAt`; only a freeing one moves
-    /// what it freed, and nothing is recorded before the first.
+    /// #EXP-1996: the record is the low-disk EPISODE: every sweep lands
+    /// (the first too, freeing or not), the total adds up, `at` stays on
+    /// the last freeing sweep, the last sweep's skips show; #EXP-1892:
+    /// every sweep moves `checkedAt`.
     #[test]
-    fn every_sweep_moves_the_check_time_and_only_a_freeing_one_the_record() {
+    fn the_record_adds_up_the_episode_and_keeps_the_last_sweeps_skips() {
         let tmp = temp_dir("checked");
         let at = |secs: u64| SystemTime::UNIX_EPOCH + Duration::from_secs(secs);
         let empty = SweepReport { target: "/t".into(), ..SweepReport::default() };
-        record(&tmp.0, &empty, at(100));
-        assert_eq!(last_sweep(&tmp.0), None, "no record before the first freeing sweep");
-        let freed = SweepReport { bytes_freed: 500, ..empty.clone() };
-        record(&tmp.0, &freed, at(200));
-        record(&tmp.0, &empty, at(300));
-        let last = last_sweep(&tmp.0).unwrap();
-        assert_eq!((last.at, last.freed_bytes, last.checked_at), (200, 500, Some(300)));
-        // A record from before #EXP-1892 reads without a check time.
+        let freed = |bytes: u64| SweepReport { bytes_freed: bytes, ..empty.clone() };
+        let skipped = SweepReport { skipped_locked: vec!["/t/debug".into(), "/t/release".into()], ..empty.clone() };
+        let read = || {
+            let last = last_sweep(&tmp.0).unwrap();
+            (last.at, last.freed_bytes, last.checked_at, last.skipped_locked)
+        };
+        // A first sweep that freed nothing is a record already.
+        record(&tmp.0, &skipped, at(100));
+        assert_eq!(read(), (100, 0, Some(100), 2));
+        // 2026-11-16: 2.7 + 0.8 + 0.5 + 0.0 GB, the last one locked out.
+        record(&tmp.0, &freed(2_700), at(1_000));
+        record(&tmp.0, &freed(800), at(1_900));
+        record(&tmp.0, &freed(500), at(2_800));
+        assert_eq!(read(), (2_800, 4_000, Some(2_800), 0));
+        record(&tmp.0, &skipped, at(3_700));
+        assert_eq!(read(), (2_800, 4_000, Some(3_700), 2));
+        // Over an hour later: a new episode, the old total gone.
+        record(&tmp.0, &empty, at(3_700 + 3_601));
+        assert_eq!(read(), (7_301, 0, Some(7_301), 0));
+        record(&tmp.0, &freed(70), at(7_400));
+        assert_eq!(read(), (7_400, 70, Some(7_400), 0));
+        // Another target, or a dry run, never adds to it; two dry runs
+        // don't add up either.
+        record(&tmp.0, &SweepReport { target: "/u".into(), ..freed(5) }, at(7_500));
+        assert_eq!(read(), (7_500, 5, Some(7_500), 0));
+        let dry = SweepReport { target: "/u".into(), dry_run: true, ..freed(9) };
+        record(&tmp.0, &dry, at(7_600));
+        record(&tmp.0, &dry, at(7_700));
+        assert_eq!(read(), (7_700, 9, Some(7_700), 0));
+        assert!(last_sweep(&tmp.0).unwrap().dry_run);
+        record(&tmp.0, &SweepReport { target: "/u".into(), ..freed(3) }, at(7_800));
+        assert_eq!(read(), (7_800, 3, Some(7_800), 0));
+        // A record from before #EXP-1892 / #EXP-1996 still reads, and an
+        // old build reads ours (the new field is left out while 0).
         fs::write(tmp.0.join(RECORD_FILE), r#"{"at":1,"freedBytes":2,"dryRun":false,"target":"/t"}"#).unwrap();
-        assert_eq!(last_sweep(&tmp.0).unwrap().checked_at, None);
+        let old = last_sweep(&tmp.0).unwrap();
+        assert_eq!((old.checked_at, old.skipped_locked), (None, 0));
+        record(&tmp.0, &empty, at(10_000));
+        assert!(!fs::read_to_string(tmp.0.join(RECORD_FILE)).unwrap().contains("skippedLocked"));
     }
 
     #[test]
@@ -1063,7 +1348,7 @@ mod tests {
         // The next build has to compile: new source.
         fs::write(krate.join("src/main.rs"), "fn main() { println!(\"two\"); }\n").unwrap();
         let mut started = None;
-        let report = sweep_inner(&target, &Options::new(false), &[], &mut |profile| {
+        let report = sweep_inner(&target, &Options::new(false), &[], None, &mut |profile| {
             assert_eq!(profile, debug.as_path());
             let mut child = build().spawn().unwrap();
             std::thread::sleep(Duration::from_secs(3));
@@ -1101,7 +1386,7 @@ mod tests {
         let started = Instant::now();
         let open = open_files_under(&target).expect("probe");
         println!("open under target: {}", open.len());
-        let report = sweep_inner(&target, &Options::new(dry_run), &open, &mut |profile| {
+        let report = sweep_inner(&target, &Options::new(dry_run), &open, None, &mut |profile| {
             if let Some(hold) = hold {
                 println!("{:?} holding {}", started.elapsed(), profile.display());
                 std::thread::sleep(hold);
