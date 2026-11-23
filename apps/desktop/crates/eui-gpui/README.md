@@ -536,8 +536,17 @@ host.update(cx, |h, cx| h.connect(cx));
     go back as `mcp_action_call`.
 
   All decoding is the core's (`JsonlDecoder`, `SseDecoder`,
-  `messages_from_mcp_result`). A stream's `close` stops delivery at once;
-  its blocked read returns at the next chunk.
+  `messages_from_mcp_result`, `ExpressDecoder`). A stream's `close` stops
+  delivery at once; its blocked read returns at the next chunk.
+- **Express** (#AXC-12, `WireFormat`). `.format(WireFormat::express(surface))`
+  on the stream and WebSocket transports reads Express, the compact notation
+  an agent writes, compiled by the core into the same A2UI messages as each
+  statement becomes ready: an `application/a2ui+express` body (any other
+  content type stays JSONL), the SSE event `a2ui-express`, WebSocket
+  `{"express": "<chunk>"}` frames. The prose around a response's `<a2ui>`
+  blocks is `TransportEvent::Text`, landing in `HostOptions::on_text`; the
+  SDK draws none of it (`express_body` = one bare body, no prose).
+  `MemoryTransport::feed_express` / `feed_decoded` feed it in tests.
 - **Media** (`media`). `Image`, `Avatar`, `Video` posters and markdown
   block images load through `HostPlugin::media_request` (the media policy:
   no local file unless the host lists `file`): the absolute url plus the

@@ -99,6 +99,9 @@ pub struct ActionFailure {
 pub type ValueObserver = Rc<dyn Fn(&Value)>;
 /// Observes every problem the host meets (`on_issue`).
 pub type IssueObserver = Rc<dyn Fn(&HostIssue)>;
+/// #AXC-12: a piece of an Express response's prose (`on_text`, the TS
+/// `onText`).
+pub type TextHook = Rc<dyn Fn(&str, &mut App)>;
 
 /// One problem the host met; [`ExponentialHost::issues`] keeps the latest
 /// [`MAX_ISSUES`] (the TS `HostIssue`).
@@ -208,6 +211,10 @@ pub struct HostOptions {
     /// error it answered a message with, an invalid surface theme). A
     /// transport-less host has no server to tell: this is where they land.
     pub on_issue: Option<IssueObserver>,
+    /// #AXC-12: the prose of an Express transport (`WireFormat::Express`),
+    /// a piece at a time as it streams in (append the pieces). The SDK
+    /// draws none of it: the host shows it beside its surfaces.
+    pub on_text: Option<TextHook>,
     /// VAPP-194: the member a package action runs as (its `me`).
     pub me: Option<String>,
     /// VAPP-194: the clock (epoch ms; `None` = the wall clock) and the team
@@ -264,6 +271,7 @@ impl Default for HostOptions {
             on_send: None,
             on_op: None,
             on_issue: None,
+            on_text: None,
             me: None,
             now: None,
             zone: None,
@@ -366,6 +374,7 @@ pub struct ExponentialHost {
     on_send: Option<ValueObserver>,
     on_op: Option<ValueObserver>,
     on_issue: Option<IssueObserver>,
+    on_text: Option<TextHook>,
     me: Option<String>,
     now: Option<Rc<dyn Fn() -> f64>>,
     zone: Option<ZoneFn>,
@@ -425,6 +434,7 @@ impl ExponentialHost {
             on_send: options.on_send,
             on_op: options.on_op,
             on_issue: options.on_issue,
+            on_text: options.on_text,
             me: options.me,
             now: options.now,
             zone: options.zone,
@@ -660,6 +670,11 @@ impl ExponentialHost {
                 match event {
                     TransportEvent::Message(m) => {
                         self.receive(&m, cx);
+                    }
+                    TransportEvent::Text(text) => {
+                        if let Some(f) = self.on_text.clone() {
+                            f(&text, cx);
+                        }
                     }
                     TransportEvent::Status(status, detail) => {
                         self.status = status;
