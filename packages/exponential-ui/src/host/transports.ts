@@ -139,7 +139,7 @@ abstract class StreamTransport implements Transport {
         const res = await f(this.options.url, { headers: { accept, ...this.options.headers }, signal: controller.signal })
         if (!live()) return
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
-        const express = inferenceFormatOf(res.headers.get(`content-type`)) === `express`
+        const express = inferenceFormatOf(res.headers?.get?.(`content-type`) ?? null) === `express`
         if (express) await ensureExpress(this.options)
         if (!live()) return
         status(`open`)
@@ -235,11 +235,26 @@ export class WebSocketTransport implements Transport {
     this.socket = socket
     // One decoder per connection: its `{express}` frames are ONE response.
     const frames = new FrameDecoder({ surfaceId: this.options.surfaceId })
-    // Frames decode in order, also while the compiler loads.
-    let queue: Promise<void> = this.options.format === `express` ? ensureExpress(this.options).catch(() => {}) : Promise.resolve()
+    // Frames decode in order, also while the compiler loads: a frame is
+    // delivered at once unless the compiler is loading (then it, and every
+    // frame after it, waits its turn).
+    let pending = 0
+    let queue: Promise<void> = Promise.resolve()
+    const later = (step: () => Promise<void> | void) => {
+      pending += 1
+      queue = queue.then(step).finally(() => {
+        pending -= 1
+      })
+    }
+    if (this.options.format === `express` && !expressLoaded()) later(() => ensureExpress(this.options).catch(() => {}))
     const decode = (data: string) => {
-      queue = queue.then(async () => {
-        if (!expressLoaded() && data.includes(EXPRESS_WS_KEY)) await ensureExpress(this.options).catch(() => {})
+      const needs = !expressLoaded() && data.includes(EXPRESS_WS_KEY)
+      if (!pending && !needs) {
+        if (live()) deliver(frames.push(data), receive, text)
+        return
+      }
+      later(async () => {
+        if (needs) await ensureExpress(this.options).catch(() => {})
         if (live()) deliver(frames.push(data), receive, text)
       })
     }
@@ -250,9 +265,10 @@ export class WebSocketTransport implements Transport {
     socket.onerror = () => live() && status(`error`, `websocket error`)
     socket.onclose = () => {
       if (!live()) return
-      queue = queue.then(() => {
+      if (pending) later(() => {
         if (live()) deliver(frames.end(), receive, text)
       })
+      else deliver(frames.end(), receive, text)
       status(`closed`)
       const wait = this.options.reconnectMs ?? 2000
       if (wait) setTimeout(() => live() && this.start(receive, status, text), wait)

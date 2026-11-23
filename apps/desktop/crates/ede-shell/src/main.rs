@@ -5439,12 +5439,12 @@ mod start_menu_document {
     /// page (one the nav lists, its group open), never the first one.
     #[test]
     fn the_tray_popups_settings_links_name_their_page() {
-        let settings = uicore_docs::doc("settings").expect("settings").source;
+        let settings = uicore_docs::doc("settings").expect("settings").json().to_string();
         for (applet, id, page) in [("applet-sound", "sound_settings", "sound"), ("applet-network", "network_settings", "network"), ("applet-battery", "power_settings", "power"), ("applet-bluetooth", "bluetooth_settings", "bluetooth"), ("applet-calendar", "datetime_settings", "datetime")] {
-            let doc: Value = serde_json::from_str(uicore_docs::doc(applet).expect(applet).source).unwrap();
+            let doc: Value = uicore_docs::doc(applet).expect(applet).json();
             let (f, args) = call(node(&doc["root"], id).expect(id));
             assert_eq!((f, args["name"].as_str(), args["page"].as_str()), ("ede_open_document", Some("settings"), Some(page)), "{applet}");
-            assert!(settings.contains(&format!("\"value\": \"{page}\"")), "{page} is a Settings page");
+            assert!(settings.contains(&format!("\"value\":\"{page}\"")), "{page} is a Settings page");
             let state = crate::settings_pages::state_for(page);
             assert_eq!((state["page"].as_str(), state["deviceOpen"].as_bool()), (Some(page), Some(true)), "{page}");
         }
