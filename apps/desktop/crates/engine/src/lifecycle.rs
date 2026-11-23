@@ -635,13 +635,10 @@ fn report_failed_start(ctx: &SessionCtx, trpc: &api::TrpcClient, reason: &str) -
     log::warn!("engine: session {} failed to start: {reason}", ctx.session_id);
     let text = coding::pickup::start_failure(reason);
     // #EDE-97: never in clear: an unsealable reason stays in the log.
-    match coding::sealing::seal_body_for_session(&ctx.session_id, &text) {
-        Ok(body) => {
-            if let Err(err) = api::session_device::reply(trpc, &ctx.session_id, &body, None) {
-                log::warn!("engine: failed start of {} not replied: {err}", ctx.session_id);
-            }
-        }
-        Err(err) => log::warn!("engine: failed start of {} not replied: it could not be encrypted ({err})", ctx.session_id),
+    // #FEED-297: with a copy for every listening tree (the Assistant that
+    // started it reads the reason, not "A private chat replied.").
+    if let Err(err) = coding::pickup::device_reply(trpc, &ctx.session_id, &text) {
+        log::warn!("engine: failed start of {} not replied: {err}", ctx.session_id);
     }
     let report = coding::pickup::start_failed_report(None, &coding::agent_accounts::now_iso());
     api::session_device::report(trpc, &ctx.session_id, &report)

@@ -1146,7 +1146,7 @@ impl AppScreenView {
                 SessionScreenMenuEntry::Compact | SessionScreenMenuEntry::NewConversation => {
                     let line = if entry == SessionScreenMenuEntry::Compact { &sends.compact } else { &sends.new_conversation };
                     if let Some(root) = root.as_deref() {
-                        crate::chat_actions::send_surface_reply(root, line, cx);
+                        crate::chat_actions::send_text(root, line, cx);
                     }
                 }
                 SessionScreenMenuEntry::Settings => {

@@ -90,6 +90,7 @@ mod specimen_pictures;
 // VAPP-91: the IDE as an Exponential UI host.
 mod app_outbox;
 mod exponential_ui_host;
+mod express_view;
 pub use app_outbox::install_record_outbox;
 pub use app_badge::set_app_id as set_app_badge_id;
 // VAPP-110: the Apps page, one app's editor, the New app / Rename form.

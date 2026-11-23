@@ -1064,6 +1064,10 @@ public enum AppHostSources {
     /// One `exp:devices` row.
     public struct DeviceRow: Encodable, Equatable, Sendable {
         public let id: String
+        /// FEED-301: the id sessions_send takes (`id` is the synced row's
+        /// own); `value` = it, so a Select over the rows picks it.
+        public let deviceId: String
+        public let value: String
         public let label: String
         public let detail: String
         public let icon: String
@@ -1082,6 +1086,8 @@ public enum AppHostSources {
     /// The input a devices row contributes (the synced `devices` row).
     public struct DeviceInput: Sendable {
         public let id: String
+        /// The steer device id (the synced row's `device_id`).
+        public let deviceId: String
         public let label: String
         public let kind: String?
         public let platform: String?
@@ -1090,8 +1096,9 @@ public enum AppHostSources {
         public let icon: String
         public let lastSeenAt: String?
 
-        public init(id: String, label: String, kind: String?, platform: String?, version: String?, icon: String, lastSeenAt: String?) {
+        public init(id: String, deviceId: String = "", label: String, kind: String?, platform: String?, version: String?, icon: String, lastSeenAt: String?) {
             self.id = id
+            self.deviceId = deviceId
             self.label = label
             self.kind = kind
             self.platform = platform
@@ -1126,6 +1133,8 @@ public enum AppHostSources {
             }
             return DeviceRow(
                 id: d.id,
+                deviceId: d.deviceId,
+                value: d.deviceId,
                 label: d.label,
                 detail: detail,
                 icon: d.icon,

@@ -695,12 +695,12 @@ final class AppsTests: XCTestCase {
         let value = AppHostSources.devicesValue([
             .init(id: "s", label: "build-box", kind: "server", platform: "linux", version: "1.2.0", icon: "server", lastSeenAt: stamp(3 * 3600)),
             .init(id: "n", label: "Never", kind: "desktop", platform: nil, version: nil, icon: "laptop", lastSeenAt: nil),
-            .init(id: "o", label: "Alex's MacBook Pro", kind: "desktop", platform: "macos", version: nil, icon: "laptop", lastSeenAt: stamp(5)),
+            .init(id: "o", deviceId: "steer-o", label: "Alex's MacBook Pro", kind: "desktop", platform: "macos", version: nil, icon: "laptop", lastSeenAt: stamp(5)),
         ], now: now)
         XCTAssertEqual(value.rows.map(\.id), ["o", "s", "n"])
         XCTAssertEqual(value.count, 3)
         XCTAssertEqual(value.online, 1)
-        XCTAssertEqual(value.rows[0], .init(id: "o", label: "Alex's MacBook Pro", detail: "Desktop · macos", icon: "laptop", discTone: "success", tone: "live", status: "Online"))
+        XCTAssertEqual(value.rows[0], .init(id: "o", deviceId: "steer-o", value: "steer-o", label: "Alex's MacBook Pro", detail: "Desktop · macos", icon: "laptop", discTone: "success", tone: "live", status: "Online"))
         XCTAssertEqual(value.rows[1].detail, "Server · linux · v1.2.0")
         XCTAssertEqual(value.rows[1].status, "Last seen 3 h ago")
         XCTAssertEqual(value.rows[1].tone, "idle")

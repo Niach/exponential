@@ -1550,6 +1550,7 @@ async fn a_cli_silent_at_startup_is_restarted_and_runs_the_turn() {
             ("EXP_FAKE_CLAUDE_HANGS", "1"),
             ("EXP_FAKE_CLAUDE_SPAWNS", spawns_env.as_str()),
             (engine::adapters::claude::START_TIMEOUT_ENV, "1500,20000"),
+            (engine::adapters::claude::START_BACKOFF_ENV, "0"),
         ],
         reject_all(),
         cancel_elicitations(),
@@ -1558,6 +1559,37 @@ async fn a_cli_silent_at_startup_is_restarted_and_runs_the_turn() {
     assert_eq!(run.stop_reason, StopReason::EndTurn);
     let count = std::fs::read_to_string(&spawns).expect("the fake counted its spawns").lines().count();
     assert_eq!(count, 2, "the silent child was replaced once");
+}
+
+/// #FEED-296 regression: on a briefly choked machine claude answered
+/// nothing at startup twice in a row, and the start failed outright. A
+/// third spawn (after a backoff) now runs the turn.
+#[tokio::test]
+async fn a_cli_silent_twice_at_startup_gets_a_third_spawn_after_a_backoff() {
+    let _session = one_session_at_a_time();
+    let work = workdir("silent-start-twice-then-up");
+    let spawns = work.0.join("spawns.txt");
+    let spawns_env = spawns.display().to_string();
+    let started = std::time::Instant::now();
+    let run = drive_env(
+        &Path::new(FIXTURES).join("basic"),
+        &work.0,
+        "Reply with the single word ok.",
+        false,
+        &[
+            ("EXP_FAKE_CLAUDE_HANGS", "2"),
+            ("EXP_FAKE_CLAUDE_SPAWNS", spawns_env.as_str()),
+            (engine::adapters::claude::START_TIMEOUT_ENV, "1000,1000,20000"),
+            (engine::adapters::claude::START_BACKOFF_ENV, "300,600"),
+        ],
+        reject_all(),
+        cancel_elicitations(),
+    )
+    .await;
+    assert_eq!(run.stop_reason, StopReason::EndTurn);
+    let count = std::fs::read_to_string(&spawns).expect("the fake counted its spawns").lines().count();
+    assert_eq!(count, 3, "two silent children, then one that runs the turn");
+    assert!(started.elapsed() >= std::time::Duration::from_millis(2900), "two windows and both backoffs were waited");
 }
 
 /// #FEED-253: a CLI that stays silent at startup on the retry too fails the
@@ -1577,6 +1609,7 @@ async fn a_cli_silent_twice_fails_the_start_with_the_reason() {
             ("EXP_FAKE_CLAUDE_HANGS", "5"),
             ("EXP_FAKE_CLAUDE_SPAWNS", spawns_env.as_str()),
             (engine::adapters::claude::START_TIMEOUT_ENV, "1000"),
+            (engine::adapters::claude::START_BACKOFF_ENV, "0"),
         ],
     );
     let adapter = ClaudeAgent::new(spec).expect("the adapter builds");
@@ -1600,9 +1633,9 @@ async fn a_cli_silent_twice_fails_the_start_with_the_reason() {
         .await
         .expect("the connection runs cleanly")
         .expect("the start fails");
-    assert!(error.contains("claude did not start"), "{error}");
+    assert!(error.contains("claude did not start: it answered nothing for 1s at startup, 3 times in a row"), "{error}");
     let count = std::fs::read_to_string(&spawns).expect("the fake counted its spawns").lines().count();
-    assert_eq!(count, 2, "one restart, then the failure");
+    assert_eq!(count, 3, "two restarts, then the failure");
 }
 
 /// #FEED-246 regression: a worker said `quiet` after one step, kept working

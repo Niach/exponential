@@ -221,12 +221,14 @@ final class ExpAppHost {
         for name in AppActions.all + AppActions.aliases.keys.sorted() {
             guard let target = AppActions.parseActionName(name) else { continue }
             functions[name] = { args, _ in
-                try await AppHostMcp.call(
-                    tool: target.tool,
-                    arguments: AppActions.arguments(args, op: target.op) { .string($0) },
-                    accountId: accountId, base: base, httpClient: httpClient,
-                    viaApp: await AppHostMcp.hostClaim(appId: appId, pool: pool)
-                )
+                try await AppHostMcp.outcome(name: name, args: args) {
+                    try await AppHostMcp.call(
+                        tool: target.tool,
+                        arguments: AppActions.arguments(args, op: target.op) { .string($0) },
+                        accountId: accountId, base: base, httpClient: httpClient,
+                        viaApp: await AppHostMcp.hostClaim(appId: appId, pool: pool)
+                    )
+                }
             }
         }
         return functions
@@ -381,14 +383,16 @@ final class ExpAppHost {
                     return nil
                 },
                 "harness_mcp": { args, _ in
-                    try await AppHostMcp.call(
-                        tool: args["tool"]?.displayText ?? "",
-                        arguments: args["arguments"]?.object ?? [:],
-                        accountId: accountId,
-                        base: base,
-                        httpClient: deps.httpClient,
-                        viaApp: await AppHostMcp.hostClaim(appId: appId, pool: pool)
-                    )
+                    try await AppHostMcp.outcome(name: "harness_mcp", args: args) {
+                        try await AppHostMcp.call(
+                            tool: args["tool"]?.displayText ?? "",
+                            arguments: args["arguments"]?.object ?? [:],
+                            accountId: accountId,
+                            base: base,
+                            httpClient: deps.httpClient,
+                            viaApp: await AppHostMcp.hostClaim(appId: appId, pool: pool)
+                        )
+                    }
                 },
                 "records_upsert": recordsUpsert,
                 "records_delete": recordsDelete,
@@ -482,6 +486,8 @@ final class ExpAppHost {
             me: me,
             zone: TimeZoneOffset(TeamZone.hostTimeZone(teamZone)),
             onActionFailed: { failure in
+                // FEED-301: a call step that failed has toasted already.
+                if AppHostMcp.takeToasted(failure.message) { return }
                 Toaster.shared.error(
                     FeedbackStates.Errors.title(verb: "save", thing: "the record"),
                     description: failure.message
@@ -781,7 +787,7 @@ enum AppHostStore {
         let push = {
             let inputs = rows.map { row in
                 AppHostSources.DeviceInput(
-                    id: row.id, label: row.label, kind: row.kind, platform: row.platform,
+                    id: row.id, deviceId: row.deviceId, label: row.label, kind: row.kind, platform: row.platform,
                     version: row.version, icon: DeviceIconDisplay.iconName(for: row), lastSeenAt: row.lastSeenAt
                 )
             }
@@ -1202,6 +1208,40 @@ enum AppHostMcp {
     struct CallError: LocalizedError {
         let message: String
         var errorDescription: String? { message }
+    }
+
+    /// FEED-301: the failures a call toasted just now, so the package action
+    /// they fail stays quiet (the web's `toasted`).
+    @MainActor private static var toasted: [(message: String, at: Date)] = []
+
+    @MainActor
+    static func takeToasted(_ message: String) -> Bool {
+        toasted.removeAll { Date().timeIntervalSince($0.at) > 1 }
+        guard let index = toasted.firstIndex(where: { $0.message == message }) else { return false }
+        toasted.remove(at: index)
+        return true
+    }
+
+    /// FEED-301 (app-actions.json `failure`): a call's answer through the
+    /// failure rule: a result `isError: true` or a thrown call is the
+    /// failed-action toast and a rejection, never a value.
+    @MainActor
+    static func outcome(name: String, args: [String: JSONValue], _ run: @MainActor () async throws -> Any?) async throws -> Any? {
+        var given: [String: CardJSON] = [:]
+        if case let .object(object)? = CardJSON(any: JSONValue.object(args).any) { given = object }
+        let failure: AppActions.ActionFailure
+        do {
+            let result = try await run()
+            guard let failed = AppActions.actionFailure(name, args: given, result: CardJSON(any: result) ?? .null) else { return result }
+            failure = failed
+        } catch {
+            let words = AppActions.actionFailedWords(name, args: given)
+            failure = AppActions.ActionFailure(verb: words.verb, thing: words.thing, description: error.localizedDescription)
+        }
+        Toaster.shared.error(FeedbackStates.Errors.title(verb: failure.verb, thing: failure.thing), description: failure.description)
+        toasted.removeAll { Date().timeIntervalSince($0.at) > 1 }
+        toasted.append((message: failure.description, at: Date()))
+        throw CallError(message: failure.description)
     }
 
     /// VAPP-231 (via-app.json `claim`): what a write of `appId`'s host claims,
