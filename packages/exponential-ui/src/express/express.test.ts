@@ -57,9 +57,10 @@ describe(`express-roundtrip.json (decompile → compile, zero diffs)`, () => {
     const create = (messages[0] as { createSurface: { components: FlatComponent[]; catalogId: string } }).createSurface
     const result = reduceSurface(create.components, { catalogId: create.catalogId, expand: false })
     expect(result.issues).toEqual([])
-    return count(result.root)
+    // A template node is lifted out of the tree (it renders per item).
+    return count(result.root) + Object.values(result.templates ?? {}).reduce((a, t) => a + count(t), 0)
   }
-  const want: Record<string, number> = { dashboard: 56, "demo-surface": 12, "kitchen-sink": 251 }
+  const want: Record<string, number> = { dashboard: 56, "demo-surface": 12, "kitchen-sink": 251, "express-extras": 6 }
   for (const c of roundtrip.cases as { name: string; nodes: number; messages: unknown[] }[]) {
     test(`${c.name}: ${want[c.name]} nodes`, () => {
       expect(c.nodes).toBe(want[c.name]!)
