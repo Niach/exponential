@@ -218,8 +218,13 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     name: `repositories`,
     label: `repositories`,
     group: `team`,
-    blurb: `A team's repositories: list, create (connect one the team's GitHub App can see), credentials (a git remote + short-lived token).`,
-    ops: { list: `repositories_list`, create: `repositories_add`, credentials: `repositories_credentials` },
+    blurb: `A team's repositories: list, create (connect one the team's GitHub App can see), credentials (a git remote + short-lived token), configure_ci (Exponential's own CI on or off).`,
+    ops: {
+      list: `repositories_list`,
+      create: `repositories_add`,
+      credentials: `repositories_credentials`,
+      configure_ci: `repositories_configure_ci`,
+    },
   },
   {
     name: `devices`,
