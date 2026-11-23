@@ -416,6 +416,11 @@ class ChatsViewModel @Inject constructor(
     fun linkedIssueCount(pullRequestId: String): Flow<Int> =
         dbFlow.scopedQuery(emptyList()) { it.pullRequestIssueDao().observeByPullRequest(pullRequestId) }.map { it.size }
 
+    /** #FEED-298 (needs-you.json DISMISS): a plan's or question's Dismiss
+     *  through THE answer path (`dismissed: true` alone). */
+    fun dismissNeedsYou(messageId: String) =
+        call("dismiss", thing = "the card") { sessionsApi.answer(it, com.exponential.app.data.api.AnswerInput.dismiss(messageId)) }
+
     /** #EXP-1710: the stuck row's Close PR (after close-pr.json's confirm). */
     fun closePullRequest(pullRequestId: String) =
         call("close", thing = "the PR") { pullRequestsApi.close(it, pullRequestId) }

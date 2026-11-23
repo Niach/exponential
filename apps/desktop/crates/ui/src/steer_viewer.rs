@@ -728,6 +728,10 @@ pub(crate) struct SteerSessionView {
     deep_link_page: Option<(String, u64)>,
     /// DEEP LINKS: the pending jump into a card (message id, taken at).
     deep_link: Option<(String, Instant)>,
+    /// #FEED-298 DEEP LINKS: the loaded stretch (rows, window start, synced
+    /// page version) when the last older page was asked: once it moved, a
+    /// page LANDED and the link's clock restarts.
+    deep_link_mark: Option<(usize, usize, u64)>,
     /// EXP-783: the `history_page` request in flight, if any — a chunk for
     /// any other id is not ours.
     history_request: Option<String>,
@@ -1111,6 +1115,7 @@ impl SteerSessionView {
             window_from: None,
             extend_window: false,
             deep_link_page: None,
+            deep_link_mark: None,
             deep_link: None,
             history_request: None,
             history_truncated: false,
@@ -3292,6 +3297,7 @@ impl SteerSessionView {
     /// laid out, then ring it ([`Self::deep_link_tick`] steps every frame).
     pub(crate) fn open_deep_link(&mut self, message_id: &str, cx: &mut gpui::Context<Self>) {
         self.deep_link = Some((message_id.to_string(), Instant::now()));
+        self.deep_link_mark = None;
         self.chat.pin(true);
         cx.notify();
     }
@@ -3323,6 +3329,17 @@ impl SteerSessionView {
         self.chat.pin(true);
         let row = self.card_row(message_id, cx);
         let page = crate::chat_window::chat_messages(&self.session_id, cx);
+        // #FEED-298: a page that landed restarts the clock (`deepLinkMs`
+        // bounds a link that stopped making progress, never a long page-in).
+        let mark = (self.rows.len(), self.window_start(), page.version);
+        let mut elapsed = elapsed;
+        if self.deep_link_mark.is_some_and(|asked| asked != mark) {
+            self.deep_link_mark = None;
+            elapsed = Duration::ZERO;
+            if let Some((_, at)) = self.deep_link.as_mut() {
+                *at = Instant::now();
+            }
+        }
         let paging = self.extend_window
             || self.history_request.is_some()
             || self.deep_link_page.as_ref().is_some_and(|(id, version)| id == message_id && *version == page.version);
@@ -3354,6 +3371,7 @@ impl SteerSessionView {
                 }
             }
             DeepLinkStep::Page => {
+                self.deep_link_mark = Some(mark);
                 if self.can_grow_window() {
                     self.extend_window = true;
                 } else if crate::chat_window::load_earlier(&self.session_id, cx) {
@@ -3399,6 +3417,7 @@ impl SteerSessionView {
     /// The deep link settled: the list follows again from where it is.
     fn end_deep_link(&mut self) {
         self.deep_link_page = None;
+        self.deep_link_mark = None;
         self.chat.pin(false);
     }
 

@@ -1475,6 +1475,10 @@ export function AgentSessionView({
       missing: () => {
         if (deepLink) settleDeepLink?.(deepLink, `missing`)
       },
+      // #FEED-298: a card far above pages in while pages keep landing.
+      progress: (at) => {
+        if (deepLink) deepLinks?.touch?.(deepLink, at)
+      },
     }
   )
   const dropDeepLink = () => {
