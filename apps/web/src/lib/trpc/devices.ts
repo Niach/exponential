@@ -78,6 +78,7 @@ import { checkDeviceKeyProof, deviceKeyRejectionLog, pinDeviceKeyInTx, shareKeyR
 import { hostedIds, withdrawShareInTx, type HostedByTeam } from "@/lib/device-shares"
 import { notifyAgentSignOuts, notifyDeviceShareRemoved } from "@/lib/integrations/notifications"
 import { detectAgentSignOuts, type AgentSignOut } from "@/lib/agent-sign-out"
+import { reconcileDeviceUsage, type DeviceUsageState } from "@/lib/usage-reconcile"
 import {
   agentEffortValues,
   agentModelValues,
@@ -296,6 +297,66 @@ export async function settleAgentSignOuts(
     }
     return { id: row.id, label: row.label, signOuts }
   })
+}
+
+/** #FEED-304: one account has one set of limits, so before a register /
+ *  heartbeat stores this device's report, every device row of its owner is
+ *  brought to the newest read of each account and aged
+ *  (`reconcileDeviceUsage`, lib/usage-reconcile.ts): the other rows are
+ *  written here under their row locks (taken in id order), this device's two
+ *  columns come back for the caller's own write. `incoming` = what the
+ *  device sent (null = unchanged, the stored column stands in). Never fails a
+ *  beat: on an error the report is stored as sent. */
+export async function settleSharedUsage(
+  database: Context[`db`],
+  userId: string,
+  deviceId: string,
+  incoming: DeviceUsageState,
+  now: Date
+): Promise<DeviceUsageState> {
+  try {
+    return await database.transaction(async (tx) => {
+      const rows: Array<DeviceUsageState & { id: string | null; deviceId: string }> = await tx
+        .select({
+          id: devices.id,
+          deviceId: devices.deviceId,
+          agentAccounts: devices.agentAccounts,
+          agentUsage: devices.agentUsage,
+        })
+        .from(devices)
+        .where(eq(devices.userId, userId))
+        .orderBy(devices.id)
+        .for(`update`)
+      const states = rows.map((row) =>
+        row.deviceId === deviceId
+          ? {
+              ...row,
+              agentAccounts: incoming.agentAccounts ?? row.agentAccounts,
+              agentUsage: incoming.agentUsage ?? row.agentUsage,
+            }
+          : row
+      )
+      // A first register has no row yet.
+      if (!states.some((row) => row.deviceId === deviceId)) {
+        states.push({ id: null, deviceId, ...incoming })
+      }
+      let own = incoming
+      for (const next of reconcileDeviceUsage(states, now)) {
+        if (next.row.deviceId === deviceId) {
+          own = { agentAccounts: next.agentAccounts, agentUsage: next.agentUsage }
+        } else if (next.changed && next.row.id) {
+          await tx
+            .update(devices)
+            .set({ agentAccounts: next.agentAccounts, agentUsage: next.agentUsage })
+            .where(eq(devices.id, next.row.id))
+        }
+      }
+      return own
+    })
+  } catch (error) {
+    console.warn(`[devices] shared usage not settled for ${deviceId}`, error)
+    return incoming
+  }
 }
 
 async function notifySettled(
@@ -873,6 +934,10 @@ export const devicesRouter = router({
       }
       const accounts = input.agentAccounts ? clampAgentAccounts(input.agentAccounts) : null
       const settled = accounts ? await settleAgentSignOuts(ctx.db, userId, input.deviceId, accounts) : null
+      // #FEED-304: each account's newest read, on every device of the owner.
+      const shared = accounts
+        ? await settleSharedUsage(ctx.db, userId, input.deviceId, { agentAccounts: accounts, agentUsage: null }, now)
+        : null
       const [row] = await ctx.db
         .insert(devices)
         .values({
@@ -889,7 +954,7 @@ export const devicesRouter = router({
             ? clampLaunchDefaults(input.launchDefaults)
             : null,
           launchDefaultsUpdatedAt: input.launchDefaults ? now : null,
-          agentAccounts: accounts,
+          agentAccounts: shared?.agentAccounts ?? accounts,
           version: input.version ?? null,
           doctor: clampDoctor(input.doctor),
           publicKey,
@@ -914,7 +979,8 @@ export const devicesRouter = router({
               : {}),
             // Absent = the probe had nothing to say (see the input doc):
             // keep whatever the last reporting register wrote.
-            ...(accounts ? { agentAccounts: accounts } : {}),
+            ...(accounts ? { agentAccounts: shared?.agentAccounts ?? accounts } : {}),
+            ...(shared?.agentUsage ? { agentUsage: shared.agentUsage } : {}),
             doctor: clampDoctor(input.doctor),
             version: input.version ?? null,
             // FEED-154: the key THIS register proved; no proof = NULL, so a
@@ -1041,6 +1107,18 @@ export const devicesRouter = router({
       const settled = accounts
         ? await settleAgentSignOuts(ctx.db, ctx.session.user.id, input.deviceId, accounts)
         : null
+      // #FEED-304: each account's newest read, on every device of the owner.
+      const usage = input.agentUsage ? clampAgentUsage(input.agentUsage, now) : null
+      const shared =
+        accounts || usage
+          ? await settleSharedUsage(
+              ctx.db,
+              ctx.session.user.id,
+              input.deviceId,
+              { agentAccounts: accounts, agentUsage: usage },
+              now
+            )
+          : null
       const updated = await ctx.db
         .update(devices)
         .set({
@@ -1051,13 +1129,10 @@ export const devicesRouter = router({
           // for a long turn). FEED-146: sent every beat, so absent (the
           // device is past its cap) = NULL, never the last list standing.
           liveSessionIds,
-          ...(accounts ? { agentAccounts: accounts } : {}),
-          ...(input.agentUsage
-            ? {
-                agentUsage: clampAgentUsage(input.agentUsage, now),
-                agentUsageAt: now,
-              }
-            : {}),
+          ...(shared?.agentAccounts ? { agentAccounts: shared.agentAccounts } : {}),
+          ...(shared?.agentUsage ? { agentUsage: shared.agentUsage } : {}),
+          // "When the device last reported": moved by its own report alone.
+          ...(usage ? { agentUsageAt: now } : {}),
           ...(input.doctor ? { doctor: clampDoctor(input.doctor) } : {}),
         })
         .where(
