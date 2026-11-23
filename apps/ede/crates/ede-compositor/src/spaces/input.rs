@@ -52,7 +52,7 @@ impl Ede {
 
     /// The space's seat did something: its clients' idle notifications
     /// resume and its clock runs fast.
-    fn space_active(&mut self, id: DeskId) {
+    pub(crate) fn space_active(&mut self, id: DeskId) {
         if let Some(seat) = self.try_desk(id).map(|d| d.seat.clone()) {
             self.idle_notifier.notify_activity(&seat);
         }

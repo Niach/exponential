@@ -25,6 +25,22 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-22-desktop-cli-0-14-175`,
+    date: `2026-11-22`,
+    title: `The desktop app stays light with many sessions`,
+    summary: `Desktop and CLI 0.14.175: the desktop app stays light with many sessions running, and background git no longer causes stalls.`,
+    body: `- **Light with many sessions**: every session running on your computer now shares one engine, so many sessions at once use far fewer threads and the app stays quick.
+- **No more stalls from background git**: the app's background git checks no longer briefly stall it, and idle sessions check for changes less often.`,
+  },
+  {
+    id: `2026-11-22-desktop-cli-0-14-174`,
+    date: `2026-11-22`,
+    title: `The desktop app no longer freezes with several teams`,
+    summary: `Desktop and CLI 0.14.174: the desktop app no longer freezes while your teams sync, and a stalled or full disk no longer stops it.`,
+    body: `- **No freeze with several teams**: with three or more teams the desktop app could stop responding while chats synced; the sidebar now stays quick and typing and clicks keep working.
+- **Full disk**: a log write that stalls no longer freezes the desktop app, and a full disk shows up as a warning in Doctor.`,
+  },
+  {
     id: `2026-11-22-phones-sealed-cards`,
     date: `2026-11-22`,
     title: `Reply and suggestion cards work in encrypted chats`,

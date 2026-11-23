@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import com.exponential.app.data.sealed.SealedContent
 import com.exponential.app.data.sealed.SealedKeys
 import com.exponential.app.domain.SessionTree
@@ -671,14 +672,37 @@ abstract class MessageDao {
     @Query("SELECT id FROM messages WHERE session_id = :sessionId AND created_at >= :mark")
     abstract fun observeIdsSince(sessionId: String, mark: String): Flow<List<String>>
 
-    // #EDE-114 (chat-store.json): the chat store's message feed, RAW (the
-    // store opens them itself): the rows of a session created at or after
-    // [mark], oldest first, one page at a time.
+    // #EDE-114 + #EXP-2032 (chat-store.json MESSAGES BY ARRIVAL): the chat
+    // store's message feed is taken in the order rows REACHED this device,
+    // never by `created_at`: the position is the table's own `rowid`. Every
+    // Electric insert is [upsert] = `INSERT OR REPLACE`, which deletes a
+    // conflicting row and inserts a new one, so an insert AND a replace move
+    // the row to the end (a partial update, `UPDATE ... WHERE id = ?`, keeps
+    // its place: nothing the store keeps changes that way). The positions of
+    // a session's rows from [from] on (inclusive), in arrival order, one
+    // page; the next page starts after the last position (no OFFSET drift).
     @Query(
-        "SELECT * FROM messages WHERE session_id IS NOT NULL AND session_id != '' AND created_at >= :mark " +
-            "ORDER BY created_at, id LIMIT :limit OFFSET :offset",
+        "SELECT rowid AS arrival, id FROM messages WHERE rowid >= :from " +
+            "AND session_id IS NOT NULL AND session_id != '' ORDER BY rowid LIMIT :limit",
     )
-    abstract suspend fun rawSince(mark: String, limit: Int, offset: Int): List<MessageEntity>
+    abstract suspend fun arrivalsFrom(from: Long, limit: Int): List<MessageArrival>
+
+    // #EXP-2032: the highest arrival position (null = an empty table): a
+    // stored mark above it (a refetch emptied and refilled the table) starts
+    // over from the beginning.
+    @Query("SELECT MAX(rowid) FROM messages")
+    abstract suspend fun highestArrival(): Long?
+
+    // #EXP-2032: one page of [arrivalsFrom] with its rows RAW (the store
+    // opens them itself), in arrival order; read in one transaction so the
+    // positions and the rows agree.
+    @Transaction
+    open suspend fun rawFrom(from: Long, limit: Int): List<ArrivedMessage> {
+        val arrivals = arrivalsFrom(from, limit)
+        if (arrivals.isEmpty()) return emptyList()
+        val rows = rawByIds(arrivals.map { it.id }).associateBy { it.id }
+        return arrivals.mapNotNull { a -> rows[a.id]?.let { ArrivedMessage(a.arrival, it) } }
+    }
 
     // #EDE-114: the given rows RAW (a still-sealed one opened again).
     @Query("SELECT * FROM messages WHERE id IN (:ids)")

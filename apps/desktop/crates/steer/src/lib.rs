@@ -126,13 +126,13 @@ pub use activity::{
     normalize_agent_title, AgentTitleForwarder, AgentTitleHook, AgentTitleSignal, AGENT_TITLE_MAX,
     AGENT_TITLE_RETRY_INTERVAL,
     ConfigChange, ConfigLink,
-    BlockedForwarder, BlockedHook, DiffSnapshots, NeedsInputForwarder, NeedsInputHook, Redactor,
+    BlockedForwarder, BlockedHook, DiffPace, DiffSlots, DiffSnapshots, NeedsInputForwarder, NeedsInputHook, Redactor,
     RemoteAnswer, SessionAgent, SessionBlocked, SessionBlockedReport, StatusForwarder, StatusHook, blocked_wall_expired,
     iso_from_unix_millis,
     now_unix_millis,
     TurnSignal, ANSWER_RETRY_TTL, CONFIG_CATEGORY_MAX, CONFIG_COMMANDS_MAX,
     CONFIG_DESCRIPTION_MAX, CONFIG_HINT_MAX, CONFIG_ID_MAX, CONFIG_LABEL_MAX, CONFIG_MODES_MAX,
-    CONFIG_OPTIONS_MAX, CONFIG_VALUES_MAX, DIFF_INTERVAL, POLL_INTERVAL, QUESTION_OPTIONS_MAX,
+    CONFIG_OPTIONS_MAX, CONFIG_VALUES_MAX, DIFF_CONCURRENCY, DIFF_IDLE_INTERVAL, DIFF_INTERVAL, POLL_INTERVAL, QUESTION_OPTIONS_MAX,
     STOP_GRACE, TRUNCATION_MARKER, RESUMED_IDLE_CAPTION,
 };
 pub use feed::{
@@ -200,11 +200,16 @@ pub struct SteerRuntime {
 
 impl SteerRuntime {
     pub fn new() -> std::io::Result<Arc<Self>> {
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("steer-ws")
-            .enable_all()
-            .build()?;
+        // #PERF-12: every hosted run's engine work lands here too (the ACP
+        // connection, its drains, its reports), so the blocking pool is the
+        // engine's: bounded, its threads kept rather than re-made.
+        let runtime = eagent::engine::runtime::configure(
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(eagent::engine::runtime::WORKER_THREADS)
+                .thread_name("steer-ws"),
+        )
+        .enable_all()
+        .build()?;
         Ok(Arc::new(Self { runtime }))
     }
 

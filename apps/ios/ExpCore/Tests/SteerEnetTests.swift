@@ -220,7 +220,9 @@ final class SteerEnetTests: XCTestCase {
             XCTAssertNotNil(c["needsInput"] as? Bool, name)
             let state = try XCTUnwrap(SteerNoFeed.State(rawValue: c["state"] as? String ?? ""), name)
             let deviceOffline = (c["deviceOffline"] as? Bool) ?? false
-            XCTAssertEqual(SteerNoFeed.state(ended: ended, busy: busy, deviceOffline: deviceOffline), state, name)
+            // #EXP-2000: `started` absent = true.
+            let started = (c["started"] as? Bool) ?? true
+            XCTAssertEqual(SteerNoFeed.state(ended: ended, busy: busy, deviceOffline: deviceOffline, started: started), state, name)
         }
     }
 

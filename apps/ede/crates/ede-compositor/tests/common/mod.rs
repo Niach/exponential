@@ -96,6 +96,12 @@ pub struct Client {
     /// The keymap the compositor sent (format, fd, size), for a virtual
     /// keyboard to upload.
     pub keymap: Option<(u32, std::os::fd::OwnedFd, u32)>,
+    /// #EDE-85: what each pressed key typed under the keymap the client
+    /// held at that moment (keysyms), the keymap's text, and the last
+    /// `modifiers` (depressed, latched, locked, group).
+    pub typed: Vec<u32>,
+    pub keymap_text: Option<String>,
+    pub mods: (u32, u32, u32, u32),
     pub virtual_keyboard_manager: Option<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1>,
     /// The serial of the last button press our pointer received (what a
     /// client-side title bar hands back with `move` and `resize`).
@@ -635,16 +641,43 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
         match event {
             wl_keyboard::Event::Keymap { format: WEnum::Value(format), fd, size } => {
                 state.keymaps += 1;
+                state.keymap_text = keymap_text(&fd, size);
                 state.keymap = Some((format as u32, fd, size));
             }
             wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Released), .. } => state.key_releases.push(key),
             wl_keyboard::Event::Enter { surface, .. } => state.keyboard_focus = Some(surface),
             wl_keyboard::Event::Leave { .. } => state.keyboard_focus = None,
-            wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Pressed), .. } => state.keys.push(key),
-            wl_keyboard::Event::Modifiers { mods_depressed, .. } => state.modifiers.push(mods_depressed),
+            wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Pressed), .. } => {
+                state.keys.push(key);
+                let typed = state.keymap_text.as_deref().map_or(0, |text| typed_under(text, state.mods, key));
+                state.typed.push(typed);
+            }
+            wl_keyboard::Event::Modifiers { mods_depressed, mods_latched, mods_locked, group, .. } => {
+                state.modifiers.push(mods_depressed);
+                state.mods = (mods_depressed, mods_latched, mods_locked, group);
+            }
             _ => {}
         }
     }
+}
+
+/// A keymap fd's text (without its NUL).
+fn keymap_text(fd: &std::os::fd::OwnedFd, size: u32) -> Option<String> {
+    use std::os::unix::fs::FileExt;
+    let file = std::fs::File::from(fd.try_clone().ok()?);
+    let mut bytes = vec![0; size as usize];
+    file.read_exact_at(&mut bytes, 0).ok()?;
+    Some(String::from_utf8_lossy(&bytes).trim_end_matches('\0').to_string())
+}
+
+/// The keysym evdev `key` makes under `text` with `mods`.
+fn typed_under(text: &str, (depressed, latched, locked, group): (u32, u32, u32, u32), key: u32) -> u32 {
+    use smithay::input::keyboard::xkb;
+    let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+    let Some(keymap) = xkb::Keymap::new_from_string(&context, text.to_string(), xkb::KEYMAP_FORMAT_TEXT_V1, xkb::KEYMAP_COMPILE_NO_FLAGS) else { return 0 };
+    let mut state = xkb::State::new(&keymap);
+    state.update_mask(depressed, latched, locked, 0, 0, group);
+    state.key_get_one_sym((key + 8).into()).raw()
 }
 
 impl Dispatch<wl_pointer::WlPointer, ()> for Client {

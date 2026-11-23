@@ -26,6 +26,7 @@ pub mod launch;
 pub mod local;
 pub mod mapper;
 pub mod reply;
+pub mod runtime;
 pub mod session;
 pub mod sink;
 pub mod stall;

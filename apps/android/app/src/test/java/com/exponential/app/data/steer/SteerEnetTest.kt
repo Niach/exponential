@@ -254,6 +254,7 @@ class SteerEnetTest {
                 "away" -> SteerNoFeedState.Away
                 "starting" -> SteerNoFeedState.Starting
                 "idle" -> SteerNoFeedState.Idle
+                "waiting" -> SteerNoFeedState.Waiting
                 else -> error("unknown noFeed state $state")
             }
             assertEquals(
@@ -263,6 +264,8 @@ class SteerEnetTest {
                     ended = case["ended"]!!.jsonPrimitive.boolean,
                     busy = case["busy"]!!.jsonPrimitive.boolean,
                     deviceOffline = case["deviceOffline"]?.jsonPrimitive?.boolean ?: false,
+                    // #EXP-2000: `started` absent = true.
+                    started = case["started"]?.jsonPrimitive?.boolean ?: true,
                 ),
             )
         }

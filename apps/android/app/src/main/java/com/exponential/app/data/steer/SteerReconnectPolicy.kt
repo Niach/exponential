@@ -105,8 +105,9 @@ fun steerShowConnectionLost(
 ): Boolean = downMs >= graceMs && failedRedials >= minFailedRedials
 
 /** EXP-1487: what an empty transcript says while NO FEED holds (fixtures/steer-enet.json `noFeed`);
- *  #EXP-1703: [Away] = a live row whose device is offline. */
-enum class SteerNoFeedState { Offline, Away, Starting, Idle }
+ *  #EXP-1703: [Away] = a live row whose device is offline; #EXP-2000: [Waiting] = a row no
+ *  device picked up yet (NEVER HELD: the placeholder says nothing). */
+enum class SteerNoFeedState { Offline, Away, Starting, Idle, Waiting }
 
 /** EXP-1487: fixtures/steer-enet.json `noFeedIdle` (the fixture test pins them). */
 internal const val STEER_NO_FEED_IDLE_TITLE = "No live transcript"
@@ -130,13 +131,20 @@ fun steerNoFeedAway(deviceName: String?): SteerNoFeedAway = SteerNoFeedAway(
 /**
  * EXP-1487 (fixtures/steer-enet.json "NO FEED, EMPTY TRANSCRIPT"): an ended
  * row = the device-offline copy; #EXP-1703: a live row whose device is
- * offline ([deviceOffline]) = away; a busy row = starting, anything else
- * (idle, waiting on a question) = the idle empty state, never "starting".
+ * offline ([deviceOffline]) = away; a busy row = starting; #EXP-2000 a row no
+ * device picked up yet ([started] false: `startedAt` null) = waiting; anything
+ * else (idle, waiting on a question) = the idle empty state, never "starting".
  */
-fun steerNoFeedState(ended: Boolean, busy: Boolean, deviceOffline: Boolean = false): SteerNoFeedState = when {
+fun steerNoFeedState(
+    ended: Boolean,
+    busy: Boolean,
+    deviceOffline: Boolean = false,
+    started: Boolean = true,
+): SteerNoFeedState = when {
     ended -> SteerNoFeedState.Offline
     deviceOffline -> SteerNoFeedState.Away
     busy -> SteerNoFeedState.Starting
+    !started -> SteerNoFeedState.Waiting
     else -> SteerNoFeedState.Idle
 }
 

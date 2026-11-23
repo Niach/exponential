@@ -5,13 +5,19 @@
 //! `LD_LIBRARY_PATH`, which accepts one test password). Needs the built
 //! binary: `EDE_SEALED_BIN=<path> cargo test -p ede-compositor --test sealed_unlock -- --ignored`.
 //! #ERR-29: and it locks and unlocks whatever its error reporting does.
+//! #EDE-209: and what the person typed survives a mode change of the output.
 
 mod common;
 
-use std::time::{Duration, Instant};
+use std::{
+    path::Path,
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 use common::Session;
 use ede_compositor::{backend::headless::Harness, lock::LockState, Config};
+use smithay::reexports::wayland_server::{backend::ObjectId, Resource};
 use ede_protocol::{Error, ErrorCode};
 use smithay::backend::input::KeyState;
 
@@ -47,6 +53,27 @@ int pam_end(void *handle, int status) { return 0; }
 const char *pam_strerror(void *handle, int error) { return "Authentication failure"; }
 "#;
 
+/// Each test points the process's `XDG_RUNTIME_DIR` and `LD_LIBRARY_PATH`
+/// (which the compositor and the lock client it starts read) at a
+/// directory of its own: one at a time.
+static ENV: Mutex<()> = Mutex::new(());
+
+/// Builds the PAM stub into `dir` and points the process's environment at
+/// it and at a runtime directory of its own there: the lock client inherits
+/// both. Call it holding [`ENV`].
+fn stub_pam(dir: &Path) {
+    let (source, runtime) = (dir.join("pam.c"), dir.join("run"));
+    std::fs::write(&source, PAM_STUB).unwrap();
+    std::fs::create_dir(&runtime).unwrap();
+    let built = std::process::Command::new("cc").args(["-shared", "-fPIC", "-o"]).arg(dir.join("libpam.so.0")).arg(&source).status().unwrap();
+    assert!(built.success(), "the PAM stub did not build");
+    // Under ENV: no other test reads the environment meanwhile.
+    unsafe {
+        std::env::set_var("XDG_RUNTIME_DIR", &runtime);
+        std::env::set_var("LD_LIBRARY_PATH", dir);
+    }
+}
+
 fn wait(what: &str, mut ok: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(30);
     while !ok() {
@@ -77,21 +104,13 @@ fn shows_an_error(h: &Harness) -> bool {
 #[test]
 #[ignore = "needs EDE_SEALED_BIN, the built exponential-sealed"]
 fn the_password_typed_into_the_real_lock_client_unlocks() {
+    let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
     let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
     let bin = std::env::var("EDE_SEALED_BIN").expect("EDE_SEALED_BIN");
     let dir = tempfile::tempdir().unwrap();
-    let (source, runtime) = (dir.path().join("pam.c"), dir.path().join("run"));
-    std::fs::write(&source, PAM_STUB).unwrap();
-    std::fs::create_dir(&runtime).unwrap();
-    let built = std::process::Command::new("cc").args(["-shared", "-fPIC", "-o"]).arg(dir.path().join("libpam.so.0")).arg(&source).status().unwrap();
-    assert!(built.success(), "the PAM stub did not build");
-    // The only test of this binary: nothing else reads the environment.
     // The lock client inherits both: its own runtime directory, and the
     // stub in front of the system's libpam.
-    unsafe {
-        std::env::set_var("XDG_RUNTIME_DIR", &runtime);
-        std::env::set_var("LD_LIBRARY_PATH", dir.path());
-    }
+    stub_pam(dir.path());
     let mut config = Config::default();
     config.keyboard.layout = "us".into();
     let h = Harness::start(config, &[(800, 600)]);
@@ -214,5 +233,77 @@ fn the_password_typed_into_the_real_lock_client_unlocks() {
         type_keys(&h, &[A, S, D, F, ENTER]);
         wait(&format!("{case}: the right password did not unlock"), || !is_locked(&h));
         eprintln!("{case}: locked in {took:?}, unlocked");
+    }
+}
+
+/// The lock client's surfaces, by id.
+fn lock_surfaces(h: &Harness) -> Vec<ObjectId> {
+    h.with(|ede| ede.sealed_lock_surfaces().into_iter().map(|(_, s)| s.id()).collect())
+}
+
+/// The surface with the keyboard.
+fn keyboard_on(h: &Harness) -> Option<ObjectId> {
+    h.with(|ede| ede.desk.seat.get_keyboard().unwrap().current_focus().map(|f| f.id()))
+}
+
+/// Output 0 shows the lock's background up to its far corner, at `size`:
+/// the lock surface covers the output at its new mode.
+fn covers(h: &Harness, (w, h_): (i32, i32)) -> bool {
+    let frame = h.capture(0);
+    let background = frame.at(4, 4);
+    (frame.width, frame.height) == (w, h_) && background & 0x00ff_ffff != 0 && frame.at(w - 4, h_ - 4) == background
+}
+
+/// #EDE-209: a mode change while locked (the Displays page or
+/// `exponential-ctl set_output`, and one under the session: a VM window
+/// resized, a monitor's new EDID) keeps the lock surface: it follows the
+/// new size, what the person typed stays in the field and the keyboard on
+/// it. Half the password before each change, the rest after: it unlocks.
+#[test]
+#[ignore = "needs EDE_SEALED_BIN, the built exponential-sealed"]
+fn what_was_typed_survives_a_mode_change() {
+    let _env = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    let _ = tracing_subscriber::fmt().with_test_writer().with_env_filter("warn").try_init();
+    let bin = std::env::var("EDE_SEALED_BIN").expect("EDE_SEALED_BIN");
+    let dir = tempfile::tempdir().unwrap();
+    stub_pam(dir.path());
+    let mut config = Config::default();
+    config.keyboard.layout = "us".into();
+    let h = Harness::start(config, &[(800, 600)]);
+    h.with(|ede| ede.listen().map(|_| ())).unwrap();
+    h.with(move |ede| ede.begin_sealed_lock_with(vec![bin, "lock".into()]));
+    wait("the lock client never took the keyboard", || {
+        h.with(|ede| ede.desk.seat.get_keyboard().unwrap().current_focus().is_some_and(|f| ede.is_lock_surface(&f)))
+    });
+    wait("the prompt never covered the output", || covers(&h, (800, 600)));
+    let surface = lock_surfaces(&h);
+    assert_eq!(surface.len(), 1);
+
+    // Through the Displays page (`set_output`).
+    type_keys(&h, &[A, S]);
+    h.ipc().set_output("HEADLESS-1", Some("1024x768"), None, None).unwrap();
+    wait("the lock surface did not follow the new mode", || covers(&h, (1024, 768)));
+    assert_eq!(lock_surfaces(&h), surface, "the mode change reopened the lock surface");
+    assert_eq!(keyboard_on(&h).as_ref(), surface.first(), "the mode change took the keyboard off the lock");
+
+    // Under the session (the backend changed the mode itself).
+    type_keys(&h, &[D]);
+    h.with(|ede| {
+        let output = ede.output_named("HEADLESS-1").unwrap();
+        output.change_current_state(Some(smithay::output::Mode { size: (1600, 900).into(), refresh: 60_000 }), None, None, None);
+        ede.output_resized(&output);
+    });
+    wait("the lock surface did not follow the backend's mode", || covers(&h, (1600, 900)));
+    assert_eq!(lock_surfaces(&h), surface, "the backend's mode change reopened the lock surface");
+    assert_eq!(keyboard_on(&h).as_ref(), surface.first(), "the backend's mode change took the keyboard off the lock");
+    assert!(!shows_an_error(&h));
+
+    // The rest of the password: what was typed before both changes is still in the field.
+    type_keys(&h, &[F, ENTER]);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while is_locked(&h) {
+        assert!(!shows_an_error(&h), "the text typed before the mode changes was lost: the rest of the password alone was refused");
+        assert!(Instant::now() < deadline, "the password typed across the mode changes did not unlock");
+        std::thread::sleep(Duration::from_millis(50));
     }
 }

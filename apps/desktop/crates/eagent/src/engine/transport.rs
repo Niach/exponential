@@ -141,6 +141,24 @@ fn forward_exit_with_drops(
     link: ChildExitLink,
     dropped: Option<(Arc<AtomicU64>, Arc<AtomicBool>)>,
 ) {
+    // #PERF-12: a task on the caller's runtime (the adapters forward from
+    // inside their connection), never a thread per child parked on `recv`.
+    // Off a runtime, the thread it always was.
+    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        runtime.spawn(async move {
+            if let Ok(exit) = exit.recv_async().await {
+                if let Some((dropped, reader_done)) = &dropped {
+                    let deadline = std::time::Instant::now() + READER_DRAIN_GRACE;
+                    while !reader_done.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                    link.record_dropped_lines(dropped.load(Ordering::Relaxed));
+                }
+                link.record(exit);
+            }
+        });
+        return;
+    }
     let _ = std::thread::Builder::new()
         .name("exit-forward".to_string())
         .spawn(move || {
@@ -158,6 +176,84 @@ fn forward_exit_with_drops(
                 link.record(exit);
             }
         });
+}
+
+/// #PERF-12: an agent's stderr, read on the runtime instead of a thread.
+#[cfg(unix)]
+mod stderr_task {
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    use std::process::ChildStderr;
+    use std::sync::Arc;
+
+    use tokio::io::unix::AsyncFd;
+
+    use crate::wire::Redactor;
+
+    /// Starts the reader as a task on the current runtime; `Err` hands the
+    /// pipe back (no runtime here, or the fd would not register) for the
+    /// thread instead.
+    pub(super) fn spawn(stderr: ChildStderr, redactor: Arc<Redactor>) -> Result<(), ChildStderr> {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return Err(stderr);
+        };
+        let fd = stderr.as_raw_fd();
+        // SAFETY: `fd` is the open pipe `stderr` owns; only its flags change.
+        let nonblocking = unsafe {
+            let flags = libc::fcntl(fd, libc::F_GETFL);
+            flags >= 0 && libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) >= 0
+        };
+        if !nonblocking {
+            return Err(stderr);
+        }
+        let _entered = runtime.enter();
+        let mut stderr = match AsyncFd::try_new(stderr) {
+            Ok(stderr) => stderr,
+            Err(err) => {
+                let (stderr, _) = err.into_parts();
+                // The thread reads blocking.
+                // SAFETY: as above.
+                unsafe {
+                    let flags = libc::fcntl(fd, libc::F_GETFL);
+                    if flags >= 0 {
+                        libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
+                    }
+                }
+                return Err(stderr);
+            }
+        };
+        runtime.spawn(async move {
+            let mut pending: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let Ok(mut ready) = stderr.readable_mut().await else { break };
+                match ready.try_io(|inner| inner.get_mut().read(&mut chunk)) {
+                    Ok(Ok(0)) => break,
+                    Ok(Ok(read)) => {
+                        pending.extend_from_slice(&chunk[..read]);
+                        while let Some(end) = pending.iter().position(|byte| *byte == b'\n') {
+                            let line: Vec<u8> = pending.drain(..=end).collect();
+                            log_line(&redactor, &line[..line.len() - 1]);
+                        }
+                    }
+                    Ok(Err(err)) if err.kind() == std::io::ErrorKind::Interrupted => {}
+                    Ok(Err(_)) => break,
+                    // Not readable after all: wait for the next edge.
+                    Err(_) => {}
+                }
+            }
+            if !pending.is_empty() {
+                log_line(&redactor, &pending);
+            }
+        });
+        Ok(())
+    }
+
+    fn log_line(redactor: &Redactor, line: &[u8]) {
+        let line = String::from_utf8_lossy(line);
+        let line = line.strip_suffix('\r').unwrap_or(&line);
+        log::warn!("engine: agent stderr: {}", redactor.redact(line));
+    }
 }
 
 /// How long the exit forwarder waits for the stdout reader to reach EOF
@@ -416,15 +512,28 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
         // its config on stderr would write them straight into the daemon's
         // journal. Same masking the wire gets (`steer::Redactor`), off this
         // spawn's OWN env.
-        let redactor = crate::wire::Redactor::new(secret_env_values(&spec.env));
-        std::thread::Builder::new()
-            .name(format!("acp-stderr-{pid}"))
-            .spawn(move || {
-                for line in BufReader::new(child_stderr).lines() {
-                    let Ok(line) = line else { break };
-                    log::warn!("engine: agent stderr: {}", redactor.redact(&line));
-                }
-            })?;
+        let redactor = Arc::new(crate::wire::Redactor::new(secret_env_values(&spec.env)));
+        // #PERF-12: on the caller's runtime when there is one (the
+        // adapters spawn from inside their connection) — a thread per
+        // child for a stream that is silent nearly always was one of the
+        // ~25 a hosted session held.
+        #[cfg(unix)]
+        let child_stderr = match stderr_task::spawn(child_stderr, Arc::clone(&redactor)) {
+            Ok(()) => None,
+            Err(child_stderr) => Some(child_stderr),
+        };
+        #[cfg(not(unix))]
+        let child_stderr = Some(child_stderr);
+        if let Some(child_stderr) = child_stderr {
+            std::thread::Builder::new()
+                .name(format!("acp-stderr-{pid}"))
+                .spawn(move || {
+                    for line in BufReader::new(child_stderr).lines() {
+                        let Ok(line) = line else { break };
+                        log::warn!("engine: agent stderr: {}", redactor.redact(&line));
+                    }
+                })?;
+        }
     }
 
     let exited = Arc::new(AtomicBool::new(false));

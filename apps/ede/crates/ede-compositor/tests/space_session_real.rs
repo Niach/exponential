@@ -62,6 +62,7 @@ impl Drop for Stopped {
 
 #[test]
 fn a_space_has_its_own_user_manager_and_one_bus() {
+    common::space::without_installed_guard();
     if let Err(reason) = ede_compositor::spaces::slice::Units::probe() {
         assert!(std::env::var_os("EDE_EXPECT_USER_MANAGER").is_none(), "this check needs a systemd user manager: {reason}");
         eprintln!("skipped: {reason}");

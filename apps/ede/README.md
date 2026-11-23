@@ -681,7 +681,7 @@ first; each op needs the Core capability it names:
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
 | `space_of_process {pid}` (#EDE-127: the agent space a process belongs to, `{space: {space, by, pid} or null, session, unscoped_launches, no_space}` with `by` = `cgroup` (#EDE-138, looked at first), `launch`, `group`, `client` or `environment`; #EDE-143: `session` = it runs in the compositor's own cgroup, `unscoped_launches` = a space has launches outside systemd scopes, `no_space` = no agent space exists (none open, none stopping, no launch alive); the polkit agent asks it) | `system` |
 | `space_busy` (#EXP-1514, D 10: the caller's space does not give way to a new one for 90 s; ePilot's keeper says it each round while the session's turn runs) | a space grant, its own space |
-| `space_readiness` (#EXP-1514, #EXP-2011: `{ready, block?, max?}`, whether a person's runs get an agent space now; every compositor that makes spaces says `space-readiness` and answers from what holds now: `no_user_manager` (its tools, its private socket, memory and pids delegated to it), `guard` (the space guard installed and answering, polkit refusing a space's process), `session` (a space's session failed to start, until one starts); see "Agent spaces: readiness"; never a space grant's) | any person-scope grant |
+| `space_readiness` (#EXP-1514, #EXP-2011: `{ready, block?, max?, signals?}`, whether a person's runs get an agent space now (`signals: "open"`, #EDE-157: a space's programs can signal the person's here; never a block); every compositor that makes spaces says `space-readiness` and answers from what holds now: `no_user_manager` (its tools, its private socket, memory and pids delegated to it), `guard` (the space guard installed and answering, polkit refusing a space's process), `session` (a space's session failed to start, until one starts); see "Agent spaces: readiness"; never a space grant's) | any person-scope grant |
 | `launch_token` (#EDE-76: a one-shot token, good for 120 s, for the `XDG_ACTIVATION_TOKEN` and `DESKTOP_STARTUP_ID` of a launch the person made; that app's window takes the keyboard, by its process or over xdg-activation; any other new window opens behind the focused one) | the shell's root grant only |
 
 The compositor writes the root token (every capability) to
@@ -1005,7 +1005,11 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   "new and empty"). Needs `dbus-daemon` (the packages depend on it).
   A Flatpak installed for the person alone (`flatpak install --user`) is
   not there in a space: its installation is under `XDG_DATA_HOME`, and a
-  space has its own; system-wide ones are (#EDE-158). `flatpak run` asks
+  space has its own; system-wide ones are (#EDE-158). Such a launch is
+  refused with why, and so is a caller's `FLATPAK_USER_DIR`: the person's
+  installation is never shared, since a space's programs run as the person
+  and `flatpak install`, `update`, `uninstall` or `remote-add` would write
+  into it. `flatpak run` asks
   the person's user manager for its scope whatever the environment says,
   so the compositor finds such a scope of a space's (its first process is
   a launch of the space's, or a child of one) within a second and moves
@@ -1040,6 +1044,18 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   X11 CLIPBOARD are never involved. A drag the space's X11 app starts runs
   on the space's seat. A space that closes in the middle of a paste ends
   it there (an agent's read is answered `unavailable`).
+- **A space's Xwayland costs the space (#EDE-149).** Right after its start
+  it leaves the person's login session for a scope of its own in
+  `app.slice` (`exponential-p<compositor>-s<space>-x11-<n>.scope`) whose
+  one limit is one space's `MemoryMax` (no swap): what an X11 app makes
+  it hold is counted there, and at the limit the kernel ends it (the next
+  launch starts another). Never a CPU quota or a `MemoryHigh`: those
+  would slow the server down, and its window manager asks it on the
+  compositor's thread. Those questions may wait 200 ms a second all
+  together: a server that keeps them waiting longer (stopped, short of
+  memory, or flooded so that every answer comes late) is cut off and
+  ended, so it costs the person's frames that once at most. Without the person's user manager it stays in the
+  session's scope.
 - **X authority, both sides.** Every Xwayland of the compositor admits
   only a client that shows its cookie (MIT-MAGIC-COOKIE-1). The person's
   file is `$XDG_RUNTIME_DIR/xauth_<wayland socket>`. Its path stays the
@@ -1066,8 +1082,11 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   own. The Chromium family (Chromium, Chrome, Brave, Edge, Vivaldi, and
   their binaries started by name: `chrome` of Chrome, Chrome for Testing
   and Playwright, `chrome-headless-shell`, `headless_shell`, `msedge`,
-  `vivaldi-bin`) gets `--user-data-dir=`; Firefox and LibreWolf get
-  `--profile <dir> --new-instance`. For a browser of the system the
+  `vivaldi-bin`, and Opera) gets `--user-data-dir=`; Firefox, LibreWolf,
+  Zen, Floorp and Waterfox get `--profile <dir> --new-instance`; GNOME Web
+  (Epiphany) gets `--profile=<dir>`, an instance of its own. A caller's
+  `XRE_PROFILE_PATH` or `XRE_PROFILE_LOCAL_PATH` is refused: Firefox reads
+  them ahead of `--profile` (#EDE-187). For a browser of the system the
   directory is in the space's home. For a snap or a Flatpak (its command,
   `snap run`, `flatpak run`, or Ubuntu's `/usr/bin/firefox` script that
   runs the snap) it is in the app's own data, the one place it may write:
@@ -1077,8 +1096,10 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   start. A launch that names its own profile (Playwright always does, in a
   temporary directory) keeps it, and the space makes none, unless that
   profile is, or is inside, one of the person's:
-  `~/.config/{chromium,google-chrome*,BraveSoftware,microsoft-edge*,vivaldi*,mozilla,librewolf}`
-  (and the same under `$XDG_CONFIG_HOME`), `~/.mozilla`, `~/.librewolf`, or
+  `~/.config/{chromium,google-chrome*,BraveSoftware,microsoft-edge*,vivaldi*,opera*,mozilla,librewolf,zen}`
+  (and the same under `$XDG_CONFIG_HOME`), `~/.local/share/epiphany` (and
+  under `$XDG_DATA_HOME`), `~/.mozilla`, `~/.librewolf`, `~/.zen`,
+  `~/.floorp`, `~/.waterfox`, or
   a known browser's `~/snap/<name>` or `~/.var/app/<id>` outside its
   `exponential-space`, each followed through links and `..` from the
   launch's directory. Such a launch is refused (#EDE-186), and so are
@@ -1092,10 +1113,11 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   of the Chromium family also gets `--ozone-platform=x11`: it exits where
   the space's Wayland socket is refused, rather than falling back. Firefox
   gets nothing more: it switches to software WebRender by itself. A browser
-  that is not on the list runs like any other program. A browser of the
-  system then keeps its data in the space's own directories, but a snap or
-  Flatpak one uses the person's profile and may open on the person's desk
-  (#EDE-166).
+  of the system that is not on the list runs like any other program and
+  keeps its data in the space's own directories. A snap or Flatpak the list
+  does not know is refused when its `.desktop` file says it is a browser
+  (`Categories=WebBrowser`, or it opens `http`/`https` links): it would use
+  the person's profile and may open on the person's desk (#EDE-166).
 - **The person's Xwayland starts again** when it dies, on the same display
   and with the same cookie file, so the `DISPLAY` and `XAUTHORITY` the
   session was given stay right. Its X11 windows are let go of, and its
@@ -1119,7 +1141,7 @@ app.slice/app-exponential_p<compositor pid>.slice    all spaces: CPU quota, memo
   process that cleared its environment, left its launch's lineage and
   group, and left the slice is tied to nothing (#EDE-145).
 
-## The space guard: `exponential-space-guard` (#EDE-146, #EDE-147, #EDE-148)
+## The space guard: `exponential-space-guard` (#EDE-146, #EDE-147, #EDE-148, #EDE-157)
 
 A space's programs are the person's user, so by user they may open the
 person's microphone and camera (the `uaccess` ACLs logind gives the person,
@@ -1175,6 +1197,27 @@ so does the person's Xwayland's abstract socket: until Xwayland gets an
 X authority (F3), `DISPLAY=:0 xdotool type …` from a space reaches the
 person's X11 apps.
 
+Third, a signal program (#EDE-157, `crates/ede-space-guard/src/signals.rs`):
+the kernel lets a user signal all of its own processes, so from a space
+`pkill firefox` would end the person's Firefox, `killall Xwayland` their
+X11 apps and `pkill -f exponential` their session. Where the kernel runs
+BPF LSM programs (`bpf` in `/sys/kernel/security/lsm`; Linux 6.5 or newer),
+the guard attaches an LSM program to the slice (`BPF_LSM_CGROUP` on
+`bpf_lsm_task_kill`, the hook's and the kfuncs' BTF ids read from
+`/sys/kernel/btf/vmlinux`). It runs for every signal a process of the slice
+sends (kill, tkill, tgkill, pidfd_send_signal, rt_sigqueueinfo) and lets
+through signal 0 (`kill -0`, is it there?) and any signal to a process
+inside the same slice (`bpf_cgroup_from_id` of the slice's id, baked into
+the program, `bpf_task_under_cgroup`); every other one is refused with
+`EPERM`. Inside the space nothing changes (its user manager, bus and
+launches signal each other as before); the person still signals a space's
+processes. Not covered: `fcntl(F_SETOWN)` + SIGIO, a process that left its
+cgroup. Where the BPF LSM is off (Ubuntu 24.04's default list), spaces are
+still offered: the probe's `probe signals` answers why not, readiness
+carries `signals: open`, and the doctor's line says that programs in a
+space can end your apps (`exponential-space-guard probe` prints
+`signals closed` or `signals open: <why>`).
+
 The package also ships `/usr/share/polkit-1/rules.d/00-00-exponential-agent-spaces.rules`:
 polkit answers NO for every action whose subject is in a space's slice
 (polkit takes a space's processes for the person's active session, so
@@ -1212,7 +1255,8 @@ answers with a challenge; readiness and the doctor's line need it.
   space (its state file says `wayland open`).
 - **Its three capabilities, no root.** A user of its own (`DynamicUser`),
   `CAP_BPF` and `CAP_NET_ADMIN` (to load and attach cgroup programs),
-  `CAP_PERFMON` (the connect program reads the address it is asked about),
+  `CAP_PERFMON` (the connect program reads the address it is asked about,
+  and the signal program is an LSM program),
   nothing else; no network, no home directories, the system read-only, a
   narrow syscall set. What a compromised guard could do with them: attach
   cgroup programs to any cgroup (also refusing devices or sockets to other
@@ -1244,7 +1288,9 @@ answers with a challenge; readiness and the doctor's line need it.
   root in a space (sudo with the person's password) detaching the program.
 - **Needs** cgroup v2, Linux 6.7 or newer (the unix connect hook) with BTF,
   lockdown below `confidentiality`, and a kernel that loads both programs
-  (`exponential-space-guard probe` prints `ok` or why not).
+  (`exponential-space-guard probe` prints `ok` or why not); the signal
+  program also `bpf` among the kernel's LSMs (`lsm=` on the kernel's
+  command line where it is not).
 
 ## Agent spaces: readiness (#EXP-1514, #EXP-2011)
 

@@ -644,18 +644,22 @@ pub(crate) fn chat_menu(
     window: &mut Window,
     cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
 ) -> gpui_component::menu::PopupMenu {
-    use crate::controls::{danger_menu_item, pointer_menu_item};
+    use crate::controls::{danger_pointer_menu_item, pointer_menu_item};
     let root = cx.entity().downgrade();
     menu = crate::picker::search_list::search_submenu_parent(menu.min_w(px(240.)));
+    // #EXP-2001: pointer rows throughout (the glyph in the row's body), so
+    // it reads like the `…` it opens from; no crate icon slot.
     for row in chat_menu_rows(target.chip.as_ref().map(|(_, identifier)| identifier.as_str())) {
         menu = match row {
             ChatMenuRow::Separator => menu.separator(),
             ChatMenuRow::LinkIssue => {
                 let target = target.clone();
                 let root = root.clone();
-                menu.submenu_with_icon(
-                    Some(Icon::new(registry::NAV_SEARCH)),
+                crate::controls::pointer_submenu(
+                    menu,
+                    Some(registry::NAV_SEARCH),
                     LINK_ISSUE_LABEL,
+                    None,
                     window,
                     cx,
                     move |sub, window, cx| {
@@ -672,24 +676,18 @@ pub(crate) fn chat_menu(
             }
             ChatMenuRow::NewIssue => {
                 let root_id = target.root_id.clone();
-                menu.item(
-                    pointer_menu_item(None, NEW_ISSUE_LABEL, |_| None, move |window, cx| {
-                        open_new_issue_in_chat(&root_id, window, cx);
-                    })
-                    .icon(Icon::new(registry::UI_ADD)),
-                )
+                menu.item(pointer_menu_item(Some(registry::UI_ADD), NEW_ISSUE_LABEL, |_| None, move |window, cx| {
+                    open_new_issue_in_chat(&root_id, window, cx);
+                }))
             }
             ChatMenuRow::Unlink(identifier) => {
                 let Some((issue_id, _)) = target.chip.clone() else {
                     continue;
                 };
                 let root_id = target.root_id.clone();
-                menu.item(
-                    danger_menu_item(unlink_label(&identifier), Icon::new(registry::UI_CLOSE), cx)
-                        .on_click(move |_, _, cx| {
-                            unlink_issue(root_id.clone(), issue_id.clone(), cx);
-                        }),
-                )
+                menu.item(danger_pointer_menu_item(registry::UI_CLOSE, unlink_label(&identifier), move |_, cx| {
+                    unlink_issue(root_id.clone(), issue_id.clone(), cx);
+                }))
             }
         };
     }
@@ -861,21 +859,19 @@ fn guide_menu(model: &ChatModel, link: ChatMenuTarget, cx: &App) -> Option<AnyEl
                                 crate::pr_merge::run_train_op(id.clone(), crate::pr_merge::TrainOp::Hold(hold), cx)
                             }))
                         }
-                        MergeMenuEntry::ClosePr => menu.item(
-                            crate::controls::danger_menu_item(
-                                domain::contract::DIFF_UI_CLOSE_PR,
-                                Icon::new(registry::PR_CLOSED),
-                                cx,
-                            )
-                            .on_click(move |_, window, cx| {
+                        // #EXP-2001: the pointer rows' danger twin (no crate icon slot).
+                        MergeMenuEntry::ClosePr => menu.item(crate::controls::danger_pointer_menu_item(
+                            registry::PR_CLOSED,
+                            domain::contract::DIFF_UI_CLOSE_PR,
+                            move |window, cx| {
                                 crate::issue_header::prompt_close_pr(
                                     id.clone(),
                                     crate::issue_header::close_pr_description(others),
                                     window,
                                     cx,
                                 );
-                            }),
-                        ),
+                            },
+                        )),
                     };
                 }
                 menu
@@ -1165,16 +1161,18 @@ pub(crate) fn delivery_tint(state: domain::message_delivery::DeliveryState, cx: 
 pub(crate) fn bubble_menu_rows(
     mut menu: gpui_component::menu::PopupMenu,
     bubble_menu: &BubbleMenu,
-    cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+    _cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
 ) -> gpui_component::menu::PopupMenu {
     use domain::message_delivery::BubbleAction;
     for &action in &bubble_menu.actions {
         let on_pick = bubble_menu.on_pick.clone();
         menu = match action {
-            BubbleAction::Delete => menu.item(
-                crate::controls::danger_menu_item(action.label(), Icon::new(registry::UI_DELETE), cx)
-                    .on_click(move |_, window, cx| on_pick(action, window, cx)),
-            ),
+            // #EXP-2001: the pointer rows' danger twin (no crate icon slot).
+            BubbleAction::Delete => menu.item(crate::controls::danger_pointer_menu_item(
+                registry::UI_DELETE,
+                action.label(),
+                move |window, cx| on_pick(action, window, cx),
+            )),
             BubbleAction::Retry | BubbleAction::Cancel => {
                 let icon = if action == BubbleAction::Retry { registry::UI_REFRESH } else { registry::UI_CLOSE };
                 menu.item(crate::controls::pointer_menu_item(Some(icon), action.label(), |_| None, move |window, cx| {

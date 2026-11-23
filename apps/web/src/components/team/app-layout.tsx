@@ -1,4 +1,5 @@
 import { useNotificationToasts } from "@/hooks/use-notification-toasts"
+import { isGlobalSearchKey } from "./global-search-shortcut"
 import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
 import { rememberLastVisited } from "@/lib/last-visited"
@@ -36,7 +37,7 @@ import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
 import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
 import { useKeyHolder } from "@/lib/enet/use-key-holder"
-import { useAppIconBadge } from "@/hooks/use-app-icon-badge"
+import { MemberNeedsYouProvider } from "@/hooks/use-app-icon-badge"
 import { useWebInstall } from "@/lib/enet/use-web-install"
 import { startChatStore, stopChatStore } from "@/lib/chat-store/client"
 import {
@@ -101,19 +102,15 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
     startChatStore(storeUserId)
     return () => stopChatStore()
   }, [storeUserId])
-  // #FEED-232: the OS app icon's count (every team's Needs you rows).
-  useAppIconBadge(user?.id)
   // #EXP-1815: a new notification while the app is open = THE toast,
   // unless this page already shows it (notification-delivery.json).
   useNotificationToasts(user?.id)
 
-  // Linear-style global search shortcut: Cmd/Ctrl+F always opens the app
-  // search, unconditionally (EXP-870: the app's one navigation chord).
+  // The global search shortcut (EXP-870): #EXP-2025 Cmd/Ctrl+K everywhere,
+  // Cmd/Ctrl+F unless an open chat took it first (#EDE-129 find in chat).
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // #EDE-129: an open chat took it first (find in chat).
-      if (event.defaultPrevented) return
-      if (event.key === `f` && (event.metaKey || event.ctrlKey)) {
+      if (isGlobalSearchKey(event)) {
         event.preventDefault()
         setSearchOpen(true)
       }
@@ -161,6 +158,9 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
   const { boards: tabBoards } = useBoardsForTeams(tabTeamIds)
 
   return (
+    // #FEED-232 / #PERF-13: the OS app icon's count, and the ONE Needs you
+    // count the sidebar and the team page read.
+    <MemberNeedsYouProvider userId={user?.id}>
     <SidebarProvider ref={setSidebarWrapper}>
       <SidebarWidthSync wrapper={sidebarWrapper} occupant={occupant.kind} />
       {/* Team-scoped `#IDENTIFIER` + `@email` resolution for pill
@@ -263,5 +263,6 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
       </GettingStartedProgressProvider>
       </TeamStatusesProvider>
     </SidebarProvider>
+    </MemberNeedsYouProvider>
   )
 }

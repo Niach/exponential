@@ -348,6 +348,8 @@ struct Shell {
     /// #EDE-89: when each popup document last opened (epoch ms, the clock of
     /// the compositor's event stamps).
     popups_opened: HashMap<String, i64>,
+    /// #EDE-168: the height each open taskbar popup was drawn to fit in.
+    popup_rooms: HashMap<String, u32>,
     /// Bumped by every fresh Alt+Tab: a delay timer of an earlier one shows nothing.
     switcher_generation: u64,
     notifications: Notifications,
@@ -1484,10 +1486,12 @@ fn switcher_picked(shell: &SharedShell, entry_kind: uicore_model::SwitcherKind, 
         }
         shell.borrow_mut().local = None;
     }
+    // #VAPP-273: the apps follow the desktop (local records or the team's),
+    // booted before the chat starts: the Local agent's app tools and note
+    // are the seats at its start (#EDE-144).
+    engine_boot(shell, cx);
     chatting_changed(shell, cx);
     chats_refresh(shell, cx);
-    // #VAPP-273: the apps follow the desktop (local records or the team's).
-    engine_boot(shell, cx);
 }
 
 /// The Exponential app on `link` (its single-instance socket), else started.
@@ -1715,7 +1719,65 @@ fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
             size.height = Some(view.height);
         }
     }
+    taskbar_popup_room(&mut header, popup_output_height(shell));
     header
+}
+
+/// #EDE-168: the height a taskbar popup measures its room on: the
+/// compositor's first output (the goldens' demo feeds sample outputs to the
+/// Displays page, never the headless output the shell stands on).
+fn popup_output_height(shell: &Shell) -> u32 {
+    shell.first_output.map(|o| o.3).filter(|h| *h > 0).map(|h| h as u32).unwrap_or_else(|| output_size(shell).1)
+}
+
+/// #EDE-168: a taskbar popup never reaches past the output's work area: it
+/// stands on its button, at most the height above the taskbar less the
+/// panel's margin (854×534 logical, 1280×800 at 1.5: the sound applet's
+/// 600 became 476). Its root follows ([`size_root`]) and its content
+/// scrolls; a root that hugs its content takes the window down to it
+/// ([`fit_popups`]).
+fn taskbar_popup_room(header: &mut SurfaceHeader, out_h: u32) {
+    use ede_ui::surface::Placement;
+    let SurfaceHeader::Popup { popup, .. } = header else { return };
+    if popup.parent != "taskbar" || !matches!(popup.placement, Placement::TopStart | Placement::TopEnd) {
+        return;
+    }
+    let layout = shell_layout();
+    let room = out_h.saturating_sub(layout.taskbar_height + layout.panel_margin).max(1);
+    popup.size.height = popup.size.height.min(room);
+}
+
+/// #EDE-168: the open taskbar popups (every tick): drawn again when the
+/// output's room for them changed (an output that arrived or changed after
+/// the popup opened), their windows at their roots' laid-out heights (a
+/// popup's rows arrive after it opened).
+fn fit_popups(shell: &SharedShell, cx: &mut App) {
+    let open: Vec<Document> = {
+        let s = shell.borrow();
+        let ui = s.ui.lock().unwrap_or_else(|p| p.into_inner());
+        ui.documents()
+            .filter(|d| matches!(&d.surface, SurfaceHeader::Popup { popup, .. } if popup.parent == "taskbar"))
+            .filter(|d| s.surfaces.is_open(&d.name))
+            .cloned()
+            .collect()
+    };
+    shell.borrow_mut().popup_rooms.retain(|n, _| open.iter().any(|d| &d.name == n));
+    for doc in open {
+        let SurfaceHeader::Popup { popup, .. } = header_for(&shell.borrow(), &doc) else { continue };
+        let room = popup.size.height;
+        let before = shell.borrow_mut().popup_rooms.insert(doc.name.clone(), room);
+        if before.is_some_and(|b| b != room) {
+            let (drawn, feed) = {
+                let s = shell.borrow();
+                (drawn_now(&s, &doc), s.feed.clone())
+            };
+            shell.borrow_mut().surfaces.redraw(&drawn, &feed, cx);
+            tracing::info!(document = %doc.name, room, "popup room changed");
+        }
+        if shell.borrow_mut().surfaces.fit_popup(&doc.name, room as f32, cx) {
+            tracing::info!(document = %doc.name, "popup fitted");
+        }
+    }
 }
 
 /// [`header_for`] on an output of `(out_w, out_h)` logical px.
@@ -1748,8 +1810,18 @@ fn layer_header(doc: &Document, (out_w, out_h): (u32, u32)) -> SurfaceHeader {
 }
 
 /// A layer document's root takes the surface's size in px (`100%` of a
-/// layer window is whatever it was opened at).
+/// layer window is whatever it was opened at); a popup's root is at most
+/// its window's height (#EDE-168: [`taskbar_popup_room`]).
 fn size_root(doc: &mut Document, header: &SurfaceHeader) {
+    if let (SurfaceHeader::Popup { popup, .. }, ede_ui::Body::Nested(root)) = (header, &mut doc.body) {
+        let room = popup.size.height;
+        let style = root.style.get_or_insert_with(Default::default);
+        if style.get("height").and_then(Value::as_f64).is_some_and(|h| h > room as f64) {
+            style.insert("height".into(), json!(room));
+        }
+        style.insert("maxHeight".into(), json!(room));
+        return;
+    }
     let SurfaceHeader::Layer { size, .. } = header else { return };
     if let ede_ui::Body::Nested(root) = &mut doc.body {
         let style = root.style.get_or_insert_with(Default::default);
@@ -1825,6 +1897,11 @@ fn toggle_popup(shell: &SharedShell, name: &str, cx: &mut App) {
         return;
     }
     let Some(doc) = document(&shell.borrow(), name) else { return };
+    // #EDE-168: at the room the output has for it.
+    let doc = drawn_now(&shell.borrow(), &doc);
+    if let SurfaceHeader::Popup { popup, .. } = &doc.surface {
+        shell.borrow_mut().popup_rooms.insert(name.to_string(), popup.size.height);
+    }
     let feed = shell.borrow().feed.clone();
     shell.borrow_mut().popups_opened.insert(name.to_string(), now_ms());
     shell.borrow_mut().surfaces.open_popup(&doc, &feed, cx);
@@ -2175,17 +2252,10 @@ fn chat_local(shell: &SharedShell) -> bool {
         // #VAPP-273: the desktop's own agent edits the shell through `shell_edit` (never an
         // app) and reaches the running apps' exposed tools (`<app>__<tool>`).
         let ui_dir = shell.borrow().ui.lock().unwrap_or_else(|p| p.into_inner()).dir().to_path_buf();
-        let mut providers: Vec<Arc<dyn emcp::server::ToolProvider>> = vec![Arc::new(engine::shell_edit::ShellEdit::new(ui_dir))];
-        let mut note = engine::shell_edit::ShellEdit::note();
         // #EDE-141: the seats the Engine's boots replace, so this chat's
         // tools reach the apps that run, whichever Engine booted them.
         let seats = shell.borrow().engine_seats.clone();
-        let names: Vec<String> = seats.read().unwrap_or_else(|p| p.into_inner()).iter().map(|a| a.server.clone()).collect();
-        if !names.is_empty() {
-            note.push_str(&format!(" The apps of this desktop expose their tools as <app>__<tool> (apps: {}); a records tool reads or writes the app's own records, an action tool runs one of the exponential tools via the app.", names.join(", ")));
-            providers.push(Arc::new(engine::exposes::AppsProvider { apps: seats, exponential: elocal::runs::local_tools(desktop.clone()) }));
-        }
-        let host = elocal::runs::HostTools { provider: Arc::new(engine::exposes::Providers(providers)), note };
+        let host = engine::exposes::local_host(Arc::new(engine::shell_edit::ShellEdit::new(ui_dir)), engine::shell_edit::ShellEdit::note(), seats, elocal::runs::local_tools(desktop.clone()));
         let chat = local_runs::LocalChat::start(desktop, Some(host));
         shell.borrow_mut().chat_local = Some(chat);
     }
@@ -4146,6 +4216,7 @@ fn main() {
             layers_opened: HashMap::new(),
             osd_until: None,
             popups_opened: HashMap::new(),
+            popup_rooms: HashMap::new(),
             switcher_generation: 0,
             notifications: Notifications {
                 // The goldens: two desktop notifications (the first toasting) between the demo inbox's entries.
@@ -4228,6 +4299,10 @@ fn main() {
         if !demo {
             // The outputs first: a stretched surface takes the output's size.
             outputs_refresh(&shell);
+        } else {
+            // #EDE-168: the output the taskbar's popups measure their room on.
+            let outputs = with_ede(&shell, |ede| ede.outputs()).unwrap_or_default();
+            shell.borrow_mut().first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
         }
         // #EXP-2024: the spaces' feeds at the first display's size.
         spaces_feed(&shell);
@@ -4252,6 +4327,12 @@ fn main() {
             if let Change::Rejected { name, issues, .. } = change {
                 tracing::warn!(document = %name, ?issues, "refused at start");
             }
+        }
+        // #EDE-202: a document the supervisor set aside at start (an older
+        // release's, refused now), told once with the shell's own toast.
+        for notice in ede_ui::take_notices(&dir) {
+            let (title, body) = notice.toast();
+            toast(&shell, &title, &body, cx);
         }
         if shell.borrow().surfaces.open_names().next().is_none() {
             tracing::warn!(dir = %dir.display(), "no layer document to draw (is the factory directory installed? exponential-ui --factory apps/ede/ui check)");
@@ -4458,6 +4539,7 @@ fn main() {
                 if dirty {
                     cx.update(|cx| refresh(&s, cx));
                 }
+                cx.update(|cx| fit_popups(&s, cx));
                 cx.background_executor().timer(Duration::from_millis(100)).await;
             }
         })
@@ -4841,6 +4923,22 @@ mod function_names {
 }
 
 #[cfg(test)]
+mod switcher_pick {
+    /// #EDE-144: a pick boots the Engine before the chat starts, so the
+    /// Local agent's app tools and note are the picked desktop's
+    /// (`engine::exposes::local_host`, tested there), not the place's before.
+    #[test]
+    fn a_pick_boots_the_apps_before_the_chat_starts() {
+        let source = include_str!("main.rs");
+        let body = &source[source.find("\nfn switcher_picked(").expect("switcher_picked")..];
+        let body = &body[..body.find("\n}\n").expect("its end")];
+        let boot = body.find("engine_boot(shell, cx);").expect("the pick boots the apps");
+        let chat = body.find("chatting_changed(shell, cx);").expect("the pick starts the chat");
+        assert!(boot < chat, "the Engine boots before the chat starts");
+    }
+}
+
+#[cfg(test)]
 mod switcher {
     use super::*;
 
@@ -4968,6 +5066,40 @@ mod layer_sizes {
             assert_eq!(size(&layer_header(&ground, out)), (Some(out.0), Some(out.1), -1), "{out:?}");
         }
         assert_ne!(layer_header(&taskbar, (1280, 720)), layer_header(&taskbar, (1920, 1080)), "a new size is a relayout");
+    }
+
+    /// #EDE-168: on a 1280×800 output at scale 1.5 (854×534 logical, the
+    /// VM's boot size) the sound applet's 600 px reached past the top of the
+    /// screen. Every taskbar popup stands on its button within the room
+    /// above the taskbar (less the panel's margin), its root no taller; one
+    /// that fits keeps its size, and the start menu (620) is held too.
+    #[test]
+    fn a_taskbar_popup_never_leaves_the_work_area() {
+        let room = 534 - 48 - shell_layout().panel_margin;
+        let popup_height = |name: &str, out_h: u32| {
+            let doc = factory(name);
+            let mut header = doc.surface.clone();
+            taskbar_popup_room(&mut header, out_h);
+            let drawn = as_drawn(&doc, header.clone(), None);
+            let SurfaceHeader::Popup { popup, .. } = header else { panic!("{name}: a popup header") };
+            let ede_ui::Body::Nested(root) = &drawn.body else { panic!("{name}: a nested body") };
+            let style = root.style.clone().unwrap_or_default();
+            assert_eq!(style.get("maxHeight").and_then(Value::as_u64), Some(popup.size.height as u64), "{name}: the root is never taller than its window");
+            if let Some(h) = style.get("height").and_then(Value::as_u64) {
+                assert!(h <= popup.size.height as u64, "{name}: root {h} in a {} window", popup.size.height);
+            }
+            popup.size.height
+        };
+        assert_eq!(popup_height("applet-sound", 534), room);
+        assert_eq!(popup_height("start-menu", 534), room);
+        assert_eq!(popup_height("applet-network", 534), 350, "a popup that fits keeps its size");
+        assert_eq!(popup_height("applet-sound", 800), 600, "1280×800 logical has room for all of it");
+        for d in uicore_docs::DOCS.iter() {
+            let doc = factory(d.name);
+            if matches!(&doc.surface, SurfaceHeader::Popup { popup, .. } if popup.parent == "taskbar") {
+                assert!(popup_height(d.name, 534) <= room, "{}", d.name);
+            }
+        }
     }
 
     /// #EXP-2024 (section 8, 6d): the pinned view of an agent space is an

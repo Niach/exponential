@@ -409,6 +409,39 @@ fn exclude_reason(worktree: &Path, change: &Change) -> Option<&'static str> {
     None
 }
 
+/// `changes` split into the paths a snapshot takes and the ones
+/// [`exclude_reason`] keeps out.
+fn split_excluded(worktree: &Path, changes: Vec<Change>) -> (Vec<String>, Vec<String>) {
+    let mut skipped = Vec::new();
+    let mut paths = Vec::new();
+    for change in changes {
+        match exclude_reason(worktree, &change) {
+            Some(_) => skipped.push(change.path),
+            None => paths.push(change.path),
+        }
+    }
+    (paths, skipped)
+}
+
+/// #EXP-2039: the uncommitted paths a stop-time WIP commit
+/// ([`crate::wip_save::save_wip_commit`]) may take, by the snapshot's
+/// rules: only the tracked ones past [`MAX_WIP_PATHS`] changed paths (a
+/// flood of new files is build output nobody ignored: an Xcode
+/// DerivedData dir), never a secret-looking or oversized file. `(paths,
+/// skipped)`; unlike a snapshot, too many TRACKED changes still commit.
+pub(crate) fn stop_save_paths(worktree: &Path) -> Result<(Vec<String>, Vec<String>), String> {
+    let mut changes = status(worktree)?;
+    let mut flood = Vec::new();
+    if changes.len() > MAX_WIP_PATHS {
+        let (tracked, untracked): (Vec<Change>, Vec<Change>) = changes.into_iter().partition(|change| !change.untracked);
+        changes = tracked;
+        flood = untracked.into_iter().map(|change| change.path).collect();
+    }
+    let (paths, mut skipped) = split_excluded(worktree, changes);
+    skipped.extend(flood);
+    Ok((paths, skipped))
+}
+
 /// Build a snapshot of `worktree`'s uncommitted work WITHOUT touching it:
 /// a temporary index seeded from `HEAD`, the changed paths added to it
 /// (minus [`exclude_reason`]'s), written as a tree and committed on `HEAD`.
@@ -425,14 +458,7 @@ pub fn snapshot(worktree: &Path, branch: &str) -> Result<Option<Snapshot>, Strin
             return Err(format!("{} changed paths: too many to snapshot", changes.len()));
         }
     }
-    let mut skipped = Vec::new();
-    let mut paths = Vec::new();
-    for change in changes {
-        match exclude_reason(worktree, &change) {
-            Some(_) => skipped.push(change.path),
-            None => paths.push(change.path),
-        }
-    }
+    let (paths, skipped) = split_excluded(worktree, changes);
     let head_tree = rev(worktree, "HEAD^{tree}").ok_or_else(|| "no HEAD tree".to_string())?;
     if paths.is_empty() {
         return Ok(None);
@@ -1037,6 +1063,26 @@ mod tests {
         assert_eq!(report.branch, BranchPush::UpToDate);
         assert_eq!(report.wip, Some(WipPush::Dropped));
         assert_eq!(fx.origin_rev(&wip_ref(BRANCH)), None);
+    }
+
+    /// EXP-2060: a pass (the HEAD check, the snapshot in its temporary
+    /// index, the push with its idle deadline) spawns every git through
+    /// posix_spawn, never as a fork of the app.
+    #[cfg(unix)]
+    #[test]
+    fn a_pass_never_forks_the_host() {
+        terminal::process::catch_ignored_signals();
+        let fx = Fixture::new("no-fork");
+        let (_, wt) = fx.device("a", BRANCH);
+        commit(&wt, "work.txt", "not released yet");
+        std::fs::write(wt.join("wip.txt"), "uncommitted\n").unwrap();
+        let before = terminal::process::forks_on_this_thread();
+        let head = rev(&wt, "HEAD");
+        let report = sync(&target(&wt), true);
+        assert_eq!(terminal::process::forks_on_this_thread(), before, "a pass forked the host");
+        assert!(head.is_some());
+        assert!(matches!(report.branch, BranchPush::Unpushed(_)), "{report:?}");
+        assert!(matches!(report.wip, Some(WipPush::Pushed { .. })), "{report:?}");
     }
 
     #[test]

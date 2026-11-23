@@ -1,5 +1,6 @@
 //! What `space-enter` asks the guard, and where. One line each way:
-//! `probe` | `probe wayland` | `enter <spaces>`, then `ok` | `no <reason>`.
+//! `probe` | `probe wayland` | `probe signals` | `enter <spaces>`, then
+//! `ok` | `no <reason>`.
 
 use std::path::Path;
 
@@ -19,6 +20,10 @@ pub enum Request {
     /// socket (#EDE-145). A guard from before answers it
     /// [`NOT_A_REQUEST`]: so the session knows which one it has.
     ProbeWayland,
+    /// #EDE-157: does this guard refuse a space's signals to the person's
+    /// processes on this kernel? `no <why>` = they stay open (a guard from
+    /// before answers [`NOT_A_REQUEST`]).
+    ProbeSignals,
     /// Guard the space slice the asking process is in. `spaces` = the
     /// compositor's directory of spaces, whose sockets stay reachable.
     Enter { spaces: String },
@@ -29,6 +34,7 @@ impl Request {
         match self {
             Request::Probe => "probe\n".into(),
             Request::ProbeWayland => "probe wayland\n".into(),
+            Request::ProbeSignals => "probe signals\n".into(),
             Request::Enter { spaces } => format!("enter {spaces}\n"),
         }
     }
@@ -38,6 +44,7 @@ impl Request {
         match line.split_once(' ') {
             None if line == "probe" => Ok(Request::Probe),
             Some(("probe", "wayland")) => Ok(Request::ProbeWayland),
+            Some(("probe", "signals")) => Ok(Request::ProbeSignals),
             Some(("enter", spaces)) if !spaces.is_empty() => Ok(Request::Enter { spaces: spaces.to_string() }),
             _ => Err(NOT_A_REQUEST.into()),
         }
@@ -98,10 +105,10 @@ mod tests {
 
     #[test]
     fn requests_and_replies_are_one_line_each() {
-        for request in [Request::Probe, Request::ProbeWayland, Request::Enter { spaces: "/run/user/1000/exponential-desktop/wayland-1.spaces".into() }] {
+        for request in [Request::Probe, Request::ProbeWayland, Request::ProbeSignals, Request::Enter { spaces: "/run/user/1000/exponential-desktop/wayland-1.spaces".into() }] {
             assert_eq!(Request::parse(&request.line()), Ok(request));
         }
-        for bad in ["", "enter", "enter ", "probe x", "probe wayland ", "probe  wayland", "attach /x", "PROBE"] {
+        for bad in ["", "enter", "enter ", "probe x", "probe wayland ", "probe  wayland", "probe signals ", "attach /x", "PROBE"] {
             assert!(Request::parse(bad).is_err(), "{bad:?}");
         }
         assert_eq!(parse_reply(&reply(&Ok(()))), Ok(()));

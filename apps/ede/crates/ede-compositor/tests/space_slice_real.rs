@@ -104,6 +104,7 @@ fn left_behind(systemd: u32, compositor: u32, file: &Path) -> Child {
 
 #[test]
 fn a_launch_runs_in_its_spaces_slice_under_the_persons_limits_and_ends_with_it() {
+    common::space::without_installed_guard();
     let me = std::process::id();
     // Two compositors that are gone (process ids above any there is).
     let (crashed, ended) = (4_194_997, 4_194_998);

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it, vi } from "vitest"
-import { and, asc, eq, sql } from "drizzle-orm"
+import { and, asc, eq, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { boards, devices, issues, messages, pullRequests, repositories, sessions, sessionWatches, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
@@ -188,6 +188,22 @@ describe.skipIf(!ready.ok)(`#NEW-49 event watches`, () => {
     expect(lines[0]!.body).toMatch(/^It is .+ UTC, the time you asked to be woken at\.$/)
     expect(await w.watching(w.coordinator)).toEqual([expect.objectContaining({ kind: `at` })])
     await fireDueTimeWatches(new Date(now + 62_000))
+    expect(await w.fired(w.coordinator)).toHaveLength(1)
+  })
+
+  it(`#FEED-270: a future time with an offset posts nothing pending at the watch; it fires at its instant only`, async () => {
+    const w = await world()
+    const at = new Date(Math.ceil(Date.now() / 60_000) * 60_000 + 30 * 60_000)
+    const local = new Date(at.getTime() + 3_600_000).toISOString().replace(`Z`, `+01:00`)
+    const pending = async () =>
+      (await db.select({ id: messages.id }).from(messages).where(and(inSession(w.coordinator), isNull(messages.consumedAt)))).length
+    const before = await pending()
+    await w.watchFrom(w.coordinator, [`at:${local}`])
+    expect(await w.watching(w.coordinator)).toEqual([expect.objectContaining({ kind: `at`, at: at.toISOString() })])
+    expect(await pending()).toBe(before)
+    expect(await fireDueTimeWatches(new Date(at.getTime() - 1))).toBe(0)
+    expect(await w.fired(w.coordinator)).toEqual([])
+    expect(await fireDueTimeWatches(at)).toBeGreaterThanOrEqual(1)
     expect(await w.fired(w.coordinator)).toHaveLength(1)
   })
 

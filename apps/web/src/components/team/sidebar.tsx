@@ -26,7 +26,7 @@ import {
   useSidebar,
 } from "@exp/ui"
 import { InboxPopover } from "@/components/team/inbox-popover"
-import { useNeedsYouCounts } from "@/hooks/use-needs-you"
+import { useMemberNeedsYouCounts } from "@/hooks/use-app-icon-badge"
 import { useSessionReads, useChatsList } from "@/hooks/use-session-tree"
 import { chatWordOf } from "@/components/chat/chats-list"
 import { useSession } from "@/hooks/use-session"
@@ -150,7 +150,7 @@ export function TeamSidebar({
     [memberships]
   )
   const myTeamIds = useMemo(() => myTeams.map((t) => t.id), [myTeams])
-  const needsYou = useNeedsYouCounts(myTeamIds, me)
+  const needsYou = useMemberNeedsYouCounts()
   const draftCount = useCrossTeamDraftCount(myTeamIds)
   const devices = useSidebarDevices(me, teamOrder)
   // EXP-1293: ONE Chats list read for the sidebar — the Chats row's badge,

@@ -15,6 +15,17 @@
 //! An Xwayland that dies while its space lives (a crash) is let go of: its
 //! display number and socket are free again, and the space's next launch
 //! starts another one.
+//!
+//! #EDE-149: a space's Xwayland is the compositor's child, but it does not
+//! stay in the person's login session: right after its start it moves into
+//! a scope of its own in `app.slice` whose one limit is memory
+//! ([`super::slice::x11_limits`]): what an X11 app of the space makes it
+//! hold is counted there, and at the limit the kernel ends it. Not in the
+//! space's slice: a CPU quota or a `MemoryHigh` would slow it down, and its
+//! window manager's round trips run on the compositor's thread. Those have
+//! a time limit ([`ROUND_TRIP_LIMIT`] a second, together): a server that
+//! answers a flood late, stops or starves past it is cut off and ended, so
+//! a slow space server costs the space, not the person's frames.
 
 use std::process::Stdio;
 
@@ -40,19 +51,21 @@ pub const FIRST_DISPLAY: u32 = 10;
 /// Where the search for a free display number gives up.
 const LAST_DISPLAY: u32 = 99;
 
-/// The Xwayland of this compositor serving `display`: a child of this
-/// process (smithay keeps its handle to itself).
-fn xwayland_process(display: u32) -> Option<smithay::reexports::rustix::process::Pid> {
-    let me = std::process::id();
-    let wanted = format!(":{display}");
-    std::fs::read_dir("/proc").ok()?.flatten().filter_map(|entry| entry.file_name().to_str()?.parse::<i32>().ok()).find_map(|pid| {
-        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-        let parent: u32 = stat.rsplit_once(')')?.1.split_whitespace().nth(1)?.parse().ok()?;
-        let cmdline = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
-        let mut args = cmdline.split(|b| *b == 0);
-        let ours = parent == me && args.next().is_some_and(|program| program.ends_with(b"Xwayland")) && args.any(|arg| arg == wanted.as_bytes());
-        ours.then(|| smithay::reexports::rustix::process::Pid::from_raw(pid)).flatten()
-    })
+/// #EDE-149: how long the compositor waits for a space's X server a
+/// second, all calls of its window manager together (replies, flushes,
+/// sends). A server that takes longer (it is stopped or short of memory,
+/// or a client floods it and every answer comes late) is cut off and
+/// ended: a slow space server costs the space, never more than this of
+/// the person's frames, once. A healthy server answers in well under a
+/// millisecond.
+pub const ROUND_TRIP_LIMIT: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// The process of the Xwayland whose Wayland client `client` is, while
+/// that client is connected (a child of this process not reaped yet: its
+/// pid is nobody else's).
+fn server_pid(client: &Client) -> Option<smithay::reexports::rustix::process::Pid> {
+    let pid = client.get_data::<smithay::xwayland::XWaylandClientData>()?.pid()?;
+    smithay::reexports::rustix::process::Pid::from_raw(i32::try_from(pid).ok()?)
 }
 
 /// A space's Xwayland.
@@ -130,6 +143,16 @@ impl Ede {
         self.spaces.get(desk).and_then(|space| space.x11.as_ref()).is_some_and(|x11| x11.xwm.is_some())
     }
 
+    /// #EDE-149: one round trip of space `desk`'s window manager to its
+    /// server, on this thread, as on every new window (its primary output
+    /// asked): whether the server answered. `None`: no window manager.
+    /// Measures what a slow space server costs the compositor's thread.
+    #[doc(hidden)]
+    pub fn space_xwm_round_trip(&self, desk: DeskId) -> Option<bool> {
+        let wm = self.spaces.get(desk)?.x11.as_ref()?.xwm.as_ref()?;
+        Some(wm.get_randr_primary_output().is_ok())
+    }
+
     /// A space's window manager, or a closed space's that is still parked.
     pub(crate) fn space_xwm_state(&mut self, xwm: XwmId) -> Option<&mut X11Wm> {
         if let Some(at) = self.spaces.closing_xwms.iter().position(|wm| wm.id() == xwm) {
@@ -180,16 +203,35 @@ impl Ede {
             tracing::warn!("{}: no Xwayland (X11 apps won't run in it)", space.id.as_str());
             return None;
         };
+        let mut scoping = None;
+        // #EDE-149: out of the person's login session, into a scope of its
+        // own with a memory limit alone (`slice::x11_limits`), right after
+        // its start: what it allocates from then on is counted there, and
+        // at the limit the kernel ends it, never slows it down. Not waited
+        // for (the tick reaps it); no user manager = it stays where it is.
+        if let (Some(units), Some(pid)) = (self.spaces.units.as_ref().filter(|units| units.reachable()), server_pid(&client)) {
+            let serial = self.spaces.launch_serial.get() + 1;
+            self.spaces.launch_serial.set(serial);
+            let mut cmd = units.x11_scope_command(&self.config.spaces, desk.number(), serial, pid.as_raw_nonzero().get() as u32);
+            match cmd.spawn() {
+                Ok(child) => scoping = Some((child, format!("{} (Xwayland :{display}, pid {})", space.id.as_str(), pid.as_raw_nonzero()))),
+                Err(e) => tracing::warn!("{}: its Xwayland stays in the session's scope: busctl: {e}", space.id.as_str()),
+            }
+        }
         // Its number now that it has one: what Xlib looks up.
         if let Err(e) = crate::xauth::write(&xauthority, Some(display), &cookie) {
             tracing::warn!("{}: its X authority: {e}", space.id.as_str());
         }
+        self.spaces.x11_scopes.extend(scoping);
         let ready_client = client.clone();
         let inserted = self.loop_handle.insert_source(xwayland, move |event, _, state| match event {
             XWaylandEvent::Ready { x11_socket, .. } => {
                 let number = display;
                 let Some(space) = state.spaces.list.iter_mut().find(|space| space.desk.id == desk && space.x11.as_ref().is_some_and(|x11| x11.display == display)) else { return };
-                match X11Wm::start_wm(state.loop_handle.clone(), &state.display_handle, x11_socket, ready_client.clone()) {
+                // #EDE-149: every round trip to the space's server has a
+                // time limit; past it the window manager's connection is cut
+                // (`space_xwm_disconnected` ends the server).
+                match X11Wm::start_wm_with_round_trip_limit(state.loop_handle.clone(), &state.display_handle, x11_socket, ready_client.clone(), ROUND_TRIP_LIMIT) {
                     Ok(wm) => {
                         tracing::info!("{}: Xwayland ready on :{number}", space.id.as_str());
                         if let Some(x11) = &mut space.x11 {
@@ -267,6 +309,31 @@ impl Ede {
         keyboard.set_focus(self, Some(wl_surface), smithay::utils::SERIAL_COUNTER.next_serial());
     }
 
+    /// #EDE-149: the `busctl` calls that moved spaces' Xwaylands into
+    /// their scopes, reaped; one the user manager refused is said (the
+    /// server then runs on in the login session's scope, as before).
+    pub(crate) fn space_x11_scopes_tick(&mut self) {
+        self.spaces.x11_scopes.retain_mut(|(child, what)| match child.try_wait() {
+            Ok(None) => true,
+            Ok(Some(status)) if status.success() => {
+                tracing::info!("{what}: in its own scope");
+                false
+            }
+            Ok(Some(status)) => {
+                let mut said = String::new();
+                if let Some(mut stderr) = child.stderr.take() {
+                    let _ = std::io::Read::read_to_string(&mut stderr, &mut said);
+                }
+                tracing::warn!("{what}: the user manager refused its scope ({status}): {}", said.trim());
+                false
+            }
+            Err(e) => {
+                tracing::warn!("{what}: {e}");
+                false
+            }
+        });
+    }
+
     /// Space `desk`'s Xwayland on `display` ended (or never started): its
     /// source goes (the display number and socket are free again), its
     /// window manager with it; the next launch starts another.
@@ -276,6 +343,14 @@ impl Ede {
             return;
         }
         let x11 = space.x11.take().expect("checked");
+        // #EDE-149: a server that stopped answering in time may not notice
+        // that its Wayland client goes: it is ended, before its client is
+        // (the pid is ours until then).
+        if x11.xwm.as_ref().is_some_and(|wm| wm.timed_out()) {
+            if let Some(pid) = server_pid(&x11.client) {
+                let _ = smithay::reexports::rustix::process::kill_process(pid, smithay::reexports::rustix::process::Signal::KILL);
+            }
+        }
         let windows: Vec<Window> = space.desk.space.elements().filter(|w| w.x11_surface().is_some()).cloned().collect();
         for window in windows {
             space.desk.space.unmap_elem(&window);
@@ -310,7 +385,13 @@ impl Ede {
         let died = self.spaces.iter().find_map(|space| space.x11.as_ref().filter(|x11| x11.xwm.as_ref().is_some_and(|wm| wm.id() == xwm)).map(|x11| (space.desk.id, x11.display)));
         if let Some((desk, display)) = died {
             let number = display;
-            tracing::warn!("space Xwayland :{number} ended while its space lives");
+            let slow = self.spaces.get(desk).and_then(|space| space.x11.as_ref()?.xwm.as_ref()).is_some_and(|wm| wm.timed_out());
+            if slow {
+                let limit = ROUND_TRIP_LIMIT.as_millis();
+                tracing::warn!("space Xwayland :{number} kept its window manager waiting {limit} ms in a second: it is ended, the space's next launch starts another");
+            } else {
+                tracing::warn!("space Xwayland :{number} ended while its space lives");
+            }
             self.space_x11_gone(desk, display);
         }
     }
@@ -324,7 +405,7 @@ impl Ede {
         // Its Wayland client is killed with the source, but the socket
         // closes only at the display's next dispatch, which an idle desk
         // may not have for a while: the server is told to end as well.
-        if let Some(pid) = xwayland_process(x11.display) {
+        if let Some(pid) = server_pid(&x11.client) {
             let _ = smithay::reexports::rustix::process::kill_process(pid, smithay::reexports::rustix::process::Signal::TERM);
         }
         self.loop_handle.remove(x11.token);

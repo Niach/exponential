@@ -2586,10 +2586,9 @@
             "$map": {
               "from": "props.direction",
               "cases": {
-                "vertical": "auto",
-                "both": "auto"
+                "horizontal": "hidden"
               },
-              "default": "hidden"
+              "default": "auto"
             }
           },
           "minWidth": 0,

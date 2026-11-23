@@ -14,7 +14,8 @@
 //! waits in its own process until the bus answers (`space-run`): the
 //! compositor's event loop waits for nothing. A manager that ends is
 //! started once more; a space whose manager ends a second time closes,
-//! and its session's next call reads "new and empty".
+//! and its session's next call reads "new and empty". A close asks the
+//! manager to exit before its slice stops (#EDE-195, [`super::close`]).
 //!
 //! #EXP-1514 (the latch, [`super::readiness`]): a manager that could not
 //! start, or that ended, makes readiness answer `session` until a start

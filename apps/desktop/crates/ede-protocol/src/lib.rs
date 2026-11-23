@@ -354,6 +354,12 @@ pub struct SpaceReadiness {
     /// full desktop, with fewer it is out of memory.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max: Option<u32>,
+    /// #EDE-157: `open` = a program in a space can signal (end) the
+    /// person's apps here: the kernel runs no BPF LSM programs, or the
+    /// space guard is an older one. Spaces are offered all the same; absent
+    /// = refused (or not known yet, or a compositor from before).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signals: Option<String>,
 }
 
 /// #EXP-2024: the layer-shell namespace of the shell's pinned view of an
@@ -1875,11 +1881,14 @@ mod tests {
             assert_eq!(serde_json::to_value(&call).unwrap(), json);
             assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
         }
-        let ready = SpaceReadiness { ready: true, block: None, max: Some(8) };
+        let ready = SpaceReadiness { ready: true, block: None, max: Some(8), signals: None };
         assert_eq!(serde_json::to_value(&ready).unwrap(), serde_json::json!({"ready": true, "max": 8}));
         let blocked: SpaceReadiness = serde_json::from_value(serde_json::json!({"ready": false, "block": "later"})).unwrap();
-        assert_eq!(blocked, SpaceReadiness { ready: false, block: Some("later".into()), max: None });
+        assert_eq!(blocked, SpaceReadiness { ready: false, block: Some("later".into()), max: None, signals: None });
         assert_eq!(serde_json::from_value::<SpaceReadiness>(serde_json::to_value(&blocked).unwrap()).unwrap(), blocked);
+        // #EDE-157: signals open where the guard cannot refuse them.
+        let open = SpaceReadiness { signals: Some("open".into()), ..ready };
+        assert_eq!(serde_json::to_value(&open).unwrap(), serde_json::json!({"ready": true, "max": 8, "signals": "open"}));
     }
 
     /// `Hello` as it was before `features`: what an old client parses a reply into.

@@ -21,6 +21,8 @@ struct FakeRegistry {
     /// team id → member user ids.
     teams: BTreeMap<String, Vec<String>>,
     installs: Mutex<Vec<(InstallEntry, bool)>>,
+    /// #EXP-1983: device ids whose `devices` row is not written yet.
+    unknown_devices: Mutex<Vec<String>>,
 }
 
 /// One caller's view of the registry (tRPC = authed as `user_id`).
@@ -49,6 +51,9 @@ impl InstallRegistry for As {
     fn register(&self, input: &RegisterInstall) -> Result<String, ApiError> {
         if !verify(input, &self.user_id) {
             return Err(ApiError::Http { status: 400, message: "Invalid install signature".into() });
+        }
+        if input.device_id.as_ref().is_some_and(|id| self.registry.unknown_devices.lock().unwrap().contains(id)) {
+            return Err(ApiError::Http { status: 400, message: "Unknown device".into() });
         }
         let mut installs = self.registry.installs.lock().unwrap();
         if let Some((row, revoked)) = installs.iter_mut().find(|(row, _)| row.endpoint_id == input.endpoint_id) {
@@ -341,5 +346,31 @@ async fn a_late_teammate_gets_in_after_one_refusal() {
     b.send_chat(a.endpoint_id(), enet::PING_BODY.to_vec()).await.expect("let in after the refresh");
     early.stop();
     late.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// #EXP-1983: a first sign-in's install is refused `Unknown device` (the
+/// control channel's `devices.register` has not landed yet); once it has,
+/// the node registers on the next wake, not after `REGISTER_RETRY`.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unknown_device_registers_on_the_next_wake() {
+    let dir = temp_dir("unknown-device");
+    let registry = Arc::new(FakeRegistry {
+        teams: BTreeMap::from([("team-1".to_string(), vec!["alice".to_string()])]),
+        unknown_devices: Mutex::new(vec!["device-alice".to_string()]),
+        ..Default::default()
+    });
+    let desktop = start(&registry, &dir, "alice", "team-1", InstallKind::Desktop);
+    up(&desktop, 1).await;
+    assert!(desktop.install_id().is_none(), "refused while the devices row is missing");
+
+    // The control channel's register lands: the row exists, the app wakes the node.
+    registry.unknown_devices.lock().unwrap().clear();
+    desktop.device_registered();
+    tokio::time::timeout(Duration::from_secs(5), desktop.passes_at_least(2))
+        .await
+        .expect("registered on the wake, not after REGISTER_RETRY");
+    assert!(desktop.install_id().is_some());
+    desktop.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }

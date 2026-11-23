@@ -42,6 +42,7 @@ import {
   type PreparedSessionImage,
 } from "@/lib/storage/session-attachment-upload"
 import { appBaseUrl } from "@/lib/notification-email-policy"
+import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 
 // EXP-1280 custom plan mode: the plan / question card a session posts on
 // ITSELF over MCP (`exponential_plan_propose`, `exponential_sessions_ask`;
@@ -406,6 +407,63 @@ export function buildQuestionCard(input: SessionsAskInput): Extract<MessageCard,
 
 export const SURFACE_CARD_TITLE_MAX = 200
 
+/** F38: `exponential_show {pictures}` with no surface: a Stack holding the
+ *  title (else the picture labels) above the uploaded pictures (one Image,
+ *  several = a Carousel, each captioned); never a Card, the chat already
+ *  draws one around every surface (#EXP-1447). #FEED-292: its root id marks
+ *  it, so each landing picture repaints it (`withPicturesSurface`); before
+ *  this the chat showed the title alone (a `result: false` card nowhere else). */
+export const PICTURES_SURFACE_ROOT_ID = `pictures`
+
+export function picturesOnlySurface(
+  title: string | null | undefined,
+  pictures: readonly { label: string; attachmentId?: string | null; width?: number | null; height?: number | null; caption?: string | null }[]
+) {
+  const text = title?.trim() || pictures.map((picture) => picture.label).join(`, `)
+  const landed = pictures.flatMap((picture) => (picture.attachmentId ? [{ ...picture, attachmentId: picture.attachmentId }] : []))
+  const page = (picture: (typeof landed)[number], index: number) => ({
+    id: `p${index}`,
+    component: `Stack`,
+    props: { gap: `sm` },
+    children: [
+      {
+        id: `i${index}`,
+        component: `Image`,
+        props: {
+          src: buildAttachmentUrl(picture.attachmentId),
+          alt: picture.caption || picture.label,
+          fit: `contain`,
+          ...(picture.width && picture.height ? { aspectRatio: picture.width / picture.height } : {}),
+        },
+      },
+      { id: `l${index}`, component: `Text`, props: { text: picture.caption || picture.label, variant: `muted`, truncate: `end` } },
+    ],
+  })
+  const media =
+    landed.length === 0
+      ? []
+      : landed.length === 1
+        ? [page(landed[0]!, 0)]
+        : [{ id: `c`, component: `Carousel`, props: { counter: true }, children: landed.map(page) }]
+  return {
+    root: {
+      id: PICTURES_SURFACE_ROOT_ID,
+      component: `Stack`,
+      children: [{ id: `h`, component: `Heading`, props: { text } }, ...media],
+    },
+  }
+}
+
+/** #FEED-292: a pictures-only surface card repainted from its pictures
+ *  (any other card as it is). */
+export function withPicturesSurface<T extends MessageCard>(card: T): T {
+  if (card.kind !== `surface` || isSealedCard(card)) return card
+  const surface = (card as { surface?: { root?: { id?: unknown } } | null }).surface
+  if (surface?.root?.id !== PICTURES_SURFACE_ROOT_ID) return card
+  const { title, pictures } = card as { title?: string | null; pictures?: PlanCardPicture[] }
+  return { ...card, surface: validateCardSurface(picturesOnlySurface(title, pictures ?? [])) }
+}
+
 /** Chats (fixtures/chats.json `surfaceCard`): `exponential_session_self
  *  {op: "show"}`'s card, an inline preview validated like a plan card's
  *  surface (pure; BAD_REQUEST names the fix). */
@@ -580,7 +638,7 @@ export function carryPictures(before: MessageCard, card: ShowCard): ShowCard {
       height: picture.height ?? null,
     }) as ShowCard
   }
-  return next
+  return withPicturesSurface(next)
 }
 
 /** S-3: THE show path (`exponential_show`): a plain surface, a question or
@@ -934,12 +992,14 @@ export async function publishCardPicture(
       const sealed = isSealedCard(card)
       const next = sealed
         ? fileSealedPicture(card, input.label, prepared.attachmentId)
-        : (resolveUpload(card as AskCardLike, {
-            label: input.label,
-            attachmentId: prepared.attachmentId,
-            width: prepared.width,
-            height: prepared.height,
-          }) as MessageCard)
+        : withPicturesSurface(
+            resolveUpload(card as AskCardLike, {
+              label: input.label,
+              attachmentId: prepared.attachmentId,
+              width: prepared.width,
+              height: prepared.height,
+            }) as MessageCard
+          )
       await tx
         .update(messages)
         .set({

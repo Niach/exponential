@@ -269,14 +269,17 @@ fn ladder(ink: &Ink, paint: &Paint, id: &str, list: &str, custom_path: bool) -> 
 
 /// The Computer use band's picker rows ([`TAIL_SLOTS`], `<id>_<slot>`):
 /// `glass_picker_row` + the IDE's Select popup = genUI's `row` Select, its
-/// value and options at `<at>/tail/<slot>`.
+/// value and options at `<at>/tail/<slot>`. #EXP-2040: the popup fits its
+/// longest option (`popupMinWidth`, at least the row popup's own width),
+/// like web's Picker: "Display 1 · 2560 × 1440 · Primary" reads whole.
 fn tail(id: &str, at: &str) -> Vec<Value> {
     TAIL_SLOTS
         .iter()
         .map(|slot| {
             let base = format!("{at}/tail/{slot}");
             json!({"id": format!("{id}_{slot}"), "component": "Select", "visible": path(&format!("{base}/shown")),
-                "props": {"triggerVariant": "row", "label": tail_label(slot), "name": slot, "value": path(&format!("{base}/value")), "options": path(&format!("{base}/options"))},
+                "props": {"triggerVariant": "row", "label": tail_label(slot), "name": slot, "value": path(&format!("{base}/value")), "options": path(&format!("{base}/options")),
+                    "popupMinWidth": eui_core::layout::SELECT_ROW_POPUP_WIDTH},
                 "on": {"change": {"event": {"name": "readinessPick", "context": {"slot": slot}}}}})
         })
         .collect()
