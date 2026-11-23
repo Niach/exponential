@@ -28,6 +28,10 @@ class AppHostValuesTest {
         )
         val rows = value["rows"]!!.array!!
         assertEquals(listOf("Alex's MacBook Pro", "Never", "Zed box"), rows.map { it["label"]!!.string })
+        // FEED-301: the id sessions_send takes, as the Select value; `id` = the row's.
+        assertEquals("a", rows[0]["id"]!!.string)
+        assertEquals("d-a", rows[0]["deviceId"]!!.string)
+        assertEquals("d-a", rows[0]["value"]!!.string)
         assertEquals("Online", rows[0]["status"]!!.string)
         assertEquals("live", rows[0]["tone"]!!.string)
         assertEquals("success", rows[0]["discTone"]!!.string)

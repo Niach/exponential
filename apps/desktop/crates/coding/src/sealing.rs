@@ -844,6 +844,26 @@ pub fn seal_body_for_tree(root_id: &str, text: &str) -> Result<String, SealError
     enet_core::sealed::seal_body(&public, epoch, text).map_err(|e| SealError::Invalid(e.to_string()))
 }
 
+/// EXP-1458: `line` sealed to one listening tree's current key (`None` = a
+/// keyless tree: its listeners get the neutral line). BLOCKING.
+pub fn listener_copy(
+    tree: &api::session_device::ListenerTree,
+    line: &str,
+) -> Option<api::session_device::ListenerCopy> {
+    let (Some(epoch), Some(key)) = (tree.epoch, tree.public_key.as_deref()) else { return None };
+    let public = public_key_from_b64(key).ok()?;
+    if let Some(service) = service() {
+        service.keyring().set_current(&tree.root_id, epoch, public);
+    }
+    match seal_body_for_tree(&tree.root_id, line) {
+        Ok(body) => Some(api::session_device::ListenerCopy { root_id: tree.root_id.clone(), body }),
+        Err(err) => {
+            log::warn!("sealing: no listener copy for tree {}: {err}", tree.root_id);
+            None
+        }
+    }
+}
+
 /// A card sealed for another tree. BLOCKING.
 pub fn seal_card_for_tree(root_id: &str, card: &Value) -> Result<Value, SealError> {
     let (epoch, public) = key_for_sending(root_id)?;

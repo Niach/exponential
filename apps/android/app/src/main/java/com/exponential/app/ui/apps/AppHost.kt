@@ -819,8 +819,36 @@ fun rememberAppHost(
             val text = args["message"]?.string.orEmpty()
             if (args["tone"]?.string == "error") toaster.error(text) else toaster.info(text)
         }
+        // FEED-301 (app-actions.json `failure`): an MCP call that failed (a
+        // result `isError: true`, HTTP, JSON-RPC, no answer) is the
+        // failed-action toast and a throw, never a value; a package action it
+        // fails stays quiet (`toasted`).
+        val toasted = java.util.Collections.synchronizedList(mutableListOf<Pair<String, Long>>())
+        fun takeToasted(message: String): Boolean = synchronized(toasted) {
+            val now = System.currentTimeMillis()
+            toasted.removeAll { now - it.second > 1_000 }
+            val at = toasted.indexOfFirst { it.first == message }
+            if (at >= 0) toasted.removeAt(at)
+            at >= 0
+        }
+        suspend fun outcome(name: String, args: Map<String, JsonValue>, run: suspend () -> Any?): Any? {
+            val failure = try {
+                val result = run()
+                AppActions.actionFailure(name, args, result as? JsonValue) ?: return result
+            } catch (e: kotlin.coroutines.cancellation.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val (verb, thing) = AppActions.actionFailedWords(name, args)
+                AppActions.ActionFailure(verb, thing, e.message ?: AppActions.FailureCopy.FALLBACK)
+            }
+            toaster.failedAction(failure.verb, failure.thing, failure.description)
+            synchronized(toasted) { toasted.add(failure.description to System.currentTimeMillis()) }
+            error(failure.description)
+        }
         val mcp: HostFunction = { args, _ ->
-            callMcp(deps.httpClient(), origin, token, args["tool"]?.string.orEmpty(), args["arguments"], hostClaim())
+            outcome("harness_mcp", args) {
+                callMcp(deps.httpClient(), origin, token, args["tool"]?.string.orEmpty(), args["arguments"], hostClaim())
+            }
         }
         // VAPP-122: the app's own rows (no consent card); a refusal (the
         // kind's schema, the caps, the plan quota) is a failed action.
@@ -936,9 +964,11 @@ fun rememberAppHost(
         // `op` + the args (no op for a verb tool). EXP-1657: the aliases too,
         // so a package published before the `team_config` split keeps working.
         val targets = AppActions.TOOLS + AppActions.ALIASES.mapValues { (_, name) -> AppActions.TOOLS.getValue(name) }
-        val actions: Map<String, HostFunction> = targets.mapValues { (_, target) ->
+        val actions: Map<String, HostFunction> = targets.mapValues { (name, target) ->
             val fn: HostFunction = { args, _ ->
-                callMcp(deps.httpClient(), origin, token, target.tool, JsonValue.Obj(AppActions.arguments(target, args)), hostClaim())
+                outcome(name, args) {
+                    callMcp(deps.httpClient(), origin, token, target.tool, JsonValue.Obj(AppActions.arguments(target, args)), hostClaim())
+                }
             }
             fn
         }
@@ -1057,7 +1087,10 @@ fun rememberAppHost(
                 // team zone, else the device's.
                 me = me,
                 zone = zone,
-                onActionFailed = { failure -> toaster.failedAction("save", "the record", failure.message) },
+                onActionFailed = { failure ->
+                    // FEED-301: a call step that failed has toasted already.
+                    if (!takeToasted(failure.message)) toaster.failedAction("save", "the record", failure.message)
+                },
                 navigate = navigate,
             ),
             scope,

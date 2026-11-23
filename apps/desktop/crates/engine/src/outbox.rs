@@ -48,7 +48,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use api::session_device::{ListenerCopy, ListenerTree, ReplyCard, ReplyExtras, ReplyResult, SubagentRow};
+use api::session_device::{ListenerTree, ReplyCard, ReplyExtras, ReplyResult, SubagentRow};
 use api::ApiError;
 use serde_json::Value;
 use coding::sealing;
@@ -256,7 +256,7 @@ fn reply_extras(
                 Err(err) => log::warn!("engine: sessions.listeners of {session_id} failed: {err}"),
             }
         }
-        listeners.as_deref().unwrap_or_default().iter().filter_map(|tree| listener_copy(tree, line)).collect::<Vec<_>>()
+        listeners.as_deref().unwrap_or_default().iter().filter_map(|tree| sealing::listener_copy(tree, line)).collect::<Vec<_>>()
     });
     ReplyExtras {
         ask_text,
@@ -278,23 +278,6 @@ fn reply_mentions(session_id: &str, reply: &Reply, plain_card: Option<&Value>) -
         }
     }
     (!ids.is_empty()).then_some(ids)
-}
-
-/// `line` sealed to one listening tree's current key (`None` = a keyless
-/// tree: its listeners get the neutral line).
-fn listener_copy(tree: &ListenerTree, line: &str) -> Option<ListenerCopy> {
-    let (Some(epoch), Some(key)) = (tree.epoch, tree.public_key.as_deref()) else { return None };
-    let public = sealing::public_key_from_b64(key).ok()?;
-    if let Some(service) = sealing::service() {
-        service.keyring().set_current(&tree.root_id, epoch, public);
-    }
-    match sealing::seal_body_for_tree(&tree.root_id, line) {
-        Ok(body) => Some(ListenerCopy { root_id: tree.root_id.clone(), body }),
-        Err(err) => {
-            log::warn!("engine: no listener copy for tree {}: {err}", tree.root_id);
-            None
-        }
-    }
 }
 
 /// How long a plan's text runs in an ask before it is clipped.

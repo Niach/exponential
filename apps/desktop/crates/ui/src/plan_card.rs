@@ -536,6 +536,29 @@ pub(crate) fn painted_surface(surface: &CardSurface) -> CardSurface {
     CardSurface { version: Some(eui_core::catalog::A2UI_VERSION.to_string()), root: card["root"].clone(), data: surface.data.clone() }
 }
 
+/// THE plan card surface painter's options (theme exponential, dark, the
+/// frame's width, Reduce motion): the card's surface, the surface card's,
+/// and #EXP-2067 every Express block surface of a chat.
+pub(crate) fn surface_options(surface_id: &str, host: Rc<dyn HostPlugin>) -> SurfaceViewOptions {
+    SurfaceViewOptions {
+        surface_id: surface_id.to_string(),
+        theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
+        mode: eui_core::theme::Mode::Dark,
+        host,
+        // `None`: the surface follows its frame's width (a fixed width
+        // left the surface's equal tile columns short of the frame).
+        width: None,
+        // Reduce motion (`theme::motion::reduce_motion`, the one place): the
+        // surface's own transitions become 0 ms.
+        settings: theme::motion::reduce_motion().then(|| eui_core::surface::SurfaceSettings {
+            mode: eui_core::theme::ModeSetting::Dark,
+            reduced_motion: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 pub(crate) fn card_surface_view(
     surface_id: &str,
     surface: &CardSurface,
@@ -552,23 +575,7 @@ pub(crate) fn card_surface_view(
             return None;
         }
     };
-    let options = SurfaceViewOptions {
-        surface_id: surface_id.to_string(),
-        theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
-        mode: eui_core::theme::Mode::Dark,
-        host,
-        // `None`: the surface follows its frame's width (a fixed width
-        // left the surface's equal tile columns short of the frame).
-        width: None,
-        // Reduce motion (`theme::motion::reduce_motion`, the one place): the
-        // surface's own transitions become 0 ms.
-        settings: theme::motion::reduce_motion().then(|| eui_core::surface::SurfaceSettings {
-            mode: eui_core::theme::ModeSetting::Dark,
-            reduced_motion: true,
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
+    let options = surface_options(surface_id, host);
     let data = surface.data.clone();
     let view = cx.new(|cx| SurfaceView::new(options, window, cx));
     view.update(cx, |view, cx| {

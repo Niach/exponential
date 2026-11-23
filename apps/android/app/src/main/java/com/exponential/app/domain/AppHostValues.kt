@@ -32,6 +32,10 @@ object AppHostValues {
             }
             obj(
                 "id" to JsonValue.Str(d.id),
+                // FEED-301: the id sessions_send takes (`id` is the synced
+                // row's own); `value` = it, so a Select over the rows picks it.
+                "deviceId" to JsonValue.Str(d.deviceId),
+                "value" to JsonValue.Str(d.deviceId),
                 "label" to JsonValue.Str(d.label),
                 "detail" to JsonValue.Str(detail),
                 "icon" to JsonValue.Str(deviceIconName(d.icon, d.kind == "server")),

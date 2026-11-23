@@ -126,6 +126,11 @@ pub struct SendInput {
     /// the send's transaction (tRPC only, never the MCP tool).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub card_item: Option<CardItem>,
+    /// #EXP-2067 (chat-express.json `actionCases`): THE `action` card a
+    /// surface press posts with the body (tRPC only); in a keyed tree its
+    /// envelope `{kind: "action", sealed}` ([`crate`] callers seal it).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_card: Option<serde_json::Value>,
 }
 
 /// #EXP-1958: the item a sealed card tap names (`sessions.send` `cardItem`).
