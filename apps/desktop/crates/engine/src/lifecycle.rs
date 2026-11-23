@@ -289,6 +289,19 @@ impl RunBackend for RunLifecycle {
     fn turn(&self, session_id: &str, running: bool) {
         self.turn_edge(session_id, running);
     }
+
+    /// #EXP-2069: the turn's failed Express blocks, one `[view]` line each
+    /// (`chat-express.json` `failureNoteCases`), for the agent's next input.
+    fn turn_note(&self, texts: &[String]) -> Option<String> {
+        turn_note(texts)
+    }
+}
+
+/// #EXP-2069: [`RunBackend::turn_note`] over the SDK
+/// (`coding::express_blocks::failure_note`), the one call every host of the
+/// engine (the IDE, the daemon) makes at a turn's end.
+pub fn turn_note(texts: &[String]) -> Option<String> {
+    coding::express_blocks::failure_note(texts)
 }
 
 /// The run's side-car machinery, alive for exactly as long as the connection.

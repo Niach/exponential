@@ -3447,6 +3447,7 @@ pub fn context_layers_for(
     ContextLayers {
         playbook_bytes: context_layout::playbook_bytes(system_append),
         team_bytes: context_layout::team_bytes(system_append),
+        express_bytes: context_layout::express_bytes(system_append),
         task_bytes: prompt.map(str::len),
         project: context_layout::project_memory(agent, cwd, profile_dir),
         tools_bytes: None,
@@ -5184,7 +5185,11 @@ mod tests {
         // An agent's conversation reads the agents playbook.
         assert!(append.starts_with(crate::skill::playbook(true).trim_end()));
         assert!(team < agent, "{append}");
-        assert!(append.ends_with("Triage new issues.\n"), "{append}");
+        // #EXP-2069: the express layer rides last, measured on its own.
+        assert!(crate::skill::split_express_layer(append).0.ends_with("Triage new issues.\n"), "{append}");
+        assert!(append.ends_with(&format!("{}\n", crate::skill::express_layer().trim_end())));
+        assert_eq!(prepared.acp.context_layers.express_bytes, context_layout::express_bytes(append));
+        assert!(prepared.acp.context_layers.express_bytes.is_some());
         // Both server layers count as the team segment.
         assert_eq!(
             prepared.acp.context_layers.team_bytes,
@@ -6189,7 +6194,11 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(prepared.acp.resume, None, "a new CLI conversation");
         assert_eq!(prepared.acp.prompt, None, "no seed turn");
         assert_eq!(prepared.seed_message_id, None);
-        assert!(prepared.acp.system_append.ends_with("The NEW instructions.\n"), "{}", prepared.acp.system_append);
+        // #EXP-2069: a resume carries the express layer last too.
+        let append = &prepared.acp.system_append;
+        assert!(crate::skill::split_express_layer(append).0.ends_with("The NEW instructions.\n"), "{append}");
+        assert!(append.ends_with(&format!("{}\n", crate::skill::express_layer().trim_end())));
+        assert!(prepared.acp.context_layers.express_bytes.is_some());
         let record = crate::run_registry::get(&dir.0, "agent-1").expect("record");
         assert_eq!((record.claude_session_id, record.acp_session_id, record.agent_native_session_id), (None, None, None));
         assert_eq!(record.kind, RunKind::Agent);

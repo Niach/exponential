@@ -666,5 +666,39 @@
         }
       ]
     }
+  },
+  {
+    "name": "#EXP-2069: the express prompt is its own layer, between the team prompt and the project",
+    "usage": { "contextUsed": 65000, "contextSize": 200000 },
+    "segments": [
+      { "key": "base", "tokens": 21000, "source": "measured" },
+      { "key": "task", "tokens": 600, "source": "estimated" },
+      { "key": "express", "tokens": 7800, "source": "estimated" },
+      { "key": "playbook", "tokens": 1500, "source": "estimated" },
+      { "key": "team", "tokens": 800, "source": "estimated" }
+    ],
+    "expected": {
+      "headline": "65k / 200k (32%)",
+      "percent": 32,
+      "severity": "normal",
+      "ticks": [50, 75, 95],
+      "bar": [
+        { "key": "base", "tone": "neutral", "percent": 10.5 },
+        { "key": "playbook", "tone": "yellow", "percent": 0.75 },
+        { "key": "team", "tone": "violet", "percent": 0.4 },
+        { "key": "express", "tone": "teal", "percent": 3.9 },
+        { "key": "task", "tone": "pink", "percent": 0.3 },
+        { "key": "conversation", "tone": "blue", "percent": 16.65 }
+      ],
+      "legend": [
+        { "key": "base", "label": "Base", "tone": "neutral", "tokens": "21k", "percent": "10.5%", "estimated": false },
+        { "key": "playbook", "label": "Playbook", "tone": "yellow", "tokens": "1.5k", "percent": "0.8%", "estimated": true },
+        { "key": "team", "label": "Team prompt", "tone": "violet", "tokens": "800", "percent": "0.4%", "estimated": true },
+        { "key": "express", "label": "Views", "tone": "teal", "tokens": "7.8k", "percent": "3.9%", "estimated": true },
+        { "key": "task", "label": "Task", "tone": "pink", "tokens": "600", "percent": "0.3%", "estimated": true },
+        { "key": "conversation", "label": "Conversation", "tone": "blue", "tokens": "33.3k", "percent": "16.7%", "estimated": false },
+        { "key": "free", "label": "Free", "tone": "track", "tokens": "135k", "percent": "67.5%", "estimated": false }
+      ]
+    }
   }
 ]

@@ -38,6 +38,9 @@ pub use eagent::engine::context_layout::{
 /// keeps a degenerate composition (a future shape this build mis-reads) out
 /// of the picture instead of reporting a zero-byte layer.
 pub fn team_bytes(system_append: &str) -> Option<usize> {
+    // #EXP-2069: the express layer is its own layer, never the team's.
+    let (head, _) = crate::skill::split_express_layer(system_append);
+    let system_append: &str = &head;
     let fixed = playbook_bytes(system_append);
     if system_append.len() == fixed {
         return None;
@@ -46,12 +49,21 @@ pub fn team_bytes(system_append: &str) -> Option<usize> {
     Some(system_append.len().saturating_sub(fixed)).filter(|bytes| *bytes > 0)
 }
 
+/// #EXP-2069: the `express` layer's bytes in a composed `system_append`
+/// ([`crate::skill::express_layer`], its blank line included); `None` when
+/// the append carries none.
+pub fn express_bytes(system_append: &str) -> Option<usize> {
+    crate::skill::split_express_layer(system_append).1
+}
+
 /// The FIXED text at the head of a composed `system_append`, in bytes: the
 /// playbook, plus the EXP-1196 computer-use (#EXP-1514: the person's or the
 /// agent space's, or row 5's one line) and EXP-1236 code-mode sections when
 /// the launch carried them (so those count as playbook, never as the owners'
 /// prompt). The longest candidate that is a prefix wins.
 pub fn playbook_bytes(system_append: &str) -> usize {
+    let (head, _) = crate::skill::split_express_layer(system_append);
+    let system_append: &str = &head;
     // #EXP-1514: row 5's line is the launcher's text around a reason that
     // varies: measured out, then counted back.
     if let Some((start, end)) = unavailable_line(system_append) {
@@ -296,10 +308,13 @@ mod tests {
         ] {
             let alone = crate::skill::system_append_with(None, &extras);
             assert_eq!(team_bytes(&alone), None);
-            assert_eq!(playbook_bytes(&alone), alone.len(), "{extras:?}");
+            // #EXP-2069: everything before the express layer.
+            let fixed = crate::skill::split_express_layer(&alone).0.len();
+            assert_eq!(playbook_bytes(&alone), fixed, "{extras:?}");
             let with = crate::skill::system_append_with(Some(prompt), &extras);
             assert_eq!(team_bytes(&with), team_bytes(&without), "{extras:?}");
-            assert_eq!(playbook_bytes(&with), alone.len(), "{extras:?}");
+            assert_eq!(playbook_bytes(&with), fixed, "{extras:?}");
+            assert_eq!(express_bytes(&alone), express_bytes(&with), "{extras:?}");
         }
     }
 
@@ -310,9 +325,10 @@ mod tests {
         use crate::skill::{system_append_layers, Extras};
         let both = system_append_layers(Some("Rules"), Some("Watch the inbox."), &Extras::NONE);
         assert_eq!(playbook_bytes(&both), crate::skill::playbook(false).len());
+        let head = crate::skill::split_express_layer(&both).0.len();
         assert_eq!(
             team_bytes(&both),
-            Some(both.len() - crate::skill::playbook(false).trim_end().len())
+            Some(head - crate::skill::playbook(false).trim_end().len())
         );
         let team_only = system_append_layers(Some("Rules"), None, &Extras::NONE);
         assert!(team_bytes(&both) > team_bytes(&team_only));
@@ -327,10 +343,36 @@ mod tests {
         let prompt = "## Rules\n\n- Always run `bun test`.";
         let append = crate::skill::system_append(Some(prompt));
         let bytes = team_bytes(&append).expect("a team layer");
-        assert_eq!(bytes, append.len() - crate::skill::playbook(false).trim_end().len());
+        let head = crate::skill::split_express_layer(&append).0;
+        assert_eq!(bytes, head.len() - crate::skill::playbook(false).trim_end().len());
         // The block is the prompt plus the framing the launcher adds.
         assert!(bytes > prompt.len());
-        assert!(append.ends_with(&format!("{prompt}\n")));
+        assert!(head.ends_with(&format!("{prompt}\n")));
+    }
+
+    /// #EXP-2069: the express layer is measured on its own, start and
+    /// resume alike (both compose through `system_append_layers`), and the
+    /// three layers add up to the whole append.
+    #[test]
+    fn the_express_layer_is_its_own_layer() {
+        use crate::skill::{express_layer, system_append_layers, Extras};
+        assert!(express_layer().starts_with(&domain::chat_express::CHAT_EXPRESS.prompt.preamble));
+        for (team, agent) in [(None, None), (Some("Rules"), None), (Some("Rules"), Some("Watch the inbox.")), (None, Some("Watch."))] {
+            let append = system_append_layers(team, agent, &Extras::NONE);
+            let express = express_bytes(&append).expect("an express layer");
+            assert_eq!(express, express_layer().trim_end().len() + 2, "{team:?} {agent:?}");
+            let fixed = crate::skill::playbook(false).trim_end().len();
+            let team_bytes = team_bytes(&append).unwrap_or(0);
+            let playbook = playbook_bytes(&append);
+            if team_bytes == 0 {
+                assert_eq!(playbook + express, append.len(), "{team:?} {agent:?}");
+            } else {
+                assert_eq!(fixed + team_bytes + express, append.len(), "{team:?} {agent:?}");
+            }
+        }
+        // ~31 KB at the pinned rev: ~8k tokens of the window.
+        assert!(express_bytes(&crate::skill::system_append(None)).is_some_and(|bytes| bytes > 10_000));
+        assert_eq!(express_bytes("no layer here"), None);
     }
 
     /// claude reads three filenames per directory, outermost ancestor first,

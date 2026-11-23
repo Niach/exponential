@@ -2077,6 +2077,7 @@
       { "key": "tools", "label": "Tools", "tone": "green" },
       { "key": "playbook", "label": "Playbook", "tone": "yellow" },
       { "key": "team", "label": "Team prompt", "tone": "violet" },
+      { "key": "express", "label": "Views", "tone": "teal" },
       { "key": "project", "label": "Project", "tone": "orange" },
       { "key": "task", "label": "Task", "tone": "pink" }
     ],

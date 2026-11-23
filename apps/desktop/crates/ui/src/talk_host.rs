@@ -399,12 +399,27 @@ pub(crate) fn desktop_audio(device_id: &str, cx: &App) -> (DesktopAudioCapabilit
     audio.map(|audio| (audio.capability, audio.apps)).unwrap_or_default()
 }
 
-fn talk_message(row: &domain::rows::MessageRow) -> TalkMessage<'_> {
+/// #EXP-2069 (`chat-express.json` `plainProseCases`): Voice reads an agent
+/// row's PROSE only: its Express blocks are views, never read aloud (a
+/// block-only reply has nothing to say). `None` = the body as it is.
+fn spoken_prose(row: &domain::rows::MessageRow) -> Option<String> {
+    let body = row.body.as_deref()?;
+    (row.author_kind.as_deref() == Some("agent") && domain::chat_express::has_express_block(body))
+        .then(|| domain::chat_express::plain_prose(body))
+}
+
+/// One row to the voice surfaces, its body read as [`spoken_prose`].
+fn visit_talk(row: &domain::rows::MessageRow, visit: &mut dyn FnMut(&TalkMessage<'_>)) {
+    let prose = spoken_prose(row);
+    visit(&talk_message(row, prose.as_deref().or(row.body.as_deref())));
+}
+
+fn talk_message<'a>(row: &'a domain::rows::MessageRow, body: Option<&'a str>) -> TalkMessage<'a> {
     TalkMessage {
         id: &row.id,
         message: VoiceMessage {
             author_kind: row.author_kind.as_deref(),
-            body: row.body.as_deref(),
+            body,
             has_card: row.card.as_ref().is_some_and(|card| !card.is_null()),
             author_session_id: row.author_session_id.as_deref(),
             session_id: domain::message_session::message_session(row),
@@ -483,8 +498,8 @@ impl TalkHost for ExponentialHost {
         let Some(store) = Store::try_global(cx) else { return (false, None) };
         let rows = store.collections().messages.read(cx);
         match since.and_then(|since| rows.changed_since(since)) {
-            Some(keys) => keys.into_iter().filter_map(|key| rows.get_key(key)).for_each(|row| visit(&talk_message(row))),
-            None => rows.iter().for_each(|row| visit(&talk_message(row))),
+            Some(keys) => keys.into_iter().filter_map(|key| rows.get_key(key)).for_each(|row| visit_talk(row, visit)),
+            None => rows.iter().for_each(|row| visit_talk(row, visit)),
         }
         (rows.is_ready(), Some(rows.revision()))
     }
@@ -492,7 +507,7 @@ impl TalkHost for ExponentialHost {
     /// #PERF-9: one conversation's rows through the group index.
     fn session_messages(&self, session_id: &str, cx: &App, visit: &mut dyn FnMut(&TalkMessage<'_>)) {
         let Some(store) = Store::try_global(cx) else { return };
-        store.collections().messages.read(cx).in_group(session_id).for_each(|row| visit(&talk_message(row)));
+        store.collections().messages.read(cx).in_group(session_id).for_each(|row| visit_talk(row, visit));
     }
 
     fn send(&self, outgoing: Outgoing, cx: &App) -> Option<SendJob> {
@@ -742,6 +757,30 @@ impl TalkHost for ExponentialHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EXP-2069 (`plainProseCases`): an agent row reaches Voice as its
+    /// prose (every fixture case); a person's text, a pasted tag, stays.
+    #[test]
+    fn voice_reads_an_agent_rows_prose_only() {
+        let row = |author: &str, body: &str| domain::rows::MessageRow {
+            id: "m1".to_string(),
+            author_kind: Some(author.to_string()),
+            body: Some(body.to_string()),
+            ..Default::default()
+        };
+        let fixture = domain::chat_express::fixture();
+        for case in fixture["plainProseCases"].as_array().expect("plainProseCases") {
+            let text = case["text"].as_str().unwrap();
+            let agent = row("agent", text);
+            let mut heard = Vec::new();
+            visit_talk(&agent, &mut |message| heard.push(message.message.body.map(str::to_string)));
+            assert_eq!(heard, vec![Some(case["expected"].as_str().unwrap().to_string())], "{}", case["name"]);
+            let person = row("user", text);
+            let mut heard = Vec::new();
+            visit_talk(&person, &mut |message| heard.push(message.message.body.map(str::to_string)));
+            assert_eq!(heard, vec![Some(text.to_string())], "{}", case["name"]);
+        }
+    }
 
     /// #EXP-1941: a host told `seal` joins with a key source; a refusal
     /// joins without one, whatever the ticket says; a call the server did
