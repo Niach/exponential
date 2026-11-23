@@ -872,6 +872,165 @@ public func FfiConverterTypeCanvasPlayer_lower(_ value: CanvasPlayer) -> UInt64 
 
 
 /**
+ * #AXC-12: the Express wire decoder (model output in, any chunking).
+ * `wrapped` = prose with `<a2ui>…</a2ui>` blocks (a model's whole
+ * response), else the stream is ONE Express body without tags;
+ * `surface_id` = the surface of statements before any `surface("…")`
+ * line. Same `{messages, issues}` JSON as `JsonlDecoder`, plus `text`
+ * (the prose pieces in order; append them: a run after a block starts
+ * with a `"\n\n"` piece). A block that does not compile is an issue,
+ * never fatal.
+ */
+public protocol ExpressDecoderProtocol: AnyObject, Sendable {
+    
+    func end()  -> String
+    
+    func push(chunk: String)  -> String
+    
+}
+/**
+ * #AXC-12: the Express wire decoder (model output in, any chunking).
+ * `wrapped` = prose with `<a2ui>…</a2ui>` blocks (a model's whole
+ * response), else the stream is ONE Express body without tags;
+ * `surface_id` = the surface of statements before any `surface("…")`
+ * line. Same `{messages, issues}` JSON as `JsonlDecoder`, plus `text`
+ * (the prose pieces in order; append them: a run after a block starts
+ * with a `"\n\n"` piece). A block that does not compile is an issue,
+ * never fatal.
+ */
+open class ExpressDecoder: ExpressDecoderProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_ui_ffi_fn_clone_expressdecoder(self.handle, $0) }
+    }
+public convenience init(wrapped: Bool, surfaceId: String) {
+    let handle =
+        try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_constructor_expressdecoder_new(
+        FfiConverterBool.lower(wrapped),
+        FfiConverterString.lower(surfaceId),uniffiCallStatus
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_ui_ffi_fn_free_expressdecoder(handle, $0) }
+    }
+
+    
+
+    
+open func end() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_expressdecoder_end(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func push(chunk: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_expressdecoder_push(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(chunk),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeExpressDecoder: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ExpressDecoder
+
+    public static func lift(_ handle: UInt64) throws -> ExpressDecoder {
+        return ExpressDecoder(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ExpressDecoder) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ExpressDecoder {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ExpressDecoder, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExpressDecoder_lift(_ handle: UInt64) throws -> ExpressDecoder {
+    return try FfiConverterTypeExpressDecoder.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeExpressDecoder_lower(_ value: ExpressDecoder) -> UInt64 {
+    return FfiConverterTypeExpressDecoder.lower(value)
+}
+
+
+
+
+
+
+/**
  * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
  * Both return `{"messages": […], "issues": [{at, message}]}`.
  * Round 9 §6.5–§6.8, §18.3: the host's routed calls (`eui_core::host::CallHub`):
@@ -9133,6 +9292,21 @@ public func combineDecisions(a: String, b: String)throws  -> String  {
 })
 }
 /**
+ * #AXC-12: one Express block (`<a2ui>` tags optional) → the A2UI
+ * messages it compiles to (JSON array); statements before any
+ * `surface("…")` line target `surface_id`. A component the catalog does not
+ * define is `Invalid`.
+ */
+public func compileExpressJson(source: String, surfaceId: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_compile_express_json(
+        FfiConverterString.lower(source),
+        FfiConverterString.lower(surfaceId),uniffiCallStatus
+    )
+})
+}
+/**
  * A component's a11y contract `{role, keys}`, if any.
  */
 public func componentA11yJson(component: String) -> String?  {
@@ -9217,6 +9391,18 @@ public func decodeJsonlJson(text: String) -> String  {
     )
 })
 }
+/**
+ * #AXC-12: A2UI messages (JSON array) → one Express block (without the
+ * `<a2ui>` tags).
+ */
+public func decompileExpressJson(messagesJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_decompile_express_json(
+        FfiConverterString.lower(messagesJson),uniffiCallStatus
+    )
+})
+}
 public func defaultThemeId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
@@ -9266,6 +9452,20 @@ public func evaluateExpressionJson(expr: String, varsJson: String, nowMs: Double
         FfiConverterOptionDouble.lower(nowMs),
         FfiConverterOptionTypeHostZone.lower(zone),
         FfiConverterOptionUInt32.lower(maxSteps),uniffiCallStatus
+    )
+})
+}
+/**
+ * #AXC-12: the Express section of an agent's system prompt over the core
+ * catalog (plain text: the notation, the rules, every component's compact
+ * signature). Needs the facade's `descriptions` feature (the model-facing
+ * prose); a build without it returns `Invalid`. Always exported, so the
+ * bindings stay one shape across builds.
+ */
+public func expressPromptJson()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_express_prompt_json(uniffiCallStatus
     )
 })
 }
@@ -10388,6 +10588,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_combine_decisions() != 52000) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_compile_express_json() != 44154) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_component_a11y_json() != 20968) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10409,6 +10612,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_decode_jsonl_json() != 25834) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_decompile_express_json() != 25738) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_default_theme_id() != 14423) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10419,6 +10625,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json() != 24948) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_express_prompt_json() != 34057) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 12274) {
@@ -10647,6 +10856,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie_machine() != 64825) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_expressdecoder_end() != 198) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_expressdecoder_push() != 60645) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_attach_surface() != 7511) {
@@ -11106,6 +11321,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_tick() != 40839) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_constructor_expressdecoder_new() != 58157) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_constructor_hostcalls_new() != 38197) {

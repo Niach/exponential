@@ -3,7 +3,7 @@ import ExponentialUICore
 
 // VAPP-91: the transport adapters the Swift SDK ships. Each speaks A2UI
 // messages in and client messages out through the core's decoders
-// (`JsonlDecoder`, `SseDecoder`, `decodeJsonlJson`,
+// (`JsonlDecoder`, `SseDecoder`, `ExpressDecoder`, `decodeJsonlJson`,
 // `messagesFromMcpResultJson`, `mcpActionCallJson`); none knows the host
 // behind it. URLSession only.
 
@@ -35,6 +35,21 @@ public extension Transport {
 /// The `messages` of a decoder's `{messages, issues}` output as JSON texts.
 func decodedMessages(_ json: String) -> [String] {
     (JSONValue.parse(json)["messages"]?.array ?? []).map(\.json)
+}
+
+/// #AXC-12: the prose pieces of a decoder's output (`text`: an Express
+/// response's prose around its `<a2ui>` blocks; never for JSON). Append them
+/// in order; the SDK draws none.
+func decodedText(_ json: String) -> [String] {
+    (JSONValue.parse(json)["text"]?.array ?? []).compactMap(\.string)
+}
+
+/// One decoder output: messages to `receive`, prose to `text`.
+@MainActor
+func deliver(_ json: String, receive: @MainActor (String) -> Void, text: (@MainActor (String) -> Void)?) {
+    let value = JSONValue.parse(json)
+    (value["messages"]?.array ?? []).forEach { receive($0.json) }
+    if let text { (value["text"]?.array ?? []).compactMap(\.string).forEach(text) }
 }
 
 /// In-memory: `feed` messages in, read what the host sent from `sent`.
@@ -109,6 +124,9 @@ public struct HTTPTransportOptions: Sendable {
 public class StreamTransport: Transport {
     public let options: HTTPTransportOptions
     public var session: URLSession
+    /// #AXC-12: the prose of an Express stream, piece by piece (append them);
+    /// never called for JSON. Read at `start`.
+    public var onText: (@MainActor (String) -> Void)?
     private var task: Task<Void, Never>?
     private var closed = false
 
@@ -132,6 +150,7 @@ public class StreamTransport: Transport {
         let session = self.session
         let reconnect = options.reconnect
         let decoderFactory = makeDecoder
+        let onText = self.onText
         task = Task { [weak self] in
             while !Task.isCancelled {
                 status(.connecting, nil)
@@ -142,8 +161,8 @@ public class StreamTransport: Transport {
                         throw URLError(.badServerResponse, userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)"])
                     }
                     status(.open, nil)
-                    try await Self.pump(bytes, decoder: decoder, receive: receive)
-                    decodedMessages(decoder.end()).forEach(receive)
+                    try await Self.pump(bytes, decoder: decoder, receive: receive, text: onText)
+                    deliver(decoder.end(), receive: receive, text: onText)
                     status(.closed, nil)
                 } catch {
                     if Task.isCancelled || self?.closed ?? true { return }
@@ -156,7 +175,7 @@ public class StreamTransport: Transport {
     }
 
     /// Bytes → the decoder at line boundaries (never a split UTF-8 scalar).
-    nonisolated static func pump(_ bytes: URLSession.AsyncBytes, decoder: StreamDecoder, receive: @escaping @MainActor (String) -> Void) async throws {
+    nonisolated static func pump(_ bytes: URLSession.AsyncBytes, decoder: StreamDecoder, receive: @escaping @MainActor (String) -> Void, text: (@MainActor (String) -> Void)? = nil) async throws {
         var buffer: [UInt8] = []
         buffer.reserveCapacity(4096)
         for try await byte in bytes {
@@ -164,13 +183,22 @@ public class StreamTransport: Transport {
             if byte == 0x0A {
                 let out = decoder.push(String(decoding: buffer, as: UTF8.self))
                 buffer.removeAll(keepingCapacity: true)
-                let messages = decodedMessages(out)
-                if !messages.isEmpty { await MainActor.run { messages.forEach(receive) } }
+                await hand(out, receive: receive, text: text)
             }
         }
         if !buffer.isEmpty {
-            let messages = decodedMessages(decoder.push(String(decoding: buffer, as: UTF8.self)))
-            if !messages.isEmpty { await MainActor.run { messages.forEach(receive) } }
+            await hand(decoder.push(String(decoding: buffer, as: UTF8.self)), receive: receive, text: text)
+        }
+    }
+
+    /// One push's output onto the main actor (skipped when it carries nothing).
+    nonisolated static func hand(_ out: String, receive: @escaping @MainActor (String) -> Void, text: (@MainActor (String) -> Void)?) async {
+        let messages = decodedMessages(out)
+        let prose = text == nil ? [] : decodedText(out)
+        if messages.isEmpty && prose.isEmpty { return }
+        await MainActor.run {
+            messages.forEach(receive)
+            if let text { prose.forEach(text) }
         }
     }
 
@@ -201,6 +229,11 @@ extension JsonlDecoder: StreamDecoder {
 }
 
 extension SseDecoder: StreamDecoder {
+    func push(_ chunk: String) -> String { push(chunk: chunk) }
+}
+
+/// #AXC-12: Express (model output; prose comes back in `text`).
+extension ExpressDecoder: StreamDecoder {
     func push(_ chunk: String) -> String { push(chunk: chunk) }
 }
 

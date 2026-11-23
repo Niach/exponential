@@ -13,8 +13,8 @@
 //! - Free functions expose the reducer, the theme loader and the placement
 //!   rule so the binding test suites replay the shared fixtures.
 //! - The host API (VAPP-91, `catalog/host.json`): a `HostRouter` object
-//!   (server messages in, ops out), the `JsonlDecoder` / `SseDecoder`
-//!   transports' decoders, and the policy / sources / packages functions,
+//!   (server messages in, ops out), the `JsonlDecoder` / `SseDecoder` /
+//!   `ExpressDecoder` (#AXC-12) transports' decoders, and the policy / sources / packages functions,
 //!   JSON text in and out; a `Theme` object painters query per part (VAPP-88).
 //! - Round 9 (A2UI 1.0, `docs/round-9-contract.md`): `routeJson(message,
 //!   trusted)`, `mintSurfaceId`, the `call` / `respond` ops, the renderer →
@@ -2967,6 +2967,94 @@ impl SseDecoder {
             self.inner.lock().unwrap_or_else(|e| e.into_inner()).end().to_json().to_string()
         })
     }
+}
+
+/// #AXC-12: the Express wire decoder (model output in, any chunking).
+/// `wrapped` = prose with `<a2ui>…</a2ui>` blocks (a model's whole
+/// response), else the stream is ONE Express body without tags;
+/// `surface_id` = the surface of statements before any `surface("…")`
+/// line. Same `{messages, issues}` JSON as `JsonlDecoder`, plus `text`
+/// (the prose pieces in order; append them: a run after a block starts
+/// with a `"\n\n"` piece). A block that does not compile is an issue,
+/// never fatal.
+#[derive(uniffi::Object)]
+pub struct ExpressDecoder {
+    inner: Mutex<OwnedExpress>,
+}
+
+/// The core decoder is `!Send` only because the compiler's per-stream scope
+/// session (`a2ui_express::compile::session::ScopeSession`) holds `Rc`s.
+/// SAFETY: every one of those `Rc`s is created by this stream and reachable
+/// only through it (the shared parts, the compiler and the catalogs, are
+/// `Arc` and `Send`), so moving the whole decoder to another thread cannot
+/// leave a clone behind; the `Mutex` serializes every use.
+struct OwnedExpress(h::ExpressDecoder);
+
+unsafe impl Send for OwnedExpress {}
+
+#[uniffi::export]
+impl ExpressDecoder {
+    #[uniffi::constructor]
+    pub fn new(wrapped: bool, surface_id: String) -> Arc<Self> {
+        Arc::new(ExpressDecoder { inner: Mutex::new(OwnedExpress(h::ExpressDecoder::new(wrapped, &surface_id))) })
+    }
+
+    pub fn push(&self, chunk: String) -> String {
+        shield("push", || panic_decoded_json("push"), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).0.push(&chunk).to_json().to_string()
+        })
+    }
+
+    pub fn end(&self) -> String {
+        shield("end", || panic_decoded_json("end"), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).0.end().to_json().to_string()
+        })
+    }
+}
+
+fn express_error(e: eui_core::express::ExpressError) -> UiError {
+    UiError::Invalid { reason: e.to_string() }
+}
+
+/// #AXC-12: one Express block (`<a2ui>` tags optional) → the A2UI
+/// messages it compiles to (JSON array); statements before any
+/// `surface("…")` line target `surface_id`. A component the catalog does not
+/// define is `Invalid`.
+#[uniffi::export]
+pub fn compile_express_json(source: String, surface_id: String) -> Result<String, UiError> {
+    guarded("compile_express_json", || {
+        let messages = eui_core::express::compile(&source, &surface_id).map_err(express_error)?;
+        Ok(Value::Array(messages).to_string())
+    })
+}
+
+/// #AXC-12: A2UI messages (JSON array) → one Express block (without the
+/// `<a2ui>` tags).
+#[uniffi::export]
+pub fn decompile_express_json(messages_json: String) -> Result<String, UiError> {
+    guarded("decompile_express_json", || {
+        let messages: Vec<Value> = parse(&messages_json)?;
+        eui_core::express::decompile(&messages).map_err(express_error)
+    })
+}
+
+/// #AXC-12: the Express section of an agent's system prompt over the core
+/// catalog (plain text: the notation, the rules, every component's compact
+/// signature). Needs the facade's `descriptions` feature (the model-facing
+/// prose); a build without it returns `Invalid`. Always exported, so the
+/// bindings stay one shape across builds.
+#[uniffi::export]
+pub fn express_prompt_json() -> Result<String, UiError> {
+    guarded("express_prompt_json", || {
+        #[cfg(feature = "descriptions")]
+        {
+            eui_core::express::express_prompt().map_err(express_error)
+        }
+        #[cfg(not(feature = "descriptions"))]
+        {
+            Err(UiError::Invalid { reason: "built without descriptions: the Express prompt needs the facade's `descriptions` feature".into() })
+        }
+    })
 }
 
 /// A whole JSONL document (or one JSON value / a JSON array) →

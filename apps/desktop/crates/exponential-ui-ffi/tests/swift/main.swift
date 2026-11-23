@@ -360,6 +360,21 @@ func decodeFeed(_ push: (String) -> String, _ end: () -> String, _ chunks: [Stri
     }
     return ["messages": messages, "issues": issues]
 }
+/// `decodeFeed` plus the prose pieces (`text`, absent when empty).
+func expressFeed(_ push: (String) -> String, _ end: () -> String, _ chunks: [String]) -> [String: Any] {
+    var messages: [Any] = []
+    var issues: [Any] = []
+    var prose: [Any] = []
+    for o in chunks.map(push) + [end()] {
+        let v = try! JSONSerialization.jsonObject(with: o.data(using: .utf8)!) as! [String: Any]
+        messages += v["messages"] as! [Any]
+        issues += v["issues"] as! [Any]
+        prose += (v["text"] as? [Any]) ?? []
+    }
+    var out: [String: Any] = ["messages": messages, "issues": issues]
+    if !prose.isEmpty { out["text"] = prose }
+    return out
+}
 let transport = load("host-transport.json") as! [String: Any]
 for c in transport["jsonl"] as! [[String: Any]] {
     let d = JsonlDecoder()
@@ -374,6 +389,48 @@ for c in transport["mcp"] as! [[String: Any]] {
 }
 for c in transport["mcpAction"] as! [[String: Any]] {
     equal(try! mcpActionCallJson(messageJson: text(c["message"]!), tool: c["tool"] as? String, metadataJson: c["metadata"].map(text)), c["expected"]!, "mcpAction \(c["name"]!)")
+}
+// #AXC-12: the Express round trip (decompile, compile back, the same
+// messages) and the Express decoder (prose + a block, 7-character chunks).
+let expressRoundtrip = load("express-roundtrip.json") as! [String: Any]
+for c in expressRoundtrip["cases"] as! [[String: Any]] {
+    let name = c["name"] as! String
+    let express = try! decompileExpressJson(messagesJson: text(c["messages"]!))
+    equal(try! compileExpressJson(source: express, surfaceId: "main"), c["messages"]!, "express \(name)")
+    let d = ExpressDecoder(wrapped: true, surfaceId: "main")
+    let response = Array("Here is the surface.\n<a2ui>\n\(express)\n</a2ui>\nAnything else?")
+    var prose = ""
+    var issues = 0
+    var ids = Set<String>()
+    let outs = stride(from: 0, to: response.count, by: 7).map { d.push(chunk: String(response[$0..<min($0 + 7, response.count)])) } + [d.end()]
+    for out in outs {
+        let v = try! JSONSerialization.jsonObject(with: out.data(using: .utf8)!) as! [String: Any]
+        prose += ((v["text"] as? [String]) ?? []).joined()
+        issues += (v["issues"] as! [Any]).count
+        for m in v["messages"] as! [[String: Any]] {
+            for body in m.values.compactMap({ $0 as? [String: Any] }) {
+                for comp in (body["components"] as? [[String: Any]]) ?? [] { ids.insert(comp["id"] as! String) }
+            }
+        }
+    }
+    let want = Set(((((c["messages"] as! [[String: Any]])[0])["createSurface"] as! [String: Any])["components"] as! [[String: Any]]).map { $0["id"] as! String })
+    check(issues == 0, "express stream \(name): \(issues) issues")
+    check(prose == "Here is the surface.\n\nAnything else?", "express stream \(name): prose \(prose)")
+    check(ids == want, "express stream \(name): \(ids.count) of \(want.count) components")
+}
+do {
+    _ = try compileExpressJson(source: "root = Sparkle(text=\"hi\")", surfaceId: "main")
+    check(false, "express: an unknown component compiles")
+} catch let UiError.Invalid(reason) {
+    check(reason.contains("Sparkle"), "express: \(reason)")
+} catch {
+    check(false, "express: \(error)")
+}
+if let express = transport["express"] as? [[String: Any]] {
+    for c in express {
+        let d = ExpressDecoder(wrapped: (c["wrapped"] as? Bool) ?? true, surfaceId: (c["surfaceId"] as? String) ?? "main")
+        equal(text(expressFeed({ d.push(chunk: $0) }, { d.end() }, c["chunks"] as! [String])), c["expected"]!, "express \(c["name"]!)")
+    }
 }
 let policy = load("host-policy.json") as! [String: Any]
 for c in policy["functions"] as! [[String: Any]] {

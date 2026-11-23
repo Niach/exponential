@@ -1,5 +1,6 @@
 package at.exponential.ui.host
 
+import at.exponential.ui.ffi.ExpressDecoder
 import at.exponential.ui.ffi.JsonlDecoder
 import at.exponential.ui.ffi.SseDecoder
 import at.exponential.ui.ffi.decodeJsonlJson
@@ -26,7 +27,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 // VAPP-91: the transport adapters the Kotlin SDK ships (the twins of the TS
 // reference `src/host/transports.ts`). Each speaks A2UI messages in and
 // client messages out; the PARSING is the core's (`JsonlDecoder`,
-// `SseDecoder`, `decodeJsonlJson`, `messagesFromMcpResultJson`,
+// `SseDecoder`, `ExpressDecoder`, `decodeJsonlJson`, `messagesFromMcpResultJson`,
 // `mcpActionCallJson` through the facade), never re-implemented here.
 // No HTTP library: `HttpURLConnection` on Dispatchers.IO.
 
@@ -49,6 +50,16 @@ interface Transport {
 
 /** The messages of a decoder result `{"messages": [...], "issues": [...]}`. */
 internal fun decodedMessages(json: String): List<JsonValue> = JsonValue.parse(json)["messages"]?.array ?: emptyList()
+
+/** #AXC-12: the prose pieces of a decoder result (`text`: an Express response's prose around its `<a2ui>` blocks; never for JSON). Append them in order; the SDK draws none. */
+internal fun decodedText(json: String): List<String> = JsonValue.parse(json)["text"]?.array?.mapNotNull { it.string } ?: emptyList()
+
+/** One decoder result: messages to [receive], prose to [text]. */
+internal fun deliver(json: String, receive: (JsonValue) -> Unit, text: ((String) -> Unit)?) {
+    val v = JsonValue.parse(json)
+    v["messages"]?.array?.forEach(receive)
+    if (text != null) v["text"]?.array?.forEach { piece -> piece.string?.let(text) }
+}
 
 /** In-memory: [feed] messages in, read what the host sent from [sent]. */
 class MemoryTransport : Transport {
@@ -103,7 +114,7 @@ data class HttpTransportOptions(
     val connectTimeoutMs: Int = 15_000,
 )
 
-/** A chunked decoder of the facade (JSONL or SSE). */
+/** A chunked decoder of the facade (JSONL, SSE or Express). */
 internal interface ChunkDecoder {
     fun push(chunk: String): String
     fun end(): String
@@ -125,17 +136,24 @@ internal class Utf8Chunks {
     }
 }
 
-/** Read a stream through a decoder, delivering every message. */
-internal fun pump(stream: InputStream, decoder: ChunkDecoder, receive: (JsonValue) -> Unit, alive: () -> Boolean) {
-    val text = Utf8Chunks()
+/** #AXC-12: the core's Express decoder as a [ChunkDecoder] (`wrapped` = prose with `<a2ui>` blocks, else one bare body). */
+internal fun expressChunkDecoder(wrapped: Boolean, surfaceId: String): ChunkDecoder = object : ChunkDecoder {
+    val d = ExpressDecoder(wrapped, surfaceId)
+    override fun push(chunk: String) = d.push(chunk)
+    override fun end() = d.end().also { d.close() }
+}
+
+/** Read a stream through a decoder, delivering every message (and, to [text], an Express stream's prose). */
+internal fun pump(stream: InputStream, decoder: ChunkDecoder, receive: (JsonValue) -> Unit, text: ((String) -> Unit)? = null, alive: () -> Boolean) {
+    val chars = Utf8Chunks()
     val buf = ByteArray(8192)
     while (alive()) {
         val n = stream.read(buf)
         if (n < 0) break
         if (n == 0) continue
-        decodedMessages(decoder.push(text.decode(buf, n))).forEach(receive)
+        deliver(decoder.push(chars.decode(buf, n)), receive, text)
     }
-    decodedMessages(decoder.end()).forEach(receive)
+    deliver(decoder.end(), receive, text)
 }
 
 /** POST a JSON body; returns (status, content type, body text, headers). */
@@ -166,6 +184,9 @@ abstract class StreamTransport(val options: HttpTransportOptions) : Transport {
     @Volatile private var closed = false
     @Volatile private var connection: HttpURLConnection? = null
 
+    /** #AXC-12: the prose of an Express stream, piece by piece (append them); never called for JSON. Any thread. */
+    @Volatile var onText: ((String) -> Unit)? = null
+
     internal abstract fun decoder(): ChunkDecoder
     protected abstract val accept: String
 
@@ -186,7 +207,7 @@ abstract class StreamTransport(val options: HttpTransportOptions) : Transport {
                     val code = conn.responseCode
                     if (code !in 200..299) throw java.io.IOException("HTTP $code")
                     status(TransportStatus.Open, null)
-                    conn.inputStream.use { pump(it, decoder(), receive) { !closed } }
+                    conn.inputStream.use { pump(it, decoder(), receive, onText) { !closed } }
                     if (!closed) status(TransportStatus.Closed, null)
                 } catch (e: Exception) {
                     if (closed) return@launch
