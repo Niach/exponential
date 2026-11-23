@@ -41,6 +41,12 @@ public protocol Transport: AnyObject {
     /// #AXC-12: `start` plus `text`, the prose of an Express response piece
     /// by piece (append them). The default drops the prose.
     func start(receive: @escaping @MainActor (String) -> Void, status: @escaping @MainActor (TransportStatus, String?) -> Void, text: (@MainActor (String) -> Void)?)
+    /// #VAPP-300: `start` plus `open`, the surfaces whose Express block is
+    /// still open (the decoder's `open`) around each decoded batch:
+    /// `settled: false` BEFORE its messages (those surfaces stream as they
+    /// arrive), `true` after (every other surface's block closed). The
+    /// default never reports one (a transport without streamed Express).
+    func start(receive: @escaping @MainActor (String) -> Void, status: @escaping @MainActor (TransportStatus, String?) -> Void, text: (@MainActor (String) -> Void)?, open: (@MainActor ([String], Bool) -> Void)?)
     /// One client message (JSON text).
     func send(_ message: String) async throws
     /// Round 9 §1.3: a message with the `sendDataModel` metadata beside it.
@@ -51,6 +57,10 @@ public protocol Transport: AnyObject {
 public extension Transport {
     func start(receive: @escaping @MainActor (String) -> Void, status: @escaping @MainActor (TransportStatus, String?) -> Void, text: (@MainActor (String) -> Void)?) {
         start(receive: receive, status: status)
+    }
+
+    func start(receive: @escaping @MainActor (String) -> Void, status: @escaping @MainActor (TransportStatus, String?) -> Void, text: (@MainActor (String) -> Void)?, open: (@MainActor ([String], Bool) -> Void)?) {
+        start(receive: receive, status: status, text: text)
     }
 
     /// `{"message", "metadata"}` on the wire (the MCP carrier sends it beside).
@@ -71,11 +81,21 @@ func decodedText(_ json: String) -> [String] {
     (JSONValue.parse(json)["text"]?.array ?? []).compactMap(\.string)
 }
 
-/// One decoder output: messages to `receive`, prose to `text`.
+/// #VAPP-300: the surfaces whose Express block is still open after a
+/// decoder's output (`open`; absent = none).
+func decodedOpen(_ json: String) -> [String] {
+    (JSONValue.parse(json)["open"]?.array ?? []).compactMap(\.string)
+}
+
+/// One decoder output: messages to `receive`, prose to `text`; #VAPP-300:
+/// the open Express block around the messages (`open`).
 @MainActor
-func deliver(_ json: String, receive: @MainActor (String) -> Void, text: (@MainActor (String) -> Void)?) {
+func deliver(_ json: String, receive: @MainActor (String) -> Void, text: (@MainActor (String) -> Void)?, open: (@MainActor ([String], Bool) -> Void)? = nil) {
     let value = JSONValue.parse(json)
+    let ids = (value["open"]?.array ?? []).compactMap(\.string)
+    open?(ids, false)
     (value["messages"]?.array ?? []).forEach { receive($0.json) }
+    open?(ids, true)
     if let text { (value["text"]?.array ?? []).compactMap(\.string).forEach(text) }
 }
 
@@ -179,6 +199,10 @@ public class StreamTransport: Transport {
     }
 
     public func start(receive: @escaping @MainActor (String) -> Void, status: @escaping @MainActor (TransportStatus, String?) -> Void, text onText: (@MainActor (String) -> Void)?) {
+        start(receive: receive, status: status, text: onText, open: nil)
+    }
+
+    public func start(receive: @escaping @MainActor (String) -> Void, status: @escaping @MainActor (TransportStatus, String?) -> Void, text onText: (@MainActor (String) -> Void)?, open: (@MainActor ([String], Bool) -> Void)?) {
         closed = false
         task?.cancel()
         var request = URLRequest(url: options.url)
@@ -199,11 +223,13 @@ public class StreamTransport: Transport {
                     let contentType = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "content-type") ?? ""
                     let decoder = decoderFactory(inferenceFormatOf(contentType: contentType) == InferenceFormat.express.rawValue)
                     status(.open, nil)
-                    try await Self.pump(bytes, decoder: decoder, receive: receive, text: onText)
-                    deliver(decoder.end(), receive: receive, text: onText)
+                    try await Self.pump(bytes, decoder: decoder, receive: receive, text: onText, open: open)
+                    deliver(decoder.end(), receive: receive, text: onText, open: open)
                     status(.closed, nil)
                 } catch {
                     if Task.isCancelled || self?.closed ?? true { return }
+                    // #VAPP-300: a dropped stream's open block never closes: settle it.
+                    open?([], true)
                     status(.error, error.localizedDescription)
                 }
                 guard let reconnect, !(self?.closed ?? true) else { return }
@@ -213,7 +239,10 @@ public class StreamTransport: Transport {
     }
 
     /// Bytes → the decoder at line boundaries (never a split UTF-8 scalar).
-    nonisolated static func pump(_ bytes: URLSession.AsyncBytes, decoder: StreamDecoder, receive: @escaping @MainActor (String) -> Void, text: (@MainActor (String) -> Void)? = nil) async throws {
+    nonisolated static func pump(_ bytes: URLSession.AsyncBytes, decoder: StreamDecoder, receive: @escaping @MainActor (String) -> Void, text: (@MainActor (String) -> Void)? = nil, open: (@MainActor ([String], Bool) -> Void)? = nil) async throws {
+        // #VAPP-300: the open set last handed over (a push that changes it
+        // hops to the main actor even without messages).
+        var lastOpen: [String] = []
         var buffer: [UInt8] = []
         buffer.reserveCapacity(4096)
         for try await byte in bytes {
@@ -221,21 +250,26 @@ public class StreamTransport: Transport {
             if byte == 0x0A {
                 let out = decoder.push(String(decoding: buffer, as: UTF8.self))
                 buffer.removeAll(keepingCapacity: true)
-                await hand(out, receive: receive, text: text)
+                await hand(out, receive: receive, text: text, open: open, lastOpen: &lastOpen)
             }
         }
         if !buffer.isEmpty {
-            await hand(decoder.push(String(decoding: buffer, as: UTF8.self)), receive: receive, text: text)
+            await hand(decoder.push(String(decoding: buffer, as: UTF8.self)), receive: receive, text: text, open: open, lastOpen: &lastOpen)
         }
     }
 
-    /// One push's output onto the main actor (skipped when it carries nothing).
-    nonisolated static func hand(_ out: String, receive: @escaping @MainActor (String) -> Void, text: (@MainActor (String) -> Void)?) async {
+    /// One push's output onto the main actor (skipped when it carries
+    /// nothing and leaves the open block as it was).
+    nonisolated static func hand(_ out: String, receive: @escaping @MainActor (String) -> Void, text: (@MainActor (String) -> Void)?, open: (@MainActor ([String], Bool) -> Void)? = nil, lastOpen: inout [String]) async {
         let messages = decodedMessages(out)
         let prose = text == nil ? [] : decodedText(out)
-        if messages.isEmpty && prose.isEmpty { return }
+        let ids = open == nil ? [] : decodedOpen(out)
+        if messages.isEmpty && prose.isEmpty && ids == lastOpen { return }
+        lastOpen = ids
         await MainActor.run {
+            open?(ids, false)
             messages.forEach(receive)
+            open?(ids, true)
             if let text { prose.forEach(text) }
         }
     }
@@ -344,6 +378,10 @@ public final class WebSocketTransport: Transport {
     }
 
     public func start(receive: @escaping @MainActor (String) -> Void, status: @escaping @MainActor (TransportStatus, String?) -> Void, text onText: (@MainActor (String) -> Void)?) {
+        start(receive: receive, status: status, text: onText, open: nil)
+    }
+
+    public func start(receive: @escaping @MainActor (String) -> Void, status: @escaping @MainActor (TransportStatus, String?) -> Void, text onText: (@MainActor (String) -> Void)?, open: (@MainActor ([String], Bool) -> Void)?) {
         closed = false
         loop?.cancel()
         loop = Task { [weak self] in
@@ -371,12 +409,12 @@ public final class WebSocketTransport: Transport {
                         case let .data(d): text = String(decoding: d, as: UTF8.self)
                         @unknown default: continue
                         }
-                        deliver(frames.push(frame: text), receive: receive, text: onText)
+                        deliver(frames.push(frame: text), receive: receive, text: onText, open: open)
                     }
                 } catch {
                     if self.closed || Task.isCancelled { return }
                     // The connection's Express response ends with it.
-                    deliver(frames.end(), receive: receive, text: onText)
+                    deliver(frames.end(), receive: receive, text: onText, open: open)
                     status(opened ? .closed : .error, opened ? nil : error.localizedDescription)
                 }
                 guard let wait = self.reconnect, !self.closed else { return }

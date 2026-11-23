@@ -45,6 +45,7 @@ const eui = {
   collapsed: false,
   items: [
     { label: `Overview`, link: `${EUI}/` },
+    { label: `Express`, link: `${EUI}/express/` },
     {
       label: `Guides`,
       collapsed: false,

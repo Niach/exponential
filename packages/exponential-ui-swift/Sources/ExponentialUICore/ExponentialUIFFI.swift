@@ -4108,6 +4108,16 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func setStates(id: String, states: [String])  -> Bool
     
     /**
+     * #VAPP-300: an Express block is still streaming this surface (the
+     * host sets it from its decoder's `open`: the surfaces the open block
+     * writes): it reduces `streaming`, so a child not streamed yet renders
+     * as nothing. Off again when the block closes: the tree re-reduces and
+     * a child still missing is the Unknown placeholder with its issue.
+     * True when it changed (the host lays out again).
+     */
+    func setStreaming(on: Bool)  -> Bool
+    
+    /**
      * Built-in string overrides `{id: text}`.
      */
     func setStringsJson(stringsJson: String) throws 
@@ -4135,6 +4145,11 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func setViewport(width: Float, height: Float, maxHeight: Float?)  -> Bool
     
     func settings()  -> FfiSettings
+    
+    /**
+     * #VAPP-300: whether an Express block is still streaming this surface.
+     */
+    func streaming()  -> Bool
     
     /**
      * The built-in string table in effect, as JSON.
@@ -5064,6 +5079,24 @@ open func setStates(id: String, states: [String]) -> Bool  {
 }
     
     /**
+     * #VAPP-300: an Express block is still streaming this surface (the
+     * host sets it from its decoder's `open`: the surfaces the open block
+     * writes): it reduces `streaming`, so a child not streamed yet renders
+     * as nothing. Off again when the block closes: the tree re-reduces and
+     * a child still missing is the Unknown placeholder with its issue.
+     * True when it changed (the host lays out again).
+     */
+open func setStreaming(on: Bool) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_surface_set_streaming(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(on),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * Built-in string overrides `{id: text}`.
      */
 open func setStringsJson(stringsJson: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
@@ -5134,6 +5167,18 @@ open func settings() -> FfiSettings  {
     return try!  FfiConverterTypeFfiSettings_lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_method_surface_settings(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * #VAPP-300: whether an Express block is still streaming this surface.
+     */
+open func streaming() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_surface_streaming(
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
@@ -10130,6 +10175,22 @@ public func reduceSurfaceJson(componentsJson: String, catalogId: String, extensi
 })
 }
 /**
+ * #VAPP-300: [`reduce_surface_json`] with the `streaming` option (the
+ * surface's Express block is still open: a child not streamed yet is no
+ * node and no issue).
+ */
+public func reduceSurfaceStreamingJson(componentsJson: String, catalogId: String, extensionsJson: String?, streaming: Bool)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_reduce_surface_streaming_json(
+        FfiConverterString.lower(componentsJson),
+        FfiConverterString.lower(catalogId),
+        FfiConverterOptionString.lower(extensionsJson),
+        FfiConverterBool.lower(streaming),uniffiCallStatus
+    )
+})
+}
+/**
  * Round 2: the unit a relative time shows in: `{value, unit}` for
  * `delta_ms` = value − now.
  */
@@ -10958,6 +11019,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json() != 35125) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_reduce_surface_streaming_json() != 37394) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json() != 12012) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -11414,6 +11478,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_states() != 25194) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_streaming() != 57444) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json() != 29889) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -11430,6 +11497,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_settings() != 584) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_streaming() != 36728) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_strings_json() != 32069) {

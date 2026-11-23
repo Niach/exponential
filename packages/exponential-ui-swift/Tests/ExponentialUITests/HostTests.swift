@@ -493,6 +493,42 @@ final class HostTests: XCTestCase {
         XCTAssertEqual(prose.joined(), "Hi.\n\nBye.")
     }
 
+    /// #VAPP-300: while an Express block streams, a child that has not
+    /// arrived yet renders as nothing (no Unknown node, no issue); once the
+    /// block closes a child still missing is the placeholder again, as on a
+    /// JSON surface.
+    func testStreamingExpressBlockDrawsNoUnknownForAChildNotStreamedYet() {
+        let timeline = [
+            "Here is the release.\n<a2ui>\nroot = Stack(gap=\"sm\", children=[title, later, ok])\n",
+            "title = Text(text=\"Release 0.18.84\")\n",
+            "ok = Button(label=\"Promote\", variant=\"default\")\n",
+        ]
+        let unknowns = { (host: ExponentialHost) -> [String]? in
+            guard let m = host.surface("main") else { return nil }
+            m.setViewport(width: 390, height: 800)
+            return m.nodes.filter { $0.component == "Unknown" }.map(\.id)
+        }
+        for (close, want) in [("later = Text(text=\"Arrived\")\n</a2ui>\nDone.", [String]()), ("</a2ui>\nDone.", ["later"])] {
+            let host = ExponentialHost(HostOptions())
+            let decoder = ExpressDecoder(wrapped: true, surfaceId: "main")
+            let feed = { (out: String) in
+                deliver(out, receive: { _ = host.receive($0) }, text: nil, open: { ids, settled in host.setStreaming(ids, settled: settled) })
+            }
+            for chunk in timeline {
+                feed(decoder.push(chunk: chunk))
+                XCTAssertEqual(unknowns(host), [], "mid-stream after \(chunk)")
+            }
+            feed(decoder.push(chunk: close))
+            feed(decoder.end())
+            XCTAssertEqual(unknowns(host), want, "closed with \(close)")
+        }
+        // A JSON surface keeps the placeholder at once.
+        let host = ExponentialHost(HostOptions())
+        _ = host.receive(#"{"version": "1.0", "createSurface": {"surfaceId": "main", "catalogId": "https://ui.exponential.at/catalogs/core/v1"}}"#)
+        _ = host.receive(#"{"version": "1.0", "updateComponents": {"surfaceId": "main", "components": [{"id": "root", "component": "Stack", "children": ["later"]}]}}"#)
+        XCTAssertEqual(unknowns(host), ["later"])
+    }
+
     func testCatalogNegotiationAndUnsupportedCatalog() async throws {
         let transport = MemoryTransport()
         let ext = try Fixtures.json("catalog-extension.json")["extension"]!

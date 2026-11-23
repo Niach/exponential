@@ -206,7 +206,8 @@ pub fn template_item_cases() -> Vec<Case> {
     }
     for c in arr(&f["reduce"]) {
         out.push(case(format!("reduce {}", c["name"].as_str().unwrap_or("")), || {
-            let options = ReduceOptions::new(c["catalogId"].as_str().unwrap_or(CORE_CATALOG_ID));
+            // #VAPP-300: `streaming` = the surface's Express block is still open.
+            let options = ReduceOptions { streaming: c["streaming"].as_bool().unwrap_or(false), ..ReduceOptions::new(c["catalogId"].as_str().unwrap_or(CORE_CATALOG_ID)) };
             let got = match c.get("nested") {
                 Some(n) => reduce_nested(&serde_json::from_value::<NestedNode>(n.clone()).map_err(|e| e.to_string())?, &options),
                 None => reduce_surface(&serde_json::from_value::<Vec<FlatComponent>>(c["components"].clone()).map_err(|e| e.to_string())?, &options),

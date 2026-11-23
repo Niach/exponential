@@ -468,6 +468,25 @@ final class ConformanceTests: XCTestCase {
                 return same(feedExpress({ d.push(chunk: $0) }, { d.end() }, c["chunks"]?.array ?? []).json, c["expected"]!)
             })
         }
+        // #VAPP-300: the open block after every push, then after end().
+        for c in f["expressOpen"]?.array ?? [] {
+            out.append(run("open: \(c["name"]?.string ?? "")") {
+                let chunks = (c["chunks"]?.array ?? []).compactMap(\.string)
+                let reads: [String]
+                switch c["decoder"]?.string {
+                case "sse":
+                    let d = SseDecoder.withSurface(surfaceId: c["surfaceId"]?.string)
+                    reads = chunks.map { d.push(chunk: $0) } + [d.end()]
+                case "ws":
+                    let d = FrameDecoder(surfaceId: c["surfaceId"]?.string)
+                    reads = chunks.map { d.push(frame: $0) } + [d.end()]
+                default:
+                    let d = ExpressDecoder(wrapped: c["wrapped"]?.bool ?? true, surfaceId: c["surfaceId"]?.string ?? "main")
+                    reads = chunks.map { d.push(chunk: $0) } + [d.end()]
+                }
+                return same(JSONValue.array(reads.map { JSONValue.parse($0)["open"] ?? .array([]) }).json, c["expected"]!)
+            })
+        }
         for c in f["expressSse"]?.array ?? [] {
             out.append(run("sse: \(c["name"]?.string ?? "")") {
                 let d = SseDecoder.withSurface(surfaceId: c["surfaceId"]?.string)

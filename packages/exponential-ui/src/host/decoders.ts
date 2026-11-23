@@ -22,14 +22,31 @@ export interface Decoded {
    *  order, as it streamed in (append the pieces; the host shows it through
    *  `onText`, the SDK draws none). Absent for JSON. */
   text?: string[]
+  /** #VAPP-300: the surfaces whose Express block is still OPEN after this
+   *  read (the ids the open block has written to, in order): the host
+   *  reduces them `streaming` (a child not streamed yet renders as
+   *  nothing). A STATE, not a delta: absent = none open (JSON never is);
+   *  the host replaces its open set with every batch's. */
+  open?: string[]
 }
 
-/** Appends `from` to `out` (text only when there is some). */
+/** Appends `from` to `out` (text only when there is some); `open` is the
+ *  later batch's (the state after both). */
 export function mergeDecoded(out: Decoded, from: Decoded): Decoded {
   out.messages.push(...from.messages)
   out.issues.push(...from.issues)
   if (from.text?.length) (out.text ??= []).push(...from.text)
+  if (from.open?.length) out.open = from.open
+  else delete out.open
   return out
+}
+
+/** #VAPP-300: the surface a message targets (router `surfaceIdOf`: the first
+ *  string `surfaceId` among its object values), else `""`. */
+function messageSurfaceId(message: unknown): string {
+  if (!message || typeof message !== `object`) return ``
+  for (const v of Object.values(message)) if (v && typeof v === `object` && typeof (v as { surfaceId?: unknown }).surfaceId === `string`) return (v as { surfaceId: string }).surfaceId
+  return ``
 }
 
 function parseLine(line: string, at: number, out: Decoded): void {
@@ -183,6 +200,9 @@ export class SseDecoder {
       if (raw === null) this.dropData()
       else this.line(raw.endsWith(`\r`) ? raw.slice(0, -1) : raw, out)
     }
+    // #VAPP-300: the Express response's open block holds across JSON events.
+    const open = this.express?.open
+    if (open?.length) out.open = open
     return out
   }
 
@@ -375,6 +395,8 @@ export class ExpressDecoder {
   private texted = false
   /** A block passed since the last prose. */
   private blocked = false
+  /** #VAPP-300: the surfaces the OPEN block has written to, in order. */
+  private blockSurfaces: string[] = []
 
   constructor(options: ExpressOptions & { wrapped?: boolean } = {}) {
     if (!expressEngine) throw new Error(EXPRESS_NOT_LOADED)
@@ -386,6 +408,8 @@ export class ExpressDecoder {
     this.chunks += 1
     const out = this.collect(() => this.stream.push(chunk))
     if (!this.failed) this.blocked ||= this.stream.inBlock
+    if (this.failed || !this.stream.inBlock) this.blockSurfaces = []
+    if (this.blockSurfaces.length) out.open = [...this.blockSurfaces]
     return out
   }
 
@@ -393,8 +417,15 @@ export class ExpressDecoder {
     if (this.failed) return { messages: [], issues: [] }
     const out = this.collect(() => this.stream.finish())
     this.failed = true
+    this.blockSurfaces = []
     this.stream.free?.()
     return out
+  }
+
+  /** #VAPP-300: the surfaces whose block is still open (what the last read
+   *  reported as `open`). */
+  get open(): string[] {
+    return [...this.blockSurfaces]
   }
 
   private collect(read: () => ExpressPart[]): Decoded {
@@ -412,14 +443,22 @@ export class ExpressDecoder {
       if (`text` in part) {
         // The stream trims each run's edges: a run after a block is a new paragraph.
         if (this.blocked && this.texted) (out.text ??= []).push(`\n\n`)
+        // Prose: the block before it closed.
+        this.blockSurfaces = []
         this.blocked = false
         this.texted = true
         ;(out.text ??= []).push(part.text)
       } else if (`a2ui` in part) {
         this.blocked = true
         out.messages.push(...part.a2ui)
+        for (const m of part.a2ui) {
+          const id = messageSurfaceId(m)
+          if (id && !this.blockSurfaces.includes(id)) this.blockSurfaces.push(id)
+        }
       } else {
         this.blocked = true
+        // A rejected block is over.
+        this.blockSurfaces = []
         out.issues.push({ at, message: `${categoryText(part.error.category)}: ${part.error.message}` })
       }
     }
@@ -474,7 +513,11 @@ export class FrameDecoder {
     const chunk = expressFrameChunk(frame)
     if (chunk === null) {
       const d = decodeJsonl(frame)
-      return { messages: d.messages, issues: d.issues.length ? [{ at: n, message: `frame ${n} is not JSON` }] : [] }
+      const out: Decoded = { messages: d.messages, issues: d.issues.length ? [{ at: n, message: `frame ${n} is not JSON` }] : [] }
+      // #VAPP-300: the Express response's open block holds across JSON frames.
+      const open = this.express?.open
+      if (open?.length) out.open = open
+      return out
     }
     if (!this.express) {
       if (!expressEngine) return { messages: [], issues: [{ at: n, message: `frame ${n}: ${EXPRESS_NOT_LOADED}` }] }
