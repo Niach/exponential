@@ -275,10 +275,13 @@ describe.skipIf(!ready.ok)(`team agents as group chats (#EXP-1990)`, () => {
       expect(chat).toMatchObject({ userId: owner, shared: true, agentId: a.id })
       await postAgentInputInTx(tx, fresh!, mate, `EXP-3 is yours.`, { triggerId: null, eventId: null, name: `issue.assigned` })
       const lines = await tx.select().from(messages).where(eq(messages.sessionId, chatId)).orderBy(asc(messages.createdAt), asc(messages.id))
-      expect(lines.map((line) => [line.authorId, (line.card as { event?: string } | null)?.event])).toEqual([
-        [owner, `trigger_fired`],
-        [mate, `trigger_fired`],
-      ])
+      // (One transaction = one `now()`: the two lines share their time.)
+      expect(lines.map((line) => [line.authorId, (line.card as { event?: string } | null)?.event]).sort()).toEqual(
+        [
+          [owner, `trigger_fired`],
+          [mate, `trigger_fired`],
+        ].sort()
+      )
       // A turn only a trigger started: nobody asked, the owner hears it.
       const consume = (at: Date, ids: string[]) => tx.update(messages).set({ consumedAt: at }).where(inArray(messages.id, ids))
       await consume(new Date(`2026-11-23T10:00:00Z`), lines.map((line) => line.id))
