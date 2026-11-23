@@ -15,7 +15,24 @@ let keyed = true
 
 vi.mock(`@/lib/collections`, () => ({
   messageCollection: { get: (id: string) => rows.get(id) },
-  issueCollection: { values: () => [{ id: `00000000-0000-4000-8000-000000000077`, identifier: `EXP-7`, teamId: `t` }][Symbol.iterator]() },
+  issueCollection: {
+    values: () =>
+      [
+        { id: `00000000-0000-4000-8000-000000000077`, identifier: `EXP-7`, teamId: `t` },
+        { id: `00000000-0000-4000-8000-000000000088`, identifier: `EXP-7`, teamId: `u` },
+      ][Symbol.iterator](),
+  },
+  // #EXP-2079: the card's session sits in a team that is not synced (the
+  // Assistant's conversation in its member's personal team): its refs
+  // resolve over the chat teams, the first team's on a clash.
+  sessionCollection: { get: (id: string) => (id === `card-s` ? { id, rootId: `root`, teamId: `personal` } : undefined) },
+  teamCollection: {
+    toArray: [
+      { id: `u`, name: `Zeta` },
+      { id: `t`, name: `Acme` },
+    ],
+    get: () => undefined,
+  },
 }))
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: {

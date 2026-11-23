@@ -17,6 +17,47 @@ import { resolveTeamAccess } from "@/lib/auth/access"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import { loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
 import { nudgeDevice } from "@/lib/trpc/devices"
+import { CLIENT_VERSION_HEADER, parseClientVersionHeader, parseVersionTuple } from "@/lib/client-version"
+
+/**
+ * #EXP-2082, FOR THE RELEASE SHEPHERD: the first desktop / CLI version whose
+ * device admits the starter of a session in a team it holds no registry list
+ * for (steer-enet.json `access`, A TEAM WITHOUT A LIST; `steer`
+ * `sender_in_team`). Set it to that release's version (`0.14.180`) once it is
+ * tagged: from then `installs.forSession` names the endpoints of a
+ * personal-team session (the Assistant's conversation) again for machines
+ * whose every desktop / daemon install registered at or above it, so their
+ * live feed and background catch-up run P2P. null = no build carries it:
+ * every such session stays on the sealed relay tunnel.
+ */
+export const ENET_TEAMLESS_STARTER_MIN_VERSION: string | null = null
+
+/** Whether `version` (an install's `app_version`) is at or above `floor`. */
+export function versionAtLeast(version: string | null | undefined, floor: string | null): boolean {
+  const have = version ? parseVersionTuple(version) : null
+  const want = floor ? parseVersionTuple(floor) : null
+  if (!have || !want) return false
+  for (let i = 0; i < 3; i++) if (have[i] !== want[i]) return have[i]! > want[i]!
+  return true
+}
+
+/** Test seam: the floor `forSession` applies (default: the constant). */
+let teamlessStarterFloor: string | null = ENET_TEAMLESS_STARTER_MIN_VERSION
+export function setTeamlessStarterFloorForTest(floor: string | null): void {
+  teamlessStarterFloor = floor
+}
+
+/** The installs `forSession` names for a session in a PERSONAL team: the
+ *  machine's, and only when EVERY one of them registered at or above the
+ *  floor. One older install there = none (the sealed relay tunnel): it may
+ *  be the one running the session, it would refuse the join, and a refused
+ *  join opens no relay leg (steer-enet.json `enetRefused`). */
+export function teamlessStarterEndpoints<T extends { appVersion: string | null }>(
+  rows: readonly T[],
+  floor: string | null
+): T[] {
+  return rows.length > 0 && rows.every((row) => versionAtLeast(row.appVersion, floor)) ? [...rows] : []
+}
 
 export const INSTALL_KINDS = [`desktop`, `daemon`, `ios`, `android`, `web`] as const
 /** At most this many non-revoked installs per user. */
@@ -141,10 +182,14 @@ export const installsRouter = router({
         deviceRowId = device.id
       }
 
+      // #EXP-2082: the registering build's own version (desktop + CLI send
+      // `x-client-version` on every request; anything else = unknown).
+      const client = parseClientVersionHeader(ctx.request.headers.get(CLIENT_VERSION_HEADER))
       const fields = {
         kind: input.kind,
         label: input.label || null,
         platform: input.platform || null,
+        appVersion: client && (input.kind === `desktop` || input.kind === `daemon`) ? client.version.slice(0, 32) : null,
         deviceId: deviceRowId,
         x25519Public: input.x25519Public,
       }
@@ -238,18 +283,19 @@ export const installsRouter = router({
     .query(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId, ctx.db)
       // #EXP-1989 follow-up: a session in a PERSONAL team (the Assistant's
-      // conversation after the move) names NO endpoint. Every released
-      // desktop and daemon answers a viewer's eNet join from the registry
-      // list of the SESSION's team (`steer` `user_in_team`), which it reads
-      // per SYNCED team: the personal team is never one, so it refuses every
+      // conversation after the move). Every desktop and daemon released
+      // before #EXP-2082 answers a viewer's eNet join from the registry list
+      // of the SESSION's team (`steer` `user_in_team`), which it reads per
+      // SYNCED team: the personal team is never one, so it refuses every
       // viewer (`unauthorized`), and a refused join opens no relay leg
       // (steer-enet.json `enetRefused`): no feed at all. With no endpoint the
       // viewer has no eNet feed and takes the SEALED RELAY TUNNEL at once,
       // where the device applies the access rule to the ticket's user (the
-      // starter). Lift this once the devices that know the personal team are
-      // the minimum.
+      // starter). #EXP-2082: a machine whose installs all carry the starter
+      // rule is named again (`teamlessStarterEndpoints`).
       const [team] = await ctx.db.select({ kind: teams.kind }).from(teams).where(eq(teams.id, session.teamId)).limit(1)
-      if (team?.kind === `personal`) return []
+      const personal = team?.kind === `personal`
+      if (personal && !teamlessStarterFloor) return []
       const owner = await sessionDeviceOwner(session, ctx.db)
       const machines = await ctx.db
         .select({ id: devices.id })
@@ -270,8 +316,8 @@ export const installsRouter = router({
             isNull(installs.revokedAt)
           )
         )
-      return rows
-        .filter((row) => !row.revokedAt)
+      const live = rows.filter((row) => !row.revokedAt)
+      return (personal ? teamlessStarterEndpoints(live, teamlessStarterFloor) : live)
         .sort((a, b) => (b.lastSeenAt?.getTime() ?? 0) - (a.lastSeenAt?.getTime() ?? 0))
         .map((row) => ({ endpointId: row.endpointId, kind: row.kind }))
     }),

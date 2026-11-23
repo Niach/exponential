@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo } from "react"
 import type { User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
-import { useTeamUsers } from "@/hooks/use-team-data"
+import { useTeamUsers, useTeamsUsers } from "@/hooks/use-team-data"
 
 // Team-scoped `@email` mention resolution, mounted once in the team
 // layout (beside IssueRefProvider). Powers the name-pill rendering and the
@@ -31,7 +31,24 @@ export function MentionProvider({
   children: React.ReactNode
 }) {
   const { users } = useTeamUsers(teamId)
+  return <MentionUsersProvider users={users}>{children}</MentionUsersProvider>
+}
 
+/** #EXP-2079 (agent-settings.json `assistant.chatTeams` (2)): the members of
+ *  a chat that reads SEVERAL teams (the Assistant's conversation), one row
+ *  per person. */
+export function ChatTeamsMentionProvider({
+  teamIds,
+  children,
+}: {
+  teamIds: readonly string[]
+  children: React.ReactNode
+}) {
+  const { users } = useTeamsUsers(teamIds)
+  return <MentionUsersProvider users={users}>{children}</MentionUsersProvider>
+}
+
+function MentionUsersProvider({ users, children }: { users: readonly User[]; children: React.ReactNode }) {
   const sorted = useMemo(
     () => [...users].sort((a, b) => a.name.localeCompare(b.name)),
     [users]

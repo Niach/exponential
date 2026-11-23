@@ -41,11 +41,13 @@ import {
   type ComposerRunnerBinding,
   type ComposerTeamsBinding,
 } from "@/components/launch-dialog/composer-plus-menu"
-import { useMcpServers } from "@/hooks/use-mcp-servers"
+import { useMcpServersForTeams } from "@/hooks/use-mcp-servers"
 import { TeamPickChips } from "@/components/launch-dialog/team-pick"
 import { useSession } from "@/hooks/use-session"
 import { useAgentRow } from "@/hooks/use-agent-row"
-import { useTeamById, useTeamMemberships } from "@/hooks/use-team-data"
+import { useTeamMemberships, useTeamsUsers } from "@/hooks/use-team-data"
+import { useSessionChatTeams, type ChatTeams } from "@/hooks/use-chat-teams"
+import { ChatTeamsScope } from "@/components/chat/chat-teams-scope"
 import { useSessionAccountSwitch } from "@/components/session-account-switch"
 import type { ComposerMenuSurface } from "@/components/launch-dialog/composer-menu"
 import {
@@ -60,7 +62,7 @@ import { useComposerReplies } from "@/hooks/use-composer-replies"
 import { issueRefInsertionText } from "@/components/issue-editor/formatting-rail"
 import { useSessionRow } from "@/hooks/use-session-tree"
 import { useSteerCommand } from "@/hooks/use-steer-command"
-import { usePrompts } from "@/hooks/use-prompts"
+import { usePromptsForTeams } from "@/hooks/use-prompts"
 import { sessionModel } from "@/lib/agent-feed"
 import { contextPercent, severity } from "@/lib/agent-usage"
 import { defaultModelFor } from "@/lib/coding-launch-prefs"
@@ -256,12 +258,14 @@ function sameMcpPick(a: readonly string[], b: readonly string[]): boolean {
  *  is the seed (`sent`). null off an agent chat. */
 function useAgentMcpPick({
   enabled,
-  teamId,
+  chatTeams,
   sessionId,
   agentId,
 }: {
   enabled: boolean
-  teamId: string
+  /** #EXP-2079 (`assistant.chatTeams` (3)): the servers of the chat teams,
+   *  team by team; with more than one, each row names its team. */
+  chatTeams: ChatTeams
   sessionId: string | null
   agentId: string | null
 }): {
@@ -270,8 +274,7 @@ function useAgentMcpPick({
   sent: (pick: string[]) => void
 } | null {
   const { agent } = useAgentRow(enabled ? agentId : null)
-  const { servers } = useMcpServers(teamId, enabled)
-  const teamSlug = useTeamById(enabled ? teamId : undefined)?.slug ?? null
+  const { servers } = useMcpServersForTeams(chatTeams.teamIds, enabled)
   const [sessionSeed, setSessionSeed] = useState<string[] | null>(null)
   const [picked, setPicked] = useState<string[] | null>(null)
   useEffect(() => {
@@ -292,7 +295,12 @@ function useAgentMcpPick({
   }, [enabled, sessionId])
   const seed = sessionSeed ?? agent?.mcpServerIds ?? []
   if (!enabled) return null
-  const list = servers ?? []
+  const teamOf = new Map(chatTeams.teams.map((team) => [team.id, team]))
+  const named = chatTeams.teamIds.length > 1
+  const list = (servers ?? []).map((server) => ({
+    ...server,
+    ...(named ? { teamName: teamOf.get(server.teamId)?.name ?? null } : {}),
+  }))
   // Ids naming a deleted server drop out of the count and the send.
   const current = (picked ?? seed).filter((id) => list.some((server) => server.id === id))
   const changed = picked !== null && !sameMcpPick(picked, seed)
@@ -302,10 +310,12 @@ function useAgentMcpPick({
       selectedIds: current,
       onToggle: (id) =>
         setPicked(current.includes(id) ? current.filter((other) => other !== id) : [...current, id]),
-      connectHref: (serverId) =>
-        teamSlug
+      connectHref: (serverId) => {
+        const teamSlug = teamOf.get(list.find((server) => server.id === serverId)?.teamId ?? ``)?.slug
+        return teamSlug
           ? `/t/${encodeURIComponent(teamSlug)}/settings/mcp?connect=${encodeURIComponent(serverId)}`
-          : null,
+          : null
+      },
     },
     sendPick: changed ? current : undefined,
     sent: (pick) => {
@@ -346,7 +356,6 @@ export function SessionComposerReplies({ sessionId }: { sessionId: string }) {
 
 export function SessionComposer({
   teamId,
-  browseTeamId,
   sessionId,
   agentId,
   appId,
@@ -358,7 +367,6 @@ export function SessionComposer({
   surface = `session`,
   onSent,
   placeholder,
-  users = [],
   busy = false,
   canStop = false,
   testId = `session-composer`,
@@ -367,10 +375,10 @@ export function SessionComposer({
   hideReplies = false,
   autoFocus = false,
 }: {
+  /** The session's (or agent's, or app's) own team. #EXP-2079: every list
+   *  of the composer reads its CHAT TEAMS (`assistantChatTeams`), never
+   *  this id alone (the Assistant's is a personal team that never syncs). */
   teamId: string
-  /** #EXP-1714: the team the `/` prompts come from when it is not the
-   *  conversation's (the global Assistant's lives in the personal team). */
-  browseTeamId?: string
   /** The session messaged; null = an agent chat with no conversation yet
    *  (the send opens it: `sessions.send({agentId})`). */
   sessionId: string | null
@@ -398,7 +406,6 @@ export function SessionComposer({
   /** The conversation a first message opened. */
   onSent?: (sessionId: string) => void
   placeholder: string
-  users?: readonly User[]
   /** The session works right now: the submit offers Stop when `canStop`. */
   busy?: boolean
   canStop?: boolean
@@ -478,14 +485,18 @@ export function SessionComposer({
   // team's prompts; the CLI's own injected commands are never offered.
   const catalogAgent = runAgentId(row?.cli)
   const commands = useMemo(() => steerCommandsFor(catalogAgent), [catalogAgent])
-  const { prompts } = usePrompts(browseTeamId ?? teamId)
+  // #EXP-2079 (agent-settings.json `assistant.chatTeams`): the `/` prompts,
+  // `@` members, `#` refs and the MCP pick read the chat teams.
+  const chatTeams = useSessionChatTeams(row, teamId)
+  const { prompts } = usePromptsForTeams(chatTeams.teamIds)
+  const { users } = useTeamsUsers(chatTeams.teamIds)
   // #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's
   // Teams pick, seeded from its conversation root (null = every team).
   const { pick: teamsPick, scope: teamsScope } = useTeamsPick(row, agentId)
   // #EXP-1793: an agent chat's MCP servers pick (its conversation's).
   const mcpPick = useAgentMcpPick({
     enabled: surface === `agent`,
-    teamId,
+    chatTeams,
     sessionId,
     agentId: row ? (row.parentId === null ? row.agentId : null) : (agentId ?? null),
   })
@@ -669,6 +680,7 @@ export function SessionComposer({
   const confirmCopy = steerCommandConfirmCopy(confirming?.name ?? ``)
 
   return (
+    <ChatTeamsScope chatTeams={chatTeams}>
     <ComposerFrame
       data-testid={testId}
       className={cn(`w-full`, className)}
@@ -855,5 +867,6 @@ export function SessionComposer({
         ]}
       />
     </ComposerFrame>
+    </ChatTeamsScope>
   )
 }
