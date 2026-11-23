@@ -1047,31 +1047,6 @@ final class AgentSessionModel {
         if !applyingBatch { reproject() }
     }
 
-    /// The feed's MAIN-lane row as `SteerNoFeed.syncedTail` reads it; nil = a
-    /// subagent's row (it renders inside its run, never the main lane).
-    private static func tailFeedRow(_ item: AgentFeedItem) -> SteerNoFeed.TailFeedRow? {
-        switch item {
-        case let .narration(_, text, _, subagentId, at):
-            return subagentId == nil ? SteerNoFeed.TailFeedRow(author: "agent", text: text, at: at) : nil
-        case let .userMessage(_, text, subagentId, at):
-            return subagentId == nil ? SteerNoFeed.TailFeedRow(author: "user", text: text, at: at) : nil
-        case let .tool(_, _, _, subagentId, _, _, settled, _, _, _, _, _, settledAt):
-            return subagentId == nil ? SteerNoFeed.TailFeedRow(author: nil, text: nil, at: settled ? settledAt : nil) : nil
-        case let .apiError(_, _, _, subagentId):
-            return subagentId == nil ? SteerNoFeed.TailFeedRow(author: nil, text: nil, at: nil) : nil
-        default:
-            return SteerNoFeed.TailFeedRow(author: nil, text: nil, at: nil)
-        }
-    }
-
-    /// Synthetic row ids of the synced tail: far above any feed id, stable
-    /// per message (FNV-1a of its id).
-    private static func syncedTailId(_ messageId: String) -> Int {
-        var hash: UInt32 = 2_166_136_261
-        for byte in messageId.utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
-        return (1 << 52) + Int(hash)
-    }
-
     /// #FEED-260 (steer-enet.json SYNCED TAIL): the synced messages a
     /// NOT-live feed draws after its last row, as ordinary transcript rows
     /// (each at its `createdAt`); the own bubbles' rows never repeat here.
@@ -1087,21 +1062,21 @@ final class AgentSessionModel {
         let unreachable = sessionEnded ? history == .deviceOffline : hostDevice.offline
         let drawable = SteerNoFeed.syncedTail(
             live: false,
-            feed: feed.compactMap(Self.tailFeedRow),
+            feed: feed.compactMap(SteerNoFeed.tailFeedRow),
             messages: tailMessages.filter { !own.contains($0.id) },
             max: .max,
             unreachable: unreachable
         ) { $0 }
         syncedTailDrawable = drawable.map(\.id)
         let picked = Array(drawable.suffix(tailLimit))
-        syncedTailMessageIds = Dictionary(picked.map { (Self.syncedTailId($0.id), $0.id) }, uniquingKeysWith: { first, _ in first })
-        return picked.map { m in
-            let id = Self.syncedTailId(m.id)
-            let text = m.body.trimmingCharacters(in: .whitespacesAndNewlines)
-            return m.authorKind == "agent"
-                ? .narration(id: id, text: text, messageId: "synced:\(m.id)", at: m.createdAtMs)
-                : .userMessage(id: id, text: text, at: m.createdAtMs)
-        }
+        syncedTailMessageIds = Dictionary(picked.map { (SteerNoFeed.syncedTailId($0.id), $0.id) }, uniquingKeysWith: { first, _ in first })
+        // #EXP-1990: a teammate's line draws under their name.
+        let viewerId = currentUserId
+        let names = Dictionary(
+            mentionUserRows.compactMap { user in user.name.flatMap { $0.isEmpty ? nil : (user.id, $0) } },
+            uniquingKeysWith: { a, _ in a }
+        )
+        return picked.map { SteerNoFeed.syncedTailItem($0, viewerId: viewerId, memberName: { names[$0] }) }
     }
 
     /// #EXP-1623: whether the feed holds a row, observed apart from the feed
@@ -1988,7 +1963,8 @@ final class AgentSessionModel {
                         id: m.id, authorKind: m.authorKind, hasCard: m.card != nil,
                         consumedAt: m.consumedAt, createdAt: m.createdAt,
                         createdAtMs: WireTimestamps.parse(m.createdAt).map { Int(($0.timeIntervalSince1970 * 1000).rounded()) },
-                        body: m.locked.map(SealedPlaceholder.copy) ?? m.body
+                        body: m.locked.map(SealedPlaceholder.copy) ?? m.body,
+                        authorId: m.authorId
                     )
                 }
         }
@@ -2445,6 +2421,8 @@ final class AgentSessionModel {
                         self.mentionUserRows = users
                         self.mentionMemberRows = members
                         self.rebuildMentionMembers()
+                        // #EXP-1990: the synced tail names its teammates.
+                        if !self.tailMessages.isEmpty { self.refreshSyncedTail() }
                     }
                     return
                 } catch is CancellationError {
