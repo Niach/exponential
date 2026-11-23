@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-assistant-chat-all-teams",
+    date: "2026-11-24",
+    title: "Your Assistant's chat works across all your teams",
+    summary: "Web, desktop, CLI, Android and iOS: in your Assistant's chat, issues, people, MCP servers and prompts come from all your teams, and its live view and devices work wherever it runs.",
+    body: r##"- **Issues and people from every team**: in your Assistant's chat, # lists and resolves the issues of all your teams (or the teams you picked for the turn), and @ lists their people.
+- **MCP servers and prompts from every team**: the composer's MCP servers and prompts list every team's, and each MCP server names its team when there is more than one.
+- **Link or file an issue from the chat**: Link an issue searches all your teams, and New issue opens a board of your first team.
+- **Your own machines**: Settings › Assistant › Device and Start on list all your own computers, also one you share with a team.
+- **Live view on your devices**: your computers hand the Assistant's chat to your other apps again, and your apps catch up its history in the background.
+- **Opens from anywhere**: a notification or inbox row of your Assistant opens its chat from Home and from a cold start.
+- **No leftover to-do**: a run that restarts between turns no longer leaves its old background task card above the message field."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_352: ChangelogEntry = ChangelogEntry {
     id: "2026-11-23-desktop-cli-0-14-176",
     date: "2026-11-23",
     title: "Screen memory keeps working when your displays change",
