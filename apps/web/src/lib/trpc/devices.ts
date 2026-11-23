@@ -68,6 +68,15 @@ import {
   type DeviceUsageWindow,
 } from "@/db/schema"
 import { deviceClientName } from "@/lib/auth/device-clients"
+import {
+  cancelTransfer,
+  getTransfer,
+  listTransfers,
+  reportTransfer,
+  startTransfer,
+  transferView,
+  TRANSFER_PATH_MAX,
+} from "@/lib/device-transfers"
 import { assertTeamMember, assertTeamOwner, getTeamMember } from "@/lib/team-membership"
 import { stopMeetingUnlessPrivate, voiceSettingsOf } from "@/lib/trpc/voice"
 import { parseVersionTuple, versionPayload } from "@/lib/client-version"
@@ -1689,6 +1698,59 @@ export const devicesRouter = router({
           : `conflict`,
       })
     }),
+
+  // #FEED-295: a file or directory copied between two of the caller's own
+  // machines over eNet (lib/device-transfers.ts). No prompt: both machines
+  // are the caller's; they refuse unsafe paths themselves.
+  startTransfer: authedProcedure
+    .input(
+      z.object({
+        fromDeviceId: deviceIdInput,
+        toDeviceId: deviceIdInput,
+        srcPath: z.string().min(1).max(TRANSFER_PATH_MAX),
+        destPath: z.string().min(1).max(TRANSFER_PATH_MAX),
+        sessionId: z.string().uuid().nullish(),
+      })
+    )
+    .mutation(({ ctx, input }) =>
+      startTransfer(ctx.db, { userId: ctx.session.user.id, ...input }, nudgeDevice)
+    ),
+
+  transfer: authedProcedure
+    .input(z.object({ transferId: z.string().uuid() }))
+    .query(async ({ ctx, input }) =>
+      transferView(await getTransfer(ctx.db, ctx.session.user.id, input.transferId))
+    ),
+
+  transfers: authedProcedure
+    .input(z.object({ limit: z.number().int().min(1).max(50).default(20) }))
+    .query(async ({ ctx, input }) =>
+      (await listTransfers(ctx.db, ctx.session.user.id, input.limit)).map(transferView)
+    ),
+
+  cancelTransfer: authedProcedure
+    .input(z.object({ transferId: z.string().uuid() }))
+    .mutation(({ ctx, input }) =>
+      cancelTransfer(ctx.db, ctx.session.user.id, input.transferId)
+    ),
+
+  // The machines' progress and outcome (the destination's counters; either
+  // side's failure). Answers the transfer's status: an ended one stops them.
+  reportTransfer: authedProcedure
+    .input(
+      z.object({
+        transferId: z.string().uuid(),
+        role: z.enum([`send`, `receive`]),
+        status: z.enum([`running`, `done`, `failed`]),
+        files: z.number().int().min(0).optional(),
+        filesDone: z.number().int().min(0).optional(),
+        bytes: z.number().int().min(0).optional(),
+        bytesDone: z.number().int().min(0).optional(),
+        skipped: z.array(z.string().max(4096)).max(10_000).optional(),
+        error: z.string().max(4000).optional(),
+      })
+    )
+    .mutation(({ ctx, input }) => reportTransfer(ctx.db, ctx.session.user.id, input)),
 
   // EXP-481: the device reports a command's outcome. Only pending rows
   // transition; a duplicate complete (heartbeat redelivery races the first

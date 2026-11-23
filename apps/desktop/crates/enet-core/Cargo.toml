@@ -22,6 +22,10 @@ node = ["dep:iroh", "dep:iroh-gossip", "dep:iroh-blobs", "dep:iroh-tickets", "de
 # The persistent blob store (redb + files) for native hosts; the default is
 # the in-memory store (the only one in browsers).
 fs-store = ["node", "iroh-blobs/fs-store"]
+# #FEED-295: files between one person's own installs (`xfer`, ALPN
+# `exp/enet/xfer/1`): native hosts with a file system (the desktop app and
+# the CLI daemon), never the browser or the phones' FFI.
+xfer = ["node", "dep:blake3", "dep:serde", "tokio/fs", "tokio/io-util"]
 
 [dependencies]
 # default features OFF: no metrics; `tls-ring` = the rustls crypto provider
@@ -47,6 +51,8 @@ hkdf = "0.12"
 sha2 = "0.10"
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 getrandom = "0.4"
+blake3 = { version = "1", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
 # sealed content (EXP-1458): cards are JSON.
 serde_json = "1"
 
@@ -60,3 +66,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 [[test]]
 name = "net"
 required-features = ["node"]
+
+[[test]]
+name = "xfer"
+required-features = ["xfer"]

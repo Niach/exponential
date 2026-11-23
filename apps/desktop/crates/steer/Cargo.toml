@@ -47,7 +47,7 @@ uuid = { workspace = true }
 log = "0.4"
 # EXP-1457: every install runs one eNet node (`enet.rs`); fs-store off, the
 # in-memory blob store is enough until blobs carry anything.
-enet-core = { path = "../enet-core" }
+enet-core = { path = "../enet-core", features = ["xfer"] }
 data-encoding = "2"
 # #EDE-96: the transcript search folds diacritics (NFD, marks dropped);
 # already in the lockfile.

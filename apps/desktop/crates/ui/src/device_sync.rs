@@ -1294,6 +1294,17 @@ fn run_device_command(
         }
         return CommandDisposition::Spawned;
     }
+    // #FEED-295: one side of a device-to-device transfer, on this account's
+    // eNet node; the task completes the command (a redelivery is a no-op).
+    if command.kind == steer::file_transfer::SEND_KIND || command.kind == steer::file_transfer::RECEIVE_KIND {
+        return match steer::file_transfer::dispatch(command) {
+            None => CommandDisposition::Spawned,
+            Some((ok, message)) => {
+                complete(snapshot, &command.id, ok, &message);
+                CommandDisposition::Completed
+            }
+        };
+    }
     // #FEED-244: one app screen painted headless and uploaded, on its OWN
     // thread (the first one fetches the renderer), completing itself; the
     // claim set keeps a redelivered id from painting twice.

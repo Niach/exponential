@@ -98,6 +98,7 @@ pub fn start(account: &api::Account, cx: &mut App) {
         identity_path: steer::enet::identity_path(&auth.data_dir, &account.id, InstallKind::Desktop),
         net: steer::enet::EnetConfig::default(),
     };
+    let transfers_trpc = Arc::clone(&trpc);
     let node = InstallNode::start(
         runtime.handle(),
         spec,
@@ -114,6 +115,13 @@ pub fn start(account: &api::Account, cx: &mut App) {
         device_id: Some(steer::persistent_device_id(&auth.data_dir)),
         chat_store: Some(crate::chat_store::serving_slot()),
     });
+    // #FEED-295: this account's device-to-device transfers run on its node.
+    steer::file_transfer::set_current(Some(steer::file_transfer::FileTransfers::new(
+        runtime.handle().clone(),
+        node.clone(),
+        transfers_trpc,
+        auth.data_dir.clone(),
+    )));
     state.by_account.insert(account.id.clone(), node);
     watch_key_holder(cx);
 }
