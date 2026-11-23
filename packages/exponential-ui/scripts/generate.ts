@@ -45,7 +45,6 @@ import { mangle } from "../src/ids"
 import { catalogPrompt, componentPrompt, estimateTokens } from "../src/prompt"
 import { reduceNested, reduceSurface } from "../src/reducer"
 import { coreLiteSchema, coreSchema } from "../src/schema"
-import { flattenSurface, type SurfaceNode } from "../src/define"
 import { STYLE_KEYS, STYLE_STATES, resolveConditions, type ConditionContext } from "../src/style"
 import { BIND_FUNCTION_NAMES, bindRowSlot, bindTree, hasRowSlots, isDataSchema, runAction } from "../src/dynamic"
 import { tokenizeCode, CODE_LANGUAGE_NAMES } from "../src/code"
@@ -189,25 +188,69 @@ function expressCatalog(schema: unknown, inProperties = false): unknown {
  *  ONE createSurface message (components + data model) an Express block
  *  compiles to; every renderer's Express suite decompiles and recompiles each
  *  with zero diffs, and the reduced tree keeps its node count. */
+/** A nested fixture → the A2UI wire list (the nested form's `template`
+ *  becomes `children: {componentId, path, key?}`, its node stays where it is
+ *  listed: the reducer lifts it; `checks` rides as `@checks`). */
+function nestedToFlat(tree: NestedNode): FlatComponent[] {
+  const out: FlatComponent[] = []
+  const walk = (n: NestedNode): string => {
+    const { checks, ...props } = (n.props ?? {}) as Record<string, unknown>
+    const flat: FlatComponent = { id: n.id, component: n.component, ...props, ...(checks !== undefined ? { "@checks": checks } : {}) }
+    if (n.catalogId) flat.catalogId = n.catalogId
+    if (n.metadata) flat.metadata = n.metadata
+    if (n.style) flat.style = n.style
+    if (n.on) flat.on = n.on
+    if (n.visible !== undefined) flat.visible = n.visible
+    if (n.accessibility) flat.accessibility = n.accessibility
+    out.push(flat)
+    const ids = (n.children ?? []).map(walk)
+    if (n.template) flat.children = { componentId: n.template.component, path: n.template.path, ...(n.template.key ? { key: n.template.key } : {}) }
+    else if (n.children) flat.children = ids
+    if (n.slots) flat.slots = Object.fromEntries(Object.entries(n.slots).map(([slot, child]) => [slot, walk(child)]))
+    return n.id
+  }
+  walk(tree)
+  return out
+}
+
+/** #AXC-12: what the three sample surfaces do not cover: a keyed data
+ *  template, a renderer-function handler (`on` → functionCall), an event
+ *  with context, checks. */
+const EXPRESS_EXTRAS: NestedNode = {
+  id: `root`,
+  component: `Stack`,
+  props: { direction: `vertical`, gap: `md` },
+  children: [
+    { id: `rows`, component: `List`, props: { divided: true }, template: { component: `row`, path: `/rows`, key: `id` }, children: [] },
+    { id: `row`, component: `Row`, props: { title: { "@path": `title` }, subtitle: { "@path": `owner` } } },
+    { id: `name`, component: `Input`, props: { label: `Name`, name: `name`, value: { "@path": `/form/name` }, checks: [{ condition: { "@call": `required`, args: { value: { "@path": `/form/name` } } }, message: `A name is required` }] } },
+    { id: `clear`, component: `Button`, props: { label: `Clear`, variant: `outline` }, on: { press: { functionCall: { "@call": `set`, args: { path: `/form/name`, value: `` } } } } },
+    { id: `save`, component: `Button`, props: { label: `Save` }, on: { press: { event: { name: `save`, context: { name: { "@path": `/form/name` } } } } } },
+  ],
+}
+
+/** #AXC-12: fixtures/express-roundtrip.json: the sample surfaces as the
+ *  ONE createSurface message (components + data model) an Express block
+ *  compiles to; every renderer's Express suite decompiles and recompiles each
+ *  with zero diffs, and the reduced tree keeps its node count. */
 function expressRoundtrip(): unknown {
-  const surfaces: [string, string, string | null][] = [
-    [`dashboard`, `fixtures/dashboard.json`, `fixtures/dashboard.data.json`],
-    [`demo-surface`, `fixtures/demo-surface.json`, null],
-    [`kitchen-sink`, `fixtures/kitchen-sink.json`, null],
+  const surfaces: [string, NestedNode, Record<string, unknown> | null][] = [
+    [`dashboard`, readJson<NestedNode>(`fixtures/dashboard.json`), readJson<Record<string, unknown>>(`fixtures/dashboard.data.json`)],
+    [`demo-surface`, readJson<NestedNode>(`fixtures/demo-surface.json`), null],
+    [`kitchen-sink`, readJson<NestedNode>(`fixtures/kitchen-sink.json`), null],
+    [`express-extras`, EXPRESS_EXTRAS, { rows: [{ id: `r1`, title: `Ship Express`, owner: `eui` }, { id: `r2`, title: `Round trip`, owner: `core` }], form: { name: `` } }],
   ]
-  const countNodes = (n: { children?: unknown[]; slots?: Record<string, unknown> }): number =>
-    1 + (n.children ?? []).reduce<number>((a, c) => a + countNodes(c as typeof n), 0) + Object.values(n.slots ?? {}).reduce<number>((a, c) => a + countNodes(c as typeof n), 0)
+  const countNodes = (n: NestedNode): number => 1 + (n.children ?? []).reduce((a, c) => a + countNodes(c), 0) + Object.values(n.slots ?? {}).reduce((a, c) => a + countNodes(c), 0)
   return {
-    $comment: `${HEADER} #AXC-12: Express round trip. Each case is the createSurface an Express block compiles to (surfaceId \`main\`, the core catalog, the fixture flattened by flattenSurface with its top node renamed \`root\` as Express requires, the data model without \`$comment\`). A runner decompiles \`messages\` to Express, compiles it back for surface \`main\` and must get \`messages\` exactly; the reduced surface has \`nodes\` nodes (the nested fixture's count).`,
-    cases: surfaces.map(([name, tree, data]) => {
-      const nested = readJson<SurfaceNode & { $comment?: string }>(tree)
-      const { $comment: _c, ...root } = nested
-      const dataModel = data ? (stripComments(readJson<Record<string, unknown>>(data)) as Record<string, unknown>) : null
-      const { $comment: _d, ...model } = dataModel ?? {}
+    $comment: `${HEADER} #AXC-12: Express round trip. Each case is the createSurface an Express block compiles to (surfaceId \`main\`, the core catalog, the nested fixture as A2UI wire components with its top node renamed \`root\` as Express requires: templates as \`children: {componentId, path, key?}\`, checks as \`@checks\`; the data model without \`$comment\`). \`express-extras\` covers what the samples do not: a keyed template, a renderer-function handler, an event context, checks. A runner decompiles \`messages\` to Express, compiles it back for surface \`main\` and must get \`messages\` exactly; the reduced surface has \`nodes\` nodes (the nested fixture's count).`,
+    cases: surfaces.map(([name, nested, data]) => {
+      const { $comment: _c, ...root } = nested as NestedNode & { $comment?: string }
+      const model = data ? (stripComments(data) as Record<string, unknown>) : null
+      const { $comment: _d, ...dataModel } = model ?? {}
       return {
         name,
-        nodes: countNodes(root as never),
-        messages: [{ version: HOST_JSON.a2uiVersion, createSurface: { surfaceId: `main`, catalogId: CORE_CATALOG_ID, components: flattenSurface({ ...root, id: `root` } as SurfaceNode), ...(dataModel ? { dataModel: model } : {}) } }],
+        nodes: countNodes(root),
+        messages: [{ version: HOST_JSON.a2uiVersion, createSurface: { surfaceId: `main`, catalogId: CORE_CATALOG_ID, components: nestedToFlat({ ...root, id: `root` }), ...(model ? { dataModel } : {}) } }],
       }
     }),
   }
