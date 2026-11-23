@@ -17,6 +17,11 @@
 //! the layers after it come from `sessions.brief`: the team prompt, then a
 //! team agent's own instructions ([`system_append_layers`]).
 //!
+//! #EXP-2069 (`chat-express.json`, THE AGENT LEARNS THE FORMAT): every
+//! append ends with ONE `express` layer ([`express_layer`]): how to write
+//! the Express views the chat draws inline. Same text every session, start
+//! and resume, so the provider's prompt cache carries it.
+//!
 //! The document is markdown without front matter and names tools by their
 //! exact `exponential_*` names so a deferred tool is one search away. The web
 //! test `apps/web/src/lib/emcp/context-budget.test.ts` reads the same file
@@ -283,6 +288,54 @@ pub fn fixed_append(extras: &Extras) -> String {
     text
 }
 
+/// #EXP-2069: the `express` layer: `chat-express.json` `prompt.preamble`,
+/// a blank line, then eui-core's Express prompt over the core catalog (the
+/// compact style, ~31 KB). Built once per process. Empty when the SDK
+/// cannot build it (logged; the launch goes on without the layer).
+pub fn express_layer() -> &'static str {
+    static LAYER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    LAYER.get_or_init(|| match eui_core::express::express_prompt() {
+        Ok(prompt) => format!("{}\n\n{prompt}", domain::chat_express::CHAT_EXPRESS.prompt.preamble),
+        Err(err) => {
+            log::warn!("skill: no express layer: {}: {}", err.kind, err.message);
+            String::new()
+        }
+    })
+}
+
+/// #EXP-2069: `text` with the [`express_layer`] appended LAST (after the
+/// team prompt and the agent's instructions), one blank line between. The
+/// text before it stays byte for byte (every layer ends in a newline).
+fn with_express_layer(text: String) -> String {
+    let layer = express_layer().trim_end();
+    if layer.is_empty() {
+        return text;
+    }
+    if text.ends_with('\n') {
+        format!("{text}\n{layer}\n")
+    } else {
+        format!("{text}\n\n{layer}\n")
+    }
+}
+
+/// #EXP-2069: a composed append split into what came before the express
+/// layer (verbatim) and the layer's bytes
+/// (`None` = the append carries no layer). The context layout measures the
+/// two apart ([`crate::context_layout::express_bytes`]).
+pub fn split_express_layer(system_append: &str) -> (std::borrow::Cow<'_, str>, Option<usize>) {
+    let layer = express_layer().trim_end();
+    if layer.is_empty() {
+        return (std::borrow::Cow::Borrowed(system_append), None);
+    }
+    // The head keeps its own newline; the layer is the blank line and its
+    // text.
+    let suffix = format!("\n{layer}\n");
+    match system_append.strip_suffix(&suffix) {
+        Some(head) if head.ends_with('\n') => (std::borrow::Cow::Borrowed(head), Some(suffix.len())),
+        _ => (std::borrow::Cow::Borrowed(system_append), None),
+    }
+}
+
 /// [`system_append`] for a run that may carry the extra servers: the
 /// playbook, their sections, then the team prompt LAST (it outranks all).
 pub fn system_append_with(team_prompt: Option<&str>, extras: &Extras) -> String {
@@ -295,7 +348,8 @@ pub fn system_append_with(team_prompt: Option<&str>, extras: &Extras) -> String 
 /// [`AGENT_INSTRUCTIONS_HEADING`]. Blank layers are left out, so a chat
 /// session of a team without a prompt still gets the playbook verbatim.
 /// Both server layers count as `team` in the context layout
-/// ([`crate::context_layout::team_bytes`]).
+/// ([`crate::context_layout::team_bytes`]). #EXP-2069: the [`express_layer`]
+/// comes last, always.
 pub fn system_append_layers(
     team_prompt: Option<&str>,
     agent_instructions: Option<&str>,
@@ -313,7 +367,7 @@ pub fn system_append_layers(
             text = format!("{}\n\n{heading}\n\n{lead}\n\n{body}\n", text.trim_end());
         }
     }
-    text
+    with_express_layer(text)
 }
 
 /// Every `exponential_*` name the playbook mentions, deduplicated, in order
@@ -342,6 +396,50 @@ pub fn mentioned_tools(text: &str) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // #EXP-2069: the tests below pin the layers BEFORE the express layer
+    // (`the_express_layer_rides_last_on_every_launch` pins that one).
+    fn bare(text: String) -> String {
+        let head = super::split_express_layer(&text).0.into_owned();
+        assert_ne!(head, text, "every append ends with the express layer");
+        head
+    }
+    fn system_append(team_prompt: Option<&str>) -> String {
+        bare(super::system_append(team_prompt))
+    }
+    fn system_append_with(team_prompt: Option<&str>, extras: &Extras) -> String {
+        bare(super::system_append_with(team_prompt, extras))
+    }
+    fn system_append_layers(team_prompt: Option<&str>, agent_instructions: Option<&str>, extras: &Extras) -> String {
+        bare(super::system_append_layers(team_prompt, agent_instructions, extras))
+    }
+
+    /// #EXP-2069 (`chat-express.json`): ONE express layer, LAST (after the
+    /// team prompt and a team agent's instructions), on every composition:
+    /// the preamble, a blank line, then eui-core's prompt.
+    #[test]
+    fn the_express_layer_rides_last_on_every_launch() {
+        let layer = express_layer();
+        let preamble = &domain::chat_express::CHAT_EXPRESS.prompt.preamble;
+        assert_eq!(layer, format!("{preamble}\n\n{}", eui_core::express::express_prompt().unwrap()));
+        assert!(layer.len() > 10_000, "{} bytes", layer.len());
+        for extras in [Extras::NONE, Extras { code_mode: true, dispatch: true, voice_call: true, ..Extras::NONE }] {
+            for (team, agent) in [(None, None), (Some("Rules"), None), (Some("Rules"), Some("Watch the inbox."))] {
+                let append = super::system_append_layers(team, agent, &extras);
+                assert!(append.ends_with(&format!("\n\n{}\n", layer.trim_end())), "{team:?} {agent:?}");
+                assert_eq!(append.matches(preamble.as_str()).count(), 1);
+                let head = bare(append.clone());
+                assert_eq!(format!("{head}\n{}\n", layer.trim_end()), append);
+                if let Some(agent) = agent {
+                    assert!(head.ends_with(&format!("{agent}\n")));
+                } else if let Some(team) = team {
+                    assert!(head.ends_with(&format!("{team}\n")));
+                }
+            }
+        }
+        // The agent shell composes through the same function.
+        assert!(super::system_append_with(None, &Extras::NONE).ends_with(&format!("{}\n", layer.trim_end())));
+    }
 
     #[test]
     fn the_playbook_stays_inside_its_byte_budget() {

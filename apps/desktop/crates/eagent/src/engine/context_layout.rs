@@ -1,8 +1,8 @@
 //! EXP-1051 — the `context_layout` frame's arithmetic.
 //!
 //! The wire frame breaks the context the agent starts a conversation with
-//! into named segments (`base`, `tools`, `playbook`, `team`, `project`,
-//! `task`) so a viewer can say WHY a window is half full before the person
+//! into named segments (`base`, `tools`, `playbook`, `team`, `express`,
+//! `project`, `task`) so a viewer can say WHY a window is half full before the person
 //! has typed anything. It is LATEST-WINS state like `usage`, published ONCE
 //! per conversation (again after a `/clear`) — never per turn.
 //!
@@ -42,6 +42,9 @@ pub struct ContextLayers {
     /// EXP-1025 team prompt bytes plus (EXP-1292) a team agent's
     /// instructions, when the brief carries either.
     pub team_bytes: Option<usize>,
+    /// #EXP-2069: the Express prompt layer's bytes (Exponential:
+    /// `coding::skill::express_layer`), when the append carries it.
+    pub express_bytes: Option<usize>,
     /// The seed prompt's bytes; `None` on a resume (no seed prompt).
     pub task_bytes: Option<usize>,
     /// The project memory files the agent will load, in load order.
@@ -117,6 +120,9 @@ pub fn estimated_segments(layers: &ContextLayers) -> Vec<ContextSegment> {
     push(ContextSegmentKey::Playbook, layers.playbook_bytes, None);
     if let Some(bytes) = layers.team_bytes {
         push(ContextSegmentKey::Team, bytes, None);
+    }
+    if let Some(bytes) = layers.express_bytes {
+        push(ContextSegmentKey::Express, bytes, None);
     }
     if !layers.project.is_empty() {
         // ONE segment for the whole memory stack, rounded once: rounding each
@@ -230,6 +236,7 @@ mod tests {
         ContextLayers {
             playbook_bytes: 4_000,
             team_bytes: Some(800),
+            express_bytes: Some(31_200),
             task_bytes: Some(400),
             project: vec![
                 ProjectMemoryFile {
@@ -260,20 +267,21 @@ mod tests {
     fn the_estimates_come_out_in_contract_order() {
         let segments = estimated_segments(&layers());
         let keys: Vec<&str> = segments.iter().map(|segment| segment.key.as_str()).collect();
-        assert_eq!(keys, vec!["tools", "playbook", "team", "project", "task"]);
+        assert_eq!(keys, vec!["tools", "playbook", "team", "express", "project", "task"]);
         assert!(segments
             .iter()
             .all(|segment| segment.source == ContextSegmentSource::Estimated));
         assert_eq!(segments[0].tokens, 2_400);
         assert_eq!(segments[1].tokens, 1_000);
         assert_eq!(segments[2].tokens, 200);
+        assert_eq!(segments[3].tokens, 7_800);
         // ONE rounding over the whole stack, not one per file.
-        assert_eq!(segments[3].tokens, estimate_tokens(42_000));
+        assert_eq!(segments[4].tokens, estimate_tokens(42_000));
         assert_eq!(
-            segments[3].detail.as_deref(),
+            segments[4].detail.as_deref(),
             Some("CLAUDE.md, ~/.claude/CLAUDE.md")
         );
-        assert_eq!(segments[4].tokens, 100);
+        assert_eq!(segments[5].tokens, 100);
     }
 
     #[test]

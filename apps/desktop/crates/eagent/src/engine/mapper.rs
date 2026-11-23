@@ -170,7 +170,15 @@ pub struct MapOut {
     /// replay's), never per attributed tool call. The host posts them on
     /// the same ordered worker as [`MapOut::replies`].
     pub subagents: Vec<SubagentRow>,
+    /// #EXP-2069 (`chat-express.json` `failureNoteCases`): set on a live
+    /// turn's close: the turn's MAIN-lane narration texts in order, one per
+    /// message (its pieces joined, subagent lanes never). The host reads its
+    /// failed Express blocks off them ([`super::host::RunBackend::turn_note`]).
+    pub turn_texts: Option<Vec<String>>,
 }
+
+/// #EXP-2069: the most messages one turn's failure note reads.
+const TURN_TEXTS_MAX: usize = 256;
 
 /// EXP-1731: the server's cap on a subagent row's summary
 /// (`sessions.subagent{summary}`, ≤ 4000).
@@ -375,6 +383,9 @@ pub struct Mapper {
     /// starts it over; a turn start clears it.
     turn_reply: String,
     turn_reply_id: Option<String>,
+    /// #EXP-2069: every main-lane message of the turn so far, `(message id,
+    /// text)`, in order ([`MapOut::turn_texts`] at the close).
+    turn_texts: Vec<(Option<String>, String)>,
     /// FEED-153: the turn's `session/prompt` failed ([`Mapper::on_turn_error`]):
     /// a turn that ends with nothing said replies the error instead.
     turn_error: Option<String>,
@@ -674,6 +685,7 @@ impl Mapper {
             ordinal: 0,
             turn_reply: String::new(),
             turn_reply_id: None,
+            turn_texts: Vec::new(),
             turn_error: None,
             turn_output: false,
             turn_stop: None,
@@ -1320,6 +1332,10 @@ impl Mapper {
         // none: nothing stored, nothing relayed to a person or a parent.
         let reply = std::mem::take(&mut self.turn_reply);
         self.turn_reply_id = None;
+        let texts = std::mem::take(&mut self.turn_texts);
+        if self.turn_live {
+            out.turn_texts = Some(texts.into_iter().map(|(_, text)| text).collect());
+        }
         let error = self.turn_error.take();
         if self.turn_live && !wire::activity::is_blank_text(&reply) {
             out.replies.push(Reply::text(self.clean_marked(
@@ -1436,6 +1452,7 @@ impl Mapper {
             self.turn_tokens_published_at = None;
             // EXP-1292: a new turn, a new reply.
             self.reset_turn_reply();
+            self.turn_texts.clear();
             self.turn_error = None;
             self.turn_output = false;
         }
@@ -1849,6 +1866,33 @@ impl Mapper {
         self.turn_reply_id = message_id.map(str::to_string);
     }
 
+    /// #EXP-2069: fold one flushed main-lane narration piece into the turn's
+    /// texts: a piece of a message already held appends to it (the clients'
+    /// same-id merge), an anonymous piece to an anonymous last message, any
+    /// other starts a new text. Bounded like the reply.
+    fn note_turn_text(&mut self, text: &str, message_id: Option<&str>) {
+        if !self.turn_live {
+            return;
+        }
+        let message_id = message_id.filter(|id| !id.is_empty());
+        let held = match message_id {
+            Some(id) => self.turn_texts.iter_mut().rev().find(|(held, _)| held.as_deref() == Some(id)),
+            None => self.turn_texts.last_mut().filter(|(held, _)| held.is_none()),
+        };
+        match held {
+            Some((_, held)) => {
+                if held.len() < REPLY_BODY_MAX * 2 {
+                    held.push_str(text);
+                }
+            }
+            None => {
+                if self.turn_texts.len() < TURN_TEXTS_MAX {
+                    self.turn_texts.push((message_id.map(str::to_string), text.to_string()));
+                }
+            }
+        }
+    }
+
     /// EXP-1292: the reply so far is not the turn's last message any more.
     fn reset_turn_reply(&mut self) {
         self.turn_reply.clear();
@@ -2248,6 +2292,9 @@ impl Mapper {
             self.note_turn_reply(&flushed.text, flushed.message_id.as_deref());
         }
         let text = self.clean(&flushed.text, NARRATION_MAX);
+        if flushed.subagent_id.is_none() {
+            self.note_turn_text(&text, flushed.message_id.as_deref());
+        }
         emit(
             out,
             ActivityEvent::Narration {
@@ -7015,6 +7062,77 @@ mod conversation_tests {
         read_call(&mut mapper, "tc-2", &mut out);
         mapper.on_stop(StopReason::EndTurn, &mut out);
         assert!(texts(&out.replies).is_empty(), "{:?}", out.replies);
+    }
+
+    /// #EXP-2069 (`chat-express.json` `failureNoteCases`): a live turn's
+    /// close hands the host its main-lane messages in order, each one whole
+    /// however it streamed (pieces of one message id join), never a
+    /// subagent's text, never a history replay's.
+    #[test]
+    fn a_turns_close_carries_its_main_lane_texts() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../../packages/domain-contract/fixtures/chat-express.json"
+        ))
+        .expect("chat-express.json");
+        let cases = fixture["failureNoteCases"].as_array().expect("failureNoteCases");
+        assert!(!cases.is_empty());
+        for case in cases {
+            let want: Vec<String> = case["texts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|text| text.as_str().unwrap().to_string())
+                .collect();
+            let mut mapper = live();
+            let mut out = MapOut::default();
+            mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+            for (index, text) in want.iter().enumerate() {
+                let id = format!("m-{index}");
+                // Streamed in small pieces, flushed now and then mid-message.
+                let chars: Vec<char> = text.chars().collect();
+                let mut since_flush = String::new();
+                for (n, piece) in chars.chunks(5).enumerate() {
+                    let piece: String = piece.iter().collect();
+                    say(&mut mapper, &piece, &id, &mut out);
+                    since_flush.push_str(&piece);
+                    if n % 3 == 2 && !since_flush.trim().is_empty() {
+                        mapper.flush_all(&mut out);
+                        since_flush.clear();
+                    }
+                }
+                // A subagent's broken block in between never counts.
+                let mut lane = serde_json::Map::new();
+                lane.insert(SUBAGENT_ID_META_KEY.to_string(), json!("task-1"));
+                let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new("<a2ui>\nroot = Nope()\n</a2ui>")))
+                    .message_id(agent_client_protocol::v1::schema::MessageId::new("m-sub"));
+                mapper.on_update(&notify(SessionUpdate::AgentMessageChunk(chunk)).meta(lane), &mut out);
+                read_call(&mut mapper, &format!("tc-{index}"), &mut out);
+            }
+            let mut out = MapOut::default();
+            mapper.on_stop(StopReason::EndTurn, &mut out);
+            assert_eq!(out.turn_texts.as_ref(), Some(&want), "{}", case["name"]);
+            // The next turn starts with none.
+            let mut out = MapOut::default();
+            mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+            mapper.on_stop(StopReason::EndTurn, &mut out);
+            assert_eq!(out.turn_texts, Some(Vec::new()), "{}", case["name"]);
+        }
+        // A replay (never live) hands nothing.
+        let mut replay = mapper_for_replay();
+        let mut out = MapOut::default();
+        say(&mut replay, "<a2ui>\nroot = Nope()\n</a2ui>", "m-0", &mut out);
+        replay.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(out.turn_texts, None);
+    }
+
+    fn mapper_for_replay() -> Mapper {
+        Mapper::new(MapperConfig {
+            redactor: Arc::new(wire::activity::Redactor::new(Vec::new())),
+            cwd: PathBuf::from("/tmp/worktree"),
+            agent: wire::activity::SessionAgent::Claude,
+            session_seed: "sess-1".to_string(),
+            host_tools: Arc::new(super::super::host_tools::NoHostTools),
+        })
     }
 
     #[test]

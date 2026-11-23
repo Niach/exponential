@@ -895,6 +895,67 @@ fn every_turn_is_one_start_and_one_end_edge() {
     assert_eq!(edges.lock().unwrap().len(), 4, "a run that ends between turns has no edge left");
 }
 
+/// #EXP-2069: [`NoBackend`] whose turn note marks any turn that said
+/// "Working" (the `stream` turn), recording every turn's texts.
+struct TurnNotes {
+    inner: NoBackend,
+    seen: Arc<Mutex<Vec<Vec<String>>>>,
+}
+
+impl RunBackend for TurnNotes {
+    fn end(&self, ctx: &SessionCtx, outcome: &str, child: Option<eagent::spawn::ChildExit>, error: Option<String>) {
+        self.inner.end(ctx, outcome, child, error);
+    }
+
+    fn turn_note(&self, texts: &[String]) -> Option<String> {
+        self.seen.lock().unwrap().push(texts.to_vec());
+        texts.iter().any(|text| text.contains("Working")).then(|| "[view] NOTE".to_string())
+    }
+}
+
+/// #EXP-2069: the backend's turn note leads the NEXT input the agent gets,
+/// once, then a blank line; the feed's row stays the input alone. A `/`
+/// command passes it on to the next real input; a fresh context drops it.
+#[test]
+fn a_turn_note_leads_the_next_input_once() {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let heard = seen.clone();
+    let harness = start_fake_with("turn-notes", None, move |host| {
+        Arc::new(TurnNotes { inner: NoBackend::with_host(host), seen: heard })
+    });
+    until("the live phase", || harness.session.phase() == Some(EnginePhase::Live));
+    let prompts = || harness.state.prompts.lock().unwrap().clone();
+    let turn = |count: usize| {
+        until("the turn's prompt", || prompts().len() == count);
+        until("the turn's end", || harness.state.answered.lock().unwrap().len() == count && harness.session.turn_signal().is_idle());
+    };
+    harness.session.send_prompt("stream".to_string());
+    turn(1);
+    assert_eq!(*seen.lock().unwrap(), vec![vec!["Working on it".to_string()]]);
+    harness.session.deliver("m-c".to_string(), "/foo".to_string());
+    turn(2);
+    assert_eq!(prompts()[1], "/foo", "a command never carries the note");
+    harness.session.deliver("m-1".to_string(), "hello".to_string());
+    turn(3);
+    assert_eq!(prompts()[2], "[view] NOTE\n\nhello");
+    let rows: Vec<serde_json::Value> = events_of(&harness.sink, "user_message");
+    assert!(rows.iter().any(|row| row["text"] == "hello"), "{rows:?}");
+    assert!(!rows.iter().any(|row| row["text"].as_str().is_some_and(|text| text.contains("NOTE"))), "{rows:?}");
+    harness.session.deliver_wake("r-1".to_string(), "again".to_string());
+    turn(4);
+    assert_eq!(prompts()[3], "again", "once");
+    harness.session.send_prompt("stream".to_string());
+    turn(5);
+    harness.session.deliver_fresh("m-f".to_string(), "the plan".to_string());
+    turn(6);
+    assert_eq!(prompts()[5], "the plan", "a fresh context has no last turn");
+    harness.session.deliver("m-2".to_string(), "after".to_string());
+    turn(7);
+    assert_eq!(prompts()[6], "after", "dropped, not held");
+    harness.session.kill("killed");
+    assert!(harness.session.wait_timeout(BUDGET).is_some());
+}
+
 /// EXP-1910: a kill sent while the handshake is still open (a wedged CLI, a
 /// long `session/load`) ends the run at once, and the seed prompt never goes
 /// out. It used to sit unread until the handshake's own deadline (3 or 10

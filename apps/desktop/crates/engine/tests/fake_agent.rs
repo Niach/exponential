@@ -591,6 +591,45 @@ async fn run_turn(
             let _ = quit.send(());
             StopReason::EndTurn
         }
+        // #EXP-2069: `say <json array>`: each text one assistant message
+        // (its own message id), streamed in small pieces with a tool call
+        // after it, and a subagent's broken block in between that never
+        // counts.
+        text if text.starts_with("say ") => {
+            let texts: Vec<String> = serde_json::from_str(&text["say ".len()..]).expect("the test's texts parse");
+            for (index, message) in texts.iter().enumerate() {
+                let chars: Vec<char> = message.chars().collect();
+                for piece in chars.chunks(7) {
+                    let piece: String = piece.iter().collect();
+                    let _ = cx.send_notification(SessionNotification::new(
+                        session_id.clone(),
+                        SessionUpdate::AgentMessageChunk(
+                            ContentChunk::new(ContentBlock::Text(TextContent::new(piece)))
+                                .message_id(agent_client_protocol::v1::schema::MessageId::new(format!("say-{index}"))),
+                        ),
+                    ));
+                }
+                let mut lane = serde_json::Map::new();
+                lane.insert(eagent::engine::mapper::SUBAGENT_ID_META_KEY.to_string(), serde_json::json!("task-1"));
+                let _ = cx.send_notification(
+                    SessionNotification::new(
+                        session_id.clone(),
+                        SessionUpdate::AgentMessageChunk(
+                            ContentChunk::new(ContentBlock::Text(TextContent::new("<a2ui>\nroot = Nope()\n</a2ui>")))
+                                .message_id(agent_client_protocol::v1::schema::MessageId::new("say-sub")),
+                        ),
+                    )
+                    .meta(lane),
+                );
+                let _ = cx.send_notification(SessionNotification::new(
+                    session_id.clone(),
+                    SessionUpdate::ToolCall(
+                        ToolCall::new(ToolCallId::new(format!("tc-say-{index}")), "Read src/main.rs").kind(ToolKind::Read),
+                    ),
+                ));
+            }
+            StopReason::EndTurn
+        }
         _ => StopReason::EndTurn,
     }
 }
@@ -2091,6 +2130,58 @@ fn a_nonsense_context_layout_payload_publishes_nothing() {
 // ---------------------------------------------------------------------------
 // EXP-1292: the Conversation
 // ---------------------------------------------------------------------------
+
+/// #EXP-2069 (`chat-express.json` `failureNoteCases`, byte for byte): at a
+/// turn's end the engine reads its main-lane messages' failed Express
+/// blocks; the note leads the NEXT input the agent gets (a person's row, a
+/// report: whatever comes), once, followed by a blank line, while the feed's
+/// `user_message` stays the input alone. A clean turn leaves none.
+#[test]
+fn a_turns_failed_blocks_lead_the_next_input() {
+    let fixture = domain::chat_express::fixture();
+    let cases = fixture["failureNoteCases"].as_array().expect("failureNoteCases");
+    assert!(!cases.is_empty());
+    let harness = start_fake("express-note");
+    let prompts = || harness.state.prompts.lock().expect("the prompt log is not poisoned").clone();
+    let signal = harness.session.turn_signal();
+    let mut sent = 0;
+    for (index, case) in cases.iter().enumerate() {
+        let name = case["name"].as_str().unwrap();
+        let say = format!("say {}", case["texts"]);
+        harness.session.deliver(format!("say-{index}"), say.clone());
+        sent += 1;
+        until("the say turn", || prompts().len() == sent);
+        assert_eq!(prompts()[sent - 1], say, "{name}: no note before the first input");
+        until("its end", || harness.state.answered.lock().unwrap().len() == sent && signal.is_idle());
+        // The next input: a person's row on even cases, a report on odd.
+        let next = format!("next {index}");
+        if index % 2 == 0 {
+            harness.session.deliver(format!("next-{index}"), next.clone());
+        } else {
+            harness.session.deliver_wake(format!("next-{index}"), next.clone());
+        }
+        sent += 1;
+        until("the next input", || prompts().len() == sent);
+        let expected = match case["expected"].as_str() {
+            Some(note) => format!("{note}\n\n{next}"),
+            None => next.clone(),
+        };
+        assert_eq!(prompts()[sent - 1], expected, "{name}");
+        until("its end", || harness.state.answered.lock().unwrap().len() == sent && signal.is_idle());
+        assert!(has_user_row(&harness.sink, &next), "{name}: the row is the input alone");
+        assert!(
+            !events_of(&harness.sink, "user_message").iter().any(|event| event["text"].as_str().is_some_and(|text| text.contains("[view]"))),
+            "{name}: the note is never a row"
+        );
+    }
+    // Once: the input after the noted one carries nothing (its turn said
+    // nothing, so it left no note either).
+    harness.session.deliver("after".to_string(), "after".to_string());
+    until("the input after", || prompts().len() == sent + 1);
+    assert_eq!(prompts()[sent], "after");
+    harness.session.kill("killed");
+    assert!(harness.session.wait_timeout(BUDGET).is_some());
+}
 
 /// A row delivered between turns IS the next turn: consumed the moment it is
 /// sent. One delivered mid-turn waits in the bar under its own row id and is

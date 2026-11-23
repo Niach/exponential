@@ -25,12 +25,14 @@ import { cn } from "./cn"
  *  this same map — one square and one slice can never disagree. */
 export const SEGMENT_TONE_CLASS: Record<string, string> = {
   neutral: `bg-foreground/30`,
-  // avatar-1 orange, -2 yellow, -3 green, -5 blue, -6 violet, -7 pink.
+  // avatar-1 orange, -2 yellow, -3 green, -4 teal, -5 blue, -6 violet, -7 pink.
   orange: `bg-avatar-1`,
   yellow: `bg-avatar-2`,
   green: `bg-avatar-3`,
   blue: `bg-avatar-5`,
   violet: `bg-avatar-6`,
+  // #EXP-2069: the `express` layer (avatar-4 teal).
+  teal: `bg-avatar-4`,
   pink: `bg-avatar-7`,
   // `track` is the empty remainder — the bar's own background, so a `free`
   // legend swatch matches the part of the track nothing painted.

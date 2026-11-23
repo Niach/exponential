@@ -1016,6 +1016,14 @@ pub fn input_text(message: &MessageRow, sessions: &[SessionRow]) -> String {
     }
 }
 
+/// #EXP-2069: the message's `action` card, when it carries one that reads.
+fn action_card(message: &MessageRow) -> Option<domain::chat_express::ActionCard> {
+    if message.card_kind() != Some("action") {
+        return None;
+    }
+    serde_json::from_value(message.card.clone()?).ok()
+}
+
 /// #EXP-1772: the marker key a pending input is tagged with: only a message
 /// whose card is an `event` has one (`schedule` = a schedule firing, a
 /// `trigger_fired` without a name; `event` = an event firing or any other
@@ -1044,6 +1052,12 @@ pub fn input_tag(message: &MessageRow) -> Option<&'static str> {
 }
 
 fn input_body_text(message: &MessageRow, sessions: &[SessionRow]) -> String {
+    // #EXP-2069 (`chat-express.json` `inputCases`): a pressed view's action
+    // card (opened already when sealed) reaches the agent as its `[action]`
+    // line, then the body.
+    if let Some(card) = action_card(message) {
+        return domain::chat_express::action_input(&card, message.body_text());
+    }
     let body = message.body_text().trim();
     let Some(from) = message.author_session_id.as_deref().filter(|_| !message.is_from_user()) else {
         return message.body.clone().unwrap_or_default();
@@ -4595,12 +4609,21 @@ mod tests {
             body: Some(enet_core::sealed::seal_body(&foreign.public, 1, "not for us").unwrap()),
             ..message("sl1", "sp", "2026-10-02T00:00:07Z")
         };
-        let rows = vec![person, report, asked, locked_row];
+        // #EXP-2069: a pressed view's sealed action card opens like any card.
+        let action = serde_json::json!({"kind": "action", "name": "reply", "context": null, "surfaceId": "m:m1#1", "block": "m:m1#1", "messageId": "m1"});
+        let pressed = MessageRow {
+            body: Some(sealed("Ship it")),
+            card: Some(sealing::seal_card_for_session("sp", &action).unwrap()),
+            ..message("sa1", "sp", "2026-10-02T00:00:08Z")
+        };
+        assert!(pressed.card.as_ref().unwrap().get("name").is_none());
+        let rows = vec![person, report, asked, locked_row, pressed];
         let expected = vec![
             "hello sealed".to_string(),
             "Report from Fix the cart (session sc, ended): Opened PR #12.".to_string(),
             "Message from Fix the cart (session sc): Which branch?".to_string(),
             sealing::LOCKED_TEXT.to_string(),
+            "[action] {\"name\":\"reply\",\"surfaceId\":\"m:m1#1\",\"block\":\"m:m1#1\",\"messageId\":\"m1\",\"context\":null}\nShip it".to_string(),
         ];
         let bodies = |messages: &[MessageRow]| messages.iter().map(|m| m.body.clone().unwrap_or_default()).collect::<Vec<_>>();
 
@@ -4894,6 +4917,28 @@ mod tests {
         assert!(!is_pending_input(&card("q1", "s1", false)));
         let own = MessageRow { author_session_id: Some("s1".to_string()), ..reply.clone() };
         assert!(!is_pending_input(&own));
+    }
+
+    /// #EXP-2069 (`chat-express.json` `inputCases`): a person's message
+    /// carrying an `action` card reaches the agent as its `[action]` line,
+    /// then the body, byte for byte.
+    #[test]
+    fn an_action_card_reads_as_its_action_input() {
+        let fixture = domain::chat_express::fixture();
+        let cases = fixture["inputCases"].as_array().expect("inputCases");
+        assert!(!cases.is_empty());
+        for case in cases {
+            let row = MessageRow {
+                body: Some(case["body"].as_str().unwrap().to_string()),
+                card: Some(case["card"].clone()),
+                ..message("m9", "s1", "2026-10-02T00:00:00Z")
+            };
+            assert!(is_pending_input(&row), "{}", case["name"]);
+            assert_eq!(input_text(&row, &[]), case["expected"].as_str().unwrap(), "{}", case["name"]);
+        }
+        // A card that is not an action reads as before.
+        let plain = MessageRow { card: Some(serde_json::json!({"kind": "note"})), ..message("m8", "s1", "t") };
+        assert_eq!(input_text(&plain, &[]), "body of m8");
     }
 
     #[test]

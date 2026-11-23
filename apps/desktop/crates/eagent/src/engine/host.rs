@@ -277,6 +277,16 @@ pub trait RunBackend: Send + Sync + 'static {
     /// mid-turn may hear no `false`: a backend that pairs them closes the
     /// open turn in its [`Self::end`].
     fn turn(&self, _session_id: &str, _running: bool) {}
+
+    /// #EXP-2069 (`chat-express.json` `failureNoteCases`): a live turn
+    /// ended; `texts` = its main-lane messages in order. `Some(lines)` is
+    /// held and PREPENDED once to the next input the agent gets
+    /// ([`SessionCtx::take_turn_note`]). Exponential's reads the failed
+    /// Express blocks (`coding::express_blocks::failure_note`); a backend
+    /// without the SDK notes nothing.
+    fn turn_note(&self, _texts: &[String]) -> Option<String> {
+        None
+    }
 }
 
 /// EXP-1426 part 4d: the server-free backend. Messages queue through the
@@ -490,6 +500,16 @@ impl QueuedPrompt {
             sent: self.held.is_none(),
         }
     }
+}
+
+/// #EXP-2069: `note` PREPENDED to a prompt's content, followed by a blank
+/// line: into its leading text block, else as a text block of its own.
+pub(crate) fn with_turn_note(mut blocks: Vec<ContentBlock>, note: &str) -> Vec<ContentBlock> {
+    match blocks.first_mut() {
+        Some(ContentBlock::Text(first)) => first.text = format!("{note}\n\n{}", first.text),
+        _ => blocks.insert(0, ContentBlock::Text(TextContent::new(format!("{note}\n\n")))),
+    }
+    blocks
 }
 
 /// One user message as ACP content blocks.
@@ -1186,6 +1206,10 @@ pub struct SessionCtx {
     /// FEED-61: the API-error retry's view of the turn stream, fed by
     /// [`SessionCtx::dispatch`] and ticked by the lifecycle.
     pub api_retry: Mutex<super::api_retry::ApiRetry>,
+    /// #EXP-2069: the last turn's note ([`RunBackend::turn_note`]), waiting
+    /// for the next input to the agent. Never on the wire, never in the
+    /// transcript; gone with the run.
+    pub(crate) turn_note: Mutex<Option<String>>,
     /// FEED-25: the reason a watchdog ended this run, surfaced as
     /// `EnginePhase::Failed` ahead of `Ended` (the connection itself did not
     /// error, so nothing else would say why).
@@ -1200,6 +1224,23 @@ pub struct SessionCtx {
 }
 
 impl SessionCtx {
+    /// #EXP-2069: the held turn note, taken (once) for the input `text` the
+    /// agent is about to get. A `/` command keeps it for the next real
+    /// input; a fresh context or a new conversation drops it (there is no
+    /// "last turn" there).
+    pub(crate) fn take_turn_note(&self, text: &str, fresh: bool) -> Option<String> {
+        let mut held = self.turn_note.lock().unwrap_or_else(|err| err.into_inner());
+        held.as_ref()?;
+        if fresh || super::adapters::is_new_conversation_command(text) {
+            *held = None;
+            return None;
+        }
+        if text.trim_start().starts_with('/') {
+            return None;
+        }
+        held.take()
+    }
+
     pub fn with_mapper<R>(&self, f: impl FnOnce(&mut Mapper) -> R) -> R {
         let mut mapper = self.mapper.lock().unwrap_or_else(|err| err.into_inner());
         f(&mut mapper)
@@ -1555,6 +1596,14 @@ impl SessionCtx {
             for event in &out.wire {
                 fold_open_question(&mut held, event);
             }
+        }
+        // #EXP-2069: a live turn closed: what its failed blocks leave for
+        // the agent's next input. A turn that wrote clean replaces an older
+        // note (it speaks of "your last turn"); one that wrote nothing (a
+        // `/` command's) leaves it waiting.
+        if let Some(texts) = out.turn_texts.take().filter(|texts| !texts.is_empty()) {
+            let note = self.backend.get().and_then(|backend| backend.turn_note(&texts));
+            *self.turn_note.lock().unwrap_or_else(|err| err.into_inner()) = note;
         }
         // EXP-1292: the Conversation's half of the step — the replies in
         // order, and every card the engine resolved (answered anywhere, or
@@ -2998,6 +3047,13 @@ fn start_turn(
         TurnPrompt::Ready(localized) => (localized.announce, Some(localized.blocks), None, localized.fresh),
         TurnPrompt::Localize(text) => (text.clone(), None, Some(text), false),
     };
+    // #EXP-2069: the last turn's note leads what the AGENT gets; the
+    // announced row (the feed's `user_message`) stays the input alone.
+    let note = ctx.take_turn_note(&announce, fresh);
+    let ready_blocks = match (ready_blocks, note.as_deref()) {
+        (Some(blocks), Some(note)) => Some(with_turn_note(blocks, note)),
+        (blocks, _) => blocks,
+    };
     match (&pending, &ready_blocks) {
         // EXP-1098: the agent's replay may carry the LOCALIZED text (an
         // image prompt's `Image #N: <path>` manifest) rather than the
@@ -3088,8 +3144,11 @@ fn start_turn(
                 let request = match (request, localize) {
                     (Some(request), _) => request,
                     (None, Some(text)) => {
-                        let localized =
+                        let mut localized =
                             localize_for_agent(text, ctx.attachments.as_ref()).await;
+                        if let Some(note) = note.as_deref() {
+                            localized.blocks = with_turn_note(std::mem::take(&mut localized.blocks), note);
+                        }
                         if let Some(id) = &pending {
                             ctx.with_mapper(|mapper| {
                                 mapper.on_prompt_sent(

@@ -892,17 +892,20 @@ pub enum ContextSegmentKey {
     Tools,
     Playbook,
     Team,
+    /// #EXP-2069: the Express prompt (`chat-express.json` `prompt`).
+    Express,
     Project,
     Task,
 }
 
 impl ContextSegmentKey {
     /// Every value, in contract order.
-    pub const ALL: [ContextSegmentKey; 6] = [
+    pub const ALL: [ContextSegmentKey; 7] = [
         ContextSegmentKey::Base,
         ContextSegmentKey::Tools,
         ContextSegmentKey::Playbook,
         ContextSegmentKey::Team,
+        ContextSegmentKey::Express,
         ContextSegmentKey::Project,
         ContextSegmentKey::Task,
     ];
@@ -913,6 +916,7 @@ impl ContextSegmentKey {
             ContextSegmentKey::Tools => "tools",
             ContextSegmentKey::Playbook => "playbook",
             ContextSegmentKey::Team => "team",
+            ContextSegmentKey::Express => "express",
             ContextSegmentKey::Project => "project",
             ContextSegmentKey::Task => "task",
         }
