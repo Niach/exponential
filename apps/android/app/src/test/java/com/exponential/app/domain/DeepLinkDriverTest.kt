@@ -25,7 +25,14 @@ class DeepLinkDriverTest {
     }
 
     /** Runs the driver frame by frame; returns the steps taken. */
-    private fun drive(view: Transcript, target: Int, startMs: Long = 0, frameMs: Long = 16, maxFrames: Int = 2_000): List<DeepLinkStep> {
+    private fun drive(
+        view: Transcript,
+        target: Int,
+        startMs: Long = 0,
+        frameMs: Long = 16,
+        maxFrames: Int = 2_000,
+        landFrames: Int = 3,
+    ): List<DeepLinkStep> {
         val driver = DeepLinkDriver()
         driver.take("card", startMs)
         val steps = mutableListOf<DeepLinkStep>()
@@ -48,7 +55,7 @@ class DeepLinkDriverTest {
             ) ?: return steps
             if (steps.lastOrNull() != step) steps += step
             when (step) {
-                DeepLinkStep.Page -> view.landing = 3
+                DeepLinkStep.Page -> view.landing = landFrames
                 // Found but not measured: the host scrolls it into the layout.
                 DeepLinkStep.Wait -> if (found) view.visible = true
                 DeepLinkStep.Scroll -> view.centred = true
@@ -73,6 +80,15 @@ class DeepLinkDriverTest {
             steps,
         )
         assertEquals(100, view.loadedFrom)
+    }
+
+    @Test
+    fun `FEED-298 a card far above keeps paging while pages land, past deepLinkMs`() {
+        // 60 pages at ~0.5 s each = ~30 s, three times deepLinkMs.
+        val view = Transcript(total = 6_200, window = 200, stepRows = 100)
+        val steps = drive(view, target = 10, maxFrames = 20_000, landFrames = 30)
+        assertEquals(DeepLinkStep.Ring, steps.last())
+        assertEquals(0, view.loadedFrom)
     }
 
     @Test

@@ -30,6 +30,9 @@ export type DeepLinkOutcome = `ring` | `missing` | `dropped`
 export interface DeepLinkHost {
   link: DeepLinkTarget | null
   settle: (link: DeepLinkTarget, outcome: DeepLinkOutcome) => void
+  /** #FEED-298: the driving view paged one older page in: the link's clock
+   *  restarts at `at` (the host's give-up timer with it). */
+  touch?: (link: DeepLinkTarget, at: number) => void
 }
 
 export const DeepLinkContext = createContext<DeepLinkHost | null>(null)
@@ -52,6 +55,9 @@ export function useDeepLinkHost(): DeepLinkHost & {
     setLink({ id, sessionId, takenAt, nonce: ++nonces })
   }, [])
   const drop = useCallback(() => setLink(null), [])
+  const touch = useCallback((touched: DeepLinkTarget, at: number) => {
+    setLink((current) => (current?.nonce === touched.nonce ? { ...current, takenAt: at } : current))
+  }, [])
   const settle = useCallback((settled: DeepLinkTarget, outcome: DeepLinkOutcome) => {
     setLink((current) => (current?.nonce === settled.nonce ? null : current))
     if (outcome === `ring`) setRinged({ id: settled.id, nonce: settled.nonce })
@@ -69,8 +75,8 @@ export function useDeepLinkHost(): DeepLinkHost & {
     return () => clearTimeout(timer)
   }, [ringed])
   return useMemo(
-    () => ({ link, settle, take, drop, highlight: ringed?.id ?? null }),
-    [link, settle, take, drop, ringed]
+    () => ({ link, settle, touch, take, drop, highlight: ringed?.id ?? null }),
+    [link, settle, touch, take, drop, ringed]
   )
 }
 
@@ -100,6 +106,7 @@ export function useDeepLinkDriver(
         scroll: () => effectsRef.current.scroll(),
         ring: () => effectsRef.current.ring(),
         missing: () => effectsRef.current.missing(),
+        progress: (at) => effectsRef.current.progress?.(at),
       })
       cursor = result.cursor
       if (result.settled) done = true

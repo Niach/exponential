@@ -41,14 +41,20 @@ export function dismissedCard<T extends { kind: string }>(card: T): T & Record<s
   return next as T & Record<string, unknown>
 }
 
-/** #NEW-79 / #FEED-287: may a SESSION's answer (`sessions_send {answer}`)
- *  land on a card? A voice conversation's cards are answered by its member
- *  in person only, but the conversation itself (`own`, the card's author)
- *  may WITHDRAW its own card with a dismiss. */
+/** #NEW-79 / #FEED-287 / #FEED-298: may a SESSION's answer
+ *  (`sessions_send {answer}`) land on a card? A voice conversation's cards
+ *  are answered by its member in person only, but the conversation itself
+ *  (`own`, the card's author) may WITHDRAW its own card with a dismiss, and
+ *  its `member` (the caller's person) may always dismiss it. */
 export type SessionAnswerVerdict = `ok` | `voiceOwnerOnly`
-export function sessionAnswerVerdict(input: { voice: boolean; own: boolean; dismissed: boolean }): SessionAnswerVerdict {
+export function sessionAnswerVerdict(input: {
+  voice: boolean
+  own: boolean
+  member: boolean
+  dismissed: boolean
+}): SessionAnswerVerdict {
   if (!input.voice) return `ok`
-  return input.own && input.dismissed ? `ok` : `voiceOwnerOnly`
+  return (input.own || input.member) && input.dismissed ? `ok` : `voiceOwnerOnly`
 }
 
 export interface WaitingCardInput {

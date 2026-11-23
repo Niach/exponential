@@ -1459,7 +1459,7 @@ async function messageSession(
         status = `queued`
       }
       // NEW-1: the answer to the target's open card (first answer wins).
-      if (input.answer) await answerSessionCardInTx(tx, target, input.answer, caller?.id ?? null)
+      if (input.answer) await answerSessionCardInTx(tx, target, input.answer, caller?.id ?? null, userId)
       // NEW-1: issues on a message = FORWARDED to that session (the rows
       // move onto it; it takes them). #EXP-1686: a conversation only reads them.
       if (input.issueIds?.length) {
