@@ -14,6 +14,9 @@ pub mod actions;
 pub mod components;
 pub mod contract;
 pub mod decoders;
+/// #AXC-12: the Express wire decoder (`express` feature).
+#[cfg(feature = "express")]
+pub use crate::express::ExpressDecoder;
 pub mod exposes;
 pub mod expressions;
 pub mod package;

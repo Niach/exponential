@@ -374,8 +374,18 @@ fn unknown(id: &str, component: &str, catalog_id: &str) -> UiNode {
     node
 }
 
+/// #AXC-19: A2UI 1.0 writes the check mixin as `@checks` (what the Express
+/// compiler emits); the legacy bare `checks` is still read. Inside, the prop
+/// is `checks` (catalog, nodes, painters); `@checks` wins when both are set.
+pub const WIRE_CHECKS: &str = "@checks";
+
 fn own_props(flat: &FlatComponent) -> Props {
-    flat.rest.iter().filter(|(k, _)| !RESERVED_KEYS.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect()
+    let wire = flat.rest.contains_key(WIRE_CHECKS);
+    flat.rest
+        .iter()
+        .filter(|(k, _)| !RESERVED_KEYS.contains(&k.as_str()) && !(wire && k.as_str() == "checks"))
+        .map(|(k, v)| (if k == WIRE_CHECKS { "checks".to_string() } else { k.clone() }, v.clone()))
+        .collect()
 }
 
 /// `metadata` is kept when it is an object (the entry check refused the rest).
