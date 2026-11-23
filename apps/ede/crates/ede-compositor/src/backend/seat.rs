@@ -283,11 +283,10 @@ mod tests {
     fn libinput_s_close_callback_survives_a_panicking_seat() {
         use smithay::reexports::input::Libinput;
 
-        let (session, closes) = Stall::new(Close::Panics);
+        let (session, _closes) = Stall::new(Close::Panics);
         let mut libinput = Libinput::new_from_path(SeatInterface::from(session));
         assert!(libinput.path_add_device("/dev/null").is_none());
         let _ = libinput.dispatch();
         drop(libinput);
-        eprintln!("libinput closed {} device(s) through the seat", closes.get());
     }
 }
