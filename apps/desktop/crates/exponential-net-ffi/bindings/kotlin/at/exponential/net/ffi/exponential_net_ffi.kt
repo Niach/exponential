@@ -763,6 +763,16 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_parse_ticket(
     ): Int
+    external fun uniffi_exponential_net_ffi_checksum_func_accept_vouch(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_func_accept_wrap(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_func_sign_wrap(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_func_verify_wrap_signature(
+    ): Int
+    external fun uniffi_exponential_net_ffi_checksum_func_wrap_signature_message(
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetcallhandshake_finish(
     ): Int
     external fun uniffi_exponential_net_ffi_checksum_method_enetcallhandshake_hello(
@@ -1008,6 +1018,16 @@ internal object UniffiLib {
     external fun uniffi_exponential_net_ffi_fn_func_identity_sign(`identity`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_net_ffi_fn_func_parse_ticket(`ticket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_accept_vouch(`statement`: RustBuffer.ByValue,`signature`: RustBuffer.ByValue,`signerEndpointId`: RustBuffer.ByValue,`pins`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_accept_wrap(`wrap`: RustBuffer.ByValue,`identity`: RustBuffer.ByValue,`installSecret`: RustBuffer.ByValue,`pins`: RustBuffer.ByValue,`required`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_sign_wrap(`identity`: RustBuffer.ByValue,`statement`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_verify_wrap_signature(`statement`: RustBuffer.ByValue,`signature`: RustBuffer.ByValue,`signerEndpointId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_exponential_net_ffi_fn_func_wrap_signature_message(`statement`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun ffi_exponential_net_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -4424,6 +4444,62 @@ public object FfiConverterTypeEnetRecord: FfiConverterRustBuffer<EnetRecord> {
 
 
 
+/**
+ * A wrap as `sessionKeys.mine` answers it.
+ */
+data class EnetServedWrap (
+    var `rootId`: kotlin.String
+    , 
+    var `epoch`: kotlin.UInt
+    , 
+    var `wrapped`: kotlin.String
+    , 
+    var `signature`: kotlin.String?
+    , 
+    var `signerEndpointId`: kotlin.String?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetServedWrap: FfiConverterRustBuffer<EnetServedWrap> {
+    override fun read(buf: ByteBuffer): EnetServedWrap {
+        return EnetServedWrap(
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EnetServedWrap) = (
+            FfiConverterString.allocationSize(value.`rootId`) +
+            FfiConverterUInt.allocationSize(value.`epoch`) +
+            FfiConverterString.allocationSize(value.`wrapped`) +
+            FfiConverterOptionalString.allocationSize(value.`signature`) +
+            FfiConverterOptionalString.allocationSize(value.`signerEndpointId`)
+    )
+
+    override fun write(value: EnetServedWrap, buf: ByteBuffer) {
+            FfiConverterString.write(value.`rootId`, buf)
+            FfiConverterUInt.write(value.`epoch`, buf)
+            FfiConverterString.write(value.`wrapped`, buf)
+            FfiConverterOptionalString.write(value.`signature`, buf)
+            FfiConverterOptionalString.write(value.`signerEndpointId`, buf)
+    }
+}
+
+
+
 data class EnetTicket (
     var `endpointId`: kotlin.String
     , 
@@ -4503,6 +4579,74 @@ public object FfiConverterTypeEnetTreeKey: FfiConverterRustBuffer<EnetTreeKey> {
     override fun write(value: EnetTreeKey, buf: ByteBuffer) {
             FfiConverterByteArray.write(value.`secret`, buf)
             FfiConverterString.write(value.`publicKey`, buf)
+    }
+}
+
+
+
+/**
+ * What a wrap signature covers.
+ */
+data class EnetWrapStatement (
+    /**
+     * The tree's root id (a UUID, any casing).
+     */
+    var `rootId`: kotlin.String
+    , 
+    var `epoch`: kotlin.UInt
+    , 
+    /**
+     * base64url of that epoch's 32-byte tree public key.
+     */
+    var `treePublicKey`: kotlin.String
+    , 
+    /**
+     * The recipient install's endpoint id (lowercase hex).
+     */
+    var `recipientEndpointId`: kotlin.String
+    , 
+    /**
+     * `session_keys.wrapped` (base64url of 81 bytes).
+     */
+    var `wrapped`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetWrapStatement: FfiConverterRustBuffer<EnetWrapStatement> {
+    override fun read(buf: ByteBuffer): EnetWrapStatement {
+        return EnetWrapStatement(
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: EnetWrapStatement) = (
+            FfiConverterString.allocationSize(value.`rootId`) +
+            FfiConverterUInt.allocationSize(value.`epoch`) +
+            FfiConverterString.allocationSize(value.`treePublicKey`) +
+            FfiConverterString.allocationSize(value.`recipientEndpointId`) +
+            FfiConverterString.allocationSize(value.`wrapped`)
+    )
+
+    override fun write(value: EnetWrapStatement, buf: ByteBuffer) {
+            FfiConverterString.write(value.`rootId`, buf)
+            FfiConverterUInt.write(value.`epoch`, buf)
+            FfiConverterString.write(value.`treePublicKey`, buf)
+            FfiConverterString.write(value.`recipientEndpointId`, buf)
+            FfiConverterString.write(value.`wrapped`, buf)
     }
 }
 
@@ -5097,6 +5241,244 @@ public object FfiConverterTypeEnetSealStatus: FfiConverterRustBuffer<EnetSealSta
 
 
 
+sealed class EnetVouchVerdict {
+    
+    object Verified : EnetVouchVerdict()
+    
+    
+    /**
+     * Never `Unopened`: a vouch opens nothing.
+     */
+    data class Refused(
+        val `reason`: at.exponential.net.ffi.EnetWrapRefusal) : EnetVouchVerdict()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetVouchVerdict : FfiConverterRustBuffer<EnetVouchVerdict>{
+    override fun read(buf: ByteBuffer): EnetVouchVerdict {
+        return when(buf.getInt()) {
+            1 -> EnetVouchVerdict.Verified
+            2 -> EnetVouchVerdict.Refused(
+                FfiConverterTypeEnetWrapRefusal.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: EnetVouchVerdict): ULong = when(value) {
+        is EnetVouchVerdict.Verified -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is EnetVouchVerdict.Refused -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeEnetWrapRefusal.allocationSize(value.`reason`)
+            )
+        }
+    }
+
+    override fun write(value: EnetVouchVerdict, buf: ByteBuffer) {
+        when(value) {
+            is EnetVouchVerdict.Verified -> {
+                buf.putInt(1)
+                Unit
+            }
+            is EnetVouchVerdict.Refused -> {
+                buf.putInt(2)
+                FfiConverterTypeEnetWrapRefusal.write(value.`reason`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+/**
+ * Why a wrap (or a vouch) is not kept: the fixture's `refusals`.
+ */
+
+enum class EnetWrapRefusal {
+    
+    MALFORMED,
+    UNSIGNED,
+    UNPINNED,
+    UNOPENED,
+    SIGNATURE;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetWrapRefusal: FfiConverterRustBuffer<EnetWrapRefusal> {
+    override fun read(buf: ByteBuffer) = try {
+        EnetWrapRefusal.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: EnetWrapRefusal) = 4UL
+
+    override fun write(value: EnetWrapRefusal, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+sealed class EnetWrapVerdict {
+    
+    data class Verified(
+        val `secret`: kotlin.ByteArray, 
+        val `treePublicKey`: kotlin.String, 
+        val `signerEndpointId`: kotlin.String) : EnetWrapVerdict()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * Kept without a signature (only where none is required).
+     */
+    data class Unsigned(
+        val `secret`: kotlin.ByteArray, 
+        val `treePublicKey`: kotlin.String) : EnetWrapVerdict()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Refused(
+        val `reason`: at.exponential.net.ffi.EnetWrapRefusal) : EnetWrapVerdict()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeEnetWrapVerdict : FfiConverterRustBuffer<EnetWrapVerdict>{
+    override fun read(buf: ByteBuffer): EnetWrapVerdict {
+        return when(buf.getInt()) {
+            1 -> EnetWrapVerdict.Verified(
+                FfiConverterByteArray.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            2 -> EnetWrapVerdict.Unsigned(
+                FfiConverterByteArray.read(buf),
+                FfiConverterString.read(buf),
+                )
+            3 -> EnetWrapVerdict.Refused(
+                FfiConverterTypeEnetWrapRefusal.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: EnetWrapVerdict): ULong = when(value) {
+        is EnetWrapVerdict.Verified -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterByteArray.allocationSize(value.`secret`)
+                + FfiConverterString.allocationSize(value.`treePublicKey`)
+                + FfiConverterString.allocationSize(value.`signerEndpointId`)
+            )
+        }
+        is EnetWrapVerdict.Unsigned -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterByteArray.allocationSize(value.`secret`)
+                + FfiConverterString.allocationSize(value.`treePublicKey`)
+            )
+        }
+        is EnetWrapVerdict.Refused -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeEnetWrapRefusal.allocationSize(value.`reason`)
+            )
+        }
+    }
+
+    override fun write(value: EnetWrapVerdict, buf: ByteBuffer) {
+        when(value) {
+            is EnetWrapVerdict.Verified -> {
+                buf.putInt(1)
+                FfiConverterByteArray.write(value.`secret`, buf)
+                FfiConverterString.write(value.`treePublicKey`, buf)
+                FfiConverterString.write(value.`signerEndpointId`, buf)
+                Unit
+            }
+            is EnetWrapVerdict.Unsigned -> {
+                buf.putInt(2)
+                FfiConverterByteArray.write(value.`secret`, buf)
+                FfiConverterString.write(value.`treePublicKey`, buf)
+                Unit
+            }
+            is EnetWrapVerdict.Refused -> {
+                buf.putInt(3)
+                FfiConverterTypeEnetWrapRefusal.write(value.`reason`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
 
 /**
  * @suppress
@@ -5664,6 +6046,101 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
     
         
         FfiConverterString.lower(`ticket`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Whether an install that holds NO secret of (root, epoch) may seal to
+         * `statement.tree_public_key`: a pinned install's signed wrap of that epoch,
+         * made for ANOTHER install, names that key.
+         */
+    @Throws(EnetException::class) fun `acceptVouch`(`statement`: EnetWrapStatement, `signature`: kotlin.String?, `signerEndpointId`: kotlin.String?, `pins`: List<kotlin.String>): EnetVouchVerdict {
+            return FfiConverterTypeEnetVouchVerdict.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_accept_vouch(
+    
+        
+        FfiConverterTypeEnetWrapStatement.lower(`statement`),
+        FfiConverterOptionalString.lower(`signature`),
+        FfiConverterOptionalString.lower(`signerEndpointId`),
+        FfiConverterSequenceString.lower(`pins`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Whether this install keeps a served wrap: it builds the signed message
+         * ITSELF (the root and epoch it asked for, the public key of the secret it
+         * unwrapped, its own endpoint id from `identity`, the bytes). `pins` = the
+         * endpoint ids it has pinned. A wrap that carries a signature must pass with
+         * it, also where none is `required`. `Invalid` only for an identity or an
+         * install secret that is not 32 bytes.
+         */
+    @Throws(EnetException::class) fun `acceptWrap`(`wrap`: EnetServedWrap, `identity`: kotlin.ByteArray, `installSecret`: kotlin.ByteArray, `pins`: List<kotlin.String>, `required`: kotlin.Boolean): EnetWrapVerdict {
+            return FfiConverterTypeEnetWrapVerdict.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_accept_wrap(
+    
+        
+        FfiConverterTypeEnetServedWrap.lower(`wrap`),
+        FfiConverterByteArray.lower(`identity`),
+        FfiConverterByteArray.lower(`installSecret`),
+        FfiConverterSequenceString.lower(`pins`),
+        FfiConverterBoolean.lower(`required`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * `session_keys.signature`: the identity's (32 bytes) signature over the
+         * statement, base64url (86 chars). `Invalid` on a malformed statement.
+         */
+    @Throws(EnetException::class) fun `signWrap`(`identity`: kotlin.ByteArray, `statement`: EnetWrapStatement): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_sign_wrap(
+    
+        
+        FfiConverterByteArray.lower(`identity`),
+        FfiConverterTypeEnetWrapStatement.lower(`statement`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Whether `signature` is `signer_endpoint_id`'s over the statement
+         * (strict ed25519). Says nothing about the signer being trusted:
+         * `acceptWrap` and `acceptVouch` ask the pins.
+         */
+    @Throws(EnetException::class) fun `verifyWrapSignature`(`statement`: EnetWrapStatement, `signature`: kotlin.String, `signerEndpointId`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_verify_wrap_signature(
+    
+        
+        FfiConverterTypeEnetWrapStatement.lower(`statement`),
+        FfiConverterString.lower(`signature`),
+        FfiConverterString.lower(`signerEndpointId`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The 186 bytes a wrap's signer signs (`Invalid` when a field is malformed).
+         */
+    @Throws(EnetException::class) fun `wrapSignatureMessage`(`statement`: EnetWrapStatement): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(EnetException) { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_wrap_signature_message(
+    
+        
+        FfiConverterTypeEnetWrapStatement.lower(`statement`),_status)
 }
     )
     }
