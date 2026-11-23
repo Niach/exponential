@@ -1373,10 +1373,6 @@ mod tests {
                 id: m["id"].as_str().unwrap(),
                 author_kind: m["authorKind"].as_str().unwrap(),
                 has_card: !m["card"].is_null(),
-                // #EXP-2075: the card when it reads as THE `action` card.
-                action: serde_json::from_value::<domain::chat_express::ActionCard>(m["card"].clone())
-                    .ok()
-                    .filter(|card| card.kind == "action"),
                 consumed_at: m["consumedAt"].as_str(),
                 created_at: m["createdAt"].as_str().unwrap(),
             });
