@@ -48,6 +48,14 @@ public struct HostOptions {
     /// Round 9 §6.5: the transport's far end reads renderer → agent messages:
     /// a surface an untrusted `createSurface` made has an agent.
     public var agent: Bool
+    /// #AXC-12: the prose of an Express response (the text around its
+    /// `<a2ui>` blocks), piece by piece as it streams in: append them. The
+    /// SDK draws none; the host shows it (a chat bubble, a caption).
+    public var onText: ((String) -> Void)?
+    /// #AXC-12: the inference formats this host advertises
+    /// (`rendererCapabilities["1.0"].inferenceFormats`); default both.
+    /// `[.json]` = JSON only.
+    public var inferenceFormats: [InferenceFormat]
 
     public init(
         transport: Transport? = nil,
@@ -68,10 +76,14 @@ public struct HostOptions {
         onActionFailed: ((ActionFailure) -> Void)? = nil,
         navigate: ((NavigateTarget) -> Bool)? = nil,
         liftsLayers: Bool = false,
-        agent: Bool = false
+        agent: Bool = false,
+        onText: ((String) -> Void)? = nil,
+        inferenceFormats: [InferenceFormat] = InferenceFormat.allCases
     ) {
         self.liftsLayers = liftsLayers
         self.agent = agent
+        self.onText = onText
+        self.inferenceFormats = inferenceFormats
         self.transport = transport
         self.functions = functions
         self.sources = sources
@@ -105,6 +117,10 @@ public final class ExponentialHost {
     public private(set) var surfaces: [String: SurfaceModel] = [:]
     /// Their ids in creation order.
     public private(set) var surfaceIds: [String] = []
+    /// Each surface's components by id, in first-seen order: an
+    /// `updateComponents` replaces BY ID and keeps the rest (A2UI; the
+    /// Compose host keeps the same map).
+    @ObservationIgnored private var components: [String: (order: [String], byId: [String: JSONValue])] = [:]
     public private(set) var status: TransportStatus = .closed
     public private(set) var statusDetail: String?
     /// The last UNSUPPORTED_CATALOG id seen (the catalog-update banner).
@@ -160,8 +176,10 @@ public final class ExponentialHost {
 
     public var supportedCatalogIds: [String] { router.supportedCatalogIds() }
 
-    /// A2UI `rendererCapabilities` (`{"1.0": {supportedCatalogIds}}`).
-    public var rendererCapabilities: JSONValue { JSONValue.parse((try? rendererCapabilitiesJson(extensionIds: extensions.map(\.id), inlineCatalogsJson: nil)) ?? "{}") }
+    /// A2UI `rendererCapabilities` (`{"1.0": {supportedCatalogIds, inferenceFormats}}`).
+    public var rendererCapabilities: JSONValue {
+        JSONValue.parse((try? rendererCapabilitiesWithJson(extensionIds: extensions.map(\.id), inlineCatalogsJson: nil, inferenceFormats: options.inferenceFormats.map(\.rawValue))) ?? "{}")
+    }
 
     public var extensionIds: [String] { extensions.map(\.id) }
 
@@ -224,7 +242,7 @@ public final class ExponentialHost {
         t.start(receive: { [weak self] m in self?.receive(m) }, status: { [weak self] status, detail in
             self?.status = status
             self?.statusDetail = detail
-        })
+        }, text: { [weak self] piece in self?.options.onText?(piece) })
     }
 
     public func close() {
@@ -456,7 +474,14 @@ public final class ExponentialHost {
         case "components":
             forgetPaintErrors(surfaceId, components: (op["components"]?.array ?? []).compactMap { $0["id"]?.string })
             guard let model = surfaces[surfaceId] else { return }
-            _ = try? model.setComponents(json: (op["components"] ?? .array([])).json)
+            var known = components[surfaceId] ?? (order: [], byId: [:])
+            for c in op["components"]?.array ?? [] {
+                guard let id = c["id"]?.string else { continue }
+                if known.byId[id] == nil { known.order.append(id) }
+                known.byId[id] = c
+            }
+            components[surfaceId] = known
+            _ = try? model.setComponents(json: JSONValue.array(known.order.compactMap { known.byId[$0] }).json)
         case "data":
             surfaces[surfaceId]?.setData(path: op["path"]?.string ?? "", value: op["value"])
         case "bind":
@@ -478,6 +503,7 @@ public final class ExponentialHost {
             unbind(surfaceId)
             forgetPaintErrors(surfaceId)
             surfaces[surfaceId] = nil
+            components[surfaceId] = nil
             surfaceIds.removeAll { $0 == surfaceId }
             sendDataModel.remove(surfaceId)
         case "send":

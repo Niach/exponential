@@ -194,7 +194,11 @@ ScrollView { HostSurface(host: host, surfaceId: "main") { ProgressView() } }
   the core's `JsonlDecoder` / `SseDecoder`, client messages POSTed to
   `postUrl`, reconnect), `WebSocketTransport` (one message or JSONL per
   frame), `MCPTransport` (`initialize`, `tools/call <tool>`, actions back as
-  `a2ui_event` calls). A custom one implements `Transport`.
+  `a2ui_event` calls). A custom one implements `Transport`. #AXC-12: each also reads Express (an
+  `application/a2ui+express` body, `a2ui-express` SSE events, `{"express": …}`
+  frames, Express MCP resources; `format`, `surfaceId`); the prose goes to
+  `HostOptions.onText`, and `HostOptions.inferenceFormats` is advertised in
+  `rendererCapabilities`.
 - **Negotiation.** `supportedCatalogIds`, `clientCapabilities`.
 
 `samples/exponential-ui/ios` is a blank app on this API. Conformance:

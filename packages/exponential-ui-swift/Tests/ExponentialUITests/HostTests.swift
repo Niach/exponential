@@ -473,6 +473,26 @@ final class HostTests: XCTestCase {
         XCTAssertEqual(host.plugin.mediaRequest("/api/attachments/a2")?.value(forHTTPHeaderField: "authorization"), "Bearer expu_test")
     }
 
+    /// #AXC-12: the host advertises the inference formats; the contract's
+    /// Express keys come from the core; a decoder result's prose reaches `text`.
+    func testExpressFormatsAndProse() {
+        let host = ExponentialHost(HostOptions())
+        XCTAssertEqual(host.rendererCapabilities["1.0"]?["inferenceFormats"]?.array?.compactMap(\.string), ["json", "express"])
+        let jsonOnly = ExponentialHost(HostOptions(inferenceFormats: [.json]))
+        XCTAssertEqual(jsonOnly.rendererCapabilities["1.0"]?["inferenceFormats"]?.array?.compactMap(\.string), ["json"])
+        XCTAssertEqual(InferenceWire.mimeType, "application/a2ui+express")
+        XCTAssertEqual(InferenceWire.defaultSurfaceId, "main")
+        let frames = FrameDecoder(surfaceId: nil)
+        var messages: [String] = []
+        var prose: [String] = []
+        for frame in [#"{"express": "Hi.\n<a2ui>\nroot = Text(text=\"ok\")\n</a2ui>\nBye."}"#] {
+            deliver(frames.push(frame: frame), receive: { messages.append($0) }, text: { prose.append($0) })
+        }
+        deliver(frames.end(), receive: { messages.append($0) }, text: { prose.append($0) })
+        XCTAssertFalse(messages.isEmpty)
+        XCTAssertEqual(prose.joined(), "Hi.\n\nBye.")
+    }
+
     func testCatalogNegotiationAndUnsupportedCatalog() async throws {
         let transport = MemoryTransport()
         let ext = try Fixtures.json("catalog-extension.json")["extension"]!

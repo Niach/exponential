@@ -597,6 +597,140 @@ fn the_host_transport_fixture_replays_through_the_facade() {
     eq(&decode_jsonl_json("[{\"a\":1}]".into()), &json!({"messages": [{"a": 1}], "issues": []}), "decodeJsonl");
 }
 
+/// `feed_decoder` plus the prose pieces (`text`, absent when empty: the
+/// core's `Decoded` JSON).
+fn feed_express(push: impl Fn(String) -> String, end: impl Fn() -> String, chunks: &Value) -> Value {
+    let (mut messages, mut issues, mut text) = (Vec::new(), Vec::new(), Vec::new());
+    let mut take = |s: String| {
+        let v: Value = serde_json::from_str(&s).unwrap();
+        messages.extend(v["messages"].as_array().unwrap().iter().cloned());
+        issues.extend(v["issues"].as_array().unwrap().iter().cloned());
+        text.extend(v.get("text").and_then(Value::as_array).into_iter().flatten().cloned());
+    };
+    for c in chunks.as_array().unwrap() {
+        take(push(c.as_str().unwrap().to_string()));
+    }
+    take(end());
+    let mut out = json!({"messages": messages, "issues": issues});
+    if !text.is_empty() {
+        out["text"] = Value::Array(text);
+    }
+    out
+}
+
+fn surface_of(c: &Value) -> Option<String> {
+    c.get("surfaceId").and_then(Value::as_str).map(str::to_string)
+}
+
+/// #AXC-12: `host-transport.json` `express*` (the suite `host-express`):
+/// the Express decoder, the SSE `a2ui-express` events, the `{express}`
+/// WebSocket frames, the Express MCP resources, Content-Type sniffing and
+/// the `inferenceFormats` capability, through the facade.
+#[test]
+fn the_host_express_fixture_replays_through_the_facade() {
+    let f = fixture("host-transport.json");
+    let name = |what: &str, c: &Value| format!("{what} {}", c["name"].as_str().unwrap());
+    for c in f["express"].as_array().unwrap() {
+        let d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap(), surface_of(c).unwrap_or_else(|| "main".into()));
+        eq(&feed_express(|s| d.push(s), || d.end(), &c["chunks"]).to_string(), &c["expected"], &name("express", c));
+    }
+    for c in f["expressSse"].as_array().unwrap() {
+        let d = SseDecoder::with_surface(surface_of(c));
+        eq(&feed_express(|s| d.push(s), || d.end(), &c["chunks"]).to_string(), &c["expected"], &name("expressSse", c));
+    }
+    for c in f["expressWs"].as_array().unwrap() {
+        let d = FrameDecoder::new(surface_of(c));
+        eq(&feed_express(|s| d.push(s), || d.end(), &c["frames"]).to_string(), &c["expected"], &name("expressWs", c));
+    }
+    for c in f["expressMcp"].as_array().unwrap() {
+        eq(&messages_from_mcp_result_with_json(c["result"].to_string(), surface_of(c)).unwrap(), &c["expected"], &name("expressMcp", c));
+    }
+    for c in f["expressContentTypes"].as_array().unwrap() {
+        assert_eq!(json!(inference_format_of(c["contentType"].as_str().unwrap().into())), c["expected"], "{}", name("expressContentTypes", c));
+    }
+    for c in f["expressCapabilities"].as_array().unwrap() {
+        let ids: Vec<String> = serde_json::from_value(c["extensionIds"].clone()).unwrap();
+        let formats: Option<Vec<String>> = c.get("inferenceFormats").map(|v| serde_json::from_value(v.clone()).unwrap());
+        eq(&renderer_capabilities_with_json(ids, None, formats).unwrap(), &c["expected"], &name("expressCapabilities", c));
+    }
+    assert_eq!(express_frame_chunk(r#"{"express": "a"}"#.into()).as_deref(), Some("a"));
+    assert_eq!(express_frame_chunk(r#"{"express": "a", "x": 1}"#.into()), None);
+    let contract: Value = serde_json::from_str(&host_contract_json()).unwrap();
+    assert_eq!(contract["inference"]["express"]["mimeType"], "application/a2ui+express");
+}
+
+/// #AXC-12: `fixtures/express-roundtrip.json` through the facade: decompile
+/// each case's messages to Express, compile it back for `main`, get the
+/// messages exactly; then stream the Express (7-character chunks, wrapped
+/// in prose) through `ExpressDecoder` and get the same messages plus the
+/// prose.
+#[test]
+fn the_express_roundtrip_fixture_replays_through_the_facade() {
+    let f = fixture("express-roundtrip.json");
+    for c in f["cases"].as_array().unwrap() {
+        let name = c["name"].as_str().unwrap();
+        let express = decompile_express_json(c["messages"].to_string()).unwrap_or_else(|e| panic!("{name}: decompile: {e}"));
+        let back = compile_express_json(express.clone(), "main".into()).unwrap_or_else(|e| panic!("{name}: compile: {e}"));
+        eq(&back, &c["messages"], name);
+
+        let d = ExpressDecoder::new(true, "main".into());
+        let response = format!("Here is the surface.\n<a2ui>\n{express}\n</a2ui>\nAnything else?");
+        let chars: Vec<char> = response.chars().collect();
+        let (mut messages, mut issues, mut text) = (Vec::new(), Vec::new(), String::new());
+        let mut take = |s: String| {
+            let v: Value = serde_json::from_str(&s).unwrap();
+            messages.extend(v["messages"].as_array().unwrap().iter().cloned());
+            issues.extend(v["issues"].as_array().unwrap().iter().cloned());
+            text.extend(v.get("text").and_then(Value::as_array).into_iter().flatten().map(|t| t.as_str().unwrap().to_string()));
+        };
+        for chunk in chars.chunks(7) {
+            take(d.push(chunk.iter().collect()));
+        }
+        take(d.end());
+        assert!(issues.is_empty(), "{name}: {issues:?}");
+        assert_eq!(text, "Here is the surface.\n\nAnything else?", "{name}: prose");
+        // A streamed block may split a component list over several
+        // messages; settled by id it is the batch compile.
+        let settle = |ms: &[Value]| -> std::collections::BTreeMap<String, Value> {
+            ms.iter().flat_map(|m| m.as_object().unwrap().values().filter_map(|b| b.get("components")).flat_map(|cs| cs.as_array().unwrap().iter())).map(|c| (c["id"].as_str().unwrap().to_string(), c.clone())).collect()
+        };
+        assert_eq!(settle(&messages), settle(c["messages"].as_array().unwrap()), "{name}: streamed");
+    }
+}
+
+/// #AXC-12: a block that does not compile is an issue, the stream reads on;
+/// an unknown component is `Invalid` from the batch compile; the prompt
+/// needs `descriptions`.
+#[test]
+fn express_errors_cross_the_facade() {
+    let d = ExpressDecoder::new(true, "main".into());
+    let mut out: Vec<Value> = Vec::new();
+    for chunk in ["One.\n<a2ui>\nroot = Sparkle(text=\"x\")\n</a2ui>\nTwo.\n<a2ui>\nroot = Text(text=\"ok\")\n</a2ui>\n"] {
+        out.push(serde_json::from_str(&d.push(chunk.into())).unwrap());
+    }
+    out.push(serde_json::from_str(&d.end()).unwrap());
+    let issues: Vec<&Value> = out.iter().flat_map(|v| v["issues"].as_array().unwrap()).collect();
+    assert_eq!(issues.len(), 1, "{issues:?}");
+    assert!(issues[0]["message"].as_str().unwrap().contains("Sparkle"));
+    let messages: Vec<&Value> = out.iter().flat_map(|v| v["messages"].as_array().unwrap()).collect();
+    assert!(messages.iter().any(|m| m.to_string().contains("\"ok\"")), "{messages:?}");
+    // JSONL / SSE output carries no `text` key.
+    assert!(JsonlDecoder::new().end().find("text").is_none());
+
+    match compile_express_json("root = Sparkle(text=\"hi\")".into(), "main".into()) {
+        Err(UiError::Invalid { reason }) => assert!(reason.contains("Sparkle"), "{reason}"),
+        other => panic!("{other:?}"),
+    }
+    assert!(matches!(decompile_express_json("{".into()), Err(UiError::Invalid { .. })));
+    let prompt = express_prompt();
+    if cfg!(feature = "descriptions") {
+        let prompt = prompt.unwrap();
+        assert!(prompt.len() < 60_000 && prompt.contains("Input"), "{} chars", prompt.len());
+    } else {
+        assert!(matches!(prompt, Err(UiError::Invalid { .. })));
+    }
+}
+
 #[test]
 fn the_host_policy_fixture_replays_through_the_facade() {
     let f = fixture("host-policy.json");
