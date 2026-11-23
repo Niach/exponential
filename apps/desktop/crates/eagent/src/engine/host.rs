@@ -1845,13 +1845,32 @@ pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3 * 60);
 /// so it gets longer.
 pub const LOAD_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
-/// The handshake bound for a fresh start or a resume.
-pub fn handshake_deadline(resume: bool) -> Duration {
-    if resume {
-        LOAD_HANDSHAKE_TIMEOUT
-    } else {
-        HANDSHAKE_TIMEOUT
+/// The handshake bound for a fresh start or a resume. #FEED-296: a claude
+/// start is bounded by its own adapter ([`claude::start_budget_max`]:
+/// restarts, backoff, memory-starved time), which answers with the real
+/// reason; this deadline outlasts it by a minute, so it only ever catches
+/// an adapter that hung.
+pub fn handshake_deadline(agent: crate::agent::CodingAgent, resume: bool) -> Duration {
+    let base = if resume { LOAD_HANDSHAKE_TIMEOUT } else { HANDSHAKE_TIMEOUT };
+    match agent {
+        crate::agent::CodingAgent::Claude => {
+            base.max(super::adapters::claude::start_budget_max(&[]) + Duration::from_secs(60))
+        }
+        crate::agent::CodingAgent::Codex => base,
     }
+}
+
+/// #FEED-296: an agent error as a person reads it: the adapter's own
+/// `reason` when it gave one, never `Internal error: {"reason": …}` JSON
+/// (the parent read exactly that when a resumed claude never started).
+pub fn plain_error(error: &Error) -> String {
+    error
+        .data
+        .as_ref()
+        .and_then(|data| data.get("reason"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| error.to_string())
 }
 
 /// The reason a timed-out handshake ends the run with (the failed-start
@@ -2078,7 +2097,7 @@ where
                 };
                 Ok::<_, Error>(opened)
             };
-            let deadline = handshake_deadline(ctx.resume.is_some());
+            let deadline = handshake_deadline(ctx.agent, ctx.resume.is_some());
             // EXP-1910: the inbox is read DURING the handshake. A kill, a
             // suspend or a release sent while it is open (a long
             // `session/load`, a wedged CLI) ends the run at once: it used to
@@ -2518,7 +2537,7 @@ fn handle_command(
                         mapper.on_session_state(None, &response.config_options, &[], &mut out)
                     }),
                     Err(err) => {
-                        ctx.with_mapper(|mapper| mapper.on_error(&err.to_string(), &mut out))
+                        ctx.with_mapper(|mapper| mapper.on_error(&plain_error(&err), &mut out))
                     }
                 }
                 ctx.dispatch(out);
@@ -2565,7 +2584,7 @@ fn handle_command(
                     // mode the run never entered.
                     Ok(_) => ctx.with_mapper(|mapper| mirror_mode(mapper, &mode_id.0, &mut out)),
                     Err(err) => {
-                        ctx.with_mapper(|mapper| mapper.on_error(&err.to_string(), &mut out))
+                        ctx.with_mapper(|mapper| mapper.on_error(&plain_error(&err), &mut out))
                     }
                 }
                 ctx.dispatch(out);
@@ -2601,7 +2620,7 @@ fn handle_command(
             let _ = cx.spawn(async move {
                 if let Err(err) = sent.block_task().await {
                     let mut out = MapOut::default();
-                    ctx.with_mapper(|mapper| mapper.on_error(&err.to_string(), &mut out));
+                    ctx.with_mapper(|mapper| mapper.on_error(&plain_error(&err), &mut out));
                     ctx.dispatch(out);
                 }
                 Ok(())
@@ -3178,7 +3197,7 @@ fn start_turn(
             Err(err) if is_auth_required(&err) => {
                 ctx.signed_out.store(true, Ordering::SeqCst);
                 log::warn!("engine: session {}'s login is signed out ({err})", ctx.session_id);
-                ctx.with_mapper(|mapper| mapper.on_turn_error(&err.to_string(), &mut out));
+                ctx.with_mapper(|mapper| mapper.on_turn_error(&plain_error(&err), &mut out));
                 if remaining == 0 {
                     ctx.with_mapper(|mapper| mapper.on_stop(StopReason::EndTurn, &mut out));
                 }
@@ -3190,7 +3209,7 @@ fn start_turn(
                     SEED_RETRY_AFTER.as_secs()
                 );
                 ctx.with_mapper(|mapper| {
-                    mapper.on_notice(&format!("Agent error: {err}. Retrying the first turn."), &mut out)
+                    mapper.on_notice(&format!("Agent error: {}. Retrying the first turn.", plain_error(&err)), &mut out)
                 });
                 ctx.dispatch(out);
                 tokio::time::sleep(SEED_RETRY_AFTER).await;
@@ -3203,7 +3222,7 @@ fn start_turn(
             // NEW-17: the child itself went away — the end sequence's `lost`
             // report says so; no error reply into the Conversation.
             Err(err) if ctx.child_exit.get().is_some() => {
-                ctx.with_mapper(|mapper| mapper.on_error(&err.to_string(), &mut out));
+                ctx.with_mapper(|mapper| mapper.on_error(&plain_error(&err), &mut out));
                 if remaining == 0 {
                     ctx.with_mapper(|mapper| mapper.on_stop(StopReason::EndTurn, &mut out));
                 }
@@ -3211,7 +3230,7 @@ fn start_turn(
             Err(err) => {
                 // FEED-153: a turn that failed with nothing said says so in
                 // the Conversation — never a silent idle.
-                ctx.with_mapper(|mapper| mapper.on_turn_error(&err.to_string(), &mut out));
+                ctx.with_mapper(|mapper| mapper.on_turn_error(&plain_error(&err), &mut out));
                 if remaining == 0 {
                     ctx.with_mapper(|mapper| mapper.on_stop(StopReason::EndTurn, &mut out));
                 }
@@ -3373,6 +3392,33 @@ pub(crate) fn fold_workflow_caption(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #FEED-297 regression: a fresh claude start's 3-minute handshake
+    /// deadline equalled the adapter's two 90 s windows, fired first, and
+    /// every failed start read "Claude Code did not answer for 3 minutes
+    /// after it was launched" instead of the adapter's own reason. The
+    /// deadline now outlasts the adapter's whole bounded start.
+    #[test]
+    fn the_claude_handshake_deadline_outlasts_the_adapters_own_start() {
+        use crate::agent::CodingAgent;
+        let adapter = super::super::adapters::claude::start_budget_max(&[]);
+        for resume in [false, true] {
+            assert!(handshake_deadline(CodingAgent::Claude, resume) > adapter, "resume {resume}");
+        }
+        assert_eq!(handshake_deadline(CodingAgent::Codex, false), HANDSHAKE_TIMEOUT);
+        assert_eq!(handshake_deadline(CodingAgent::Codex, true), LOAD_HANDSHAKE_TIMEOUT);
+    }
+
+    /// #FEED-296: the Assistant read `Agent error: Internal error: {
+    /// "reason": "claude did not start: …" }`; the reason alone now.
+    #[test]
+    fn an_agent_error_reads_as_its_reason() {
+        let reason = "claude did not start: it answered nothing for 90s at startup, 3 times in a row";
+        let error = Error::internal_error().data(serde_json::json!({ "reason": reason }));
+        assert_eq!(plain_error(&error), reason);
+        let bare = Error::internal_error();
+        assert_eq!(plain_error(&bare), bare.to_string());
+    }
 
     /// EXP-1280: leaving plan mode keeps its own line; entering it says
     /// the fixture's gate (pinned in `engine::host`'s tests).

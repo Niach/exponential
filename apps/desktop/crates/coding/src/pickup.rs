@@ -1364,10 +1364,27 @@ fn opened_launch_row(row: &SessionRow) -> SessionRow {
 /// A device-written reply (a refusal, a failed start) sealed to the
 /// session's tree; #EDE-97: plaintext only into a clear tree, otherwise a
 /// reply that cannot be sealed is not sent (the `Err` says why; callers log).
-fn device_reply(trpc: &api::TrpcClient, session_id: &str, text: &str) -> Result<String, String> {
+pub fn device_reply(trpc: &api::TrpcClient, session_id: &str, text: &str) -> Result<String, String> {
     let body = crate::sealing::seal_body_for_session(session_id, text)
         .map_err(|err| format!("it could not be encrypted ({err})"))?;
-    session_device::reply(trpc, session_id, &body, None).map_err(|err| err.to_string())
+    // #FEED-297: a sealed line reaches a listener in ANOTHER tree (the
+    // Assistant that started this session) only as its own copy; without
+    // one that listener read "A private chat replied." for every failed
+    // start, never the reason. The engine's outbox does the same.
+    let mut extras = session_device::ReplyExtras::default();
+    if body.starts_with(crate::sealing::SEALED_BODY_PREFIX) {
+        match session_device::listeners(trpc, session_id) {
+            Ok(trees) => {
+                let copies: Vec<_> =
+                    trees.iter().filter_map(|tree| crate::sealing::listener_copy(tree, text)).collect();
+                extras.listener_copies = (!copies.is_empty()).then_some(copies);
+            }
+            Err(err) => log::warn!("pickup: sessions.listeners of {session_id} failed: {err}"),
+        }
+    }
+    session_device::reply_sealed(trpc, session_id, &body, None, &extras)
+        .map(|result| result.message_id)
+        .map_err(|err| err.to_string())
 }
 
 /// #EDE-97 (`clearTree.claimCases`): after its claim the device keys a root
@@ -5950,6 +5967,45 @@ mod tests {
         let mut refs: Vec<&MessageRow> = pending.iter().collect();
         host.deps.live.take_owed(&mut refs, &[]);
         assert_eq!(refs.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), vec!["m3"]);
+    }
+
+    /// #FEED-297 regression: a failed start in a keyed tree reached the
+    /// Assistant that started it (another tree) as "A private chat
+    /// replied." four times, never the reason: the device's reply carried
+    /// no copy for the listening tree. It now seals one per keyed tree.
+    #[test]
+    fn a_device_reply_in_a_keyed_tree_carries_a_copy_for_every_listening_tree() {
+        let _serial = crate::sealing::test_support::serial();
+        let fake = crate::sealing::test_support::install_fake();
+        fake.keyring.note_sessions(&[SessionRow {
+            id: "fs-child".into(),
+            root_id: Some("fs-child".into()),
+            ..Default::default()
+        }]);
+        let assistant = crate::sealing::generate_tree_key();
+        fake.keyring.insert_secret("fs-assistant", 3, assistant.secret);
+        let listeners = format!(
+            r#"{{"result":{{"data":[{{"rootId":"fs-assistant","epoch":3,"publicKey":"{}"}},{{"rootId":"fs-keyless"}}]}}}}"#,
+            crate::sealing::b64url_encode(&assistant.public)
+        );
+        let (base, requests) = canned_server_recording(vec![(200, listeners), (200, REPLY_OK.to_string())]);
+        let trpc = api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        let reason = start_failure("claude did not start: it answered nothing for 90s at startup, 3 times in a row");
+        let replied = device_reply(&trpc, "fs-child", &reason);
+        let requests = requests.lock().unwrap().clone();
+        let sent: serde_json::Value = serde_json::from_str(requests[1].split("\r\n\r\n").nth(1).unwrap_or("{}")).unwrap_or_default();
+        let copies = sent["listenerCopies"].as_array().cloned().unwrap_or_default();
+        let opened = copies
+            .first()
+            .and_then(|copy| crate::sealing::open_body("fs-assistant", copy["body"].as_str()?).text);
+        let own = sent["body"].as_str().unwrap_or_default().to_string();
+        crate::sealing::uninstall();
+        assert_eq!(replied.as_deref(), Ok("m-reply"));
+        assert_eq!(procedures(&Mutex::new(requests)), vec!["sessions.listeners", "sessions.reply"]);
+        assert!(own.starts_with("exp-sealed:v1:"), "never in clear: {own}");
+        assert_eq!(copies.len(), 1, "the keyless tree gets the neutral line: {copies:?}");
+        assert_eq!(copies[0]["rootId"], "fs-assistant");
+        assert_eq!(opened.as_deref(), Some(reason.as_str()));
     }
 
     /// #EXP-1411: a base branch origin does not have reads as what to do,
