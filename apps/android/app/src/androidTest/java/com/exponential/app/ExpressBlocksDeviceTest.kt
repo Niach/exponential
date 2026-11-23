@@ -149,7 +149,7 @@ class ExpressBlocksDeviceTest {
     fun aPressPostsTheActionAndItsRowComesBack() {
         var posted: ChatExpress.ActionResult.Post? = null
         show {
-            var rows by remember { mutableStateOf(listOf(user("u1", "Ready to ship?"), agent("a3", PRESS))) }
+            var rows by remember { mutableStateOf<List<SessionTree.SessionChatRow>>(listOf(user("u1", "Ready to ship?"), agent("a3", PRESS))) }
             Transcript(rows) { post ->
                 posted = post
                 // The server's row for the press: the body's bubble, else THE marker.
