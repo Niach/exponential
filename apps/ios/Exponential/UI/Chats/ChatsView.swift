@@ -152,6 +152,7 @@ struct ChatsView: View {
             messages: lists.chatMessages,
             reads: lists.reads,
             me: deps.auth.userId,
+            members: lists.memberNames,
             view: view,
             now: Self.iso.string(from: now),
             utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60
@@ -167,6 +168,7 @@ struct ChatsView: View {
             messages: lists.chatMessages,
             reads: lists.reads,
             me: deps.auth.userId,
+            members: lists.memberNames,
             view: view,
             now: Self.iso.string(from: now),
             utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60

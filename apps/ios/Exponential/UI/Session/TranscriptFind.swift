@@ -303,6 +303,8 @@ final class TranscriptFind {
         if Chats.commandDivider(text) != nil { return nil }
         if SlashCommands.command(for: text, agent: model.catalogAgent) != nil { return nil }
         if let input = TranscriptGrouping.crossSessionInput(text) { return input.body }
+        // #EXP-1990: a member's line in a group chat reads its body.
+        if case let .member(_, _, body) = TranscriptGrouping.feedInput(text) { return shownText(body) }
         return shownText(text)
     }
 

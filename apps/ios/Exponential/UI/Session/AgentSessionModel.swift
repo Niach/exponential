@@ -1906,7 +1906,11 @@ final class AgentSessionModel {
         var echoes: [(text: String, at: Double)] = []
         for item in feed.suffix(40) {
             if case let .userMessage(_, text, _, at) = item {
-                echoes.append((text.trimmingCharacters(in: .whitespacesAndNewlines), Double(at ?? 0) / 1000))
+                // #EXP-1990: a group chat's echo of the viewer's own line
+                // (`Message from <name> (member <id>): <body>`) = its body.
+                var own = text
+                if case let .member(_, userId, body) = TranscriptGrouping.feedInput(text), userId == currentUserId { own = body }
+                echoes.append((own.trimmingCharacters(in: .whitespacesAndNewlines), Double(at ?? 0) / 1000))
             }
         }
         var used = Set<Int>()
@@ -3998,6 +4002,9 @@ final class TranscriptEntry: Identifiable, Equatable {
                     return key == "schedule" ? .schedule : .marker
                 // #FEED-254: another session's relayed line with a blank body draws nothing.
                 case let .relay(_, _, body, _) where TranscriptGrouping.isBlankText(body):
+                    return .blank
+                // #EXP-1990: a member's line in a group chat with a blank body too.
+                case let .member(_, _, body) where TranscriptGrouping.isBlankText(body):
                     return .blank
                 default:
                     return .input

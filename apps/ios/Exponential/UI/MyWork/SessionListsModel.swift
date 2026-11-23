@@ -77,6 +77,9 @@ final class SessionListsModel {
     /// #EDE-99: every synced root (its team, starter, title, agent), by id:
     /// what the global search's Chats rows name.
     private(set) var chatRoots: [String: ChatRootEntry] = [:]
+    /// #EXP-1990 (chats.json `chatPreview`): every synced member's name by
+    /// id: a teammate's line in a chat list reads under their name.
+    private(set) var memberNames: [String: String] = [:]
 
     @ObservationIgnored private var task: Task<Void, Never>?
     /// Bumped by every `apply`/`stop`: what `chatList`'s memo is valid for.
@@ -127,6 +130,7 @@ final class SessionListsModel {
     func chatList(teamId: String?, view: Chats.ChatListView, now: String, utcOffsetMinutes: Int) -> Chats.ChatList {
         // The inputs are read either way, so the caller observes them.
         let groups = teamGroups(teamId), messages = chatMessages, reads = reads, prStates = prStates, words = words, sessions = sessions
+        let viewerId = viewerId, memberNames = memberNames
         let key = "\(revision)|\(teamId ?? "")|\(view)|\(now)|\(utcOffsetMinutes)"
         if let memo = chatListMemo[view], memo.key == key { return memo.list }
         let list = Chats.chatList(
@@ -139,7 +143,9 @@ final class SessionListsModel {
             now: now,
             utcOffsetMinutes: utcOffsetMinutes,
             // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
-            visible: Set(sessions.map(\.id))
+            visible: Set(sessions.map(\.id)),
+            me: viewerId,
+            members: memberNames
         )
         chatListMemo[view] = (key, list)
         return list
@@ -257,6 +263,7 @@ final class SessionListsModel {
         syncedTeamIds = []
         viewerId = nil
         chatRoots = [:]
+        memberNames = [:]
         loaded = false
     }
 
@@ -278,6 +285,7 @@ final class SessionListsModel {
         /// stuck rows and the approval-only ready rows).
         var mergeModes: [String: String] = [:]
         var owners: [String: Set<String>] = [:]
+        var memberNames: [String: String] = [:]
     }
 
     private struct Derived: Sendable, Equatable {
@@ -304,6 +312,7 @@ final class SessionListsModel {
         var syncedTeamIds: Set<String>
         var viewerId: String?
         var chatRoots: [String: ChatRootEntry]
+        var memberNames: [String: String]
     }
 
     private func apply(_ derived: Derived) {
@@ -331,13 +340,14 @@ final class SessionListsModel {
         syncedTeamIds = derived.syncedTeamIds
         viewerId = derived.viewerId
         chatRoots = derived.chatRoots
+        memberNames = derived.memberNames
         loaded = true
     }
 
     /// What `read` reads (a change to any re-reads).
     nonisolated private static let tables = [
         "sessions", "session_issues", "issues", "session_reads", "pull_requests", "devices",
-        "agents", "apps", "teams", "team_members",
+        "agents", "apps", "teams", "team_members", "users",
     ]
 
     /// The whole session table (the shape already scopes it to what I may
@@ -385,7 +395,13 @@ final class SessionListsModel {
             ),
             owners: Dictionary(
                 grouping: try TeamMemberEntity.filter(Column("role") == "owner").fetchAll(db), by: \.teamId
-            ).mapValues { Set($0.map(\.userId)) }
+            ).mapValues { Set($0.map(\.userId)) },
+            memberNames: Dictionary(
+                try UserEntity.fetchAll(db).compactMap { user in
+                    user.name.flatMap { $0.isEmpty ? nil : (user.id, $0) }
+                },
+                uniquingKeysWith: { a, _ in a }
+            )
         )
     }
 
@@ -517,7 +533,8 @@ final class SessionListsModel {
             // #EXP-1714: `mergeModes` is keyed by every synced `teams` row.
             syncedTeamIds: Set(rows.mergeModes.keys),
             viewerId: userId,
-            chatRoots: chatRoots(rows)
+            chatRoots: chatRoots(rows),
+            memberNames: rows.memberNames
         )
     }
 

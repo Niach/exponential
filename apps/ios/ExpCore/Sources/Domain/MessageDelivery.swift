@@ -265,7 +265,7 @@ public enum MessageDelivery {
             let echo = echoes.indices.first { index in
                 let candidate = echoes[index]
                 if taken.contains(index) { return false }
-                if !echoMatches(candidate.text, body: body) { return false }
+                if !echoMatches(candidate.text, body: body, viewerId: viewerId) { return false }
                 guard let at = candidate.at else { return true }
                 return at >= from
             }
@@ -277,8 +277,15 @@ public enum MessageDelivery {
     /// #FEED-239: an echo is the row's when its trimmed text equals the
     /// body, or it is the session's BRIEFED first prompt (`## Request` + the
     /// body without its attachment lines + the brief's other sections).
-    static func echoMatches(_ text: String, body: String) -> Bool {
-        let echo = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func echoMatches(_ text: String, body: String, viewerId: String) -> Bool {
+        // #EXP-1990 (transcript-grouping.json MEMBER INPUTS): in a team
+        // agent's group chat the echo is worded `Message from <name> (member
+        // <id>): <body>`; the viewer's own line matches by that body.
+        var own = text
+        if case let .member(_, userId, memberBody) = TranscriptGrouping.feedInput(text), userId == viewerId {
+            own = memberBody
+        }
+        let echo = own.trimmingCharacters(in: .whitespacesAndNewlines)
         if echo == body { return true }
         guard echo.hasPrefix(briefRequestHeading) else { return false }
         let prose = body

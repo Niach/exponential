@@ -33,6 +33,7 @@ public enum Chats {
             public static let question = "Question: {text}"
             public static let plan = "Plan: {text}"
             public static let you = "You: {text}"
+            public static let member = "{name}: {text}"
             public static let picture = "Picture"
             public static let surface = "Preview"
             public static let empty = "No messages yet"
@@ -444,6 +445,8 @@ public enum Chats {
 
     public enum ChatPreviewKind: String, Equatable, Sendable {
         case working, question, plan, you, agent, picture, surface, new, compact, empty
+        /// #EXP-1990: a teammate's text, under their name; drawn as `you`.
+        case member
         /// EXP-1459: the previewed message is sealed and does not open here.
         case locked
     }
@@ -791,13 +794,16 @@ public enum Chats {
 
     /// The root conversation's preview line (`previewCases`).
     /// `visible` = the viewer's synced session ids (nil = no check,
-    /// #EXP-1399 review).
+    /// #EXP-1399 review). #EXP-1990: `me` and `members` (id → name): a
+    /// person's text by anyone else reads `Copy.Preview.member` with their name.
     public static func chatPreview(
         rootId: String,
         messages: [TreeMessage],
         needsYou: Bool,
         busy: Bool,
-        visible: Set<String>? = nil
+        visible: Set<String>? = nil,
+        me: String? = nil,
+        members: [String: String]? = nil
     ) -> ChatPreview {
         let own = messages
             .filter { $0.sessionId == rootId && ($0.authorKind == "user" || $0.authorKind == "agent") }
@@ -834,6 +840,16 @@ public enum Chats {
                     text: body.isEmpty
                         ? ChatExpress.actionMarker(name: newest.card?.eventName ?? "", author: nil)
                         : fill(Copy.Preview.you, body)
+                )
+            }
+            // #EXP-1990: a teammate's line (a shared chat, a team agent's
+            // group chat) reads under their name; an unknown author (an older
+            // digest) = you.
+            if let author = newest.authorId, !author.isEmpty, let me, !me.isEmpty, author != me {
+                let name = members?[author] ?? TranscriptGrouping.Copy.formerMember
+                return ChatPreview(
+                    kind: .member,
+                    text: fill(Copy.Preview.member.replacingOccurrences(of: "{name}", with: name), plainLine(newest.body))
                 )
             }
             return ChatPreview(kind: .you, text: fill(Copy.Preview.you, plainLine(newest.body)))
@@ -921,7 +937,9 @@ public enum Chats {
         view: ChatListView = .list,
         now: String,
         utcOffsetMinutes: Int,
-        visible: Set<String>? = nil
+        visible: Set<String>? = nil,
+        me: String? = nil,
+        members: [String: String]? = nil
     ) -> ChatList {
         let archivedIds = Set(reads.filter { ($0.archivedAt ?? "").isEmpty == false }.map(\.sessionId))
         let isArchived = { (row: ChatRow) -> Bool in !row.needsYou && archivedIds.contains(row.sessionId) }
@@ -953,7 +971,9 @@ public enum Chats {
                         messages: messages,
                         needsYou: row.needsYou,
                         busy: row.busy,
-                        visible: visible
+                        visible: visible,
+                        me: me,
+                        members: members
                     ),
                     activityAt: row.activityAt,
                     time: chatTimeLabel(at: row.activityAt, now: now, utcOffsetMinutes: utcOffsetMinutes),
@@ -1070,6 +1090,7 @@ public enum Chats {
         messages: [TreeMessage],
         reads: [TreeSessionRead] = [],
         me: String?,
+        members: [String: String]? = nil,
         view: ChatListView = .list,
         now: String,
         utcOffsetMinutes: Int
@@ -1100,7 +1121,7 @@ public enum Chats {
                 color: agent.color,
                 assistant: agent.assistant,
                 preview: id.map {
-                    chatPreview(rootId: $0, messages: messages, needsYou: agent.needsYou, busy: agent.busy)
+                    chatPreview(rootId: $0, messages: messages, needsYou: agent.needsYou, busy: agent.busy, me: me, members: members)
                 } ?? ChatPreview(kind: .empty, text: Copy.Preview.empty),
                 time: activityAt.map { chatTimeLabel(at: $0, now: now, utcOffsetMinutes: utcOffsetMinutes) } ?? "",
                 activityAt: activityAt,
@@ -1122,6 +1143,7 @@ public enum Chats {
         messages: [TreeMessage],
         reads: [TreeSessionRead] = [],
         me: String?,
+        members: [String: String]? = nil,
         view: ChatListView = .list,
         now: String,
         utcOffsetMinutes: Int
@@ -1154,7 +1176,7 @@ public enum Chats {
                 icon: app.icon,
                 color: app.color,
                 preview: id.map {
-                    chatPreview(rootId: $0, messages: messages, needsYou: needsYou, busy: busy)
+                    chatPreview(rootId: $0, messages: messages, needsYou: needsYou, busy: busy, me: me, members: members)
                 } ?? ChatPreview(kind: .empty, text: Copy.Preview.empty),
                 time: activityAt.map { chatTimeLabel(at: $0, now: now, utcOffsetMinutes: utcOffsetMinutes) } ?? "",
                 activityAt: activityAt,
@@ -1260,7 +1282,7 @@ extension Chats {
                 id: id,
                 sessionId: sessionId,
                 authorKind: authorKind,
-                authorId: nil,
+                authorId: text(m["authorId"]),
                 body: opened.body,
                 card: card,
                 answeredAt: text(m["answeredAt"]),

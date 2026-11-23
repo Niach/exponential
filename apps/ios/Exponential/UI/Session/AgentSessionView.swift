@@ -1568,6 +1568,17 @@ struct AgentSessionView: View {
                     agent: model?.catalogAgent
                 ) {
                     CommandPill(command: command, text: text)
+                } else if case let .member(_, _, body) = TranscriptGrouping.feedInput(text) {
+                    // #EXP-1990: a member's line in a team agent's group chat:
+                    // theirs (the viewer's own = their own bubble), the bubble
+                    // holding the body alone.
+                    if layout?.side == .other {
+                        senderBubble(body, layout: layout, streaming: false, time: time)
+                            .modifier(FindRowMark(id: id))
+                    } else {
+                        UserMessageBubble(text: body, context: markdownContext, caption: time, status: .read, tail: layout?.tail == true)
+                            .modifier(FindRowMark(id: id))
+                    }
                 } else if let input = TranscriptGrouping.crossSessionInput(text) {
                     // #EXP-1736: a parent's or child's message reaching this
                     // session = THAT session's bubble; #EXP-1772: a relay,
@@ -1731,6 +1742,8 @@ struct AgentSessionView: View {
         let viewerId = deps.auth.userId
         var items: [TranscriptGrouping.Item] = anchors.unanchored.map { TranscriptGrouping.Item(id: "card:\($0)", kind: .full) }
         var extraSessions: [TranscriptGrouping.KnownSession] = []
+        // #EXP-1990: the members a group chat's lines name.
+        var extraMembers: [TranscriptGrouping.Named] = []
         // #EXP-2049 (find-in-chat.json AFTER AN OLDER LANDING): the origin is
         // the FEED's first prompt; a synced-tail row (a paged-in older one
         // too) draws by the synced rule (the viewer's own = the own bubble).
@@ -1755,16 +1768,13 @@ struct AgentSessionView: View {
                     // #EXP-1943: a call's report relay = its card, a full row.
                     if SessionTree.feedCallSession(text, callIds: Set(callSessions.map(\.id))) != nil { break }
                     if firstInputSynced == nil { firstInputSynced = model.findMessageId(rowId) != nil }
-                    if let input = TranscriptGrouping.crossSessionInput(text) {
-                        item = TranscriptGrouping.Item(
-                            id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent,
-                            authorSessionId: input.sessionId
-                        )
-                        extraSessions.append(TranscriptGrouping.KnownSession(id: input.sessionId, title: input.name, agentId: nil))
-                    } else {
-                        item = TranscriptGrouping.Item(
-                            id: id, kind: .message, authorKind: DomainContract.messageAuthorKindUser, authorId: viewerId
-                        )
+                    let prompt = TranscriptGrouping.feedPrompt(id: id, text: text, viewerId: viewerId) { userId in
+                        transcriptRows?.user(id: userId)?.name
+                    }
+                    item = prompt.item
+                    if let known = prompt.session { extraSessions.append(known) }
+                    if let member = prompt.member, !extraMembers.contains(where: { $0.id == member.id }) {
+                        extraMembers.append(member)
                     }
                 case let .tool(_, name, _, _, callId, _, _, _, _, _, _, _, _):
                     // EXP-1750: a `Workflow` call draws as THE Work card,
@@ -1786,7 +1796,8 @@ struct AgentSessionView: View {
         let viewed = model.session ?? session
         let input = transcriptRows?.transcriptInput(
             items: items, viewerId: viewerId, chat: viewed, originSessionId: originSessionId,
-            fromStart: model.transcriptFromStart && firstInputSynced != true, extraSessions: extraSessions
+            fromStart: model.transcriptFromStart && firstInputSynced != true, extraSessions: extraSessions,
+            extraMembers: extraMembers
         ) ?? TranscriptGrouping.Input(
             viewerId: viewerId,
             chat: TranscriptGrouping.Chat(
@@ -1795,7 +1806,7 @@ struct AgentSessionView: View {
                 agentId: viewed.agentId,
                 originSessionId: nil
             ),
-            members: [], agents: [], sessions: extraSessions, items: items
+            members: extraMembers, agents: [], sessions: extraSessions, items: items
         )
         var out = FeedGrouping()
         var previous: TranscriptGrouping.Item?
