@@ -115,6 +115,7 @@ fn unsupported_catalogs_are_recorded_and_reported(cx: &mut TestAppContext) {
     assert!(host.read_with(cx, |h, _| h.supported_catalog_ids()).contains(&ext_id));
     let caps = host.read_with(cx, |h, _| h.client_capabilities());
     assert!(caps.to_string().contains(&ext_id), "{caps}");
+    assert_eq!(caps["1.0"]["inferenceFormats"], json!(["json", "express"]), "{caps}");
 }
 
 struct Probe {

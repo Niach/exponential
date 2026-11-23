@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use eui_core::host::{
-    action_message_with, available_extensions, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
+    action_message_with, available_extensions, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
     action_call_name, navigate_target, run_action, ActionContext, ActionRun, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, RouteOptions, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
     FUNCTION_NOT_FOUND, NAVIGATE_FUNCTION, RECORDS_BATCH_FUNCTION, RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
@@ -493,9 +493,11 @@ impl ExponentialHost {
         self.router.supported_catalog_ids()
     }
 
+    /// #VAPP-298: advertises both inference formats (`json`, `express`) like
+    /// the TS `ExponentialHost`: this host decodes either.
     pub fn client_capabilities(&self) -> Value {
         let ids: Vec<&str> = self.extensions.iter().map(|e| e.id.as_str()).collect();
-        client_capabilities(&ids)
+        eui_core::host::package::renderer_capabilities_with(&ids, None, Some(eui_core::host::contract::INFERENCE_FORMATS))
     }
 
     pub fn extensions(&self) -> &[ExtensionDef] {
