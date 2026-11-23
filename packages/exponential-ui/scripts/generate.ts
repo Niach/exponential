@@ -34,6 +34,7 @@
 // (the registry is the Icon prop's vocabulary); the package has no runtime
 // dependency on it.
 
+import { expressCatalog } from "../src/express/catalog"
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -161,6 +162,8 @@ function hostRuntime() {
     surface: { settings: host.surface.settings, formatter: host.surface.formatter, commands: host.surface.commands },
     markdown: { hooks: host.markdown.hooks },
     package: { exposes: host.package.exposes },
+    // #AXC-12: the inference-format marker (json | express), every key.
+    inference: stripComments(host.inference),
   }
 }
 
@@ -169,21 +172,6 @@ function stripComments(value: unknown): unknown {
   if (value && typeof value === `object`) return Object.fromEntries(Object.entries(value).filter(([k]) => k !== `$comment`).map(([k, v]) => [k, stripComments(v)]))
   return value
 }
-/** #AXC-12: the A2UI catalog definition the Express compiler (`a2ui-express`)
- *  loads inside eui-core: core.schema.json without its prose (`description`,
- *  `instructions`, `x-deprecated-reason`, `examples`); a PROPERTY named
- *  `description` (EmptyState's) stays, only text values go. */
-function expressCatalog(schema: unknown, inProperties = false): unknown {
-  if (Array.isArray(schema)) return schema.map((v) => expressCatalog(v))
-  if (!schema || typeof schema !== `object`) return schema
-  const prose = new Set([`description`, `instructions`, `x-deprecated-reason`, `examples`, `title`])
-  return Object.fromEntries(
-    Object.entries(schema)
-      .filter(([k, v]) => inProperties || !(prose.has(k) && (typeof v === `string` || k === `examples`)))
-      .map(([k, v]) => [k, expressCatalog(v, !inProperties && (k === `properties` || k === `$defs` || k === `components` || k === `functions`))]),
-  )
-}
-
 /** #AXC-12: fixtures/express-roundtrip.json: the three sample surfaces as the
  *  ONE createSurface message (components + data model) an Express block
  *  compiles to; every renderer's Express suite decompiles and recompiles each

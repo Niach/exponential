@@ -6,6 +6,7 @@ import { checkEntry } from "../entry"
 import { A2UI_VERSION } from "../catalog"
 import type { ExtensionDef, FlatComponent } from "../types"
 import type { ServerMessage } from "./contract"
+import { INFERENCE_FORMATS_KEY } from "./contract"
 import { matchesPattern } from "./policy"
 import { parseSource } from "./sources"
 import { RECORD_KIND_PATTERN, validateRecordRefs, validateRecordSchema } from "./records"
@@ -50,8 +51,13 @@ export function supportedCatalogIds(extensionIds: readonly string[] = []): strin
 /** The renderer's negotiation object (round 9 §10): `supportedCatalogIds`
  *  plus, with `inline`, the generated 1.0 catalog definitions of the
  *  registered extensions, in registration order. */
-export function rendererCapabilities(extensionIds: readonly string[] = [], options: { inline?: readonly unknown[] } = {}): { [A2UI_VERSION]: { supportedCatalogIds: string[]; inlineCatalogs?: unknown[] } } {
-  return { [A2UI_VERSION]: { supportedCatalogIds: supportedCatalogIds(extensionIds), ...(options.inline ? { inlineCatalogs: [...options.inline] } : {}) } }
+export function rendererCapabilities(
+  extensionIds: readonly string[] = [],
+  options: { inline?: readonly unknown[]; inferenceFormats?: readonly string[] } = {}
+): { [A2UI_VERSION]: { supportedCatalogIds: string[]; inlineCatalogs?: unknown[]; inferenceFormats?: string[] } } {
+  // #AXC-12: `inferenceFormats` only when given (absent = JSON only).
+  const formats = options.inferenceFormats?.length ? { [INFERENCE_FORMATS_KEY]: [...options.inferenceFormats] } : {}
+  return { [A2UI_VERSION]: { supportedCatalogIds: supportedCatalogIds(extensionIds), ...(options.inline ? { inlineCatalogs: [...options.inline] } : {}), ...formats } }
 }
 
 export interface TemplateBinding {

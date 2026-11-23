@@ -30,6 +30,7 @@
     "./skills": "./skills/index.ts",
     "./skills/*": "./skills/*",
     "./motion": "./src/motion/index.ts",
+    "./express": "./src/express/index.ts",
     "./wasm/*": "./wasm/*",
     "./motion/server": "./src/motion/server.ts"
   },

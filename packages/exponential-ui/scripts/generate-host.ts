@@ -18,6 +18,7 @@ import {
   JsonlDecoder,
   SseDecoder,
   rendererCapabilities,
+  mergeDecoded,
   combineDecisions,
   decideFunction,
   decideUrl,
@@ -57,9 +58,14 @@ import {
   resolveScreen,
   navigateTarget,
   crossAppTarget,
+  ExpressDecoder,
+  FrameDecoder,
+  inferenceFormatOf,
 } from "../src/host"
 import { dateBucket, type DateBucket } from "../src/dates"
 import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, AppPackage, AvailableExtension, PackageTool, RecordOwnership, RecordRefTarget, RecordRow, RecordTransitions, TransitionViewer } from "../src/host"
+
+import { initExpress } from "../src/express"
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), `..`)
 const read = (rel: string) => JSON.parse(readFileSync(join(pkgRoot, rel), `utf8`))
@@ -67,14 +73,7 @@ const json = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`
 
 function feed(dec: { push(c: string): Decoded; end(): Decoded }, chunks: string[]): Decoded {
   const out: Decoded = { messages: [], issues: [] }
-  for (const c of chunks) {
-    const d = dec.push(c)
-    out.messages.push(...d.messages)
-    out.issues.push(...d.issues)
-  }
-  const e = dec.end()
-  out.messages.push(...e.messages)
-  out.issues.push(...e.issues)
+  for (const d of [...chunks.map((c) => dec.push(c)), dec.end()]) mergeDecoded(out, d)
   return out
 }
 
@@ -85,6 +84,15 @@ export function renderHost(): Record<string, string> {
   transport.jsonl = transport.jsonl.map((c: Case) => ({ ...c, expected: feed(new JsonlDecoder(), c.chunks as string[]) }))
   transport.sse = transport.sse.map((c: Case) => ({ ...c, expected: feed(new SseDecoder(), c.chunks as string[]) }))
   transport.mcp = transport.mcp.map((c: Case) => ({ ...c, expected: messagesFromMcpResult(c.result) }))
+  // #AXC-12: the Express cases, over the vendored compiler (wasm/express).
+  initExpress(readFileSync(join(pkgRoot, `wasm/express/a2ui_express_bg.wasm`)))
+  const at = (c: Case) => (c.surfaceId ? { surfaceId: c.surfaceId as string } : {})
+  transport.express = transport.express.map((c: Case) => ({ ...c, expected: feed(new ExpressDecoder({ wrapped: c.wrapped as boolean, ...at(c) }), c.chunks as string[]) }))
+  transport.expressSse = transport.expressSse.map((c: Case) => ({ ...c, expected: feed(new SseDecoder(at(c)), c.chunks as string[]) }))
+  transport.expressWs = transport.expressWs.map((c: Case) => ({ ...c, expected: feed(new FrameDecoder(at(c)), c.frames as string[]) }))
+  transport.expressMcp = transport.expressMcp.map((c: Case) => ({ ...c, expected: messagesFromMcpResult(c.result, at(c)) }))
+  transport.expressContentTypes = transport.expressContentTypes.map((c: Case) => ({ ...c, expected: inferenceFormatOf(c.contentType as string) }))
+  transport.expressCapabilities = transport.expressCapabilities.map((c: Case) => ({ ...c, expected: rendererCapabilities(c.extensionIds as string[], c.inferenceFormats ? { inferenceFormats: c.inferenceFormats as string[] } : {}) }))
   transport.mcpAction = transport.mcpAction.map((c: Case) => ({ ...c, expected: mcpActionCall(c.message as ClientMessage, c.tool as string | undefined, c.metadata as Record<string, unknown> | undefined) }))
 
   const policy = read(`fixtures/host-policy.json`)

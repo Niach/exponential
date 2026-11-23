@@ -42,7 +42,8 @@ vendored-spinner = []
 [dependencies]
 # #LOGS-2: lag spans (no subscriber = no cost).
 tracing = "0.1"
-eui-core = { path = "../eui-core", version = "0.21.0" }
+# #AXC-12: `express` = the Express wire format (`transport::WireFormat`).
+eui-core = { path = "../eui-core", version = "0.21.0", features = ["express"] }
 gpui.workspace = true
 gpui-component.workspace = true
 # EXP-1557: the switch's behaviour primitive (`gpui_base::Switch`) under
