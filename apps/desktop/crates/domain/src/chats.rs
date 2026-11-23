@@ -1063,12 +1063,14 @@ pub fn agent_chat_rows(input: AgentChatRowsInput<'_>) -> Vec<AgentChatRow> {
         .agents
         .iter()
         .map(|agent| {
-            let conversation = input.sessions.iter().find(|session| {
-                session.parent_id.as_deref().is_none_or(str::is_empty)
-                    && session.agent_id.as_deref() == Some(agent.agent_id.as_str())
-                    && input.me.is_some()
-                    && session.user_id.as_deref() == input.me
-            });
+            // #EXP-1990: THE agent's chat (`agent_chat_of`): its group chat,
+            // else the viewer's own conversation.
+            let conversation = crate::agent_settings::agent_chat_of(
+                &agent.agent_id,
+                agent.group_chat_id.as_deref(),
+                input.sessions.iter().copied(),
+                input.me,
+            );
             let id = conversation.map(|session| session.id.clone());
             let newest = id.as_deref().and_then(|id| {
                 input

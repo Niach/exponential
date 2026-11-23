@@ -201,7 +201,11 @@ pub(crate) fn take_unsent(session_id: &str, cx: &mut App) -> Option<String> {
         .sessions
         .read(cx)
         .iter()
-        .find(|row| row.id == session_id && row.is_root() && row.user_id.as_deref() == Some(me.as_str()))?
+        .find(|row| {
+            row.id == session_id
+                && row.is_root()
+                && (row.user_id.as_deref() == Some(me.as_str()) || crate::session_data::is_group_chat_root(row, cx))
+        })?
         .agent_id
         .clone()?;
     etalk_gpui::push_to_talk::take_unsent(&agent_id, cx)

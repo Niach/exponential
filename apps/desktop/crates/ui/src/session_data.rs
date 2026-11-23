@@ -243,23 +243,37 @@ pub(crate) fn agent_def(agent_id: &str, cx: &App) -> Option<domain::rows::AgentD
     store.collections().agents.read(cx).get(agent_id).cloned()
 }
 
-/// NEW-2: the viewer's own conversation session with the agent (a root
-/// with `agent_id` and `user_id == me`), `None` until the first message
-/// creates it (`sessions.send({agentId})`).
+/// THE viewer's chat with an agent (`domain::agent_settings::agent_chat_of`):
+/// a team agent's GROUP chat (#EXP-1990, `agents.group_chat_id`, `None`
+/// while that root does not sync), else their own conversation (a root with
+/// `agent_id` and `user_id == me`); `None` until the first message creates
+/// it (`sessions.send({agentId})`).
 pub(crate) fn my_conversation(agent_id: &str, cx: &App) -> Option<SessionRow> {
     let store = Store::try_global(cx)?;
-    let me = crate::queries::active_account(cx)?.user_id;
-    store
-        .collections()
-        .sessions
-        .read(cx)
-        .iter()
-        .find(|row| {
-            row.is_root()
-                && row.agent_id.as_deref() == Some(agent_id)
-                && row.user_id.as_deref() == Some(me.as_str())
-        })
-        .cloned()
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
+    let group_chat_id = store.collections().agents.read(cx).get(agent_id).and_then(|agent| agent.group_chat_id.clone());
+    let sessions = store.collections().sessions.read(cx);
+    domain::agent_settings::agent_chat_of(agent_id, group_chat_id.as_deref(), sessions.iter(), me.as_deref()).cloned()
+}
+
+/// #EXP-1990 (agent-settings.json `groupChat`): the roots that are a team
+/// agent's group chat (every synced agent): they count for every member.
+pub(crate) fn group_chat_ids(cx: &App) -> Vec<String> {
+    let Some(store) = Store::try_global(cx) else {
+        return Vec::new();
+    };
+    let mut ids: Vec<String> =
+        store.collections().agents.read(cx).iter().filter_map(|agent| agent.group_chat_id.clone()).collect();
+    ids.sort();
+    ids
+}
+
+/// #EXP-1990: `root` is its agent's group chat (every member's chat with
+/// it, whoever started it).
+pub(crate) fn is_group_chat_root(root: &SessionRow, cx: &App) -> bool {
+    Store::try_global(cx).is_some_and(|store| {
+        domain::agent_settings::is_group_chat_root(root, store.collections().agents.read(cx).iter())
+    })
 }
 
 /// VAPP-110: the viewer's own EDITOR SESSION root for an app (a root with
@@ -1780,7 +1794,8 @@ pub(crate) fn agent_unread_counts(team_id: &str, cx: &App) -> HashMap<String, us
     };
     let team_ids = synced_team_ids(cx);
     let sessions = collections.sessions.read(cx);
-    // `agent_chat_rows`' conversation: my first root with the agent.
+    // `agent_chat_rows`' conversation (`agent_chat_of`, #EXP-1990): the
+    // agent's group chat, else my first root with it.
     let mut conversations: HashMap<&str, &SessionRow> = HashMap::new();
     for session in sessions.iter().filter(|session| in_team_or_personal(session, team_id, &team_ids, Some(me.as_str()))) {
         if session.parent_id.as_deref().is_none_or(str::is_empty) && session.user_id.as_deref() == Some(me.as_str()) {
@@ -1793,7 +1808,11 @@ pub(crate) fn agent_unread_counts(team_id: &str, cx: &App) -> HashMap<String, us
     agents_in_team(team_id, cx)
         .into_iter()
         .map(|agent| {
-            let count = conversations.get(agent.agent_id.as_str()).map_or(0, |conversation| {
+            let conversation = match agent.group_chat_id.as_deref() {
+                Some(group) => sessions.get(group).filter(|row| row.is_root()),
+                None => conversations.get(agent.agent_id.as_str()).copied(),
+            };
+            let count = conversation.map_or(0, |conversation| {
                 let keyed = digest_messages_of(&[conversation], cx);
                 let messages: Vec<&MessageRow> = keyed.iter().flat_map(|rows| rows.iter()).collect();
                 let reads: Vec<&SessionReadRow> = session_reads.iter().filter(|read| read.session_id == conversation.id).collect();

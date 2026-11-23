@@ -865,6 +865,9 @@ pub const SHAPES: [ShapeSpec; 37] = [
             "role",
             // #EXP-1383: when the instructions text last changed.
             "instructions_updated_at",
+            // #EXP-1990: a team agent's group chat root (agent-settings.json
+            // `groupChat`; null = none yet, or the server switch is off).
+            "group_chat_id",
             "created_at",
             "updated_at",
         ],
@@ -1256,7 +1259,7 @@ mod tests {
     fn the_new2_shapes_match_the_proxies() {
         assert_eq!(
             shape_by_name("agents").unwrap().columns,
-            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "defaults", "skill_ids", "mcp_server_ids", "voice", "owner_id", "sort_order", "role", "instructions_updated_at", "created_at", "updated_at"]
+            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "defaults", "skill_ids", "mcp_server_ids", "voice", "owner_id", "sort_order", "role", "instructions_updated_at", "group_chat_id", "created_at", "updated_at"]
         );
         assert_eq!(
             shape_by_name("events").unwrap().columns,
