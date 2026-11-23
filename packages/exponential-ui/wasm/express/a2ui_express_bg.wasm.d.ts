@@ -1,0 +1,35 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_catalogs_free: (a: number, b: number) => void;
+export const __wbg_streamcompiler_free: (a: number, b: number) => void;
+export const agentCallableFunctions: (a: any) => [number, number, number];
+export const catalogs_agentCallableFunctions: (a: number) => [number, number];
+export const catalogs_compile: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const catalogs_decompile: (a: number, b: any, c: number) => [number, number, number, number];
+export const catalogs_generatePrompt: (a: number, b: number) => [number, number, number, number];
+export const catalogs_ids: (a: number) => [number, number];
+export const catalogs_new: (a: any, b: number) => [number, number, number];
+export const catalogs_parseResponse: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const catalogs_stream: (a: number, b: number) => [number, number, number];
+export const catalogs_version: (a: number) => [number, number];
+export const compile: (a: any, b: number, c: number, d: number) => [number, number, number];
+export const decompile: (a: any, b: any, c: number) => [number, number, number, number];
+export const generatePrompt: (a: any, b: number) => [number, number, number, number];
+export const hasFormatContent: (a: number, b: number, c: number) => number;
+export const parseResponse: (a: any, b: number, c: number, d: number) => [number, number, number];
+export const streamcompiler_finish: (a: number) => [number, number, number];
+export const streamcompiler_in_block: (a: number) => number;
+export const streamcompiler_new: (a: any, b: number) => [number, number, number];
+export const streamcompiler_push: (a: number, b: number, c: number) => [number, number, number];
+export const unwrap: (a: number, b: number) => any;
+export const wrap: (a: any) => [number, number, number, number];
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_exn_store: (a: number) => void;
+export const __externref_table_alloc: () => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __externref_table_dealloc: (a: number) => void;
+export const __externref_drop_slice: (a: number, b: number) => void;
+export const __wbindgen_start: () => void;
