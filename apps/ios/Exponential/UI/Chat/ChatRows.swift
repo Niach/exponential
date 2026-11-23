@@ -135,6 +135,12 @@ struct ChatRows: Sendable {
     /// S-3: the root team's statuses: an issue chip's glyph resolves its
     /// `statusId` through them (the anchor only as their fallback).
     var issueStatuses: [ResolvedIssueStatus] = IssueStatusResolver.builtinFallbackTeam
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams`): a linked
+    /// issue's status glyph reads the ISSUE's own team, never the session's
+    /// (the Assistant's conversation lives in a team with no statuses): each
+    /// linked issue's team (its board's) and those teams' statuses.
+    var issueTeamIds: [String: String] = [:]
+    var issueStatusesByTeam: [String: [ResolvedIssueStatus]] = [:]
     /// #EXP-1464 (chat-row-action.json): the question / plan messages of
     /// the sessions a card names OUTSIDE this tree — a Needs you card
     /// expands into its session's waiting card (`sessionWaitingCard`).
@@ -335,7 +341,9 @@ struct ChatRows: Sendable {
     /// first, like Android's `IssueStatusResolver`); nil = the issue is not
     /// in this snapshot, which draws NO glyph (never Backlog).
     func issueStatus(id: String) -> ResolvedIssueStatus? {
-        issue(id: id).map { IssueStatusResolver.resolve($0, team: issueStatuses) }
+        issue(id: id).map {
+            IssueStatusResolver.resolve($0, team: issueTeamIds[id].flatMap { issueStatusesByTeam[$0] } ?? issueStatuses)
+        }
     }
 
     func user(id: String?) -> UserEntity? {
@@ -592,10 +600,13 @@ struct ChatRows: Sendable {
             pullRequestIssueIds[pullRequest.id] = try SessionQueries.issueIds(db: db, pullRequestId: pullRequest.id)
         }
         // #EXP-1380: the team's PRs only feed the Guide PR's stack walk: a
-        // chat without a PR reads (and tracks) none of them.
-        let teamPullRequests = pullRequests.isEmpty
-            ? []
-            : try SessionQueries.pullRequests(db: db, teamId: root.teamId)
+        // chat without a PR reads (and tracks) none of them. #EXP-2079: the
+        // PRs' OWN teams, never the session's (the Assistant's conversation
+        // lives in a team with no pull requests).
+        var teamPullRequests: [PullRequestEntity] = []
+        for teamId in Set(pullRequests.map(\.teamId)).sorted() {
+            teamPullRequests += try SessionQueries.pullRequests(db: db, teamId: teamId)
+        }
         // The stack rail names every member by its issue: read the links of
         // the Guide PR's open stack only, never the whole team's.
         var stackIssueIds: [String: [String]] = [:]
@@ -612,6 +623,22 @@ struct ChatRows: Sendable {
             }
         }
         let issues = try SessionQueries.issues(db: db, rootId: root.id)
+        // #EXP-2079: each linked issue's own team (its board's) and statuses.
+        var issueTeamIds: [String: String] = [:]
+        var issueStatusesByTeam: [String: [ResolvedIssueStatus]] = [:]
+        let boardIds = Array(Set(issues.map(\.boardId)))
+        if !boardIds.isEmpty {
+            let boardTeams = Dictionary(
+                try BoardEntity.filter(boardIds.contains(Column("id"))).fetchAll(db).map { ($0.id, $0.teamId) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            for issue in issues { issueTeamIds[issue.id] = boardTeams[issue.boardId] }
+            for teamId in Set(issueTeamIds.values) {
+                issueStatusesByTeam[teamId] = IssueStatusResolver.teamStatusesOrFallback(
+                    try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
+                )
+            }
+        }
         let guideChecks = try SessionTree.guidePullRequest(pullRequests).map { guide in
             try PullRequestCheckEntity.filter(Column("pull_request_id") == guide.id).fetchAll(db).map(PrChecks.Check.init)
         } ?? []
@@ -636,6 +663,8 @@ struct ChatRows: Sendable {
             issueStatuses: IssueStatusResolver.teamStatusesOrFallback(
                 try IssueStatusEntity.filter(Column("team_id") == root.teamId).fetchAll(db)
             ),
+            issueTeamIds: issueTeamIds,
+            issueStatusesByTeam: issueStatusesByTeam,
             namedCards: namedCards,
             guideChecks: guideChecks,
             resultCards: try SessionQueries.resultCardMessages(db: db, rootId: root.id),
@@ -684,6 +713,11 @@ struct ChatRows: Sendable {
             try stamp(db, table: "issues", where: "\"id\" IN (SELECT \"issue_id\" FROM \"session_issues\" WHERE \"session_id\" = ?1)", id),
             try stamp(db, table: "issue_relations", where: "\"type\" = 'parent'", nil),
             try stamp(db, table: "issue_statuses", where: "\"team_id\" = ?1", root.teamId),
+            // #EXP-2079: the linked issues' own teams' statuses.
+            try stamp(db, table: "issue_statuses", where: """
+                "team_id" IN (SELECT "b"."team_id" FROM "boards" "b" JOIN "issues" "i" ON "i"."board_id" = "b"."id"
+                    WHERE "i"."id" IN (SELECT "issue_id" FROM "session_issues" WHERE "session_id" = ?1))
+                """, id),
             // #EXP-1710: every column (the train's state, position and run).
             try digest(db, table: "pull_requests", where: "\"root_session_id\" = ?1", id),
             // #EXP-1611: the chat PRs' CI rows (the Checks submenu).
@@ -706,15 +740,17 @@ struct ChatRows: Sendable {
         if let appId = root.appId { parts.append(try stamp(db, table: "apps", where: "\"id\" = ?1", appId)) }
         if try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM \"pull_requests\" WHERE \"root_session_id\" = ?)", arguments: [id]) == true {
             // The Guide's stack walk: the team's PRs, their links and issues.
-            let teamPrs = "SELECT \"id\" FROM \"pull_requests\" WHERE \"team_id\" = ?1"
-            parts.append(try stamp(db, table: "pull_requests", where: "\"team_id\" = ?1", root.teamId))
+            // #EXP-2079: the chat PRs' OWN teams, never the session's.
+            let prTeams = "SELECT \"team_id\" FROM \"pull_requests\" WHERE \"root_session_id\" = ?1"
+            let teamPrs = "SELECT \"id\" FROM \"pull_requests\" WHERE \"team_id\" IN (\(prTeams))"
+            parts.append(try stamp(db, table: "pull_requests", where: "\"team_id\" IN (\(prTeams))", id))
             // #EXP-1710: who shares a testing run (`Testing with N`).
             parts.append(try String.fetchOne(db, sql: """
                 SELECT ifnull(group_concat("id" || '=' || "merge_train_id", ','), '') FROM "pull_requests"
-                WHERE "team_id" = ? AND "merge_train_id" IS NOT NULL
-                """, arguments: [root.teamId]) ?? "")
-            parts.append(try stamp(db, table: "pull_request_issues", where: "\"pull_request_id\" IN (\(teamPrs))", root.teamId))
-            parts.append(try stamp(db, table: "issues", where: "\"id\" IN (SELECT \"issue_id\" FROM \"pull_request_issues\" WHERE \"pull_request_id\" IN (\(teamPrs)))", root.teamId))
+                WHERE "team_id" IN (\(prTeams)) AND "merge_train_id" IS NOT NULL
+                """, arguments: [id]) ?? "")
+            parts.append(try stamp(db, table: "pull_request_issues", where: "\"pull_request_id\" IN (\(teamPrs))", id))
+            parts.append(try stamp(db, table: "issues", where: "\"id\" IN (SELECT \"issue_id\" FROM \"pull_request_issues\" WHERE \"pull_request_id\" IN (\(teamPrs)))", id))
         }
         return parts.joined(separator: "|")
     }

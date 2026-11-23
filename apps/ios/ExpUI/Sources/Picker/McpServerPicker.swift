@@ -41,7 +41,12 @@ public struct McpServerPicker<Trigger: View>: View {
     /// One row per server: not-ready ones disabled with their note, ready
     /// ones described by where they live. The glyph (#EXP-1795): a catalog
     /// server's brand mark untinted, a stdio command the shell, else the plug.
-    nonisolated public static func items(_ servers: [McpServerRow]) -> [PickerItem<String>] {
+    /// #EXP-2079 (`assistant.chatTeams`): `teamNames` (server id → team,
+    /// `McpServers.chatPick`) = a chat with more than one team: a ready
+    /// row's second line names its team.
+    nonisolated public static func items(
+        _ servers: [McpServerRow], teamNames: [String: String] = [:]
+    ) -> [PickerItem<String>] {
         servers.map { server in
             let note = McpServers.notReadyLabel(server)
             var brand: String?
@@ -57,7 +62,7 @@ public struct McpServerPicker<Trigger: View>: View {
                 value: server.id,
                 label: server.name,
                 icon: icon,
-                description: note ?? McpServers.location(server),
+                description: note ?? teamNames[server.id] ?? McpServers.location(server),
                 disabled: note != nil,
                 brand: brand
             )

@@ -619,15 +619,25 @@ public enum AgentSettings {
         return !teamIds.contains(rowTeamId)
     }
 
-    /// #EXP-1714: the team a composer's `/` prompts, `#` issue search and
-    /// `@` mentions read: the agent's / session's own team while it is a
-    /// synced one, else the ACTIVE team (the global Assistant's personal team
-    /// never syncs). Uploads and sends keep the own team. No synced teams
-    /// known yet = the own team.
-    public static func lookupTeamId(_ teamId: String?, teamIds: [String], activeTeamId: String?) -> String? {
-        guard let teamId else { return activeTeamId }
-        if teamIds.isEmpty || teamIds.contains(teamId) { return teamId }
-        return activeTeamId ?? teamId
+    /// #EXP-2079 (`assistant.chatTeams`): the teams the lists of a chat read
+    /// (`#` refs, `@` members, the MCP pick, prompts, Link / New issue): the
+    /// own team while it is synced, else the turn's teams (the Teams pick ∩
+    /// the synced teams, else all of them), in the synced order.
+    /// `syncedTeamIds` comes in the cross-team order (`crossTeamOrder`).
+    /// Supersedes #EXP-1714's single lookup team.
+    public static func chatTeams(ownTeamId: String?, syncedTeamIds: [String], pickedTeamIds: [String]?) -> [String] {
+        if let ownTeamId, syncedTeamIds.contains(ownTeamId) { return [ownTeamId] }
+        if syncedTeamIds.isEmpty { return ownTeamId.map { [$0] } ?? [] }
+        let picked = Set(pickedTeamIds ?? [])
+        let turn = syncedTeamIds.filter(picked.contains)
+        return turn.isEmpty ? syncedTeamIds : turn
+    }
+
+    /// #EXP-2079 (`assistant.chatTeams` `deviceCases`): the device list of a
+    /// session in a team the viewer does not sync, that they started (the
+    /// Assistant's conversation) = their own machines, no team rule.
+    public static func ownDevices(sessionTeamSynced: Bool, starterIsViewer: Bool) -> Bool {
+        !sessionTeamSynced && starterIsViewer
     }
 
     /// #EXP-1714: is this agent the viewer's own Assistant (wherever it

@@ -582,12 +582,40 @@ final class AgentSettingsTests: XCTestCase {
         XCTAssertFalse(shows("p-me", "u-me", me: nil), "no viewer, no personal rows")
     }
 
-    /// #EXP-1714: a composer's lookups fall back to the active team.
-    func testLookupTeamId() {
-        XCTAssertEqual(AgentSettings.lookupTeamId("t-b", teamIds: ["t-a", "t-b"], activeTeamId: "t-a"), "t-b")
-        XCTAssertEqual(AgentSettings.lookupTeamId("p-me", teamIds: ["t-a", "t-b"], activeTeamId: "t-a"), "t-a")
-        XCTAssertEqual(AgentSettings.lookupTeamId("p-me", teamIds: [], activeTeamId: "t-a"), "p-me")
-        XCTAssertEqual(AgentSettings.lookupTeamId(nil, teamIds: ["t-a"], activeTeamId: "t-a"), "t-a")
+    /// #EXP-2079: `assistant.chatTeams.cases` (supersedes #EXP-1714's
+    /// single lookup team).
+    func testChatTeamsReplaysEveryCase() throws {
+        let block = try XCTUnwrap(try assistantBlock()["chatTeams"] as? [String: Any])
+        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            XCTAssertEqual(
+                AgentSettings.chatTeams(
+                    ownTeamId: testCase["ownTeamId"] as? String,
+                    syncedTeamIds: try XCTUnwrap(testCase["syncedTeamIds"] as? [String]),
+                    pickedTeamIds: testCase["pickedTeamIds"] as? [String]
+                ),
+                testCase["expected"] as? [String],
+                testCase["name"] as? String ?? "?"
+            )
+        }
+    }
+
+    /// #EXP-2079: `assistant.chatTeams.deviceCases`.
+    func testOwnDevicesReplaysEveryCase() throws {
+        let block = try XCTUnwrap(try assistantBlock()["chatTeams"] as? [String: Any])
+        let cases = try XCTUnwrap(block["deviceCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            XCTAssertEqual(
+                AgentSettings.ownDevices(
+                    sessionTeamSynced: try XCTUnwrap(testCase["sessionTeamSynced"] as? Bool),
+                    starterIsViewer: try XCTUnwrap(testCase["starterIsViewer"] as? Bool)
+                ),
+                testCase["expected"] as? Bool,
+                testCase["name"] as? String ?? "?"
+            )
+        }
     }
 
     /// #EXP-1717: the `coordinator` block (copy, test id, both case lists).

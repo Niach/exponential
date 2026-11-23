@@ -215,6 +215,7 @@ struct ExpressBlockView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.cardTeamId) private var cardTeamId
+    @Environment(\.cardTeamIds) private var cardTeamIds
     /// Bumped once the block's host has caught up (it paints a frame later).
     @State private var caughtUp = 0
 
@@ -277,6 +278,7 @@ struct ExpressBlockView: View {
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
             accountId: accountId,
             teamId: cardTeamId,
+            teamIds: cardTeamIds,
             deps: deps,
             httpClient: deps.httpClient
         )

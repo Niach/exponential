@@ -42,6 +42,26 @@ final class SessionDeviceMoveTests: XCTestCase {
         XCTAssertEqual(SessionDeviceMove.failureToast, "Couldn't move the session")
     }
 
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams` `deviceCases`):
+    /// the Assistant's conversation (its team never syncs, the viewer's) and
+    /// an Assistant's page list the viewer's OWN machines whatever teams they
+    /// are shared with, and no teammate's server; the session's team would
+    /// list none once a machine is shared.
+    func testOwnDevicesListMyMachinesWhateverTheirTeams() {
+        let rows = [
+            DeviceEntity(id: "r1", userId: "me", deviceId: "personal", label: "A"),
+            DeviceEntity(id: "r2", userId: "me", deviceId: "shared", label: "B", sharedTeamIds: ["t-a"]),
+            DeviceEntity(id: "r3", userId: "mate", deviceId: "server", label: "C", kind: "server", sharedTeamIds: ["t-a"]),
+        ]
+        func list(_ teamId: String?) -> [String] {
+            DeviceQueries.compose(rows: rows, users: [], teamId: teamId, userId: "me").map(\.deviceId)
+        }
+        XCTAssertTrue(AgentSettings.ownDevices(sessionTeamSynced: false, starterIsViewer: true))
+        XCTAssertEqual(list(nil), ["personal", "shared"], "my own machines, no teammate's server")
+        XCTAssertEqual(list("p-me"), ["personal"], "the personal team's rule drops my shared machine")
+        XCTAssertEqual(list("t-a"), ["personal", "shared", "server"], "a synced team keeps its rule")
+    }
+
     /// #EXP-1440: personal → usable, shared with the team → usable, shared
     /// only with another team → not usable.
     func testDeviceUsableInTeamUnlessAnotherTeamOwnsIt() {
