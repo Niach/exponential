@@ -481,9 +481,41 @@ pub(crate) fn send_to_agent(agent_id: &str, text: &str, cx: &mut App) {
     .detach();
 }
 
-/// A press inside an inline preview (`replyCases`): a `reply` event with
-/// text posts it as the person's next message to `session_id`.
-pub(crate) fn send_surface_reply(session_id: &str, text: &str, cx: &mut App) {
+/// #EXP-2067 (chat-express.json `actionCases`, chats.json `surfaceCard`):
+/// EVERY action event a chat surface fires (an Express block's, an
+/// exponential_show card's) posts ONE person message into `session_id`
+/// (the session whose transcript draws it): `surface_action`'s body plus
+/// THE `action` card, sealed like the composer's send. Too large = THE
+/// failed-action toast `copy.actionTooLarge`, nothing posted.
+pub(crate) fn send_surface_action(
+    session_id: &str,
+    event: &eui_gpui::host::ActionEvent,
+    origin: &domain::chat_express::ActionOrigin,
+    cx: &mut App,
+) {
+    use domain::chat_express::{surface_action, ActionPost, CHAT_EXPRESS};
+    let user_message = event.user_message.clone().map(serde_json::Value::String);
+    let post = surface_action(Some(&event.name), Some(&event.context), user_message.as_ref(), origin);
+    match post {
+        None => {}
+        Some(ActionPost::TooLarge) => crate::toast::show_in_active_window(
+            crate::toast::Toast::error(CHAT_EXPRESS.copy.action_too_large.clone()),
+            cx,
+        ),
+        Some(ActionPost::Post { body, card }) => {
+            let Ok(card) = serde_json::to_value(&card) else { return };
+            send_message(session_id, Some(body).filter(|body| !body.trim().is_empty()), Some(card), cx);
+        }
+    }
+}
+
+/// A plain line (an app menu's `/compact`) as the person's next message to
+/// `session_id`.
+pub(crate) fn send_text(session_id: &str, text: &str, cx: &mut App) {
+    send_message(session_id, Some(text.to_string()), None, cx);
+}
+
+fn send_message(session_id: &str, text: Option<String>, action_card: Option<serde_json::Value>, cx: &mut App) {
     let Some(team_id) = crate::session_data::session(session_id, cx).and_then(|row| row.team_id) else {
         return;
     };
@@ -494,7 +526,8 @@ pub(crate) fn send_surface_reply(session_id: &str, text: &str, cx: &mut App) {
     let input = api::sessions::SendInput {
         team_id: Some(team_id),
         session_id: Some(session_id.to_string()),
-        text: Some(text.to_string()),
+        text,
+        action_card,
         ..Default::default()
     };
     let plan = crate::sealing::plan_send(&input, cx);

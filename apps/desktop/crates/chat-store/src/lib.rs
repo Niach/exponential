@@ -21,6 +21,7 @@ use serde_json::Value;
 pub mod catchup;
 pub mod leave;
 pub mod open;
+pub mod prose;
 pub mod text;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
@@ -143,7 +144,8 @@ pub fn docs_of_event(stored: &StoredEvent) -> Option<Doc> {
     let event = &stored.event;
     let (kind, text, tool_id) = match stored.kind() {
         "user_message" => (DocKind::UserMessage, string(event, "text")?.to_string(), None),
-        "narration" => (DocKind::Narration, string(event, "text")?.to_string(), None),
+        // #EXP-2067: an agent text is indexed over its pure prose.
+        "narration" => (DocKind::Narration, prose::plain_prose(string(event, "text")?), None),
         "tool" => {
             let name = string(event, "name").unwrap_or_default();
             let text = match string(event, "detail").filter(|detail| !detail.is_empty()) {
@@ -177,12 +179,17 @@ pub fn docs_of_event(stored: &StoredEvent) -> Option<Doc> {
 /// INDEX SCOPE: a synced message's doc (an unopened or empty body = none).
 pub fn docs_of_message(message: &StoredMessage) -> Option<Doc> {
     let body = message.body.as_deref().filter(|body| !body.is_empty())?;
+    // #EXP-2067: an agent's body is indexed over its pure prose.
+    let body = if message.author_kind == "agent" { prose::plain_prose(body) } else { body.to_string() };
+    if body.is_empty() {
+        return None;
+    }
     Some(Doc {
         root_id: message.root_id.clone(),
         session_id: message.session_id.clone(),
         device_id: None,
         kind: DocKind::Message,
-        text: body.to_string(),
+        text: body,
         at: message.created_at,
         seq: None,
         tool_id: None,
