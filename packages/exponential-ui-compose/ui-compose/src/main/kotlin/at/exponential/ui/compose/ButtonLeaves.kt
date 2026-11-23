@@ -50,7 +50,7 @@ internal const val CODE_COPY_ICON = 12f
 
 /**
  * Button / Toggle content: the spinner (`loading`) or the icon (host icon,
- * else the placeholder circle; `size: icon` always shows one), then the
+ * else its built-in glyph or the placeholder; `size: icon` always shows one), then the
  * label, centred in the content box. The press is the node's (NodeView).
  */
 @Composable
