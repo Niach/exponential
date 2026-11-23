@@ -1,5 +1,5 @@
 //! #EDE-65 lane O: the Chat tab's transcript IS the shared chat document
-//! (`apps/ede/ui/chat.json`, `uicore_model::chat`), mounted in place like
+//! (`apps/ede/ui/chat.express`, `uicore_model::chat`), mounted in place like
 //! the sidebar region (`shell_regions.rs`). A person's prompt and the
 //! agent's narration are the document's own genUI `MessageBubble`s (side,
 //! author, the sender's avatar, the press that opens a session); every other
@@ -763,9 +763,16 @@ pub(crate) fn document() -> uicore_gpui::inline::Document {
     let mut doc = uicore_gpui::inline::document(uicore_docs::doc("chat").expect("the factory chat"));
     uicore_gpui::inline::without(&mut doc, PRUNED);
     for key in ["borderWidth", "borderColor", "borderRadius"] {
-        uicore_gpui::inline::set_style(&mut doc, "chat", key, Value::Null);
+        uicore_gpui::inline::set_style(&mut doc, "root", key, Value::Null);
     }
-    uicore_gpui::inline::set_prop(&mut doc, SCROLL, "style", json!({"flexGrow": 1, "minHeight": 0, "width": "100%", "overflowY": "auto"}));
+    // #EDE-216: the list's style is its node style (Express has one): the
+    // document's reading column goes, the pane-wide list stays.
+    for key in ["maxWidth", "alignSelf", "paddingLeft", "paddingRight", "paddingTop", "paddingBottom"] {
+        uicore_gpui::inline::set_style(&mut doc, SCROLL, key, Value::Null);
+    }
+    for (key, value) in [("flexGrow", json!(1)), ("minHeight", json!(0)), ("width", json!("100%")), ("overflowY", json!("auto"))] {
+        uicore_gpui::inline::set_style(&mut doc, SCROLL, key, value);
+    }
     for (key, value) in [
         ("width", json!("100%")),
         ("maxWidth", json!(crate::work_header::CHAT_COLUMN_W)),
@@ -1148,8 +1155,8 @@ mod tests {
     #[test]
     fn the_document_prunes_only_nodes_it_has() {
         let doc = uicore_docs::doc("chat").expect("the chat");
-        for id in PRUNED.iter().chain(&[SCROLL, HOST_NODE, "chat_row", "chat"]) {
-            assert!(doc.source.contains(&format!("\"id\": \"{id}\"")), "{id}");
+        for id in PRUNED.iter().chain(&[SCROLL, HOST_NODE, "chat_row", "root"]) {
+            assert!(doc.source.lines().any(|l| l.starts_with(&format!("{id} = "))), "{id}");
         }
         let _ = document();
     }

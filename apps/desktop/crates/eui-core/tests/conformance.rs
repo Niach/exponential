@@ -349,6 +349,7 @@ fn suite(id: &str) -> Vec<Case> {
         "overlay" => overlay_suite(),
         "replay" => replay_suite(),
         "host-transport" => support::transport_cases(),
+        "host-express" => support::express_cases(),
         "host-policy" => support::policy_cases(),
         "a2ui10" => support::a2ui10_cases(),
         "host-router" => support::router_cases(),

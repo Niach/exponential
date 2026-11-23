@@ -1,5 +1,5 @@
 //! The agent chat (#EDE-65 lane I, shared by lane O): one conversation as
-//! the shared chat document draws it (eDE and the IDE) (`apps/ede/ui/chat.json`, the model
+//! the shared chat document draws it (eDE and the IDE) (`apps/ede/ui/chat.express`, the model
 //! `uicore_model::chat`). The domain builds the chat (session-chat.json:
 //! the rows, their order, the cards' facts); this resolves the words the
 //! other fixtures own (a divider's label, a plan's status, the locked

@@ -75,26 +75,26 @@ opens a chat of the rail, #EDE-65), `ede_workspace {index}`,
 `/expo`, `/scale` and `/history` feed the overlays and the history.
 Icons resolve by concept from `packages/icons` (the IDE's Lucide files and
 fonts are embedded); app icons come from the installed icon themes as
-`file:` pictures. Factory documents live in `apps/ede/ui/*.json` (the IDE
-look, #EDE-42): `ground.json` (the background layer: the rounded panel the
+`file:` pictures. Factory documents live in `apps/ede/ui/*.express` (the IDE
+look, #EDE-42): `ground.express` (the background layer: the rounded panel the
 focused window sits on, inset by the sidebar, the taskbar and the panel
-margin), `sidebar.json` (left, the IDE's 56 px icon rail for good, #EDE-65:
+margin), `sidebar.express` (left, the IDE's 56 px icon rail for good, #EDE-65:
 only the chats, each the agent's mark with its dot; the IDE mounts the same
-document and eDE prunes the IDE's header and corners), `taskbar.json`
+document and eDE prunes the IDE's header and corners), `taskbar.express`
 (bottom, 48 px exclusive zone along the whole edge: the Exponential start
 button, the chat button and the new-issue button bottom-left under the rail,
 then Mint's grouped window list with pins, hover previews
 and a context menu, the applets, the tray, the bell and the clock),
-`start-menu.json` (the start button's popup: Mint's three columns and the
+`start-menu.express` (the start button's popup: Mint's three columns and the
 search box; its own entries are Files (Nemo, else the default file manager),
-Version history and the Exponential app when installed, #EDE-53), `chat.json`
-(the Assistant's composer, on demand), `history.json` (Version history: the
+Version history and the Exponential app when installed, #EDE-53), `chat.express`
+(the Assistant's composer, on demand), `history.express` (Version history: the
 shell documents' commits with Undo and Reset to factory, on demand),
-`switcher.json`, `expo.json` and `scale.json` (`onDemand` overlays the shell
+`switcher.express`, `expo.express` and `scale.express` (`onDemand` overlays the shell
 opens on a hotkey and closes again: Alt+Tab, Ctrl+Alt+Up with one tile per
 workspace, Ctrl+Alt+Down with the active workspace's windows, each with live
-thumbnails, #EDE-49), `osd.json`, `notifications.json` (the toasts, top-right, on
-demand), `notification-center.json` (the bell's popup) and `tray-menu.json`
+thumbnails, #EDE-49), `osd.express`, `notifications.express` (the toasts, top-right, on
+demand), `notification-center.express` (the bell's popup) and `tray-menu.express`
 (a tray item's menu as the tray's popup). A click outside an open popup, or
 Escape in it, closes it. A layer document's root is opaque (`$color.background`
 for the ground, the sidebar and the taskbar, `$color.popover` for Settings,
@@ -154,9 +154,9 @@ WAYLAND_DISPLAY=wayland-1 target/debug/exponential-ctl pointer 40 20 --click   #
 ```
 
 The M0 demo (#EDE-1), in the `ubuntu-wayland` VM: edit the scratch
-directory's `taskbar.json` and the taskbar redraws within the watcher's
+directory's `taskbar.express` and the taskbar redraws within the watcher's
 debounce; break it and `exponential-ui check` says why while the last good version
-stays on screen; `git -C <dir> log` shows `Edit taskbar.json` commits after
+stays on screen; `git -C <dir> log` shows `Edit taskbar.express` commits after
 the factory ones. `exponential-shell --windowed` opens normal windows instead
 (macOS, any desktop); `--popup` opens every popup document right away and
 `--exit-after <ms>` quits, for the headless check.
@@ -200,7 +200,7 @@ never agent-editable (`crates/ede-compositor/src/{text,frames,recovery}.rs`):
 
 ## Settings (#EDE-14, #EDE-47)
 
-`settings.json`, a shell document like the rest (editable, in the
+`settings.express`, a shell document like the rest (editable, in the
 history), not an eApps package. #EDE-65: Settings open into the sidebar
 like the IDE's: ONE on-demand top layer over the rail and the ground,
 standing on the taskbar (`exclusiveZone` -1, `margin.bottom` 48; the
@@ -1549,30 +1549,40 @@ polkit prompt (`pkexec true`).
 ## genUI on disk (exponential-ui)
 
 `$XDG_CONFIG_HOME/exponential-desktop/ui/` (default `~/.config/exponential-desktop/ui/`; `$EDE_UI_DIR` wins)
-holds the shell: one genUI surface per `<name>.json` (lowercase, digits, `-`,
-`_`) and the look in `theme.json` (the theme format of the SDK; `extends` may
+holds the shell: one genUI surface per `<name>.express` (Express, the A2UI
+inference format, #EDE-216; lowercase, digits, `-`, `_`) and the look in
+`theme.json` (JSON: a theme, not a surface) (the theme format of the SDK; `extends` may
 name a built-in theme; none = `exponential`). The factory copies live in
 `/usr/share/exponential-desktop/ui` (`$EDE_FACTORY_DIR`; `apps/ede/ui` in this repo): a fresh
 account gets them as the first commits, and a rollback always has somewhere
 to go. The contract is `packages/ede` (#EDE-8): its fixtures are the spec and
-`crates/ede-ui/tests/contract.rs` replays them.
+`crates/ede-ui/tests/contract.rs` replays them (`express.json` is the
+document format).
 
-```json
-{
-  "surface": {"layer": "top", "anchor": ["top", "left", "right"], "size": {"height": 40}, "exclusiveZone": 40},
-  "root": {"id": "panel", "component": "Box", "style": {"display": "flex"},
-           "children": [{"id": "clock", "component": "Text", "props": {"text": {"@path": "/time"}}}]},
-  "data": {"time": "12:00"}
-}
 ```
+# The top panel: the clock.
+surface("panel", extensions={ede: {layer: "top", anchor: ["top", "left", "right"], size: {height: 40}, exclusiveZone: 40}})
+$/time = "12:00"
+root = Box(style={display: "flex"}, children=[clock])
+clock = Text(text=$/time)
+```
+
+The `ede` extension of the one `surface("<name>", …)` statement is the
+surface header; `$/path = value` lines are the data model; `root = …` is the
+top component (Express names it `root`); `#` lines are notes. It compiles to
+the JSON form `{surface, root, data}` that is validated as below; every issue
+names its Express line (`line 4 #clock: unknown component Clock`). The
+compiler knows eDE's host functions beside the core catalog's
+(`ede_lunch(…)` is a compile error). A `<name>.json` document from before
+#EDE-216 is migrated once at start (one commit, `Migrate shell documents to
+Express`; an unedited factory copy is replaced by the shipped `.express`)
+and never read again.
 
 `surface` says where the shell puts it: a layer surface (`layer`, `anchor`,
 `size`, `exclusiveZone`, `margin`, `keyboard`) or `popup` (a popup of another
 document under one of its components, drawn as an `xdg_popup` so it can leave
 the parent's box); `functions` lists the host functions the document may
-call. `root` is the nested authoring form; `components` (A2UI's flat
-`updateComponents` list, from the component `root`) works too; `catalogId`
-defaults to the core. Tier C (a document grants no privileges): no password
+call. Tier C (a document grants no privileges): no password
 inputs, no `functionCall` outside `surface.functions`, ids once; then
 eui-core's reducer validates every component, prop, style and token. One
 issue refuses the whole file and the last good version stays on screen
@@ -1584,7 +1594,7 @@ commit as a new commit, so an undo is undoable too.
 
 ```bash
 cargo run -p ede-ui -- check                    # what applies, what is refused and why
-cargo run -p ede-ui -- set panel panel.json     # validate, write, commit
+cargo run -p ede-ui -- set panel panel.express  # validate, write, commit (a JSON document is written as Express)
 cargo run -p ede-ui -- undo                     # revert the newest edit
 cargo run -p ede-ui -- discard panel            # drop a broken hand edit
 cargo run -p ede-ui -- log
@@ -1598,13 +1608,13 @@ the shell with `EDE_UI_DIR`, commits hand edits, refuses broken ones, and
 expects the shell to print `{"frame": {"name": "panel", "digest": "…"}}`
 (`exponential-ui digest FILE`, the content digest) on stdout once it drew a document.
 No frame within 2 s of an edit = the edit is reverted (`Undo: Edit
-panel.json, rolled back`), unless another process undid or replaced it
+panel.express, rolled back`), unless another process undid or replaced it
 meanwhile (`exponential-ui undo`, Version history): nothing is rolled back
 and what replaced it is an edit of its own. A rollback puts back what the
 shell last drew (after two quick edits, never the first one, which did not
 draw either) and touches that document alone: another document's edit in
 the same moment stays an edit of its own, and a broken text the file holds
-meanwhile is kept beside it as `.panel.json.refused`. The shell dying counts as a crash, it restarts
+meanwhile is kept beside it as `.panel.express.refused`. The shell dying counts as a crash, it restarts
 after 500 ms, and three crashes after an edit revert it, three more put the
 factory copy back (`Factory panel`). The shell itself opens the directory
 read-only (`Runtime::open_readonly`): it validates and reloads but never
@@ -1620,7 +1630,7 @@ let _w = ede_ui::watch(ui.clone(), |changes| for c in changes { println!("{}", c
 Changes: `ui.applied`, `ui.rejected` (issues, whether a last good version
 stays), `ui.removed`, `theme.applied`, `theme.rejected`. Try it: `exponential-ui
 --factory apps/ede/ui check` on a fresh directory creates it with the
-factory commits; `exponential-ui watch` in one terminal, edit `panel.json` in an
+factory commits; `exponential-ui watch` in one terminal, edit `panel.express` in an
 editor (gedit, vim: both save through a rename) and see `ui.applied`, break
 it and see `ui.rejected` with `"fallback": true`, then `exponential-ui undo` and
 `git -C ~/.config/exponential-desktop/ui log`.

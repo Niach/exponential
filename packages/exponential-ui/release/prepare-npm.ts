@@ -37,6 +37,7 @@ const SPECS: Spec[] = [
       "./web": { types: `./dist/types/src/web/index.d.ts`, import: `./dist/web/index.js`, default: `./dist/web/index.js` },
       "./web/motion": { types: `./dist/types/src/web/motion.d.ts`, import: `./dist/web/motion.js`, default: `./dist/web/motion.js` },
       "./web/primitives": { types: `./dist/types/src/web/primitives/index.d.ts`, import: `./dist/web/primitives/index.js`, default: `./dist/web/primitives/index.js` },
+      "./express": { types: `./dist/types/src/express/index.d.ts`, import: `./dist/express/index.js`, default: `./dist/express/index.js` },
       "./catalog/*": `./catalog/*`,
       "./fixtures/*": `./fixtures/*`,
       "./docs/*": `./docs/*`,

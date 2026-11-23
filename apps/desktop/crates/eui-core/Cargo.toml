@@ -17,7 +17,7 @@ categories = ["gui", "rendering::engine"]
 exclude = ["tests/", "benches/", "examples/"]
 
 [features]
-default = ["builtin-themes"]
+default = ["builtin-themes", "express"]
 # Rust-side text shaping on the system fonts (cosmic-text + fontdb): the
 # prototype of the "no measure upcalls at all" path. Off by default — hosts
 # measure through the batched protocol; the desktop painter measures in-process.
@@ -34,8 +34,9 @@ builtin-themes = []
 descriptions = []
 # #AXC-12: the Express inference format (`express` module): a2ui-express
 # compiles an agent's Express into the A2UI messages the reducer takes.
-# Off by default until the crate is on crates.io (crates.io refuses a
-# git-only dependency); the FFI, the gpui painter and eDE turn it on.
+# On by default (every SDK reads Express, and the conformance suite
+# `host-express` needs it); the crate publishes once a2ui-express is on
+# crates.io (crates.io refuses a git-only dependency).
 express = ["dep:a2ui-express"]
 
 [dependencies]
@@ -69,9 +70,9 @@ unicode-normalization = "0.1"
 # VAPP-124: stacker has no Android or iOS stack-limit backend; `src/stack.rs`
 # asks pthread there.
 # #AXC-12: the Express compiler (Niach/a2ui-express-compiler-rust, public),
-# pinned to a rev (bc9c1d7: compile, decompile, streaming, the compact prompt); its runtime deps are serde, serde_json (preserve_order)
+# pinned to a rev (df5a7cb: compile, decompile, streaming, the compact prompt); its runtime deps are serde, serde_json (preserve_order)
 # and thiserror, all already in the tree.
-a2ui-express = { git = "https://github.com/Niach/a2ui-express-compiler-rust", rev = "bc9c1d7fa04709cccc87b6190655e1c369676bb2", optional = true }
+a2ui-express = { git = "https://github.com/Niach/a2ui-express-compiler-rust", rev = "df5a7cbf344cc236dab345af7c6af4fb9c257486", optional = true }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 libc = "0.2"

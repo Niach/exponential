@@ -50,7 +50,7 @@ pub enum Body {
 /// A shell document that passed validation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Document {
-    /// The file stem (`panel` for `panel.json`).
+    /// The file stem (`panel` for `panel.express`).
     pub name: String,
     /// Where the shell puts it (#EDE-8).
     pub surface: SurfaceHeader,
@@ -59,7 +59,8 @@ pub struct Document {
     pub data: Option<Value>,
     /// The normalized tree eui-core reduced it to.
     pub tree: UiNode,
-    /// The file's JSON as it was read.
+    /// The document's JSON form (`{surface, root, data}`: what its Express
+    /// compiles to, [`crate::express::compile_document`]).
     pub source: Value,
     /// [`crate::digest`] of the file's bytes (what a shell reports with its
     /// frame); empty for a document validated from a value.
@@ -218,6 +219,13 @@ pub fn validate_theme(source: &Value) -> Result<Arc<ResolvedTheme>, Vec<Issue>> 
     try_load_theme(source, &ThemeOptions::core(&refs))
         .map(Arc::new)
         .map_err(|issues| issues.into_iter().map(|i| Issue::new(i.path, i.message)).collect())
+}
+
+/// #EDE-216: a document file's bytes (`<name>.express`) compiled and
+/// validated ([`crate::express::validate_express`]).
+pub fn validate_bytes(name: &str, bytes: &[u8]) -> Result<Document, Vec<Issue>> {
+    let source = std::str::from_utf8(bytes).map_err(|e| vec![Issue::new("file", format!("not UTF-8 text: {e}"))])?;
+    crate::express::validate_express(name, source)
 }
 
 /// Parse a file's bytes: JSON errors become one issue with the position.
