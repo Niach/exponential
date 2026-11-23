@@ -96,9 +96,14 @@ async function groupChatInTx(
     const shared = await hostShares(tx, existing)
     const session = shared === null || shared === existing.shared ? existing : { ...existing, shared }
     if (session !== existing) await restampTreesInTx(tx, [existing.id], shared!)
-    // An agent on an unshared machine talks to its owner only.
-    if (!sessionVisibleTo(session, userId)) throw new TRPCError({ code: `NOT_FOUND`, message: DEVICE_NOT_SHARED_MESSAGE })
-    return { session, created: null }
+    if (sessionVisibleTo(session, userId)) return { session, created: null }
+    // An agent on an unshared machine talks to its owner only. A private
+    // chat whose starter LEFT the team is nobody's any more: it ends as
+    // theirs (below) and the agent starts a new one.
+    if (await getTeamMember(session.userId, session.teamId)) {
+      throw new TRPCError({ code: `NOT_FOUND`, message: DEVICE_NOT_SHARED_MESSAGE })
+    }
+    await tx.update(agents).set({ groupChatId: null }).where(eq(agents.id, locked.id))
   }
   const device = await resolveSessionDevice(userId, locked.teamId, locked.deviceId, tx)
   // Its starter: the agent's owner while they are a member who may run on

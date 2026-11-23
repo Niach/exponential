@@ -238,6 +238,27 @@ describe.skipIf(!ready.ok)(`team agents as group chats (#EXP-1990)`, () => {
     expect(await sessionRow(mine.sessionId)).toMatchObject({ shared: false })
   }, 60_000)
 
+  it(`a private chat whose starter left the team ends as theirs; the agent starts a new one`, async () => {
+    const owner = await user()
+    const other = await user()
+    const teamId = await team([[owner, `owner`], [other, `owner`]])
+    const box = await device(owner)
+    const otherBox = await device(other)
+    const a = await agent(db, teamId, owner, box.deviceId)
+    const old = await sendSession({ userId: owner, input: { agentId: a.id, text: `mine` } })
+    expect(await sessionRow(old.sessionId)).toMatchObject({ userId: owner, shared: false })
+    // The owner leaves; the other owner moves the agent to their own machine.
+    await db.delete(teamMembers).where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, owner)))
+    await db.update(agents).set({ deviceId: otherBox.deviceId }).where(eq(agents.id, a.id))
+    await db.update(sessions).set({ deviceId: otherBox.deviceId }).where(eq(sessions.id, old.sessionId))
+    const fresh = await sendSession({ userId: other, input: { agentId: a.id, text: `ours now` } })
+    expect(fresh.sessionId).not.toBe(old.sessionId)
+    expect(await sessionRow(fresh.sessionId)).toMatchObject({ userId: other, agentId: a.id, deviceId: otherBox.deviceId })
+    expect((await agentRow(a.id)).groupChatId).toBe(fresh.sessionId)
+    expect(await sessionRow(old.sessionId)).toMatchObject({ userId: owner, agentId: null, status: `ended`, shared: false })
+    expect((await linesOf(fresh.sessionId)).map((line) => line.body)).toEqual([`ours now`])
+  }, 60_000)
+
   it(`a trigger firing and a nudge land in the group chat; a question's push goes to the asker, else the owner`, async () => {
     const owner = await user()
     const mate = await user()
