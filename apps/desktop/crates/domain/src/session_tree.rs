@@ -2989,6 +2989,10 @@ pub struct AgentRow {
     /// brand mark instead of icon/color, always first.
     #[serde(default)]
     pub assistant: bool,
+    /// #EXP-1990 (agent-settings.json `groupChat`): a team agent's group
+    /// chat root; absent while it has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_chat_id: Option<String>,
 }
 
 /// `localeCompare`-ish: case-insensitive first, then exact.
@@ -2999,9 +3003,10 @@ fn locale_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 /// NEW-2: the rail's Agents section: one row per `agents` definition of the
 /// team (`None` = every team) by `sort_order`, then name, then id; missing
 /// icon/color fall back to the fixture defaults. The spinner / needs-you
-/// dot read the VIEWER's own conversation session with the agent (a root
-/// with `agent_id` and `user_id == me`); a member without one sees a quiet
-/// row. #EXP-1714: a team lists `agent_settings::agents_in_team` (the
+/// dot read the agent's chat for the viewer
+/// ([`crate::agent_settings::agent_chat_of`], #EXP-1990: a team agent's
+/// group chat, else the root with `agent_id` and `user_id == me`); a member
+/// without one sees a quiet row. #EXP-1714: a team lists `agent_settings::agents_in_team` (the
 /// viewer's global Assistant rides along; `team_ids` = the synced teams).
 pub fn list_agents(
     agents: &[&AgentDefRow],
@@ -3010,14 +3015,6 @@ pub fn list_agents(
     team_ids: &[&str],
     me: Option<&str>,
 ) -> Vec<AgentRow> {
-    let mut mine: HashMap<&str, &SessionRow> = HashMap::new();
-    for session in sessions {
-        if let Some(agent_id) = session.agent_id.as_deref().filter(|id| !id.is_empty()) {
-            if is_root(session) && me.is_some() && session.user_id.as_deref() == me {
-                mine.insert(agent_id, session);
-            }
-        }
-    }
     let in_team: Vec<&AgentDefRow> = match team_id {
         Some(team) => crate::agent_settings::agents_in_team(agents.iter().copied(), team, team_ids, me),
         None => agents.to_vec(),
@@ -3044,7 +3041,12 @@ pub fn list_agents(
     agents
         .into_iter()
         .map(|agent| {
-            let conversation = mine.get(agent.id.as_str());
+            let conversation = crate::agent_settings::agent_chat_of(
+                &agent.id,
+                agent.group_chat_id.as_deref(),
+                sessions.iter().copied(),
+                me,
+            );
             let live = conversation.is_some_and(|session| !session.is_ended());
             AgentRow {
                 agent_id: agent.id.clone(),
@@ -3055,6 +3057,7 @@ pub fn list_agents(
                 busy: live && conversation.is_some_and(|session| session.busy),
                 needs_you: live && conversation.is_some_and(|session| session.needs_input),
                 assistant: agent.is_assistant(),
+                group_chat_id: agent.group_chat_id.clone(),
             }
         })
         .collect()

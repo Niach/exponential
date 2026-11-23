@@ -185,12 +185,13 @@ object NeedsYou {
         owner: Boolean,
         sessions: List<SessionInput>,
         pullRequests: List<PullRequestInput>,
+        group: Set<String>,
     ): List<Row> {
         val byId = sessions.associateBy { it.id }
         return pullRequests.mapNotNull { pr ->
             val root = pr.rootSessionId?.let { byId[it] } ?: return@mapNotNull null
             if (pr.state != "open" && pr.state != "draft") return@mapNotNull null
-            if (root.agentId != null && root.userId != me) return@mapNotNull null
+            if (root.agentId != null && root.userId != me && root.id !in group) return@mapNotNull null
             val stuck = MergeTrain.stuckRow(
                 number = pr.number,
                 state = pr.mergeState ?: return@mapNotNull null,
@@ -224,6 +225,7 @@ object NeedsYou {
         me: String?,
         sessions: List<SessionInput>,
         pullRequests: List<PullRequestInput>,
+        group: Set<String>,
     ): List<Row> {
         val byId = sessions.associateBy { it.id }
         val live = pullRequests.filter { it.state == "open" || it.state == "draft" }.map { it.id }.toSet()
@@ -232,7 +234,7 @@ object NeedsYou {
             val root = pr.rootSessionId?.let { byId[it] } ?: return@mapNotNull null
             if (pr.state != "open" || pr.checksState != "success") return@mapNotNull null
             if (pr.mergeState in TRAIN_TOOK) return@mapNotNull null
-            if (root.agentId != null && root.userId != me) return@mapNotNull null
+            if (root.agentId != null && root.userId != me && root.id !in group) return@mapNotNull null
             if (root.id in working || (pr.basePullRequestId != null && pr.basePullRequestId in live)) return@mapNotNull null
             Row(
                 messageId = pr.id,
@@ -267,9 +269,15 @@ object NeedsYou {
         mergeMode: String?,
         /** #EXP-1710: the viewer owns the team (a stuck row's Merge now). */
         owner: Boolean = false,
+        /** #EXP-1990 (agent-settings.json `groupChat`): the roots that are a
+         *  team agent's group chat (`agents.groupChatId`): they count for
+         *  every member. */
+        groupChatIds: Collection<String> = emptyList(),
     ): List<Row> {
-        // Another member's agent conversation is theirs (chats.json `listAgents`).
-        val readable = sessions.filter { it.agentId == null || it.userId == me }.associateBy { it.id }
+        // Another member's agent conversation is theirs (chats.json `listAgents`);
+        // a team agent's group chat is everyone's.
+        val group = groupChatIds.toSet()
+        val readable = sessions.filter { it.agentId == null || it.userId == me || it.rootId in group }.associateBy { it.id }
         val live = readable.filterValues { it.status != "ended" }
         val rows = LinkedHashMap<String, Row>()
         val seen = HashSet<String>()
@@ -289,12 +297,12 @@ object NeedsYou {
         for (row in unnamed) {
             if (waitingIn.add(row.sessionId)) rows[row.messageId] = row
         }
-        val stuck = stuckRows(now, me, owner, sessions, pullRequests)
+        val stuck = stuckRows(now, me, owner, sessions, pullRequests, group)
         val stuckIds = stuck.mapTo(HashSet()) { it.messageId }
         val ready = if (mergeMode == MergeTrain.MODE_AUTO) {
             emptyList()
         } else {
-            pullRequestRows(now, me, sessions, pullRequests).filter { it.messageId !in stuckIds }
+            pullRequestRows(now, me, sessions, pullRequests, group).filter { it.messageId !in stuckIds }
         }
         return (rows.values + stuck + ready)
             .sortedWith(compareBy<Row> { it.kind == Kind.Pr }.thenByDescending { ms(it.createdAt) }.thenByDescending { it.messageId })

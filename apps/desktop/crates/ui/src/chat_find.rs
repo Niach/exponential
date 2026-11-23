@@ -396,7 +396,11 @@ impl SteerSessionView {
                         FeedKind::UserMessage { text, .. }
                             if domain::chats::command_divider(text).is_none() && steer::commands::parse_command(text, agent).is_none() =>
                         {
-                            Some(domain::chat_express::parse_action_input(text).map_or_else(|| text.clone(), |(_, body)| body))
+                            // #EXP-1990: a group chat's member line over its body.
+                            Some(
+                                domain::chat_express::parse_action_input(text)
+                                    .map_or_else(|| crate::steer_viewer::member_body(text).into_owned(), |(_, body)| body),
+                            )
                         }
                         _ => None,
                     };

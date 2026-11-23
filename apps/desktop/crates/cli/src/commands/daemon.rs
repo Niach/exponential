@@ -2956,6 +2956,10 @@ const DAEMON_SHAPES: &[&str] = &[
     // EXP-1542: the server's move records (`session.moved` /
     // `session.handed_off`): this device hands a moved session's branch on.
     "events",
+    // #EXP-1990: which root is a team agent's group chat
+    // (`agents.group_chat_id`): a person's message there names its author
+    // (`coding::pickup::MemberInputs`).
+    "agents",
 ];
 
 /// EXP-1457: how often the 1Hz loop looks for a team change.
@@ -3409,9 +3413,8 @@ impl DaemonHost {
             let held = self.pickup.live.live_views().into_keys().chain(self.pickup.excluded());
             let mut messages = read_keyed_messages(&store, &pickup_session_ids(&rows, &self.pickup.device_id, held));
             // EXP-1458: who an engine reply's `@email` names.
-            coding::sealing::note_users(
-                read_shape_rows::<domain::rows::User>(&store, "users").into_iter().filter_map(|user| Some((user.id, user.email?))),
-            );
+            let users = read_shape_rows::<domain::rows::User>(&store, "users");
+            coding::sealing::note_users(users.iter().filter_map(|user| Some((user.id.clone(), user.email.clone()?))));
             // EXP-1458: agent-to-agent messages that came over eNet ahead
             // of their synced copy (deduped by id against it).
             coding::direct_inbox::merge(&mut messages);
@@ -3421,7 +3424,14 @@ impl DaemonHost {
             } else {
                 Vec::new()
             };
-            self.pickup_pass(&rows, &messages, &moves);
+            // #EXP-1990: the group chats and the members' names (empty
+            // until `agents` synced: every input as before).
+            let member_inputs = coding::pickup::MemberInputs::new(
+                &rows,
+                &read_shape_rows::<domain::rows::AgentDefRow>(&store, "agents"),
+                &users,
+            );
+            self.pickup_pass(&rows, &messages, &moves, &member_inputs);
         }
     }
 
@@ -3429,7 +3439,13 @@ impl DaemonHost {
     /// resumes block on the network and git (a first clone takes minutes),
     /// so each runs on its own thread with its row held in flight; the rest
     /// only touch a live engine and run right here.
-    fn pickup_pass(&mut self, rows: &[SessionRow], messages: &[MessageRow], moves: &[coding::pickup::MoveRecord]) {
+    fn pickup_pass(
+        &mut self,
+        rows: &[SessionRow],
+        messages: &[MessageRow],
+        moves: &[coding::pickup::MoveRecord],
+        member_inputs: &coding::pickup::MemberInputs,
+    ) {
         let live = &self.pickup.live;
         for session_id in live.prune() {
             log::debug!("pickup: session {session_id}'s engine is gone");
@@ -3451,6 +3467,7 @@ impl DaemonHost {
             in_flight: &excluded,
             revive_held: &revive_held,
             moves,
+            member_inputs,
         });
         // EXP-1292: rows this host claimed whose launch failed transiently
         // (or whose claim answer was lost) read `running` — plan only

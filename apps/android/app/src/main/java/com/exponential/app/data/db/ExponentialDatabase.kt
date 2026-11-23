@@ -118,7 +118,9 @@ import androidx.room.TypeConverters
     //      [MIGRATION_131_132]; only the sessions shape refetches.
     // v133 (#EXP-2027): a retired local table drops with its shape offset,
     //      explicit [MIGRATION_132_133]; nothing refetches.
-    version = 133,
+    // v134 (#EXP-1990): agents.group_chat_id (a team agent's group chat),
+    //      explicit [MIGRATION_133_134]; only the agents shape refetches.
+    version = 134,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

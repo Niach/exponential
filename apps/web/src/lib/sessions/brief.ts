@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server"
+import { isGroupChat } from "@/lib/agents/group-chat"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { composeBrief, type BriefInput } from "@exp/domain-contract/session-brief"
 import { db } from "@/db/connection"
@@ -101,7 +102,12 @@ export async function composeSessionBrief(sessionId: string): Promise<{
   if (!root) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
 
   // EXP-1458: the server never reads a sealed first message.
-  const first = await firstPersonMessage(session.id)
+  // #EXP-1990 (transcript-grouping.json MEMBER INPUTS): a team agent's
+  // group chat has NO Request: its first message stays pending and reaches
+  // the agent like every later one, worded with the member who wrote it.
+  const first = (await isGroupChat(db, session))
+    ? { body: null, attachmentIds: [], issueBrief: null }
+    : await firstPersonMessage(session.id)
   const sealedText = isSealedBody(first.body) ? first.body : null
   const sealedAttachments = sealedText ? await sealedAttachmentLines(first.attachmentIds) : []
   const input: BriefInput = { text: sealedText ? null : first.body }

@@ -76,11 +76,10 @@ public final class SessionSealer: @unchecked Sendable {
                     root = try SessionEntity.fetchOne(db, key: session.rootId)
                 }
             case let .agent(agentId, _, _, _, _, _):
-                guard let me else { return nil }
-                root = try SessionEntity.fetchOne(db, sql: """
-                    SELECT * FROM "sessions" WHERE "agent_id" = ? AND "user_id" = ? AND "parent_id" IS NULL
-                    ORDER BY "created_at" DESC LIMIT 1
-                    """, arguments: [agentId, me])
+                // #EXP-1990 (`agentChatOf`): a team agent's group chat (its
+                // key, whoever started it), else my own conversation; none
+                // = the first message creates the key.
+                root = try AgentSettings.agentChat(db: db, agentId: agentId, me: me)
             case let .app(appId, _, _, _, _, _, _):
                 guard let me else { return nil }
                 root = try SessionEntity.fetchOne(db, sql: """

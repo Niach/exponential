@@ -261,6 +261,7 @@ fn with_input<R>(team_id: &str, now: i64, cx: &App, f: impl FnOnce(&NeedsYouInpu
     shares_generation(team_id, me.as_deref(), cx);
     let pulls = crate::session_data::team_pulls(team_id, cx);
     let merge_mode = Store::global(cx).collections().teams.read(cx).get(team_id).map(|row| row.merge_mode().to_string());
+    let group_chat_ids = crate::session_data::group_chat_ids(cx);
     let input = SHARES.with(|teams| {
         let mut teams = teams.borrow_mut();
         let cache = teams.entry(team_id.to_string()).or_default();
@@ -294,6 +295,7 @@ fn with_input<R>(team_id: &str, now: i64, cx: &App, f: impl FnOnce(&NeedsYouInpu
             messages,
             pull_requests: cache.pulls.as_mut().map(|(_, rows)| std::mem::take(rows)).unwrap_or_default(),
             merge_mode,
+            group_chat_ids,
         }
     });
     let answer = f(&input);
@@ -427,6 +429,9 @@ struct RowsKey {
     /// #PERF-10: the team's merge mode (a rename of the team folds nothing).
     merge_mode: Option<String>,
     owner: bool,
+    /// #EXP-1990: the team agents' group chats (an agent row naming one
+    /// moves no share).
+    group_chat_ids: Vec<String>,
     /// The ages move with the minute.
     minute: i64,
 }
@@ -459,6 +464,7 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
         ],
         merge_mode: collections.teams.read(cx).get(team_id).map(|row| row.merge_mode().to_string()),
         owner,
+        group_chat_ids: crate::session_data::group_chat_ids(cx),
         minute: now / 60_000,
     };
     if let Some((cached, rows)) = cx.default_global::<RowsMemo>().0.get(team_id) {

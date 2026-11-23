@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react"
+import { isGroupChatRoot } from "@/lib/group-chat"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { Bell } from "lucide-react"
@@ -304,7 +305,8 @@ export function InboxView({
     const target = sessionTarget(
       session.sessionId,
       (id) => sessionCollection.get(id) as SessionRow | undefined,
-      viewerId
+      viewerId,
+      isGroupChatRoot
     )
     if (target.to === `agent`) {
       void navigate({

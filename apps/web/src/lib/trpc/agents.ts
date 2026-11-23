@@ -23,10 +23,8 @@ import {
   agents,
   apps,
   attachments,
-  conversations,
   devices,
   messages,
-  sessionIssues,
   sessions,
   teams,
   type Agent,
@@ -34,9 +32,8 @@ import {
 } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner, getTeamMember, getUserTeamIds } from "@/lib/auth/membership"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
+import { restampTreesInTx } from "@/lib/agents/group-chat"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
-import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
-import { dropNonReaderKeysInTx } from "@/lib/sessions/tree-keys"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
 import {
   assertMcpServersInTeam,
@@ -583,37 +580,9 @@ export const agentsRouter = router({
                 )
               )
           }
-          if (moved) {
-            // The whole trees' visibility mirrors follow the new device.
-            await tx
-              .update(sessions)
-              .set({ shared: moved.shared, updatedAt: now })
-              .where(inArray(sessions.rootId, ids))
-            await tx.update(messages).set({ shared: moved.shared }).where(inArray(messages.rootId, ids))
-            await tx
-              .update(conversations)
-              .set({ shared: moved.shared })
-              .where(
-                inArray(
-                  conversations.sessionId,
-                  tx.select({ id: sessions.id }).from(sessions).where(inArray(sessions.rootId, ids))
-                )
-              )
-            await tx
-              .update(sessionIssues)
-              .set({ shared: moved.shared })
-              .where(
-                inArray(
-                  sessionIssues.sessionId,
-                  tx.select({ id: sessions.id }).from(sessions).where(inArray(sessions.rootId, ids))
-                )
-              )
-            // #EXP-1409: what a private chat's bus wrote in full while only
-            // the owner read these trees goes neutral for their new readers.
-            await hidePrivateLinesInTx(tx, ids)
-            // #FEED-177: trees gone private keep only their readers' key wraps.
-            if (!moved.shared) await dropNonReaderKeysInTx(tx, ids)
-          }
+          // The whole trees' visibility mirrors follow the new device
+          // (#EXP-1409 neutral lines, #FEED-177 key wraps).
+          if (moved) await restampTreesInTx(tx, ids, moved.shared)
         }
         const { triggerState: _state, ...rest } = updated!
         return { agent: rest, txid }

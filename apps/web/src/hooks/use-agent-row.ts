@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import { agentsInTeam } from "@exp/domain-contract/agent-settings"
-import { agentCollection, sessionCollection, teamCollection } from "@/lib/collections"
+import { agentChatOf, agentsInTeam } from "@exp/domain-contract/agent-settings"
+import { agentCollection, sessionCollection, teamCollection, userCollection } from "@/lib/collections"
 import type { SessionRow } from "@/lib/session-tree"
 import type { SyncedAgent } from "@/components/team/agents-section"
 
@@ -59,20 +59,46 @@ export function useTeamAgentRows(teamIds: readonly string[], me: string | null |
   }, [all, teams, key, me])
 }
 
-/** The viewer's conversation with an agent (its root: `agentId`, theirs),
- *  in ANY team: #EXP-1714, the global Assistant's lives in the personal team. */
+/** #EXP-1990 (agent-settings.json `groupChat`): the roots that are a team
+ *  agent's group chat (every synced agent): they count for every member. */
+export function useGroupChatIds(): string[] {
+  const all = useAllAgentRows()
+  return useMemo(() => all.flatMap((agent) => (agent.groupChatId ? [agent.groupChatId] : [])).sort(), [all])
+}
+
+/** The viewer's chat with an agent (`agentChatOf`): a team agent's GROUP
+ *  chat (#EXP-1990, `agents.groupChatId`), else the root with its `agentId`
+ *  they started, in ANY team: #EXP-1714, the global Assistant's lives in
+ *  the personal team. */
 export function useMyAgentConversation(agentId: string | null | undefined, me: string | null | undefined): SessionRow | null {
+  const { agent } = useAgentRow(agentId)
+  const groupChatId = agent?.groupChatId ?? null
   const { data } = useLiveQuery(
     (query) =>
-      agentId && me
-        ? query
-            .from({ sessions: sessionCollection })
-            .where(({ sessions }) => and(eq(sessions.agentId, agentId), eq(sessions.userId, me)))
-        : undefined,
-    [agentId ?? null, me ?? null]
+      groupChatId
+        ? query.from({ sessions: sessionCollection }).where(({ sessions }) => eq(sessions.id, groupChatId))
+        : agentId && me
+          ? query
+              .from({ sessions: sessionCollection })
+              .where(({ sessions }) => and(eq(sessions.agentId, agentId), eq(sessions.userId, me)))
+          : undefined,
+    [agentId ?? null, me ?? null, groupChatId]
   )
   return useMemo(
-    () => ((data ?? []) as SessionRow[]).find((row) => row.parentId === null) ?? null,
+    () =>
+      agentId
+        ? agentChatOf({ agent: { agentId, groupChatId }, sessions: (data ?? []) as SessionRow[], me })
+        : null,
+    [data, agentId, groupChatId, me]
+  )
+}
+
+/** #EXP-1990 (chats.json `chatPreview`): every synced member's name by id:
+ *  a teammate's line in a chat list reads under their name. */
+export function useMemberNames(): Readonly<Record<string, string>> {
+  const { data } = useLiveQuery((query) => query.from({ users: userCollection }))
+  return useMemo(
+    () => Object.fromEntries(((data ?? []) as { id: string; name?: string | null }[]).flatMap((user) => (user.name ? [[user.id, user.name]] : []))),
     [data]
   )
 }

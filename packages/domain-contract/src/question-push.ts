@@ -17,9 +17,15 @@ export const QUESTION_PUSH_BODY_MAX = fixture.bodyMax
 export const QUESTION_PUSH_DATA_KEYS = fixture.dataKeys
 
 /** Who a question/plan card a session posts is pushed to: a ROOT's owner
- *  alone; a child's ask routes to its parent agent (bus), never a push. */
-export function questionPushRecipients(session: { parentId: string | null; userId: string }): string[] {
-  return session.parentId === null ? [session.userId] : []
+ *  alone; a child's ask routes to its parent agent (bus), never a push.
+ *  #EXP-1990: a team agent's GROUP CHAT pushes `groupRecipients` instead
+ *  (agent-settings.json `groupChat.askCases`: the asker, else its owner). */
+export function questionPushRecipients(
+  session: { parentId: string | null; userId: string },
+  groupRecipients?: readonly string[] | null
+): string[] {
+  if (session.parentId !== null) return []
+  return groupRecipients ? [...groupRecipients] : [session.userId]
 }
 
 /** The push title: an Assistant conversation's decision copy, else the

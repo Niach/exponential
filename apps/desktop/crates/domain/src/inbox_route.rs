@@ -107,18 +107,21 @@ pub enum SessionTarget {
 
 /// The session's target for `viewer_id`. `agent_id` and `user_id` are the
 /// ROOT's (a child carries no agent: it resolves through its root); a NULL
-/// `root_id` = the row is its own root.
+/// `root_id` = the row is its own root. #EXP-1990: `group_chat` = the root
+/// is its agent's group chat (`agents.group_chat_id`): every member's chat
+/// with it.
 pub fn session_target(
     id: &str,
     root_id: Option<&str>,
     agent_id: Option<&str>,
     user_id: Option<&str>,
     viewer_id: Option<&str>,
+    group_chat: bool,
 ) -> SessionTarget {
     let root_id = non_empty(root_id).unwrap_or(id);
     let is_root = root_id == id;
     if let Some(agent_id) = non_empty(agent_id) {
-        let own = user_id.is_some() && user_id == viewer_id;
+        let own = (user_id.is_some() && user_id == viewer_id) || group_chat;
         return if is_root && own {
             SessionTarget::Agent {
                 agent_id: agent_id.to_string(),
@@ -223,6 +226,7 @@ mod tests {
                 session["agentId"].as_str(),
                 session["userId"].as_str(),
                 case["viewerId"].as_str(),
+                session["groupChat"].as_bool() == Some(true),
             );
             assert_eq!(got, expected_session(&case["expected"]), "{}", case["name"]);
         }

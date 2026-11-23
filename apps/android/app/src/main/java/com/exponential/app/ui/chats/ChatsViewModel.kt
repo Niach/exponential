@@ -423,13 +423,22 @@ class ChatsViewModel @Inject constructor(
     /** chats.json `chatList`: the phone list (roots by activity, the preview,
      *  the time, the unread count); #FEED-191: no chips, the screen groups it
      *  under [Chats.chatSections]. */
+    /** #EXP-1990 (chats.json `chatPreview`): the viewer, and every synced
+     *  member's name by id: a teammate's line reads under their name. */
+    private val viewerAndMembers: Flow<Pair<String?, Map<String, String>>> = combine(
+        auth.userId,
+        dbFlow.scopedQuery(emptyList()) { it.userDao().observeAll() }
+            .map { users -> users.mapNotNull { user -> user.name?.takeIf { it.isNotBlank() }?.let { user.id to it } }.toMap() }
+            .distinctUntilChanged(),
+    ) { me, names -> me to names }
+
     val chatList: StateFlow<Chats.ChatList> = combine(
         combine(groups, inputs) { g, i -> g to i },
         prStates,
         combine(words, waiting, walls) { w, waits, ws -> Triple(w, waits, ws) },
-        _view,
+        combine(_view, viewerAndMembers) { view, names -> view to names },
         minuteClock,
-    ) { (g, input), states, (w, waits, ws), view, now ->
+    ) { (g, input), states, (w, waits, ws), (view, names), now ->
         Chats.chatList(
             groups = g,
             messages = input.messages,
@@ -443,6 +452,8 @@ class ChatsViewModel @Inject constructor(
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
             // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
             visible = input.sessions.mapTo(HashSet()) { it.id },
+            me = names.first,
+            members = names.second,
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, Chats.ChatList(emptyList()))
 
@@ -464,11 +475,11 @@ class ChatsViewModel @Inject constructor(
      *  Archived page. */
     val agentRows: StateFlow<List<Chats.AgentChatRow>> = combine(
         combine(agents, inputs) { a, i -> a to i },
-        auth.userId,
+        viewerAndMembers,
         _view,
         minuteClock,
         teamAppRows,
-    ) { (rows, input), me, view, now, apps ->
+    ) { (rows, input), (me, members), view, now, apps ->
         Chats.agentChatRows(
             // #EXP-1849 (chats.json): an app's agent chat IS the app row.
             agents = Chats.sidebarAgents(rows, apps.map { it.agentId }) { it.agentId },
@@ -479,6 +490,7 @@ class ChatsViewModel @Inject constructor(
             view = view,
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
+            members = members,
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyList())
 
@@ -486,10 +498,10 @@ class ChatsViewModel @Inject constructor(
      *  and the sessions, by name; none on the Archived page. */
     val appRows: StateFlow<List<Chats.AppChatRow>> = combine(
         combine(teamApps, inputs) { a, i -> a to i },
-        auth.userId,
+        viewerAndMembers,
         _view,
         minuteClock,
-    ) { (apps, input), me, view, now ->
+    ) { (apps, input), (me, members), view, now ->
         Chats.appChatRows(
             apps = apps,
             sessions = input.sessions,
@@ -499,6 +511,7 @@ class ChatsViewModel @Inject constructor(
             view = view,
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
+            members = members,
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyList())
 
@@ -614,9 +627,10 @@ class ChatsViewModel @Inject constructor(
         sender.send(SessionsSendInput.toAgent(agentId, text))
     }
 
-    /** NEW-2: the viewer's conversation session per agent id (a row opens it). */
-    val conversations: StateFlow<Map<String, String>> = combine(sessions, auth.userId) { s, me ->
-        SessionTree.conversations(s, me)
+    /** NEW-2: the viewer's chat per agent id (a row opens it); #EXP-1990:
+     *  a team agent's group chat. */
+    val conversations: StateFlow<Map<String, String>> = combine(sessions, auth.userId, agentDefinitions) { s, me, defs ->
+        SessionTree.conversations(s, me, defs.associate { it.id to it.groupChatId })
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** The member teams, name order — the per-team bands. */
@@ -726,6 +740,8 @@ internal fun needsYouFold(
         },
         mergeMode = mergeMode,
         owner = owner,
+        // #EXP-1990 (needs-you.json): a team agent's group chat counts for every member.
+        groupChatIds = definitions.mapNotNull { it.groupChatId?.takeIf { id -> id.isNotEmpty() } },
     )
 }
 

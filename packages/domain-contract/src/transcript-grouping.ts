@@ -170,6 +170,17 @@ export type FeedMarkerKey = keyof typeof fixture.copy.markers
 export type FeedInput =
   | { kind: `marker`; key: FeedMarkerKey; label: string }
   | { kind: `relay`; name: string; sessionId: string; body: string; report: boolean }
+  /** #EXP-1990: a member's message in a team agent's group chat. */
+  | { kind: `member`; name: string; userId: string; body: string }
+
+const MEMBER_PATTERN = /^Message from (.+?) \(member ([^,)\s]+)\): ([\s\S]*)$/
+
+/** #EXP-1990 (`memberInputCases`): a person's message as the device words
+ *  it in a team agent's group chat (`coding::pickup::input_text`), so the
+ *  agent and the transcript know who wrote it. */
+export function memberInput(name: string, userId: string, body: string): string {
+  return `Message from ${name} (member ${userId}): ${body}`
+}
 
 const MARKERS = fixture.copy.markers as Record<string, string>
 const TAG_PATTERN = /^\[([a-z_]+)\] /
@@ -181,12 +192,15 @@ function marker(key: FeedMarkerKey): FeedInput {
 }
 
 /** A feed input: the device's tagged system line = a marker, another
- *  session's input = a relay, else null (a person's prompt). */
+ *  session's input = a relay, a member's line in a group chat = a member
+ *  (#EXP-1990), else null (a person's prompt). */
 export function feedInput(text: string): FeedInput | null {
   const tag = TAG_PATTERN.exec(text)
   if (tag && Object.hasOwn(MARKERS, tag[1]!)) return marker(tag[1] as FeedMarkerKey)
   if (SCHEDULE_PATTERN.test(text)) return marker(`schedule`)
   if (EVENT_PATTERN.test(text)) return marker(`event`)
+  const member = MEMBER_PATTERN.exec(text)
+  if (member) return { kind: `member`, name: member[1]!, userId: member[2]!, body: member[3]! }
   const cross = crossSessionInput(text)
   if (!cross) return null
   return { kind: `relay`, name: cross.name, sessionId: cross.sessionId, body: cross.body, report: cross.kind === `report` }

@@ -87,7 +87,7 @@ fn board(id: &str, name: &str, color: &str, icon: Option<&str>) -> domain::rows:
 }
 
 fn agent(id: &str, name: &str, icon: &str, color: &str, assistant: bool) -> domain::session_tree::AgentRow {
-    domain::session_tree::AgentRow { agent_id: id.into(), team_id: "t1".into(), name: name.into(), icon: icon.into(), color: color.into(), busy: false, needs_you: false, assistant }
+    domain::session_tree::AgentRow { agent_id: id.into(), team_id: "t1".into(), name: name.into(), icon: icon.into(), color: color.into(), busy: false, needs_you: false, assistant, group_chat_id: None }
 }
 
 fn app(id: &str, name: &str, icon: Option<&str>, color: Option<&str>) -> crate::apps_view::AppEntry {

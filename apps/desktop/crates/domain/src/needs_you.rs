@@ -113,6 +113,11 @@ pub struct NeedsYouInput {
     /// a person (merge-train.json NEEDS YOU), so no ready rows.
     #[serde(default)]
     pub merge_mode: Option<String>,
+    /// #EXP-1990 (agent-settings.json `groupChat`): the roots that are a
+    /// team agent's group chat (`agents.group_chat_id`): they count for
+    /// every member.
+    #[serde(default)]
+    pub group_chat_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -255,7 +260,7 @@ fn pull_request_rows(input: &NeedsYouInput) -> Vec<NeedsYouRow> {
             if pr.state != "open" || pr.checks_state.as_deref() != Some("success") {
                 return None;
             }
-            if root.agent_id.is_some() && root.user_id != input.me {
+            if root.agent_id.is_some() && root.user_id != input.me && !input.group_chat_ids.contains(&root.id) {
                 return None;
             }
             let stacked = pr.base_pull_request_id.as_deref().is_some_and(|base| live.contains(base));
@@ -281,11 +286,15 @@ fn pull_request_rows(input: &NeedsYouInput) -> Vec<NeedsYouRow> {
 /// THE fold: one row per waiting card, once, plus (#EXP-1699) the PRs ready to
 /// merge, newest first.
 pub fn needs_you(input: &NeedsYouInput) -> Vec<NeedsYouRow> {
-    // Another member's agent conversation is theirs (chats.json `listAgents`).
+    // Another member's agent conversation is theirs (chats.json `listAgents`);
+    // a team agent's group chat is everyone's (#EXP-1990).
+    let group: HashSet<&str> = input.group_chat_ids.iter().map(String::as_str).collect();
     let readable: HashMap<&str, &NeedsYouSessionInput> = input
         .sessions
         .iter()
-        .filter(|session| session.agent_id.is_none() || session.user_id == input.me)
+        .filter(|session| {
+            session.agent_id.is_none() || session.user_id == input.me || group.contains(session.root_id.as_str())
+        })
         .map(|session| (session.id.as_str(), session))
         .collect();
     let sessions: HashMap<&str, &NeedsYouSessionInput> =
@@ -396,6 +405,7 @@ mod tests {
             }],
             pull_requests: Vec::new(),
             merge_mode: None,
+            group_chat_ids: Vec::new(),
         });
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].message_id, "q2");

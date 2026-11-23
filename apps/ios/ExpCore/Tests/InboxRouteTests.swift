@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import XCTest
 @testable import ExpCore
 
@@ -98,11 +99,36 @@ final class InboxRouteTests: XCTestCase {
                     rootId: session["rootId"] as? String,
                     agentId: session["agentId"] as? String,
                     userId: session["userId"] as? String,
-                    viewerId: testCase["viewerId"] as? String
+                    viewerId: testCase["viewerId"] as? String,
+                    groupChat: session["groupChat"] as? Bool ?? false
                 ),
                 try sessionTarget(testCase["expected"]),
                 name
             )
+        }
+    }
+
+    /// #EXP-1990: over the store, a team agent's group chat (its agent's
+    /// `group_chat_id`) opens the agent's screen for every member; a child
+    /// of it, or another member's private conversation, stays a session.
+    func testTheStoreRoutesAGroupChatToTheAgentForEveryMember() throws {
+        let pool = try DatabasePool(path: NSTemporaryDirectory() + "exp1990-inbox-route-\(UUID().uuidString).sqlite")
+        try DatabaseManager.runMigrations(on: pool)
+        let rows = [
+            #"{"id":"g1","team_id":"t","root_id":"g1","user_id":"owner","agent_id":"ag1","shared":true,"device_id":"d","created_at":"x","updated_at":"x"}"#,
+            #"{"id":"k1","team_id":"t","root_id":"g1","parent_id":"g1","depth":1,"user_id":"owner","device_id":"d","created_at":"x","updated_at":"x"}"#,
+            #"{"id":"c2","team_id":"t","root_id":"c2","user_id":"owner","agent_id":"ag2","device_id":"d","created_at":"x","updated_at":"x"}"#,
+        ]
+        try pool.write { db in
+            for row in rows { try JSONDecoder().decode(SessionEntity.self, from: Data(row.utf8)).save(db) }
+            try AgentDefinitionEntity(id: "ag1", teamId: "t", name: "Release", createdAt: "x", updatedAt: "x", groupChatId: "g1").save(db)
+            try AgentDefinitionEntity(id: "ag2", teamId: "t", name: "Triage", createdAt: "x", updatedAt: "x").save(db)
+        }
+        try pool.read { db in
+            XCTAssertEqual(try InboxRoute.sessionTarget(db: db, sessionId: "g1", viewerId: "me"), .agent(agentId: "ag1"))
+            XCTAssertEqual(try InboxRoute.sessionTarget(db: db, sessionId: "k1", viewerId: "me"), .session(id: "k1"))
+            XCTAssertEqual(try InboxRoute.sessionTarget(db: db, sessionId: "c2", viewerId: "me"), .session(id: "c2"))
+            XCTAssertEqual(try InboxRoute.sessionTarget(db: db, sessionId: "c2", viewerId: "owner"), .agent(agentId: "ag2"))
         }
     }
 

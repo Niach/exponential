@@ -227,10 +227,10 @@ class AgentSettingsViewModel @Inject constructor(
         } ?: flowOf(null)
         ).flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** NEW-2: the caller's own conversation session with the agent (the
-     *  page's chat button opens it); null = none yet. */
-    val conversationId: StateFlow<String?> = combine(sessionRows, auth.userId) { sessions, me ->
-        agentId?.let { SessionTree.conversations(sessions, me)[it] }
+    /** NEW-2: the caller's chat with the agent (the page's chat button
+     *  opens it; #EXP-1990: a team agent's group chat); null = none yet. */
+    val conversationId: StateFlow<String?> = combine(sessionRows, auth.userId, agent) { sessions, me, row ->
+        agentId?.let { id -> SessionTree.agentChat(id, row?.groupChatId, sessions, me)?.id }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Whether the caller owns the team (owner-only controls hide otherwise). */

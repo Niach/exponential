@@ -12,7 +12,7 @@ import {
   type ChatListView,
 } from "@exp/domain-contract/chats"
 import { chatWordOf, useTeamPullRequestsByRoot } from "@/components/chat/chats-list"
-import { useTeamAgentRows } from "@/hooks/use-agent-row"
+import { useMemberNames, useTeamAgentRows } from "@/hooks/use-agent-row"
 import { useApps } from "@/hooks/use-apps"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { useNow } from "@/hooks/use-now"
@@ -89,6 +89,8 @@ export function useChatList(
   const nowIso = now.toISOString()
   const offset = localUtcOffsetMinutes(now)
 
+  // #EXP-1990: a teammate's line reads under their name.
+  const members = useMemberNames()
   const list = useMemo(() => {
     const prStates: Record<string, string[]> = {}
     const words: Record<string, ChatRowWord | null> = {}
@@ -111,8 +113,10 @@ export function useChatList(
       utcOffsetMinutes: offset,
       // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
       visibleSessionIds: tree.map((session) => session.id),
+      me: me ?? null,
+      members,
     })
-  }, [groups, messages, reads, prs, view, nowIso, offset, tree, waiting])
+  }, [groups, messages, reads, prs, view, nowIso, offset, tree, waiting, me, members])
 
   const agentRows = useMemo(
     () =>
@@ -123,11 +127,12 @@ export function useChatList(
         messages: agentMessages,
         reads,
         me: me ?? null,
+        members,
         view,
         now: nowIso,
         utcOffsetMinutes: offset,
       }),
-    [agents, apps, agentTree, agentMessages, reads, me, view, nowIso, offset]
+    [agents, apps, agentTree, agentMessages, reads, me, members, view, nowIso, offset]
   )
 
   const appRows = useMemo(
@@ -138,11 +143,12 @@ export function useChatList(
         messages,
         reads,
         me: me ?? null,
+        members,
         view,
         now: nowIso,
         utcOffsetMinutes: offset,
       }),
-    [apps, tree, messages, reads, me, view, nowIso, offset]
+    [apps, tree, messages, reads, me, members, view, nowIso, offset]
   )
 
   // #FEED-263: each root's wall (`partitionChats` `wall`), its device named.
