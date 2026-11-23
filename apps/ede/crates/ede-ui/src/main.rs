@@ -12,9 +12,10 @@ use serde_json::Value;
 
 const USAGE: &str = "usage: exponential-ui [--dir DIR] [--factory DIR] <command>
   check                    load the directory; list what applies and what is refused
-  validate FILE...         validate files without applying them (theme.json = the theme)
-  set NAME FILE|-          validate, write NAME.json (NAME = theme: theme.json) and commit it
-  rm NAME                  delete NAME.json as a commit
+  validate FILE...         validate files without applying them (NAME.express = a document, theme.json = the theme)
+  set NAME FILE|-          validate, write NAME.express and commit it (Express; a JSON document is
+                           written as Express; NAME = theme: theme.json)
+  rm NAME                  delete NAME.express as a commit
   discard NAME             drop NAME's uncommitted edit (back to the last commit)
   undo                     revert the newest edit
   reset                    every factory document back as it ships (your edits stay in the history)
@@ -46,14 +47,39 @@ fn print_changes(changes: &[Change]) {
     }
 }
 
-fn read_json(path: &str) -> Result<Value, String> {
+fn read_bytes(path: &str) -> Result<Vec<u8>, String> {
     let mut bytes = Vec::new();
     if path == "-" {
         std::io::stdin().read_to_end(&mut bytes).map_err(|e| e.to_string())?;
     } else {
         bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
     }
+    Ok(bytes)
+}
+
+fn read_json(path: &str) -> Result<Value, String> {
+    let bytes = read_bytes(path)?;
     ede_ui::doc::parse(&bytes).map_err(|issues| issues.iter().map(|i| format!("{path}: {i}")).collect::<Vec<_>>().join("\n"))
+}
+
+/// What `set` writes for a document: Express as given, or a JSON document
+/// (`{…}`) that is written as Express.
+enum Source {
+    Express(String),
+    Json(Value),
+}
+
+fn read_document(path: &str) -> Result<Source, String> {
+    let bytes = read_bytes(path)?;
+    let text = String::from_utf8(bytes).map_err(|e| format!("{path}: not UTF-8 text: {e}"))?;
+    if text.trim_start().starts_with('{') {
+        return read_json_text(path, &text).map(Source::Json);
+    }
+    Ok(Source::Express(text))
+}
+
+fn read_json_text(path: &str, text: &str) -> Result<Value, String> {
+    ede_ui::doc::parse(text.as_bytes()).map_err(|issues| issues.iter().map(|i| format!("{path}: {i}")).collect::<Vec<_>>().join("\n"))
 }
 
 /// #EDE-172 (P4): the channel `exponential-ui supervise` was started with
@@ -130,14 +156,13 @@ fn run(dir: PathBuf, factory: PathBuf, args: &[String], control: Control) -> Res
             for file in files {
                 let path = PathBuf::from(file);
                 let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("document").to_string();
-                let result = read_json(file).map_err(|e| vec![e]).and_then(|v| {
-                    let checked = if path.file_name().and_then(|f| f.to_str()) == Some(ede_ui::THEME_FILE) {
-                        ede_ui::validate_theme(&v).map(|_| ())
-                    } else {
-                        ede_ui::validate_document(&stem, &v).map(|_| ())
-                    };
-                    checked.map_err(|issues| issues.iter().map(ToString::to_string).collect())
-                });
+                let result = if path.file_name().and_then(|f| f.to_str()) == Some(ede_ui::THEME_FILE) {
+                    read_json(file).map_err(|e| vec![e]).and_then(|v| ede_ui::validate_theme(&v).map(|_| ()).map_err(|issues| issues.iter().map(ToString::to_string).collect()))
+                } else if path.extension().is_some_and(|e| e == "json") {
+                    Err(vec![format!("a shell document is Express now: {stem}.express (#EDE-216)")])
+                } else {
+                    read_bytes(file).map_err(|e| vec![e]).and_then(|b| ede_ui::doc::validate_bytes(&stem, &b).map(|_| ()).map_err(|issues| issues.iter().map(ToString::to_string).collect()))
+                };
                 match result {
                     Ok(()) => println!("ok       {file}"),
                     Err(issues) => {
@@ -150,10 +175,14 @@ fn run(dir: PathBuf, factory: PathBuf, args: &[String], control: Control) -> Res
             return Ok(ok);
         }
         ("set", [name, file]) => {
-            let source = read_json(file)?;
+            let source = if name == THEME { Source::Json(read_json(file)?) } else { read_document(file)? };
             let (mut ui, _) = open()?;
             let message = format!("Set {name}");
-            let result = if name == THEME { ui.write_theme(&source, &message) } else { ui.write(name, &source, &message) };
+            let result = match source {
+                Source::Json(source) if name == THEME => ui.write_theme(&source, &message),
+                Source::Json(source) => ui.write(name, &source, &message),
+                Source::Express(source) => ui.write_express(name, &source, &message),
+            };
             match result {
                 Ok(changes) => print_changes(&changes),
                 Err(EditError::Invalid(issues)) => {

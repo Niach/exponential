@@ -1,0 +1,24 @@
+# Exponential Desktop's factory Bluetooth applet (#EDE-43): the taskbar's Bluetooth button opens it as
+# a popup surface. The power switch (power), the known devices (/services/bluetooth/devices: Connect /
+# Disconnect), the Search switch that scans for a while (discover), and the Bluetooth settings link.
+# Every action is ede_service on the bluetooth domain.
+surface("applet-bluetooth", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_bluetooth", placement: "top-end", size: {width: 380, height: 230}}, functions: ["ede_service", "ede_open_document"]}})
+$/services/bluetooth/available = false
+$/services/bluetooth/devices = []
+$/services/bluetooth/discovering = false
+$/services/bluetooth/powered = false
+$/services/bluetooth/reason = ""
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", height: 230, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[bt_off, bt_power, devices_title, devices_scroll, discover, bluetooth_foot])
+bt_off = Text(text=$/services/bluetooth/reason, variant="muted", visible=not(value=cond(if=$/services/bluetooth/available, then=true, else=false)))
+bt_power = Switch(label="Bluetooth", name="bluetooth", checked=$/services/bluetooth/powered, on={change: ede_service(action="power", args={on: $/services/bluetooth/powered}, domain="bluetooth")})
+devices_title = Text(text="Devices", variant="label", visible=cond(if=$/services/bluetooth/powered, then=true, else=false))
+devices_scroll = ScrollArea(maxHeight=150, children=[devices, device, no_devices], visible=cond(if=$/services/bluetooth/powered, then=true, else=false))
+devices = List(gap="none", divided=true, children=_template($/services/bluetooth/devices, device, key="path"))
+device = Row(title=$name, subtitle=$address, icon="ede-bluetooth", density="compact", slots={trailing: "device_actions"})
+device_actions = Stack(direction="horizontal", gap="none", align="center", children=[device_disconnect, device_connect])
+device_disconnect = Button(label="Disconnect", variant="outline", size="sm", on={press: ede_service(action="disconnect", args={device: $path}, domain="bluetooth")}, visible=cond(if=$connected, then=true, else=false))
+device_connect = Button(label="Connect", variant="outline", size="sm", on={press: ede_service(action="connect", args={device: $path}, domain="bluetooth")}, visible=not(value=cond(if=$connected, then=true, else=false)))
+no_devices = Text(text="No devices", variant="muted", visible=eq(a=len(value=$/services/bluetooth/devices), b=0))
+discover = Switch(label="Search for devices", name="discover", checked=$/services/bluetooth/discovering, on={change: ede_service(action="discover", args={on: $/services/bluetooth/discovering}, domain="bluetooth")}, visible=cond(if=$/services/bluetooth/powered, then=true, else=false))
+bluetooth_foot = Stack(direction="horizontal", gap="sm", align="center", children=[bluetooth_settings])
+bluetooth_settings = Link(label="Bluetooth settings", on={press: ede_open_document(name="settings")})
