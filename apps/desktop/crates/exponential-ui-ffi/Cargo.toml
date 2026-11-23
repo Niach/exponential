@@ -31,7 +31,9 @@ builtin-themes = ["eui-core/builtin-themes"]
 descriptions = ["eui-core/descriptions"]
 
 [dependencies]
-eui-core = { path = "../eui-core", version = "0.21.0", default-features = false }
+# #AXC-12: `express` always (the Express inference format: ExpressDecoder,
+# compile / decompile; the prompt needs `descriptions` too).
+eui-core = { path = "../eui-core", version = "0.21.0", default-features = false, features = ["express"] }
 # EXP-1604: the Motion engine (MotionPlayer); no raster (natives paint the list).
 eui-motion = { path = "../eui-motion", version = "0.1.0", default-features = false }
 # The version already in apps/desktop/Cargo.lock (the FFI facade), ONE uniffi in the tree.
