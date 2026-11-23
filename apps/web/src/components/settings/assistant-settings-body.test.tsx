@@ -3,7 +3,7 @@
 // Settings › Assistant page must not wait for that row (it showed skeletons
 // for ever), and its device list is the member's own machines whatever teams
 // they are shared with (never `deviceUsableInTeam` against the personal team).
-import { render, screen } from "@testing-library/react"
+import { cleanup, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Team } from "@/db/schema"
 
@@ -36,53 +36,56 @@ vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   }
 })
 
+vi.mock(`@/components/team/agents-section`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/team/agents-section")>()),
+  AgentSettingsPage: (props: Record<string, unknown>) => {
+    state.page(props)
+    return <div data-testid="agent-settings-page" />
+  },
+}))
+
+const { AssistantSettingsBody } = await import(`@/components/settings/personal-settings`)
+const { useAgentDevices } = await import(`@/components/team/agents-section`)
+
 describe(`Settings › Assistant, the team-less page`, () => {
   beforeEach(() => {
+    cleanup()
     state.assistantId = `as-1`
     state.home = null
     state.agent = { id: `as-1`, teamId: PERSONAL, role: `assistant`, ownerId: `me` }
     state.page.mockClear()
-    vi.resetModules()
   })
 
-  const mount = async (team?: Team) => {
-    vi.doMock(`@/components/team/agents-section`, () => ({
-      AgentSettingsPage: (props: Record<string, unknown>) => {
-        state.page(props)
-        return <div data-testid="agent-settings-page" />
-      },
-    }))
-    const { AssistantSettingsBody } = await import(`@/components/settings/personal-settings`)
-    return render(team ? <AssistantSettingsBody team={team} isOwner /> : <AssistantSettingsBody />)
-  }
+  const mount = (team?: Team) =>
+    render(team ? <AssistantSettingsBody team={team} isOwner /> : <AssistantSettingsBody />)
 
-  it(`renders the page for an Assistant in the personal team, which has no synced teams row`, async () => {
-    await mount()
+  it(`renders the page for an Assistant in the personal team, which has no synced teams row`, () => {
+    mount()
     expect(screen.getByTestId(`agent-settings-page`)).toBeTruthy()
     expect(state.page.mock.calls.at(-1)![0]).toMatchObject({ team: { id: PERSONAL }, agent: { id: `as-1` } })
   })
 
-  it(`uses the synced team when the Assistant's team is one (old per-team data)`, async () => {
+  it(`uses the synced team when the Assistant's team is one (old per-team data)`, () => {
     state.home = { id: `t-a`, slug: `acme`, name: `Acme` }
     state.agent = { id: `as-1`, teamId: `t-a`, role: `assistant`, ownerId: `me` }
-    await mount()
+    mount()
     expect(state.page.mock.calls.at(-1)![0]).toMatchObject({ team: { id: `t-a`, slug: `acme` } })
   })
 
-  it(`a phone's team page keeps its current team; no Assistant row yet = skeletons, no device = the empty state`, async () => {
-    const team = { id: `t-a`, slug: `acme`, name: `Acme` } as Team
-    await mount(team)
+  it(`a phone's team page keeps its current team`, () => {
+    mount({ id: `t-a`, slug: `acme`, name: `Acme` } as Team)
     expect(state.page.mock.calls.at(-1)![0]).toMatchObject({ team: { id: `t-a` }, isOwner: true })
+  })
+
+  it(`no Assistant row yet = skeletons, never the page`, () => {
     state.agent = null
-    const waiting = await mount()
-    expect(waiting.queryByTestId(`agent-settings-page`)).toBeNull()
+    mount()
+    expect(screen.queryByTestId(`agent-settings-page`)).toBeNull()
   })
 })
 
 describe(`useAgentDevices for an Assistant`, () => {
-  it(`lists the member's own machines whatever teams they are shared with; a team's list hides one shared elsewhere`, async () => {
-    vi.resetModules()
-    vi.doUnmock(`@/components/team/agents-section`)
+  it(`lists the member's own machines whatever teams they are shared with; a team's list hides one shared elsewhere`, () => {
     const now = new Date()
     const row = (deviceId: string, sharedTeamIds: string[], userId = `me`) => ({
       id: `row-${deviceId}`,
@@ -95,7 +98,6 @@ describe(`useAgentDevices for an Assistant`, () => {
       agentProfiles: [],
     })
     state.deviceRows = [row(`mine`, []), row(`shared-a`, [`t-a`]), row(`theirs`, [`t-a`], `mate`)]
-    const { useAgentDevices } = await import(`@/components/team/agents-section`)
     const seen: Record<string, string[]> = {}
     function Probe({ name, teamId, own }: { name: string; teamId: string; own: boolean }) {
       seen[name] = (useAgentDevices(teamId, own) ?? []).map((device) => device.deviceId).sort()

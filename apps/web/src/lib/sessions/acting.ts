@@ -1,7 +1,10 @@
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
-import { sessions } from "@/db/schema"
+import { apikeys } from "@/db/auth-schema"
+import { sessions, teams } from "@/db/schema"
+import type { ApiKeyKind, ApiKeyScope } from "@/lib/auth/api-key-kind"
+import { getMemberTeamIds, getUserTeamIds } from "@/lib/auth/membership"
 import { isSessionPrincipal } from "@/lib/sessions/host"
 import { resolveMcpAccessClampedToTeams, type McpAccess } from "@/lib/emcp/scope"
 import { treeReach } from "@/lib/sessions/tree-teams"
@@ -111,4 +114,55 @@ export async function confineMcpAccessToActingSession(
   if (!acting) return access
   const reach = await treeReach(acting.rootId)
   return resolveMcpAccessClampedToTeams(access, reach?.teams ?? [], reach?.kind === `agent` ? `agent` : `session`)
+}
+
+/** #EXP-2079: THE KEY A MOVED ASSISTANT CONVERSATION STILL RUNS ON. Before
+ *  the move (#EXP-1984) an Assistant lived in a team T and its conversation
+ *  launched on the device's agent key of T (stored scope `[T]`). The move puts
+ *  the conversation into its member's personal team, but a run that stays
+ *  live keeps that key until its next relaunch (which mints the
+ *  assistant-scoped one): the tools would refuse everything that names the
+ *  session's own team (its cards, its children, itself) and every other team
+ *  of the member. So exactly that request resolves as the Assistant's scope
+ *  (the member's teams of the moment; the tree clamp narrows it as ever):
+ *    * an AGENT key scoped to exactly one team, no board, which the member
+ *      still belongs to;
+ *    * created BEFORE the member's personal team existed (a key minted for a
+ *      regular team afterwards is never widened: the exception ends with
+ *      each conversation's first relaunch and no fresh team key reaches it);
+ *    * speaking for a session the caller STARTED (and is principal of), that
+ *      sits in their personal team, in their own Assistant's tree.
+ *  Anything else: null, the key's own scope stands. */
+export async function movedAssistantKeyScope(
+  key: { id: string | null | undefined; kind: ApiKeyKind | null | undefined; scope: ApiKeyScope | null },
+  request: Request,
+  userId: string,
+  sessionId: string | null
+): Promise<ApiKeyScope | null> {
+  const { scope } = key
+  if (!key.id || key.kind !== `agent` || !scope || scope.assistant) return null
+  if (scope.teamIds.length !== 1 || scope.boardIds.length !== 0) return null
+  const acting = await actingSessionForRequest(request, userId, sessionId)
+  if (!acting || acting.userId !== userId) return null
+  const [personal] = await db
+    .select({ id: teams.id, createdAt: teams.createdAt })
+    .from(teams)
+    .where(and(eq(teams.ownerId, userId), eq(teams.kind, `personal`)))
+    .limit(1)
+  if (!personal || acting.teamId !== personal.id) return null
+  const [root] = await db
+    .select({ teamId: sessions.teamId, userId: sessions.userId })
+    .from(sessions)
+    .where(eq(sessions.id, acting.rootId))
+    .limit(1)
+  if (!root || root.teamId !== personal.id || root.userId !== userId) return null
+  if ((await treeReach(acting.rootId))?.kind !== `assistant`) return null
+  if (!(await getMemberTeamIds(userId)).includes(scope.teamIds[0]!)) return null
+  const [row] = await db
+    .select({ createdAt: apikeys.createdAt })
+    .from(apikeys)
+    .where(and(eq(apikeys.id, key.id), eq(apikeys.referenceId, userId)))
+    .limit(1)
+  if (!row || !(row.createdAt < personal.createdAt)) return null
+  return { allTeams: false, teamIds: await getUserTeamIds(userId), boardIds: [], assistant: true }
 }
