@@ -11173,6 +11173,7 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
             consumed_at: m.consumed_at.as_deref().filter(|at| !at.is_empty()),
             created_at: m.created_at.as_deref().unwrap_or_default(),
             body: &bodies[i],
+            author_session_id: m.author_session_id.as_deref().filter(|id| !id.is_empty()),
         }
     })
     .into_iter()

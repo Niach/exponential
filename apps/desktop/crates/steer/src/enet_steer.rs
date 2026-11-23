@@ -174,6 +174,9 @@ pub struct SyncedTailRow<'a> {
     pub consumed_at: Option<&'a str>,
     pub created_at: &'a str,
     pub body: &'a str,
+    /// #EXP-2084: the session that posted it (a child's reply), when not
+    /// the chat's own.
+    pub author_session_id: Option<&'a str>,
 }
 
 /// #FEED-260 (steer-enet.json SYNCED TAIL, TS `steerSyncedTail`): the synced
@@ -1386,6 +1389,7 @@ mod tests {
                 consumed_at: m["consumedAt"].as_str(),
                 created_at: m["createdAt"].as_str().unwrap(),
                 body: m["body"].as_str().unwrap(),
+                author_session_id: m["authorSessionId"].as_str(),
             });
             let ids: Vec<&str> = picked.iter().map(|m| m["id"].as_str().unwrap()).collect();
             let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
