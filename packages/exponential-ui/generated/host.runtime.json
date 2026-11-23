@@ -158,5 +158,20 @@
       ],
       "actionPattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)+$"
     }
+  },
+  "inference": {
+    "formats": [
+      "json",
+      "express"
+    ],
+    "default": "json",
+    "capabilitiesKey": "inferenceFormats",
+    "express": {
+      "mimeType": "application/a2ui+express",
+      "structuredContentKey": "a2uiExpress",
+      "sseEvent": "a2ui-express",
+      "wsFrameKey": "express",
+      "defaultSurfaceId": "main"
+    }
   }
 }

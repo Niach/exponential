@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use eui_core::host::{
-    action_message_with, available_extensions, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
+    action_message_with, available_extensions, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
     action_call_name, navigate_target, run_action, ActionContext, ActionRun, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, RouteOptions, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
     FUNCTION_NOT_FOUND, NAVIGATE_FUNCTION, RECORDS_BATCH_FUNCTION, RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
@@ -99,6 +99,9 @@ pub struct ActionFailure {
 pub type ValueObserver = Rc<dyn Fn(&Value)>;
 /// Observes every problem the host meets (`on_issue`).
 pub type IssueObserver = Rc<dyn Fn(&HostIssue)>;
+/// #AXC-12: a piece of an Express response's prose (`on_text`, the TS
+/// `onText`).
+pub type TextHook = Rc<dyn Fn(&str, &mut App)>;
 
 /// One problem the host met; [`ExponentialHost::issues`] keeps the latest
 /// [`MAX_ISSUES`] (the TS `HostIssue`).
@@ -115,6 +118,10 @@ pub struct HostIssue {
 
 /// The issue code of a package that failed validation.
 pub const PACKAGE_INVALID: &str = "PACKAGE_INVALID";
+/// #AXC-12: the issue code of what a transport's decoder could not read (an
+/// Express block that did not compile, a line that is not JSON…; the
+/// message names it, the stream read on past it).
+pub const DECODE_FAILED: &str = "DECODE_FAILED";
 /// How many issues [`ExponentialHost::issues`] keeps (oldest dropped).
 pub const MAX_ISSUES: usize = 100;
 
@@ -208,6 +215,10 @@ pub struct HostOptions {
     /// error it answered a message with, an invalid surface theme). A
     /// transport-less host has no server to tell: this is where they land.
     pub on_issue: Option<IssueObserver>,
+    /// #AXC-12: the prose of an Express transport (`WireFormat::Express`),
+    /// a piece at a time as it streams in (append the pieces). The SDK
+    /// draws none of it: the host shows it beside its surfaces.
+    pub on_text: Option<TextHook>,
     /// VAPP-194: the member a package action runs as (its `me`).
     pub me: Option<String>,
     /// VAPP-194: the clock (epoch ms; `None` = the wall clock) and the team
@@ -264,6 +275,7 @@ impl Default for HostOptions {
             on_send: None,
             on_op: None,
             on_issue: None,
+            on_text: None,
             me: None,
             now: None,
             zone: None,
@@ -366,6 +378,7 @@ pub struct ExponentialHost {
     on_send: Option<ValueObserver>,
     on_op: Option<ValueObserver>,
     on_issue: Option<IssueObserver>,
+    on_text: Option<TextHook>,
     me: Option<String>,
     now: Option<Rc<dyn Fn() -> f64>>,
     zone: Option<ZoneFn>,
@@ -425,6 +438,7 @@ impl ExponentialHost {
             on_send: options.on_send,
             on_op: options.on_op,
             on_issue: options.on_issue,
+            on_text: options.on_text,
             me: options.me,
             now: options.now,
             zone: options.zone,
@@ -479,9 +493,11 @@ impl ExponentialHost {
         self.router.supported_catalog_ids()
     }
 
+    /// #VAPP-298: advertises both inference formats (`json`, `express`) like
+    /// the TS `ExponentialHost`: this host decodes either.
     pub fn client_capabilities(&self) -> Value {
         let ids: Vec<&str> = self.extensions.iter().map(|e| e.id.as_str()).collect();
-        client_capabilities(&ids)
+        eui_core::host::package::renderer_capabilities_with(&ids, None, Some(eui_core::host::contract::INFERENCE_FORMATS))
     }
 
     pub fn extensions(&self) -> &[ExtensionDef] {
@@ -660,6 +676,19 @@ impl ExponentialHost {
                 match event {
                     TransportEvent::Message(m) => {
                         self.receive(&m, cx);
+                    }
+                    TransportEvent::Issue(issue) => {
+                        // #AXC-12: what the wire decoders could not read (an
+                        // Express block that did not compile is the agent
+                        // author's main signal; no surface to answer on, so
+                        // it is the host's to show or log).
+                        tracing::warn!(at = issue.at, "transport: {}", issue.message);
+                        self.report(HostIssue { code: DECODE_FAILED.into(), message: issue.message, surface_id: None, path: None, package_id: None });
+                    }
+                    TransportEvent::Text(text) => {
+                        if let Some(f) = self.on_text.clone() {
+                            f(&text, cx);
+                        }
                     }
                     TransportEvent::Status(status, detail) => {
                         self.status = status;

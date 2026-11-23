@@ -97,6 +97,16 @@ pub fn renderer_capabilities<S: AsRef<str>>(extension_ids: &[S], inline_catalogs
     Value::Object(out)
 }
 
+/// #AXC-12: [`renderer_capabilities`] plus `inferenceFormats` (the
+/// formats this renderer compiles; `None` = the key is absent, JSON only).
+pub fn renderer_capabilities_with<S: AsRef<str>>(extension_ids: &[S], inline_catalogs: Option<Vec<Value>>, inference_formats: Option<&[&str]>) -> Value {
+    let mut out = renderer_capabilities(extension_ids, inline_catalogs);
+    if let (Some(formats), Some(Value::Object(inner))) = (inference_formats.filter(|f| !f.is_empty()), out.get_mut(A2UI_VERSION)) {
+        inner.insert(super::contract::INFERENCE_FORMATS_KEY.into(), json!(formats));
+    }
+    out
+}
+
 /// The pre-1.0 name of [`renderer_capabilities`] (no inline catalogs).
 pub fn client_capabilities<S: AsRef<str>>(extension_ids: &[S]) -> Value {
     renderer_capabilities(extension_ids, None)

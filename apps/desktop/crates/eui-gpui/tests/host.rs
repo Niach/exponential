@@ -115,6 +115,7 @@ fn unsupported_catalogs_are_recorded_and_reported(cx: &mut TestAppContext) {
     assert!(host.read_with(cx, |h, _| h.supported_catalog_ids()).contains(&ext_id));
     let caps = host.read_with(cx, |h, _| h.client_capabilities());
     assert!(caps.to_string().contains(&ext_id), "{caps}");
+    assert_eq!(caps["1.0"]["inferenceFormats"], json!(["json", "express"]), "{caps}");
 }
 
 struct Probe {
@@ -878,4 +879,107 @@ fn a_send_data_model_action_carries_the_data(cx: &mut TestAppContext) {
     assert_eq!(call["params"]["arguments"]["message"], wrapped["message"]);
     let bare = eui_gpui::transport::mcp_call_of(&json!({"version": VERSION, "action": {}}), None);
     assert!(bare["params"]["arguments"].get("metadata").is_none());
+}
+
+/// #AXC-12: an agent's Express response, streamed in small chunks through
+/// the transport, builds a real surface while it is still being written;
+/// the prose around the block reaches `on_text`, never the surface.
+#[gpui::test]
+fn a_chunked_express_stream_builds_a_real_surface_and_its_prose_reaches_on_text(cx: &mut TestAppContext) {
+    use eui_gpui::transport::WireFormat;
+    init(cx);
+    let roundtrip = fixture("express-roundtrip.json");
+    let case = roundtrip["cases"].as_array().unwrap().iter().find(|c| c["name"] == "demo-surface").expect("demo-surface");
+    let messages: Vec<Value> = serde_json::from_value(case["messages"].clone()).unwrap();
+    let express = eui_core::express::decompile(&messages).unwrap();
+    let response = format!("Here is the release.\n<a2ui>\n{express}\n</a2ui>\nWant the rollback plan?");
+
+    let t = MemoryTransport::new();
+    let prose = Rc::new(RefCell::new(String::new()));
+    let p = prose.clone();
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), on_text: Some(Rc::new(move |text: &str, _: &mut App| p.borrow_mut().push_str(text))), ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    cx.run_until_parked();
+
+    let format = WireFormat::express("main");
+    let mut decoder = format.express_decoder();
+    let chars: Vec<char> = response.chars().collect();
+    let block_end = response.find("</a2ui>").unwrap();
+    let mut seen = 0usize;
+    let mut partial = None;
+    for chunk in chars.chunks(7) {
+        let chunk: String = chunk.iter().collect();
+        seen += chunk.len();
+        t.feed_decoded(decoder.push(&chunk));
+        cx.run_until_parked();
+        if seen < block_end && partial.is_none() {
+            if let Some(view) = host.read_with(cx, |h, _| h.surface("main")) {
+                partial = Some(view.update(cx, |v, _| v.surface_mut().nodes().len()));
+            }
+        }
+    }
+    t.feed_decoded(decoder.end());
+    cx.run_until_parked();
+
+    let view = host.read_with(cx, |h, _| h.surface("main")).expect("the surface");
+    let nodes = view.update(cx, |v, _| v.surface_mut().nodes().len());
+    // The same surface as the batch messages (the fixture) give.
+    let batch = MemoryTransport::new();
+    batch.feed(messages.clone());
+    let reference = host_with(cx, HostOptions { transport: Some(Box::new(batch.clone())), ..Default::default() });
+    reference.update(cx, |h, cx| h.connect(cx));
+    cx.run_until_parked();
+    let want = reference.read_with(cx, |h, _| h.surface("main")).expect("the batch surface");
+    let want_nodes: Vec<(String, String)> = want.update(cx, |v, _| v.surface_mut().nodes().into_iter().map(|n| (n.id, n.component)).collect());
+    let got_nodes: Vec<(String, String)> = view.update(cx, |v, _| v.surface_mut().nodes().into_iter().map(|n| (n.id, n.component)).collect());
+    assert_eq!(got_nodes, want_nodes);
+    assert_eq!(want.read_with(cx, |v, _| v.surface().data().clone()), view.read_with(cx, |v, _| v.surface().data().clone()));
+    let partial = partial.expect("the surface existed before the block closed");
+    assert!(partial < nodes, "rendered while written: {partial} of {nodes} nodes before </a2ui>");
+    assert!(sent_errors(&t).is_empty(), "{:?}", sent_errors(&t));
+    assert_eq!(prose.borrow().as_str(), "Here is the release.\n\nWant the rollback plan?");
+
+    // Painted in a window: every node on the main tree, no Unknown.
+    let v2 = view.clone();
+    let (_, vcx) = cx.add_window_view(move |_, _| Holder(Some(v2)));
+    view.update(vcx, |v, _| v.trace_paint(true));
+    for _ in 0..2 {
+        vcx.update(|window, cx| window.draw(cx).clear(cx));
+        vcx.run_until_parked();
+    }
+    view.read_with(vcx, |v, _| {
+        assert!(v.placed_nodes().iter().all(|n| n.component != eui_core::UNKNOWN_COMPONENT));
+        assert!(!v.paint_trace().is_empty(), "nothing painted");
+    });
+}
+
+/// #AXC-12: `feed_express` (a whole Express body in chunks) through the
+/// host; a bare body has no prose.
+#[gpui::test]
+fn memory_feed_express_reaches_the_host(cx: &mut TestAppContext) {
+    use eui_gpui::transport::WireFormat;
+    init(cx);
+    let t = MemoryTransport::new();
+    let prose = Rc::new(RefCell::new(Vec::<String>::new()));
+    let p = prose.clone();
+    // Queued before the host connects, text included.
+    t.feed_express(&WireFormat::express("note"), ["Hi.\n<a2ui>\nroot = Te", "xt(text=\"ok\")\n</a2ui>\nBye."]);
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), on_text: Some(Rc::new(move |text: &str, _: &mut App| p.borrow_mut().push(text.to_string()))), ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    cx.run_until_parked();
+    assert_eq!(host.read_with(cx, |h, _| h.surface_ids()), vec!["note".to_string()]);
+    assert_eq!(prose.borrow().concat(), "Hi.\n\nBye.");
+    t.feed_express(&WireFormat::express_body("bare"), ["root = Text(text=\"b\")\n"]);
+    cx.run_until_parked();
+    assert!(host.read_with(cx, |h, _| h.surface("bare")).is_some());
+    assert_eq!(prose.borrow().concat(), "Hi.\n\nBye.");
+
+    // A block that does not compile is a host issue; the stream reads on.
+    t.feed_express(&WireFormat::express("later"), ["One.\n<a2ui>\nroot = Sparkle(text=\"x\")\n</a2ui>\nTwo.\n<a2ui>\nroot = Text(text=\"ok\")\n</a2ui>\n"]);
+    cx.run_until_parked();
+    let issues = host.read_with(cx, |h, _| h.issues().to_vec());
+    assert_eq!(issues.len(), 1, "{issues:?}");
+    assert_eq!(issues[0].code, eui_gpui::runtime::DECODE_FAILED);
+    assert!(issues[0].message.contains("Sparkle"), "{issues:?}");
+    assert!(host.read_with(cx, |h, _| h.surface("later")).is_some());
 }

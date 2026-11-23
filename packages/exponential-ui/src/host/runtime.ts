@@ -12,7 +12,8 @@ import type { ResolvedTheme } from "../theme-types"
 import { BUILTIN_THEME_IDS, BUILTIN_THEMES, builtinTheme } from "../themes"
 import type { ExtensionDef, FlatComponent } from "../types"
 import { RENDER_FAILED, actionMessage, callAgentFunctionMessage, errorMessage, rendererFunctionResponse } from "./contract"
-import type { ClientMessage, HostOp } from "./contract"
+import type { ClientMessage, HostOp, InferenceFormat } from "./contract"
+import { INFERENCE_FORMATS } from "./contract"
 import { availableExtensions, rendererCapabilities } from "./package"
 import type { PackageIssue, AppPackage } from "./package"
 import { BUILTIN_FUNCTIONS, combineDecisions, decideFunction, decideRoute, decideUrl, mediaRequest, packagePolicy, routedCallKey } from "./policy"
@@ -40,7 +41,7 @@ export type MessageMetadata = Record<string, unknown>
 /** Messages in, renderer messages out. Adapters: `transports.ts`. */
 export interface Transport {
   /** Start delivering messages; report the connection state. */
-  start(receive: (message: unknown) => void, status: (status: TransportStatus, detail?: string) => void): void
+  start(receive: (message: unknown) => void, status: (status: TransportStatus, detail?: string) => void, text?: (text: string) => void): void
   send(message: ClientMessage, metadata?: MessageMetadata): void | Promise<void>
   close(): void
 }
@@ -119,6 +120,15 @@ export interface HostOptions {
    *  error it answered a message with, an invalid surface theme). A
    *  transport-less host has no server to tell: this is where they land. */
   onIssue?: (issue: HostIssue) => void
+  /** #AXC-12: the prose of an Express response (the text around its
+   *  `<a2ui>` blocks), piece by piece as it streams in: append them. The
+   *  SDK draws none; the host shows it (a chat bubble, a caption). */
+  onText?: (text: string) => void
+  /** #AXC-12: the inference formats this host advertises
+   *  (`rendererCapabilities["1.0"].inferenceFormats`); default both, as
+   *  the transports load the Express compiler on demand. `["json"]` =
+   *  JSON only. */
+  inferenceFormats?: readonly InferenceFormat[]
 }
 
 /** One problem the host met; `host.issues` keeps the latest ones. */
@@ -214,7 +224,8 @@ export class ExponentialHost {
 
   /** Round 9 §10: `inline` = the registered extensions' 1.0 catalog files. */
   rendererCapabilities(inline?: readonly unknown[]) {
-    return rendererCapabilities(this.extensions.map((e) => e.id), inline ? { inline } : {})
+    const inferenceFormats = this.options.inferenceFormats ?? INFERENCE_FORMATS
+    return rendererCapabilities(this.extensions.map((e) => e.id), { ...(inline ? { inline } : {}), inferenceFormats })
   }
 
   get extensionDefs(): readonly ExtensionDef[] {
@@ -282,7 +293,8 @@ export class ExponentialHost {
         this.status = status
         this.statusDetail = detail
         this.notify()
-      }
+      },
+      (text) => this.options.onText?.(text)
     )
   }
 

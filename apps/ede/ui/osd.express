@@ -1,0 +1,11 @@
+# Exponential Desktop's factory on-screen display (#EDE-12): a small overlay near the bottom of the
+# screen for the volume, microphone and brightness keys (onDemand: the shell opens it on the
+# compositor's media hotkeys, feeds /osd and closes it again after a moment).
+surface("osd", extensions={ede: {layer: "overlay", anchor: ["bottom"], size: {width: 280, height: 56}, margin: {bottom: 96}, onDemand: true}})
+$/osd/icon = "media-volume-up"
+$/osd/label = "0%"
+$/osd/level = 0
+root = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.md", paddingLeft: "$spacing.md", paddingRight: "$spacing.md", height: 56, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.lg"}, children=[osd_icon, osd_level, osd_label])
+osd_icon = Icon(name=$/osd/icon, size="default")
+osd_level = Progress(value=$/osd/level, max=100, tone="primary", style={flexGrow: 1})
+osd_label = Text(text=$/osd/label, variant="caption", style={width: 40})

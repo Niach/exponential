@@ -29,6 +29,16 @@ fn broken() -> Value {
     json!({"surface": {"size": {"width": 10, "height": 10}}, "root": {"id": "panel", "component": "Nope"}})
 }
 
+/// A document as its Express file (#EDE-216).
+fn ex(name: &str, document: &Value) -> Vec<u8> {
+    ede_ui::decompile_document(name, document).unwrap().into_bytes()
+}
+
+/// [`broken`] as a file: Express the compiler refuses (no such component).
+fn broken_file(name: &str) -> Vec<u8> {
+    format!("surface({name:?}, extensions={{ede: {{size: {{width: 10, height: 10}}}}}})\nroot = Nope()\n").into_bytes()
+}
+
 fn orange() -> Value {
     serde_json::from_str(ORANGE).unwrap()
 }
@@ -79,8 +89,7 @@ fn an_edit_validates_writes_and_commits() {
     assert!(issues[0].message.contains("unknown component Nope"), "{issues:?}");
     assert_eq!(text_of(&ui, "panel"), "12:00");
     assert_eq!(summaries(&ui).len(), 2);
-    let on_disk: Value = serde_json::from_slice(&fs::read(tmp.path().join("panel.json")).unwrap()).unwrap();
-    assert_eq!(on_disk, panel("12:00"));
+    assert_eq!(fs::read(tmp.path().join("panel.express")).unwrap(), ex("panel", &panel("12:00")));
 
     assert!(matches!(ui.write("../etc", &panel("x"), "m"), Err(EditError::Name(_))));
     assert!(matches!(ui.write("theme", &panel("x"), "m"), Err(EditError::Name(_))));
@@ -92,15 +101,15 @@ fn hand_edits_commit_once_valid_and_a_broken_one_falls_back() {
     let (mut ui, _) = open(tmp.path());
     ui.write("panel", &panel("12:00"), "Set panel").unwrap();
 
-    fs::write(tmp.path().join("panel.json"), serde_json::to_vec(&panel("13:00")).unwrap()).unwrap();
+    fs::write(tmp.path().join("panel.express"), ex("panel", &panel("13:00"))).unwrap();
     let changes = ui.reload().unwrap();
     assert!(matches!(changes.as_slice(), [Change::Applied { commit: Some(_), .. }]), "{changes:?}");
-    assert_eq!(summaries(&ui)[0], "Edit panel.json");
+    assert_eq!(summaries(&ui)[0], "Edit panel.express");
     assert_eq!(text_of(&ui, "panel"), "13:00");
     // Nothing changed since: nothing to report.
     assert_eq!(ui.reload().unwrap(), []);
 
-    fs::write(tmp.path().join("panel.json"), b"{\"root\": ").unwrap();
+    fs::write(tmp.path().join("panel.express"), b"root = Box(").unwrap();
     let changes = ui.reload().unwrap();
     let [Change::Rejected { name, issues, fallback: true }] = changes.as_slice() else { panic!("{changes:?}") };
     assert_eq!(name, "panel");
@@ -119,18 +128,17 @@ fn hand_edits_commit_once_valid_and_a_broken_one_falls_back() {
     let (mut ui, _) = open(tmp.path());
     ui.discard("panel").unwrap();
     assert!(ui.rejected().is_empty());
-    let on_disk: Value = serde_json::from_slice(&fs::read(tmp.path().join("panel.json")).unwrap()).unwrap();
-    assert_eq!(on_disk, panel("13:00"));
+    assert_eq!(fs::read(tmp.path().join("panel.express")).unwrap(), ex("panel", &panel("13:00")));
 }
 
 #[test]
 fn a_broken_file_with_no_history_is_just_refused() {
     let tmp = tempfile::tempdir().unwrap();
-    fs::write(tmp.path().join("dock.json"), serde_json::to_vec(&broken()).unwrap()).unwrap();
+    fs::write(tmp.path().join("dock.express"), broken_file("dock")).unwrap();
     // Not documents: hidden files, other extensions, bad names.
-    fs::write(tmp.path().join(".dock.json.swp"), b"x").unwrap();
+    fs::write(tmp.path().join(".dock.express.swp"), b"x").unwrap();
     fs::write(tmp.path().join("notes.txt"), b"x").unwrap();
-    fs::write(tmp.path().join("Bad Name.json"), b"x").unwrap();
+    fs::write(tmp.path().join("Bad Name.express"), b"x").unwrap();
     let (ui, changes) = open(tmp.path());
     assert!(changes.iter().any(|c| matches!(c, Change::Rejected { name, fallback: false, .. } if name == "dock")), "{changes:?}");
     assert_eq!(changes.len(), 2, "{changes:?}");
@@ -220,10 +228,10 @@ fn undo_reverts_the_newest_edit() {
 
     // A pending hand edit in a file the newest edit touched blocks the undo.
     ui.write("panel", &panel("14:00"), "Even later").unwrap();
-    fs::write(tmp.path().join("panel.json"), b"oops").unwrap();
+    fs::write(tmp.path().join("panel.express"), b"oops").unwrap();
     ui.reload().unwrap();
     let err = ui.undo().unwrap_err();
-    assert!(err.to_string().contains("panel.json has an uncommitted edit"), "{err}");
+    assert!(err.to_string().contains("panel.express has an uncommitted edit"), "{err}");
     ui.discard("panel").unwrap();
 
     let (commit, changes) = ui.undo().unwrap().unwrap();
@@ -277,14 +285,14 @@ fn a_reload_whose_commit_fails_takes_the_edit_in_on_the_next_one() {
     for held in ["index.lock", "HEAD.lock"] {
         let tmp = tempfile::tempdir().unwrap();
         let (mut ui, _) = open(tmp.path());
-        fs::write(tmp.path().join("panel.json"), serde_json::to_vec_pretty(&panel("by hand")).unwrap()).unwrap();
+        fs::write(tmp.path().join("panel.express"), ex("panel", &panel("by hand"))).unwrap();
         let lock = tmp.path().join(".git").join(held);
         fs::write(&lock, b"").unwrap();
         assert!(ui.reload().is_err(), "{held}: the commit cannot run");
         fs::remove_file(&lock).unwrap();
         let changes = ui.reload().unwrap();
         assert!(matches!(changes.as_slice(), [Change::Applied { commit: Some(_), .. }]), "{held}: {changes:?}");
-        assert_eq!(summaries(&ui)[0], "Edit panel.json", "{held}");
+        assert_eq!(summaries(&ui)[0], "Edit panel.express", "{held}");
     }
 }
 
@@ -300,13 +308,13 @@ fn the_watcher_tries_a_failed_reload_again() {
     let _watcher = ede_ui::watch(ui.clone(), move |changes| tx.send(changes).unwrap()).unwrap();
     let lock = tmp.path().join(".git/index.lock");
     fs::write(&lock, b"").unwrap();
-    fs::write(tmp.path().join("panel.json"), serde_json::to_vec(&panel("12:00")).unwrap()).unwrap();
+    fs::write(tmp.path().join("panel.express"), ex("panel", &panel("12:00"))).unwrap();
     // The reload waits for the index (2 s), fails; the lock goes after it.
     std::thread::sleep(Duration::from_secs(4));
     fs::remove_file(&lock).unwrap();
     let changes = rx.recv_timeout(Duration::from_secs(15)).expect("the edit is reported once the lock goes");
     assert!(matches!(changes.as_slice(), [Change::Applied { commit: Some(_), .. }]), "{changes:?}");
-    assert_eq!(summaries(&ui.lock().unwrap())[0], "Edit panel.json");
+    assert_eq!(summaries(&ui.lock().unwrap())[0], "Edit panel.express");
 }
 
 #[test]
@@ -317,12 +325,12 @@ fn the_watcher_reloads_on_change() {
     let (tx, rx) = mpsc::channel();
     let _watcher = ede_ui::watch(ui.clone(), move |changes| tx.send(changes).unwrap()).unwrap();
 
-    fs::write(tmp.path().join("panel.json"), serde_json::to_vec(&panel("12:00")).unwrap()).unwrap();
+    fs::write(tmp.path().join("panel.express"), ex("panel", &panel("12:00"))).unwrap();
     let changes = rx.recv_timeout(Duration::from_secs(10)).unwrap();
     assert!(matches!(changes.as_slice(), [Change::Applied { commit: Some(_), .. }]), "{changes:?}");
     assert_eq!(text_of(&ui.lock().unwrap(), "panel"), "12:00");
 
-    fs::write(tmp.path().join("panel.json"), serde_json::to_vec(&broken()).unwrap()).unwrap();
+    fs::write(tmp.path().join("panel.express"), broken_file("panel")).unwrap();
     let changes = rx.recv_timeout(Duration::from_secs(10)).unwrap();
     assert!(matches!(changes.as_slice(), [Change::Rejected { fallback: true, .. }]), "{changes:?}");
     assert_eq!(text_of(&ui.lock().unwrap(), "panel"), "12:00");
@@ -331,7 +339,7 @@ fn the_watcher_reloads_on_change() {
     ui.lock().unwrap().write("panel", &panel("13:00"), "Set").unwrap();
     assert!(rx.recv_timeout(Duration::from_millis(600)).is_err());
 
-    fs::remove_file(tmp.path().join("panel.json")).unwrap();
+    fs::remove_file(tmp.path().join("panel.express")).unwrap();
     let changes = rx.recv_timeout(Duration::from_secs(10)).unwrap();
     assert!(matches!(changes.as_slice(), [Change::Removed { commit: Some(_), .. }]), "{changes:?}");
 }
