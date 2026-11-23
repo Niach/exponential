@@ -19,7 +19,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use eui_core::host::{decode_jsonl, Decoded, ExpressDecoder};
+use eui_core::host::{decode_jsonl, DecodeIssue, Decoded, ExpressDecoder};
 use serde_json::Value;
 
 /// #AXC-12: the Express stream's content type (an HTTP stream body).
@@ -100,6 +100,10 @@ pub enum TransportEvent {
     /// #AXC-12: a piece of an Express response's prose, as it streamed in
     /// (append the pieces; a run after a block starts with `"\n\n"`).
     Text(String),
+    /// #AXC-12: an Express block that does not compile (`at` = the chunk
+    /// it failed in). The stream reads on past it; the host records it
+    /// (`HostOptions::on_issue`). JSON decoders' issues are not delivered.
+    Issue(DecodeIssue),
     Status(TransportStatus, Option<String>),
 }
 
@@ -124,11 +128,10 @@ impl TransportSink {
         (self.deliver)(TransportEvent::Text(text))
     }
 
-    /// One decoder output: its messages, then its prose (a decoder's issues
-    /// are not delivered, as for JSONL and SSE).
+    /// One decoder output: its messages, its prose, then its issues (the
+    /// transports keep only the Express decoder's).
     pub fn decoded(&self, decoded: Decoded) {
-        decoded.messages.into_iter().for_each(|m| self.message(m));
-        decoded.text.into_iter().for_each(|t| self.text(t));
+        decoded_events(decoded).into_iter().for_each(|e| self.event(e));
     }
 
     fn event(&self, event: TransportEvent) {
@@ -138,6 +141,19 @@ impl TransportSink {
     pub fn status(&self, status: TransportStatus, detail: Option<String>) {
         (self.deliver)(TransportEvent::Status(status, detail))
     }
+}
+
+fn decoded_events(decoded: Decoded) -> Vec<TransportEvent> {
+    let messages = decoded.messages.into_iter().map(TransportEvent::Message);
+    let text = decoded.text.into_iter().map(TransportEvent::Text);
+    messages.chain(text).chain(decoded.issues.into_iter().map(TransportEvent::Issue)).collect()
+}
+
+/// A JSON decoder's output without its issues (never delivered, as before
+/// Express).
+fn json_only(mut decoded: Decoded) -> Decoded {
+    decoded.issues.clear();
+    decoded
 }
 
 /// Messages in, client messages out.
@@ -207,10 +223,10 @@ impl MemoryTransport {
     }
 
     /// #AXC-12: one decoder output (an [`ExpressDecoder`]'s `push`/`end`):
-    /// its messages, then its prose as [`TransportEvent::Text`].
+    /// its messages, its prose as [`TransportEvent::Text`], its issues as
+    /// [`TransportEvent::Issue`].
     pub fn feed_decoded(&self, decoded: Decoded) {
-        let messages = decoded.messages.into_iter().map(TransportEvent::Message);
-        self.feed_events(messages.chain(decoded.text.into_iter().map(TransportEvent::Text)).collect::<Vec<_>>());
+        self.feed_events(decoded_events(decoded));
     }
 
     /// #AXC-12: a whole Express stream in `format`, as a server would send
@@ -269,7 +285,7 @@ mod net {
     use eui_core::host::{decode_jsonl, messages_from_mcp_result, Decoded, ExpressDecoder, JsonlDecoder, SseDecoder, SseItem};
     use serde_json::{json, Value};
 
-    use super::{Transport, TransportSink, TransportStatus, WireFormat, EXPRESS_MIME_TYPE, EXPRESS_SSE_EVENT, EXPRESS_WS_KEY};
+    use super::{json_only, Transport, TransportSink, TransportStatus, WireFormat, EXPRESS_MIME_TYPE, EXPRESS_SSE_EVENT, EXPRESS_WS_KEY};
 
     /// Options of the HTTP stream transports (JSONL, SSE).
     #[derive(Debug, Clone)]
@@ -488,7 +504,7 @@ mod net {
 
         fn push(&mut self, chunk: &str) -> Decoded {
             match self {
-                Wire::Jsonl(d) => d.push(chunk),
+                Wire::Jsonl(d) => json_only(d.push(chunk)),
                 Wire::Sse(d, express) => sse_items(d.push_items(chunk), express),
                 Wire::Express(d) => d.push(chunk),
             }
@@ -496,7 +512,7 @@ mod net {
 
         fn end(&mut self) -> Decoded {
             match self {
-                Wire::Jsonl(d) => d.end(),
+                Wire::Jsonl(d) => json_only(d.end()),
                 Wire::Sse(d, express) => {
                     let mut out = sse_items(d.end_items(), express);
                     if let Some(express) = express {
@@ -515,7 +531,7 @@ mod net {
         let mut out = Decoded::default();
         for item in items {
             match item {
-                SseItem::Decoded(d) => out.extend(d),
+                SseItem::Decoded(d) => out.extend(json_only(d)),
                 SseItem::Raw { data, .. } => {
                     if let Some(express) = express {
                         out.extend(express.push(&data));
@@ -769,7 +785,7 @@ mod net {
                 return express.push(&chunk);
             }
         }
-        decode_jsonl(text)
+        json_only(decode_jsonl(text))
     }
 
     impl Transport for WebSocketTransport {
@@ -1284,6 +1300,12 @@ mod net {
             assert!(out.messages.iter().any(|m| m["createSurface"]["surfaceId"] == "s1"));
             // JSON format: the frame is just JSON (the router refuses it).
             assert_eq!(ws_frame(r#"{"express":"root = "}"#, &mut None).messages.len(), 1);
+            // A JSON frame's issues stay undelivered; a bad Express block's come through.
+            assert!(ws_frame("not json", &mut None).issues.is_empty());
+            let mut express = WireFormat::express_body("main").express_decoder();
+            let mut out = ws_frame(r#"{"express":"root = Sparkle(text=\"x\")\n"}"#, &mut express);
+            out.extend(express.take().unwrap().end());
+            assert_eq!(out.issues.len(), 1, "{out:?}");
         }
 
         #[test]

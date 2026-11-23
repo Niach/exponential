@@ -972,4 +972,13 @@ fn memory_feed_express_reaches_the_host(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert!(host.read_with(cx, |h, _| h.surface("bare")).is_some());
     assert_eq!(prose.borrow().concat(), "Hi.\n\nBye.");
+
+    // A block that does not compile is a host issue; the stream reads on.
+    t.feed_express(&WireFormat::express("later"), ["One.\n<a2ui>\nroot = Sparkle(text=\"x\")\n</a2ui>\nTwo.\n<a2ui>\nroot = Text(text=\"ok\")\n</a2ui>\n"]);
+    cx.run_until_parked();
+    let issues = host.read_with(cx, |h, _| h.issues().to_vec());
+    assert_eq!(issues.len(), 1, "{issues:?}");
+    assert_eq!(issues[0].code, eui_gpui::runtime::EXPRESS_INVALID);
+    assert!(issues[0].message.contains("Sparkle"), "{issues:?}");
+    assert!(host.read_with(cx, |h, _| h.surface("later")).is_some());
 }
