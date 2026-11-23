@@ -3,6 +3,9 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 const h = vi.hoisted(() => {
   const state = {
     selectRows: [] as unknown[],
+    // #FEED-304: the owner's device rows `settleSharedUsage` locks
+    // (`.orderBy(...).for(update)`), apart from the select queue.
+    usageRows: [] as unknown[],
     // EXP-432: queue for tests exercising MULTIPLE selects in one call
     // (own rows, then the team-shared join, or setShared's row probe).
     // Empty = every select resolves `selectRows` (the legacy single-select
@@ -42,6 +45,7 @@ const h = vi.hoisted(() => {
           onRejected?: (reason: unknown) => unknown
         ) => Promise.resolve(get()).then(onFulfilled, onRejected),
         limit: () => Promise.resolve(get()),
+        for: () => Promise.resolve(state.usageRows),
       }
     }
     const terminal = {
@@ -215,6 +219,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   h.state.selectRows = []
   h.state.selectQueue = []
+  h.state.usageRows = []
   h.state.inserted = []
   h.state.firstSeen = []
   h.state.upserts = []
@@ -601,6 +606,62 @@ describe(`devices.heartbeat agent sign-outs`, () => {
   it(`a beat without a report reads nothing`, async () => {
     await caller.heartbeat({ deviceId: `dev-1`, activeSessions: 0, defaultsSyncedAt: null })
     expect(notifyAgentSignOuts).not.toHaveBeenCalled()
+  })
+})
+
+// #FEED-304: one account reads its newest fetch on every device of its owner.
+describe(`devices.heartbeat shared usage`, () => {
+  const fresh = new Date(Date.now() - 60_000).toISOString()
+  const old = new Date(Date.now() - 21 * 3_600_000).toISOString()
+  const reset = new Date(Date.now() + 24 * 3_600_000).toISOString()
+  const usage = (fetchedAt: string, percent: number) => ({
+    fetchedAt,
+    stale: false,
+    windows: [{ key: `weekly`, label: `Week`, percent, resetsAt: reset }],
+  })
+  const accounts = (id: string, fetchedAt: string, percent: number) => ({
+    claude: {
+      signedIn: true,
+      email: `d@acme.dev`,
+      profiles: [{ id, signedIn: true, active: true, email: `d@acme.dev`, usage: usage(fetchedAt, percent) }],
+    },
+  })
+  const beat = (report: ReturnType<typeof accounts>) => {
+    // The sign-out settle reads no stored row.
+    h.state.selectQueue = [[]]
+    return caller.heartbeat({ deviceId: `dev-1`, activeSessions: 0, defaultsSyncedAt: null, agentAccounts: report })
+  }
+  const written = () => h.state.updates.map((update) => update.set as { agentAccounts?: ReturnType<typeof accounts> })
+
+  it(`a device reporting a 21-hour-old read stores the newer one another device holds`, async () => {
+    h.state.usageRows = [
+      { id: `row-1`, deviceId: `dev-1`, agentAccounts: accounts(`mac`, old, 100), agentUsage: null },
+      { id: `row-2`, deviceId: `dev-2`, agentAccounts: accounts(`mint`, fresh, 62), agentUsage: null },
+    ]
+    await beat(accounts(`mac`, old, 100))
+    const own = written().find((set) => set.agentAccounts?.claude.profiles[0]!.id === `mac`)
+    expect(own?.agentAccounts?.claude.profiles[0]!.usage).toEqual(usage(fresh, 62))
+    // The other device's row already holds it: not rewritten.
+    expect(written().some((set) => set.agentAccounts?.claude.profiles[0]!.id === `mint`)).toBe(false)
+  })
+
+  it(`a fresh read moves the same account's row on the other device`, async () => {
+    h.state.usageRows = [
+      { id: `row-1`, deviceId: `dev-1`, agentAccounts: accounts(`mint`, old, 100), agentUsage: null },
+      { id: `row-2`, deviceId: `dev-2`, agentAccounts: accounts(`mac`, old, 100), agentUsage: null },
+    ]
+    // The peer's write, then the beat's own.
+    h.state.updateReturning = [[], [{ id: `row-1` }]]
+    await beat(accounts(`mint`, fresh, 62))
+    const peer = written().find((set) => set.agentAccounts?.claude.profiles[0]!.id === `mac`)
+    expect(peer?.agentAccounts?.claude.profiles[0]!.usage).toEqual(usage(fresh, 62))
+  })
+
+  it(`with no newer read anywhere, the old numbers are stored stale`, async () => {
+    h.state.usageRows = []
+    await beat(accounts(`mac`, old, 100))
+    const own = written().find((set) => set.agentAccounts)
+    expect(own?.agentAccounts?.claude.profiles[0]!.usage).toEqual({ ...usage(old, 100), stale: true })
   })
 })
 
