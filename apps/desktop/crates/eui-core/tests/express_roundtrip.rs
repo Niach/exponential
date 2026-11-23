@@ -1,7 +1,8 @@
 //! #AXC-12: `fixtures/express-roundtrip.json`: each sample surface's
 //! createSurface → Express (`decompile`) → messages (`compile`) with zero
 //! diffs, and the reduced surface keeps the nested fixture's node count
-//! (dashboard 56, demo-surface 12, kitchen-sink 251).
+//! (dashboard 56, demo-surface 12, kitchen-sink 251), plus `express-extras`
+//! (a keyed template, an `on` functionCall, an event context, checks).
 #![cfg(feature = "express")]
 
 use eui_core::express::{compile, decompile};
@@ -31,7 +32,8 @@ fn nodes(messages: &[Value]) -> usize {
     let options = ReduceOptions { expand: false, ..ReduceOptions::new(catalog) };
     let result = reduce_surface(&components, &options);
     assert!(result.issues.is_empty(), "reduce issues: {:?}", result.issues);
-    count(&result.root)
+    // A template node is lifted out of the tree (it renders per item).
+    count(&result.root) + result.templates.as_ref().map_or(0, |t| t.values().map(count).sum())
 }
 
 /// The first path where two values differ (`None` = equal; key order aside).
@@ -90,6 +92,12 @@ fn demo_surface_round_trips_through_express() {
 #[test]
 fn kitchen_sink_round_trips_through_express() {
     round_trip("kitchen-sink");
+}
+
+/// A keyed template, a renderer-function handler, an event context, checks.
+#[test]
+fn extras_round_trip_through_express() {
+    round_trip("express-extras");
 }
 
 /// The block compiles the same with and without its `<a2ui>` tags.
@@ -167,7 +175,7 @@ fn stream(express: &str, wrapped: bool, size: usize) -> eui_core::host::decoders
 /// every fixture leaves the same surface as the batch compile.
 #[test]
 fn streaming_settles_to_the_batch_surface() {
-    for name in ["dashboard", "demo-surface", "kitchen-sink"] {
+    for name in ["dashboard", "demo-surface", "kitchen-sink", "express-extras"] {
         let (messages, _) = case(name);
         let express = decompile(&messages).unwrap();
         let want = settle(&compile(&express, "main").unwrap());

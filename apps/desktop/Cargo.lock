@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "a2ui-express"
 version = "0.1.0"
-source = "git+https://github.com/Niach/a2ui-express-compiler-rust?rev=0463a4f6d086a56dc42c19d04778d2e2544a7474#0463a4f6d086a56dc42c19d04778d2e2544a7474"
+source = "git+https://github.com/Niach/a2ui-express-compiler-rust?rev=bc9c1d7fa04709cccc87b6190655e1c369676bb2#bc9c1d7fa04709cccc87b6190655e1c369676bb2"
 dependencies = [
  "serde",
  "serde_json",
@@ -2498,7 +2498,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.4",
+ "syn 1.0.109",
 ]
 
 [[package]]

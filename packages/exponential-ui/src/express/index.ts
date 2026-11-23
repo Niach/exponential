@@ -9,7 +9,7 @@ import * as bindings from "../../wasm/express/a2ui_express.js"
 import type { Catalogs, ExpressError as WasmExpressError } from "../../wasm/express/a2ui_express.js"
 import coreSchema from "../../catalog/core.schema.json" with { type: "json" }
 import { EXPRESS_DEFAULT_SURFACE_ID } from "../host/contract"
-import { registerExpressEngine, type ExpressEngine, type ExpressPart, type ExpressStream } from "../host/decoders"
+import { registerExpressEngine, type ExpressEngine, type ExpressStream } from "../host/decoders"
 import { expressCatalog } from "./catalog"
 
 export { ExpressDecoder, decodeExpressBody, expressLoaded, inferenceFormatOf } from "../host/decoders"
