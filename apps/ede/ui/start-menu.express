@@ -1,0 +1,89 @@
+# Exponential Desktop's factory start menu (#EDE-52): Mint's menu, opened from the taskbar's
+# Exponential button bottom-left (or Super) as a popup surface above it, 760×620, with the keyboard.
+# Three columns: the person (/user), the desktop/team switcher under it (#EDE-65, moved here from the
+# sidebar: the current entry, its menu lists /shell/switcher/sections with New local desktop, Share as
+# a team only on a Local desktop and Connect Exponential only without an account,
+# /shell/switcher/connection; ede_switcher pick/new/share/connect, a pick closes the menu, is
+# remembered and the Exponential app follows a team) with the favourites (the taskbar's pins) and lock
+# / log out / power at the bottom; the categories (/shell/startMenu/categories: All applications,
+# Favourites, Exponential, Accessories, … in Mint's order, the current one selected); the app rows
+# with icon, name and description (/shell/startMenu/apps: the category's apps, or the ranked matches
+# while the search box at the bottom has text; #EDE-65: then Issues, /shell/startMenu/issues: the
+# issue-search engine's hits across every connected team and the Local desktops, at most 8, each with
+# its status, identifier and `team · board`, ede_issue {identifier, source, sourceId} opens it in the
+# Exponential app, on its team or Local desktop (the switcher and the app go there first when it is
+# another one); the groups are labelled while both have rows). The keyboard in the search (#EDE-92):
+# while the box has text one result row is the selected one (`selected` on the rows of
+# /shell/startMenu/apps and /issues, the Row's selected state): the first by default and again after
+# every change of the text, Down and Up move it over the apps and then the issues and stop at the
+# ends, its row scrolls into view (the results' ScrollArea states the catalogue's default direction,
+# vertical, which the shared macro drops when it is missing: #EXP-1939), and Enter in the box
+# (ede_start_menu {activate}) runs it as a press on it does, closing the menu; with no result, or no
+# text, Enter does nothing and no row is selected. Tab leaves the box for the footer, where Enter
+# presses the focused button; Escape closes the menu; the pointer is as before. Entries include the
+# Exponential app, Files (Nemo) and Version history (#EDE-53) with the installed applications. Footer:
+# What's new, the account, Devices, Settings (ede_open_document settings). The IDE opens the same
+# document over its window (#EXP-1723; it prunes the switcher, its sidebar has its own): an entry
+# there names a concept or a host glyph in glyph, instead of an image in icon.
+surface("start-menu", extensions={ede: {popup: {parent: "taskbar", anchor: "start", placement: "top-start", size: {width: 760, height: 620}}, functions: ["ede_launch", "ede_lock", "ede_logout", "ede_power", "ede_open_document", "ede_switcher", "ede_start_menu", "ede_issue"]}})
+$/shell/startMenu/apps = []
+$/shell/startMenu/categories = []
+$/shell/startMenu/category = "all"
+$/shell/startMenu/favourites = []
+$/shell/startMenu/open = false
+$/shell/startMenu/query = ""
+$/user/host = ""
+$/user/login = ""
+$/user/name = ""
+root = Box(style={display: "flex", flexDirection: "column", width: 760, height: 620, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.lg"}, children=[columns, bottom])
+columns = Box(style={display: "flex", flexDirection: "row", flexGrow: 1, minHeight: 0}, children=[left, middle, right])
+left = Box(style={display: "flex", flexDirection: "column", width: 220, flexShrink: 0, padding: "$spacing.sm", gap: "$spacing.xs", borderRightWidth: 1, borderColor: "$color.border"}, children=[person, switcher, switcher_menu, favourites_label, favourites_scroll, power_row])
+person = Row(title=$/user/name, subtitle=$/user/host, density="default", slots={leading: "person_avatar"})
+person_avatar = Avatar(name=$/user/name, size="lg", seed=$/user/login)
+switcher = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.sm", height: 40, paddingLeft: "$spacing.xs", paddingRight: "$spacing.xs", borderRadius: "$radius.md", minWidth: 0, flexShrink: 0}, pressable=true, children=[switcher_avatar, switcher_name, switcher_chevron])
+switcher_avatar = Avatar(name=$/shell/switcher/current/name, size="default")
+switcher_name = Text(text=$/shell/switcher/current/name, variant="label", lines=1)
+switcher_chevron = Icon(name="nav-team-switcher", size="sm", tone="neutral")
+switcher_menu = Popover(side="bottom", align="start", anchor=switcher, children=[switcher_list])
+switcher_list = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xxs", width: 240, padding: "$spacing.xs"}, children=[switcher_sections, switcher_section, switcher_sep, switcher_new, switcher_share, switcher_connect])
+switcher_sections = List(gap="xs", children=_template($/shell/switcher/sections, switcher_section, key="id"))
+switcher_section = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xxs"}, children=[switcher_section_label, switcher_entries, switcher_entry])
+switcher_section_label = Text(text=$label, variant="caption", lines=1)
+switcher_entries = List(gap="none", children=_template($entries, switcher_entry, key="id"))
+switcher_entry = Row(title=$name, selected=$current, density="compact", pressable=true, slots={leading: "switcher_entry_avatar"}, on={press: ede_switcher(account=$account, action="pick", id=$id, kind=$kind)})
+switcher_entry_avatar = Avatar(name=$name, size="sm")
+switcher_sep = Separator()
+switcher_new = Row(title="New local desktop", icon="ui-add", density="compact", pressable=true, on={press: ede_switcher(action="new")})
+switcher_share = Row(title="Share as a team…", icon="ui-share", density="compact", pressable=true, on={press: ede_switcher(action="share")}, visible=cond(if=$/shell/switcher/connection/onLocal, then=true, else=false))
+switcher_connect = Row(title="Connect Exponential", icon="brand-exponential", density="compact", pressable=true, on={press: ede_switcher(action="connect")}, visible=not(value=cond(if=$/shell/switcher/connection/connected, then=true, else=false)))
+favourites_label = Text(text="Favourites", variant="caption", style={paddingLeft: "$spacing.sm", paddingTop: "$spacing.xs"})
+favourites_scroll = ScrollArea(style={flexGrow: 1, minHeight: 0}, children=[favourites, favourite, no_favourites])
+favourites = List(gap="none", children=_template($/shell/startMenu/favourites, favourite, key="id"))
+favourite = Row(title=$name, icon=$glyph, density="compact", pressable=true, slots={leading: "favourite_icon"}, on={press: ede_launch(app=$id)})
+favourite_icon = Image(src=$icon, alt=$name, fit="contain", width=20, height=20, fallback="nav-apps", visible=cond(if=$icon, then=true, else=false))
+no_favourites = Text(text="Pin an app to the taskbar", variant="muted", style={paddingLeft: "$spacing.sm"}, visible=eq(a=len(value=$/shell/startMenu/favourites), b=0))
+power_row = Stack(direction="horizontal", gap="sm", align="center", children=[lock, logout, power])
+lock = Button(label="Lock", icon="ede-lock", variant="outline", size="icon", on={press: ede_lock()})
+logout = Button(label="Log out", icon="nav-sign-out", variant="outline", size="icon", on={press: ede_logout()})
+power = Menu(items=[{label: "Suspend", value: "suspend", icon: "ede-suspend"}, {label: "Restart", value: "reboot", icon: "ui-refresh"}, {label: "Shut down", value: "poweroff", icon: "ede-power", destructive: true}], side="top", align="start", children=[power_button], on={select: ede_power(action=$value)})
+power_button = Button(label="Power", icon="ede-power", variant="destructive", size="icon")
+middle = Box(style={display: "flex", flexDirection: "column", width: 200, flexShrink: 0, padding: "$spacing.sm", borderRightWidth: 1, borderColor: "$color.border"}, children=[categories_scroll])
+categories_scroll = ScrollArea(style={flexGrow: 1, minHeight: 0}, children=[categories, category])
+categories = List(gap="none", children=_template($/shell/startMenu/categories, category, key="id"))
+category = Row(title=$label, icon=$icon, selected=$selected, density="compact", pressable=true, on={press: ede_start_menu(category=$id)})
+right = Box(style={display: "flex", flexDirection: "column", flexGrow: 1, minWidth: 0, padding: "$spacing.sm"}, children=[apps_scroll])
+apps_scroll = ScrollArea(direction="vertical", style={flexGrow: 1, minHeight: 0}, children=[apps_label, apps, app, issues_label, issues, issue, no_apps])
+apps_label = Text(text="Apps", variant="caption", style={paddingLeft: "$spacing.sm", paddingTop: "$spacing.xs"}, visible=and(values=[not(value=eq(a=len(value=$/shell/startMenu/apps), b=0)), not(value=eq(a=len(value=$/shell/startMenu/issues), b=0))]))
+apps = List(gap="none", children=_template($/shell/startMenu/apps, app, key="id"))
+app = Row(title=$name, subtitle=$comment, icon=$glyph, selected=$selected, density="default", pressable=true, slots={leading: "app_icon"}, on={press: ede_launch(app=$id)})
+app_icon = Image(src=$icon, alt=$name, fit="contain", width=24, height=24, fallback="nav-apps", visible=cond(if=$icon, then=true, else=false))
+issues_label = Text(text="Issues", variant="caption", style={paddingLeft: "$spacing.sm", paddingTop: "$spacing.xs"}, visible=not(value=eq(a=len(value=$/shell/startMenu/issues), b=0)))
+issues = List(gap="none", children=_template($/shell/startMenu/issues, issue, key="id"))
+issue = Row(title=$title, identifier=$identifier, subtitle=$context, icon=$icon, selected=$selected, density="default", pressable=true, on={press: ede_issue(identifier=$identifier, source=$source, sourceId=$sourceId)})
+no_apps = EmptyState(icon="ui-empty-search", title="No results", size="list", visible=and(values=[eq(a=len(value=$/shell/startMenu/apps), b=0), eq(a=len(value=$/shell/startMenu/issues), b=0)]))
+bottom = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.sm", padding: "$spacing.sm", borderTopWidth: 1, borderColor: "$color.border"}, children=[search, whats_new, account, devices, settings])
+search = Input(label="Search", name="query", type="search", placeholder="Search apps and issues", value=$/shell/startMenu/query, on={submit: ede_start_menu(activate=true)}, style={flexGrow: 1})
+whats_new = Button(label="What's new", icon="nav-changelog", variant="ghost", size="icon", on={press: ede_launch(app="at.exponential")})
+account = Button(label="Account", icon="nav-account", variant="ghost", size="icon", on={press: ede_launch(app="at.exponential")})
+devices = Button(label="Devices", icon="nav-devices", variant="ghost", size="icon", on={press: ede_launch(app="at.exponential")})
+settings = Button(label="Settings", icon="nav-settings", variant="ghost", size="icon", on={press: ede_open_document(name="settings")})

@@ -1,0 +1,103 @@
+---
+title: Express
+description: Express is the compact notation a model writes instead of A2UI JSON. It streams as prose around <a2ui> blocks, a host compiles it into the same A2UI messages, and the prose reaches your app through onText.
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components"
+import GuideFile from "../../../../../components/eui/GuideFile.astro"
+import hostContract from "@exponential_app/eui/catalog/host.json"
+
+export const inf = hostContract.inference
+
+Express is a second **inference format**: what a model writes when it shows UI. A2UI JSON spells out every component as an object. Express writes one statement per component, the way you would write code:
+
+```text
+Here is this week's release health.
+
+<a2ui>
+root = Stack(direction="vertical", gap="md", children=[title, kpis])
+title = Heading(text="Release health · week 47", level="h3")
+kpis = Grid(columns={base: 1, md: 3}, gap="md", children=[crash_free])
+crash_free = StatTile(label="Crash-free sessions", value="99.82 %", delta="+0.14 %", tone="success")
+</a2ui>
+
+Want me to promote the Android rollout?
+```
+
+The host compiles every statement against the core catalog into the same A2UI 1.0 messages a JSON agent sends (`createSurface`, `updateComponents`, `updateDataModel`). Every renderer paints them unchanged. Express adds no components: a component or prop the catalog lacks is a compile error. The compiler is [a2ui-express](https://github.com/Niach/a2ui-express-compiler-rust). The native SDKs run it inside the core, and the web runs the same build as WebAssembly.
+
+## Streaming
+
+A model's answer streams. The host compiles each statement as soon as it is complete, so the surface grows while the model is still writing. The text around the `<a2ui>` blocks is **prose**. The SDK draws none of it and hands it to your app piece by piece:
+
+- `onText` on TS, Swift and Compose
+- `on_text` on gpui
+
+A run of prose that follows a block starts with a `"\n\n"` piece. That piece is how your app tells the text above the surface from the text below it.
+
+A block that does not compile becomes an issue on the host. It is never fatal: the stream reads on past it.
+
+## The format marker
+
+A transport reads Express when the wire says so, whatever format you asked for:
+
+| Wire | Express |
+|---|---|
+| HTTP body | Content-Type <code>{inf.express.mimeType}</code> |
+| Server-Sent Events | events named <code>{inf.express.sseEvent}</code> (each one's data is the next chunk) |
+| WebSocket | frames <code>{`{"${inf.express.wsFrameKey}": "…"}`}</code> |
+| MCP tool result | a resource of mime type <code>{inf.express.mimeType}</code>, or <code>structuredContent.{inf.express.structuredContentKey}</code> |
+
+`format: "express"` on a transport asks the server for Express (in `accept`) and loads the compiler before the first byte. Statements before any `surface("…")` line target the surface <code>{inf.express.defaultSurfaceId}</code> unless you pass `surfaceId`. A host advertises that it reads Express in <code>{`rendererCapabilities["1.0"].${inf.capabilitiesKey}`}</code>.
+
+## The prompt
+
+`expressPrompt()` from `@exponential_app/eui/express` is the Express section of an agent's system prompt over the core catalog: the grammar and every component with its props, in the compact style. Use it where you would use `catalogPrompt()`. On the server, instantiate the compiler from its bytes first:
+
+```ts
+import { readFileSync } from "node:fs"
+import { compileExpress, expressPrompt, initExpress } from "@exponential_app/eui/express"
+
+// the .wasm ships beside the module
+initExpress(readFileSync(new URL(`a2ui_express_bg.wasm`, import.meta.resolve(`@exponential_app/eui/express`))))
+const system = `Show the user a UI when it helps. ${expressPrompt()}`
+compileExpress(block) // throws an ExpressError: send it back, the model retries
+```
+
+In a browser, `loadExpress()` fetches the module once. The transports call it themselves when a stream turns out to carry Express.
+
+## One stream on every platform
+
+The [agent guide](/docs/sdk/genui/guides/agents/)'s server replays one recorded model answer at `GET /express` as `a2ui-express` events, with the delays it streamed with (`fixtures/express-demo.json`). Its MCP tool `show_ui_express` answers with an <code>{inf.express.mimeType}</code> resource. Every guide app opens that stream:
+
+- web: the `#express` hash
+- gpui: the `express` argument
+- iOS: the `express` launch argument
+- Android: `--ez express true`
+
+Each app puts the prose into two surfaces it owns (a `Markdown` each), one above the agent's surface and one below it.
+
+<Tabs syncKey="eui-sdk">
+  <TabItem label="React">
+    <GuideFile path="react/src/ExpressStream.tsx" />
+  </TabItem>
+  <TabItem label="Solid">
+    <GuideFile path="solid/src/ExpressStream.tsx" />
+  </TabItem>
+  <TabItem label="Web component">
+    <GuideFile path="element/src/express-stream.ts" />
+  </TabItem>
+  <TabItem label="SwiftUI">
+    <GuideFile path="swift/Sources/GuideApp/ExpressStream.swift" />
+  </TabItem>
+  <TabItem label="Compose">
+    <GuideFile path="compose/app/src/main/kotlin/at/exponential/guide/ExpressStream.kt" />
+  </TabItem>
+  <TabItem label="gpui">
+    <GuideFile path="gpui/src/main.rs" />
+  </TabItem>
+</Tabs>
+
+The server side:
+
+<GuideFile path="agent/server.ts" />

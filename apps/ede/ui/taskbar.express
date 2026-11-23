@@ -1,0 +1,82 @@
+# Exponential Desktop's factory taskbar (#EDE-48): Mint's grouped window list as a 48 px top layer
+# surface along the whole bottom edge (#EDE-65: the shell opens it before the sidebar, so the 56 px
+# rail stands on it). Bottom-left, under the rail: the Exponential start button (the start menu,
+# start-menu.express anchored here), the chat button (chat.express) and the new-issue button right of it
+# (the Exponential app's new issue, ede_launch {new: issue}), the IDE's ghost icon buttons. Then one
+# icon-only 40 px button per app (/shell/taskbar/buttons: the pinned apps first, then the running
+# ones), a dot under a running app, a wider one under the focused app, dimmed when every window is
+# minimized; a click does what Mint's does (ede_taskbar: launch, focus, minimize, or the group's
+# previews), the context menu pins, unpins and closes (ede_taskbar_menu), hovering a running app opens
+# its previews as a popup (a hosted Popover: live thumbnails of the group's windows from /previews, a
+# click focuses). Right: the applets (network, sound, Bluetooth, battery: each opens its popup
+# document anchored here, #EDE-43), the tray items, Needs you (#EDE-65: only while something waits on
+# the person across the signed-in accounts' teams, /needsYou/count as its badge; it opens
+# needs-you.express), Agent spaces (#EXP-2024: only while an agent space exists on this machine,
+# /spaces/count; its hosted Popover lists /spaces/rows: each space's picture, its session's title (a
+# child's chat as the second line, `Agent space n` for a session no signed-in account holds) and
+# Close, which ends the space and never its session (ede_space_close); a press on a row pins that
+# session's view, space-view.express (ede_space); a hosted Popover never takes the keyboard), the bell
+# (notification-center.express: the desktop's notifications and the accounts' unread inbox merged) and
+# the clock (#EXP-2046: in tabular figures, so its width holds from minute to minute and nothing left
+# of it moves: an open popover anchored there stays open).
+surface("taskbar", extensions={ede: {layer: "top", anchor: ["bottom", "left", "right"], size: {height: 48}, exclusiveZone: 48, functions: ["ede_taskbar", "ede_taskbar_menu", "ede_previews", "ede_focus", "ede_close", "ede_tray", "ede_start_menu", "ede_chat", "ede_launch", "ede_space", "ede_space_close"]}})
+$/applets/battery/icon = "ede-battery"
+$/applets/battery/show = false
+$/applets/bluetooth/show = false
+$/applets/network/icon = "ede-wifi"
+$/applets/sound/icon = "media-volume-up"
+$/needsYou/count = 0
+$/notifications/count = 0
+$/previews/app = null
+$/previews/windows = []
+$/shell/taskbar/buttons = []
+$/spaces/count = 0
+$/spaces/rows = []
+$/spacesList/open = false
+$/time = "00:00"
+$/tray = []
+root = Box(style={display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", height: 48, paddingLeft: "$spacing.sm", paddingRight: "$spacing.sm", backgroundColor: "$color.background"}, children=[left, right])
+left = Stack(direction="horizontal", gap="sm", align="center", children=[corner, buttons])
+corner = Stack(direction="horizontal", gap="xs", align="center", children=[start, chat, new])
+start = Button(label="Start", icon="brand-exponential", variant="ghost", size="icon", on={press: ede_start_menu(toggle=true)}, style={width: 40, height: 40})
+chat = Button(label="Chat", icon="action-chat", variant="ghost", size="icon", on={press: ede_chat()}, style={width: 40, height: 40})
+new = Button(label="New issue", icon="nav-create-issue", variant="ghost", size="icon", on={press: ede_launch(new="issue")}, style={width: 40, height: 40})
+buttons = Stack(direction="horizontal", gap="xs", align="center", children=_template($/shell/taskbar/buttons, group, key="app"))
+group = Menu(items=[{label: "Pin to the taskbar", value: "pin", icon: "ui-pin"}, {label: "Unpin from the taskbar", value: "unpin", icon: "ui-unpin"}, {kind: "separator"}, {label: "Close", value: "close", icon: "ui-close"}], side="top", align="start", openOn="contextmenu", children=[previews], on={select: ede_taskbar_menu(app=$app, value=$value)})
+previews = Popover(side="top", align="center", openOn="hover", children=[previews_box], slots={trigger: "button"}, on={change: Event("ede_previews", {app: $app})})
+previews_box = Stack(direction="horizontal", gap="sm", align="start", style={padding: "$spacing.sm"}, children=_template($/previews/windows, preview, key="id"))
+preview = Box(style={position: "relative", display: "flex", flexDirection: "column", gap: "$spacing.xs", padding: "$spacing.xs", width: 200, borderRadius: "$radius.md"}, pressable=true, children=[preview_bg, preview_head, preview_thumb], on={press: ede_focus(window=$id)})
+preview_bg = Box(style={position: "absolute", inset: 0, borderRadius: "$radius.md", backgroundColor: "$color.accent"}, visible=cond(if=$focused, then=true, else=false))
+preview_head = Stack(direction="horizontal", gap="xs", align="center", children=[preview_title, preview_close])
+preview_title = Text(text=$title, variant="caption", lines=1, style={flexGrow: 1, minWidth: 0})
+preview_close = Button(label="Close", icon="ui-close", variant="ghost", size="icon", on={press: ede_close(window=$id)})
+preview_thumb = Image(src=$thumbnail, alt=$title, fit="contain", width=184, height=110, fallback="ede-window")
+button = Box(style={position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: 40, height: 40, borderRadius: "$radius.md"}, pressable=true, children=[focus_bg, button_icon, button_icon_dim, running_focused, running, not_running], on={press: ede_taskbar(app=$app)})
+focus_bg = Box(style={position: "absolute", inset: 0, borderRadius: "$radius.md", backgroundColor: "$color.accent"}, visible=cond(if=$focused, then=true, else=false))
+button_icon = Image(src=$icon, alt=$name, fit="contain", width=24, height=24, fallback="nav-apps", visible=not(value=cond(if=$minimized, then=true, else=false)))
+button_icon_dim = Image(src=$icon, alt=$name, fit="contain", width=24, height=24, fallback="nav-apps", style={opacity: 0.5}, visible=cond(if=$minimized, then=true, else=false))
+running_focused = Box(style={height: 2, width: 20, marginTop: 3, borderRadius: "$radius.full", backgroundColor: "$color.primary"}, visible=cond(if=$focused, then=true, else=false))
+running = Box(style={height: 2, width: 8, marginTop: 3, borderRadius: "$radius.full", backgroundColor: "$color.mutedForeground"}, visible=and(values=[cond(if=$running, then=true, else=false), not(value=cond(if=$focused, then=true, else=false))]))
+not_running = Box(style={height: 2, marginTop: 3}, visible=not(value=cond(if=$running, then=true, else=false)))
+right = Stack(direction="horizontal", gap="xs", align="center", children=[tray, tray_item, applet_network, applet_sound, applet_bluetooth, applet_battery, needs_you, needs_you_count, agent_spaces, bell, bell_count, clock])
+tray = Stack(direction="horizontal", gap="xs", align="center", children=_template($/tray, tray_item, key="service"))
+tray_item = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "$radius.sm"}, pressable=true, children=[tray_icon], on={press: ede_tray(service=$service)})
+tray_icon = Image(src=$icon, alt=$title, fit="contain", width=18, height=18, fallback="nav-apps")
+applet_network = Button(label="Network", icon=$/applets/network/icon, variant="ghost", size="icon", on={press: Event("applet")})
+applet_sound = Button(label="Sound", icon=$/applets/sound/icon, variant="ghost", size="icon", on={press: Event("applet")})
+applet_bluetooth = Button(label="Bluetooth", icon="ede-bluetooth", variant="ghost", size="icon", on={press: Event("applet")}, visible=cond(if=$/applets/bluetooth/show, then=true, else=false))
+applet_battery = Button(label="Battery", icon=$/applets/battery/icon, variant="ghost", size="icon", on={press: Event("applet")}, visible=cond(if=$/applets/battery/show, then=true, else=false))
+needs_you = Button(label="Needs you", icon="nav-needs-you", variant="ghost", size="icon", on={press: Event("needs_you")}, visible=not(value=eq(a=$/needsYou/count, b=0)))
+needs_you_count = Badge(text=$/needsYou/count, variant="default", visible=not(value=eq(a=$/needsYou/count, b=0)))
+agent_spaces = Popover(open=$/spacesList/open, side="top", align="end", children=[spaces_box], slots={trigger: "agent_spaces_button"}, visible=not(value=eq(a=$/spaces/count, b=0)))
+spaces_box = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", width: 380}, children=[spaces_title, spaces_scroll])
+spaces_title = Heading(text="Agent spaces", level="h4")
+spaces_scroll = ScrollArea(maxHeight=300, children=[spaces_list, space_row])
+spaces_list = List(gap="none", divided=true, children=_template($/spaces/rows, space_row, key="id"))
+space_row = Row(title=$title, subtitle=$subtitle, density="compact", pressable=true, slots={leading: "space_picture", trailing: "space_close"}, on={press: ede_space(session=$session)})
+space_picture = Image(src=$picture, alt=$title, fit="contain", width=96, height=60, fallback="nav-computer")
+space_close = Button(label="Close", icon="ui-close", variant="ghost", size="icon", on={press: ede_space_close(space=$id)})
+agent_spaces_button = Button(label="Agent spaces", icon="nav-computer", variant="ghost", size="icon")
+bell = Button(label="Notifications", icon="nav-notifications", variant="ghost", size="icon", on={press: Event("bell")})
+bell_count = Badge(text=$/notifications/count, variant="secondary", visible=not(value=eq(a=$/notifications/count, b=0)))
+clock = Button(label=$/time, variant="ghost", size="sm", on={press: Event("clock")}, style={fontVariantNumeric: "tabular-nums"})

@@ -776,7 +776,7 @@ impl Surfaces {
     }
 }
 
-/// The chat document's rows (`apps/ede/ui/chat.json`).
+/// The chat document's rows (`apps/ede/ui/chat.express`).
 pub const CHAT_SCROLL: &str = "chat_scroll";
 
 /// #EXP-1780: the chat's rows scroll above its composer, held at the newest
@@ -833,7 +833,7 @@ mod tests {
     #[test]
     fn a_view_gets_only_the_bound_paths_that_moved() {
         let taskbar = uicore_docs::DOCS.iter().find(|d| d.name == "taskbar").unwrap();
-        let mut pushed = Pushed::for_source(&serde_json::from_str(taskbar.source).unwrap());
+        let mut pushed = Pushed::for_source(&taskbar.json());
         assert!(pushed.roots.contains("shell") && pushed.roots.contains("previews") && pushed.roots.contains("time"), "{:?}", pushed.roots);
         let mut feed = Feed::new();
         feed.set("/shell", serde_json::json!({"rail": false}));

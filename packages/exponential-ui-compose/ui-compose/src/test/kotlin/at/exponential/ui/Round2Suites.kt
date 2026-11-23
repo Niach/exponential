@@ -13,7 +13,7 @@ import at.exponential.ui.ffi.jsonDiff
 import at.exponential.ui.ffi.jsonEqual
 import at.exponential.ui.ffi.listJson
 import at.exponential.ui.ffi.reduceNestedJson
-import at.exponential.ui.ffi.reduceSurfaceJson
+import at.exponential.ui.ffi.reduceSurfaceStreamingJson
 import at.exponential.ui.ffi.resizableJson
 import at.exponential.ui.ffi.resolveConditionsJson
 import at.exponential.ui.ffi.resolveDynamicJson
@@ -435,7 +435,7 @@ object Round2Suites {
         for (c in list(f, "reduce")) {
             out.add(case("reduce ${s(c, "name")}") {
                 val catalog = s(c, "catalogId").ifEmpty { coreCatalogId() }
-                val got = if (c["nested"] != null) reduceNestedJson(c["nested"]!!.orderedJson, catalog, null) else reduceSurfaceJson(c["components"]!!.orderedJson, catalog, null)
+                val got = if (c["nested"] != null) reduceNestedJson(c["nested"]!!.orderedJson, catalog, null) else reduceSurfaceStreamingJson(c["components"]!!.orderedJson, catalog, null, c["streaming"]?.bool ?: false)
                 same(got, c["expected"]!!)?.let { return@case it }
                 // A lifted template never also renders in place.
                 val parsed = JsonValue.parse(got)

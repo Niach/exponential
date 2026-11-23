@@ -431,6 +431,24 @@ for c in transport["express"] as! [[String: Any]] {
     let d = ExpressDecoder(wrapped: c["wrapped"] as! Bool, surfaceId: (c["surfaceId"] as? String) ?? "main")
     equal(text(expressFeed({ d.push(chunk: $0) }, { d.end() }, c["chunks"] as! [String])), c["expected"]!, "express \(c["name"]!)")
 }
+// #VAPP-300: the open block after every push, then after end().
+for c in transport["expressOpen"] as! [[String: Any]] {
+    let chunks = c["chunks"] as! [String]
+    let reads: [String]
+    switch c["decoder"] as? String {
+    case "sse":
+        let d = SseDecoder.withSurface(surfaceId: c["surfaceId"] as? String)
+        reads = chunks.map { d.push(chunk: $0) } + [d.end()]
+    case "ws":
+        let d = FrameDecoder(surfaceId: c["surfaceId"] as? String)
+        reads = chunks.map { d.push(frame: $0) } + [d.end()]
+    default:
+        let d = ExpressDecoder(wrapped: c["wrapped"] as! Bool, surfaceId: (c["surfaceId"] as? String) ?? "main")
+        reads = chunks.map { d.push(chunk: $0) } + [d.end()]
+    }
+    let opens: [Any] = reads.map { ((try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any])?["open"] ?? [Any]() }
+    equal(text(opens), c["expected"]!, "expressOpen \(c["name"]!)")
+}
 for c in transport["expressSse"] as! [[String: Any]] {
     let d = SseDecoder.withSurface(surfaceId: c["surfaceId"] as? String)
     equal(text(expressFeed({ d.push(chunk: $0) }, { d.end() }, c["chunks"] as! [String])), c["expected"]!, "expressSse \(c["name"]!)")

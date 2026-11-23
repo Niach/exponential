@@ -21,6 +21,7 @@ import at.exponential.ui.host.SourceResolver
 import at.exponential.ui.host.TransportStatus
 import at.exponential.ui.host.UrlPolicy
 import at.exponential.ui.host.Utf8Chunks
+import at.exponential.ui.host.deliver
 import at.exponential.ui.host.sourceWithParams
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.SurfaceModel
@@ -172,6 +173,38 @@ class HostTest {
     }
 
     private fun errorCode(m: JsonValue): String? = m["error"]?.get("code")?.string
+
+    /**
+     * #VAPP-300: while an Express block streams, a child that has not arrived yet renders as nothing (no Unknown node, no
+     * issue); once the block closes a child still missing is the placeholder again, as on a JSON surface.
+     */
+    @Test
+    fun aStreamingExpressBlockDrawsNoUnknownForAChildNotStreamedYet() {
+        val timeline = listOf(
+            "Here is the release.\n<a2ui>\nroot = Stack(gap=\"sm\", children=[title, later, ok])\n",
+            "title = Text(text=\"Release 0.18.84\")\n",
+            "ok = Button(label=\"Promote\", variant=\"default\")\n",
+        )
+        fun unknowns(h: ExponentialHost): List<String>? = h.surface("main")?.let { m -> laidOut(m).nodes.filter { it.component == "Unknown" }.map { it.id } }
+        for ((close, want) in listOf("later = Text(text=\"Arrived\")\n</a2ui>\nDone." to emptyList(), "</a2ui>\nDone." to listOf("later"))) {
+            val h = host()
+            val decoder = at.exponential.ui.ffi.ExpressDecoder(true, "main")
+            val feed = { out: String -> deliver(out, { m -> h.receive(m) }, null) { ids, settled -> h.setStreaming(ids, settled) } }
+            for (chunk in timeline) {
+                feed(decoder.push(chunk))
+                assertEquals("mid-stream after $chunk", emptyList<String>(), unknowns(h))
+            }
+            feed(decoder.push(close))
+            feed(decoder.end())
+            decoder.close()
+            assertEquals("closed with $close", want, unknowns(h))
+        }
+        // A JSON surface keeps the placeholder at once.
+        val h = host()
+        h.receive(msg("""{"version":"1.0","createSurface":{"surfaceId":"main","catalogId":"$core"}}"""))
+        h.receive(msg("""{"version":"1.0","updateComponents":{"surfaceId":"main","components":[{"id":"root","component":"Stack","children":["later"]}]}}"""))
+        assertEquals(listOf("later"), unknowns(h))
+    }
 
     @Test
     fun routerOpsDriveSurfaceModels() {

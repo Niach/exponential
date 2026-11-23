@@ -1,4 +1,5 @@
-//! The factory documents (apps/ede/ui) against the look they get at run time.
+//! The factory documents (apps/ede/ui, Express since #EDE-216) against the
+//! look they get at run time.
 
 use eui_core::theme::{resolve_token, Mode};
 use serde_json::Value;
@@ -9,8 +10,13 @@ fn factory_documents() -> Vec<(String, Value)> {
         .unwrap()
         .filter_map(Result::ok)
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|e| e == "json") && p.file_name().is_some_and(|n| n != "theme.json"))
-        .map(|p| (p.file_name().unwrap().to_string_lossy().into_owned(), serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap()))
+        .filter(|p| p.extension().is_some_and(|e| e == "express"))
+        .map(|p| {
+            let stem = p.file_stem().unwrap().to_string_lossy().into_owned();
+            let source = std::fs::read_to_string(&p).unwrap();
+            let doc = ede_ui::compile_document(&stem, &source).unwrap_or_else(|issues| panic!("{stem}: {issues:?}"));
+            (p.file_name().unwrap().to_string_lossy().into_owned(), doc)
+        })
         .collect();
     docs.sort_by(|a, b| a.0.cmp(&b.0));
     docs
@@ -30,7 +36,7 @@ fn layer_documents_have_an_opaque_root() {
         }
         let Some(bg) = doc["root"]["style"].get("backgroundColor") else {
             // No root background: the children paint their own (toasts).
-            assert_eq!(name, "notifications.json", "{name}: a layer document's root paints a background");
+            assert_eq!(name, "notifications.express", "{name}: a layer document's root paints a background");
             continue;
         };
         let resolved = resolve_token(&theme, bg, Mode::Dark).and_then(|v| v.as_str().map(str::to_string)).unwrap_or_else(|| bg.to_string());
@@ -50,11 +56,21 @@ fn layer_documents_have_an_opaque_root() {
 fn factory_documents_validate() {
     let mut checked = 0;
     for (name, doc) in factory_documents() {
-        let stem = name.trim_end_matches(".json");
-        if let Err(issues) = ede_ui::validate_document(stem, &doc) {
+        let stem = name.trim_end_matches(".express");
+        let source = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui").join(&name)).unwrap();
+        assert!(ede_ui::validate_document(stem, &doc).is_ok());
+        if let Err(issues) = ede_ui::validate_express(stem, &source) {
             panic!("{name}: {}", issues.iter().map(|i| i.to_string()).collect::<Vec<_>>().join("; "));
         }
         checked += 1;
     }
     assert!(checked >= 20, "every factory document was checked ({checked})");
+}
+
+/// #EDE-216: documents are Express only; no JSON document ships.
+#[test]
+fn no_json_documents_ship() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui");
+    let json: Vec<String> = std::fs::read_dir(&dir).unwrap().filter_map(Result::ok).map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.ends_with(".json") && n != "theme.json").collect();
+    assert!(json.is_empty(), "{json:?}");
 }

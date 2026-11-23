@@ -9,6 +9,10 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.ExponentialUi
@@ -29,19 +33,33 @@ class MainActivity : ComponentActivity() {
         ),
     )
 
+    // The Express stream (`--ez express true` or the button): a host of its own.
+    private var express by mutableStateOf<ExponentialHost?>(null)
+
+    private fun openExpress() {
+        express = expressHost().also { it.connect() }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ExponentialUi.appContext = applicationContext // links open through it
-        host.connect()
+        if (intent.getBooleanExtra("express", false)) openExpress() else host.connect()
         setContent {
-            // The surface the agent creates, as tall as its content: you own the scroller.
-            Column(Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
-                HostSurface(host, "main", fallback = { Text("Waiting for the agent…") })
+            val stream = express
+            if (stream != null) {
+                ExpressStream(stream)
+            } else {
+                // The surface the agent creates, as tall as its content: you own the scroller.
+                Column(Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
+                    HostSurface(host, "main", fallback = { Text("Waiting for the agent…") })
+                    TextButton(onClick = ::openExpress) { Text("Express stream") }
+                }
             }
         }
     }
 
     override fun onDestroy() {
+        express?.dispose()
         host.dispose()
         super.onDestroy()
     }
