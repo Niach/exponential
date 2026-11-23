@@ -50,6 +50,27 @@ fn express_transport_cases_equal_the_ts_reference() {
         let got = feed(|s| d.borrow_mut().push(s), || d.borrow_mut().end(), &strs(&c["chunks"]));
         check(&mut failures, &format!("express: {}", c["name"]), &got, &c["expected"]);
     }
+    // #VAPP-300: the open block after every push, then after end().
+    for c in cases(&f, "expressOpen") {
+        let chunks = strs(&c["chunks"]);
+        let sid = c["surfaceId"].as_str();
+        let reads: Vec<Decoded> = match c["decoder"].as_str() {
+            Some("sse") => {
+                let mut d = SseDecoder::with_surface(sid);
+                chunks.iter().map(|s| d.push(s)).chain(std::iter::once(d.end())).collect()
+            }
+            Some("ws") => {
+                let mut d = FrameDecoder::new(sid);
+                chunks.iter().map(|s| d.push(s)).chain(std::iter::once(d.end())).collect()
+            }
+            _ => {
+                let mut d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap(), sid.unwrap_or("main"));
+                chunks.iter().map(|s| d.push(s)).chain(std::iter::once(d.end())).collect()
+            }
+        };
+        let got = json!(reads.iter().map(|d| d.open.clone()).collect::<Vec<_>>());
+        check(&mut failures, &format!("expressOpen: {}", c["name"]), &got, &c["expected"]);
+    }
     for c in cases(&f, "expressSse") {
         let d = std::cell::RefCell::new(SseDecoder::with_surface(c["surfaceId"].as_str()));
         let got = feed(|s| d.borrow_mut().push(s), || d.borrow_mut().end(), &strs(&c["chunks"]));

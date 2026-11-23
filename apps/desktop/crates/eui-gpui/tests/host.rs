@@ -983,3 +983,43 @@ fn memory_feed_express_reaches_the_host(cx: &mut TestAppContext) {
     assert!(issues[0].message.contains("Sparkle"), "{issues:?}");
     assert!(host.read_with(cx, |h, _| h.surface("later")).is_some());
 }
+
+/// #VAPP-300: while an Express block streams, a child that has not arrived
+/// yet renders as nothing (no Unknown placeholder); once the block closes a
+/// child still missing is the placeholder again, as on any JSON surface.
+#[gpui::test]
+fn a_streaming_express_block_draws_no_unknown_for_a_child_not_streamed_yet(cx: &mut TestAppContext) {
+    use eui_gpui::transport::WireFormat;
+    init(cx);
+    let unknowns = |host: &Entity<ExponentialHost>, cx: &mut TestAppContext| -> Option<Vec<String>> {
+        let view = host.read_with(cx, |h, _| h.surface("main"))?;
+        Some(view.update(cx, |v, _| v.surface_mut().nodes().into_iter().filter(|n| n.component == eui_core::UNKNOWN_COMPONENT).map(|n| n.id).collect()))
+    };
+    let timeline = ["Here is the release.\n<a2ui>\nroot = Stack(gap=\"sm\", children=[title, later, ok])\n", "title = Text(text=\"Release 0.18.84\")\n", "ok = Button(label=\"Promote\", variant=\"default\")\n"];
+    for (close, want) in [("later = Text(text=\"Arrived\")\n</a2ui>\nDone.", Vec::<String>::new()), ("</a2ui>\nDone.", vec!["later".to_string()])] {
+        let t = MemoryTransport::new();
+        let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), ..Default::default() });
+        host.update(cx, |h, cx| h.connect(cx));
+        cx.run_until_parked();
+        let mut decoder = WireFormat::express("main").express_decoder();
+        for chunk in timeline {
+            t.feed_decoded(decoder.push(chunk));
+            cx.run_until_parked();
+            assert_eq!(unknowns(&host, cx), Some(vec![]), "mid-stream after {chunk:?}");
+        }
+        t.feed_decoded(decoder.push(close));
+        t.feed_decoded(decoder.end());
+        cx.run_until_parked();
+        assert_eq!(unknowns(&host, cx), Some(want), "closed with {close:?}");
+    }
+    // A JSON surface keeps the placeholder at once.
+    let t = MemoryTransport::new();
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    t.feed([
+        json!({"version": VERSION, "createSurface": {"surfaceId": "main", "catalogId": CORE}}),
+        json!({"version": VERSION, "updateComponents": {"surfaceId": "main", "components": [{"id": "root", "component": "Stack", "children": ["later"]}]}}),
+    ]);
+    cx.run_until_parked();
+    assert_eq!(unknowns(&host, cx), Some(vec!["later".to_string()]));
+}

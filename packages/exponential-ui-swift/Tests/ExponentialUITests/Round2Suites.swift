@@ -355,7 +355,7 @@ enum Round2Suites {
                 let catalog = s(c, "catalogId").isEmpty ? coreCatalogId() : s(c, "catalogId")
                 let got = c["nested"] != nil
                     ? try reduceNestedJson(nestedJson: c["nested"]!.json, catalogId: catalog, extensionsJson: nil)
-                    : try reduceSurfaceJson(componentsJson: c["components"]!.json, catalogId: catalog, extensionsJson: nil)
+                    : try reduceSurfaceStreamingJson(componentsJson: c["components"]!.json, catalogId: catalog, extensionsJson: nil, streaming: c["streaming"]?.bool ?? false)
                 if let d = same(got, c["expected"]!) { return d }
                 // A lifted template never also renders in place.
                 let parsed = JSONValue.parse(got)

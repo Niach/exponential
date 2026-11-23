@@ -352,6 +352,8 @@ pub struct ExponentialHost {
     agent_waiters: HashMap<String, Rc<RefCell<AgentWait>>>,
     router: HostRouter,
     surfaces: Vec<SurfaceEntry>,
+    /// #VAPP-300: the surfaces an open Express block is writing.
+    streaming: Vec<String>,
     /// Per surface, one entry per bound path (VAPP-122: a re-bind of a
     /// path cancels the earlier subscription at that path).
     subscriptions: HashMap<String, Vec<(String, Arc<AtomicBool>, Cancel)>>,
@@ -419,6 +421,7 @@ impl ExponentialHost {
             // VAPP-161: a package's `extensions` are checked against their versions and components.
             router: HostRouter::with_extensions(&ids, Some(available_extensions(&options.extensions))),
             surfaces: Vec::new(),
+            streaming: Vec::new(),
             subscriptions: HashMap::new(),
             transport: options.transport,
             functions: options.functions,
@@ -690,6 +693,9 @@ impl ExponentialHost {
                             f(&text, cx);
                         }
                     }
+                    TransportEvent::Open { surface_ids, settled } => {
+                        self.set_streaming(&surface_ids, settled, cx);
+                    }
                     TransportEvent::Status(status, detail) => {
                         self.status = status;
                         self.status_detail = detail;
@@ -708,6 +714,27 @@ impl ExponentialHost {
                     }
                 }
             }
+        }
+    }
+
+    /// #VAPP-300: the surfaces an Express block is still streaming (the
+    /// decoder's `open`): each reduces `streaming` (a child not streamed yet
+    /// renders as nothing). `settled` = the exact set (a surface left out
+    /// closed: it re-reduces, a still-missing child is the Unknown
+    /// placeholder again); else only adds. The TS `setStreaming`.
+    pub fn set_streaming(&mut self, surface_ids: &[String], settled: bool, cx: &mut Context<Self>) {
+        if settled {
+            self.streaming = surface_ids.to_vec();
+        } else {
+            for id in surface_ids {
+                if !self.streaming.contains(id) {
+                    self.streaming.push(id.clone());
+                }
+            }
+        }
+        for entry in &self.surfaces {
+            let on = self.streaming.contains(&entry.id);
+            entry.view.update(cx, |v, cx| v.set_streaming(on, cx));
         }
     }
 
@@ -971,7 +998,11 @@ impl ExponentialHost {
                     v
                 });
                 let route = eui_core::host::route_handle(&self.calls, &sid);
-                view.update(cx, |v, _| v.set_call_route(route));
+                let streaming = self.streaming.contains(&sid);
+                view.update(cx, |v, cx| {
+                    v.set_call_route(route);
+                    v.set_streaming(streaming, cx);
+                });
                 let package_id = self.router.package_id_of(&sid);
                 self.surfaces.push(SurfaceEntry { id: sid, view, catalog_id, package_id, send_data_model: op["sendDataModel"] == Value::Bool(true), theme: surface_theme });
                 cx.notify();
