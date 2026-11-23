@@ -70,7 +70,8 @@ pub(crate) enum Feed {
 #[derive(Default)]
 pub(crate) struct ExpressRows {
     rows: HashMap<String, RowEntry>,
-    /// By `<block key>/<surface id>`.
+    /// By `<window>/<block key>/<surface id>`: a view lives in ONE window
+    /// (the same chat open in two windows paints two views).
     surfaces: HashMap<String, SurfaceSlot>,
     arrivals: HashMap<String, Instant>,
     /// Bumps whenever a surface's view changes (the list re-measures).
@@ -84,8 +85,8 @@ pub(crate) fn message_surface(message: &Value) -> Option<&str> {
     message.as_object()?.values().find_map(|body| body.get("surfaceId")?.as_str())
 }
 
-fn slot_key(block: &str, surface: &str) -> String {
-    format!("{block}/{surface}")
+fn slot_key(window: &str, block: &str, surface: &str) -> String {
+    format!("{window}/{block}/{surface}")
 }
 
 impl ExpressRows {
@@ -119,8 +120,8 @@ impl ExpressRows {
     }
 
     /// What `surface` of `block` takes this frame; records a live arrival.
-    pub(crate) fn feed(&mut self, block: &BlockState, surface: &str, live: bool, now: Instant) -> Feed {
-        let key = slot_key(&block.key, surface);
+    pub(crate) fn feed(&mut self, window: &str, block: &BlockState, surface: &str, live: bool, now: Instant) -> Feed {
+        let key = slot_key(window, &block.key, surface);
         let mine = |messages: &[Value]| -> Vec<Value> {
             messages.iter().filter(|m| message_surface(m) == Some(surface)).cloned().collect()
         };
@@ -175,10 +176,11 @@ pub(crate) fn block_items(block: &BlockState, target: &ExpressTarget, window: &W
     let live = cx.default_global::<ExpressRows>().live(&target.row_key);
     let reduced = theme::motion::reduce_motion();
     let now = Instant::now();
+    let scope = format!("{:?}", window.window_handle().window_id());
     let mut items = Vec::new();
     for surface in &block.surfaces {
-        let key = slot_key(&block.key, surface);
-        match cx.default_global::<ExpressRows>().feed(block, surface, live, now) {
+        let key = slot_key(&scope, &block.key, surface);
+        match cx.default_global::<ExpressRows>().feed(&scope, block, surface, live, now) {
             Feed::Build(messages) => build(&key, surface, block, target, messages, window, cx),
             Feed::Push(messages) => push(&key, messages, cx),
             Feed::Keep => {}
@@ -192,7 +194,7 @@ pub(crate) fn block_items(block: &BlockState, target: &ExpressTarget, window: &W
         } else if arrival.is_some() {
             cx.default_global::<ExpressRows>().arrivals.remove(&key);
         }
-        items.push(crate::surface_card::surface_frame(&format!("express-{key}"), None, view.map(|view| view.into_any_element()), look, cx));
+        items.push(crate::surface_card::surface_frame(&format!("express-{}-{surface}", block.key), None, view.map(|view| view.into_any_element()), look, cx));
     }
     if block.surfaces.is_empty() && block.status == BlockStatus::Open {
         // THE surface card skeleton (feedback-states.json): the frame's
@@ -337,14 +339,16 @@ mod tests {
         assert_eq!((block.key.as_str(), block.status), ("m:m1#1", BlockStatus::Ok));
         assert_eq!(block.surfaces, vec!["m:m1#1".to_string()]);
         assert!(!rows.live("m:m1"));
-        let Feed::Build(messages) = rows.feed(&block, "m:m1#1", false, Instant::now()) else { panic!("a build") };
+        let Feed::Build(messages) = rows.feed("w", &block, "m:m1#1", false, Instant::now()) else { panic!("a build") };
         assert!(messages.iter().all(|m| message_surface(m) == Some("m:m1#1")));
         assert!(!messages.is_empty());
         assert!(rows.arrivals.is_empty());
         // The same text again: the cached split, nothing new to feed.
         let again = rows.split("m:m1", ROW, true).unwrap();
         assert!(Rc::ptr_eq(&segments, &again));
-        assert_eq!(rows.feed(&block, "m:m1#1", false, Instant::now()), Feed::Keep);
+        assert_eq!(rows.feed("w", &block, "m:m1#1", false, Instant::now()), Feed::Keep);
+        // The same chat in another window paints its own view.
+        assert!(matches!(rows.feed("w2", &block, "m:m1#1", false, Instant::now()), Feed::Build(_)));
     }
 
     /// A feed row streams: the held tag prefix draws nothing, the block is
@@ -361,16 +365,16 @@ mod tests {
         assert_eq!(block.status, BlockStatus::Open);
         assert!(rows.live(key));
         let surface = block.surfaces[0].clone();
-        assert!(matches!(rows.feed(&block, &surface, true, Instant::now()), Feed::Build(_)));
+        assert!(matches!(rows.feed("w", &block, &surface, true, Instant::now()), Feed::Build(_)));
         assert_eq!(rows.arrivals.len(), 1);
         let done = rows
             .split(key, "Checking.\n<a2ui>\nroot = Stack(children=[a, b])\na = Text(text=\"Build\")\nb = Text(text=\"Green\")\n</a2ui>\nShipping.", false)
             .unwrap();
         let block = blocks(&done)[0].clone();
         assert_eq!(block.status, BlockStatus::Ok);
-        let Feed::Push(new) = rows.feed(&block, &surface, true, Instant::now()) else { panic!("a push") };
+        let Feed::Push(new) = rows.feed("w", &block, &surface, true, Instant::now()) else { panic!("a push") };
         assert!(!new.is_empty());
-        assert_eq!(rows.feed(&block, &surface, true, Instant::now()), Feed::Keep);
+        assert_eq!(rows.feed("w", &block, &surface, true, Instant::now()), Feed::Keep);
     }
 
     /// An edit that is not an append restarts the block: a new generation
@@ -380,11 +384,11 @@ mod tests {
         let mut rows = ExpressRows::default();
         let first = rows.split("m:m2", "<a2ui>\nroot = Text(text=\"One\")\n</a2ui>", true).unwrap();
         let block = blocks(&first)[0].clone();
-        assert!(matches!(rows.feed(&block, &block.surfaces[0], false, Instant::now()), Feed::Build(_)));
+        assert!(matches!(rows.feed("w", &block, &block.surfaces[0], false, Instant::now()), Feed::Build(_)));
         let edited = rows.split("m:m2", "<a2ui>\nroot = Text(text=\"Two\")\n</a2ui>", true).unwrap();
         let block = blocks(&edited)[0].clone();
         assert_eq!(block.generation, 1);
-        assert!(matches!(rows.feed(&block, &block.surfaces[0], false, Instant::now()), Feed::Build(_)));
+        assert!(matches!(rows.feed("w", &block, &block.surfaces[0], false, Instant::now()), Feed::Build(_)));
     }
 
     /// A failed block marks; a final row's unclosed block fails.
