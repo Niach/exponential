@@ -193,7 +193,7 @@ mod tests {
     // NOTE: a PAST expiry — refresh_clone_token mints through the
     // process-GLOBAL token cache, so fixtures must never be cache-servable
     // (and each test uses a unique repository id).
-    const TOKEN_OK: &str = r#"{"result":{"data":{"token":"ghs_fresh456","fullName":"acme/web","defaultBranch":"main","expiresAt":"2026-07-11T12:55:00.000Z"}}}"#;
+    const TOKEN_OK: &str = r#"{"result":{"data":{"remoteUrl":"https://github.com/acme/web.git","username":"x-access-token","token":"ghs_fresh456","fullName":"acme/web","defaultBranch":"main","expiresAt":"2026-07-11T12:55:00.000Z"}}}"#;
 
     #[test]
     fn refresh_installs_ambient_auth_on_a_real_clone() {

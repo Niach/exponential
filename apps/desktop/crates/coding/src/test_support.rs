@@ -303,7 +303,7 @@ pub(crate) fn make_deps(
     }
 }
 
-pub(crate) const TOKEN_OK: &str = r#"{"result":{"data":{"token":"ghs_secret123","fullName":"acme/web","defaultBranch":"main","expiresAt":"2026-07-03T12:55:00.000Z"}}}"#;
+pub(crate) const TOKEN_OK: &str = r#"{"result":{"data":{"remoteUrl":"https://github.com/acme/web.git","username":"x-access-token","token":"ghs_secret123","fullName":"acme/web","defaultBranch":"main","expiresAt":"2026-07-03T12:55:00.000Z"}}}"#;
 /// `sessions.report` (EXP-1292) — the device's branch write; the txid is
 /// never read.
 pub(crate) const REPORT_OK: &str = r#"{"result":{"data":{"txid":"1"}}}"#;
