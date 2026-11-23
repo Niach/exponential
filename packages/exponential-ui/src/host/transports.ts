@@ -2,9 +2,17 @@
 // messages in and client messages out through the shared decoders; none
 // knows anything about the host behind it. Web platform APIs only (fetch,
 // WebSocket, TextDecoder): browsers, Bun, Node ≥ 22.
+//
+// #AXC-12: each takes the Express inference format too (catalog/host.json
+// `inference`): an HTTP body by its Content-Type, `a2ui-express` SSE events,
+// `{express}` WebSocket frames, Express MCP resources. The compiler is
+// loaded on demand (the lazy `@exponential_app/eui/express` chunk) the
+// moment a stream turns out to carry Express, or up front with
+// `format: "express"`; the prose goes to the host's `onText`.
 
-import type { ClientMessage } from "./contract"
-import { JsonlDecoder, SseDecoder, decodeJsonl, mcpActionCall, messagesFromMcpResult } from "./decoders"
+import { EXPRESS_MIME_TYPE, EXPRESS_SSE_EVENT, EXPRESS_WS_KEY } from "./contract"
+import type { ClientMessage, InferenceFormat } from "./contract"
+import { ExpressDecoder, FrameDecoder, JsonlDecoder, SseDecoder, decodeJsonl, expressLoaded, inferenceFormatOf, mcpActionCall, mcpResultHasExpress, messagesFromMcpResult } from "./decoders"
 import type { Decoded } from "./decoders"
 import type { MessageMetadata, Transport, TransportStatus } from "./runtime"
 
@@ -13,6 +21,39 @@ const wire = (message: ClientMessage, metadata?: MessageMetadata): unknown => (m
 
 type Receive = (message: unknown) => void
 type Status = (status: TransportStatus, detail?: string) => void
+type Text = (text: string) => void
+type Open = (surfaceIds: readonly string[], settled: boolean) => void
+
+/** What every transport takes for Express (#AXC-12). */
+export interface ExpressTransportOptions {
+  /** `express`: the agent writes Express (asked for in `accept`, the
+   *  compiler loaded before the first byte). Default `json`: Express is
+   *  still read when the wire says so (Content-Type, SSE event, frame). */
+  format?: InferenceFormat
+  /** The surface Express statements before any `surface("…")` target
+   *  (default `main`). */
+  surfaceId?: string
+  /** Where the host serves the Express .wasm (default: beside the module). */
+  expressWasmUrl?: string | URL
+}
+
+/** Loads the Express compiler (the lazy chunk) once. */
+async function ensureExpress(options: ExpressTransportOptions): Promise<void> {
+  if (expressLoaded()) return
+  const { loadExpress } = await import("../express/index")
+  await loadExpress(options.expressWasmUrl)
+}
+
+/** Delivers one decoded batch: messages to the host, prose to onText;
+ *  #VAPP-300: the batch's open Express block around its messages (its
+ *  surfaces stream as they arrive, then the ones it closed settle). */
+function deliver(d: Decoded, receive: Receive, text?: Text, open?: Open): void {
+  const ids = d.open ?? []
+  open?.(ids, false)
+  d.messages.forEach(receive)
+  open?.(ids, true)
+  if (text) d.text?.forEach(text)
+}
 
 /** In-memory: `feed` messages in, read what the host sent from `sent`. */
 export class MemoryTransport implements Transport {
@@ -49,7 +90,7 @@ export class MemoryTransport implements Transport {
   }
 }
 
-export interface HttpTransportOptions {
+export interface HttpTransportOptions extends ExpressTransportOptions {
   /** The stream to read (GET). */
   url: string
   /** Where client messages go (POST, JSON body); default `url`. */
@@ -74,16 +115,23 @@ abstract class StreamTransport implements Transport {
 
   constructor(protected options: HttpTransportOptions) {}
 
-  protected abstract decoder(): { push(chunk: string): Decoded; end(): Decoded; retryMs?: number }
+  /** The body's decoder; `express` = its Content-Type is Express (the
+   *  compiler is loaded by then). */
+  protected abstract decoder(express: boolean): { push(chunk: string): Decoded; end(): Decoded; retryMs?: number }
   protected abstract accept(): string
-
-  start(receive: Receive, status: Status): void {
-    this.controller?.abort()
-    const gen = ++this.generation
-    void this.run(gen, receive, status)
+  /** Whether this text may start Express the decoder will need the
+   *  compiler for (SSE: an `a2ui-express` event name). */
+  protected mayNeedExpress(_text: string): boolean {
+    return false
   }
 
-  private async run(gen: number, receive: Receive, status: Status): Promise<void> {
+  start(receive: Receive, status: Status, text?: Text, open?: Open): void {
+    this.controller?.abort()
+    const gen = ++this.generation
+    void this.run(gen, receive, status, text, open)
+  }
+
+  private async run(gen: number, receive: Receive, status: Status, onText?: Text, open?: Open): Promise<void> {
     const f = this.options.fetch ?? fetch
     const live = () => gen === this.generation
     while (live()) {
@@ -92,20 +140,33 @@ abstract class StreamTransport implements Transport {
       status(`connecting`)
       let wait = this.options.reconnectMs ?? 2000
       try {
-        const res = await f(this.options.url, { headers: { accept: this.accept(), ...this.options.headers }, signal: controller.signal })
+        if (this.options.format === `express`) await ensureExpress(this.options)
+        const accept = this.options.format === `express` ? `${EXPRESS_MIME_TYPE}, ${this.accept()}` : this.accept()
+        const res = await f(this.options.url, { headers: { accept, ...this.options.headers }, signal: controller.signal })
         if (!live()) return
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+        const express = inferenceFormatOf(res.headers?.get?.(`content-type`) ?? null) === `express`
+        if (express) await ensureExpress(this.options)
+        if (!live()) return
         status(`open`)
         const reader = res.body.getReader()
         const text = new TextDecoder()
-        const dec = this.decoder()
+        const dec = this.decoder(express)
+        // The tail of the previous chunk: an event name split across chunks.
+        let tail = ``
         for (;;) {
           const { done, value } = await reader.read()
           if (!live()) return
           if (done) break
-          dec.push(text.decode(value, { stream: true })).messages.forEach(receive)
+          const chunk = text.decode(value, { stream: true })
+          if (!expressLoaded() && this.mayNeedExpress(tail + chunk)) {
+            await ensureExpress(this.options)
+            if (!live()) return
+          }
+          tail = chunk.slice(-32)
+          deliver(dec.push(chunk), receive, onText, open)
         }
-        dec.end().messages.forEach(receive)
+        deliver(dec.end(), receive, onText, open)
         status(`closed`)
         // A clean end: done, unless the server said it resumes the stream.
         const resumable = this.options.resumable === true || dec.retryMs !== undefined
@@ -116,6 +177,8 @@ abstract class StreamTransport implements Transport {
         if (dec.retryMs !== undefined && this.options.reconnectMs === undefined) wait = dec.retryMs
       } catch (e) {
         if (!live()) return
+        // A dropped stream's open block never closes: settle it.
+        open?.([], true)
         status(`error`, e instanceof Error ? e.message : String(e))
       }
       if (!wait || !live()) return
@@ -134,10 +197,12 @@ abstract class StreamTransport implements Transport {
   }
 }
 
-/** A2UI JSONL over a streamed HTTP response (`application/jsonl`). */
+/** A2UI JSONL over a streamed HTTP response (`application/jsonl`); an
+ *  `application/a2ui+express` response is ONE Express response (prose +
+ *  `<a2ui>` blocks). */
 export class JsonlStreamTransport extends StreamTransport {
-  protected decoder() {
-    return new JsonlDecoder()
+  protected decoder(express: boolean) {
+    return express ? new ExpressDecoder({ surfaceId: this.options.surfaceId }) : new JsonlDecoder()
   }
   protected accept() {
     return `application/jsonl, application/x-ndjson`
@@ -145,13 +210,17 @@ export class JsonlStreamTransport extends StreamTransport {
 }
 
 /** Server-Sent Events read through fetch (headers allowed, unlike
- *  EventSource). */
+ *  EventSource); `a2ui-express` events are the chunks of the stream's ONE
+ *  Express response. */
 export class SseTransport extends StreamTransport {
   protected decoder() {
-    return new SseDecoder()
+    return new SseDecoder({ surfaceId: this.options.surfaceId })
   }
   protected accept() {
     return `text/event-stream`
+  }
+  protected mayNeedExpress(text: string) {
+    return text.includes(EXPRESS_SSE_EVENT)
   }
 }
 
@@ -163,25 +232,54 @@ export class WebSocketTransport implements Transport {
    *  no-op. */
   private generation = 0
 
-  constructor(private options: { url: string; protocols?: string | string[]; reconnectMs?: number; WebSocket?: typeof WebSocket }) {}
+  constructor(private options: ExpressTransportOptions & { url: string; protocols?: string | string[]; reconnectMs?: number; WebSocket?: typeof WebSocket }) {}
 
-  start(receive: Receive, status: Status): void {
+  start(receive: Receive, status: Status, text?: Text, open?: Open): void {
     const gen = ++this.generation
     const live = () => gen === this.generation
     const WS = this.options.WebSocket ?? WebSocket
     status(`connecting`)
     const socket = new WS(this.options.url, this.options.protocols)
     this.socket = socket
+    // One decoder per connection: its `{express}` frames are ONE response.
+    const frames = new FrameDecoder({ surfaceId: this.options.surfaceId })
+    // Frames decode in order, also while the compiler loads: a frame is
+    // delivered at once unless the compiler is loading (then it, and every
+    // frame after it, waits its turn).
+    let pending = 0
+    let queue: Promise<void> = Promise.resolve()
+    const later = (step: () => Promise<void> | void) => {
+      pending += 1
+      queue = queue.then(step).finally(() => {
+        pending -= 1
+      })
+    }
+    if (this.options.format === `express` && !expressLoaded()) later(() => ensureExpress(this.options).catch(() => {}))
+    const decode = (data: string) => {
+      const needs = !expressLoaded() && data.includes(EXPRESS_WS_KEY)
+      if (!pending && !needs) {
+        if (live()) deliver(frames.push(data), receive, text, open)
+        return
+      }
+      later(async () => {
+        if (needs) await ensureExpress(this.options).catch(() => {})
+        if (live()) deliver(frames.push(data), receive, text, open)
+      })
+    }
     socket.onopen = () => live() && status(`open`)
     socket.onmessage = (ev) => {
-      if (live() && typeof ev.data === `string`) decodeJsonl(ev.data).messages.forEach(receive)
+      if (live() && typeof ev.data === `string`) decode(ev.data)
     }
     socket.onerror = () => live() && status(`error`, `websocket error`)
     socket.onclose = () => {
       if (!live()) return
+      if (pending) later(() => {
+        if (live()) deliver(frames.end(), receive, text, open)
+      })
+      else deliver(frames.end(), receive, text, open)
       status(`closed`)
       const wait = this.options.reconnectMs ?? 2000
-      if (wait) setTimeout(() => live() && this.start(receive, status), wait)
+      if (wait) setTimeout(() => live() && this.start(receive, status, text, open), wait)
     }
   }
 
@@ -195,7 +293,7 @@ export class WebSocketTransport implements Transport {
   }
 }
 
-export interface McpTransportOptions {
+export interface McpTransportOptions extends ExpressTransportOptions {
   /** The MCP server's streamable-HTTP endpoint. */
   url: string
   /** The tool whose result carries the surface (called once at start). */
@@ -214,19 +312,27 @@ export interface McpTransportOptions {
 export class McpTransport implements Transport {
   private id = 0
   private receiveFn?: Receive
+  private textFn?: Text
   private session?: string
 
   constructor(private options: McpTransportOptions) {}
 
-  start(receive: Receive, status: Status): void {
+  /** A tool result's messages (Express resources: the compiler loaded first). */
+  private async deliverResult(result: unknown): Promise<void> {
+    if (mcpResultHasExpress(result)) await ensureExpress(this.options)
+    if (this.receiveFn) deliver(messagesFromMcpResult(result, { surfaceId: this.options.surfaceId }), this.receiveFn, this.textFn)
+  }
+
+  start(receive: Receive, status: Status, text?: Text): void {
     this.receiveFn = receive
+    this.textFn = text
     status(`connecting`)
     void (async () => {
       try {
         await this.rpc(`initialize`, { protocolVersion: `2025-06-18`, capabilities: {}, clientInfo: { name: `exponential-ui`, version: `0.1.0` } })
         const result = await this.rpc(`tools/call`, { name: this.options.tool, arguments: this.options.arguments ?? {} })
         status(`open`)
-        messagesFromMcpResult(result).messages.forEach(receive)
+        await this.deliverResult(result)
       } catch (e) {
         status(`error`, e instanceof Error ? e.message : String(e))
       }
@@ -236,11 +342,12 @@ export class McpTransport implements Transport {
   async send(message: ClientMessage, metadata?: MessageMetadata): Promise<void> {
     const call = mcpActionCall(message, this.options.actionTool, metadata)
     const result = await this.rpc(call.method, call.params)
-    if (this.receiveFn) messagesFromMcpResult(result).messages.forEach(this.receiveFn)
+    await this.deliverResult(result)
   }
 
   close(): void {
     this.receiveFn = undefined
+    this.textFn = undefined
   }
 
   private async rpc(method: string, params: unknown): Promise<unknown> {

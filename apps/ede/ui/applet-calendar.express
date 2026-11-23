@@ -1,0 +1,21 @@
+# Exponential Desktop's factory calendar applet (#EDE-43): the taskbar's clock opens it as a popup
+# surface. Cinnamon's layout in the IDE's language: the agenda pane on the left (today's date as its
+# caption; no calendar source yet, so it says No events), the big weekday and date (/dateText) over
+# the inline month grid (/date is today and the selected day) on the right, and the Date & time
+# settings link.
+surface("applet-calendar", extensions={ede: {popup: {parent: "taskbar", anchor: "clock", placement: "top-end", size: {width: 720, height: 440}}, functions: ["ede_open_document"]}})
+$/date = "2026-01-01"
+$/dateText/date = "1 January 2026"
+$/dateText/long = "Thursday, 1 January 2026"
+$/dateText/weekday = "Thursday"
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", height: 440, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[calendar_body, calendar_foot])
+calendar_body = Stack(direction="horizontal", gap="md", align="start", style={flexGrow: 1, minHeight: 0}, children=[agenda, month])
+agenda = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.md", flexGrow: 1, minWidth: 0, height: 372, borderRadius: "$radius.md", backgroundColor: "$color.card", borderWidth: 1, borderColor: "$color.border"}, children=[agenda_date, agenda_empty])
+agenda_date = Text(text=$/dateText/long, variant="label", align="center")
+agenda_empty = Text(text="No events", variant="muted", align="center", style={marginTop: "$spacing.lg"})
+month = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xs", alignItems: "center", width: 320}, children=[weekday, date, grid])
+weekday = Heading(text=$/dateText/weekday, level="h2")
+date = Text(text=$/dateText/date, variant="muted", align="center")
+grid = DatePicker(name="date", value=$/date, firstDayOfWeek=1, inline=true)
+calendar_foot = Stack(direction="horizontal", gap="sm", align="center", children=[datetime_settings])
+datetime_settings = Link(label="Date & time settings", on={press: ede_open_document(name="settings", page="datetime")})

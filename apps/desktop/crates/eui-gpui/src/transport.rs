@@ -10,11 +10,76 @@
 //! the gpui main thread. The `net` adapters run their I/O on their own std
 //! threads (the blocking reqwest client, a private current-thread tokio
 //! runtime per WebSocket) and never touch gpui's executors.
+//!
+//! #AXC-12: every adapter speaks one of two [`WireFormat`]s: A2UI JSON (the
+//! default) or Express, the compact notation an agent writes, compiled by
+//! the core's [`ExpressDecoder`] into the same A2UI messages. Express prose
+//! (the text around a response's `<a2ui>` blocks) reaches the host as
+//! [`TransportEvent::Text`]; the SDK draws none of it.
 
 use std::sync::{Arc, Mutex};
 
-use eui_core::host::decode_jsonl;
+use eui_core::host::{decode_jsonl, DecodeIssue, Decoded, ExpressDecoder};
 use serde_json::Value;
+
+/// #AXC-12: the Express wire constants (catalog/host.json `inference`).
+pub use eui_core::host::contract::{EXPRESS_DEFAULT_SURFACE_ID, EXPRESS_MIME_TYPE, EXPRESS_SSE_EVENT, EXPRESS_WS_KEY};
+
+/// #AXC-12: what a transport's server speaks.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum WireFormat {
+    /// A2UI JSON messages are what the transport asks for. An Express
+    /// answer is still read (an `application/a2ui+express` body, the SSE
+    /// event `a2ui-express`, WebSocket `{"express": …}` frames), its
+    /// statements before any `surface("…")` line targeting
+    /// [`EXPRESS_DEFAULT_SURFACE_ID`].
+    #[default]
+    Json,
+    /// Express is what the transport asks for (the HTTP `accept`), compiled
+    /// into A2UI messages as each statement becomes ready.
+    Express {
+        /// A model's whole response: prose with `<a2ui>…</a2ui>` blocks
+        /// (the prose comes out as [`TransportEvent::Text`]). `false` = the
+        /// stream is ONE Express body without tags.
+        wrapped: bool,
+        /// The surface of statements before any `surface("…")` line.
+        surface_id: String,
+    },
+}
+
+impl WireFormat {
+    /// Express as a model writes it: prose around `<a2ui>` blocks.
+    pub fn express(surface_id: impl Into<String>) -> Self {
+        WireFormat::Express { wrapped: true, surface_id: surface_id.into() }
+    }
+
+    /// Express as one bare body (no `<a2ui>` tags, no prose).
+    pub fn express_body(surface_id: impl Into<String>) -> Self {
+        WireFormat::Express { wrapped: false, surface_id: surface_id.into() }
+    }
+
+    pub fn is_express(&self) -> bool {
+        matches!(self, WireFormat::Express { .. })
+    }
+
+    /// The surface of statements before any `surface("…")` line (`None` =
+    /// the contract default).
+    pub fn surface_id(&self) -> Option<&str> {
+        match self {
+            WireFormat::Json => None,
+            WireFormat::Express { surface_id, .. } => Some(surface_id),
+        }
+    }
+
+    /// A fresh decoder for one Express body: the format's, or for
+    /// [`WireFormat::Json`] a model's response on the default surface.
+    pub fn express_decoder(&self) -> ExpressDecoder {
+        match self {
+            WireFormat::Json => ExpressDecoder::new(true, EXPRESS_DEFAULT_SURFACE_ID),
+            WireFormat::Express { wrapped, surface_id } => ExpressDecoder::new(*wrapped, surface_id),
+        }
+    }
+}
 
 /// The connection state a host shows (`host_offline` when not `Open`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +105,19 @@ impl TransportStatus {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TransportEvent {
     Message(Value),
+    /// #AXC-12: a piece of an Express response's prose, as it streamed in
+    /// (append the pieces; a run after a block starts with `"\n\n"`).
+    Text(String),
+    /// #AXC-12: a decoder issue: an Express block that does not compile, a
+    /// line / event / frame that is not JSON, an oversized message. The
+    /// stream reads on past it; the host records it (`HostOptions::on_issue`).
+    Issue(DecodeIssue),
+    /// #VAPP-300: the surfaces whose Express block is still open (the
+    /// decoder's `open`), around each decoded batch: `settled: false` BEFORE
+    /// its messages (those surfaces stream as they arrive), `true` after
+    /// (every other surface's block closed). The host reduces them
+    /// `streaming`: a child not streamed yet renders as nothing.
+    Open { surface_ids: Vec<String>, settled: bool },
     Status(TransportStatus, Option<String>),
 }
 
@@ -59,9 +137,38 @@ impl TransportSink {
         (self.deliver)(TransportEvent::Message(message))
     }
 
+    /// #AXC-12: a piece of Express prose.
+    pub fn text(&self, text: String) {
+        (self.deliver)(TransportEvent::Text(text))
+    }
+
+    /// One decoder output: its open block around its messages, its prose,
+    /// then its issues.
+    pub fn decoded(&self, decoded: Decoded) {
+        decoded_events(decoded).into_iter().for_each(|e| self.event(e));
+    }
+
+    fn event(&self, event: TransportEvent) {
+        (self.deliver)(event)
+    }
+
+    /// #VAPP-300: no Express block is open any more (a dropped stream).
+    pub fn settle(&self) {
+        self.event(TransportEvent::Open { surface_ids: Vec::new(), settled: true })
+    }
+
     pub fn status(&self, status: TransportStatus, detail: Option<String>) {
         (self.deliver)(TransportEvent::Status(status, detail))
     }
+}
+
+fn decoded_events(decoded: Decoded) -> Vec<TransportEvent> {
+    // #VAPP-300: the open block around the messages.
+    let opening = TransportEvent::Open { surface_ids: decoded.open.clone(), settled: false };
+    let settled = TransportEvent::Open { surface_ids: decoded.open, settled: true };
+    let messages = decoded.messages.into_iter().map(TransportEvent::Message);
+    let text = decoded.text.into_iter().map(TransportEvent::Text);
+    std::iter::once(opening).chain(messages).chain(std::iter::once(settled)).chain(text).chain(decoded.issues.into_iter().map(TransportEvent::Issue)).collect()
 }
 
 /// Messages in, client messages out.
@@ -95,7 +202,7 @@ pub fn mcp_call_of(sent: &Value, tool: Option<&str>) -> Value {
 #[derive(Default)]
 struct MemoryInner {
     sink: Option<TransportSink>,
-    pending: Vec<Value>,
+    pending: Vec<TransportEvent>,
     sent: Vec<Value>,
 }
 
@@ -114,16 +221,37 @@ impl MemoryTransport {
 
     /// Deliver `messages` (queued until the host connects).
     pub fn feed(&self, messages: impl IntoIterator<Item = Value>) {
+        self.feed_events(messages.into_iter().map(TransportEvent::Message));
+    }
+
+    fn feed_events(&self, events: impl IntoIterator<Item = TransportEvent>) {
         let mut inner = self.inner.lock().unwrap();
         match inner.sink.clone() {
             Some(sink) => {
                 drop(inner);
-                for m in messages {
-                    sink.message(m);
+                for e in events {
+                    sink.event(e);
                 }
             }
-            None => inner.pending.extend(messages),
+            None => inner.pending.extend(events),
         }
+    }
+
+    /// #AXC-12: one decoder output (an [`ExpressDecoder`]'s `push`/`end`):
+    /// its messages, its prose as [`TransportEvent::Text`], its issues as
+    /// [`TransportEvent::Issue`].
+    pub fn feed_decoded(&self, decoded: Decoded) {
+        self.feed_events(decoded_events(decoded));
+    }
+
+    /// #AXC-12: a whole Express stream in `format`, as a server would send
+    /// it in `chunks` (each delivered as it decodes).
+    pub fn feed_express<'a>(&self, format: &WireFormat, chunks: impl IntoIterator<Item = &'a str>) {
+        let mut decoder = format.express_decoder();
+        for chunk in chunks {
+            self.feed_decoded(decoder.push(chunk));
+        }
+        self.feed_decoded(decoder.end());
     }
 
     /// JSONL text, as a stream server would send it.
@@ -145,8 +273,8 @@ impl Transport for MemoryTransport {
             inner.sink = Some(sink.clone());
             std::mem::take(&mut inner.pending)
         };
-        for m in pending {
-            sink.message(m);
+        for e in pending {
+            sink.event(e);
         }
     }
 
@@ -169,10 +297,10 @@ mod net {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use eui_core::host::{decode_jsonl, messages_from_mcp_result, Decoded, JsonlDecoder, SseDecoder};
+    use eui_core::host::{inference_format_of, messages_from_mcp_result, Decoded, ExpressDecoder, FrameDecoder, JsonlDecoder, SseDecoder};
     use serde_json::{json, Value};
 
-    use super::{Transport, TransportSink, TransportStatus};
+    use super::{Transport, TransportSink, TransportStatus, WireFormat};
 
     /// Options of the HTTP stream transports (JSONL, SSE).
     #[derive(Debug, Clone)]
@@ -190,11 +318,17 @@ mod net {
         /// it). Default false: a stream that ends is done (status `Closed`).
         /// An SSE stream that sent a `retry:` field signals this itself.
         pub resumable: bool,
+        /// #AXC-12: JSON (default) or Express: what the JSONL transport
+        /// asks for, and the Express decoder's surface (and, for a body,
+        /// wrapping). A body is read by its content type either way
+        /// (`application/a2ui+express` = Express, else JSONL); SSE
+        /// `a2ui-express` events are Express either way.
+        pub format: WireFormat,
     }
 
     impl HttpTransportOptions {
         pub fn new(url: impl Into<String>) -> Self {
-            HttpTransportOptions { url: url.into(), post_url: None, headers: Vec::new(), reconnect_ms: None, resumable: false }
+            HttpTransportOptions { url: url.into(), post_url: None, headers: Vec::new(), reconnect_ms: None, resumable: false, format: WireFormat::Json }
         }
 
         pub fn post_url(mut self, url: impl Into<String>) -> Self {
@@ -214,6 +348,11 @@ mod net {
 
         pub fn resumable(mut self, resumable: bool) -> Self {
             self.resumable = resumable;
+            self
+        }
+
+        pub fn format(mut self, format: WireFormat) -> Self {
+            self.format = format;
             self
         }
     }
@@ -360,14 +499,29 @@ mod net {
 
     enum Wire {
         Jsonl(JsonlDecoder),
+        /// SSE: the core's decoder reads the `a2ui-express` events as one
+        /// Express response beside the JSON events.
         Sse(SseDecoder),
+        /// #AXC-12: an `application/a2ui+express` body.
+        Express(ExpressDecoder),
     }
 
     impl Wire {
+        /// The decoder of one stream response (`content_type` = the
+        /// response's, sniffed by the core's `inference_format_of`).
+        fn of(kind: Kind, format: &WireFormat, content_type: &str) -> Wire {
+            match kind {
+                Kind::Jsonl if inference_format_of(content_type) == "express" => Wire::Express(format.express_decoder()),
+                Kind::Jsonl => Wire::Jsonl(JsonlDecoder::new()),
+                Kind::Sse => Wire::Sse(SseDecoder::with_surface(format.surface_id())),
+            }
+        }
+
         fn push(&mut self, chunk: &str) -> Decoded {
             match self {
                 Wire::Jsonl(d) => d.push(chunk),
                 Wire::Sse(d) => d.push(chunk),
+                Wire::Express(d) => d.push(chunk),
             }
         }
 
@@ -375,6 +529,7 @@ mod net {
             match self {
                 Wire::Jsonl(d) => d.end(),
                 Wire::Sse(d) => d.end(),
+                Wire::Express(d) => d.end(),
             }
         }
     }
@@ -401,9 +556,10 @@ mod net {
         }
 
         fn accept(&self) -> &'static str {
-            match self.kind {
-                Kind::Jsonl => "application/jsonl, application/x-ndjson",
-                Kind::Sse => "text/event-stream",
+            match (self.kind, self.options.format.is_express()) {
+                (Kind::Jsonl, false) => "application/jsonl, application/x-ndjson",
+                (Kind::Jsonl, true) => "application/a2ui+express, application/jsonl;q=0.5, application/x-ndjson;q=0.5",
+                (Kind::Sse, _) => "text/event-stream",
             }
         }
 
@@ -460,7 +616,7 @@ mod net {
         let client = client();
         let deliver = |d: Decoded| {
             if live.is() {
-                d.messages.into_iter().for_each(|m| sink.message(m));
+                sink.decoded(d);
             }
         };
         while live.is() {
@@ -478,10 +634,8 @@ mod net {
                     return Err(format!("HTTP {}", res.status().as_u16()));
                 }
                 sink.status(TransportStatus::Open, None);
-                let mut wire = match kind {
-                    Kind::Jsonl => Wire::Jsonl(JsonlDecoder::new()),
-                    Kind::Sse => Wire::Sse(SseDecoder::new()),
-                };
+                let content_type = res.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+                let mut wire = Wire::of(kind, &options.format, &content_type);
                 let mut text = Utf8Chunks::default();
                 let mut buf = [0u8; 16 * 1024];
                 loop {
@@ -501,7 +655,7 @@ mod net {
                 deliver(wire.end());
                 let retry_ms = match &wire {
                     Wire::Sse(d) => d.retry_ms(),
-                    Wire::Jsonl(_) => None,
+                    Wire::Jsonl(_) | Wire::Express(_) => None,
                 };
                 Ok(StreamEnd::Clean { retry_ms })
             })();
@@ -521,7 +675,11 @@ mod net {
                         wait_ms = ms;
                     }
                 }
-                Err(e) => sink.status(TransportStatus::Error, Some(e)),
+                Err(e) => {
+                    // #VAPP-300: a dropped stream's open block never closes: settle it.
+                    sink.settle();
+                    sink.status(TransportStatus::Error, Some(e))
+                }
             }
             if wait_ms == 0 {
                 return;
@@ -573,22 +731,32 @@ mod net {
     }
 
     /// One A2UI message (or JSONL) per text frame; client messages go back as
-    /// frames. ws:// and wss:// (rustls, native roots).
+    /// frames. ws:// and wss:// (rustls, native roots). #AXC-12: a
+    /// `{"express": "<chunk>"}` frame is a chunk of the connection's ONE
+    /// Express response (the core's `FrameDecoder`; it ends with the
+    /// connection).
     pub struct WebSocketTransport {
         url: String,
         reconnect_ms: u64,
+        format: WireFormat,
         closed: Arc<AtomicBool>,
         out: Option<flume::Sender<Value>>,
     }
 
     impl WebSocketTransport {
         pub fn new(url: impl Into<String>) -> Self {
-            WebSocketTransport { url: url.into(), reconnect_ms: 2000, closed: Arc::new(AtomicBool::new(false)), out: None }
+            WebSocketTransport { url: url.into(), reconnect_ms: 2000, format: WireFormat::Json, closed: Arc::new(AtomicBool::new(false)), out: None }
         }
 
         /// Reconnect after a drop, ms (0 = never). Default 2000.
         pub fn reconnect_ms(mut self, ms: u64) -> Self {
             self.reconnect_ms = ms;
+            self
+        }
+
+        /// #AXC-12: JSON (default) or Express.
+        pub fn format(mut self, format: WireFormat) -> Self {
+            self.format = format;
             self
         }
     }
@@ -603,7 +771,7 @@ mod net {
             self.closed = closed.clone();
             let (tx, rx) = flume::unbounded::<Value>();
             self.out = Some(tx);
-            let (url, reconnect_ms) = (self.url.clone(), self.reconnect_ms);
+            let (url, reconnect_ms, format) = (self.url.clone(), self.reconnect_ms, self.format.clone());
             std::thread::Builder::new()
                 .name("exponential-ui websocket".into())
                 .spawn(move || {
@@ -618,12 +786,14 @@ mod net {
                                 Ok((socket, _)) => {
                                     sink.status(TransportStatus::Open, None);
                                     let (mut write, mut read) = socket.split();
+                                    let mut frames = FrameDecoder::new(format.surface_id());
                                     loop {
                                         tokio::select! {
                                             frame = read.next() => match frame {
                                                 Some(Ok(Message::Text(text))) => {
+                                                    let decoded = frames.push(&text);
                                                     if !closed.load(Ordering::SeqCst) {
-                                                        decode_jsonl(&text).messages.into_iter().for_each(|m| sink.message(m));
+                                                        sink.decoded(decoded);
                                                     }
                                                 }
                                                 Some(Ok(Message::Close(_))) | None => break,
@@ -647,6 +817,8 @@ mod net {
                                     if closed.load(Ordering::SeqCst) {
                                         return;
                                     }
+                                    // The connection's Express response ends with it.
+                                    sink.decoded(frames.end());
                                     sink.status(TransportStatus::Closed, None);
                                 }
                                 Err(e) => {
@@ -788,7 +960,7 @@ mod net {
                     let mut rpc = Rpc { client: post_client(POST_CONNECT_TIMEOUT, MCP_CALL_TIMEOUT), options: options.clone(), id: 0, session: None };
                     let deliver = |result: &Value| {
                         if !closed.load(Ordering::SeqCst) {
-                            messages_from_mcp_result(result).messages.into_iter().for_each(|m| sink.message(m));
+                            sink.decoded(messages_from_mcp_result(result));
                         }
                     };
                     sink.status(TransportStatus::Connecting, None);
@@ -838,7 +1010,7 @@ mod net {
         use serde_json::json;
 
         use super::{poster, post_client, HttpTransportOptions, JsonlStreamTransport, Live, McpTransportOptions, Rpc, SseTransport, Utf8Chunks};
-        use crate::transport::Transport;
+        use crate::transport::{Transport, WireFormat};
         use crate::transport::{TransportEvent, TransportSink, TransportStatus};
 
         /// Answers every GET with `status` + `body` (then closes); counts them.
@@ -1012,6 +1184,93 @@ mod net {
                 std::thread::sleep(Duration::from_millis(20));
             }
             handle.join().unwrap();
+        }
+
+        /// #AXC-12: a model's response: prose around one Express block.
+        const EXPRESS: &str = "Here it is.\n<a2ui>\nroot = Text(text=\"ok\")\n</a2ui>\nAnything else?";
+
+        fn texts(events: &Mutex<Vec<TransportEvent>>) -> String {
+            events.lock().unwrap().iter().filter_map(|e| if let TransportEvent::Text(t) = e { Some(t.as_str()) } else { None }).collect()
+        }
+
+        fn delivered(events: &Mutex<Vec<TransportEvent>>) -> Vec<serde_json::Value> {
+            events.lock().unwrap().iter().filter_map(|e| if let TransportEvent::Message(m) = e { Some(m.clone()) } else { None }).collect()
+        }
+
+        fn root_text(messages: &[serde_json::Value]) -> Option<String> {
+            messages.iter().find_map(|m| {
+                let list = m.get("createSurface").or_else(|| m.get("updateComponents"))?.get("components")?.as_array()?;
+                list.iter().find(|c| c["id"] == "root").and_then(|c| c["text"].as_str()).map(str::to_string)
+            })
+        }
+
+        #[test]
+        fn an_express_body_streams_messages_and_prose_and_asks_for_express() {
+            let (url, _) = stream_server("200 OK", "application/a2ui+express; charset=utf-8", EXPRESS.to_string());
+            let (sink, events) = recorder();
+            let mut t = JsonlStreamTransport::new(HttpTransportOptions::new(url).format(WireFormat::express("main")));
+            assert!(t.0.accept().starts_with("application/a2ui+express"));
+            t.start(sink);
+            wait_until("the Closed status", || events.lock().unwrap().iter().any(|e| matches!(e, TransportEvent::Status(TransportStatus::Closed, _))));
+            let messages = delivered(&events);
+            assert_eq!(messages[0]["createSurface"]["surfaceId"], "main", "{messages:?}");
+            assert_eq!(root_text(&messages).as_deref(), Some("ok"));
+            assert_eq!(texts(&events), "Here it is.\n\nAnything else?");
+            t.close();
+
+            // The Express format still reads a JSONL answer as JSONL.
+            let (url, _) = stream_server("200 OK", "application/jsonl", LINE.to_string());
+            let (sink, events) = recorder();
+            let mut t = JsonlStreamTransport::new(HttpTransportOptions::new(url).format(WireFormat::express("main")));
+            t.start(sink);
+            wait_until("the Closed status", || events.lock().unwrap().iter().any(|e| matches!(e, TransportEvent::Status(TransportStatus::Closed, _))));
+            assert_eq!(delivered(&events).len(), 1);
+            assert_eq!(texts(&events), "");
+            t.close();
+
+            // The JSON format reads an Express body by its content type; a
+            // block that does not compile is an issue, the stream reads on.
+            let body = format!("{EXPRESS}\n<a2ui>\nroot = Sparkle(text=\"x\")\n</a2ui>\n");
+            let (url, _) = stream_server("200 OK", "Application/A2UI+Express", body);
+            let (sink, events) = recorder();
+            let mut t = JsonlStreamTransport::new(HttpTransportOptions::new(url));
+            assert!(t.0.accept().starts_with("application/jsonl"));
+            t.start(sink);
+            wait_until("the Closed status", || events.lock().unwrap().iter().any(|e| matches!(e, TransportEvent::Status(TransportStatus::Closed, _))));
+            assert_eq!(root_text(&delivered(&events)).as_deref(), Some("ok"));
+            let issues: Vec<String> = events.lock().unwrap().iter().filter_map(|e| if let TransportEvent::Issue(i) = e { Some(i.message.clone()) } else { None }).collect();
+            assert!(issues.len() == 1 && issues[0].contains("Sparkle"), "{issues:?}");
+            t.close();
+        }
+
+        #[test]
+        fn express_sse_events_are_one_stream_beside_the_json_events() {
+            // The Express stream split mid-statement across events (a
+            // multi-line chunk = several data lines), a JSON event between.
+            let (a, b) = EXPRESS.split_at(30);
+            let data = |chunk: &str| chunk.split('\n').map(|l| format!("data: {l}\n")).collect::<String>();
+            let body = format!("event: a2ui-express\n{}\ndata: {LINE}\nevent: a2ui-express\n{}\n", data(a), data(b));
+            let (url, _) = stream_server("200 OK", "text/event-stream", body);
+            let (sink, events) = recorder();
+            let mut t = SseTransport::new(HttpTransportOptions::new(url).format(WireFormat::express("main")));
+            t.start(sink);
+            wait_until("the Closed status", || events.lock().unwrap().iter().any(|e| matches!(e, TransportEvent::Status(TransportStatus::Closed, _))));
+            let messages = delivered(&events);
+            assert!(messages.iter().any(|m| m["createSurface"]["surfaceId"] == "s1"), "the JSON event: {messages:?}");
+            assert_eq!(root_text(&messages).as_deref(), Some("ok"), "{messages:?}");
+            assert_eq!(texts(&events), "Here it is.\n\nAnything else?");
+            t.close();
+
+            // The JSON format reads them too, on the contract's default surface.
+            let (url, _) = stream_server("200 OK", "text/event-stream", format!("event: a2ui-express\n{}\n", data(EXPRESS)));
+            let (sink, events) = recorder();
+            let mut t = SseTransport::new(HttpTransportOptions::new(url));
+            t.start(sink);
+            wait_until("the Closed status", || events.lock().unwrap().iter().any(|e| matches!(e, TransportEvent::Status(TransportStatus::Closed, _))));
+            let messages = delivered(&events);
+            assert_eq!(messages[0]["createSurface"]["surfaceId"], "main", "{messages:?}");
+            assert_eq!(texts(&events), "Here it is.\n\nAnything else?");
+            t.close();
         }
 
         #[test]

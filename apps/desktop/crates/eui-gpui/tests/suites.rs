@@ -20,7 +20,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use eui_core::catalog::{component_def, CatalogView};
 use eui_core::extension::define_extension;
 use eui_core::host::{
-    client_capabilities, combine_decisions, decide_function, decide_url, mcp_action_call, media_request, messages_from_mcp_result, parse_source,
+    client_capabilities, combine_decisions, inference_format_of, messages_from_mcp_result_with, renderer_capabilities_with, ExpressDecoder, FrameDecoder, decide_function, decide_url, mcp_action_call, media_request, messages_from_mcp_result, parse_source,
     source_with_params, supported_catalog_ids, validate_package, validate_record, Decoded, FunctionDecision, FunctionPolicy, HostRouter, JsonlDecoder, MediaOptions, RouteOptions, SseDecoder, UrlPolicy,
 };
 use eui_core::json;
@@ -670,6 +670,68 @@ fn host_suite(id: &str) -> Vec<Case> {
                 out.push((format!("mcpAction: {}", c["name"].as_str().unwrap()), same(&eui_core::host::mcp_action_call_with(&c["message"], c.get("tool").and_then(Value::as_str), c.get("metadata")), &c["expected"])));
             }
         }
+        // #AXC-12: the Express wire (the decoders this painter's transports use).
+        "host-express" => {
+            let f = fixture("host-transport.json");
+            let surface = |c: &Value| c.get("surfaceId").and_then(Value::as_str).map(str::to_string);
+            for c in list(&f, "express") {
+                let sid = surface(c).unwrap_or_else(|| eui_core::host::contract::EXPRESS_DEFAULT_SURFACE_ID.to_string());
+                let mut d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap_or(true), &sid);
+                let got = feed(|s| d.push(s), Decoded::default, list(c, "chunks"));
+                let got = { let mut g = got; g.extend(d.end()); g };
+                out.push((format!("express: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
+            }
+            // #VAPP-300: the open block after every push, then after end().
+            for c in list(&f, "expressOpen") {
+                let sid = surface(c);
+                let chunks: Vec<String> = list(c, "chunks").iter().map(|v| v.as_str().unwrap().to_string()).collect();
+                let reads: Vec<Decoded> = match c["decoder"].as_str() {
+                    Some("sse") => {
+                        let mut d = SseDecoder::with_surface(sid.as_deref());
+                        chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
+                    }
+                    Some("ws") => {
+                        let mut d = FrameDecoder::new(sid.as_deref());
+                        chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
+                    }
+                    _ => {
+                        let mut d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap_or(true), sid.as_deref().unwrap_or(eui_core::host::contract::EXPRESS_DEFAULT_SURFACE_ID));
+                        chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
+                    }
+                };
+                let got = Value::Array(reads.into_iter().map(|d| Value::from(d.open)).collect());
+                out.push((format!("expressOpen: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
+            }
+            for c in list(&f, "expressSse") {
+                let sid = surface(c);
+                let mut d = SseDecoder::with_surface(sid.as_deref());
+                let got = feed(|s| d.push(s), Decoded::default, list(c, "chunks"));
+                let got = { let mut g = got; g.extend(d.end()); g };
+                out.push((format!("expressSse: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
+            }
+            for c in list(&f, "expressWs") {
+                let sid = surface(c);
+                let mut d = FrameDecoder::new(sid.as_deref());
+                let got = feed(|s| d.push(s), Decoded::default, list(c, "frames"));
+                let got = { let mut g = got; g.extend(d.end()); g };
+                out.push((format!("expressWs: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
+            }
+            for c in list(&f, "expressMcp") {
+                let got = messages_from_mcp_result_with(&c["result"], surface(c).as_deref());
+                out.push((format!("expressMcp: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
+            }
+            for c in list(&f, "expressContentTypes") {
+                let got = inference_format_of(c["contentType"].as_str().unwrap());
+                out.push((format!("expressContentTypes: {}", c["name"].as_str().unwrap()), same(&Value::from(got), &c["expected"])));
+            }
+            for c in list(&f, "expressCapabilities") {
+                let ids = strings(c.get("extensionIds"));
+                let formats = c.get("inferenceFormats").map(|v| strings(Some(v)));
+                let formats: Option<Vec<&str>> = formats.as_ref().map(|f| f.iter().map(String::as_str).collect());
+                let got = renderer_capabilities_with(&ids, None, formats.as_deref());
+                out.push((format!("expressCapabilities: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
+            }
+        }
         "host-policy" => {
             let f = fixture("host-policy.json");
             let decision = |v: &Value| FunctionDecision::parse(v.as_str().unwrap()).unwrap();
@@ -765,7 +827,7 @@ fn suite(id: &str, p: &mut Painter) -> Vec<Case> {
         "layout" => layout_suite(p),
         "overlay" => overlay_suite(p),
         "replay" => replay_suite(p),
-        "host-transport" | "host-policy" | "host-router" => host_suite(id),
+        "host-transport" | "host-express" | "host-policy" | "host-router" => host_suite(id),
         "a2ui10" => a2ui10_cases(),
         "bind" => round2::bind_cases(),
         "style-conditions" => round2::style_condition_cases(),

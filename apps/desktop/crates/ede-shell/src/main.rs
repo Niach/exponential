@@ -4896,7 +4896,7 @@ mod function_names {
         let source = include_str!("main.rs");
         let mut checked = 0;
         for doc in uicore_docs::DOCS {
-            let parsed: serde_json::Value = serde_json::from_str(doc.source).expect(doc.name);
+            let parsed: serde_json::Value = doc.json();
             for f in parsed["surface"]["functions"].as_array().into_iter().flatten().filter_map(serde_json::Value::as_str) {
                 if f == "set" {
                     continue;
@@ -4928,7 +4928,7 @@ mod function_names {
                 _ => {}
             }
         }
-        let docs: Vec<(&str, serde_json::Value)> = uicore_docs::DOCS.iter().map(|d| (d.name, serde_json::from_str(d.source).expect(d.name))).collect();
+        let docs: Vec<(&str, serde_json::Value)> = uicore_docs::DOCS.iter().map(|d| (d.name, d.json())).collect();
         let mut checked = Vec::new();
         for (name, doc) in &docs {
             let popup = &doc["surface"]["popup"];
@@ -5029,7 +5029,7 @@ mod switcher {
     #[test]
     fn the_switcher_tile_selects_on_hover() {
         let doc = uicore_docs::DOCS.iter().find(|d| d.name == "switcher").expect("the switcher document");
-        let parsed: Value = serde_json::from_str(doc.source).unwrap();
+        let parsed: Value = doc.json();
         let tile = parsed["root"]["children"].as_array().unwrap().iter().find(|c| c["id"] == "tile").expect("the tile");
         assert_eq!(tile["on"]["hover"], json!({"functionCall": {"@call": "ede_alt_tab_select", "args": {"window": {"@path": "id"}}}}));
     }
@@ -5136,7 +5136,7 @@ mod layer_sizes {
         assert_eq!(anchor, &vec![ede_ui::surface::Edge::Bottom, ede_ui::surface::Edge::Right]);
         assert_eq!((margin.right, margin.bottom), (shell_layout().panel_margin, shell_layout().panel_margin), "beside the edge, above the taskbar's zone");
         assert_eq!(functions, &vec!["ede_space".to_string()]);
-        let taskbar: Value = serde_json::from_str(uicore_docs::doc("taskbar").unwrap().source).unwrap();
+        let taskbar: Value = uicore_docs::doc("taskbar").unwrap().json();
         fn node<'a>(n: &'a Value, id: &str) -> Option<&'a Value> {
             if n["id"] == id {
                 return Some(n);
@@ -5150,7 +5150,7 @@ mod layer_sizes {
         let list = node(&taskbar["root"], spaces::LIST).expect("the Agent spaces list");
         assert_eq!(list["component"], "Popover", "the list is a hosted Popover of the taskbar");
         assert_eq!(list["slots"]["trigger"]["props"]["label"], "Agent spaces");
-        assert!(!uicore_docs::DOCS.iter().any(|d| d.source.contains("\"anchor\": \"agent_spaces")), "no popup document anchors at it");
+        assert!(!uicore_docs::DOCS.iter().any(|d| d.json()["surface"]["popup"]["anchor"] == "agent_spaces"), "no popup document anchors at it");
         let functions: Vec<&str> = taskbar["surface"]["functions"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
         assert!(functions.contains(&"ede_space") && functions.contains(&"ede_space_close"));
     }
@@ -5166,7 +5166,7 @@ mod layer_sizes {
         }
         let SurfaceHeader::Layer { margin, on_demand, .. } = &settings.surface else { panic!("a layer") };
         assert_eq!((margin.bottom, *on_demand), (shell_layout().taskbar_height, true));
-        let doc: Value = serde_json::from_str(uicore_docs::doc("settings").unwrap().source).unwrap();
+        let doc: Value = uicore_docs::doc("settings").unwrap().json();
         let nav = &doc["root"]["children"][0];
         assert_eq!((nav["component"].as_str(), nav["props"]["width"].as_u64()), (Some("Sidebar"), Some(shell_layout().settings_width as u64)));
     }
@@ -5201,7 +5201,7 @@ mod layer_sizes {
         }
         assert!(text.contains("\"id\":\"chat_row\""));
         // Lane I's final call: a chat opens with ede_chat {sessionId}.
-        let doc: Value = serde_json::from_str(uicore_docs::doc("sidebar").unwrap().source).unwrap();
+        let doc: Value = uicore_docs::doc("sidebar").unwrap().json();
         let row = serde_json::to_string(&doc["root"]).unwrap();
         assert!(row.contains(r#""functionCall":{"@call":"ede_chat","args":{"sessionId":{"@path":"id"}}}"#), "the rail's chat calls ede_chat {{sessionId}}");
     }
@@ -5210,7 +5210,7 @@ mod layer_sizes {
     /// while /chatMenu is open, and both menus paint the highlighted row.
     #[test]
     fn the_chat_composers_hand_the_menu_keys_to_the_shell() {
-        let doc: Value = serde_json::from_str(uicore_docs::doc("chat").unwrap().source).unwrap();
+        let doc: Value = uicore_docs::doc("chat").unwrap().json();
         let mut composers = 0;
         let mut rows = 0;
         let mut walk = vec![&doc["root"]];
@@ -5236,7 +5236,7 @@ mod layer_sizes {
     /// `ede_chat {action: stop}`; its toasts are chats.json's `stopTurn`.
     #[test]
     fn the_busy_composers_stop_reaches_the_shell_and_says_what_failed() {
-        let doc: Value = serde_json::from_str(uicore_docs::doc("chat").unwrap().source).unwrap();
+        let doc: Value = uicore_docs::doc("chat").unwrap().json();
         let mut stops = 0;
         let mut walk = vec![&doc["root"]];
         while let Some(node) = walk.pop() {
@@ -5337,9 +5337,9 @@ mod previews {
     /// The factory taskbar tells the shell with an event (its context gets `open`).
     #[test]
     fn the_factory_previews_change_is_an_event() {
-        let doc = uicore_docs::doc("taskbar").unwrap().source;
-        assert!(doc.contains(r#""name": "ede_previews""#), "the event");
-        assert!(!doc.contains(r#""@call": "ede_previews""#), "no function call: its args never get `open`");
+        let doc = uicore_docs::doc("taskbar").unwrap().json().to_string();
+        assert!(doc.contains(r#""name":"ede_previews""#), "the event");
+        assert!(!doc.contains(r#""@call":"ede_previews""#), "no function call: its args never get `open`");
     }
 }
 
@@ -5412,7 +5412,7 @@ mod start_menu_document {
     /// sidebar's entries and rules, moved) and the Settings button.
     #[test]
     fn the_start_menu_holds_the_switcher_and_settings() {
-        let doc: Value = serde_json::from_str(uicore_docs::doc("start-menu").expect("the start menu").source).unwrap();
+        let doc: Value = uicore_docs::doc("start-menu").expect("the start menu").json();
         let functions: Vec<&str> = doc["surface"]["functions"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
         assert!(functions.contains(&"ede_switcher") && functions.contains(&"ede_open_document"), "{functions:?}");
         let root = &doc["root"];
@@ -5439,12 +5439,12 @@ mod start_menu_document {
     /// page (one the nav lists, its group open), never the first one.
     #[test]
     fn the_tray_popups_settings_links_name_their_page() {
-        let settings = uicore_docs::doc("settings").expect("settings").source;
+        let settings = uicore_docs::doc("settings").expect("settings").json().to_string();
         for (applet, id, page) in [("applet-sound", "sound_settings", "sound"), ("applet-network", "network_settings", "network"), ("applet-battery", "power_settings", "power"), ("applet-bluetooth", "bluetooth_settings", "bluetooth"), ("applet-calendar", "datetime_settings", "datetime")] {
-            let doc: Value = serde_json::from_str(uicore_docs::doc(applet).expect(applet).source).unwrap();
+            let doc: Value = uicore_docs::doc(applet).expect(applet).json();
             let (f, args) = call(node(&doc["root"], id).expect(id));
             assert_eq!((f, args["name"].as_str(), args["page"].as_str()), ("ede_open_document", Some("settings"), Some(page)), "{applet}");
-            assert!(settings.contains(&format!("\"value\": \"{page}\"")), "{page} is a Settings page");
+            assert!(settings.contains(&format!("\"value\":\"{page}\"")), "{page} is a Settings page");
             let state = crate::settings_pages::state_for(page);
             assert_eq!((state["page"].as_str(), state["deviceOpen"].as_bool()), (Some(page), Some(true)), "{page}");
         }
@@ -5453,7 +5453,7 @@ mod start_menu_document {
     /// #EDE-65: the search lists Apps, then Issues (each opening in the app).
     #[test]
     fn the_start_menu_lists_apps_then_issues() {
-        let doc: Value = serde_json::from_str(uicore_docs::doc("start-menu").expect("the start menu").source).unwrap();
+        let doc: Value = uicore_docs::doc("start-menu").expect("the start menu").json();
         assert!(doc["surface"]["functions"].as_array().unwrap().iter().any(|f| f == "ede_issue"));
         let scroll = node(&doc["root"], "apps_scroll").expect("the results");
         let order: Vec<&str> = scroll["children"].as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).collect();
@@ -5469,18 +5469,18 @@ mod start_menu_document {
     #[test]
     fn the_start_menu_selects_a_result_and_enter_runs_it() {
         let source = uicore_docs::doc("start-menu").expect("the start menu").source;
-        let doc: Value = serde_json::from_str(source).unwrap();
+        let doc: Value = uicore_docs::doc("start-menu").expect("the start menu").json();
         let root = &doc["root"];
         for id in ["app", "issue"] {
             assert_eq!(node(root, id).expect(id)["props"]["selected"], serde_json::json!({"@path": "selected"}), "{id}");
         }
         let submit = &node(root, "search").expect("the search box")["on"]["submit"]["functionCall"];
         assert_eq!((submit["@call"].as_str(), &submit["args"]), (Some("ede_start_menu"), &serde_json::json!({"activate": true})));
-        assert!(doc["$comment"].as_str().unwrap().contains("#EDE-92"), "the document says what the keys do");
+        assert!(source.lines().any(|l| l.starts_with('#') && l.contains("#EDE-92")), "the document says what the keys do");
         for (id, f) in [("whats_new", "ede_launch"), ("account", "ede_launch"), ("devices", "ede_launch"), ("settings", "ede_open_document")] {
             assert_eq!(call(node(root, id).expect(id)).0, f, "{id}");
         }
-        assert_eq!(source.matches("\"activate\"").count(), 1, "only the search box runs the selection");
+        assert_eq!(doc.to_string().matches("\"activate\"").count(), 1, "only the search box runs the selection");
     }
 }
 

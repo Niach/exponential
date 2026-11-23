@@ -1,6 +1,6 @@
 // #EXP-1725: what the IDE's shell regions show, a pure projection of the
 // host's state. `fixtures/ide-sidebar.json` is the spec; the document
-// (`apps/ede/ui/sidebar.json`) binds the result under /shell/ide.
+// (`apps/ede/ui/sidebar.express`) binds the result under /shell/ide.
 import fixture from "../fixtures/ide-sidebar.json" with { type: "json" }
 // #EXP-1832: the folder tree is domain-contract's (sidebar-folders.json), by
 // path: uicore takes no package dependencies.

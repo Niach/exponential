@@ -205,6 +205,87 @@ pub fn transport_cases() -> Vec<Case> {
     out
 }
 
+/// Suite `host-express` (#AXC-12): `host-transport.json` `express*`. Needs
+/// eui-core `express`; built without it every case fails, naming the feature.
+pub fn express_cases() -> Vec<Case> {
+    let f = fixture("host-transport.json");
+    let keys = ["express", "expressOpen", "expressSse", "expressWs", "expressMcp", "expressContentTypes", "expressCapabilities"];
+    let mut out = Vec::new();
+    for key in keys {
+        for c in list(&f, key) {
+            out.push((format!("{key}: {}", c["name"].as_str().unwrap()), express_case(key, c)));
+        }
+    }
+    out
+}
+
+#[cfg(not(feature = "express"))]
+fn express_case(_key: &str, _c: &Value) -> Result<(), String> {
+    Err("eui-core built without the `express` feature (cargo test --features express)".into())
+}
+
+#[cfg(feature = "express")]
+fn express_case(key: &str, c: &Value) -> Result<(), String> {
+    use eui_core::host::{inference_format_of, messages_from_mcp_result_with, renderer_capabilities_with, ExpressDecoder, FrameDecoder};
+    let strs = |v: &Value| -> Vec<String> { v.as_array().map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect()).unwrap_or_default() };
+    let run = |mut push: Box<dyn FnMut(&str) -> Decoded + '_>, chunks: Vec<String>| -> Decoded {
+        let mut out = Decoded::default();
+        for ch in &chunks {
+            out.extend(push(ch));
+        }
+        out
+    };
+    let got = match key {
+        // #VAPP-300: the open block after every push, then after end().
+        "expressOpen" => {
+            let chunks = strs(&c["chunks"]);
+            let sid = c["surfaceId"].as_str();
+            let opens: Vec<Value> = match c["decoder"].as_str() {
+                Some("sse") => {
+                    let mut d = SseDecoder::with_surface(sid);
+                    chunks.iter().map(|ch| d.push(ch)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
+                }
+                Some("ws") => {
+                    let mut d = FrameDecoder::new(sid);
+                    chunks.iter().map(|ch| d.push(ch)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
+                }
+                _ => {
+                    let mut d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap_or(false), sid.unwrap_or("main"));
+                    chunks.iter().map(|ch| d.push(ch)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
+                }
+            };
+            Value::Array(opens)
+        }
+        "express" => {
+            let mut d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap_or(false), c["surfaceId"].as_str().unwrap_or("main"));
+            let mut out = run(Box::new(|s| d.push(s)), strs(&c["chunks"]));
+            out.extend(d.end());
+            out.to_json()
+        }
+        "expressSse" => {
+            let mut d = SseDecoder::with_surface(c["surfaceId"].as_str());
+            let mut out = run(Box::new(|s| d.push(s)), strs(&c["chunks"]));
+            out.extend(d.end());
+            out.to_json()
+        }
+        "expressWs" => {
+            let mut d = FrameDecoder::new(c["surfaceId"].as_str());
+            let mut out = run(Box::new(|s| d.push(s)), strs(&c["frames"]));
+            out.extend(d.end());
+            out.to_json()
+        }
+        "expressMcp" => messages_from_mcp_result_with(&c["result"], c["surfaceId"].as_str()).to_json(),
+        "expressContentTypes" => serde_json::json!(inference_format_of(c["contentType"].as_str().unwrap_or_default())),
+        _ => {
+            let ids = strs(&c["extensionIds"]);
+            let formats = c.get("inferenceFormats").map(strs);
+            let formats: Option<Vec<&str>> = formats.as_ref().map(|f| f.iter().map(String::as_str).collect());
+            renderer_capabilities_with(&ids, None, formats.as_deref())
+        }
+    };
+    same(&got, &c["expected"])
+}
+
 fn decision(v: &Value) -> FunctionDecision {
     FunctionDecision::parse(v.as_str().expect("decision")).expect("a decision")
 }

@@ -5,7 +5,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::contract::{MCP_ACTION_TOOL, MCP_MIME_TYPES, SSE_EVENTS};
+use super::contract::{EXPRESS_MIME_TYPE, EXPRESS_SSE_EVENT, EXPRESS_STRUCTURED_KEY, EXPRESS_WS_KEY, MCP_ACTION_TOOL, MCP_MIME_TYPES, SSE_EVENTS};
 use super::js_trim;
 use crate::limits::MAX_MESSAGE_BYTES;
 
@@ -25,13 +25,22 @@ pub struct Decoded {
     /// none). Always empty for JSONL and SSE.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub text: Vec<String>,
+    /// #VAPP-300: the surfaces whose Express block is still OPEN after this
+    /// read (the ids the open block has written to, in order): the host
+    /// reduces them `streaming` (a child not streamed yet renders as
+    /// nothing). A STATE, not a delta: empty = none open (JSON never is);
+    /// the host replaces its open set with every batch's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub open: Vec<String>,
 }
 
 impl Decoded {
+    /// Appends `other`; `open` is `other`'s (the state after both).
     pub fn extend(&mut self, other: Decoded) {
         self.messages.extend(other.messages);
         self.issues.extend(other.issues);
         self.text.extend(other.text);
+        self.open = other.open;
     }
 
     pub fn to_json(&self) -> Value {
@@ -174,8 +183,10 @@ pub fn decode_jsonl(text: &str) -> Decoded {
 /// Server-Sent Events: `data:` lines join with `\n` per event, a blank line
 /// dispatches, `:` comments and other fields are ignored (`retry:` is kept
 /// as [`SseDecoder::retry_ms`]), an `event:` name outside SSE_EVENTS drops
-/// the event. An event's data is one message or JSONL.
-#[derive(Debug, Clone, Default)]
+/// the event. An event's data is one message or JSONL. #AXC-12: events named
+/// `a2ui-express` are the chunks of the stream's ONE Express response (with
+/// the `express` feature; without it each is an issue).
+#[derive(Debug, Default)]
 pub struct SseDecoder {
     lines: Lines,
     data: Vec<String>,
@@ -186,11 +197,20 @@ pub struct SseDecoder {
     event: String,
     count: u32,
     retry_ms: Option<u64>,
+    /// The surface Express statements before any `surface("…")` target.
+    surface_id: Option<String>,
+    express: Option<Express>,
 }
 
 impl SseDecoder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// #AXC-12: Express events target `surface_id` (default
+    /// `EXPRESS_DEFAULT_SURFACE_ID`).
+    pub fn with_surface(surface_id: Option<&str>) -> Self {
+        SseDecoder { surface_id: surface_id.map(str::to_string), ..Self::default() }
     }
 
     /// The last `retry:` field (ms): the server resumes the stream after it
@@ -212,6 +232,8 @@ impl SseDecoder {
                 Line::Oversized => self.drop_data(),
             }
         }
+        // #VAPP-300: the Express response's open block holds across JSON events.
+        out.open = self.express.as_ref().map(Express::open).unwrap_or_default();
         out
     }
 
@@ -223,6 +245,10 @@ impl SseDecoder {
             None => self.drop_data(),
         }
         self.dispatch(&mut out);
+        if let Some(express) = self.express.as_mut() {
+            let d = express.end();
+            express_out(d, self.count, "event", &mut out);
+        }
         out
     }
 
@@ -281,6 +307,12 @@ impl SseDecoder {
         let name = if self.event.is_empty() { "message".to_string() } else { std::mem::take(&mut self.event) };
         let data = std::mem::take(&mut self.data).join("\n");
         self.event.clear();
+        if name == EXPRESS_SSE_EVENT {
+            let count = self.count;
+            let express = self.express.get_or_insert_with(|| Express::new(self.surface_id.as_deref()));
+            let d = express.push(&data);
+            return express_out(d, count, "event", out);
+        }
         if !SSE_EVENTS.contains(&name.as_str()) {
             return;
         }
@@ -294,14 +326,25 @@ impl SseDecoder {
 
 /// The A2UI-over-MCP carrier: the messages inside an MCP tool result
 /// (`content[]` resources with an A2UI mime type, or
-/// `structuredContent.a2ui`).
+/// `structuredContent.a2ui`; #AXC-12: Express resources and
+/// `structuredContent.a2uiExpress`, each one bare body).
 pub fn messages_from_mcp_result(result: &Value) -> Decoded {
+    messages_from_mcp_result_with(result, None)
+}
+
+/// [`messages_from_mcp_result`] with the surface Express statements target.
+pub fn messages_from_mcp_result_with(result: &Value, surface_id: Option<&str>) -> Decoded {
     let mut out = Decoded::default();
     if !matches!(result, Value::Object(_) | Value::Array(_)) {
         return out;
     }
     if let Some(Value::Array(structured)) = result.get("structuredContent").and_then(|s| s.get("a2ui")) {
         out.messages.extend(structured.iter().cloned());
+    }
+    if let Some(Value::String(body)) = result.get("structuredContent").and_then(|s| s.get(EXPRESS_STRUCTURED_KEY)) {
+        let d = express_body(body, surface_id);
+        let issues = d.issues.iter().map(|i| DecodeIssue { at: 0, message: format!("structuredContent.{EXPRESS_STRUCTURED_KEY}: {}", i.message) }).collect();
+        out.extend(Decoded { issues, ..d });
     }
     if let Some(Value::Array(content)) = result.get("content") {
         for (i, item) in content.iter().enumerate() {
@@ -310,18 +353,156 @@ pub fn messages_from_mcp_result(result: &Value) -> Decoded {
                 continue;
             }
             let mime = resource.get("mimeType").and_then(Value::as_str).unwrap_or("");
-            if !MCP_MIME_TYPES.contains(&mime) {
+            let express = mime == EXPRESS_MIME_TYPE;
+            if !express && !MCP_MIME_TYPES.contains(&mime) {
                 continue;
             }
             let Some(Value::String(text)) = resource.get("text") else { continue };
-            let d = decode_jsonl(text);
-            out.messages.extend(d.messages);
-            for issue in d.issues {
-                out.issues.push(DecodeIssue { at: i as u32 + 1, message: format!("content[{i}]: {}", issue.message) });
-            }
+            let d = if express { express_body(text, surface_id) } else { decode_jsonl(text) };
+            let issues = d.issues.iter().map(|issue| DecodeIssue { at: i as u32 + 1, message: format!("content[{i}]: {}", issue.message) }).collect();
+            out.extend(Decoded { issues, ..d });
         }
     }
     out
+}
+
+/// #AXC-12: the inference format of an HTTP body by its Content-Type
+/// (parameters and case ignored): `express` for `application/a2ui+express`,
+/// else `json`.
+pub fn inference_format_of(content_type: &str) -> &'static str {
+    let mime = content_type.split(';').next().unwrap_or("");
+    if js_trim(mime).eq_ignore_ascii_case(EXPRESS_MIME_TYPE) {
+        "express"
+    } else {
+        "json"
+    }
+}
+
+/// #AXC-12: the Express chunk a WebSocket frame carries (`{"express": "…"}`:
+/// a JSON object whose ONE key is `express`, a string), else `None`.
+pub fn express_frame_chunk(frame: &str) -> Option<String> {
+    let text = js_trim(frame);
+    if !text.starts_with('{') || !text.contains(EXPRESS_WS_KEY) {
+        return None;
+    }
+    match serde_json::from_str::<Value>(text) {
+        Ok(Value::Object(map)) if map.len() == 1 => map.get(EXPRESS_WS_KEY).and_then(Value::as_str).map(str::to_string),
+        _ => None,
+    }
+}
+
+/// #AXC-12: WebSocket frames in order: an `{express}` frame is the next
+/// chunk of the connection's ONE Express response (issues `frame N: …`);
+/// any other frame is one message or JSONL (`frame N is not JSON`).
+/// `end()` at close flushes the Express response.
+#[derive(Debug, Default)]
+pub struct FrameDecoder {
+    frames: u32,
+    surface_id: Option<String>,
+    express: Option<Express>,
+}
+
+impl FrameDecoder {
+    pub fn new(surface_id: Option<&str>) -> Self {
+        FrameDecoder { surface_id: surface_id.map(str::to_string), ..Self::default() }
+    }
+
+    pub fn push(&mut self, frame: &str) -> Decoded {
+        self.frames += 1;
+        let n = self.frames;
+        let Some(chunk) = express_frame_chunk(frame) else {
+            let d = decode_jsonl(frame);
+            let issues = if d.issues.is_empty() { vec![] } else { vec![DecodeIssue { at: n, message: format!("frame {n} is not JSON") }] };
+            // #VAPP-300: the Express response's open block holds across JSON frames.
+            let open = self.express.as_ref().map(Express::open).unwrap_or_default();
+            return Decoded { messages: d.messages, issues, open, ..Decoded::default() };
+        };
+        let surface_id = self.surface_id.clone();
+        let d = self.express.get_or_insert_with(|| Express::new(surface_id.as_deref())).push(&chunk);
+        let mut out = Decoded::default();
+        express_out(d, n, "frame", &mut out);
+        out
+    }
+
+    pub fn end(&mut self) -> Decoded {
+        let mut out = Decoded::default();
+        if let Some(express) = self.express.as_mut() {
+            express_out(express.end(), self.frames, "frame", &mut out);
+        }
+        out
+    }
+}
+
+/// An Express read's output inside an outer stream: its issues carry the
+/// outer event / frame number.
+fn express_out(d: Decoded, n: u32, what: &str, out: &mut Decoded) {
+    let issues = d.issues.into_iter().map(|issue| DecodeIssue { at: n, message: format!("{what} {n}: {}", issue.message) }).collect();
+    out.extend(Decoded { messages: d.messages, issues, text: d.text, open: d.open });
+}
+
+/// The Express reader an outer decoder holds: the real one with the
+/// `express` feature, else one that answers every chunk with an issue.
+#[cfg(feature = "express")]
+struct Express(crate::express::ExpressDecoder);
+
+#[cfg(feature = "express")]
+impl Express {
+    fn new(surface_id: Option<&str>) -> Self {
+        Express(crate::express::ExpressDecoder::new(true, surface_id.unwrap_or(super::contract::EXPRESS_DEFAULT_SURFACE_ID)))
+    }
+    fn push(&mut self, chunk: &str) -> Decoded {
+        self.0.push(chunk)
+    }
+    fn end(&mut self) -> Decoded {
+        self.0.end()
+    }
+    fn open(&self) -> Vec<String> {
+        self.0.open()
+    }
+}
+
+#[cfg(not(feature = "express"))]
+struct Express;
+
+#[cfg(not(feature = "express"))]
+const EXPRESS_UNAVAILABLE: &str = "Express is not available (eui-core feature `express`)";
+
+#[cfg(not(feature = "express"))]
+impl Express {
+    fn new(_surface_id: Option<&str>) -> Self {
+        Express
+    }
+    fn push(&mut self, _chunk: &str) -> Decoded {
+        Decoded { issues: vec![DecodeIssue { at: 1, message: EXPRESS_UNAVAILABLE.into() }], ..Decoded::default() }
+    }
+    fn end(&mut self) -> Decoded {
+        Decoded::default()
+    }
+    fn open(&self) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+impl std::fmt::Debug for Express {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Express")
+    }
+}
+
+/// One bare Express body (an MCP resource, `structuredContent`), whole.
+fn express_body(text: &str, surface_id: Option<&str>) -> Decoded {
+    #[cfg(feature = "express")]
+    {
+        let mut d = crate::express::ExpressDecoder::new(false, surface_id.unwrap_or(super::contract::EXPRESS_DEFAULT_SURFACE_ID));
+        let mut out = d.push(text);
+        out.extend(d.end());
+        out
+    }
+    #[cfg(not(feature = "express"))]
+    {
+        let _ = (text, surface_id);
+        Decoded { issues: vec![DecodeIssue { at: 1, message: EXPRESS_UNAVAILABLE.into() }], ..Decoded::default() }
+    }
 }
 
 /// A client message as the MCP tools/call that carries it back (`tool`

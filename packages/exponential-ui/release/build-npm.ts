@@ -27,7 +27,7 @@
 // (`./styles.css`): the build runs the package's `build:css` into dist/.
 
 import { execSync } from "node:child_process"
-import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, cpSync } from "node:fs"
 import { dirname, join, normalize, relative, resolve } from "node:path"
 
 /** The repository root: the metafile names every input relative to it (the
@@ -51,6 +51,9 @@ export const ENTRIES: Record<string, Record<string, string>> = {
     web: `src/web/index.ts`,
     "web/motion": `src/web/motion.ts`,
     "web/primitives": `src/web/primitives/index.ts`,
+    // #AXC-12: the Express compiler over the vendored wasm (lazy: the
+    // transports import it when a stream carries Express).
+    "express/index": `src/express/index.ts`,
   },
   "@exponential_app/eui-react": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
   "@exponential_app/eui-solid": { index: `src/index.ts`, primitives: `src/primitives/index.ts` },
@@ -166,7 +169,10 @@ export async function bundle(dir: string, options: BundleOptions): Promise<Bundl
     outputs[path] = {
       bytes: out.bytes,
       inputs: Object.fromEntries(Object.entries(out.inputs).map(([k, v]) => [repoRelative(k), v.bytesInOutput])),
-      imports: out.imports.filter((i) => i.kind !== `dynamic-import` || true).map((i) => i.path),
+      // #AXC-12: a lazy chunk (a dynamic import: the Express compiler the
+      // transports load only when a stream carries Express) is no part of an
+      // entry's load; it is measured as its own entry (`express/index`).
+      imports: out.imports.filter((i) => i.kind !== `dynamic-import`).map((i) => i.path),
       entry: out.entryPoint,
     }
   }
@@ -182,6 +188,12 @@ export async function buildNpm(dir: string): Promise<void> {
   fixDeclarationSpecifiers(join(dir, `dist`, `types`))
   const built = Object.keys(outputs).map((o) => normalize(o))
   if (STANDALONE[pkg.name]) built.push((await bundleStandalone(dir, { outDir: join(dir, `dist`), sourcemap: true })).file.replace(`${dir}/`, ``))
+  // #AXC-12: the Express glue loads its wasm beside itself
+  // (`new URL("a2ui_express_bg.wasm", import.meta.url)`).
+  if (pkg.name === `@exponential_app/eui`) {
+    cpSync(join(dir, `wasm`, `express`, `a2ui_express_bg.wasm`), join(dir, `dist`, `express`, `a2ui_express_bg.wasm`))
+    built.push(`express/a2ui_express_bg.wasm`)
+  }
   buildStylesheet(dir, pkg.name)
   console.log(`built ${pkg.name}: ${built.join(`, `)}`)
 }

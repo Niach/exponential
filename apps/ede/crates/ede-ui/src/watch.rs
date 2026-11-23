@@ -34,7 +34,7 @@ pub struct Watcher {
 /// the atomic-write temporaries and editor swap files do not.)
 fn relevant(dir: &Path, path: &Path) -> bool {
     path.parent() == Some(dir)
-        && path.file_name().and_then(|f| f.to_str()).is_some_and(|f| f.ends_with(".json") && !f.starts_with('.'))
+        && path.file_name().and_then(|f| f.to_str()).is_some_and(|f| (f.ends_with(crate::express::SUFFIX) || f == crate::THEME_FILE) && !f.starts_with('.'))
 }
 
 /// Reload `runtime` whenever a file in its directory changes and hand the

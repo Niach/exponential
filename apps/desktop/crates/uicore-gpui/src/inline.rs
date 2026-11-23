@@ -215,8 +215,8 @@ mod tests {
     #[test]
     fn a_host_restyles_a_node_of_the_document() {
         let mut doc = document(uicore_docs::doc("chat").expect("the chat"));
-        set_style(&mut doc, "chat", "borderWidth", serde_json::Value::Null);
-        set_style(&mut doc, "chat", "borderRadius", serde_json::json!(0));
+        set_style(&mut doc, "root", "borderWidth", serde_json::Value::Null);
+        set_style(&mut doc, "root", "borderRadius", serde_json::json!(0));
         let Body::Nested(root) = &doc.body else { panic!("a nested document") };
         let style = root.style.as_ref().expect("the root's style");
         assert!(!style.contains_key("borderWidth"));

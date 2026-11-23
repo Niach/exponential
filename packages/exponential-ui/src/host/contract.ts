@@ -28,6 +28,23 @@ export const RENDER_FAILED = `RENDER_FAILED` as const
 export const MCP_MIME_TYPES: readonly string[] = hostJson.transport.mcpMimeTypes
 export const MCP_ACTION_TOOL: string = hostJson.transport.mcpActionTool
 export const SSE_EVENTS: readonly string[] = hostJson.transport.sseEvents
+/** #AXC-12: the inference formats (`inference`): what an agent may write,
+ *  `json` (the default) or `express`, and the marker's keys on every wire. */
+export type InferenceFormat = `json` | `express`
+export const INFERENCE_FORMATS: readonly InferenceFormat[] = hostJson.inference.formats as InferenceFormat[]
+export const DEFAULT_INFERENCE_FORMAT: InferenceFormat = hostJson.inference.default as InferenceFormat
+/** The `rendererCapabilities["1.0"]` key a renderer that compiles Express sets. */
+export const INFERENCE_FORMATS_KEY: string = hostJson.inference.capabilitiesKey
+/** The HTTP Content-Type and MCP resource mimeType of an Express body. */
+export const EXPRESS_MIME_TYPE: string = hostJson.inference.express.mimeType
+/** `structuredContent[EXPRESS_STRUCTURED_KEY]`: a bare Express body in an MCP result. */
+export const EXPRESS_STRUCTURED_KEY: string = hostJson.inference.express.structuredContentKey
+/** The SSE event whose data is the next chunk of the stream's Express response. */
+export const EXPRESS_SSE_EVENT: string = hostJson.inference.express.sseEvent
+/** A WebSocket frame `{[EXPRESS_WS_KEY]: "…"}` = the next Express chunk. */
+export const EXPRESS_WS_KEY: string = hostJson.inference.express.wsFrameKey
+/** The surface statements before any `surface("…")` line target by default. */
+export const EXPRESS_DEFAULT_SURFACE_ID: string = hostJson.inference.express.defaultSurfaceId
 /** Round 2: what a host hands each surface (`surface`): the SurfaceSettings
  *  keys, the Formatter's methods, the commands a live surface takes. */
 export const SURFACE_SETTING_KEYS: readonly string[] = hostJson.surface.settings

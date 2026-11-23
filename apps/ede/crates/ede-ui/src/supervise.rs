@@ -152,7 +152,7 @@ impl Supervisor {
         let (mut git_of, mut known) = (HashMap::new(), HashMap::new());
         let start = ui.head()?.map(|c| c.id);
         for name in &names {
-            known.insert(name.clone(), crate::digest(&std::fs::read(ui.dir().join(format!("{name}.json"))).unwrap_or_default()));
+            known.insert(name.clone(), crate::digest(&std::fs::read(ui.dir().join(crate::file_of(name))).unwrap_or_default()));
             // An edit from an earlier run stays a suspect (#EDE-110); its
             // rollback goes to what the file held before it (#EDE-137).
             if let Some(commit) = ui.edited_commit(name)? {
@@ -445,7 +445,7 @@ impl Supervisor {
                                 Some(bytes) => bytes,
                                 None => ui.factory_copy(name)?,
                             };
-                            ui.put_back(name, &bytes, &format!("Undo: Edit {name}.json, rolled back"))?
+                            ui.put_back(name, &bytes, &format!("Undo: Edit {}, rolled back", crate::file_of(name)))?
                         }
                         // A revert of a commit this run never made (the factory commit): the factory copy.
                         None => {
@@ -457,7 +457,7 @@ impl Supervisor {
                         Some(git) => git,
                         None => ui.head()?.map(|c| c.id).unwrap_or_default(),
                     };
-                    let bytes = std::fs::read(ui.dir().join(format!("{name}.json"))).unwrap_or_default();
+                    let bytes = std::fs::read(ui.dir().join(crate::file_of(name))).unwrap_or_default();
                     drop(ui);
                     self.known.insert(name.clone(), crate::digest(&bytes));
                     self.pending.remove(name);
@@ -472,7 +472,7 @@ impl Supervisor {
                         Some(git) => git,
                         None => ui.head()?.map(|c| c.id).unwrap_or_default(),
                     };
-                    let bytes = std::fs::read(ui.dir().join(format!("{name}.json"))).unwrap_or_default();
+                    let bytes = std::fs::read(ui.dir().join(crate::file_of(name))).unwrap_or_default();
                     drop(ui);
                     self.known.insert(name.clone(), crate::digest(&bytes));
                     self.pending.remove(name);
@@ -496,6 +496,15 @@ impl Drop for Supervisor {
 mod tests {
     use super::*;
     use serde_json::{json, Value};
+
+    /// A JSON document as the Express file `exponential-ui set` writes.
+    fn express_of(document: &Value) -> Result<Vec<u8>, Vec<crate::Issue>> {
+        express_named("panel", document)
+    }
+
+    fn express_named(name: &str, document: &Value) -> Result<Vec<u8>, Vec<crate::Issue>> {
+        crate::decompile_document(name, document).map(String::into_bytes)
+    }
 
     fn panel(text: &str) -> Value {
         json!({
@@ -537,9 +546,9 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let factory = tmp.path().join("factory");
         std::fs::create_dir_all(&factory).unwrap();
-        let shipped_of = |name: &str| serde_json::to_vec_pretty(&panel(&if name == "panel" { "factory".to_string() } else { format!("factory {name}") })).unwrap();
+        let shipped_of = |name: &str| express_named(name, &panel(&if name == "panel" { "factory".to_string() } else { format!("factory {name}") })).unwrap();
         for name in names {
-            std::fs::write(factory.join(format!("{name}.json")), shipped_of(name)).unwrap();
+            std::fs::write(factory.join(crate::file_of(name)), shipped_of(name)).unwrap();
         }
         let dir = tmp.path().join("ui");
         let (ui, _) = Runtime::open_with_factory(&dir, &factory).unwrap();
@@ -577,7 +586,7 @@ mod tests {
     /// after what the test does next.
     fn hand_edit(s: &Supervisor, name: &str, bytes: &[u8]) {
         let held = s.ui.lock().unwrap();
-        std::fs::write(held.dir().join(format!("{name}.json")), bytes).unwrap();
+        std::fs::write(held.dir().join(crate::file_of(name)), bytes).unwrap();
     }
 
     fn applied() -> Vec<Change> {
@@ -610,11 +619,11 @@ mod tests {
     #[test]
     fn an_undo_the_watcher_brings_after_the_deadline_is_no_rollback() {
         let (mut s, fx) = supervised();
-        let (factory, panel_file) = (&fx.factory, fx.dir.join("panel.json"));
+        let (factory, panel_file) = (&fx.factory, fx.dir.join("panel.express"));
         let taken = || std::mem::take(&mut *fx.reports.lock().unwrap());
 
         // `exponential-ui set`, brought by the watcher: it waits for its frame.
-        elsewhere(&s, factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.json").unwrap());
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.express").unwrap());
         s.on_changes(applied()).unwrap();
         assert!(s.state().documents["panel"].pending.is_some());
         // `exponential-ui undo` before any frame; the wait runs out before
@@ -625,17 +634,17 @@ mod tests {
         s.on_changes(applied()).unwrap();
         let heard = taken();
         assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Superseded { .. }, Report::Edit { .. }, Report::Drawn { .. }]), "{heard:?}");
-        assert_eq!(summaries(&s)[..2], ["Undo: Edit panel.json", "Edit panel.json"]);
+        assert_eq!(summaries(&s)[..2], ["Undo: Edit panel.express", "Edit panel.express"]);
         assert!(s.state().documents["panel"].pending.is_none());
         assert_eq!(std::fs::read(&panel_file).unwrap(), fx.shipped);
 
         // The next edit is still supervised: nobody draws it, it rolls back.
-        elsewhere(&s, factory, |ui| ui.write("panel", &panel("again"), "Edit panel.json").unwrap());
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("again"), "Edit panel.express").unwrap());
         s.on_changes(applied()).unwrap();
         s.step(expired()).unwrap();
         let heard = taken();
         assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
-        assert_eq!(summaries(&s)[0], "Undo: Edit panel.json, rolled back");
+        assert_eq!(summaries(&s)[0], "Undo: Edit panel.express, rolled back");
         assert_eq!(std::fs::read(&panel_file).unwrap(), fx.shipped);
     }
 
@@ -647,10 +656,10 @@ mod tests {
     fn a_set_that_brings_the_deadline_along_is_its_own_edit() {
         let (mut s, fx) = supervised();
         let factory = &fx.factory;
-        elsewhere(&s, factory, |ui| ui.write("panel", &panel("first"), "Edit panel.json").unwrap());
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("first"), "Edit panel.express").unwrap());
         s.on_changes(applied()).unwrap();
         s.state.documents.get_mut("panel").unwrap().pending.as_mut().unwrap().deadline = 0;
-        elsewhere(&s, factory, |ui| ui.write("panel", &panel("second"), "Edit panel.json").unwrap());
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("second"), "Edit panel.express").unwrap());
         s.on_changes(applied()).expect("the supervisor goes on");
         assert!(s.state().documents["panel"].pending.is_some(), "the second edit waits for its frame");
         s.step(expired()).unwrap();
@@ -665,9 +674,9 @@ mod tests {
     fn a_set_the_watcher_brings_after_the_deadline_is_its_own_edit() {
         let (mut s, fx) = supervised();
         let factory = &fx.factory;
-        elsewhere(&s, factory, |ui| ui.write("panel", &panel("first"), "Edit panel.json").unwrap());
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("first"), "Edit panel.express").unwrap());
         s.on_changes(applied()).unwrap();
-        elsewhere(&s, factory, |ui| ui.write("panel", &panel("second"), "Edit panel.json").unwrap());
+        elsewhere(&s, factory, |ui| ui.write("panel", &panel("second"), "Edit panel.express").unwrap());
         s.step(expired()).expect("the supervisor goes on");
         s.on_changes(applied()).unwrap();
         assert!(s.state().documents["panel"].pending.is_some(), "the second edit waits for its frame");
@@ -690,8 +699,8 @@ mod tests {
         let commit_of = |changes: Vec<Change>| changes.into_iter().find_map(|c| if let Change::Applied { commit, .. } = c { commit } else { None }).expect("a commit");
         // The watcher's reload committed `first`; before its change reached
         // the supervisor, `exponential-ui set` wrote and committed `second`.
-        let first = commit_of(elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("first"), "Edit panel.json").unwrap()));
-        let second = commit_of(elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("second"), "Edit panel.json").unwrap()));
+        let first = commit_of(elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("first"), "Edit panel.express").unwrap()));
+        let second = commit_of(elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("second"), "Edit panel.express").unwrap()));
         s.on_changes(vec![Change::Applied { name: "panel".into(), commit: Some(first.clone()) }]).unwrap();
         s.on_changes(applied()).unwrap();
         let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
@@ -699,7 +708,7 @@ mod tests {
         s.step(expired()).unwrap();
         let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
         assert!(matches!(&heard[..], [Report::Reverted { .. }]), "{heard:?}");
-        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped, "back to what was shown");
+        assert_eq!(std::fs::read(fx.dir.join("panel.express")).unwrap(), fx.shipped, "back to what was shown");
     }
 
     /// #EDE-137 (1): another document's hand edit landing while a rollback
@@ -709,17 +718,17 @@ mod tests {
     #[test]
     fn a_rollback_leaves_another_documents_edit_to_the_watcher() {
         let (mut s, fx) = supervised_docs(&["menu", "panel"]);
-        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.json").unwrap());
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.express").unwrap());
         s.on_changes(applied()).unwrap();
-        hand_edit(&s, "menu", &serde_json::to_vec_pretty(&panel("menu, by hand")).unwrap());
+        hand_edit(&s, "menu", &express_named("menu", &panel("menu, by hand")).unwrap());
         s.step(expired()).unwrap();
         let changes = watched(&s, "menu");
         s.on_changes(changes).unwrap();
         let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
         assert!(heard.iter().any(|r| matches!(r, Report::Edit { name, .. } if name == "menu")), "the menu's edit is supervised: {heard:?}");
         assert!(s.state().documents["menu"].pending.is_some(), "the menu's edit waits for its frame");
-        assert!(newest_two(&s, "Edit menu.json", "Undo: Edit panel.json, rolled back"), "{:?}", summaries(&s));
-        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped);
+        assert!(newest_two(&s, "Edit menu.express", "Undo: Edit panel.express, rolled back"), "{:?}", summaries(&s));
+        assert_eq!(std::fs::read(fx.dir.join("panel.express")).unwrap(), fx.shipped);
     }
 
     /// #EDE-137 (1): the same for the factory write (three crashes after a
@@ -727,20 +736,20 @@ mod tests {
     #[test]
     fn a_factory_write_leaves_another_documents_edit_to_the_watcher() {
         let (mut s, fx) = supervised_docs(&["menu", "panel"]);
-        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("drawn"), "Edit panel.json").unwrap());
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("drawn"), "Edit panel.express").unwrap());
         s.on_changes(applied()).unwrap();
-        s.on_line(&FrameLine::line("panel", &std::fs::read(fx.dir.join("panel.json")).unwrap())).unwrap();
+        s.on_line(&FrameLine::line("panel", &std::fs::read(fx.dir.join("panel.express")).unwrap())).unwrap();
         // The panel was rolled back once already and crashed twice since.
         let d = s.state.documents.get_mut("panel").unwrap();
         (d.reverted, d.crashes) = (true, apply::CRASHES_TO_REVERT - 1);
-        hand_edit(&s, "menu", &serde_json::to_vec_pretty(&panel("menu, by hand")).unwrap());
+        hand_edit(&s, "menu", &express_named("menu", &panel("menu, by hand")).unwrap());
         s.step(Event::Crash { at: now_ms() }).unwrap();
         let changes = watched(&s, "menu");
         s.on_changes(changes).unwrap();
         let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
         assert!(heard.iter().any(|r| matches!(r, Report::Factory { name, .. } if name == "panel")), "{heard:?}");
         assert!(heard.iter().any(|r| matches!(r, Report::Edit { name, .. } if name == "menu")), "the menu's edit is supervised: {heard:?}");
-        assert!(newest_two(&s, "Edit menu.json", "Factory panel"), "{:?}", summaries(&s));
+        assert!(newest_two(&s, "Edit menu.express", "Factory panel"), "{:?}", summaries(&s));
     }
 
     /// #EDE-137 (1): one commit held two documents (one save of both), the
@@ -749,18 +758,18 @@ mod tests {
     #[test]
     fn a_rollback_of_a_shared_commit_leaves_the_drawn_sibling() {
         let (mut s, fx) = supervised_docs(&["menu", "panel"]);
-        let menu = serde_json::to_vec_pretty(&panel("menu, edited")).unwrap();
+        let menu = express_named("menu", &panel("menu, edited")).unwrap();
         elsewhere(&s, &fx.factory, |ui| {
-            std::fs::write(ui.dir().join("menu.json"), &menu).unwrap();
-            std::fs::write(ui.dir().join("panel.json"), serde_json::to_vec_pretty(&panel("silent")).unwrap()).unwrap();
+            std::fs::write(ui.dir().join("menu.express"), &menu).unwrap();
+            std::fs::write(ui.dir().join("panel.express"), express_of(&panel("silent")).unwrap()).unwrap();
             ui.reload().unwrap()
         });
-        assert_eq!(summaries(&s)[0], "Edit menu.json, panel.json", "one commit holds both");
+        assert_eq!(summaries(&s)[0], "Edit menu.express, panel.express", "one commit holds both");
         s.on_changes(vec![Change::Applied { name: "menu".into(), commit: None }, Change::Applied { name: "panel".into(), commit: None }]).unwrap();
         s.on_line(&FrameLine::line("menu", &menu)).unwrap();
         s.step(expired()).unwrap();
-        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped);
-        assert_eq!(std::fs::read(fx.dir.join("menu.json")).unwrap(), menu, "the drawn menu stays");
+        assert_eq!(std::fs::read(fx.dir.join("panel.express")).unwrap(), fx.shipped);
+        assert_eq!(std::fs::read(fx.dir.join("menu.express")).unwrap(), menu, "the drawn menu stays");
         let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
         assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Edit { .. }, Report::Drawn { name, .. }, Report::Reverted { .. }] if name == "menu"), "{heard:?}");
         assert!(s.state().documents["menu"].pending.is_none());
@@ -772,15 +781,15 @@ mod tests {
     #[test]
     fn a_rollback_after_two_quick_edits_goes_to_what_was_shown() {
         let (mut s, fx) = supervised();
-        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("first"), "Edit panel.json").unwrap());
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("first"), "Edit panel.express").unwrap());
         s.on_changes(applied()).unwrap();
-        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("second"), "Edit panel.json").unwrap());
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("second"), "Edit panel.express").unwrap());
         s.on_changes(applied()).unwrap();
         s.step(expired()).unwrap();
         let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
         assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
-        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped, "what was shown, not the first edit");
-        assert_eq!(summaries(&s)[0], "Undo: Edit panel.json, rolled back");
+        assert_eq!(std::fs::read(fx.dir.join("panel.express")).unwrap(), fx.shipped, "what was shown, not the first edit");
+        assert_eq!(summaries(&s)[0], "Undo: Edit panel.express, rolled back");
         assert!(s.state().documents["panel"].pending.is_none());
     }
 
@@ -792,7 +801,7 @@ mod tests {
     #[test]
     fn a_rollback_over_an_uncommitted_edit_keeps_the_supervisor() {
         let (mut s, fx) = supervised();
-        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.json").unwrap());
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.express").unwrap());
         s.on_changes(applied()).unwrap();
         let broken = br#"{"surface": {"size": {"width": 1, "height": 1}}, "root": {"id": "panel", "component": "Nope"}}"#;
         hand_edit(&s, "panel", broken);
@@ -801,8 +810,8 @@ mod tests {
         let mut heard = std::mem::take(&mut *fx.reports.lock().unwrap());
         heard.retain(|r| !matches!(r, Report::Refused { .. }));
         assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
-        assert_eq!(summaries(&s)[0], "Undo: Edit panel.json, rolled back");
-        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped, "what was drawn");
+        assert_eq!(summaries(&s)[0], "Undo: Edit panel.express, rolled back");
+        assert_eq!(std::fs::read(fx.dir.join("panel.express")).unwrap(), fx.shipped, "what was drawn");
         assert_eq!(std::fs::read(fx.dir.join(crate::refused_file("panel"))).unwrap(), broken, "the refused text, kept");
         {
             let mut ui = s.ui.lock().unwrap();
@@ -811,12 +820,12 @@ mod tests {
             assert!(ui.rejected().is_empty());
         }
         // The next edit is still supervised: nobody draws it, it rolls back.
-        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("again"), "Edit panel.json").unwrap());
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("again"), "Edit panel.express").unwrap());
         s.on_changes(applied()).unwrap();
         s.step(expired()).unwrap();
         let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
         assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Reverted { .. }]), "{heard:?}");
-        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped);
+        assert_eq!(std::fs::read(fx.dir.join("panel.express")).unwrap(), fx.shipped);
     }
 
     /// #EDE-137 (3): a VALID hand edit of the same document landing with
@@ -827,19 +836,19 @@ mod tests {
     #[test]
     fn a_valid_edit_landing_with_the_rollback_replaces_the_wait() {
         let (mut s, fx) = supervised();
-        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.json").unwrap());
+        elsewhere(&s, &fx.factory, |ui| ui.write("panel", &panel("silent"), "Edit panel.express").unwrap());
         s.on_changes(applied()).unwrap();
-        let by_hand = serde_json::to_vec_pretty(&panel("by hand")).unwrap();
+        let by_hand = express_of(&panel("by hand")).unwrap();
         hand_edit(&s, "panel", &by_hand);
         s.step(expired()).expect("the supervisor goes on");
         let heard = std::mem::take(&mut *fx.reports.lock().unwrap());
         assert!(matches!(&heard[..], [Report::Edit { .. }, Report::Superseded { .. }, Report::Edit { .. }]), "{heard:?}");
-        assert_eq!(summaries(&s)[..2], ["Edit panel.json", "Edit panel.json"]);
-        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), by_hand);
+        assert_eq!(summaries(&s)[..2], ["Edit panel.express", "Edit panel.express"]);
+        assert_eq!(std::fs::read(fx.dir.join("panel.express")).unwrap(), by_hand);
         assert!(!fx.dir.join(crate::refused_file("panel")).exists());
         assert!(s.state().documents["panel"].pending.is_some(), "the hand edit waits for its frame");
         // Nobody draws it either: back to what was shown, never to the first edit.
         s.step(expired()).unwrap();
-        assert_eq!(std::fs::read(fx.dir.join("panel.json")).unwrap(), fx.shipped);
+        assert_eq!(std::fs::read(fx.dir.join("panel.express")).unwrap(), fx.shipped);
     }
 }

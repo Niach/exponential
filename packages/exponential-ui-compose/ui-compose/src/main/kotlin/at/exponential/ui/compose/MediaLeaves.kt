@@ -363,7 +363,7 @@ internal fun rememberPolicedImage(model: at.exponential.ui.model.SurfaceModel, s
     return image
 }
 
-/** `Icon`: the host icon by name (tone-tinted), else the placeholder circle, centred. */
+/** `Icon`: the host icon by name (tone-tinted), else the built-in glyph or the placeholder, centred. */
 @Composable
 internal fun IconLeaf(cx: LeafContext) {
     val name = cx.props.str("name").ifEmpty { "ui-icon-placeholder" }

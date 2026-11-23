@@ -1,4 +1,4 @@
-//! #EDE-92: the start menu's keyboard selection (`apps/ede/ui/start-menu.json`).
+//! #EDE-92: the start menu's keyboard selection (`apps/ede/ui/start-menu.express`).
 //! While the search has text, one result row is the selected one: the first
 //! by default, Up and Down move it and stop at the ends, Enter in the search
 //! box runs it (an app launches, an issue opens) as a press on it would. The

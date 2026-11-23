@@ -1,0 +1,14 @@
+# Exponential Desktop's factory Needs you list (#EDE-65): the taskbar's Needs you tray button (shown
+# only while something waits, its badge the count) opens it as a popup surface: every plan, question
+# and ready PR waiting on the person across all the teams of the shell's signed-in accounts
+# (/needsYou/rows, the IDE's needs-you.express fold per team, the team's rows by team name), each row
+# titled by what waits, its chat and team under it, its age as the meta. A press hands off to the
+# Exponential app on that chat (ede_needs_you_open: exponential://session/<id>?opens=…&message=…).
+surface("needs-you", extensions={ede: {popup: {parent: "taskbar", anchor: "needs_you", placement: "top-end", size: {width: 380, height: 360}}, functions: ["ede_needs_you_open"]}})
+$/needsYou/count = 0
+$/needsYou/rows = []
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", height: 360, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[needs_title, needs_scroll])
+needs_title = Heading(text="Needs you", level="h4")
+needs_scroll = ScrollArea(maxHeight=300, children=[needs_list, needs_row])
+needs_list = List(gap="none", divided=true, children=_template($/needsYou/rows, needs_row, key="id"))
+needs_row = Row(title=$title, subtitle=$subtitle, meta=$meta, icon=$icon, density="compact", pressable=true, on={press: ede_needs_you_open(id=$id)})
