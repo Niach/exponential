@@ -1,5 +1,5 @@
 //! EXP-1513: a Local desktop without a usable CLI sets Claude Code up from
-//! the chat's empty state (`chat_no_cli` in ede/ui/chat.json): Anthropic's
+//! the chat's empty state (`chat_no_cli` in ede/ui/chat.express): Anthropic's
 //! own installer when `claude` is missing ([`eagent::install`]), then the
 //! CLI's OWN sign-in (`claude auth login`, which opens the browser itself).
 //! Nothing here reads or writes a credential; the CLI keeps its login

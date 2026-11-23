@@ -42,6 +42,9 @@ export function App() {
       <Button variant="outline" onClick={() => surface.apply({ version: A2UI_VERSION, updateDataModel: { surfaceId: `main`, path: `/status`, value: `Asked again` } })}>
         Ask again
       </Button>
+      <Button variant="ghost" onClick={() => (location.hash = `express`)}>
+        Express stream
+      </Button>
     </>
   )
 }

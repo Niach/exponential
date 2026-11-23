@@ -9,6 +9,7 @@ fixtures in Rust, so the shell, the agent tools and the web harness agree.
 | fixture | covers |
 |---|---|
 | `surface.json` | the `surface` header every document carries (a wlr-layer-shell surface: layer, anchor, size, exclusive zone, margin, keyboard, `onDemand` for the switcher and the OSD; or a popup of another document), `normalizeSurface`; the Tier C rules of `documentIssues` (a document grants no privileges: no password inputs, host functions only from `surface.functions`, ids once) |
+| `express.json` | #EDE-216: a document on disk is Express (`<name>.express`): the surface header as `surface("<name>", extensions={ede: {…}})`, the data as `$/path = value` lines, `root = …`, eDE's host functions for the compiler, issues at their Express line, the one-time `.json` migration (Rust only: the TS reference has no Express compiler) |
 | `apply.json` | the apply state machine `reduce(state, event)`: validate, refuse on one issue, commit, reload, the shell's frame within 2 s or rollback, three crashes after an edit revert it, three more go to factory |
 
 Not an SDK module: eDE lives in `apps/ede` (`docs/libraries.md`). Private, no release.

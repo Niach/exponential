@@ -43,8 +43,8 @@ fn mount(cx: &mut TestAppContext, count: usize) -> (Entity<SurfaceView>, &mut Vi
     cx.update(gpui_component::init);
     let mut doc = inline::document(uicore_docs::doc("chat").expect("the factory chat"));
     // The shell sizes the root to its panel (`size_root`).
-    inline::set_style(&mut doc, "chat", "width", json!(PANEL.0));
-    inline::set_style(&mut doc, "chat", "height", json!(PANEL.1));
+    inline::set_style(&mut doc, "root", "width", json!(PANEL.0));
+    inline::set_style(&mut doc, "root", "height", json!(PANEL.1));
     let mut feed = Feed::new();
     feed.set("/chatting", json!({"face": "conversation", "title": "A long chat", "rows": rows(count), "composer": {"placeholder": "Reply", "busy": false}}));
     let theme = eui_core::themes::builtin_theme("exponential");
@@ -77,7 +77,8 @@ fn the_rows_are_a_scroll_container() {
         }
         walk.extend(node["children"].as_array().into_iter().flatten());
     };
-    let style = list["props"]["style"].as_object().expect("the list's style");
+    // #EDE-216: one style (Express has no style prop).
+    let style = list["style"].as_object().expect("the list's style");
     assert_eq!(eui_core::style::is_scroll_container(style), (false, true), "{style:?}");
 }
 

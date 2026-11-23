@@ -67,6 +67,8 @@ import {
 } from "../src/index"
 import type { ChartValueFormat, ChildTemplate, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, AppPackage } from "../src/index"
 import { conformanceManifest } from "../src/conformance"
+import { ExpressDecoder, FrameDecoder, SseDecoder as ExpressSse, inferenceFormatOf, mergeDecoded, messagesFromMcpResult as mcpResult, rendererCapabilities as capabilities } from "../src/host/index"
+import { initExpress } from "../src/express/index"
 import type { ConformanceReport } from "../src/conformance"
 import { BASE_CSS, CLIENT_FUNCTIONS, LITERAL_ROWS_ROOT, absolutePath, bindTree, getPointer, isBinding, memoFormatter, resolveNodeProps, resolveValue, setPointer, type DataModel, type ResolveContext } from "../src/web/index"
 import { launchChromium, openPage, pageUrl, type Query, type WebHarness } from "./browser-page"
@@ -315,7 +317,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         }
     })
 
-    await block(`host-transport, host-policy, host-router`, () => {
+    await block(`host-transport, host-express, host-policy, host-router`, () => {
       const feed = (dec: { push(c: string): Decoded; end(): Decoded }, chunks: string[]) => {
         const out: Decoded = { messages: [], issues: [] }
         for (const d of [...chunks.map((c) => dec.push(c)), dec.end()]) {
@@ -356,6 +358,23 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       for (const c of t.sse) record(`host-transport`, `sse: ${c.name}`, () => canon(feed(new SseDecoder(), c.chunks)) === canon(c.expected))
       for (const c of t.mcp) record(`host-transport`, `mcp: ${c.name}`, () => canon(messagesFromMcpResult(c.result)) === canon(c.expected))
       for (const c of t.mcpAction) record(`host-transport`, `mcpAction: ${c.name}`, () => canon(mcpActionCall(c.message, c.tool, c.metadata)) === canon(c.expected))
+      // #AXC-12: the Express wire, over the vendored compiler (the web renderers' own).
+      initExpress(readFileSync(join(import.meta.dirname, `..`, `wasm`, `express`, `a2ui_express_bg.wasm`)))
+      const all = (dec: { push(c: string): Decoded; end(): Decoded }, chunks: string[]) => {
+        const out: Decoded = { messages: [], issues: [] }
+        for (const d of [...chunks.map((c) => dec.push(c)), dec.end()]) mergeDecoded(out, d)
+        return out
+      }
+      const at = (c: { surfaceId?: string }) => (c.surfaceId ? { surfaceId: c.surfaceId } : {})
+      for (const c of t.express) record(`host-express`, `express: ${c.name}`, () => canon(all(new ExpressDecoder({ wrapped: c.wrapped, ...at(c) }), c.chunks)) === canon(c.expected))
+      // #VAPP-300: every read's open block.
+      const opens = (dec: { push(c: string): Decoded; end(): Decoded }, chunks: string[]) => [...chunks.map((c) => dec.push(c)), dec.end()].map((d) => d.open ?? [])
+      for (const c of t.expressOpen) record(`host-express`, `open: ${c.name}`, () => canon(opens(c.decoder === `sse` ? new ExpressSse(at(c)) : c.decoder === `ws` ? new FrameDecoder(at(c)) : new ExpressDecoder({ wrapped: c.wrapped, ...at(c) }), c.chunks)) === canon(c.expected))
+      for (const c of t.expressSse) record(`host-express`, `sse: ${c.name}`, () => canon(all(new ExpressSse(at(c)), c.chunks)) === canon(c.expected))
+      for (const c of t.expressWs) record(`host-express`, `ws: ${c.name}`, () => canon(all(new FrameDecoder(at(c)), c.frames)) === canon(c.expected))
+      for (const c of t.expressMcp) record(`host-express`, `mcp: ${c.name}`, () => canon(mcpResult(c.result, at(c))) === canon(c.expected))
+      for (const c of t.expressContentTypes) record(`host-express`, `contentType: ${c.name}`, () => inferenceFormatOf(c.contentType) === c.expected)
+      for (const c of t.expressCapabilities) record(`host-express`, `capabilities: ${c.name}`, () => canon(capabilities(c.extensionIds, c.inferenceFormats ? { inferenceFormats: c.inferenceFormats } : {})) === canon(c.expected))
       const p = fixture(`host-policy.json`)
       for (const c of p.functions) record(`host-policy`, `function: ${c.name}`, () => decideFunction(c.policy, c.fn, c.registered) === c.expected)
       for (const c of p.combine) record(`host-policy`, `combine: ${c.a}+${c.b}`, () => combineDecisions(c.a, c.b) === c.expected)
@@ -534,8 +553,8 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
           return canon(nested) === canon(c.expected)
         })
       // The renderer paints the core reducer's output.
-      for (const c of items.reduce as { name: string; catalogId: string; nested?: NestedNode; components?: FlatComponent[]; expected: unknown }[])
-        record(`template-items`, `reduce: ${c.name}`, () => canon(c.nested ? reduceNested(c.nested, { catalogId: c.catalogId }) : reduceSurface(c.components!, { catalogId: c.catalogId })) === canon(c.expected))
+      for (const c of items.reduce as { name: string; catalogId: string; streaming?: boolean; nested?: NestedNode; components?: FlatComponent[]; expected: unknown }[])
+        record(`template-items`, `reduce: ${c.name}`, () => canon(c.nested ? reduceNested(c.nested, { catalogId: c.catalogId }) : reduceSurface(c.components!, { catalogId: c.catalogId, streaming: c.streaming === true })) === canon(c.expected))
     })
 
     await block(`text-direction, resizable, virtual-list, animations: painted in Chromium`, async () => {

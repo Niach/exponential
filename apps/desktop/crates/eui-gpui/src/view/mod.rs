@@ -784,6 +784,18 @@ impl SurfaceView {
         out
     }
 
+    /// #VAPP-300: an Express block is still streaming this surface (the
+    /// host runtime sets it from the decoder's `open`): a child not streamed
+    /// yet renders as nothing; off again, a child still missing is the
+    /// Unknown placeholder.
+    pub fn set_streaming(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.surface.set_streaming(on) {
+            self.changed = true;
+            self.nodes_dirty = true;
+            cx.notify();
+        }
+    }
+
     /// The nested authoring form (fixtures, templates).
     pub fn set_nested(&mut self, tree: NestedNode, cx: &mut Context<Self>) -> ApplyOutcome {
         self.changed = true;

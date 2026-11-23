@@ -1,0 +1,32 @@
+# Exponential Desktop's factory network applet (#EDE-43): the taskbar's network button opens it as a
+# popup surface. Cinnamon's content in the IDE's language: the Wired and Wi-Fi switches (wired_enable,
+# wifi_enable), the saved VPNs each with its own switch (vpn_connect / vpn_disconnect), the Wi-Fi
+# networks in reach (a press joins one: connect), and the Network settings link. Every action is
+# ede_service on the network domain. #EDE-168: the popup hugs its rows (no empty height under a short
+# list) and stands on its button, never taller than the output has room for above the taskbar.
+surface("applet-network", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_network", placement: "top-end", size: {width: 380, height: 350}}, functions: ["ede_service", "ede_open_document"]}})
+$/services/network/accessPoints = []
+$/services/network/available = false
+$/services/network/reason = ""
+$/services/network/vpn = []
+$/services/network/wifiEnabled = false
+$/services/network/wired = []
+$/services/network/wiredConnected = false
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[net_off, wired, wifi, vpn_title, vpns, vpn, aps_title, aps_scroll, network_foot])
+net_off = Text(text=$/services/network/reason, variant="muted", visible=not(value=cond(if=$/services/network/available, then=true, else=false)))
+wired = Switch(label="Wired", name="wired", checked=$/services/network/wiredConnected, on={change: ede_service(action="wired_enable", args={on: $/services/network/wiredConnected}, domain="network")}, visible=not(value=eq(a=len(value=$/services/network/wired), b=0)))
+wifi = Switch(label="Wi-Fi", name="wifi", checked=$/services/network/wifiEnabled, on={change: ede_service(action="wifi_enable", args={on: $/services/network/wifiEnabled}, domain="network")})
+vpn_title = Text(text="VPN", variant="label", visible=not(value=eq(a=len(value=$/services/network/vpn), b=0)))
+vpns = List(gap="none", divided=true, children=_template($/services/network/vpn, vpn, key="id"))
+vpn = Row(title=$name, subtitle=$type, icon="ede-lock", density="compact", slots={trailing: "vpn_switches"})
+vpn_switches = Stack(direction="horizontal", gap="none", align="center", children=[vpn_up, vpn_down])
+vpn_up = Switch(label="Connected", name="vpn", checked=$active, size="compact", on={change: ede_service(action="vpn_disconnect", args={id: $id}, domain="network")}, visible=cond(if=$active, then=true, else=false))
+vpn_down = Switch(label="Connect", name="vpn", checked=$active, size="compact", on={change: ede_service(action="vpn_connect", args={id: $id}, domain="network")}, visible=not(value=cond(if=$active, then=true, else=false)))
+aps_title = Text(text="Wi-Fi networks", variant="label", visible=cond(if=$/services/network/wifiEnabled, then=true, else=false))
+aps_scroll = ScrollArea(maxHeight=180, children=[aps, ap, no_aps], visible=cond(if=$/services/network/wifiEnabled, then=true, else=false))
+aps = List(gap="none", divided=true, children=_template($/services/network/accessPoints, ap, key="ssid"))
+ap = Row(title=$ssid, meta=concat(values=[$strength, "%"]), icon="ede-wifi", selected=$active, density="compact", pressable=true, slots={trailing: "ap_secured"}, on={press: ede_service(action="connect", args={ssid: $ssid}, domain="network")})
+ap_secured = Icon(name="ede-lock", size="sm", tone="neutral", label="Secured", visible=cond(if=$secured, then=true, else=false))
+no_aps = Text(text="No Wi-Fi network in reach", variant="muted", visible=eq(a=len(value=$/services/network/accessPoints), b=0))
+network_foot = Stack(direction="horizontal", gap="sm", align="center", children=[network_settings])
+network_settings = Link(label="Network settings", on={press: ede_open_document(name="settings", page="network")})

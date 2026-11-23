@@ -1,0 +1,47 @@
+# Exponential Desktop's factory Connect Exponential (#EDE-56): the switcher's and Settings' Connect
+# Exponential rows open it as an on-demand top layer surface in the middle of the screen. The person
+# names the instance (app.exponential.at by default) and signs in the way the IDE does: the browser
+# (the PKCE flow; the exponential:// callback comes back to the shell when it is the registered
+# handler) or a code (the device-code flow: the code and the page to enter it at, the shell polls).
+# The host feeds /connecting {state idle|browser|code|done|failed, code, uri, email, error}; the
+# instance is the document's own data (/connect/instance). On success the account joins accounts.json
+# (the IDE's too) and its teams join the switcher.
+surface("connect", extensions={ede: {layer: "top", size: {width: 520, height: 360}, keyboard: "on-demand", onDemand: true, functions: ["set", "ede_connect", "ede_close_document"]}})
+$/connect/instance = "https://app.exponential.at"
+$/connecting/code = ""
+$/connecting/email = ""
+$/connecting/error = ""
+$/connecting/instance = ""
+$/connecting/state = "idle"
+$/connecting/uri = ""
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.md", padding: "$spacing.lg", width: 520, height: 360, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.lg"}, children=[connect_head, connect_idle, connect_browser_wait, connect_code, connect_done, connect_failed])
+connect_head = Stack(direction="horizontal", gap="sm", align="center", justify="between", children=[connect_title, connect_close])
+connect_title = Heading(text="Connect Exponential", level="h3")
+connect_close = Button(label="Close", icon="ui-close", variant="ghost", size="icon", on={press: ede_close_document(name="connect")})
+connect_idle = Stack(direction="vertical", gap="md", children=[connect_instance, connect_actions], visible=eq(a=$/connecting/state, b="idle"))
+connect_instance = Input(label="Instance", name="instance", type="url", placeholder="https://app.exponential.at", value=$/connect/instance)
+connect_actions = Stack(direction="horizontal", gap="sm", align="center", children=[connect_browser, connect_code_instead])
+connect_browser = Button(label="Continue in the browser", icon="brand-exponential", variant="default", on={press: ede_connect(action="start", instance=$/connect/instance)})
+connect_code_instead = Button(label="Use a code instead", variant="outline", on={press: ede_connect(action="code", instance=$/connect/instance)})
+connect_browser_wait = Stack(direction="vertical", gap="md", children=[connect_browser_text, connect_browser_hint, connect_browser_actions], visible=eq(a=$/connecting/state, b="browser"))
+connect_browser_text = Text(text="Finish signing in in your browser.", variant="body")
+connect_browser_hint = Text(text=$/connecting/instance, variant="muted", lines=1)
+connect_browser_actions = Stack(direction="horizontal", gap="sm", align="center", children=[connect_browser_code, connect_browser_cancel])
+connect_browser_code = Button(label="Use a code instead", variant="outline", on={press: ede_connect(action="code")})
+connect_browser_cancel = Button(label="Cancel", variant="ghost", on={press: ede_connect(action="cancel")})
+connect_code = Stack(direction="vertical", gap="md", children=[connect_code_value, connect_code_where, connect_code_uri, connect_code_actions, connect_code_waiting], visible=eq(a=$/connecting/state, b="code"))
+connect_code_value = Text(text=$/connecting/code, variant="title", align="center")
+connect_code_where = Text(text="Enter this code at", variant="muted", align="center")
+connect_code_uri = Text(text=$/connecting/uri, variant="label", align="center", lines=1)
+connect_code_actions = Stack(direction="horizontal", gap="sm", align="center", justify="center", children=[connect_code_open, connect_code_cancel])
+connect_code_open = Button(label="Open the page", icon="ui-external-link", variant="default", on={press: ede_connect(action="open")})
+connect_code_cancel = Button(label="Cancel", variant="ghost", on={press: ede_connect(action="cancel")})
+connect_code_waiting = Text(text="Waiting for the approval…", variant="muted", align="center")
+connect_done = Stack(direction="vertical", gap="md", children=[connect_done_text, connect_done_email, connect_done_hint, connect_done_close], visible=eq(a=$/connecting/state, b="done"))
+connect_done_text = Text(text="Connected as", variant="muted")
+connect_done_email = Text(text=$/connecting/email, variant="title", lines=1)
+connect_done_hint = Text(text="Your teams are in the switcher.", variant="body")
+connect_done_close = Button(label="Done", variant="default", on={press: ede_close_document(name="connect")})
+connect_failed = Stack(direction="vertical", gap="md", children=[connect_error, connect_retry], visible=eq(a=$/connecting/state, b="failed"))
+connect_error = Alert(title="Could not connect", message=$/connecting/error, type="error")
+connect_retry = Button(label="Try again", variant="outline", on={press: ede_connect(action="cancel")})

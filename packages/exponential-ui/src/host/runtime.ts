@@ -12,7 +12,8 @@ import type { ResolvedTheme } from "../theme-types"
 import { BUILTIN_THEME_IDS, BUILTIN_THEMES, builtinTheme } from "../themes"
 import type { ExtensionDef, FlatComponent } from "../types"
 import { RENDER_FAILED, actionMessage, callAgentFunctionMessage, errorMessage, rendererFunctionResponse } from "./contract"
-import type { ClientMessage, HostOp } from "./contract"
+import type { ClientMessage, HostOp, InferenceFormat } from "./contract"
+import { INFERENCE_FORMATS } from "./contract"
 import { availableExtensions, rendererCapabilities } from "./package"
 import type { PackageIssue, AppPackage } from "./package"
 import { BUILTIN_FUNCTIONS, combineDecisions, decideFunction, decideRoute, decideUrl, mediaRequest, packagePolicy, routedCallKey } from "./policy"
@@ -40,7 +41,16 @@ export type MessageMetadata = Record<string, unknown>
 /** Messages in, renderer messages out. Adapters: `transports.ts`. */
 export interface Transport {
   /** Start delivering messages; report the connection state. */
-  start(receive: (message: unknown) => void, status: (status: TransportStatus, detail?: string) => void): void
+  start(
+    receive: (message: unknown) => void,
+    status: (status: TransportStatus, detail?: string) => void,
+    text?: (text: string) => void,
+    /** #VAPP-300: the surfaces whose Express block is still open (the
+     *  decoder's `open`), per decoded batch: `settled: false` BEFORE its
+     *  messages (those surfaces stream as they arrive), `true` after (every
+     *  other surface's block closed). */
+    open?: (surfaceIds: readonly string[], settled: boolean) => void
+  ): void
   send(message: ClientMessage, metadata?: MessageMetadata): void | Promise<void>
   close(): void
 }
@@ -119,6 +129,15 @@ export interface HostOptions {
    *  error it answered a message with, an invalid surface theme). A
    *  transport-less host has no server to tell: this is where they land. */
   onIssue?: (issue: HostIssue) => void
+  /** #AXC-12: the prose of an Express response (the text around its
+   *  `<a2ui>` blocks), piece by piece as it streams in: append them. The
+   *  SDK draws none; the host shows it (a chat bubble, a caption). */
+  onText?: (text: string) => void
+  /** #AXC-12: the inference formats this host advertises
+   *  (`rendererCapabilities["1.0"].inferenceFormats`); default both, as
+   *  the transports load the Express compiler on demand. `["json"]` =
+   *  JSON only. */
+  inferenceFormats?: readonly InferenceFormat[]
 }
 
 /** One problem the host met; `host.issues` keeps the latest ones. */
@@ -170,6 +189,8 @@ export { SurfaceStore }
 export class ExponentialHost {
   readonly router: HostRouter
   private stores = new Map<string, SurfaceStore>()
+  /** #VAPP-300: the surfaces an open Express block is writing. */
+  private streaming = new Set<string>()
   /** Round 9 §6.5: `callAgentFunction`s waiting for their response. */
   private pendingCalls = new Map<string, { settle: (answer: RouteAnswer) => void; timer: ReturnType<typeof setTimeout> }>()
   /** Per surface, one entry per bound path (VAPP-122: a re-bind of a path
@@ -214,7 +235,8 @@ export class ExponentialHost {
 
   /** Round 9 §10: `inline` = the registered extensions' 1.0 catalog files. */
   rendererCapabilities(inline?: readonly unknown[]) {
-    return rendererCapabilities(this.extensions.map((e) => e.id), inline ? { inline } : {})
+    const inferenceFormats = this.options.inferenceFormats ?? INFERENCE_FORMATS
+    return rendererCapabilities(this.extensions.map((e) => e.id), { ...(inline ? { inline } : {}), inferenceFormats })
   }
 
   get extensionDefs(): readonly ExtensionDef[] {
@@ -282,8 +304,26 @@ export class ExponentialHost {
         this.status = status
         this.statusDetail = detail
         this.notify()
-      }
+      },
+      (text) => this.options.onText?.(text),
+      (ids, settled) => this.setStreaming(ids, settled)
     )
+  }
+
+  /** #VAPP-300: the surfaces an Express block is still streaming: each
+   *  reduces `streaming` (a child not streamed yet renders as nothing).
+   *  `settled` = the exact set (a surface left out closed: it re-reduces
+   *  without the option, a still-missing child is the Unknown placeholder
+   *  again, and its issues go to the agent); else only adds. */
+  setStreaming(surfaceIds: readonly string[], settled = true): void {
+    if (settled) this.streaming = new Set(surfaceIds)
+    else for (const id of surfaceIds) this.streaming.add(id)
+    for (const [id, store] of this.stores) {
+      const on = this.streaming.has(id)
+      if (store.streaming === on) continue
+      store.setStreaming(on)
+      if (!on && (this.options.transport || this.options.agent)) this.sendIssues(store)
+    }
   }
 
   close(): void {
@@ -375,6 +415,7 @@ export class ExponentialHost {
         this.forgetPaintErrors(op.surfaceId)
         const store = new SurfaceStore(op.surfaceId, op.catalogId, () => this.extensions)
         store.sendDataModel = op.sendDataModel === true
+        store.streaming = this.streaming.has(op.surfaceId)
         store.packageId = this.router.surface(op.surfaceId)?.packageId
         if (op.metadata) store.metadata = op.metadata
         if (op.theme !== undefined && op.theme !== null) {

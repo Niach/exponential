@@ -122,6 +122,15 @@
       "check": "Feed the chunks through ONE decoder (JSONL / SSE), or decode the MCP result, or build the MCP action call: messages + issues equal `expected`."
     },
     {
+      "id": "host-express",
+      "files": [
+        "fixtures/host-transport.json"
+      ],
+      "unit": "case",
+      "cases": 40,
+      "check": "`express*`: feed the chunks through ONE ExpressDecoder / SseDecoder / FrameDecoder, decode the MCP result, sniff the Content-Type, build the renderer capabilities: messages, issues and text equal `expected`; `expressOpen` (#VAPP-300): every push's and the end's `open` (absent = []) equal `expected`."
+    },
+    {
       "id": "host-policy",
       "files": [
         "fixtures/host-policy.json"
@@ -190,7 +199,7 @@
         "fixtures/template-items.json"
       ],
       "unit": "case",
-      "cases": 33,
+      "cases": 35,
       "check": "Key the items / rows, list the template instances (path, key, accumulated suffix), reduce the surfaces (templates lifted): equal to `expected`."
     },
     {

@@ -19,6 +19,11 @@ use serde_json::Value;
 
 use crate::host::decoders::{DecodeIssue, Decoded};
 
+/// The compiler crate itself, for a host that extends the catalog (eDE's
+/// shell documents add its host functions, #EDE-216) or reads the syntax
+/// tree (an issue at its line).
+pub use a2ui_express;
+
 /// The core catalog as the A2UI catalog definition the compiler loads.
 pub const EXPRESS_CATALOG_JSON: &str = include_str!("generated/express.catalog.json");
 
@@ -112,13 +117,15 @@ pub struct ExpressDecoder {
     texted: bool,
     /// A block passed since the last prose.
     blocked: bool,
+    /// #VAPP-300: the surfaces the OPEN block has written to, in order.
+    block_surfaces: Vec<String>,
 }
 
 impl ExpressDecoder {
     pub fn new(wrapped: bool, surface_id: &str) -> Self {
         let parser = parser(surface_id);
         let state = parser.new_state();
-        ExpressDecoder { stream: parser.open_stream_with(wrapped, AfterRejectedBlock::Continue, state), chunks: 0, failed: false, texted: false, blocked: false }
+        ExpressDecoder { stream: parser.open_stream_with(wrapped, AfterRejectedBlock::Continue, state), chunks: 0, failed: false, texted: false, blocked: false, block_surfaces: Vec::new() }
     }
 
     pub fn push(&mut self, chunk: &str) -> Decoded {
@@ -127,8 +134,12 @@ impl ExpressDecoder {
         }
         self.chunks += 1;
         let result = self.stream.push(chunk);
-        let out = self.collect(result);
+        let mut out = self.collect(result);
         self.blocked |= self.stream.is_in_block();
+        if self.failed || !self.stream.is_in_block() {
+            self.block_surfaces.clear();
+        }
+        out.open = self.block_surfaces.clone();
         out
     }
 
@@ -138,7 +149,15 @@ impl ExpressDecoder {
         }
         let result = self.stream.finish();
         self.failed = true;
-        self.collect(result)
+        let out = self.collect(result);
+        self.block_surfaces.clear();
+        out
+    }
+
+    /// #VAPP-300: the surfaces whose block is still open (what the last
+    /// read reported as `open`).
+    pub fn open(&self) -> Vec<String> {
+        self.block_surfaces.clone()
     }
 
     fn collect(&mut self, result: Result<Vec<Part>, a2ui_express::response::ResponseError>) -> Decoded {
@@ -161,15 +180,25 @@ impl ExpressDecoder {
                     if self.blocked && self.texted {
                         out.text.push("\n\n".to_string());
                     }
+                    // Prose: the block before it closed.
+                    self.block_surfaces.clear();
                     self.blocked = false;
                     self.texted = true;
                     out.text.push(text)
                 }
                 Part::A2ui(messages) => {
                     self.blocked = true;
+                    for m in &messages {
+                        let id = m.as_object().map(crate::host::router::surface_id_of).unwrap_or_default();
+                        if !id.is_empty() && !self.block_surfaces.contains(&id) {
+                            self.block_surfaces.push(id);
+                        }
+                    }
                     out.messages.extend(messages)
                 }
                 Part::Error(e) => {
+                    // A rejected block is over.
+                    self.block_surfaces.clear();
                     self.blocked = true;
                     out.issues.push(DecodeIssue { at, message: e.to_string() })
                 }

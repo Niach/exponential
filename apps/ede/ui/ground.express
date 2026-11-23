@@ -1,0 +1,11 @@
+# Exponential Desktop's factory ground (#EDE-42, #EDE-44): the IDE look's frame. A background layer
+# surface over the whole output: the IDE's ground (flat here: a gradient would seam against the
+# sidebar's and the taskbar's flat fill), and the grey rounded panel the focused window sits on
+# (radius 12, a hairline border, the IDE's panel fill), inset by the sidebar (the 56 px icon rail for
+# good, #EDE-65) and the taskbar (48) plus the 10 px panel margin the compositor keeps windows inside
+# ([windows] panel_margin). The numbers are packages/uicore/fixtures/shell-layout.json.
+surface("ground", extensions={ede: {layer: "background", anchor: ["top", "bottom", "left", "right"], exclusiveZone: -1}})
+root = Box(style={display: "flex", flexDirection: "row", width: "100%", height: "100%", backgroundColor: "$color.background"}, children=[left_rail, column])
+left_rail = Box(style={width: 56, flexShrink: 0})
+column = Box(style={display: "flex", flexDirection: "column", flexGrow: 1, minWidth: 0, paddingTop: 10, paddingRight: 10, paddingLeft: 10, paddingBottom: 58}, children=[panel])
+panel = Box(style={flexGrow: 1, borderRadius: "$radius.lg", borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.muted"})

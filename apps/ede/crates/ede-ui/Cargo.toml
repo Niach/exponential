@@ -11,7 +11,8 @@ publish = false
 # a small CLI. eui-core does the validating; history is the git CLI in the
 # ui directory (no libgit2 to build).
 [dependencies]
-eui-core = { path = "../../../desktop/crates/eui-core" }
+# #EDE-216: documents are Express (`<name>.express`), compiled by eui-core.
+eui-core = { path = "../../../desktop/crates/eui-core", features = ["express"] }
 serde.workspace = true
 serde_json = "1"
 # macOS needs a backend feature; zed used to turn on `macos_fsevent` for

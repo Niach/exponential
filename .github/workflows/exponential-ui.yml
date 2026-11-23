@@ -296,7 +296,7 @@ jobs:
         run: |
           cargo test --locked -p eui-core -p exponential-ui-ffi
           # #AXC-12: Express (the round trip 56/12/251, streaming, the prompt).
-          cargo test --locked -p eui-core --features express,descriptions --test express_roundtrip
+          cargo test --locked -p eui-core --features express,descriptions --test express_roundtrip --test express_transport
       - name: Committed bindings match the generator (Kotlin ships them with omit_checksums)
         if: ${{ !inputs.conformance_only }}
         # Release train 2026-10-23: uniffi.toml omits the Kotlin checksums and

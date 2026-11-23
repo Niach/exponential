@@ -1,0 +1,161 @@
+# Exponential Desktop's factory sidebar (#EDE-44, #EDE-65): the IDE's icon rail for good, a 56 px top
+# layer surface on the left edge, black like the IDE's (the IDE's ground: no Sidebar fill), standing
+# on the taskbar (the taskbar spans the bottom edge and holds the start, chat and new-issue buttons).
+# No 272 px column, no rail toggle, no workspaces, search, inbox, Needs you or team switcher here (the
+# start menu holds the switcher and Settings). It lists only the chats, flattened, most recent first:
+# /shell/chats [{id, title, glyph}] from uicore-model's chatRows (packages/uicore/fixtures/shell.json
+# `chats`): the current team's or Local desktop's root sessions, each the agent's mark as in the IDE's
+# rail (`agent:claude`, `agent:codex`, with its dot as `ide:badge:dot:<tone>|<glyph>`: amber needs
+# you, green busy, primary unread); a press opens the chat (ede_chat {sessionId}: eDE's chat on that
+# session, on a Local desktop and on a team alike; the Exponential app's session
+# (exponential://session/<id>) only when the team's chat cannot open it). The IDE mounts this document
+# too (#EXP-1725): its rail and column are the shared nodes (the header (the brand, search and new;
+# the switcher keeps Local desktops), the ide_* sections it fills from /shell/ide
+# (packages/uicore/fixtures/ide-sidebar.express; ide_prs = #EXP-1616's Pull requests tree of the team's
+# Exponential repositories, a List{divided:false} like the other sections, the IDE fills with Rows
+# {depth, identifier #n, title, subtitle head → base} from /shell/ide/prs (a Row's depth never binds:
+# the tree guides are computed from its siblings), a press opening the repo's page; it hides while
+# /shell/ide/prs is empty), and the corner, the IDE's footer at the sidebar's bottom under the
+# scrolling rows: the member's account (the avatar `/shell/ide/me`, the first name
+# `/shell/ide/meName`, the switcher chevron; its Menu = web's account menu: What's new, About, Sign
+# out = ide_account {value}), the Computer button (Terminal, Files, Source control, Version history,
+# the trunk's failure badge) and Settings (the personal settings, settings-nav.json
+# `desktopNavs.personal`), #EXP-1741; the IDE mounts the corner on its own below its Getting started
+# entry); eDE prunes those it does not draw (the header, ide_nav, the corner) and never feeds
+# /shell/ide, and the IDE prunes `chats`. #EXP-2027 (domain-contract sidebar-tree.json,
+# ide-sidebar.express): no active team. ide_nav = Home, Needs you, Chats, Drafts. ide_devices = a List
+# over /shell/ide/devices: the Devices row (its press = ide_devices {action: fold}; its hover + =
+# ide_add {kind: device}; the fold glyph) and one Row per device at depth 1 (muted ones inside an
+# opacity Box; trailing its mark, the hover gear = ide_gear {kind: device}; a press = ide_open {kind:
+# device}). ide_teams = the Teams label (its + Menu: New team, Join team = ide_switcher {value}) and
+# ONE reorderable List (ide_tree_list over /shell/ide/tree, maxDepth 3, key id, its move = ide_move
+# with the List's {id, before|after|into} as payload) holding every team's rows and, after them, the
+# Active band (its label row `active-head` and one row per running chat, key `active:<root>`, so an
+# Active row drags INTO a team: sidebarDropSession; every row carries `team`): the team Row
+# (right-click and the hover … open the team Menu: New › /newItems, New folder, Settings = ide_team
+# {id} with {value}; a press = ide_team {action: fold}), the folder Row at depth 1 (a right-click
+# Menu: Rename, Ungroup = ide_folder {section: team, team, id} with {value}; a press folds it; the
+# item count while folded), the folder's name Input in place (Enter or leaving it saves = ide_folder
+# {action: save | leave}, Esc keeps the name), an item Row at depth 1 or 2 (a press = ide_open {kind:
+# item}, the hover gear = ide_gear {kind: item}); a session item's right-click Menu holds Remove from
+# sidebar (ide_session {team, id} with {value: remove}). An Active row (kind active) opens its chat
+# (ide_open {kind: active, id: its root}) and wears its team's mark. The host functions: ede_chat,
+# ede_start_menu, ede_launch, ede_switcher.
+surface("sidebar", extensions={ede: {layer: "top", anchor: ["top", "left", "bottom"], size: {width: 56}, exclusiveZone: 56, keyboard: "on-demand", functions: ["ede_rail", "ede_start_menu", "ede_chat", "ede_launch", "ede_switcher"]}})
+$/shell/chats = []
+$/shell/rail = true
+$/shell/switcher/connection/account = ""
+$/shell/switcher/connection/connected = false
+$/shell/switcher/connection/onLocal = true
+$/shell/switcher/current/id = "local"
+$/shell/switcher/current/kind = "local"
+$/shell/switcher/current/name = "Local"
+$/shell/switcher/entries = [{kind: "local", id: "local", name: "Local", current: true}]
+root = Box(style={display: "flex", flexDirection: "column", height: "100%", paddingTop: "$spacing.sm", paddingBottom: "$spacing.sm", paddingLeft: "$spacing.xs", paddingRight: "$spacing.xs", backgroundColor: "$color.background"}, children=[sidebar])
+sidebar = Sidebar(width=264, collapseBelow="never", collapsed=$/shell/rail, rail=true, children=[], slots={sidebar: "column"}, style={flexGrow: 1, minHeight: 0})
+column = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xs", flexGrow: 1, minHeight: 0}, children=[header, switcher_menu, ide_nav, scroll, corner])
+header = Stack(direction="horizontal", gap="xs", align="center", children=[switcher, ide_inbox, search, new])
+switcher = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.sm", height: 40, paddingLeft: "$spacing.xs", paddingRight: "$spacing.xs", borderRadius: "$radius.md", flexGrow: 1, minWidth: 0}, pressable=true, children=[ide_switcher_mark, switcher_name, ide_switcher_chevron])
+ide_switcher_mark = Icon(name=$/shell/ide/teamMark, style={width: 28, height: 28}, visible=cond(if=$/shell/ide/teamMark, then=true, else=false))
+switcher_name = Text(text=$/shell/switcher/current/name, variant="label", lines=1)
+ide_switcher_chevron = Icon(name=$/shell/ide/chevron, size="sm", tone="neutral", visible=cond(if=$/shell/ide/chevron, then=true, else=false))
+ide_inbox = Icon(name=$/shell/ide/inbox, style={width: 32, height: 32}, visible=cond(if=$/shell/ide/inbox, then=true, else=false))
+search = Button(label="Search", icon="nav-search", variant="ghost", size="icon", on={press: ede_start_menu(toggle=true)})
+new = Button(label="New issue", icon="nav-create-issue", variant="default", size="icon", on={press: ede_launch(app="at.exponential")}, visible=not(value=cond(if=$/shell/ide/noBoard, then=true, else=false)))
+switcher_menu = Popover(side="bottom", align="start", anchor=switcher, children=[switcher_list])
+switcher_list = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xxs", width: 240, padding: "$spacing.xs"}, children=[switcher_sections, switcher_section, switcher_sep, switcher_connect, ide_switcher_new_team, ide_switcher_join])
+switcher_sections = List(gap="xs", children=_template($/shell/switcher/sections, switcher_section, key="id"))
+switcher_section = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xxs"}, children=[switcher_section_label, switcher_entries, switcher_entry])
+switcher_section_label = Text(text=$label, variant="caption", lines=1)
+switcher_entries = List(gap="none", children=_template($entries, switcher_entry, key="id"))
+switcher_entry = Row(title=$name, selected=$current, density="compact", pressable=true, slots={leading: "switcher_entry_avatar", trailing: "ide_switcher_entry_dot"}, on={press: ede_switcher(account=$account, action="pick", id=$id, kind=$kind)})
+switcher_entry_avatar = Avatar(name=$name, size="sm")
+ide_switcher_entry_dot = Icon(name=$dotIcon, size="sm", visible=cond(if=$dotIcon, then=true, else=false))
+switcher_sep = Separator()
+switcher_connect = Row(title="Connect Exponential", icon="brand-exponential", density="compact", pressable=true, on={press: ede_switcher(action="connect")}, visible=not(value=or(values=[cond(if=$/shell/switcher/connection/connected, then=true, else=false), cond(if=$/shell/ide/signedIn, then=true, else=false)])))
+ide_switcher_new_team = Row(title="New team", icon="ui-add", density="compact", pressable=true, on={press: Event("ide_switcher", {action: "new_team"})}, visible=cond(if=$/shell/ide/signedIn, then=true, else=false))
+ide_switcher_join = Row(title="Join team", icon="ui-invite", density="compact", pressable=true, on={press: Event("ide_switcher", {action: "join_team"})}, visible=cond(if=$/shell/ide/signedIn, then=true, else=false))
+ide_nav = List(gap="none", children=_template($/shell/ide/nav, ide_nav_row, key="id"), visible=not(value=eq(a=len(value=$/shell/ide/nav), b=0)))
+ide_nav_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, slots={trailing: "ide_nav_trailing"}, on={press: Event("ide_open", {kind: "nav", id: $id})})
+ide_nav_trailing = Stack(direction="horizontal", gap="none", align="center", children=[ide_nav_dot], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_nav_dot = Icon(name=$dotIcon, size="sm", visible=cond(if=$dotIcon, then=true, else=false))
+scroll = ScrollArea(style={flexGrow: 1, minHeight: 0}, children=[sections])
+sections = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm"}, children=[chats, ide_tree, ide_prs])
+chats = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xxs"}, children=[chats_list], visible=not(value=eq(a=len(value=$/shell/chats), b=0)))
+chats_list = List(gap="none", children=_template($/shell/chats, chat_row, key="id"))
+chat_row = Row(title=$title, icon=$glyph, density="compact", pressable=true, on={press: ede_chat(sessionId=$id)})
+ide_tree = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm"}, children=[ide_devices, ide_teams])
+ide_devices = List(gap="none", children=_template($/shell/ide/devices, ide_device_node, key="id"), visible=not(value=eq(a=len(value=$/shell/ide/devices), b=0)))
+ide_device_node = Box(style={display: "flex", flexDirection: "column"}, children=[ide_devices_row, ide_device_row, ide_device_muted_dim])
+ide_devices_row = Row(title=$title, icon=$icon, density="compact", pressable=true, slots={trailing: "ide_devices_trailing"}, on={press: Event("ide_devices", {action: "fold"})}, visible=eq(a=$kind, b="devices"))
+ide_devices_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_device_add, ide_devices_fold], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_device_add = Button(label="Add device", icon="ui-add", variant="ghost", size="icon", on={press: Event("ide_add", {kind: "device"})}, style={width: 20, height: 20}, visible=cond(if=$hover, then=true, else=false))
+ide_devices_fold = Icon(name=$foldIcon, size="sm", tone="neutral")
+ide_device_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, depth=1, slots={trailing: "ide_device_trailing"}, on={press: Event("ide_open", {kind: "device", id: $id})}, visible=and(values=[eq(a=$kind, b="device"), not(value=cond(if=$muted, then=true, else=false))]))
+ide_device_trailing = Stack(direction="horizontal", gap="none", align="center", children=[ide_device_mark, ide_device_gear], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_device_mark = Icon(name=$mark, size="sm", visible=and(values=[cond(if=$mark, then=true, else=false), not(value=cond(if=$hover, then=true, else=false))]))
+ide_device_gear = Button(label="Device settings", icon="nav-settings", variant="ghost", size="icon", on={press: Event("ide_gear", {kind: "device", id: $id})}, style={width: 20, height: 20}, visible=cond(if=$hover, then=true, else=false))
+ide_device_muted_dim = Box(style={display: "flex", flexDirection: "column", opacity: 0.5}, children=[ide_device_muted_row], visible=and(values=[eq(a=$kind, b="device"), cond(if=$muted, then=true, else=false)]))
+ide_device_muted_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, depth=1, slots={trailing: "ide_device_muted_trailing"}, on={press: Event("ide_open", {kind: "device", id: $id})})
+ide_device_muted_trailing = Stack(direction="horizontal", gap="none", align="center", children=[ide_device_muted_mark, ide_device_muted_gear], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_device_muted_mark = Icon(name=$mark, size="sm", visible=and(values=[cond(if=$mark, then=true, else=false), not(value=cond(if=$hover, then=true, else=false))]))
+ide_device_muted_gear = Button(label="Device settings", icon="nav-settings", variant="ghost", size="icon", on={press: Event("ide_gear", {kind: "device", id: $id})}, style={width: 20, height: 20}, visible=cond(if=$hover, then=true, else=false))
+ide_teams = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xxs"}, children=[ide_teams_head, ide_tree_list], visible=cond(if=$/shell/ide/signedIn, then=true, else=false))
+ide_teams_head = Box(style={display: "flex", flexDirection: "row", alignItems: "center", height: 24, paddingLeft: "$spacing.xs"}, children=[ide_teams_label, ide_teams_menu], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_teams_label = Text(text="Teams", variant="caption", style={flexGrow: 1, color: "$color.mutedForeground"})
+ide_teams_menu = Menu(items=[{label: "New team", value: "new_team", icon: "ui-add"}, {label: "Join team", value: "join_team", icon: "ui-invite"}], side="bottom", align="start", children=[ide_teams_add], on={select: Event("ide_switcher", {})})
+ide_teams_add = Button(label="Teams", icon="ui-add", variant="ghost", size="icon", style={width: 20, height: 20})
+ide_tree_list = List(gap="none", reorderable=true, maxDepth=3, children=_template($/shell/ide/tree, ide_tree_node, key="id"), on={move: Event("ide_move", {})})
+ide_tree_node = Box(style={display: "flex", flexDirection: "column"}, children=[ide_team_menu, ide_folder_menu, ide_folder_edit, ide_item_row, ide_session_menu, ide_item_child_row, ide_session_child_menu, ide_active_head, ide_active_row])
+ide_team_menu = Menu(items=[{kind: "submenu", label: "New", icon: "ui-add", items: $newItems}, {label: "New folder", value: "new-folder", icon: "ui-folder"}, {kind: "separator"}, {label: "Settings", value: "settings", icon: "nav-settings"}], side="bottom", align="start", openOn="contextmenu", children=[ide_team_row], on={select: Event("ide_team", {id: $id})}, visible=eq(a=$kind, b="team"))
+ide_team_row = Row(title=$title, icon=$icon, density="compact", pressable=true, slots={trailing: "ide_team_trailing"}, on={press: Event("ide_team", {action: "fold", id: $id})})
+ide_team_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_team_dot, ide_team_more, ide_team_fold], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_team_dot = Icon(name=$dotIcon, size="sm", visible=cond(if=$dotIcon, then=true, else=false))
+ide_team_more = Menu(items=[{kind: "submenu", label: "New", icon: "ui-add", items: $newItems}, {label: "New folder", value: "new-folder", icon: "ui-folder"}, {kind: "separator"}, {label: "Settings", value: "settings", icon: "nav-settings"}], side="bottom", align="start", children=[ide_team_more_button], on={select: Event("ide_team", {id: $id})}, visible=cond(if=$hover, then=true, else=false))
+ide_team_more_button = Button(label="Team actions", icon="ui-more", variant="ghost", size="icon", style={width: 20, height: 20})
+ide_team_fold = Icon(name=$foldIcon, size="sm", tone="neutral")
+ide_folder_menu = Menu(items=[{label: "Rename", value: "rename", icon: "ui-edit"}, {label: "Ungroup", value: "ungroup", icon: "ui-folder-open"}], side="bottom", align="start", openOn="contextmenu", children=[ide_folder_row], on={select: Event("ide_folder", {section: "team", team: $team, id: $id})}, visible=and(values=[eq(a=$kind, b="folder"), not(value=cond(if=$editing, then=true, else=false))]))
+ide_folder_row = Row(title=$title, icon=$icon, density="compact", pressable=true, depth=1, slots={trailing: "ide_folder_trailing"}, on={press: Event("ide_folder", {section: "team", team: $team, id: $id, action: "fold"})})
+ide_folder_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_folder_count, ide_folder_fold], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_folder_count = Text(text=$meta, variant="caption", style={color: "$color.mutedForeground"}, visible=cond(if=$meta, then=true, else=false))
+ide_folder_fold = Icon(name=$foldIcon, size="sm", tone="neutral")
+ide_folder_edit = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.sm", minHeight: "$control.rowCompact", paddingLeft: "$spacing.xl", paddingRight: "$spacing.md", borderRadius: "$radius.md"}, children=[ide_folder_edit_icon, ide_folder_name], visible=and(values=[eq(a=$kind, b="folder"), cond(if=$editing, then=true, else=false)]))
+ide_folder_edit_icon = Icon(name=$icon, size="sm")
+ide_folder_name = Input(label="Folder name", name="folderName", value=$title, variant="box", size="sm", on={submit: Event("ide_folder", {section: "team", team: $team, id: $id, action: "save"}), blur: Event("ide_folder", {section: "team", team: $team, id: $id, action: "leave"})}, style={flexGrow: 1, minWidth: 0})
+ide_item_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, depth=1, slots={trailing: "ide_item_trailing"}, on={press: Event("ide_open", {kind: $item, id: $id})}, visible=and(values=[eq(a=$kind, b="item"), not(value=eq(a=$item, b="session")), eq(a=$depth, b=1)]))
+ide_item_trailing = Stack(direction="horizontal", gap="none", align="center", children=[ide_item_dot, ide_item_gear], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_item_dot = Icon(name=$dotIcon, size="sm", visible=cond(if=$dotIcon, then=true, else=false))
+ide_item_gear = Button(label="Settings", icon="nav-settings", variant="ghost", size="icon", on={press: Event("ide_gear", {kind: $item, id: $id})}, style={width: 20, height: 20}, visible=and(values=[cond(if=$hover, then=true, else=false), cond(if=$gear, then=true, else=false)]))
+ide_session_menu = Menu(items=[{label: "Remove from sidebar", value: "remove", icon: "ui-close"}], side="bottom", align="start", openOn="contextmenu", children=[ide_session_row], on={select: Event("ide_session", {team: $team, id: $id})}, visible=and(values=[eq(a=$item, b="session"), eq(a=$depth, b=1)]))
+ide_session_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, depth=1, slots={trailing: "ide_session_trailing"}, on={press: Event("ide_open", {kind: $item, id: $id})})
+ide_session_trailing = Stack(direction="horizontal", gap="none", align="center", children=[ide_session_dot, ide_session_gear], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_session_dot = Icon(name=$dotIcon, size="sm", visible=cond(if=$dotIcon, then=true, else=false))
+ide_session_gear = Button(label="Settings", icon="nav-settings", variant="ghost", size="icon", on={press: Event("ide_gear", {kind: $item, id: $id})}, style={width: 20, height: 20}, visible=and(values=[cond(if=$hover, then=true, else=false), cond(if=$gear, then=true, else=false)]))
+ide_item_child_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, depth=2, slots={trailing: "ide_item_child_trailing"}, on={press: Event("ide_open", {kind: $item, id: $id})}, visible=and(values=[eq(a=$kind, b="item"), not(value=eq(a=$item, b="session")), eq(a=$depth, b=2)]))
+ide_item_child_trailing = Stack(direction="horizontal", gap="none", align="center", children=[ide_item_child_dot, ide_item_child_gear], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_item_child_dot = Icon(name=$dotIcon, size="sm", visible=cond(if=$dotIcon, then=true, else=false))
+ide_item_child_gear = Button(label="Settings", icon="nav-settings", variant="ghost", size="icon", on={press: Event("ide_gear", {kind: $item, id: $id})}, style={width: 20, height: 20}, visible=and(values=[cond(if=$hover, then=true, else=false), cond(if=$gear, then=true, else=false)]))
+ide_session_child_menu = Menu(items=[{label: "Remove from sidebar", value: "remove", icon: "ui-close"}], side="bottom", align="start", openOn="contextmenu", children=[ide_session_child_row], on={select: Event("ide_session", {team: $team, id: $id})}, visible=and(values=[eq(a=$item, b="session"), eq(a=$depth, b=2)]))
+ide_session_child_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, depth=2, slots={trailing: "ide_session_child_trailing"}, on={press: Event("ide_open", {kind: $item, id: $id})})
+ide_session_child_trailing = Stack(direction="horizontal", gap="none", align="center", children=[ide_session_child_dot, ide_session_child_gear], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_session_child_dot = Icon(name=$dotIcon, size="sm", visible=cond(if=$dotIcon, then=true, else=false))
+ide_session_child_gear = Button(label="Settings", icon="nav-settings", variant="ghost", size="icon", on={press: Event("ide_gear", {kind: $item, id: $id})}, style={width: 20, height: 20}, visible=and(values=[cond(if=$hover, then=true, else=false), cond(if=$gear, then=true, else=false)]))
+ide_active_head = Box(style={display: "flex", flexDirection: "row", alignItems: "center", height: 24, marginTop: "$spacing.sm", paddingLeft: "$spacing.xs"}, children=[ide_active_label], visible=and(values=[eq(a=$kind, b="active-head"), not(value=cond(if=$/shell/rail, then=true, else=false))]))
+ide_active_label = Text(text="Active", variant="caption", style={flexGrow: 1, color: "$color.mutedForeground"})
+ide_active_row = Row(title=$title, icon=$icon, selected=$selected, density="compact", pressable=true, slots={trailing: "ide_active_trailing"}, on={press: Event("ide_open", {kind: "active", id: $session})}, visible=eq(a=$kind, b="active"))
+ide_active_trailing = Stack(direction="horizontal", gap="xs", align="center", children=[ide_active_team, ide_active_unread, ide_active_device], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_active_team = Icon(name=$teamMark, size="sm", visible=cond(if=$teamMark, then=true, else=false))
+ide_active_unread = Icon(name=$unreadIcon, size="sm", visible=cond(if=$unreadIcon, then=true, else=false))
+ide_active_device = Icon(name=$deviceIcon, size="sm", visible=cond(if=$deviceIcon, then=true, else=false))
+ide_prs = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xxs"}, children=[ide_prs_head, ide_prs_tree], visible=not(value=eq(a=len(value=$/shell/ide/prs), b=0)))
+ide_prs_head = Box(style={display: "flex", flexDirection: "row", alignItems: "center", height: 24, paddingLeft: "$spacing.xs"}, children=[ide_prs_label], visible=not(value=cond(if=$/shell/rail, then=true, else=false)))
+ide_prs_label = Text(text="Pull requests", variant="caption", style={flexGrow: 1, color: "$color.mutedForeground"})
+ide_prs_tree = List(gap="none", divided=false, children=[])
+corner = Stack(direction="horizontal", gap="xs", align="center", children=[ide_account, ide_computer, ide_settings])
+ide_account = Menu(items=[{label: "What's new", value: "whats_new", icon: "nav-changelog"}, {label: "About", value: "about", icon: "settings-about"}, {kind: "separator"}, {label: "Sign out", value: "sign_out", icon: "nav-sign-out"}], side="top", align="start", children=[ide_account_trigger], on={select: Event("ide_account", {})}, style={flexGrow: 1, minWidth: 0})
+ide_account_trigger = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.sm", height: 36, paddingLeft: "$spacing.xs", paddingRight: "$spacing.xs", borderRadius: "$radius.md", flexGrow: 1, minWidth: 0}, pressable=true, children=[ide_account_avatar, ide_account_name, ide_account_chevron])
+ide_account_avatar = Icon(name=$/shell/ide/me, style={width: 24, height: 24}, visible=cond(if=$/shell/ide/me, then=true, else=false))
+ide_account_name = Text(text=$/shell/ide/meName, variant="body", lines=1, style={flexGrow: 1, minWidth: 0})
+ide_account_chevron = Icon(name="nav-team-switcher", size="sm", tone="neutral")
+ide_computer = Icon(name=$/shell/ide/computer, style={width: 32, height: 32}, visible=cond(if=$/shell/ide/computer, then=true, else=false))
+ide_settings = Button(label="Settings", icon="nav-settings", variant="ghost", size="icon", on={press: Event("ide_open", {kind: "settings", id: "settings"})})
