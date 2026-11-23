@@ -286,7 +286,7 @@ public final class JSONLStreamTransport: StreamTransport {
     public init(_ options: HTTPTransportOptions, session: URLSession = .shared) {
         let surfaceId = options.surfaceId ?? InferenceWire.defaultSurfaceId
         super.init(options: options, session: session, accept: "application/jsonl, application/x-ndjson", makeDecoder: { express in
-            express ? ExpressDecoder(wrapped: true, surfaceId: surfaceId) : JsonlDecoder()
+            express ? ExpressDecoder(wrapped: true, surfaceId: surfaceId) as any StreamDecoder : JsonlDecoder()
         })
     }
 
