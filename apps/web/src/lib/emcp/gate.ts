@@ -27,7 +27,13 @@ import {
   resolveMcpTokenAccess,
   type McpAccess,
 } from "@/lib/emcp/scope"
-import { actingSessionForRequest, confineMcpAccessToActingSession, shareActingSessions } from "@/lib/sessions/acting"
+import {
+  actingSessionForRequest,
+  confineMcpAccessToActingSession,
+  movedAssistantKeyScope,
+  shareActingSessions,
+} from "@/lib/sessions/acting"
+import type { ApiKeyKind, ApiKeyScope } from "@/lib/auth/api-key-kind"
 import { hostedByCondition } from "@/lib/sessions/host"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
 import { runAsSession } from "@/lib/apps/automation-scope"
@@ -76,7 +82,14 @@ export const exponentialToolProvider: ToolProvider = async (caller, request) =>
 // consent grant it resolves through.
 async function resolveCredential(
   request: Request
-): Promise<{ userId: string; clientId: string | null; access: McpAccess; keySessionId?: string | null } | null> {
+): Promise<{
+  userId: string
+  clientId: string | null
+  access: McpAccess
+  keySessionId?: string | null
+  /** A scoped `expu_` key's row id, kind and stored scope (#EXP-2079). */
+  key?: { id: string | null; kind: ApiKeyKind | null; scope: ApiKeyScope }
+} | null> {
   const { session, keyScope, keyKind, keySessionId } = await resolveMcpCredential(request)
   if (session?.user) {
     const userId = session.user.id
@@ -93,6 +106,7 @@ async function resolveCredential(
       userId,
       clientId: null,
       access: await resolveMcpAccessForGrant(grant, keyKind === `agent` ? `agent` : `apiKey`),
+      key: { id: session.session?.id ?? null, kind: keyKind ?? null, scope: keyScope },
     }
   }
 
@@ -194,7 +208,7 @@ export async function authenticateMcpRequest(
   // `agent_id`) is confined to that session's team, whatever credential
   // carried it. A foreign session id changes nothing (the header grants
   // nothing on its own).
-  const access = await confineMcpAccessToActingSession(resolved.access, request, user.id, sessionId)
+  const access = await accessForActingSession(resolved, request, user.id, sessionId)
   // EXP-1374: a tool call by a session of the caller's is its sign of life
   // (the stuck rule); best effort, never in the request's way.
   if (sessionId) {
@@ -205,6 +219,21 @@ export async function authenticateMcpRequest(
   // EXP-660: which conditional tool families this caller gets to see.
   const gates = await resolveMcpToolGates(user.id, access, sessionId)
   return { caller: { user, access, clientId: resolved.clientId, sessionId, gates }, request }
+}
+
+/** The access of a request speaking for `sessionId`: the credential's,
+ *  confined to the session's tree. #EXP-2079: a moved Assistant conversation
+ *  still live on the team key it launched with resolves as the Assistant's
+ *  scope first (`movedAssistantKeyScope`). */
+export async function accessForActingSession(
+  resolved: { access: McpAccess; key?: { id: string | null; kind: ApiKeyKind | null; scope: ApiKeyScope } },
+  request: Request,
+  userId: string,
+  sessionId: string | null
+): Promise<McpAccess> {
+  const moved = resolved.key ? await movedAssistantKeyScope(resolved.key, request, userId, sessionId) : null
+  const base = moved ? await resolveMcpAccessForGrant(moved, `agent`) : resolved.access
+  return confineMcpAccessToActingSession(base, request, userId, sessionId)
 }
 
 /** The team an audit row names: the one team a confined access reaches,
