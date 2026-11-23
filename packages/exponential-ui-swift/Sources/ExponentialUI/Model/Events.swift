@@ -27,7 +27,7 @@ extension SurfaceModel {
     /// revision of a host-owned text edit (else a per-component counter).
     func dispatch(_ events: [FfiEvent], inputRevision: Int? = nil) {
         func action(_ v: JSONValue) -> SurfaceActionEvent {
-            SurfaceActionEvent(surfaceId: id, event: v["event"]?.string ?? "", name: v["name"]?.string ?? "", componentId: v["componentId"]?.string ?? "", context: v["context"] ?? .object([:]), payload: v["payload"])
+            SurfaceActionEvent(surfaceId: id, event: v["event"]?.string ?? "", name: v["name"]?.string ?? "", componentId: v["componentId"]?.string ?? "", context: v["context"] ?? .object([:]), payload: v["payload"], userMessage: v["userMessage"]?.string)
         }
         var next = 0
         while next < events.count {

@@ -239,7 +239,10 @@ final class TranscriptFind {
                 switch item {
                 case let .narration(id, text, _, _, _):
                     guard !TranscriptGrouping.isBlankText(text) else { continue }
-                    out.append(Row(row: FindInChat.Row(key: key(id), count: FindMarks.markdownCount(text, query: query)), itemId: id, outputCount: 0))
+                    // #EXP-2067: find reads an agent text's PURE prose (a
+                    // block's raw is never a hit).
+                    let prose = ChatExpress.plainProse(text)
+                    out.append(Row(row: FindInChat.Row(key: key(id), count: FindMarks.markdownCount(prose, query: query)), itemId: id, outputCount: 0))
                 case let .userMessage(id, text, _, _):
                     guard checkIns == nil, let shown = bubbleText(text, model: model) else { continue }
                     let count = shown.isEmpty ? 0 : FindMarks.markdownCount(shown, query: query)
@@ -294,6 +297,8 @@ final class TranscriptFind {
     /// What a person's line draws as a bubble (nil = a marker, divider or
     /// command pill: not counted), `""` = a bubble with no searchable text.
     private static func bubbleText(_ text: String, model: AgentSessionModel) -> String? {
+        // #EXP-2067: a press reads as its body (none = the marker, no hit).
+        if let action = ChatExpress.parseActionInput(text) { return action.body.isEmpty ? nil : action.body }
         if case .marker = TranscriptGrouping.feedInput(text) { return nil }
         if Chats.commandDivider(text) != nil { return nil }
         if SlashCommands.command(for: text, agent: model.catalogAgent) != nil { return nil }

@@ -561,6 +561,9 @@ struct PlanCardSurfaceView: View {
     /// non-empty `context.text` hands that text out (`Chats.surfaceReply`);
     /// nil = actions reach nobody (the plan / question card).
     var onReply: ((String) -> Void)? = nil
+    /// #EXP-2067 (chat-express.json ACTIONS): every action event (an
+    /// exponential_show card's `surfaceAction`); set, it wins over `onReply`.
+    var onAction: ((ChatExpress.ActionEvent) -> Void)? = nil
     /// The surface card draws its own frame (no `copy.surface` label).
     var bare = false
     /// chats.json `surfaceCard.enter.children`: a LIVE arrival staggers the
@@ -595,9 +598,10 @@ struct PlanCardSurfaceView: View {
     private var content: some View {
         #if canImport(ExponentialUI)
         PlanCardLiveSurface(
-            surface: surface, data: data, handle: handle, onReply: onReply, staggerChildren: staggerChildren
+            surface: surface, data: data, handle: handle, onReply: onReply, onAction: onAction,
+            staggerChildren: staggerChildren
         )
-            .allowsHitTesting(editable || onReply != nil)
+            .allowsHitTesting(editable || onReply != nil || onAction != nil)
         #else
         // Without the painter linked: a quiet placeholder band.
         if bare {
@@ -626,6 +630,7 @@ private struct PlanCardLiveSurface: View {
     let data: CardJSON?
     let handle: PlanCardSurfaceHandle
     var onReply: ((String) -> Void)? = nil
+    var onAction: ((ChatExpress.ActionEvent) -> Void)? = nil
     var staggerChildren = false
 
     @Environment(\.motion) private var motion
@@ -694,6 +699,7 @@ private struct PlanCardLiveSurface: View {
             httpClient: deps.httpClient
         )
         host.onReply = onReply
+        if let onAction { host.onEvent = { event, _ in onAction(event) } }
         do {
             let next = try SurfaceModel(
                 id: "plan-card-\(abs(surface.rootJSON.hashValue))",
@@ -748,7 +754,7 @@ private struct SurfaceChildVeil: View {
 /// (plan-card.json): links = in-app and https through THE opener, with the
 /// card's team for `~/`; a Row subtitle's `#IDENT` refs that resolve are links.
 @MainActor
-private final class PlanCardSurfaceHost: HostPlugin {
+final class PlanCardSurfaceHost: HostPlugin {
     let baseURL: URL?
     let accountId: String
     let teamId: String?
@@ -775,8 +781,15 @@ private final class PlanCardSurfaceHost: HostPlugin {
 
     /// The surface card's reply hook (`Chats.surfaceReply`).
     var onReply: ((String) -> Void)?
+    /// #EXP-2067 (chat-express.json ACTIONS): EVERY action event, whole (an
+    /// Express block's surface, an exponential_show card); set, it wins.
+    var onEvent: ((ChatExpress.ActionEvent, _ surfaceId: String) -> Void)?
 
     func onAction(_ event: SurfaceActionEvent) {
+        if let onEvent {
+            onEvent(ExpressActions.event(event), event.surfaceId)
+            return
+        }
         guard let onReply else { return }
         var context: [String: Any]?
         if case let .object(fields) = event.context {
