@@ -1,5 +1,6 @@
 package at.exponential.ui.host
 
+import android.util.Log
 import at.exponential.ui.ffi.ExpressDecoder
 import at.exponential.ui.ffi.FrameDecoder
 import at.exponential.ui.ffi.JsonlDecoder
@@ -38,6 +39,11 @@ import java.util.concurrent.CopyOnWriteArrayList
 // `inference`): an HTTP body by its Content-Type, `a2ui-express` SSE events,
 // `{express}` WebSocket frames, Express MCP resources. The prose goes to
 // `start`'s `text` (the host's `onText`); the SDK draws none.
+
+/** #VAPP-301: every transport failure (connect, decode, a stale native library) is one log line, never only a status. */
+internal fun logTransportError(transport: String, error: Throwable) {
+    Log.w("ExponentialUI", "$transport: ${error.message ?: error}", error)
+}
 
 /** A transport's connection state. */
 enum class TransportStatus(val wire: String) { Connecting("connecting"), Open("open"), Closed("closed"), Error("error") }
@@ -251,6 +257,7 @@ abstract class StreamTransport(val options: HttpTransportOptions) : Transport {
                     if (closed) return@launch
                     // #VAPP-300: a dropped stream's open block never closes: settle it.
                     open?.invoke(emptyList(), true)
+                    logTransportError(this@StreamTransport::class.java.simpleName, e)
                     status(TransportStatus.Error, e.message ?: e.toString())
                 } finally {
                     connection?.disconnect()
@@ -380,8 +387,13 @@ class WebSocketTransport(
             override fun onOpen() = status(TransportStatus.Open, null)
 
             override fun onText(text: String) {
-                val out = synchronized(frames) { if (ended) null else frames.push(text) } ?: return
-                deliver(out, receive, prose, open)
+                try {
+                    val out = synchronized(frames) { if (ended) null else frames.push(text) } ?: return
+                    deliver(out, receive, prose, open)
+                } catch (e: Exception) {
+                    logTransportError("WebSocketTransport", e)
+                    status(TransportStatus.Error, e.message ?: e.toString())
+                }
             }
 
             override fun onClosed(code: Int, reason: String) {
@@ -391,6 +403,7 @@ class WebSocketTransport(
             }
 
             override fun onFailure(error: Throwable) {
+                logTransportError("WebSocketTransport", error)
                 end()
                 status(TransportStatus.Error, error.message ?: "websocket error")
                 reconnect(receive, status, text, open)
@@ -467,6 +480,7 @@ class McpTransport(
                 status(TransportStatus.Open, null)
                 deliverResult(result)
             } catch (e: Exception) {
+                logTransportError("McpTransport", e)
                 status(TransportStatus.Error, e.message ?: e.toString())
             }
         }
