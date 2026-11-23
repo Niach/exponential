@@ -52,7 +52,7 @@ import {
 } from "@/lib/collections"
 import { RECORDS_SCHEME, kindComputed, kindRefs, parseRecordsQuery, recordAuthor, recordsValue, type RecordRow } from "@exponential_app/eui/host/query"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
-import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
+import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, actionFailedWords, actionFailure, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { APP_FILES, APPS_COPY, appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl } from "@exp/domain-contract/apps"
 import { hostZone, zoneDay } from "@exp/domain-contract/team-zone"
 import { VIA_APP_HEADER, viaAppClaim, viaAppHeaderValue, type ViaAppClaim } from "@exp/domain-contract/via-app"
@@ -106,6 +106,7 @@ export const LIVENESS_TICK_MS = 30_000
 export function devicesValue(
   devices: readonly {
     id: string
+    deviceId: string
     label: string
     kind: string
     platform: string | null
@@ -123,6 +124,11 @@ export function devicesValue(
       const seen = d.lastSeenAt ? new Date(d.lastSeenAt) : null
       return {
         id: d.id,
+        // FEED-301: the id every device-taking call wants (sessions_send's
+        // `deviceId`); `id` is the synced row's own. `value` = it, so a Select
+        // over the rows picks it (the boards and members rows' rule).
+        deviceId: d.deviceId,
+        value: d.deviceId,
         label: d.label,
         detail: [d.kind === `server` ? `Server` : `Desktop`, d.platform, d.version ? `v${d.version}` : null].filter(Boolean).join(` · `),
         icon: getDeviceIconName(d),
@@ -725,6 +731,28 @@ export function createAppHost(options: AppHostOptions): AppHost {
     if (scope.appId) toastRecordUndo(scope.appId, `batch`, result.eventIds, `app`)
     return { ids: result.ids }
   }
+  // FEED-301 (app-actions.json `failure`): an MCP call that failed (a result
+  // `isError: true`, HTTP, JSON-RPC, no answer) is the failed-action toast
+  // and a rejection, never a value; a package action it fails stays quiet.
+  const toasted = new Set<string>()
+  const mcpFunction = (name: string, run: (args: Record<string, unknown>) => Promise<unknown>): HostFunction => async (args) => {
+    const fail = (description: string, error?: unknown): never => {
+      const words = actionFailedWords(name, args)
+      failedAction(words.verb, words.thing, error, error === undefined ? { description } : {})
+      // Read by the package action's failure in the same turn, then gone.
+      toasted.add(description)
+      setTimeout(() => toasted.delete(description), 0)
+      throw new Error(description)
+    }
+    let result: unknown
+    try {
+      result = await run(args)
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error), error)
+    }
+    const failure = actionFailure(name, args, result)
+    return failure ? fail(failure.description) : result
+  }
   const upstreamAnswers = new UpstreamAnswers()
   const createTeamSlug = teamCollection.toArray.find((t) => t.id === options.teamId)?.slug
   const host = new AppHost({
@@ -733,7 +761,10 @@ export function createAppHost(options: AppHostOptions): AppHost {
     // VAPP-201 (team-zone.json): dates in the TEAM zone (read live off the
     // synced team), else the device's.
     zone: (ms) => teamZoneOffset(scope.teamId, ms),
-    onActionFailed: ({ message }) => void failedAction(`save`, `the record`, undefined, { description: message }),
+    onActionFailed: ({ message }) => {
+      if (toasted.delete(message)) return
+      failedAction(`save`, `the record`, undefined, { description: message })
+    },
     navigate: options.navigateScreen,
     extensions: [appExtensionCatalog],
     packages: options.packages ?? [],
@@ -752,14 +783,14 @@ export function createAppHost(options: AppHostOptions): AppHost {
         if (tone === `error`) toast.error(text)
         else toast(text)
       },
-      harness_mcp: ({ tool, arguments: args }) => callMcp(String(tool), (args ?? {}) as Record<string, unknown>, claim()),
+      harness_mcp: mcpFunction(`harness_mcp`, ({ tool, arguments: args }) => callMcp(String(tool), (args ?? {}) as Record<string, unknown>, claim())),
       // VAPP-120: every MCP operation as a typed function (fixtures/app-actions.json):
       // the same tools/call as the viewer, `op` + the args. EXP-1657: the
       // aliases too, so a package published before the split keeps working.
       ...Object.fromEntries(
         [...APP_ACTIONS, ...Object.keys(APP_ACTION_ALIASES)].map((name) => {
           const target = parseActionName(name)!
-          return [name, (args: Record<string, unknown>) => callMcp(target.tool, target.op ? { ...args, op: target.op } : args, claim())]
+          return [name, mcpFunction(name, (args) => callMcp(target.tool, target.op ? { ...args, op: target.op } : args, claim()))]
         })
       ),
       // VAPP-161: the package format's record writes.

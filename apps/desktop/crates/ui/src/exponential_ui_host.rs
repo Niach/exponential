@@ -108,7 +108,8 @@ pub(crate) fn format_ago(seen_ms: i64, now_ms: i64) -> String {
 }
 
 /// One `exp:devices` row, exactly as the web host derives it:
-/// `{id, label, detail, icon, discTone, tone, status}`.
+/// `{id, deviceId, value, label, detail, icon, discTone, tone, status}`
+/// (FEED-301: `deviceId` = `value` = the id sessions_send takes).
 pub(crate) fn device_row(row: &domain::rows::DeviceRow, now_ms: i64) -> Value {
     let online = crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms);
     let seen_ms = row
@@ -135,8 +136,11 @@ pub(crate) fn device_row(row: &domain::rows::DeviceRow, now_ms: i64) -> Value {
             None => "Offline".to_string(),
         }
     };
+    let device_id = row.device_id.clone().unwrap_or_default();
     json!({
         "id": row.id,
+        "deviceId": device_id,
+        "value": device_id,
         "label": row.label.clone().unwrap_or_default(),
         "detail": detail,
         "icon": crate::icons::device_icon_name(row.icon.as_deref(), row.is_server()),
@@ -1014,7 +1018,64 @@ fn records_batch_fn(scope: Option<HostScope>) -> HostFunction {
 /// as the description (the web's `onActionFailed`).
 fn action_failed_hook() -> eui_gpui::runtime::ActionFailedHook {
     Rc::new(|failure: &eui_gpui::runtime::ActionFailure, cx: &mut App| {
+        // FEED-301: a call step that failed has toasted already.
+        if take_toasted(&failure.message) {
+            return;
+        }
         crate::action_error::failed_action("save", "the record", Some(failure.message.clone()), cx);
+    })
+}
+
+thread_local! {
+    /// FEED-301: the failures an MCP call toasted just now, so the package
+    /// action they fail stays quiet (the web's `toasted`).
+    static TOASTED: RefCell<Vec<(String, std::time::Instant)>> = const { RefCell::new(Vec::new()) };
+}
+
+fn mark_toasted(message: &str) {
+    TOASTED.with(|t| {
+        let mut t = t.borrow_mut();
+        t.retain(|(_, at)| at.elapsed() < Duration::from_secs(1));
+        t.push((message.to_string(), std::time::Instant::now()));
+    });
+}
+
+fn take_toasted(message: &str) -> bool {
+    TOASTED.with(|t| {
+        let mut t = t.borrow_mut();
+        t.retain(|(_, at)| at.elapsed() < Duration::from_secs(1));
+        match t.iter().position(|(m, _)| m == message) {
+            Some(i) => {
+                t.remove(i);
+                true
+            }
+            None => false,
+        }
+    })
+}
+
+/// FEED-301 (app-actions.json `failure`): an MCP call's answer through the
+/// failure rule: a result `isError: true` or a failed call is the
+/// failed-action toast and an `Err` (never a value).
+fn mcp_outcome(name: String, args: Value, call: Task<Result<Value, String>>, cx: &mut App) -> Task<Result<Value, String>> {
+    cx.spawn(async move |cx| {
+        let empty = serde_json::Map::new();
+        let given = args.as_object().unwrap_or(&empty);
+        let failure = match call.await {
+            Ok(result) => match domain::app_actions::action_failure(&name, given, &result) {
+                None => return Ok(result),
+                Some(f) => f,
+            },
+            Err(message) => {
+                let (verb, thing) = domain::app_actions::action_failed_words(&name, given);
+                domain::app_actions::ActionFailure { verb, thing, description: message }
+            }
+        };
+        cx.update(|cx| {
+            crate::action_error::failed_action(&failure.verb, &failure.thing, Some(failure.description.clone()), cx);
+        });
+        mark_toasted(&failure.description);
+        Err(failure.description)
     })
 }
 
@@ -1077,7 +1138,8 @@ fn mcp_fn(app_id: Option<String>) -> HostFunction {
         let tool = arg_str(&args, "tool");
         let arguments = args.get("arguments").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
         let via_app = host_claim(app_id.as_deref(), cx);
-        mcp_call(tool, arguments, via_app, cx)
+        let call = mcp_call(tool, arguments, via_app, cx);
+        mcp_outcome("harness_mcp".to_string(), args, call, cx)
     })
 }
 
@@ -1102,10 +1164,11 @@ pub(crate) fn action_arguments(op: Option<&str>, args: &Value) -> Value {
 }
 
 /// VAPP-120: `exponential.<noun>.<op>` → a `tools/call` of its tool.
-fn action_fn(target: domain::app_actions::ActionTarget, app_id: Option<String>) -> HostFunction {
+fn action_fn(name: String, target: domain::app_actions::ActionTarget, app_id: Option<String>) -> HostFunction {
     Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
         let via_app = host_claim(app_id.as_deref(), cx);
-        mcp_call(target.tool.clone(), action_arguments(target.op.as_deref(), &args), via_app, cx)
+        let call = mcp_call(target.tool.clone(), action_arguments(target.op.as_deref(), &args), via_app, cx);
+        mcp_outcome(name.clone(), args, call, cx)
     })
 }
 
@@ -1730,7 +1793,7 @@ impl IdeHost {
         let aliases = domain::app_actions::APP_ACTION_ALIASES.keys();
         for name in domain::app_actions::APP_ACTIONS.iter().chain(aliases) {
             if let Some(target) = domain::app_actions::parse_action_name(name) {
-                functions.insert(name.clone(), action_fn(target, claim_app.clone()));
+                functions.insert(name.clone(), action_fn(name.to_string(), target, claim_app.clone()));
             }
         }
         // VAPP-198: under Run as only the toast runs.
@@ -1876,7 +1939,7 @@ mod tests {
     #[test]
     fn device_rows_derive_like_the_web_host() {
         let online = device(json!({
-            "id": "d1", "label": "MacBook Pro", "kind": "desktop", "platform": "macos",
+            "id": "d1", "device_id": "steer-d1", "label": "MacBook Pro", "kind": "desktop", "platform": "macos",
             "version": "0.18.80", "last_seen_at": "2026-10-08T11:59:50Z"
         }));
         let server = device(json!({
@@ -1893,7 +1956,7 @@ mod tests {
         assert_eq!(
             rows[1],
             json!({
-                "id": "d1", "label": "MacBook Pro", "detail": "Desktop · macos · v0.18.80",
+                "id": "d1", "deviceId": "steer-d1", "value": "steer-d1", "label": "MacBook Pro", "detail": "Desktop · macos · v0.18.80",
                 "icon": "monitor", "discTone": "success", "tone": "live", "status": "Online"
             })
         );
