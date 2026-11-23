@@ -173,531 +173,535 @@
     },
     {
       "delayMs": 31,
-      "text": "icon=\"check\")\nkpis ="
+      "text": "icon=\"ui-check\")\nkpi"
     },
     {
       "delayMs": 46,
-      "text": " Grid(colu"
+      "text": "s = Grid(c"
     },
     {
       "delayMs": 30,
-      "text": "mns={bas"
+      "text": "olumns={"
     },
     {
       "delayMs": 25,
-      "text": "e: 1, md: "
+      "text": "base: 1, m"
     },
     {
       "delayMs": 46,
-      "text": "3}, gap=\"md\","
+      "text": "d: 3}, gap=\"m"
     },
     {
       "delayMs": 20,
-      "text": " children=[cras"
+      "text": "d\", children=[c"
     },
     {
       "delayMs": 19,
-      "text": "h_free,"
+      "text": "rash_fr"
     },
     {
       "delayMs": 27,
-      "text": " cold_star"
+      "text": "ee, cold_s"
     },
     {
       "delayMs": 27,
-      "text": "t, incidents])\ncrash_"
+      "text": "tart, incidents])\ncra"
     },
     {
       "delayMs": 39,
-      "text": "fre"
+      "text": "sh_"
     },
     {
       "delayMs": 47,
-      "text": "e = StatTile"
+      "text": "free = StatT"
     },
     {
       "delayMs": 23,
-      "text": "(lab"
+      "text": "ile("
     },
     {
       "delayMs": 22,
-      "text": "el=\"Cra"
+      "text": "label=\""
     },
     {
       "delayMs": 39,
-      "text": "sh-free s"
+      "text": "Crash-fre"
     },
     {
       "delayMs": 20,
-      "text": "essions\", va"
+      "text": "e sessions\","
     },
     {
       "delayMs": 25,
-      "text": "lue"
+      "text": " va"
     },
     {
       "delayMs": 44,
-      "text": "=\"99.82 %\", delta=\"+"
+      "text": "lue=\"99.82 %\", delta"
     },
     {
       "delayMs": 36,
-      "text": "0.14 %\", t"
+      "text": "=\"+0.14 %\""
     },
     {
       "delayMs": 51,
-      "text": "one=\"success\", tre"
+      "text": ", tone=\"success\", "
     },
     {
       "delayMs": 47,
-      "text": "nd=[99."
+      "text": "trend=["
     },
     {
       "delayMs": 48,
-      "text": "61, 99.66, 99.7, 99."
+      "text": "99.61, 99.66, 99.7, "
     },
     {
       "delayMs": 47,
-      "text": "68, 99.75, 99.79, "
+      "text": "99.68, 99.75, 99.7"
     },
     {
       "delayMs": 23,
-      "text": "99.82])\ncold_start ="
+      "text": "9, 99.82])\ncold_star"
     },
     {
       "delayMs": 30,
-      "text": " StatTile(label=\"p9"
+      "text": "t = StatTile(label="
     },
     {
       "delayMs": 33,
-      "text": "5 cold"
+      "text": "\"p95 c"
     },
     {
       "delayMs": 30,
-      "text": " st"
+      "text": "old"
     },
     {
       "delayMs": 47,
-      "text": "art\", v"
+      "text": " start\""
     },
     {
       "delayMs": 38,
-      "text": "alue=\"1.18 "
+      "text": ", value=\"1."
     },
     {
       "delayMs": 52,
-      "text": "s\","
+      "text": "18 "
     },
     {
       "delayMs": 42,
-      "text": " delta=\"−"
+      "text": "s\", delta"
     },
     {
       "delayMs": 34,
-      "text": "90 ms\", tone"
+      "text": "=\"−90 ms\", t"
     },
     {
       "delayMs": 38,
-      "text": "=\"success\""
+      "text": "one=\"succe"
     },
     {
       "delayMs": 41,
-      "text": ", trend=[1.34, 1.31, 1"
+      "text": "ss\", trend=[1.34, 1.31"
     },
     {
       "delayMs": 40,
-      "text": ".29, 1.27, "
+      "text": ", 1.29, 1.2"
     },
     {
       "delayMs": 23,
-      "text": "1.22, 1.2, 1.18])\nin"
+      "text": "7, 1.22, 1.2, 1.18])"
     },
     {
       "delayMs": 48,
-      "text": "cidents"
+      "text": "\nincide"
     },
     {
       "delayMs": 47,
-      "text": " = StatT"
+      "text": "nts = St"
     },
     {
       "delayMs": 18,
-      "text": "ile(labe"
+      "text": "atTile(l"
     },
     {
       "delayMs": 22,
-      "text": "l=\"Ope"
+      "text": "abel=\""
     },
     {
       "delayMs": 28,
-      "text": "n incidents\", value=\"1\""
+      "text": "Open incidents\", value="
     },
     {
       "delayMs": 18,
-      "text": ", delta=\"+1\", "
+      "text": "\"1\", delta=\"+1"
     },
     {
       "delayMs": 35,
-      "text": "tone=\""
+      "text": "\", ton"
     },
     {
       "delayMs": 38,
-      "text": "warn"
+      "text": "e=\"w"
     },
     {
       "delayMs": 49,
-      "text": "ing\", trend=[0, 0, 1, "
+      "text": "arning\", trend=[0, 0, "
     },
     {
       "delayMs": 46,
-      "text": "0, 0, 0, 1])\nreleases = "
+      "text": "1, 0, 0, 0, 1])\nreleases"
     },
     {
       "delayMs": 30,
-      "text": "Card(title=\"Rele"
+      "text": " = Card(title=\"R"
     },
     {
       "delayMs": 23,
-      "text": "ases\", p"
+      "text": "eleases\""
     },
     {
       "delayMs": 43,
-      "text": "added=false,"
+      "text": ", padded=fal"
     },
     {
       "delayMs": 20,
-      "text": " children=[release_tab"
+      "text": "se, children=[release_"
     },
     {
       "delayMs": 39,
-      "text": "le])\nrel"
+      "text": "table])\n"
     },
     {
       "delayMs": 24,
-      "text": "ease_"
+      "text": "relea"
     },
     {
       "delayMs": 29,
-      "text": "table = Table(colum"
+      "text": "se_table = Table(co"
     },
     {
       "delayMs": 21,
-      "text": "ns=[{key: \"platf"
+      "text": "lumns=[{key: \"pl"
     },
     {
       "delayMs": 37,
-      "text": "orm\", label: \"Platf"
+      "text": "atform\", label: \"Pl"
     },
     {
       "delayMs": 51,
-      "text": "orm"
+      "text": "atf"
     },
     {
       "delayMs": 51,
-      "text": "\"}, {key: \"version\""
+      "text": "orm\"}, {key: \"versi"
     },
     {
       "delayMs": 45,
-      "text": ", label: \"Version\"},"
+      "text": "on\", label: \"Version"
     },
     {
       "delayMs": 47,
-      "text": " {key: \"rollout"
+      "text": "\"}, {key: \"roll"
     },
     {
       "delayMs": 48,
-      "text": "\", label: \"Rollout\", "
+      "text": "out\", label: \"Rollout"
     },
     {
       "delayMs": 49,
-      "text": "align: \"end\"},"
+      "text": "\", align: \"end"
     },
     {
       "delayMs": 44,
-      "text": " {key: \"state"
+      "text": "\"}, {key: \"st"
     },
     {
       "delayMs": 31,
-      "text": "\", "
+      "text": "ate"
     },
     {
       "delayMs": 31,
-      "text": "label: \"Sta"
+      "text": "\", label: \""
     },
     {
       "delayMs": 24,
-      "text": "te\", typ"
+      "text": "State\", "
     },
     {
       "delayMs": 24,
-      "text": "e: \"badge\"}"
+      "text": "type: \"badg"
     },
     {
       "delayMs": 23,
-      "text": "], rows=$"
+      "text": "e\"}], row"
     },
     {
       "delayMs": 33,
-      "text": "/re"
+      "text": "s=$"
     },
     {
       "delayMs": 22,
-      "text": "leases, rowKey="
+      "text": "/releases, rowK"
     },
     {
       "delayMs": 25,
-      "text": "\"id\")\n$/rele"
+      "text": "ey=\"id\")\n$/r"
     },
     {
       "delayMs": 40,
-      "text": "ases = [{id"
+      "text": "eleases = ["
     },
     {
       "delayMs": 52,
-      "text": ": \"ios\","
+      "text": "{id: \"io"
     },
     {
       "delayMs": 19,
-      "text": " platform: \"iOS\", versi"
+      "text": "s\", platform: \"iOS\", ve"
     },
     {
       "delayMs": 26,
-      "text": "on: \"0.14."
+      "text": "rsion: \"0."
     },
     {
       "delayMs": 22,
-      "text": "140\", rollo"
+      "text": "14.140\", ro"
     },
     {
       "delayMs": 36,
-      "text": "ut: \"100 %\", state: \""
+      "text": "llout: \"100 %\", state"
     },
     {
       "delayMs": 49,
-      "text": "Live\"}, {id"
+      "text": ": \"Live\"}, "
     },
     {
       "delayMs": 44,
-      "text": ": \"android\", platform: "
+      "text": "{id: \"android\", platfor"
     },
     {
       "delayMs": 27,
-      "text": "\"Android\", versio"
+      "text": "m: \"Android\", ver"
     },
     {
       "delayMs": 48,
-      "text": "n: \"0.14.140"
+      "text": "sion: \"0.14."
     },
     {
       "delayMs": 52,
-      "text": "\", rollout: \"40 %\""
+      "text": "140\", rollout: \"40"
     },
     {
       "delayMs": 25,
-      "text": ", sta"
+      "text": " %\", "
     },
     {
       "delayMs": 19,
-      "text": "te: \"Rolling "
+      "text": "state: \"Rolli"
     },
     {
       "delayMs": 41,
-      "text": "out\"}, {id: \""
+      "text": "ng out\"}, {id"
     },
     {
       "delayMs": 20,
-      "text": "web\""
+      "text": ": \"w"
     },
     {
       "delayMs": 29,
-      "text": ", platform: \"Web\", v"
+      "text": "eb\", platform: \"Web\""
     },
     {
       "delayMs": 45,
-      "text": "ersion: \"2026.11."
+      "text": ", version: \"2026."
     },
     {
       "delayMs": 41,
-      "text": "23\", rollout: "
+      "text": "11.23\", rollou"
     },
     {
       "delayMs": 45,
-      "text": "\"100 %\", "
+      "text": "t: \"100 %"
     },
     {
       "delayMs": 19,
-      "text": "state: \"Live\"}, {id:"
+      "text": "\", state: \"Live\"}, {"
     },
     {
       "delayMs": 49,
-      "text": " \"desktop\", platform:"
+      "text": "id: \"desktop\", platfo"
     },
     {
       "delayMs": 44,
-      "text": " \"Desktop\", version: \"0"
+      "text": "rm: \"Desktop\", version:"
     },
     {
       "delayMs": 44,
-      "text": ".9.12\","
+      "text": " \"0.9.1"
     },
     {
       "delayMs": 21,
-      "text": " rollout: \"1"
+      "text": "2\", rollout:"
     },
     {
       "delayMs": 31,
-      "text": "00 %\", state: \"Live\"}"
+      "text": " \"100 %\", state: \"Liv"
     },
     {
       "delayMs": 48,
-      "text": "]\naction"
+      "text": "e\"}]\nact"
     },
     {
       "delayMs": 25,
-      "text": "s = Stack(direc"
+      "text": "ions = Stack(di"
     },
     {
       "delayMs": 37,
-      "text": "tion=\"horizont"
+      "text": "rection=\"horiz"
     },
     {
       "delayMs": 49,
-      "text": "al\", gap=\"sm\", justif"
+      "text": "ontal\", gap=\"sm\", jus"
     },
     {
       "delayMs": 19,
-      "text": "y=\"end\", childr"
+      "text": "tify=\"end\", chi"
     },
     {
       "delayMs": 51,
-      "text": "en=[hold, prom"
+      "text": "ldren=[hold, p"
     },
     {
       "delayMs": 33,
-      "text": "ote])\nhold "
+      "text": "romote])\nho"
     },
     {
       "delayMs": 42,
-      "text": "= Button(label"
+      "text": "ld = Button(la"
     },
     {
       "delayMs": 42,
-      "text": "=\"Hold An"
+      "text": "bel=\"Hold"
     },
     {
       "delayMs": 38,
-      "text": "droid\", variant=\"outl"
+      "text": " Android\", variant=\"o"
     },
     {
       "delayMs": 18,
-      "text": "ine\", on={pre"
+      "text": "utline\", on={"
     },
     {
       "delayMs": 24,
-      "text": "ss: Eve"
+      "text": "press: "
     },
     {
       "delayMs": 47,
-      "text": "nt(\"holdRollout\","
+      "text": "Event(\"holdRollou"
     },
     {
       "delayMs": 23,
-      "text": " {platfor"
+      "text": "t\", {plat"
     },
     {
       "delayMs": 28,
-      "text": "m: \"android\"}"
+      "text": "form: \"androi"
     },
     {
       "delayMs": 51,
-      "text": ")})\n"
+      "text": "d\"})"
     },
     {
       "delayMs": 51,
-      "text": "promote = B"
+      "text": "})\npromote "
     },
     {
       "delayMs": 29,
-      "text": "utton(label=\"Pro"
+      "text": "= Button(label=\""
     },
     {
       "delayMs": 38,
-      "text": "mote to 100 "
+      "text": "Promote to 1"
     },
     {
       "delayMs": 33,
-      "text": "%\", on={"
+      "text": "00 %\", o"
     },
     {
       "delayMs": 32,
-      "text": "press: Event(\"promo"
+      "text": "n={press: Event(\"pr"
     },
     {
       "delayMs": 48,
-      "text": "teRollout\", {plat"
+      "text": "omoteRollout\", {p"
     },
     {
       "delayMs": 30,
-      "text": "form: \""
+      "text": "latform"
     },
     {
       "delayMs": 22,
-      "text": "android\"})}"
+      "text": ": \"android\""
     },
     {
       "delayMs": 27,
-      "text": ")\n</a2ui>\n\nAndroid 0.14."
+      "text": "})})\n</a2ui>\n\nAndroid 0."
     },
     {
       "delayMs": 42,
-      "text": "140 is at"
+      "text": "14.140 is"
     },
     {
       "delayMs": 40,
-      "text": " 40 % with no"
+      "text": " at 40 % with"
     },
     {
       "delayMs": 53,
-      "text": " new cra"
+      "text": " no new "
     },
     {
       "delayMs": 32,
-      "text": "sh clusters i"
+      "text": "crash cluster"
     },
     {
       "delayMs": 52,
-      "text": "n the last 24 h"
+      "text": "s in the last 2"
     },
     {
       "delayMs": 51,
-      "text": "ours. Want m"
+      "text": "4 hours. Wan"
     },
     {
       "delayMs": 58,
-      "text": "e to promote "
+      "text": "t me to promo"
     },
     {
       "delayMs": 53,
-      "text": "it to ever"
+      "text": "te it to e"
     },
     {
       "delayMs": 46,
-      "text": "yone"
+      "text": "very"
     },
     {
       "delayMs": 49,
-      "text": ", or hold it unt"
+      "text": "one, or hold it "
     },
     {
       "delayMs": 47,
-      "text": "il the"
+      "text": "until "
     },
     {
       "delayMs": 52,
-      "text": " incid"
+      "text": "the in"
     },
     {
       "delayMs": 33,
-      "text": "ent is closed?"
+      "text": "cident is clos"
+    },
+    {
+      "delayMs": 54,
+      "text": "ed?"
     }
   ],
   "expected": {
@@ -807,7 +811,7 @@
               "component": "Badge",
               "text": "Healthy",
               "variant": "secondary",
-              "icon": "check"
+              "icon": "ui-check"
             }
           ]
         }
