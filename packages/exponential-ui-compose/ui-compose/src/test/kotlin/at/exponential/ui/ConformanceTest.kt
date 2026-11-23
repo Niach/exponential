@@ -540,6 +540,17 @@ class ConformanceTest {
                 val d = ExpressDecoder(c["wrapped"]?.bool ?: true, c["surfaceId"]?.string ?: "main")
                 try { same(feedExpress({ d.push(it) }, { d.end() }, list(c, "chunks")), c["expected"]!!) } finally { d.close() }
             }
+        } + list(f, "expressOpen").map { c ->
+            // #VAPP-300: the open block after every push, then after end().
+            case("open: ${s(c, "name")}") {
+                val chunks = list(c, "chunks").map { it.string ?: "" }
+                val reads: List<String> = when (c["decoder"]?.string) {
+                    "sse" -> SseDecoder.withSurface(c["surfaceId"]?.string).let { d -> try { chunks.map { d.push(it) } + d.end() } finally { d.close() } }
+                    "ws" -> FrameDecoder(c["surfaceId"]?.string).let { d -> try { chunks.map { d.push(it) } + d.end() } finally { d.close() } }
+                    else -> ExpressDecoder(c["wrapped"]?.bool ?: true, c["surfaceId"]?.string ?: "main").let { d -> try { chunks.map { d.push(it) } + d.end() } finally { d.close() } }
+                }
+                same(JsonValue.Arr(reads.map { JsonValue.parse(it)["open"] ?: JsonValue.Arr(emptyList()) }).json, c["expected"]!!)
+            }
         } + list(f, "expressSse").map { c ->
             case("sse: ${s(c, "name")}") {
                 val d = SseDecoder.withSurface(c["surfaceId"]?.string)

@@ -367,6 +367,9 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       }
       const at = (c: { surfaceId?: string }) => (c.surfaceId ? { surfaceId: c.surfaceId } : {})
       for (const c of t.express) record(`host-express`, `express: ${c.name}`, () => canon(all(new ExpressDecoder({ wrapped: c.wrapped, ...at(c) }), c.chunks)) === canon(c.expected))
+      // #VAPP-300: every read's open block.
+      const opens = (dec: { push(c: string): Decoded; end(): Decoded }, chunks: string[]) => [...chunks.map((c) => dec.push(c)), dec.end()].map((d) => d.open ?? [])
+      for (const c of t.expressOpen) record(`host-express`, `open: ${c.name}`, () => canon(opens(c.decoder === `sse` ? new ExpressSse(at(c)) : c.decoder === `ws` ? new FrameDecoder(at(c)) : new ExpressDecoder({ wrapped: c.wrapped, ...at(c) }), c.chunks)) === canon(c.expected))
       for (const c of t.expressSse) record(`host-express`, `sse: ${c.name}`, () => canon(all(new ExpressSse(at(c)), c.chunks)) === canon(c.expected))
       for (const c of t.expressWs) record(`host-express`, `ws: ${c.name}`, () => canon(all(new FrameDecoder(at(c)), c.frames)) === canon(c.expected))
       for (const c of t.expressMcp) record(`host-express`, `mcp: ${c.name}`, () => canon(mcpResult(c.result, at(c))) === canon(c.expected))
@@ -550,8 +553,8 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
           return canon(nested) === canon(c.expected)
         })
       // The renderer paints the core reducer's output.
-      for (const c of items.reduce as { name: string; catalogId: string; nested?: NestedNode; components?: FlatComponent[]; expected: unknown }[])
-        record(`template-items`, `reduce: ${c.name}`, () => canon(c.nested ? reduceNested(c.nested, { catalogId: c.catalogId }) : reduceSurface(c.components!, { catalogId: c.catalogId })) === canon(c.expected))
+      for (const c of items.reduce as { name: string; catalogId: string; streaming?: boolean; nested?: NestedNode; components?: FlatComponent[]; expected: unknown }[])
+        record(`template-items`, `reduce: ${c.name}`, () => canon(c.nested ? reduceNested(c.nested, { catalogId: c.catalogId }) : reduceSurface(c.components!, { catalogId: c.catalogId, streaming: c.streaming === true })) === canon(c.expected))
     })
 
     await block(`text-direction, resizable, virtual-list, animations: painted in Chromium`, async () => {

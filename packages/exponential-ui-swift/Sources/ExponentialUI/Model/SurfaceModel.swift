@@ -304,6 +304,14 @@ public final class SurfaceModel {
         return out
     }
 
+    /// #VAPP-300: an Express block is still streaming this surface (the host
+    /// sets it from the decoder's `open`): a child not streamed yet renders
+    /// as nothing; off again, a child still missing is the Unknown
+    /// placeholder.
+    public func setStreaming(_ on: Bool) {
+        if surface.setStreaming(on: on) { invalidate(structure: true) }
+    }
+
     /// Write at a JSON pointer (nil removes).
     public func setData(path: String, value: JSONValue?) {
         let json = value?.wireJSON
