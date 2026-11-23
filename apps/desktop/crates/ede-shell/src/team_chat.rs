@@ -513,7 +513,7 @@ pub fn demo_input() -> ChatInput {
         agents,
         rows: vec![
             message("m1", "agent", "Two new widget reports on Product Feedback. FB-8 is a duplicate of FB-3, merged it. FB-9 needs code, so I started a chat:", "09:02"),
-            uicore_model::chat::ChatRowInput::Card { id: "c1".into(), icon: "coding-running".into(), title: "Sort today's widget reports".into(), text: "Working".into(), target: Some("s2".into()), surface: None },
+            uicore_model::chat::ChatRowInput::Card { id: "c1".into(), icon: "coding-running".into(), title: "Sort today's widget reports".into(), text: "Working".into(), target: Some("s2".into()), surface: None, group: None },
             message("m2", "user", "Label the Android ones too, and check the board every hour.", "09:14"),
             message("m3", "agent", "Done, 3 issues labelled android.", "09:14"),
             // Lane Q: an agent's result card (`exponential_show`), drawn in an Embed.
@@ -524,6 +524,7 @@ pub fn demo_input() -> ChatInput {
                 text: String::new(),
                 target: Some("s1".into()),
                 surface: Some(demo_card()),
+                group: None,
             },
         ],
         ..Default::default()

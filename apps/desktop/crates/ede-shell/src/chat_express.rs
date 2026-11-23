@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(press["event"]["context"]["text"], "Ship it");
         // The nested form reduces without an issue (the same tree the
         // block's own stream drew).
-        let reduced = eui_core::reducer::reduce_nested(&card.node().unwrap(), &eui_core::reducer::ReduceOptions::default());
+        let reduced = eui_core::reducer::reduce_nested(&card.node().unwrap(), &eui_core::reducer::ReduceOptions::new(eui_core::catalog::CORE_CATALOG_ID));
         assert!(reduced.issues.is_empty(), "{:?}", reduced.issues);
     }
 
