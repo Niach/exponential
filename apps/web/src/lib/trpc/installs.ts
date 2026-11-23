@@ -155,7 +155,7 @@ export const installsRouter = router({
           // Serializes one user's registrations, so the cap holds under races.
           await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`installs:${userId}`}))`)
           const [existing] = await tx
-            .select({ id: installs.id, userId: installs.userId, revokedAt: installs.revokedAt })
+            .select({ id: installs.id, userId: installs.userId, revokedAt: installs.revokedAt, deviceId: installs.deviceId })
             .from(installs)
             .where(eq(installs.endpointId, input.endpointId))
             .limit(1)
@@ -170,6 +170,10 @@ export const installsRouter = router({
               .update(installs)
               .set({ ...fields, lastSeenAt: new Date() })
               .where(eq(installs.id, existing.id))
+            // #EXP-1951: off its device, it no longer reads that device's trees.
+            if (existing.deviceId && existing.deviceId !== deviceRowId) {
+              await dropReaderKeysInTx(tx, { installIds: [existing.id] })
+            }
             return { installId: existing.id, fresh: false }
           }
 

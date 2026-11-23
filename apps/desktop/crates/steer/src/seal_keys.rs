@@ -17,8 +17,10 @@
 //!   (the device claiming a server-started session); the other readers get
 //!   theirs from the next `pending` pass, which runs at once.
 //!
-//! - **Rotation** (#FEED-177): a tree that turned private
-//!   (`sessions.seal_rotate_epoch` set, its teammates' wraps dropped) gets
+//! - **Rotation** (#FEED-177, #EXP-1951: sealed-content.json `rotation`): a
+//!   tree that lost a reader (it turned private, an install was revoked, a
+//!   member or a device left: `sessions.seal_rotate_epoch` set, their wraps
+//!   dropped; while it is set the server lets ANY reader rotate) gets
 //!   a fresh key at `epoch + 1` from the first holder pass of an install
 //!   that holds its current secret and may rotate (the starter's installs
 //!   or the executing device; the server decides, a refusal is
