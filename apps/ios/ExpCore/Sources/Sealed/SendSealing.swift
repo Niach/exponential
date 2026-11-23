@@ -48,6 +48,45 @@ public enum SealedAttachmentLines {
     }
 }
 
+/// #EXP-2067: a JSON value as it goes out on the wire (a press's card).
+public indirect enum WireJSON: Encodable, Equatable, Sendable {
+    case null
+    case bool(Bool)
+    case number(Double)
+    case string(String)
+    case array([WireJSON])
+    case object([String: WireJSON])
+
+    public init?(json: String) {
+        guard let value = try? JSONSerialization.jsonObject(with: Data(json.utf8), options: [.fragmentsAllowed]) else { return nil }
+        self.init(any: value)
+    }
+
+    init(any value: Any) {
+        switch value {
+        case let number as NSNumber:
+            self = CFGetTypeID(number) == CFBooleanGetTypeID() ? .bool(number.boolValue) : .number(number.doubleValue)
+        case let string as String: self = .string(string)
+        case let array as [Any]: self = .array(array.map(WireJSON.init(any:)))
+        case let object as [String: Any]: self = .object(object.mapValues(WireJSON.init(any:)))
+        default: self = .null
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .null: try c.encodeNil()
+        case let .bool(value): try c.encode(value)
+        case let .number(value):
+            if value.isFinite, value == value.rounded(), abs(value) < 1e15 { try c.encode(Int64(value)) } else { try c.encode(value) }
+        case let .string(value): try c.encode(value)
+        case let .array(values): try c.encode(values)
+        case let .object(values): try c.encode(values)
+        }
+    }
+}
+
 /// `sessions.send`'s input plus the sealed-content fields.
 public struct SealedSendInput: Encodable, Equatable, Sendable {
     public let input: SessionsSendInput
@@ -62,6 +101,9 @@ public struct SealedSendInput: Encodable, Equatable, Sendable {
     /// #EXP-1958: the sealed card item this send acts on (tRPC only); the
     /// writer passes it through untouched.
     public var cardItem: CardItemRef?
+    /// #EXP-2067 (chat-express.json ACTIONS): a press's `action` card (tRPC
+    /// only): in clear for a clear tree, else its envelope `{kind, sealed}`.
+    public var actionCard: WireJSON?
 
     public init(
         input: SessionsSendInput,
@@ -69,7 +111,8 @@ public struct SealedSendInput: Encodable, Equatable, Sendable {
         mentionUserIds: [String]? = nil,
         sealedName: String? = nil,
         clientMessageId: String? = nil,
-        cardItem: CardItemRef? = nil
+        cardItem: CardItemRef? = nil,
+        actionCard: WireJSON? = nil
     ) {
         self.input = input
         self.seal = seal
@@ -77,6 +120,7 @@ public struct SealedSendInput: Encodable, Equatable, Sendable {
         self.sealedName = sealedName
         self.clientMessageId = clientMessageId
         self.cardItem = cardItem
+        self.actionCard = actionCard
     }
 
     /// #EXP-1958 (`cardStamps`, NEVER IN CLEAR): the writer sealed this
@@ -86,7 +130,7 @@ public struct SealedSendInput: Encodable, Equatable, Sendable {
         return input.name == nil
     }
 
-    private enum Keys: String, CodingKey { case seal, mentionUserIds, sealedName, clientMessageId, cardItem }
+    private enum Keys: String, CodingKey { case seal, mentionUserIds, sealedName, clientMessageId, cardItem, actionCard }
 
     public func encode(to encoder: Encoder) throws {
         try input.encode(to: encoder)
@@ -96,6 +140,7 @@ public struct SealedSendInput: Encodable, Equatable, Sendable {
         try c.encodeIfPresent(sealedName, forKey: .sealedName)
         try c.encodeIfPresent(clientMessageId, forKey: .clientMessageId)
         try c.encodeIfPresent(cardItem, forKey: .cardItem)
+        try c.encodeIfPresent(actionCard, forKey: .actionCard)
     }
 }
 
@@ -214,9 +259,13 @@ public struct SendSealing: Sendable {
         root: SealRoot?,
         mentions: [String]?,
         deviceIds: @Sendable (String?) -> [String],
-        fresh: Bool = false
+        fresh: Bool = false,
+        actionCard: String? = nil
     ) async throws -> PreparedSend {
-        let plain = PreparedSend(input: SealedSendInput(input: input, mentionUserIds: mentions), newKey: nil)
+        let plain = PreparedSend(
+            input: SealedSendInput(input: input, mentionUserIds: mentions, actionCard: actionCard.flatMap(WireJSON.init(json:))),
+            newKey: nil
+        )
         var teamId: String?
         var steerDevice: String?
         var conversation: (agentId: String?, appId: String?)?
@@ -237,7 +286,8 @@ public struct SendSealing: Sendable {
         }
         // A clear tree takes plaintext and is never keyed.
         if root?.clearTree == true { return plain }
-        let hasText = !(input.text ?? "").isEmpty || !(input.name ?? "").isEmpty
+        // #EXP-2067: a press's card leaves sealed like a text.
+        let hasText = !(input.text ?? "").isEmpty || !(input.name ?? "").isEmpty || actionCard != nil
         let refuse = { () throws -> PreparedSend in
             guard hasText else { return plain }
             logger.error("No key to seal this send to: refused, nothing sent")
@@ -247,7 +297,7 @@ public struct SendSealing: Sendable {
             return try refuse()
         }
         let sealed = { (key: TreeSealKey) throws in
-            PreparedSend(input: try self.seal(input, to: key, mentions: mentions), newKey: nil)
+            PreparedSend(input: try self.seal(input, to: key, mentions: mentions, actionCard: actionCard), newKey: nil)
         }
         let target: ServerSendTarget? = if let conversation, root == nil || fresh {
             await holder.sendTarget(accountId: accountId, agentId: conversation.agentId, appId: conversation.appId)
@@ -303,7 +353,9 @@ public struct SendSealing: Sendable {
                 deviceIds: deviceIds(steerDevice),
                 shared: false
             )
-            let sealed = try self.seal(input, to: TreeSealKey(publicKey: key.publicKey, epoch: 1), mentions: mentions, seal: seal)
+            let sealed = try self.seal(
+                input, to: TreeSealKey(publicKey: key.publicKey, epoch: 1), mentions: mentions, seal: seal, actionCard: actionCard
+            )
             return PreparedSend(input: sealed, newKey: key)
         } catch let refusal as SealRefusal {
             throw refusal
@@ -399,7 +451,8 @@ public struct SendSealing: Sendable {
         _ input: SessionsSendInput,
         to key: TreeSealKey,
         mentions: [String]?,
-        seal: NewChatSeal? = nil
+        seal: NewChatSeal? = nil,
+        actionCard: String? = nil
     ) throws -> SealedSendInput {
         do {
             var sealed = input
@@ -412,7 +465,13 @@ public struct SendSealing: Sendable {
                 sealedName = try crypto.sealBody(treePublicKey: key.publicKey, epoch: key.epoch, text: name)
                 sealed = sealed.withoutName()
             }
-            return SealedSendInput(input: sealed, seal: seal, mentionUserIds: mentions, sealedName: sealedName)
+            // #EXP-2067: the press's card as its envelope (`{kind, sealed}`).
+            let card = try actionCard.map { card -> WireJSON in
+                let envelope = try crypto.sealCard(treePublicKey: key.publicKey, epoch: key.epoch, cardJson: card)
+                guard let object = WireJSON(json: envelope) else { throw SealRefusal() }
+                return object
+            }
+            return SealedSendInput(input: sealed, seal: seal, mentionUserIds: mentions, sealedName: sealedName, actionCard: card)
         } catch {
             logger.error("Sealing failed: \(String(describing: error), privacy: .public)")
             throw SealRefusal()

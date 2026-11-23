@@ -682,8 +682,10 @@ struct ChatTranscriptSpecimens: View {
             switch row.item.id {
             case "surface":
                 if let surface = Self.launchSurface {
-                    SurfaceCardRow(surface: surface, title: "Launch path", animate: false) { text in
-                        replied = text
+                    SurfaceCardRow(surface: surface, title: "Launch path", animate: false) { event in
+                        if case let .post(body, _)? = ChatExpress.surfaceAction(event, origin: ChatExpress.showActionOrigin("launch")) {
+                            replied = body
+                        }
                     }
                 }
                 if let replied {

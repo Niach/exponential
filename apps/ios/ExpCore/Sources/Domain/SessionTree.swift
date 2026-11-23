@@ -422,6 +422,12 @@ public struct TreeMessageCard: Equatable, Sendable {
     /// #EXP-1710 event `pr_merge`: merged | conflict | failing | held (nil =
     /// an older card: the fallback line).
     public let mergeOutcome: String?
+    /// #EXP-2067 (chat-express.json) action: the surface that fired, its
+    /// block key (nil = an exponential_show surface) and the event's context
+    /// (nil = none); its `name` = `eventName`, its row = `messageId`.
+    public let actionSurfaceId: String?
+    public let actionBlock: String?
+    public let actionContext: [String: CardJSON]?
 
     public init(
         kind: String?,
@@ -459,9 +465,15 @@ public struct TreeMessageCard: Equatable, Sendable {
         pictures: [PlanCardPicture] = [],
         description: String? = nil,
         dismissed: Bool = false,
-        mergeOutcome: String? = nil
+        mergeOutcome: String? = nil,
+        actionSurfaceId: String? = nil,
+        actionBlock: String? = nil,
+        actionContext: [String: CardJSON]? = nil
     ) {
         self.kind = kind
+        self.actionSurfaceId = actionSurfaceId
+        self.actionBlock = actionBlock
+        self.actionContext = actionContext
         self.dismissed = dismissed
         self.mergeOutcome = mergeOutcome
         self.story = story
@@ -612,7 +624,12 @@ public struct TreeMessageCard: Equatable, Sendable {
             description: text("description"),
             // `card.dismissed === true` in the reference.
             dismissed: CardJSON.isTrue(object["dismissed"]),
-            mergeOutcome: text("mergeOutcome")
+            mergeOutcome: text("mergeOutcome"),
+            actionSurfaceId: text("kind") == "action" ? text("surfaceId") : nil,
+            actionBlock: text("kind") == "action" ? text("block") : nil,
+            actionContext: text("kind") == "action"
+                ? (object["context"] as? [String: Any]).flatMap(CardJSON.init(any:))?.objectValue
+                : nil
         )
     }
 

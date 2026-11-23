@@ -13,6 +13,8 @@ public struct SurfaceActionEvent: Sendable, Equatable {
     public let context: JSONValue
     /// What the component adds (a Select's `value`, a Tabs' `value`…).
     public let payload: JSONValue?
+    /// The Action's resolved `event.userMessage` (nil = none or not a string).
+    public var userMessage: String? = nil
 }
 
 /// A host-owned input edit. `change` fires debounced (150 ms) while typing

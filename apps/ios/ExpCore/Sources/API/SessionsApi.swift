@@ -229,27 +229,34 @@ public final class SessionsApi: Sendable {
     /// reply, Do it here, Start), passed through the writer untouched. Its
     /// text is OPENED content: it leaves sealed or not at all
     /// (`SealedOnlyError`: no sealer, a clear tree, no key).
+    /// #EXP-2067 (chat-express.json ACTIONS): `actionCard` = a press on a
+    /// genUI surface: the row carries THE `action` card (sealed with the
+    /// text in a keyed tree; the text may be empty).
     public func send(
         accountId: String,
         _ input: SessionsSendInput,
         clientMessageId: String? = nil,
-        cardItem: CardItemRef? = nil
+        cardItem: CardItemRef? = nil,
+        actionCard: ChatExpress.ActionCard? = nil
     ) async throws -> SessionsSendResult {
         // EXP-1459: the text leaves sealed to the tree's key (+ mentions).
         guard let sealer else {
             if cardItem != nil { throw SealedOnlyError() }
-            guard clientMessageId != nil else {
+            guard clientMessageId != nil || actionCard != nil else {
                 return try await trpc.mutation(accountId: accountId, path: "sessions.send", input: input)
             }
             return try await trpc.mutation(
                 accountId: accountId, path: "sessions.send",
-                input: SealedSendInput(input: input, clientMessageId: clientMessageId)
+                input: SealedSendInput(
+                    input: input, clientMessageId: clientMessageId,
+                    actionCard: actionCard.flatMap { WireJSON(json: $0.json.compactString) }
+                )
             )
         }
         // #FEED-250: a tree that moved on behind this store is re-resolved
         // and re-sealed once, the first refusal never surfaced.
         return try await StaleTreeResend.send { fresh in
-            var prepared = try await sealer.prepare(accountId: accountId, input, fresh: fresh)
+            var prepared = try await sealer.prepare(accountId: accountId, input, fresh: fresh, actionCard: actionCard?.json.compactString)
             if let clientMessageId { prepared.input.clientMessageId = clientMessageId }
             if let cardItem {
                 guard prepared.input.leavesSealed else { throw SealedOnlyError() }
