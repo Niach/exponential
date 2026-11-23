@@ -1007,7 +1007,19 @@ private fun callMessage(id: String, author: String, body: String, at: String, au
     body = body, card = null, answeredAt = null, consumedAt = at, createdAt = at, authorSessionId = authorSessionId,
 )
 
-/** session-card.json `callViewCases[0].input.messages`. */
+/**
+ * #EXP-2074 / #EXP-2076: THE sample agent text with one Express block, the
+ * same on all four platforms: prose, the first `ok` single-surface case of
+ * chat-express.json `segmentCases` ("prose, one block, prose"), prose.
+ */
+internal const val EXPRESS_SAMPLE_TEXT = "Checked the three lanes.\n<a2ui>\n" +
+    "root = Stack(children=[title, ship])\n" +
+    "title = Text(text=\"Build 1482 is green\")\n" +
+    "ship = Button(label=\"Ship it\", on={press: Event(\"reply\", userMessage=\"Ship it\")})\n" +
+    "</a2ui>\nAll green."
+
+/** session-card.json `callViewCases[0].input.messages` (+ #EXP-2076's
+ *  Express turn `v7`). */
 private val CALL_MESSAGES = listOf(
     callMessage("v1", "user", SessionTree.CallCopy.PROMPTS.getValue("request").replace("{language}", "English"), "2026-11-18T09:08:00.000Z"),
     callMessage("v2", "agent", "Hi Dana, the release is close.", "2026-11-18T09:08:03.000Z"),
@@ -1015,6 +1027,8 @@ private val CALL_MESSAGES = listOf(
     callMessage("v4", "agent", "Message from Assistant (session r1): typed in the chat", "2026-11-18T09:08:30.000Z", "r1"),
     callMessage("v5", "agent", "Three PRs are queued. One open thing: the Android microphone drop.", "2026-11-18T09:08:40.000Z"),
     callMessage("v6", "user", "Okay, that one has to go in first. Can you file it?", "2026-11-18T09:09:10.000Z"),
+    // #EXP-2076: an agent turn with ONE Express block (the same sample ×4).
+    callMessage("v7", "agent", EXPRESS_SAMPLE_TEXT, "2026-11-18T09:09:30.000Z"),
     callMessage("v9", "user", SessionTree.CallCopy.PROMPTS.getValue("ended").replace("{minutes}", "04:12"), "2026-11-18T09:12:12.000Z"),
     callMessage("v10", "agent", "Ship 0.14.140 tomorrow at 09:00. The Android mic fix goes first.", "2026-11-18T09:12:20.000Z"),
 )
@@ -1062,6 +1076,30 @@ private fun CallSpecimen() {
     }
 }
 
+/**
+ * #EXP-2076: THE call view of the specimen call on its own, opened at its
+ * END (the Express turn in view), [onSurfaceAction] = where its block's
+ * presses go (null = inert). The device proof's route.
+ */
+@Composable
+internal fun CallViewExpressSpecimen(
+    modifier: Modifier = Modifier,
+    onSurfaceAction: ((com.exponential.app.domain.ChatExpress.ActionResult) -> Unit)? = null,
+) {
+    val view = SessionTree.callView(CALL_ENDED, CALL_MESSAGES, CALL_AGENT.name, "2026-11-18T10:00:00.000Z", 0)
+    com.exponential.app.ui.session.CallViewBody(
+        view = view,
+        heading = true,
+        agent = CALL_AGENT,
+        agentId = "ag1",
+        viewerId = CALL_VIEWER,
+        time = { id -> CALL_TIMES[id]?.let(::specimenClock) },
+        modifier = modifier.testTag("call-view-express-specimen"),
+        onSurfaceAction = onSurfaceAction,
+    )
+}
+
 /** The specimen's fixed slots (each a lazy transcript inside a scrolling page). */
 private val CALL_CHAT_HEIGHT = 520.dp
-private val CALL_VIEW_TURNS_HEIGHT = 380.dp
+// #EXP-2076: tall enough for the Express turn under the spoken ones.
+private val CALL_VIEW_TURNS_HEIGHT = 640.dp

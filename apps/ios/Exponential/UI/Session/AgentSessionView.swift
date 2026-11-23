@@ -1040,7 +1040,16 @@ struct AgentSessionView: View {
                                             row: row, context: markdownContext, nested: false,
                                             live: model.agentWorking, testResults: model.testResults,
                                             author: layout?.name == true ? layout?.sender?.displayName : nil,
-                                            tail: layout?.tail == true
+                                            tail: layout?.tail == true,
+                                            // #EXP-2074: the main lane's Express
+                                            // path; FINAL once a row of this
+                                            // lane follows, the turn ended or
+                                            // the subagent is done.
+                                            express: ExpressLane(
+                                                key: { id, messageId in expressRowKey(id: id, messageId: messageId) },
+                                                final: index < laneRows.count - 1 || !model.agentWorking || focused.done,
+                                                onAction: expressActionHandler(model)
+                                            )
                                         )
                                     }
                                 }
@@ -5060,6 +5069,8 @@ struct SubagentLaneRow: View {
     var author: String? = nil
     /// #EXP-1876: its group's first bubble wears THE tail.
     var tail: Bool = false
+    /// #EXP-2074: the lane's Express path (nil = its prose read whole).
+    var express: ExpressLane? = nil
 
     var body: some View {
         switch row {
@@ -5075,7 +5086,7 @@ struct SubagentLaneRow: View {
         case let .single(item):
             SubagentItemRow(
                 item: item, context: context, nested: nested, live: live, testResults: testResults,
-                author: author, tail: tail
+                author: author, tail: tail, express: express
             )
         default:
             EmptyView()
@@ -5100,9 +5111,26 @@ struct SubagentItemRow: View {
     var author: String? = nil
     /// #EXP-1876: its group's first bubble wears THE tail.
     var tail: Bool = false
+    /// #EXP-2074: the lane's Express path (nil = its prose read whole).
+    var express: ExpressLane? = nil
 
     var body: some View {
         content.padding(.vertical, nested ? 2 : 0)
+    }
+
+    /// One prose run of a lane narration: the nested digest's line, or
+    /// (#EXP-1736) THE message bubble in the subagent's own tab.
+    @ViewBuilder
+    private func narrationBubble(_ text: String, author: String?, tail: Bool, time: String?) -> some View {
+        if nested {
+            NarrationBubble(text: text, context: context)
+        } else {
+            MessageBubble(side: .other, author: author, time: time, tail: tail) {
+                Group {
+                    AgentMarkdownText(text: text, context: context, streaming: false, hugsWidth: true)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -5131,16 +5159,22 @@ struct SubagentItemRow: View {
         case let .narration(_, text, _, _, _) where TranscriptGrouping.isBlankText(text):
             // #FEED-256: a blank narration draws nothing.
             EmptyView()
-        case let .narration(_, text, _, _, at):
-            if nested {
-                NarrationBubble(text: text, context: context)
+        case let .narration(id, text, messageId, _, at):
+            let time = at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
+            // #EXP-2074 (chat-express.json): a subagent's text with Express
+            // blocks = its segments in ONE sender group, the main lane's
+            // path (name + tail on the first segment, the time on the last
+            // prose bubble).
+            if let express, let split = express.split(id: id, messageId: messageId, text: text) {
+                ExpressSegmentsView(
+                    rowKey: split.key, segments: split.segments, messageId: split.messageId,
+                    onAction: express.onAction
+                ) { prose, first, last in
+                    narrationBubble(prose, author: first ? author : nil, tail: first && tail, time: last ? time : nil)
+                }
             } else {
                 // #EXP-1736: the subagent's own tab = THE message bubble.
-                MessageBubble(side: .other, author: author, time: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }, tail: tail) {
-                    Group {
-                        AgentMarkdownText(text: text, context: context, streaming: false, hugsWidth: true)
-                    }
-                }
+                narrationBubble(text, author: author, tail: tail, time: time)
             }
         case let .apiError(_, message, errorType, _):
             ApiErrorRow(message: message, errorType: errorType)

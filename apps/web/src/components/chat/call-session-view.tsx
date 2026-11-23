@@ -1,10 +1,12 @@
 import { useMemo } from "react"
 import { CHAT_COLUMN_CLASS, CallViewBody, WORK_GUTTER_CLASS, userMessageTime } from "@exp/ui"
 import { callRunning, callView, type CallView } from "@exp/domain-contract/session-tree"
+import type { ActionEvent, ActionOrigin } from "@exp/domain-contract/chat-express"
 import { renderChatText } from "@/components/chat/chat-markdown"
 import { useNow } from "@/hooks/use-now"
 import { useSession } from "@/hooks/use-session"
 import { useSessionMessages } from "@/hooks/use-session-tree"
+import { postSurfaceAction } from "@/lib/surface-action"
 import { toTreeMessages, toTreeSession, type SessionRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 
@@ -42,6 +44,7 @@ export function CallSessionBody({
   agentName,
   heading,
   messageTimes,
+  actionTarget = null,
 }: {
   view: CallView
   agentId: string | null
@@ -49,9 +52,16 @@ export function CallSessionBody({
   /** Wide: the title + subtitle on top of the column (phones: the header). */
   heading: boolean
   messageTimes: ReadonlyMap<string, string>
+  /** #EXP-2076 (chat-express.json ACTIONS): a block's action posts into the
+   *  CALL session (the session this view draws); null = inert (ended). */
+  actionTarget?: { teamId: string; sessionId: string } | null
 }) {
   const { data: auth } = useSession()
   const viewer = auth?.user ?? null
+  const onSurfaceAction = useMemo(
+    () => (actionTarget ? (event: ActionEvent, origin: ActionOrigin) => postSurfaceAction(actionTarget, event, origin) : undefined),
+    [actionTarget?.teamId, actionTarget?.sessionId]
+  )
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-testid="call-session">
       <CallViewBody
@@ -65,6 +75,7 @@ export function CallSessionBody({
         viewer={
           viewer ? { id: viewer.id, name: viewer.name ?? null, email: viewer.email ?? null, image: viewer.image ?? null } : null
         }
+        onSurfaceAction={onSurfaceAction}
         messageTime={(row) => {
           const at = messageTimes.get(row.id)
           return at ? userMessageTime(new Date(at)) : null

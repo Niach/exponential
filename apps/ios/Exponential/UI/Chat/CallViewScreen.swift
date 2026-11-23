@@ -171,6 +171,29 @@ struct CallViewBody: View {
         }
     }
 
+    /// #EXP-2076 (chat-express.json WHICH ROWS): an agent turn is the agent's
+    /// text: a synced row with Express blocks = its segments in ONE sender
+    /// group (row key `m:<messages.id>`, final; the tail on the first
+    /// segment, the time on the last prose bubble), the chat's own path.
+    /// Read-only like web's call view (no press is forwarded).
+    @ViewBuilder
+    private func agentTurn(id: String, body: String, first: Bool) -> some View {
+        let key = ChatExpress.syncedRowKey(id)
+        if let segments = ExpressRowStore.shared.segments(key: key, text: body, final: true) {
+            ExpressSegmentsView(rowKey: key, segments: segments, messageId: id, onAction: nil) { prose, firstSegment, last in
+                agentBubble(prose, time: last ? time(id) : nil, tail: first && firstSegment)
+            }
+        } else {
+            agentBubble(body, time: time(id), tail: first)
+        }
+    }
+
+    private func agentBubble(_ text: String, time: String?, tail: Bool) -> some View {
+        MessageBubble(side: .other, time: time, tail: tail) {
+            AgentMarkdownText(text: text, context: context, hugsWidth: true)
+        }
+    }
+
     @ViewBuilder
     private func turn(_ row: SessionChatRow, after previous: SessionChatRow?) -> some View {
         let first = previous.map { author($0) != author(row) } ?? true
@@ -182,9 +205,7 @@ struct CallViewBody: View {
                 }
             } else {
                 TranscriptRow(side: .other, gap: gap(row, after: previous), avatar: first ? agentAvatar : nil) {
-                    MessageBubble(side: .other, time: time(id), tail: first) {
-                        AgentMarkdownText(text: body, context: context, hugsWidth: true)
-                    }
+                    agentTurn(id: id, body: body, first: first)
                 }
             }
         case let .locked(_, reason, _):

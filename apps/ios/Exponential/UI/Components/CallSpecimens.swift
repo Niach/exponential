@@ -91,6 +91,9 @@ struct CallSpecimens: View {
         message("v6", "call1", "user", "Okay, that one has to go in first. Can you file it?", "2026-11-18T09:09:10.000Z"),
         message("v7", "call1", "system", "", "2026-11-18T09:09:30.000Z", card: ["kind": "event", "event": "issue_filed", "issueId": "i1"]),
         message("v8", "call1", "agent", "\u{200B}", "2026-11-18T09:09:40.000Z"),
+        // #EXP-2076 (the ×4 sample, not in `callViewCases[0]`): an agent turn
+        // with one Express block, split like the chat's synced agent row.
+        message("v8b", "call1", "agent", ChatTranscriptSpecimens.expressSample, "2026-11-18T09:09:50.000Z"),
         message("v9", "call1", "user", "The call ended after 04:12. Reply with the call's summary for the main chat, nothing else: what was said and decided, what you did, and what you handed to the chat. Plain sentences, no greeting.", "2026-11-18T09:12:12.000Z"),
         message("v10", "call1", "agent", "Ship 0.14.140 tomorrow at 09:00. The Android mic fix goes first.", "2026-11-18T09:12:20.000Z"),
     ]

@@ -766,3 +766,57 @@ describe(`subagent tab grouping`, () => {
     expect(layouts[0]!.sender).toEqual({ kind: `session`, id: `subagent:a1`, name: `Explore`, link: null })
   })
 })
+
+// #EXP-2074 (chat-express.json WHICH ROWS): a subagent lane's narration is
+// agent text too: its tab draws each block in place through THE
+// ExpressMessage path the main lane runs (same keys, FINAL rule, actions).
+describe(`subagent lane Express blocks`, () => {
+  const SAMPLE = `Checked the three lanes.\n<a2ui>\nroot = Stack(children=[title, ship])\ntitle = Text(text="Build 1482 is green")\nship = Button(label="Ship it", on={press: Event("reply", userMessage="Ship it")})\n</a2ui>\nAll green.`
+
+  it(`FINAL by the main lane's rule, per lane`, async () => {
+    const { laneRowExpress } = await import(`./agent-session`)
+    const onAction = vi.fn()
+    // A row of its own lane follows: final.
+    expect(laneRowExpress({ sessionId: `s1`, turnLive: true, onAction }, 0, 2, true)).toEqual({ sessionId: `s1`, onAction, final: true })
+    // The lane's last row while its agent and the turn still run: streaming.
+    expect(laneRowExpress({ sessionId: `s1`, turnLive: true }, 1, 2, true).final).toBe(false)
+    // The lane's agent is done (or the feed is not live): final.
+    expect(laneRowExpress({ sessionId: `s1`, turnLive: true }, 1, 2, false).final).toBe(true)
+    // The session's turn ended: final.
+    expect(laneRowExpress({ sessionId: `s1`, turnLive: false }, 1, 2, true).final).toBe(true)
+  })
+
+  it(`the tab draws the narration's block between its prose bubbles; a press reaches the session's poster`, async () => {
+    const { readFileSync } = await import(`node:fs`)
+    const { resolve } = await import(`node:path`)
+    const { ExpressDecoder, initExpress, unwrapExpress } = await import(`@exponential_app/eui/express`)
+    const { provideExpressSdk } = await import(`@exp/ui`)
+    initExpress(readFileSync(resolve(__dirname, `../../../../packages/exponential-ui/wasm/express/a2ui_express_bg.wasm`)))
+    provideExpressSdk({ unwrap: (text) => unwrapExpress(text), decoder: (surfaceId) => new ExpressDecoder({ surfaceId, wrapped: false }) })
+    const { LaneRows } = await import(`./agent-session`)
+    const onAction = vi.fn()
+    render(
+      <TooltipProvider>
+        <LaneRows
+          items={[
+            { id: 1, seq: 7, kind: `tool`, name: `Bash`, title: `./gradlew`, toolKind: `execute`, settled: true, subagentId: `a1` },
+            { id: 2, seq: 9, kind: `narration`, text: SAMPLE, subagentId: `a1` },
+          ] as never}
+          gaps
+          lane={{ id: `subagent:a1`, name: `Explore` }}
+          express={{ sessionId: `s1`, turnLive: false, onAction }}
+        />
+      </TooltipProvider>
+    )
+    const block = screen.getByTestId(`express-block`)
+    expect(block.dataset.status).toBe(`ok`)
+    expect(screen.getByTestId(`surface-card`).textContent).toContain(`Build 1482 is green`)
+    const bubbles = screen.getAllByLabelText(`Agent message`).map((node) => node.textContent?.trim())
+    expect(bubbles).toEqual([`Checked the three lanes.`, `All green.`])
+    expect(document.body.textContent).not.toContain(`<a2ui>`)
+    fireEvent.click(screen.getByRole(`button`, { name: `Ship it` }))
+    expect(onAction).toHaveBeenCalledTimes(1)
+    // The feed row key: no messageId = `e:<sessionId>:<seq of its first fragment>`.
+    expect(onAction.mock.calls[0]![1]).toEqual({ surfaceId: `e:s1:9#1`, block: `e:s1:9#1`, messageId: null })
+  })
+})
