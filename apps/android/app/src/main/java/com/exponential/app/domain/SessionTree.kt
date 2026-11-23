@@ -2007,6 +2007,9 @@ object SessionTree {
         /** S-3: the viewer's own Assistant (agents.role assistant): the brand
          *  mark instead of icon/color, always first. */
         val assistant: Boolean = false,
+        /** #EXP-1990 (agent-settings.json `groupChat`): a team agent's group
+         *  chat root; null while it has none. */
+        val groupChatId: String? = null,
     )
 
     /** NEW-2: an `agents` definition row as the list needs it. */
@@ -2021,16 +2024,26 @@ object SessionTree {
         val role: String? = null,
         /** S-3: who owns it (an Assistant shows to its owner only). */
         val ownerId: String? = null,
+        /** #EXP-1990: `agents.group_chat_id`. */
+        val groupChatId: String? = null,
     ) {
         val isAssistant: Boolean get() = role == DomainContract.agentRoleAssistant
     }
+
+    /** #EXP-1990: a session as [AgentSettings.agentChatOf] reads it. */
+    fun chatLike(s: Session): AgentSettings.ChatSessionLike = AgentSettings.ChatSessionLike(s.id, s.parentId, s.agentId, s.userId)
+
+    /** #EXP-1990 (`groupChat.chatCases`): the agent's chat for the viewer. */
+    fun agentChat(agentId: String, groupChatId: String?, sessions: List<Session>, me: String?): Session? =
+        AgentSettings.agentChatOf(agentId, groupChatId, sessions, me, ::chatLike)
 
     /**
      * The Agents list (rail above Boards, Settings → Agents): one row per
      * `agents` definition of the team (NEW-2), icon + color like boards, by
      * `sortOrder` then name then id. The spinner / needs-you dot read the
-     * VIEWER's own conversation session with the agent (a root with `agentId`
-     * and `userId == me`); a member without one sees a quiet row.
+     * agent's chat for the viewer ([AgentSettings.agentChatOf], #EXP-1990: a
+     * team agent's group chat, else the root with `agentId` and
+     * `userId == me`); a member without one sees a quiet row.
      */
     fun listAgents(
         agents: List<AgentDefinition>,
@@ -2039,11 +2052,6 @@ object SessionTree {
         me: String?,
         teamIds: Collection<String>? = null,
     ): List<AgentRow> {
-        val mine = HashMap<String, Session>()
-        for (s in sessions) {
-            val agentId = s.agentId
-            if (s.parentId == null && !agentId.isNullOrEmpty() && s.userId == me) mine[agentId] = s
-        }
         // #EXP-1714: with the synced teams known, the team also lists the
         // viewer's global Assistant (`AgentSettings.Assistant.agentsInTeam`).
         val inTeam = when {
@@ -2060,7 +2068,7 @@ object SessionTree {
             .filter { !it.isAssistant || it.ownerId == me }
             .sortedWith(compareBy<AgentDefinition>({ if (it.isAssistant) 0 else 1 }, { it.sortOrder }, { it.name }, { it.id }))
             .map {
-                val conversation = mine[it.id]
+                val conversation = agentChat(it.id, it.groupChatId, sessions, me)
                 val live = conversation != null && conversation.status != DomainContract.sessionStatusEnded
                 AgentRow(
                     agentId = it.id,
@@ -2071,6 +2079,7 @@ object SessionTree {
                     busy = live && conversation!!.busy,
                     needsYou = live && conversation!!.needsInput,
                     assistant = it.isAssistant,
+                    groupChatId = it.groupChatId?.takeIf { id -> id.isNotEmpty() },
                 )
             }
     }
@@ -2091,16 +2100,32 @@ object SessionTree {
             "${Chats.AgentChat.SUBTITLE}${Chats.AgentChat.SUBTITLE_MODEL_SEPARATOR}$modelLabel"
         }
 
-    /** NEW-2: the viewer's own conversation session per agent id (an Agents
-     *  row opens it; absent = none yet, `sessions.send({agentId})` makes it). */
-    fun conversations(sessions: List<Session>, me: String?): Map<String, String> {
+    /** NEW-2: the viewer's chat per agent id (an Agents row opens it;
+     *  absent = none yet, `sessions.send({agentId})` makes it). #EXP-1990:
+     *  [groupChats] = agent id → `agents.group_chat_id` of the synced agents;
+     *  an agent with a group chat maps to that root only while it is synced
+     *  ([AgentSettings.agentChatOf]), never to the viewer's old one. */
+    fun conversations(sessions: List<Session>, me: String?, groupChats: Map<String, String?> = emptyMap()): Map<String, String> {
         val out = HashMap<String, String>()
+        val agentIds = LinkedHashSet<String>()
         for (s in sessions) {
             val agentId = s.agentId
-            if (s.parentId == null && !agentId.isNullOrEmpty() && s.userId == me) out[agentId] = s.id
+            if (s.parentId == null && !agentId.isNullOrEmpty()) agentIds += agentId
+        }
+        for ((agentId, groupChatId) in groupChats) if (!groupChatId.isNullOrEmpty()) agentIds += agentId
+        for (agentId in agentIds) {
+            agentChat(agentId, groupChats[agentId], sessions, me)?.let { out[agentId] = it.id }
         }
         return out
     }
+
+    /** #EXP-1990: agent id → `group_chat_id` of the synced agents rows. */
+    fun groupChats(agents: List<AgentDefinitionEntity>): Map<String, String?> =
+        agents.filter { !it.groupChatId.isNullOrEmpty() }.associate { it.id to it.groupChatId }
+
+    /** #EXP-1990 (needs-you.json `groupChatIds`): the synced agents' group chat roots. */
+    fun groupChatIds(agents: List<AgentDefinitionEntity>): List<String> =
+        agents.mapNotNull { it.groupChatId?.takeIf { id -> id.isNotEmpty() } }.sorted()
 
     fun agentDefinition(row: AgentDefinitionEntity): AgentDefinition = AgentDefinition(
         id = row.id,
@@ -2111,6 +2136,7 @@ object SessionTree {
         sortOrder = row.sortOrder,
         role = row.role,
         ownerId = row.ownerId,
+        groupChatId = row.groupChatId,
     )
 
     // ── the Guide's PR + the session composer (EXP-1306) ────────────────────

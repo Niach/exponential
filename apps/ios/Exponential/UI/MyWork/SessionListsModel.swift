@@ -19,9 +19,13 @@ final class SessionListsModel {
     /// Every team's agents (`listAgents(teamId: nil)`, NEW-2: the synced
     /// `agents` definitions).
     private(set) var agents: [AgentRow] = []
-    /// NEW-2: my conversation session with each agent (a root with
-    /// `agent_id` I started), by agent id; absent = none yet.
+    /// NEW-2: my chat with each agent (`AgentSettings.agentChatOf`, #EXP-1990:
+    /// a team agent's group chat, else the root with its `agent_id` I
+    /// started), by agent id; absent = none yet.
     private(set) var agentConversations: [String: String] = [:]
+    /// #EXP-1990 (agent-settings.json `groupChat`): the synced agents' group
+    /// chat roots (they count for every member in Needs you).
+    private(set) var groupChatIds: [String] = []
     /// #EXP-1733: each team's live apps (the synced `apps` rows, trash
     /// hidden), by team id: the Chats list's Apps section.
     private(set) var appsByTeam: [String: [Chats.ChatApp]] = [:]
@@ -73,6 +77,9 @@ final class SessionListsModel {
     /// #EDE-99: every synced root (its team, starter, title, agent), by id:
     /// what the global search's Chats rows name.
     private(set) var chatRoots: [String: ChatRootEntry] = [:]
+    /// #EXP-1990 (chats.json `chatPreview`): every synced member's name by
+    /// id: a teammate's line in a chat list reads under their name.
+    private(set) var memberNames: [String: String] = [:]
 
     @ObservationIgnored private var task: Task<Void, Never>?
     /// Bumped by every `apply`/`stop`: what `chatList`'s memo is valid for.
@@ -87,6 +94,25 @@ final class SessionListsModel {
     /// active team drives the phone: it reads that team's rows alone.
     func chatsBadge(teamId: String?) -> NavBadges.Value {
         NavBadges.chatsBadge(teamGroups(teamId), reads: reads)
+    }
+
+    /// #EXP-1990 (agent-settings.json `groupChat.chatCases`): each agent's
+    /// chat for the viewer, by agent id.
+    nonisolated static func agentConversations(agents: [AgentLike], sessions: [TreeSession], userId: String?) -> [String: String] {
+        let roots = sessions.filter { $0.parentId == nil }
+        var out: [String: String] = [:]
+        for agent in agents {
+            if let chat = AgentSettings.agentChatOf(
+                agentId: agent.id, groupChatId: agent.groupChatId, sessions: roots, me: userId
+            ) {
+                out[agent.id] = chat.id
+            }
+        }
+        return out
+    }
+
+    private nonisolated static func agentConversations(_ rows: Rows, userId: String?) -> [String: String] {
+        agentConversations(agents: rows.agents, sessions: rows.sessions, userId: userId)
     }
 
     /// #FEED-232 (`rowCases`): an agent row's badge: my conversation's unread
@@ -104,6 +130,7 @@ final class SessionListsModel {
     func chatList(teamId: String?, view: Chats.ChatListView, now: String, utcOffsetMinutes: Int) -> Chats.ChatList {
         // The inputs are read either way, so the caller observes them.
         let groups = teamGroups(teamId), messages = chatMessages, reads = reads, prStates = prStates, words = words, sessions = sessions
+        let viewerId = viewerId, memberNames = memberNames
         let key = "\(revision)|\(teamId ?? "")|\(view)|\(now)|\(utcOffsetMinutes)"
         if let memo = chatListMemo[view], memo.key == key { return memo.list }
         let list = Chats.chatList(
@@ -116,7 +143,9 @@ final class SessionListsModel {
             now: now,
             utcOffsetMinutes: utcOffsetMinutes,
             // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
-            visible: Set(sessions.map(\.id))
+            visible: Set(sessions.map(\.id)),
+            me: viewerId,
+            members: memberNames
         )
         chatListMemo[view] = (key, list)
         return list
@@ -178,7 +207,8 @@ final class SessionListsModel {
             messages: input.messages,
             pullRequests: input.pullRequests,
             mergeMode: input.mergeMode,
-            owner: me.map { input.owners.contains($0) } ?? false
+            owner: me.map { input.owners.contains($0) } ?? false,
+            groupChatIds: groupChatIds
         )
     }
 
@@ -212,6 +242,8 @@ final class SessionListsModel {
         boundAccountId = nil
         groups = []
         agents = []
+        agentConversations = [:]
+        groupChatIds = []
         appsByTeam = [:]
         running = []
         identifiers = [:]
@@ -231,6 +263,7 @@ final class SessionListsModel {
         syncedTeamIds = []
         viewerId = nil
         chatRoots = [:]
+        memberNames = [:]
         loaded = false
     }
 
@@ -252,12 +285,14 @@ final class SessionListsModel {
         /// stuck rows and the approval-only ready rows).
         var mergeModes: [String: String] = [:]
         var owners: [String: Set<String>] = [:]
+        var memberNames: [String: String] = [:]
     }
 
     private struct Derived: Sendable, Equatable {
         var groups: [ChatsListGroup]
         var agents: [AgentRow]
         var agentConversations: [String: String]
+        var groupChatIds: [String]
         var appsByTeam: [String: [Chats.ChatApp]]
         var running: [ChatsListRow]
         var identifiers: [String: String]
@@ -277,6 +312,7 @@ final class SessionListsModel {
         var syncedTeamIds: Set<String>
         var viewerId: String?
         var chatRoots: [String: ChatRootEntry]
+        var memberNames: [String: String]
     }
 
     private func apply(_ derived: Derived) {
@@ -284,6 +320,7 @@ final class SessionListsModel {
         groups = derived.groups
         agents = derived.agents
         agentConversations = derived.agentConversations
+        groupChatIds = derived.groupChatIds
         appsByTeam = derived.appsByTeam
         running = derived.running
         identifiers = derived.identifiers
@@ -303,13 +340,14 @@ final class SessionListsModel {
         syncedTeamIds = derived.syncedTeamIds
         viewerId = derived.viewerId
         chatRoots = derived.chatRoots
+        memberNames = derived.memberNames
         loaded = true
     }
 
     /// What `read` reads (a change to any re-reads).
     nonisolated private static let tables = [
         "sessions", "session_issues", "issues", "session_reads", "pull_requests", "devices",
-        "agents", "apps", "teams", "team_members",
+        "agents", "apps", "teams", "team_members", "users",
     ]
 
     /// The whole session table (the shape already scopes it to what I may
@@ -357,7 +395,13 @@ final class SessionListsModel {
             ),
             owners: Dictionary(
                 grouping: try TeamMemberEntity.filter(Column("role") == "owner").fetchAll(db), by: \.teamId
-            ).mapValues { Set($0.map(\.userId)) }
+            ).mapValues { Set($0.map(\.userId)) },
+            memberNames: Dictionary(
+                try UserEntity.fetchAll(db).compactMap { user in
+                    user.name.flatMap { $0.isEmpty ? nil : (user.id, $0) }
+                },
+                uniquingKeysWith: { a, _ in a }
+            )
         )
     }
 
@@ -458,15 +502,8 @@ final class SessionListsModel {
             agents: SessionTree.listAgents(
                 agents: rows.agents, sessions: rows.sessions, teamId: nil, me: userId
             ),
-            agentConversations: Dictionary(
-                rows.sessions.compactMap { session -> (String, String)? in
-                    guard session.parentId == nil, session.userId == userId,
-                          let agentId = session.agentId, !agentId.isEmpty
-                    else { return nil }
-                    return (agentId, session.id)
-                },
-                uniquingKeysWith: { a, _ in a }
-            ),
+            agentConversations: Self.agentConversations(rows, userId: userId),
+            groupChatIds: rows.agents.compactMap { ($0.groupChatId ?? "").isEmpty ? nil : $0.groupChatId }.sorted(),
             appsByTeam: Dictionary(grouping: rows.apps, by: \.teamId).mapValues { apps in
                 apps.map {
                     Chats.ChatApp(appId: $0.id, slug: $0.slug, name: $0.name, icon: $0.icon, color: $0.color, agentId: $0.agentId)
@@ -496,7 +533,8 @@ final class SessionListsModel {
             // #EXP-1714: `mergeModes` is keyed by every synced `teams` row.
             syncedTeamIds: Set(rows.mergeModes.keys),
             viewerId: userId,
-            chatRoots: chatRoots(rows)
+            chatRoots: chatRoots(rows),
+            memberNames: rows.memberNames
         )
     }
 

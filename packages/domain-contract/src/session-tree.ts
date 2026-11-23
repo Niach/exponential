@@ -17,6 +17,7 @@ import { pictureFor, type CardSurface, type PlanCardPicture } from "./plan-card"
 import { chatTimeLabel, commandDivider } from "./chats"
 import type { LockedReason } from "./sealed-content"
 import { crossSessionInput, isBlankText } from "./transcript-grouping"
+import { agentChatOf } from "./agent-settings"
 
 export interface TreeSession {
   id: string
@@ -1742,6 +1743,9 @@ export interface AgentRow {
   /** S-3: the viewer's own Assistant (agents.role assistant): the brand
    *  mark instead of icon/color, always first. */
   assistant: boolean
+  /** #EXP-1990 (agent-settings.json `groupChat`): a team agent's group chat
+   *  root; absent while it has none. */
+  groupChatId?: string
 }
 
 /** NEW-2: an `agents` definition row as the list needs it. */
@@ -1756,14 +1760,16 @@ export interface AgentLike {
   role?: string | null
   /** S-3: who owns it (an Assistant shows to its owner only). */
   ownerId?: string | null
+  /** #EXP-1990: `agents.group_chat_id`. */
+  groupChatId?: string | null
 }
 
 /**
  * The rail's Agents section (above Boards): one row per `agents` definition
  * of the team (NEW-2), icon + color like boards, by `sortOrder` then name
- * then id. The spinner / needs-you dot read the VIEWER's own conversation
- * session with the agent (a root with `agentId` and `userId == me`); a
- * member without one sees a quiet row.
+ * then id. The spinner / needs-you dot read the agent's chat for the viewer
+ * (`agentChatOf`, #EXP-1990: a team agent's group chat, else the root with
+ * `agentId` and `userId == me`); a member without one sees a quiet row.
  */
 export function listAgents(
   agents: readonly AgentLike[],
@@ -1771,10 +1777,6 @@ export function listAgents(
   teamId: string | null,
   me: string | null
 ): AgentRow[] {
-  const mine = new Map<string, TreeSession>()
-  for (const s of sessions) {
-    if (s.parentId === null && s.agentId && s.userId === me) mine.set(s.agentId, s)
-  }
   const assistant = (a: AgentLike) => a.role === `assistant`
   return agents
     .filter((a) => teamId === null || a.teamId === teamId)
@@ -1790,7 +1792,7 @@ export function listAgents(
         (a.id < b.id ? -1 : 1)
     )
     .map((a) => {
-      const conversation = mine.get(a.id)
+      const conversation = agentChatOf({ agent: { agentId: a.id, groupChatId: a.groupChatId }, sessions, me })
       return {
         agentId: a.id,
         teamId: a.teamId,
@@ -1800,6 +1802,7 @@ export function listAgents(
         busy: conversation?.busy === true && conversation.status !== `ended`,
         needsYou: conversation?.needsInput === true && conversation.status !== `ended`,
         assistant: assistant(a),
+        ...(a.groupChatId ? { groupChatId: a.groupChatId } : {}),
       }
     })
 }

@@ -248,7 +248,8 @@ struct ChatRows: Sendable {
         chat: SessionEntity? = nil,
         originSessionId: String?,
         fromStart: Bool,
-        extraSessions: [TranscriptGrouping.KnownSession] = []
+        extraSessions: [TranscriptGrouping.KnownSession] = [],
+        extraMembers: [TranscriptGrouping.Named] = []
     ) -> TranscriptGrouping.Input {
         let chat = chat ?? root
         let isRoot = chat.id == root.id
@@ -277,7 +278,10 @@ struct ChatRows: Sendable {
                 originSessionId: originSessionId,
                 fromStart: fromStart
             ),
-            members: users.map { TranscriptGrouping.Named(id: $0.id, name: $0.name ?? $0.email) },
+            // #EXP-1990: a group chat's line names its member (the synced
+            // name, else the line's).
+            members: extraMembers + users.filter { user in !extraMembers.contains { $0.id == user.id } }
+                .map { TranscriptGrouping.Named(id: $0.id, name: $0.name ?? $0.email) },
             agents: (xrefAgents + [agent].compactMap { $0 }).map { TranscriptGrouping.Named(id: $0.id, name: $0.name) },
             sessions: known + extraSessions.filter { extra in !known.contains { $0.id == extra.id } },
             items: items

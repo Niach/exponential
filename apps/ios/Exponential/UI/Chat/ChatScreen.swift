@@ -2083,7 +2083,8 @@ struct AgentChatRoute: View {
     }
 }
 
-/// The agent's definition row and the caller's conversation with it, live
+/// The agent's definition row and the caller's chat with it (#EXP-1990:
+/// `agentChatOf`, a team agent's group chat), live
 /// off GRDB. A definition that never arrives turns `missing` after a grace
 /// period (web `SYNC_GRACE_MS`).
 @MainActor
@@ -2105,12 +2106,8 @@ final class AgentChannelModel {
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let observation = ValueObservation.tracking { db -> (AgentDefinitionEntity?, String?, String?) in
             let agent = try AgentDefinitionEntity.fetchOne(db, key: agentId)
-            let conversation = try SessionEntity
-                .filter(Column("agent_id") == agentId)
-                .filter(Column("user_id") == (userId ?? ""))
-                .filter(Column("parent_id") == nil)
-                .order(Column("created_at"), Column("id"))
-                .fetchOne(db)
+            // #EXP-1990 (`agentChatOf`): a team agent's group chat, else my own.
+            let conversation = try AgentSettings.agentChat(db: db, agentId: agentId, me: userId)
             let app = try AppEntity
                 .filter(Column("agent_id") == agentId)
                 .filter(Column("deleted_at") == nil)

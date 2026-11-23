@@ -38,7 +38,8 @@ export function pushBack(stack: readonly string[], here: string | null): string[
 export type SessionTarget =
   /** Its chat (a child = `?tab=sessions&open=session&session=<id>` in place). */
   | { to: `chat`; chatId: string; session: string | null }
-  /** The viewer's own conversation with a team agent = the agent's page. */
+  /** The viewer's chat with an agent (their own conversation, or a team
+   *  agent's group chat) = the agent's page. */
   | { to: `agent`; agentId: string }
   /** `/sessions/$id` (a session under an agent's tree, or one not synced
    *  yet: the route resolves it). */
@@ -55,7 +56,10 @@ export interface TargetSession {
 export function sessionTarget(
   sessionId: string,
   lookup: (id: string) => TargetSession | undefined,
-  viewerId: string | null
+  viewerId: string | null,
+  /** #EXP-1990: the root is its agent's group chat (every member's chat
+   *  with it; inbox-route.json `sessionCases`). */
+  groupChat: (root: TargetSession) => boolean = () => false
 ): SessionTarget {
   const row = lookup(sessionId)
   if (!row) return { to: `session`, sessionId }
@@ -63,7 +67,7 @@ export function sessionTarget(
   const root = rootId === row.id ? row : lookup(rootId)
   if (!root) return { to: `session`, sessionId }
   if (root.agentId) {
-    return row.id === root.id && root.userId === viewerId
+    return row.id === root.id && (root.userId === viewerId || groupChat(root))
       ? { to: `agent`, agentId: root.agentId }
       : { to: `session`, sessionId }
   }

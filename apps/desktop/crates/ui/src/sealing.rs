@@ -302,7 +302,13 @@ fn existing_conversation(input: &SendInput, sessions: &[&SessionRow], cx: &App) 
     let me = crate::queries::active_account(cx)?.user_id;
     let mine = |row: &&&SessionRow| row.is_root() && row.user_id.as_deref() == Some(me.as_str());
     if let Some(agent_id) = &input.agent_id {
-        return sessions.iter().filter(mine).find(|row| row.agent_id.as_ref() == Some(agent_id)).map(|row| row.id.clone());
+        // #EXP-1990: THE agent's chat (`agent_chat_of`): its group chat
+        // (none while that root does not sync: the server creates or names
+        // it), else the member's own conversation.
+        let group_chat_id = Store::try_global(cx)
+            .and_then(|store| store.collections().agents.read(cx).get(agent_id).and_then(|agent| agent.group_chat_id.clone()));
+        return domain::agent_settings::agent_chat_of(agent_id, group_chat_id.as_deref(), sessions.iter().copied(), Some(me.as_str()))
+            .map(|row| row.id.clone());
     }
     if let Some(app_id) = &input.app_id {
         return sessions.iter().filter(mine).find(|row| row.app_id.as_ref() == Some(app_id)).map(|row| row.id.clone());

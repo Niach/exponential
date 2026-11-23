@@ -13,6 +13,9 @@ import {
   assistantChatTeams,
   assistantMoveOf,
   assistantOwnDevices,
+  agentChatOf,
+  groupAskRecipient,
+  groupChatMoveOf,
   coordinatorOf,
   coordinatorOptions,
   leadOptions,
@@ -160,6 +163,21 @@ describe(`agent-settings.json assistant`, () => {
   for (const c of fixture.assistant.move.keepCases) {
     it(`move keepCases: ${c.name}`, () => {
       expect(assistantMoveOf(c.assistants, c.roots)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.groupChat.chatCases) {
+    it(`groupChat chatCases: ${c.name}`, () => {
+      expect(agentChatOf({ agent: c.agent, sessions: c.sessions, me: c.me })?.id ?? null).toBe(c.expected)
+    })
+  }
+  for (const c of fixture.groupChat.moveCases) {
+    it(`groupChat moveCases: ${c.name}`, () => {
+      expect(groupChatMoveOf(c.agents, c.roots)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.groupChat.askCases) {
+    it(`groupChat askCases: ${c.name}`, () => {
+      expect(groupAskRecipient(c)).toEqual(c.expected)
     })
   }
   for (const c of fixture.assistant.orderCases) {

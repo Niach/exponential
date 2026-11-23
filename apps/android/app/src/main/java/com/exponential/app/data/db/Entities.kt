@@ -830,6 +830,10 @@ data class AgentDefinitionEntity(
     // wakePhrase?}` (raw jsonb TEXT, `{}` = the member's; [agentVoice] reads it).
     @ColumnInfo(name = "voice") @SerialName("voice")
     @Serializable(with = JsonAsStringSerializer::class) val voice: String? = null,
+    // #EXP-1990 (agent-settings.json `groupChat`, [MIGRATION_133_134]): a
+    // team agent's group chat root (null = none yet, or the server switch
+    // is off); [com.exponential.app.domain.AgentSettings.agentChatOf] reads it.
+    @ColumnInfo(name = "group_chat_id") @SerialName("group_chat_id") @JsonNames("groupChatId") val groupChatId: String? = null,
 ) {
     /** #EXP-1847: [voice] parsed (null / malformed = none of its own). */
     val agentVoice: com.exponential.app.domain.AgentVoiceLike

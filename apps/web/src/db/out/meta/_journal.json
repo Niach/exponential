@@ -2056,8 +2056,15 @@
     {
       "idx": 293,
       "version": "7",
-      "when": 1795468573408,
-      "tag": "0293_exp2082_install_app_version",
+      "when": 1795461456793,
+      "tag": "0293_exp1990_agent_group_chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 294,
+      "version": "7",
+      "when": 1795473047408,
+      "tag": "0294_exp2082_install_app_version",
       "breakpoints": true
     }
   ]

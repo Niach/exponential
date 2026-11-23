@@ -2483,6 +2483,13 @@ export const agents = pgTable(
     // personal Assistant in this team (only they read it in lists and edit
     // it; never deleted); `agent` = a team agent. SYNCED.
     role: agentRoleEnum(`role`).notNull().default(`agent`).$type<AgentRole>(),
+    // #EXP-1990 (agent-settings.json `groupChat`): a team agent's ONE chat,
+    // its group chat root (never set for an Assistant or an app's agent;
+    // NULL = none yet, or the switch is off). Written with the root, under
+    // this row's lock. SYNCED: clients open the chat by this id.
+    groupChatId: uuid(`group_chat_id`).references((): AnyPgColumn => sessions.id, {
+      onDelete: `set null`,
+    }),
     sortOrder: doublePrecision(`sort_order`).notNull().default(0),
     ...timestamps,
   },

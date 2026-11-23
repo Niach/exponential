@@ -258,6 +258,7 @@ pub(crate) fn session_screen_for(session_id: &str, cx: &App) -> Screen {
         session_id,
         |id| crate::session_data::session(id, cx),
         viewer.as_deref(),
+        |root| crate::session_data::is_group_chat_root(root, cx),
     )
 }
 
@@ -271,6 +272,7 @@ pub(crate) fn session_screen_with(
     session_id: &str,
     lookup: impl Fn(&str) -> Option<domain::rows::SessionRow>,
     viewer_id: Option<&str>,
+    group_chat: impl Fn(&domain::rows::SessionRow) -> bool,
 ) -> Screen {
     use domain::inbox_route::{session_target, SessionTarget};
     let fallback = || Screen::Session {
@@ -290,6 +292,7 @@ pub(crate) fn session_screen_with(
         root.agent_id.as_deref(),
         root.user_id.as_deref(),
         viewer_id,
+        group_chat(&root),
     ) {
         SessionTarget::Agent { agent_id } => Screen::Agent { agent_id },
         SessionTarget::Chat {
@@ -2415,9 +2418,17 @@ mod tests {
             row("s-theirs", "s-theirs", Some("a-scout"), "u-jonas"),
             row("s-chat", "s-chat", None, "u-jonas"),
             row("s-child", "s-chat", None, "u-me"),
+            // #EXP-1990: a team agent's group chat, started by its owner.
+            row("s-group", "s-group", Some("a-release"), "u-jonas"),
+            row("s-group-child", "s-group", None, "u-jonas"),
         ];
         let open = |id: &str| {
-            session_screen_with(id, |id| rows.iter().find(|row| row.id == id).cloned(), Some("u-me"))
+            session_screen_with(
+                id,
+                |id| rows.iter().find(|row| row.id == id).cloned(),
+                Some("u-me"),
+                |root| root.id == "s-group",
+            )
         };
         let session = |id: &str| Screen::Session { session_id: id.to_string() };
         assert_eq!(open("s-assistant"), Screen::Agent { agent_id: "a-assistant".to_string() });
@@ -2426,6 +2437,9 @@ mod tests {
         assert_eq!(open("s-chat"), Screen::Chat { session_id: "s-chat".to_string() });
         assert_eq!(open("s-child"), session("s-child"));
         assert_eq!(open("s-missing"), session("s-missing"));
+        // #EXP-1990: a group chat opens the agent's page for every member.
+        assert_eq!(open("s-group"), Screen::Agent { agent_id: "a-release".to_string() });
+        assert_eq!(open("s-group-child"), session("s-group-child"));
     }
 
     /// #FEED-191 (chats.json THE WAY BACK): a link's screen wears the Back while

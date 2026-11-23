@@ -2766,7 +2766,7 @@ export function shownFeedRows<T extends { id: number; kind: string; text?: strin
     if (item.kind === `user_message`) {
       const input = feedInput(item.text ?? ``)
       // #FEED-254: another session's relayed line with a blank body draws nothing.
-      if (input?.kind === `relay` && isBlankText(input.body)) return `blank`
+      if ((input?.kind === `relay` || input?.kind === `member`) && isBlankText(input.body)) return `blank`
       if (input?.kind !== `marker`) return `input`
       return input.key === `schedule` ? `schedule` : `marker`
     }

@@ -247,7 +247,7 @@ public enum NeedsYou {
     /// being Needs approval.
     private static func pullRequestRows(
         now: Double, me: String?, sessions: [SessionInput], pullRequests: [PullRequestInput],
-        mergeMode: String?, owner: Bool
+        mergeMode: String?, owner: Bool, groupChatIds: Set<String>
     ) -> [Row] {
         let sessionsById = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         let live = Set(pullRequests.filter { $0.state == "open" || $0.state == "draft" }.map(\.id))
@@ -255,7 +255,7 @@ public enum NeedsYou {
         let nowDate = Date(timeIntervalSince1970: now / 1000)
         return pullRequests.compactMap { pr in
             guard let root = pr.rootSessionId.flatMap({ sessionsById[$0] }) else { return nil }
-            if root.agentId != nil, root.userId != me { return nil }
+            if root.agentId != nil, root.userId != me, !groupChatIds.contains(root.id) { return nil }
             if pr.state == "open" || pr.state == "draft",
                let stuck = MergeTrain.stuckRow(
                    number: pr.number, state: pr.mergeState, holdReason: pr.mergeHold,
@@ -302,13 +302,18 @@ public enum NeedsYou {
     /// THE fold: one row per waiting card, once, plus (#EXP-1699) the PRs ready
     /// to merge, newest first.
     /// `mergeMode` = the team's (contract teamMergeMode; `auto` lists no
-    /// ready PR); `owner` = the viewer owns the team (a stuck row's Merge now).
+    /// ready PR); `owner` = the viewer owns the team (a stuck row's Merge now);
+    /// `groupChatIds` (#EXP-1990, agent-settings.json `groupChat`) = the roots
+    /// that are a team agent's group chat: they count for every member.
     public static func rows(
         now: Double, me: String?, sessions: [SessionInput], messages: [MessageInput],
-        pullRequests: [PullRequestInput] = [], mergeMode: String?, owner: Bool = false
+        pullRequests: [PullRequestInput] = [], mergeMode: String?, owner: Bool = false,
+        groupChatIds: [String] = []
     ) -> [Row] {
-        // Another member's agent conversation is theirs (chats.json `listAgents`).
-        let mayRead = sessions.filter { $0.agentId == nil || $0.userId == me }
+        // Another member's agent conversation is theirs (chats.json `listAgents`);
+        // a team agent's group chat is everyone's.
+        let group = Set(groupChatIds)
+        let mayRead = sessions.filter { $0.agentId == nil || $0.userId == me || group.contains($0.rootId) }
         let readable = Dictionary(mayRead.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         let live = readable.filter { $0.value.status != "ended" }
         var rows: [String: Row] = [:]
@@ -329,7 +334,8 @@ public enum NeedsYou {
             rows[row.messageId] = row
         }
         let all = Array(rows.values) + pullRequestRows(
-            now: now, me: me, sessions: sessions, pullRequests: pullRequests, mergeMode: mergeMode, owner: owner
+            now: now, me: me, sessions: sessions, pullRequests: pullRequests, mergeMode: mergeMode, owner: owner,
+            groupChatIds: group
         )
         return all.sorted { a, b in
             if (a.kind == .pr) != (b.kind == .pr) { return b.kind == .pr }

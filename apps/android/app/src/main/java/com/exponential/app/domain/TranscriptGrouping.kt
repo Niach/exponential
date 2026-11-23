@@ -233,7 +233,21 @@ object TranscriptGrouping {
             val body: String,
             val report: Boolean,
         ) : FeedInput
+
+        /** #EXP-1990: a member's message in a team agent's group chat. */
+        data class Member(val name: String, val userId: String, val body: String) : FeedInput
     }
+
+    private val MEMBER_PATTERN = Regex("""^Message from (.+?) \(member ([^,)\s]+)\): ([\s\S]*)$""")
+
+    /** #EXP-1990 (`memberInputCases`): a person's message as the device words
+     *  it in a team agent's group chat (`coding::pickup::input_text`), so the
+     *  agent and the transcript know who wrote it. */
+    fun memberInput(name: String, userId: String, body: String): String = "Message from $name (member $userId): $body"
+
+    /** #EXP-1990: [text] as a member input ([feedInput]'s `member`), else null. */
+    fun memberInputOf(text: String): FeedInput.Member? =
+        MEMBER_PATTERN.matchEntire(text)?.groupValues?.let { FeedInput.Member(it[1], it[2], it[3]) }
 
     private val TAG_PATTERN = Regex("""^\[([a-z_]+)\] """)
     private val SCHEDULE_PATTERN = Regex("""^Schedule `[^`\n]+`[^\n]* fired""")
@@ -242,12 +256,14 @@ object TranscriptGrouping {
     private fun marker(key: String): FeedInput = FeedInput.Marker(key, Copy.MARKERS.getValue(key))
 
     /** A feed input: the device's tagged system line = a marker, another
-     *  session's input = a relay, else null (a person's prompt). */
+     *  session's input = a relay, a member's line in a group chat = a member
+     *  (#EXP-1990), else null (a person's prompt). */
     fun feedInput(text: String): FeedInput? {
         val tag = TAG_PATTERN.find(text)?.groupValues?.get(1)
         if (tag != null && Copy.MARKERS.containsKey(tag)) return marker(tag)
         if (SCHEDULE_PATTERN.containsMatchIn(text)) return marker("schedule")
         if (EVENT_PATTERN.containsMatchIn(text)) return marker("event")
+        memberInputOf(text)?.let { return it }
         val cross = crossSessionInput(text) ?: return null
         return FeedInput.Relay(cross.name, cross.sessionId, cross.body, cross.kind == InputKind.Report)
     }

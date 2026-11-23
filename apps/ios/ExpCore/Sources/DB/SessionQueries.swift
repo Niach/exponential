@@ -69,14 +69,11 @@ public enum SessionQueries {
         )
     }
 
-    /// NEW-2: my conversation session with an agent (a root with its
-    /// `agent_id` that I started); nil = none yet (the first message makes it).
+    /// NEW-2: my chat with an agent (#EXP-1990 `AgentSettings.agentChatOf`:
+    /// a team agent's group chat, else the root with its `agent_id` that I
+    /// started); nil = none yet (the first message makes it).
     public static func conversation(db: Database, agentId: String, userId: String) throws -> SessionEntity? {
-        try SessionEntity
-            .filter(Column("parent_id") == nil)
-            .filter(Column("agent_id") == agentId)
-            .filter(Column("user_id") == userId)
-            .fetchOne(db)
+        try AgentSettings.agentChat(db: db, agentId: agentId, me: userId)
     }
 
     /// One session by id.

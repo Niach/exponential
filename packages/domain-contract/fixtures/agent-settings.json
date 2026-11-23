@@ -1980,5 +1980,359 @@
         ]
       }
     ]
+  },
+  "groupChat": {
+    "$comment": "#EXP-1990 (phase 6 of #EXP-1984, decision 2026-11-16; the asker rule decided 2026-11-23): TEAM AGENTS AS GROUP CHATS. A team agent (`role` agent or coordinator, never an Assistant, never an app's agent: its chat is the app's editor root, one per (app, member)) has ONE chat, its GROUP CHAT: one conversation root for the whole team, named by the synced `agents.group_chat_id` (FK sessions, SET NULL; null = none yet). It replaces one conversation per (agent, member). THE ROOT: `agent_id` = the agent, `parent_id` null, `user_id` = the agent's owner (`agents.owner_id`) while they are a member of the team who may run on its machine, else the member whose message creates it; created on FIRST USE (a message, a trigger firing, an assignment nudge, a call) under the agent's row lock, which writes `group_chat_id` in the same transaction (so one per agent; `uniq_sessions_agent_conversation` stays as it is). It runs where the agent runs: `agents.device_id`, under that machine's host account and the agent's cli / account / model. `shared` keeps its ONE meaning (the device is shared with the team): on a shared machine every team member reads, posts, answers and stops it (the session tree's visibility rule, unchanged) and its sealed tree's readers are every member's installs (sealed-content.json READERS; a teammate who joins later gets the wrap from a holder and reads the history); on its owner's own unshared machine the same root is private and the agent talks to its owner only, as before. The root follows its machine: an agent moved to another device, or a machine whose share changed, re-stamps the tree at the move / the next use (mirrors, neutral lines, the wraps of installs that no longer read it). AUTHORS: nothing new, every chat already reads as a group chat (transcript-grouping.json: a teammate's bubble left under their avatar and name, the viewer's own right, the agent's under its mark); a shared chat wears the existing team mark (chats.json `chatMarks`). WHAT POSTS INTO IT: a trigger firing and an event (authored by the agent's owner, the schedule's ONE folded tick card), an issue assignment's nudge (authored by the assigner), a child's report / ask / wall / PR (the bus: its parent), `sessions_send {agentId}` from a person or a session. CLIENTS open the chat BY ID: `agentChatOf({agent, sessions, me})` (`chatCases`) = the agent's `groupChatId` root when it is synced (parentId null), null when it names a root the viewer does not sync (private to its owner); with no `groupChatId` the root with that `agentId` whose starter is the viewer (the Assistant, always; a team agent before the switch). The chats list's agent rows (chats.json `agentRowCases`), the composer's agent row, Needs you (needs-you.json: a group chat counts for every member), the agent menu, voice and call all read it. PER MEMBER: reads and archive are per viewer already (`session_reads`). A QUESTION OR PLAN the agent asks in its group chat sets the chat's needs-you state for EVERY member and any member may answer (the first answer wins); the PUSH (question-push.json) goes to ONE member, `groupAskRecipient({turnStarterId, ownerId, memberIds})` (`askCases`): THE ASKER = the member whose message the agent is working on (the author of the newest person message among the inputs its turn took; a trigger's card is its owner's line, never a person's message), while still a member; a turn nobody started (a trigger, an event, a child's line) or an asker who left = the agent's OWNER while a member; else nobody. WHOSE RIGHTS: a group turn runs with the AGENT's, never the sender's: the host machine's login clamped to the agent's team, writes stamped with the agent (`actor`), the audit member = the root's starter; upstream MCP connections = the starter's own plus the connections members SHARED with the team (a sender's unshared connection is never used: its output would land in a transcript the team reads). The skill / MCP picks and the composer's picks belong to the chat (the root row): a member's pick is the chat's from the next turn on. VOICE: a call to a team agent runs as a call child of the group chat and reports its summary there; a meeting is refused in a shared chat as before (meeting.json). THE MOVE, behind ONE server switch (`AGENT_GROUP_CHATS=on`, off by default = one conversation per (agent, member) as before, `group_chat_id` stays null, nothing moves): every boot (one transaction under a lock, idempotent) takes every conversation root of a team agent that is not its agent's group chat (`groupChatMoveOf(agents, roots)`, `moveCases`: never an Assistant's, never an app's editor root): its whole tree ENDS, is DETACHED from the agent (`agent_id` null: no cascade takes it with the agent; it reads as an ended chat titled after the agent) and turns PRIVATE (`shared` false on its sessions, messages and issue links; the wraps of installs that are no longer readers dropped, the key flagged for rotation), so it stays readable only by the member who had it. The group chat starts empty on first use. OLD CLIENTS look up (agent, viewer): off, nothing changes for them; on, only the agent's owner still finds the chat, so while the switch is on a CONFIGURED `CLIENT_MIN_VERSION_*` below `clientFloor` counts as the floor (HTTP 426, the update screen; unset still gates nothing), exactly as `assistant.move.clientFloor`. Builds from the floor on work on both sides of the switch and across it (an open app: the old root leaves the agent, the row reads no chat yet, the next message opens the group chat by the id the send returns). Mirrors: TS src/agent-settings.ts, desktop domain::agent_settings, iOS AgentSettings.swift, Android AgentSettings.kt replay `chatCases`; the server replays `moveCases` (real DB) and `askCases`.",
+    "switch": "AGENT_GROUP_CHATS",
+    "clientFloor": {
+      "desktop": "0.14.177",
+      "android": "0.14.156",
+      "ios": "0.14.144"
+    },
+    "chatCases": [
+      {
+        "name": "no group chat yet: the viewer's own conversation",
+        "agent": {
+          "agentId": "ag1",
+          "groupChatId": null
+        },
+        "sessions": [
+          {
+            "id": "c-me",
+            "parentId": null,
+            "agentId": "ag1",
+            "userId": "u-me"
+          },
+          {
+            "id": "c-other",
+            "parentId": null,
+            "agentId": "ag1",
+            "userId": "u-other"
+          }
+        ],
+        "me": "u-me",
+        "expected": "c-me"
+      },
+      {
+        "name": "no conversation at all: none",
+        "agent": {
+          "agentId": "ag1",
+          "groupChatId": null
+        },
+        "sessions": [],
+        "me": "u-me",
+        "expected": null
+      },
+      {
+        "name": "no group chat yet: a teammate's shared conversation is never the viewer's",
+        "agent": {
+          "agentId": "ag1",
+          "groupChatId": null
+        },
+        "sessions": [
+          {
+            "id": "c-other",
+            "parentId": null,
+            "agentId": "ag1",
+            "userId": "u-other"
+          }
+        ],
+        "me": "u-me",
+        "expected": null
+      },
+      {
+        "name": "the group chat, whoever started it",
+        "agent": {
+          "agentId": "ag1",
+          "groupChatId": "g1"
+        },
+        "sessions": [
+          {
+            "id": "g1",
+            "parentId": null,
+            "agentId": "ag1",
+            "userId": "u-owner"
+          }
+        ],
+        "me": "u-me",
+        "expected": "g1"
+      },
+      {
+        "name": "the group chat wins over a conversation of the viewer's that is not detached yet",
+        "agent": {
+          "agentId": "ag1",
+          "groupChatId": "g1"
+        },
+        "sessions": [
+          {
+            "id": "c-me",
+            "parentId": null,
+            "agentId": "ag1",
+            "userId": "u-me"
+          },
+          {
+            "id": "g1",
+            "parentId": null,
+            "agentId": "ag1",
+            "userId": "u-owner"
+          }
+        ],
+        "me": "u-me",
+        "expected": "g1"
+      },
+      {
+        "name": "a group chat the viewer does not sync (private to its owner): none, never their old one",
+        "agent": {
+          "agentId": "ag1",
+          "groupChatId": "g1"
+        },
+        "sessions": [
+          {
+            "id": "c-me",
+            "parentId": null,
+            "agentId": "ag1",
+            "userId": "u-me"
+          }
+        ],
+        "me": "u-me",
+        "expected": null
+      },
+      {
+        "name": "another agent's roots and a child never count",
+        "agent": {
+          "agentId": "ag1",
+          "groupChatId": null
+        },
+        "sessions": [
+          {
+            "id": "c-ag2",
+            "parentId": null,
+            "agentId": "ag2",
+            "userId": "u-me"
+          },
+          {
+            "id": "k1",
+            "parentId": "c-ag2",
+            "agentId": "ag1",
+            "userId": "u-me"
+          }
+        ],
+        "me": "u-me",
+        "expected": null
+      },
+      {
+        "name": "the Assistant has no group chat: the viewer's own root",
+        "agent": {
+          "agentId": "as",
+          "groupChatId": null
+        },
+        "sessions": [
+          {
+            "id": "c-as",
+            "parentId": null,
+            "agentId": "as",
+            "userId": "u-me"
+          }
+        ],
+        "me": "u-me",
+        "expected": "c-as"
+      },
+      {
+        "name": "signed out: only a group chat",
+        "agent": {
+          "agentId": "ag1",
+          "groupChatId": null
+        },
+        "sessions": [
+          {
+            "id": "c-me",
+            "parentId": null,
+            "agentId": "ag1",
+            "userId": "u-me"
+          }
+        ],
+        "me": null,
+        "expected": null
+      }
+    ],
+    "moveCases": [
+      {
+        "name": "every member's private conversation with a team agent ends; nothing is kept",
+        "agents": [
+          {
+            "id": "ag1",
+            "role": "agent",
+            "groupChatId": null
+          }
+        ],
+        "roots": [
+          {
+            "id": "r-a",
+            "agentId": "ag1",
+            "appId": null
+          },
+          {
+            "id": "r-b",
+            "agentId": "ag1",
+            "appId": null
+          }
+        ],
+        "expected": [
+          "r-a",
+          "r-b"
+        ]
+      },
+      {
+        "name": "the group chat stays; a conversation left beside it ends",
+        "agents": [
+          {
+            "id": "ag1",
+            "role": "agent",
+            "groupChatId": "g1"
+          }
+        ],
+        "roots": [
+          {
+            "id": "g1",
+            "agentId": "ag1",
+            "appId": null
+          },
+          {
+            "id": "r-a",
+            "agentId": "ag1",
+            "appId": null
+          }
+        ],
+        "expected": [
+          "r-a"
+        ]
+      },
+      {
+        "name": "an Assistant's conversation and an app's editor root never",
+        "agents": [
+          {
+            "id": "as",
+            "role": "assistant",
+            "groupChatId": null
+          },
+          {
+            "id": "ap",
+            "role": "agent",
+            "groupChatId": null
+          }
+        ],
+        "roots": [
+          {
+            "id": "r-as",
+            "agentId": "as",
+            "appId": null
+          },
+          {
+            "id": "r-app",
+            "agentId": "ap",
+            "appId": "app1"
+          }
+        ],
+        "expected": []
+      },
+      {
+        "name": "a coordinator is a team agent",
+        "agents": [
+          {
+            "id": "co",
+            "role": "coordinator",
+            "groupChatId": null
+          }
+        ],
+        "roots": [
+          {
+            "id": "r-co",
+            "agentId": "co",
+            "appId": null
+          }
+        ],
+        "expected": [
+          "r-co"
+        ]
+      },
+      {
+        "name": "a second pass finds nobody",
+        "agents": [
+          {
+            "id": "ag1",
+            "role": "agent",
+            "groupChatId": "g1"
+          }
+        ],
+        "roots": [
+          {
+            "id": "g1",
+            "agentId": "ag1",
+            "appId": null
+          }
+        ],
+        "expected": []
+      }
+    ],
+    "askCases": [
+      {
+        "name": "the asker: the member whose message the agent is working on",
+        "turnStarterId": "u-b",
+        "ownerId": "u-owner",
+        "memberIds": [
+          "u-owner",
+          "u-b",
+          "u-c"
+        ],
+        "expected": [
+          "u-b"
+        ]
+      },
+      {
+        "name": "the owner asked: the owner",
+        "turnStarterId": "u-owner",
+        "ownerId": "u-owner",
+        "memberIds": [
+          "u-owner",
+          "u-b"
+        ],
+        "expected": [
+          "u-owner"
+        ]
+      },
+      {
+        "name": "a trigger, an event or a child's line started the turn: the agent's owner",
+        "turnStarterId": null,
+        "ownerId": "u-owner",
+        "memberIds": [
+          "u-owner",
+          "u-b"
+        ],
+        "expected": [
+          "u-owner"
+        ]
+      },
+      {
+        "name": "the asker left the team: the owner",
+        "turnStarterId": "u-gone",
+        "ownerId": "u-owner",
+        "memberIds": [
+          "u-owner",
+          "u-b"
+        ],
+        "expected": [
+          "u-owner"
+        ]
+      },
+      {
+        "name": "no asker and the owner left: nobody (the chat still shows needs you)",
+        "turnStarterId": null,
+        "ownerId": "u-gone",
+        "memberIds": [
+          "u-b"
+        ],
+        "expected": []
+      }
+    ]
   }
 }

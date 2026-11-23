@@ -387,6 +387,8 @@ abstract class SessionDao(private val db: RoomDatabase) {
     abstract fun observeCatchUpStamp(): Flow<String?>
 
     // EXP-1459: the caller's conversation root with an agent / app (raw).
+    // #EXP-1990: an agent's chat goes through [agentChat] (its group chat
+    // first); this is only the no-group-chat half of that rule.
     @Query("SELECT * FROM sessions WHERE parent_id IS NULL AND agent_id = :agentId AND user_id = :userId ORDER BY created_at DESC LIMIT 1")
     abstract suspend fun agentConversation(agentId: String, userId: String): SessionEntity?
 
@@ -794,6 +796,9 @@ interface AgentDefinitionDao {
 
     @Query("SELECT * FROM agents WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<AgentDefinitionEntity?>
+
+    @Query("SELECT * FROM agents WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): AgentDefinitionEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: AgentDefinitionEntity)
@@ -1258,4 +1263,35 @@ interface ElectricOffsetDao {
 
     @Query("DELETE FROM electric_offsets")
     suspend fun clear()
+}
+
+/**
+ * #EXP-1990 (agent-settings.json `groupChat`, [com.exponential.app.domain.AgentSettings.agentChatOf]):
+ * the viewer's chat with an agent (raw rows): the agent's group chat root
+ * (`agents.group_chat_id`) when it is synced, none when it names a root this
+ * install does not sync (never the viewer's old conversation); with no group
+ * chat the root with that agent [userId] started. Every lookup of "my chat
+ * with this agent" outside a list fold goes through here.
+ */
+suspend fun ExponentialDatabase.agentChat(agentId: String, userId: String?): SessionEntity? =
+    agentChatLookup(
+        agentId = agentId,
+        userId = userId,
+        groupChatId = { agentDefinitionDao().getById(it)?.groupChatId },
+        byId = { sessionDao().getById(it) },
+        own = { agent, user -> sessionDao().agentConversation(agent, user) },
+    )
+
+/** [agentChat]'s rule over its three reads (unit-tested without Room). */
+internal suspend fun agentChatLookup(
+    agentId: String,
+    userId: String?,
+    groupChatId: suspend (String) -> String?,
+    byId: suspend (String) -> SessionEntity?,
+    own: suspend (String, String) -> SessionEntity?,
+): SessionEntity? {
+    val group = groupChatId(agentId)
+    if (!group.isNullOrEmpty()) return byId(group)?.takeIf { it.parentId == null }
+    if (userId.isNullOrEmpty()) return null
+    return own(agentId, userId)
 }

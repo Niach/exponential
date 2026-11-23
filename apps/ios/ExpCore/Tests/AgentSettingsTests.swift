@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import XCTest
 @testable import ExpCore
 
@@ -803,6 +804,73 @@ final class AgentSettingsTests: XCTestCase {
                 name
             )
         }
+    }
+
+    private struct ChatSession: AgentChatSession {
+        let id: String
+        let parentId: String?
+        let agentId: String?
+        let userId: String
+    }
+
+    /// #EXP-1990 `groupChat.chatCases`: the agent's chat for the viewer.
+    func testGroupChatChatCases() throws {
+        let group = try XCTUnwrap(try fixture()["groupChat"] as? [String: Any])
+        let cases = try XCTUnwrap(group["chatCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let agent = try XCTUnwrap(c["agent"] as? [String: Any], name)
+            let sessions = try XCTUnwrap(c["sessions"] as? [[String: Any]], name).map {
+                ChatSession(
+                    id: $0["id"] as? String ?? "",
+                    parentId: $0["parentId"] as? String,
+                    agentId: $0["agentId"] as? String,
+                    userId: $0["userId"] as? String ?? ""
+                )
+            }
+            let got = AgentSettings.agentChatOf(
+                agentId: try XCTUnwrap(agent["agentId"] as? String, name),
+                groupChatId: agent["groupChatId"] as? String,
+                sessions: sessions,
+                me: c["me"] as? String
+            )
+            XCTAssertEqual(got?.id, c["expected"] as? String, name)
+        }
+    }
+
+    /// #EXP-1990: the store lookup reads the agent's `group_chat_id` first.
+    func testAgentChatOverTheStore() throws {
+        let pool = try DatabasePool(path: NSTemporaryDirectory() + "exp1990-agent-chat-\(UUID().uuidString).sqlite")
+        try DatabaseManager.runMigrations(on: pool)
+        func session(_ id: String, user: String) throws -> SessionEntity {
+            try JSONDecoder().decode(SessionEntity.self, from: Data("""
+                {"id":"\(id)","team_id":"t","root_id":"\(id)","user_id":"\(user)","agent_id":"ag1","device_id":"d",
+                 "created_at":"x","updated_at":"x"}
+                """.utf8))
+        }
+        try pool.write { db in
+            try AgentDefinitionEntity(id: "ag1", teamId: "t", name: "Release", createdAt: "x", updatedAt: "x").save(db)
+            try session("c-me", user: "me").save(db)
+            try session("g1", user: "owner").save(db)
+        }
+        // Switch off: the viewer's own root; a teammate's never.
+        XCTAssertEqual(try pool.read { try AgentSettings.agentChat(db: $0, agentId: "ag1", me: "me")?.id }, "c-me")
+        XCTAssertNil(try pool.read { try AgentSettings.agentChat(db: $0, agentId: "ag1", me: "other") })
+        XCTAssertFalse(try pool.read { try AgentSettings.isGroupChatRoot(db: $0, rootId: "g1", agentId: "ag1") })
+        // Switch on: the group chat for every member, whoever started it.
+        try pool.write { db in
+            try db.execute(sql: #"UPDATE "agents" SET "group_chat_id" = 'g1' WHERE "id" = 'ag1'"#)
+        }
+        XCTAssertEqual(try pool.read { try AgentSettings.agentChat(db: $0, agentId: "ag1", me: "me")?.id }, "g1")
+        XCTAssertEqual(try pool.read { try AgentSettings.agentChat(db: $0, agentId: "ag1", me: "other")?.id }, "g1")
+        XCTAssertTrue(try pool.read { try AgentSettings.isGroupChatRoot(db: $0, rootId: "g1", agentId: "ag1") })
+        XCTAssertFalse(try pool.read { try AgentSettings.isGroupChatRoot(db: $0, rootId: "c-me", agentId: "ag1") })
+        // A group chat the viewer does not sync: none, never their old one.
+        try pool.write { db in
+            try db.execute(sql: #"UPDATE "agents" SET "group_chat_id" = 'g-missing' WHERE "id" = 'ag1'"#)
+        }
+        XCTAssertNil(try pool.read { try AgentSettings.agentChat(db: $0, agentId: "ag1", me: "me") })
     }
 
     func testAgentVoiceParsesTheJsonbAndRoundTrips() throws {

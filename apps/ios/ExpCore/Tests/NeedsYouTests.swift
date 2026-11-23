@@ -94,7 +94,8 @@ final class NeedsYouTests: XCTestCase {
                 sessions: sessions,
                 messages: messages,
                 pullRequests: pullRequests,
-                mergeMode: input["mergeMode"] as? String
+                mergeMode: input["mergeMode"] as? String,
+                groupChatIds: input["groupChatIds"] as? [String] ?? []
             ).map(json)
             let expected = try XCTUnwrap(entry["expected"] as? [Any], name)
             XCTAssertTrue(

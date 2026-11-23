@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 
 // EXP-1291: Team settings → Agents, managed exactly like boards (a
 // Settings row per agent, the board page layout per agent). A 1:1 port of the
@@ -647,6 +648,53 @@ public enum AgentSettings {
         return isAssistant(role: agent.role) && agent.ownerId == me
     }
 
+    // MARK: - Group chat (#EXP-1990, `groupChat`)
+
+    /// `groupChat.chatCases` (TS `agentChatOf`): THE chat of an agent for the
+    /// viewer: its group chat (`groupChatId`) when that root is synced, none
+    /// when it names a root the viewer does not sync; with no group chat the
+    /// root with its `agentId` the viewer started (the Assistant; a team
+    /// agent before the switch).
+    public static func agentChatOf<T: AgentChatSession>(
+        agentId: String, groupChatId: String?, sessions: [T], me: String?
+    ) -> T? {
+        if let groupChatId, !groupChatId.isEmpty {
+            return sessions.first { $0.id == groupChatId && $0.parentId == nil }
+        }
+        guard let me else { return nil }
+        return sessions.first { $0.parentId == nil && $0.agentId == agentId && $0.userId == me }
+    }
+
+    /// `agentChatOf` over the local store: the agent's group chat root by id,
+    /// else the viewer's own root with the agent (oldest first).
+    public static func agentChat(db: Database, agentId: String, me: String?) throws -> SessionEntity? {
+        let groupChatId = try String.fetchOne(
+            db, sql: #"SELECT "group_chat_id" FROM "agents" WHERE "id" = ?"#, arguments: [agentId]
+        )
+        let sessions: [SessionEntity]
+        if let groupChatId, !groupChatId.isEmpty {
+            sessions = try SessionEntity.filter(key: groupChatId).fetchAll(db)
+        } else if let me {
+            sessions = try SessionEntity
+                .filter(Column("agent_id") == agentId && Column("user_id") == me && Column("parent_id") == nil)
+                .order(Column("created_at"), Column("id"))
+                .fetchAll(db)
+        } else {
+            sessions = []
+        }
+        return agentChatOf(agentId: agentId, groupChatId: groupChatId, sessions: sessions, me: me)
+    }
+
+    /// `root` is its agent's group chat (`agents.group_chat_id` names it):
+    /// every member's chat with the agent (inbox-route.json `groupChat`).
+    public static func isGroupChatRoot(db: Database, rootId: String, agentId: String?) throws -> Bool {
+        guard let agentId, !agentId.isEmpty else { return false }
+        let groupChatId = try String.fetchOne(
+            db, sql: #"SELECT "group_chat_id" FROM "agents" WHERE "id" = ?"#, arguments: [agentId]
+        )
+        return groupChatId == rootId
+    }
+
     // MARK: - Coordinator (#EXP-1717, `coordinator`)
 
     public enum CoordinatorCopy {
@@ -728,6 +776,17 @@ public enum AgentSettings {
         return [leadNone] + sorted.map(\.userId)
     }
 }
+
+/// #EXP-1990: a session row `agentChatOf` reads.
+public protocol AgentChatSession {
+    var id: String { get }
+    var parentId: String? { get }
+    var agentId: String? { get }
+    var userId: String { get }
+}
+
+extension SessionEntity: AgentChatSession {}
+extension TreeSession: AgentChatSession {}
 
 extension AgentDefinitionEntity: AgentTeamScoped {
     public var agentTeamId: String { teamId }

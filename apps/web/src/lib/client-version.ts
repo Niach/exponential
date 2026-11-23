@@ -7,8 +7,9 @@
 // the header existed never send it and must keep working, and a malformed
 // env var must never brick the whole install base.
 
-import { ASSISTANT_CLIENT_FLOOR } from "@exp/domain-contract/agent-settings"
+import { ASSISTANT_CLIENT_FLOOR, GROUP_CHAT_CLIENT_FLOOR } from "@exp/domain-contract/agent-settings"
 import { assistantMoveOn } from "@/lib/agents/assistant-move-switch"
+import { agentGroupChatsOn } from "@/lib/agents/group-chat-switch"
 
 export const CLIENT_VERSION_HEADER = `x-client-version`
 
@@ -58,12 +59,16 @@ export const DEVICE_SEALING_FLOOR = `0.14.96`
  *  (#EXP-1986 `ASSISTANT_MOVE`), #EXP-1984's Assistant floor
  *  (agent-settings.json `assistant.move.clientFloor`: older builds look for
  *  the Assistant inside the current team only, so they lose it once it lives
- *  in the personal team). The highest applies. */
+ *  in the personal team) and, once team agents' group chats are switched on
+ *  (#EXP-1990 `AGENT_GROUP_CHATS`), their floor. The highest applies. */
 export function clientFloors(platform: ClientPlatform): readonly string[] {
   const sealing = platform === `desktop` || platform === `cli` ? [DEVICE_SEALING_FLOOR] : []
   const assistant =
     assistantMoveOn() && platform !== `cli` ? [ASSISTANT_CLIENT_FLOOR[platform]] : []
-  return [...sealing, ...assistant]
+  // #EXP-1990 (agent-settings.json `groupChat.clientFloor`): older builds
+  // look up a team agent's chat per (agent, viewer) and lose the group chat.
+  const group = agentGroupChatsOn() && platform !== `cli` ? [GROUP_CHAT_CLIENT_FLOOR[platform]] : []
+  return [...sealing, ...assistant, ...group]
 }
 
 /** The configured minimum, raised to the platform's floors. */

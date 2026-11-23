@@ -631,6 +631,10 @@ RETURNS jsonb AS $$
       'messageId', CASE WHEN m.card->>'kind' = 'ask' AND jsonb_typeof(m.card->'messageId') = 'string' THEN m.card->>'messageId' END)) END,
     'answeredAt', CASE WHEN m.answered_at IS NULL THEN NULL ELSE conversation_digest_ms(m.answered_at) END,
     'createdAt', conversation_digest_ms(m.created_at))
+    -- #EXP-1990 (chats.json `chatPreview`): a person's message names its
+    -- author (a clear id, never a name), so a teammate's line never reads `You:`.
+    || CASE WHEN m.author_kind = 'user' AND m.author_id IS NOT NULL
+      THEN jsonb_build_object('authorId', m.author_id) ELSE '{}'::jsonb END
 $$ LANGUAGE sql STABLE;
 
 CREATE OR REPLACE FUNCTION conversation_digest_message(m messages)

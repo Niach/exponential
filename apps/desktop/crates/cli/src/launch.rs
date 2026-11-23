@@ -419,6 +419,9 @@ fn foreground_pass(
         in_flight: &in_flight,
         revive_held: &revive_held,
         moves: &moves,
+        // #EXP-1990: a foreground session is never an agent's group chat
+        // (this store syncs no `agents`).
+        member_inputs: &coding::pickup::MemberInputs::default(),
     });
     for action in actions {
         let ours = match &action {

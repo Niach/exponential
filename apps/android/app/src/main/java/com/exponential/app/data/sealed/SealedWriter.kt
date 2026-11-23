@@ -16,6 +16,7 @@ import com.exponential.app.data.chatTeamIssues
 import com.exponential.app.data.crossTeamOrder
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ExponentialDatabase
+import com.exponential.app.data.db.agentChat
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.enet.EnetFfi
 import com.exponential.app.data.enet.EnetIdentityStore
@@ -440,7 +441,9 @@ class SealedWriter @Inject constructor(
         val conversation = explicitId == null && (input.agentId != null || input.appId != null)
         val existing: SessionEntity? = when {
             explicitId != null -> db.sessionDao().getById(explicitId)
-            input.agentId != null -> userId?.let { db.sessionDao().agentConversation(input.agentId, it) }
+            // #EXP-1990: a team agent's group chat (a first message into one not
+            // synced yet opens a fresh tree, as a first message to an agent).
+            input.agentId != null -> db.agentChat(input.agentId, userId)
             input.appId != null -> userId?.let { db.sessionDao().appConversation(input.appId, it) }
             else -> null
         }

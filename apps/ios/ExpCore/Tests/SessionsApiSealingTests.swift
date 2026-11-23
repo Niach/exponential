@@ -124,6 +124,61 @@ final class SessionsApiSealingTests: XCTestCase {
         XCTAssertEqual(sent.map { $0["clientMessageId"] as? String }, ["c1", "c2"])
     }
 
+    /// #EXP-1990 (agent-settings.json `groupChat`): a send to a team agent
+    /// seals to its GROUP chat's key, whoever started it; while it has none
+    /// (switch on, no chat yet) the first message carries a new key exactly
+    /// like a first conversation; my old conversation never counts once the
+    /// agent names a group chat.
+    func testAnAgentSendSealsToItsGroupChat() async throws {
+        let auth = AuthRepository(accountStore: AccountStore(keychain: FakeKeychain()))
+        auth.setInstanceUrl("https://exp.example.com")
+        auth.setToken("t", email: "u@x.com", userId: "u", onboardingKnown: true)
+        let accountId = ServerAccount.makeId(instanceUrl: "https://exp.example.com", userId: "u")
+        let db = DatabaseManager()
+        defer {
+            db.closePool(forAccountId: accountId)
+            DatabaseManager.deleteFiles(forAccountId: accountId)
+        }
+        let pool = try db.pool(forAccountId: accountId)
+        try DatabaseManager.runMigrations(on: pool)
+        let rows = [
+            #"{"id":"mine","team_id":"t","user_id":"u","agent_id":"ag1","device_id":"d","seal_public_key":"my-key","seal_epoch":1,"created_at":"x","updated_at":"x"}"#,
+            #"{"id":"group","team_id":"t","user_id":"owner","agent_id":"ag1","shared":true,"device_id":"d","seal_public_key":"group-key","seal_epoch":3,"created_at":"x","updated_at":"x"}"#,
+        ]
+        try await pool.write { conn in
+            for row in rows { try JSONDecoder().decode(SessionEntity.self, from: Data(row.utf8)).save(conn) }
+            try AgentDefinitionEntity(id: "ag1", teamId: "t", name: "Release", createdAt: "x", updatedAt: "x").save(conn)
+            try AgentDefinitionEntity(id: "ag2", teamId: "t", name: "Designer", createdAt: "x", updatedAt: "x").save(conn)
+        }
+        let crypto = StubCrypto()
+        let api = SessionsApi(trpc: TrpcClient(httpClient: HTTPClient(auth: auth, protocolClasses: [Server.self]), auth: auth))
+        api.sealing.sealer = SessionSealer(
+            holder: TreeKeyHolder(
+                keys: Keys(), installs: nil, crypto: crypto, ring: SealedKeyRing(persistence: .memory),
+                identity: { Data(repeating: 3, count: 32) }, installId: { _ in "install-me" }
+            ),
+            opener: SealedOpener(crypto: crypto, ring: SealedKeyRing(persistence: .memory)),
+            db: db,
+            userId: { _ in "u" }
+        )
+        Server.bodies.mutate { $0 = [] }
+
+        // Switch off: my own conversation.
+        try await api.send(accountId: accountId, .agent(agentId: "ag1", text: "off"), clientMessageId: "c1")
+        // Switch on: the group chat's key.
+        try await pool.write { conn in
+            try conn.execute(sql: #"UPDATE "agents" SET "group_chat_id" = 'group' WHERE "id" = 'ag1'"#)
+        }
+        try await api.send(accountId: accountId, .agent(agentId: "ag1", text: "on"), clientMessageId: "c2")
+        // No group chat yet: a new key, like a first conversation.
+        try await api.send(accountId: accountId, .agent(agentId: "ag2", text: "first"), clientMessageId: "c3")
+
+        XCTAssertEqual(
+            Server.bodies.value.map { $0["text"] as? String },
+            ["exp-sealed:my-key:1:off", "exp-sealed:group-key:3:on", "exp-sealed:new-tree:1:first"]
+        )
+    }
+
     /// #EXP-1958 (sealed-content.json `cardStamps`): a tap on a sealed card
     /// goes through the same writer: the text sealed, a Start's `name` as
     /// `sealedName` (no clear `name`), `cardItem` passed through untouched.

@@ -802,22 +802,34 @@ struct AgentSessionView: View {
                             // #EXP-2000: nothing to say; the own bubbles sit at the bottom.
                             if case .waiting = placeholder { Spacer(minLength: 0) }
                             if !inputs.isEmpty {
+                                let layouts = sentInputLayouts(inputs, model: model)
                                 VStack(alignment: .trailing, spacing: 0) {
                                     ForEach(Array(inputs.enumerated()), id: \.element.id) { index, input in
-                                        // #FEED-239: one own group under the viewer's avatar.
+                                        // #FEED-239: an own group under the viewer's avatar;
+                                        // #EXP-1990: a teammate's (a group chat) under theirs.
                                         let key = FindInChat.messageKey(input.id)
+                                        let layout = layouts[input.id]
                                         TranscriptRow(
-                                            side: .own,
-                                            gap: index == 0 ? 0 : TranscriptGrouping.Layout.gapInGroup,
-                                            avatar: index == 0 ? ownAvatar : nil
+                                            layout: layout,
+                                            avatar: { transcriptRows?.senderAvatar($0) ?? Self.fallbackAvatar($0) },
+                                            ownAvatar: ownAvatar
                                         ) {
-                                            UserMessageBubble(
-                                                text: input.text,
-                                                context: markdownContext,
-                                                caption: input.at.map { GlassTimeRow.formatted($0) },
-                                                status: .read,
-                                                tail: index == 0
-                                            )
+                                            Group {
+                                                if layout?.side == .other {
+                                                    senderBubble(
+                                                        input.text, layout: layout, streaming: false,
+                                                        time: input.at.map { GlassTimeRow.formatted($0) }
+                                                    )
+                                                } else {
+                                                    UserMessageBubble(
+                                                        text: input.text,
+                                                        context: markdownContext,
+                                                        caption: input.at.map { GlassTimeRow.formatted($0) },
+                                                        status: .read,
+                                                        tail: layout?.tail ?? (index == 0)
+                                                    )
+                                                }
+                                            }
                                             // #EXP-1975: a sent input is a loaded find row.
                                             .modifier(FindRowMark(id: TranscriptFind.bubbleItemId(key)))
                                         }
@@ -1585,6 +1597,17 @@ struct AgentSessionView: View {
                     agent: model?.catalogAgent
                 ) {
                     CommandPill(command: command, text: text)
+                } else if case let .member(_, _, body) = TranscriptGrouping.feedInput(text) {
+                    // #EXP-1990: a member's line in a team agent's group chat:
+                    // theirs (the viewer's own = their own bubble), the bubble
+                    // holding the body alone.
+                    if layout?.side == .other {
+                        senderBubble(body, layout: layout, streaming: false, time: time)
+                            .modifier(FindRowMark(id: id))
+                    } else {
+                        UserMessageBubble(text: body, context: markdownContext, caption: time, status: .read, tail: layout?.tail == true)
+                            .modifier(FindRowMark(id: id))
+                    }
                 } else if let input = TranscriptGrouping.crossSessionInput(text) {
                     // #EXP-1736: a parent's or child's message reaching this
                     // session = THAT session's bubble; #EXP-1772: a relay,
@@ -1696,6 +1719,35 @@ struct AgentSessionView: View {
         )
     }
 
+    /// #EXP-1990 (transcript-grouping.json): the sent inputs through THE
+    /// grouping by their synced author: the viewer's own group right, a
+    /// teammate's (a team agent's group chat) left under their avatar and
+    /// name; by input id.
+    private func sentInputLayouts(_ inputs: [NoFeedInput], model: AgentSessionModel) -> [String: TranscriptGrouping.RowLayout] {
+        let viewerId = deps.auth.userId
+        let items = inputs.map {
+            TranscriptGrouping.Item(
+                id: $0.id, kind: .message, authorKind: DomainContract.messageAuthorKindUser,
+                authorId: $0.authorId ?? viewerId
+            )
+        }
+        let viewed = model.session ?? session
+        let input = transcriptRows?.transcriptInput(
+            items: items, viewerId: viewerId, chat: viewed, originSessionId: nil, fromStart: false
+        ) ?? TranscriptGrouping.Input(
+            viewerId: viewerId,
+            chat: TranscriptGrouping.Chat(
+                sessionId: viewed.id, title: viewed.title ?? SessionTitle.Copy.untitled,
+                agentId: viewed.agentId, originSessionId: nil
+            ),
+            members: [], agents: [], sessions: [], items: items
+        )
+        return Dictionary(
+            zip(items.map(\.id), TranscriptGrouping.transcriptLayout(input)).map { ($0, $1) },
+            uniquingKeysWith: { a, _ in a }
+        )
+    }
+
     /// #EXP-1736: the feed's grouping — per entry id its layout, the
     /// avatar on a group's first row, and the grouping gap where a bubble
     /// follows a bubble (else the EXP-787 ladder stays).
@@ -1719,6 +1771,8 @@ struct AgentSessionView: View {
         let viewerId = deps.auth.userId
         var items: [TranscriptGrouping.Item] = anchors.unanchored.map { TranscriptGrouping.Item(id: "card:\($0)", kind: .full) }
         var extraSessions: [TranscriptGrouping.KnownSession] = []
+        // #EXP-1990: the members a group chat's lines name.
+        var extraMembers: [TranscriptGrouping.Named] = []
         // #EXP-2049 (find-in-chat.json AFTER AN OLDER LANDING): the origin is
         // the FEED's first prompt; a synced-tail row (a paged-in older one
         // too) draws by the synced rule (the viewer's own = the own bubble).
@@ -1743,16 +1797,13 @@ struct AgentSessionView: View {
                     // #EXP-1943: a call's report relay = its card, a full row.
                     if SessionTree.feedCallSession(text, callIds: Set(callSessions.map(\.id))) != nil { break }
                     if firstInputSynced == nil { firstInputSynced = model.findMessageId(rowId) != nil }
-                    if let input = TranscriptGrouping.crossSessionInput(text) {
-                        item = TranscriptGrouping.Item(
-                            id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent,
-                            authorSessionId: input.sessionId
-                        )
-                        extraSessions.append(TranscriptGrouping.KnownSession(id: input.sessionId, title: input.name, agentId: nil))
-                    } else {
-                        item = TranscriptGrouping.Item(
-                            id: id, kind: .message, authorKind: DomainContract.messageAuthorKindUser, authorId: viewerId
-                        )
+                    let prompt = TranscriptGrouping.feedPrompt(id: id, text: text, viewerId: viewerId) { userId in
+                        transcriptRows?.user(id: userId)?.name
+                    }
+                    item = prompt.item
+                    if let known = prompt.session { extraSessions.append(known) }
+                    if let member = prompt.member, !extraMembers.contains(where: { $0.id == member.id }) {
+                        extraMembers.append(member)
                     }
                 case let .tool(_, name, _, _, callId, _, _, _, _, _, _, _, _):
                     // EXP-1750: a `Workflow` call draws as THE Work card,
@@ -1774,7 +1825,8 @@ struct AgentSessionView: View {
         let viewed = model.session ?? session
         let input = transcriptRows?.transcriptInput(
             items: items, viewerId: viewerId, chat: viewed, originSessionId: originSessionId,
-            fromStart: model.transcriptFromStart && firstInputSynced != true, extraSessions: extraSessions
+            fromStart: model.transcriptFromStart && firstInputSynced != true, extraSessions: extraSessions,
+            extraMembers: extraMembers
         ) ?? TranscriptGrouping.Input(
             viewerId: viewerId,
             chat: TranscriptGrouping.Chat(
@@ -1783,7 +1835,7 @@ struct AgentSessionView: View {
                 agentId: viewed.agentId,
                 originSessionId: nil
             ),
-            members: [], agents: [], sessions: extraSessions, items: items
+            members: extraMembers, agents: [], sessions: extraSessions, items: items
         )
         var out = FeedGrouping()
         var previous: TranscriptGrouping.Item?
@@ -2212,7 +2264,7 @@ struct AgentSessionView: View {
                 }
                 let inputs: [NoFeedInput] = picked.compactMap { m in
                     let text = m.locked.map(SealedPlaceholder.copy) ?? m.body
-                    return TranscriptGrouping.isBlankText(text) ? nil : NoFeedInput(id: m.id, text: text, at: WireTimestamps.parse(m.createdAt))
+                    return TranscriptGrouping.isBlankText(text) ? nil : NoFeedInput(id: m.id, text: text, at: WireTimestamps.parse(m.createdAt), authorId: m.authorId)
                 }
                 if inputs != noFeedInputs { noFeedInputs = inputs }
                 let read = (ids: rows.map(\.id), more: rows.count >= limit)
@@ -3000,10 +3052,12 @@ struct AgentSessionView: View {
     }
 
     /// #EXP-1793 (composer-menu.json `mcpPick`): the agent whose conversation
-    /// ROOT this is, while it is the viewer's own; nil anywhere else (a
-    /// child, another member's conversation, any other session).
+    /// ROOT this is, while the viewer steers it (their own, or #EXP-1990 a
+    /// shared one: a team agent's group chat, whose pick is the chat's); nil
+    /// anywhere else (a child, another member's private conversation, any
+    /// other session).
     private var mcpPickAgentId: String? {
-        guard session.parentId == nil, session.userId == deps.auth.userId,
+        guard session.parentId == nil, session.userId == deps.auth.userId || session.shared,
               let agentId = session.agentId, !agentId.isEmpty
         else { return nil }
         return agentId
@@ -5705,4 +5759,6 @@ struct NoFeedInput: Identifiable, Equatable {
     let text: String
     /// #FEED-237: the bubble's `HH:mm` (message-delivery.json).
     var at: Date? = nil
+    /// #EXP-1990: who sent it (a group chat holds every member's inputs).
+    var authorId: String? = nil
 }

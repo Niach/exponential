@@ -235,6 +235,8 @@ async function childTeam(input: SessionsSendInput, parent: Session): Promise<str
   return input.teamId
 }
 
+export const DEVICE_NOT_SHARED_MESSAGE = `This device is not yours and not shared with the team`
+
 /**
  * The machine a new session runs on: the caller's own device, or one its
  * owner shared with the team (EXP-432). `shared` = that devices row shares
@@ -272,10 +274,7 @@ export async function resolveSessionDevice(
   }
   // NOT_FOUND, before anything else is looked at: a machine the caller may
   // not see is never described (not its version, not whether it is online).
-  throw new TRPCError({
-    code: `NOT_FOUND`,
-    message: `This device is not yours and not shared with the team`,
-  })
+  throw new TRPCError({ code: `NOT_FOUND`, message: DEVICE_NOT_SHARED_MESSAGE })
 }
 
 /** #EXP-1259 (FEED-149): a start's device, read INSIDE its transaction
