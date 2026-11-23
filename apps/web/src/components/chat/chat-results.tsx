@@ -1,3 +1,4 @@
+import type { ActionEvent } from "@exp/domain-contract/chat-express"
 import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { additionsLabel, deletionsLabel, type DiffFile } from "@exp/domain-contract/diff"
@@ -189,7 +190,7 @@ export function ChatResults({
   review,
   file,
   onReview,
-  onSurfaceReply,
+  onSurfaceAction,
 }: {
   /** `useResultsTab` of the root. */
   tab: ResultsTabState
@@ -201,8 +202,8 @@ export function ChatResults({
   review: boolean
   file: string | null
   onReview: (open: boolean, file?: string | null) => void
-  /** An inline surface's reply press (THE chat's), sent to the result's session. */
-  onSurfaceReply?: (result: Result, text: string) => void
+  /** #EXP-2067: an inline surface's action event (THE chat's), posted to the result's session. */
+  onSurfaceAction?: (result: Result, event: ActionEvent) => void
 }) {
   const isMobile = useIsMobile()
   const files = usePullRequestFiles(pullRequest?.id ?? null)
@@ -231,7 +232,7 @@ export function ChatResults({
       size={isMobile ? `phone` : `wide`}
       lead={lead}
       surfaceFor={(result) => cardSurface((tab.cardFor(result) as { surface?: unknown } | null)?.surface)}
-      onSurfaceReply={onSurfaceReply}
+      onSurfaceAction={onSurfaceAction}
     />
   )
 }

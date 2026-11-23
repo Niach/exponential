@@ -18,7 +18,7 @@ export function hostPlugin(host: ExponentialHost, base: HostPlugin = {}): HostPl
   return {
     ...base,
     onAction: (e) => {
-      host.action({ surfaceId: e.surfaceId, componentId: e.componentId, name: e.name, context: e.context, payload: e.payload, timestamp: e.timestamp })
+      host.action({ surfaceId: e.surfaceId, componentId: e.componentId, name: e.name, context: e.context, payload: e.payload, userMessage: e.userMessage, timestamp: e.timestamp })
       return base.onAction?.(e)
     },
     onFunctionCall: async (call) => {

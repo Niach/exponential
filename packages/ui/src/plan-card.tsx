@@ -140,12 +140,22 @@ export function useCardLinks(): CardLinks | null {
 /** THE card host (the plan card's, and chat 58cb32df's `SurfaceCard`):
  *  `onAction` = the surface's action events (a surface card's `reply`). */
 export function planCardHost(
-  onAction?: (event: { name: string; context: Record<string, unknown> }) => void,
+  onAction?: (event: { name: string; context: Record<string, unknown> | undefined; userMessage?: string }) => void,
   links?: CardLinks | null
 ): HostPlugin {
   const origin = typeof window === `undefined` ? `http://localhost` : window.location.origin
   return {
-    ...(onAction ? { onAction: (event) => onAction({ name: event.name, context: event.context }) } : {}),
+    // #EXP-2067: the event's resolved context (none = undefined) and userMessage.
+    ...(onAction
+      ? {
+          onAction: (event) =>
+            onAction({
+              name: event.name,
+              context: Object.keys(event.context).length > 0 ? event.context : undefined,
+              ...(event.userMessage === undefined ? {} : { userMessage: event.userMessage }),
+            }),
+        }
+      : {}),
     icons: CARD_ICONS,
     media: { baseUrl: origin },
     // #EXP-1674: https, plus the instance's own scheme (a local http stack).

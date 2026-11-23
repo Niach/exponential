@@ -30,6 +30,8 @@ export interface SurfaceActionEvent {
   /** What the component adds (a Select's `value`, a Tabs' `value`…). */
   payload?: Record<string, unknown>
   timestamp: string
+  /** #EXP-2067: the Action's resolved `event.userMessage`, when it has one. */
+  userMessage?: string
 }
 
 /** A host-owned input edit. `change` fires debounced while typing with a
