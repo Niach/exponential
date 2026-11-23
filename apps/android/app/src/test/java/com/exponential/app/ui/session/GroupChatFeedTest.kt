@@ -107,4 +107,19 @@ class GroupChatFeedTest {
         assertEquals(false, second.avatar || second.name || second.tail)
         assertEquals(TranscriptGrouping.Copy.FORMER_MEMBER, layouts.getValue("d").sender?.name)
     }
+
+    @Test
+    fun `a teammate's input the device has not consumed draws as theirs, never the viewer's own`() {
+        fun row(id: String, authorId: String?, consumed: Boolean = false, card: String? = null, body: String = id) =
+            com.exponential.app.data.db.MessageEntity(
+                id = id, sessionId = "g1", authorKind = "user", authorId = authorId, body = body, card = card,
+                consumedAt = if (consumed) "2026-11-23T10:00:05.000Z" else null, createdAt = "2026-11-23T10:00:00.000Z",
+            )
+        val rows = listOf(row("mine", "u-me"), row("hers", "u-mira"), row("done", "u-mira", consumed = true),
+            row("card", "u-mira", card = """{"kind":"action"}"""), row("blank", "u-mira", body = " "), row("old", null))
+        val tail = teammatePending(rows, "u-me")
+        assertEquals(listOf("member-row-hers"), tail.map { it.key })
+        assertEquals("u-mira", tail.single().authorId)
+        assertEquals(emptyList<MessageDelivery.Bubble>(), teammatePending(rows, null))
+    }
 }

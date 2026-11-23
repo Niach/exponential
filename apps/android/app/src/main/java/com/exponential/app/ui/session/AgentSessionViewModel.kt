@@ -1208,6 +1208,21 @@ class AgentSessionViewModel @AssistedInject constructor(
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * #EXP-1990 (a team agent's group chat, any shared chat): the TEAMMATES'
+     * card-less inputs the device has not consumed yet, oldest first, drawn
+     * left under their avatar and name ahead of the viewer's own tail (the
+     * web's queued rows); a consumed one is a sent input / the feed's echo.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val teammateTail: StateFlow<List<com.exponential.app.domain.MessageDelivery.Bubble>> = combine(
+        dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeQueued(codingSessionId) },
+        auth.userId,
+    ) { rows, me -> teammatePending(rows, me) }
+        .distinctUntilChanged()
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     private data class OwnTailInputs(
         val me: String?,
         val entries: List<com.exponential.app.domain.MessageDelivery.Entry>,
@@ -1986,3 +2001,29 @@ internal fun dockActivityOf(state: ActivityFeedState) = AgentSessionViewModel.Do
 
 /** #FEED-237: how many of the viewer's newest own rows the outbox matches against. */
 private const val OWN_ROWS = 100
+
+/** #EXP-1990: [AgentSessionViewModel.teammateTail]'s rule over the session's
+ *  unconsumed person rows (bodies opened): another member's card-less,
+ *  non-blank ones; a row with no author reads as the viewer's (never drawn
+ *  here). */
+internal fun teammatePending(rows: List<MessageEntity>, me: String?): List<com.exponential.app.domain.MessageDelivery.Bubble> {
+    if (me.isNullOrEmpty()) return emptyList()
+    return rows
+        .filter { row ->
+            val author = row.authorId
+            !author.isNullOrEmpty() && author != me && row.consumedAt.isNullOrEmpty() &&
+                (row.card == null || row.card == "null") && row.body.isNotBlank()
+        }
+        .map { row ->
+            com.exponential.app.domain.MessageDelivery.Bubble(
+                key = "member-row-${row.id}",
+                text = row.body,
+                createdAt = row.createdAt,
+                state = com.exponential.app.domain.MessageDelivery.State.Sending,
+                stored = true,
+                clientId = null,
+                messageId = row.id,
+                authorId = row.authorId,
+            )
+        }
+}

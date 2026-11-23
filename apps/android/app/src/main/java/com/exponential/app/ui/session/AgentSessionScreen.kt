@@ -721,6 +721,8 @@ private fun RunFaceContent(
     // #FEED-237: the viewer's own bubbles at the bottom (their synced rows
     // never repeat in the synced tail below).
     val ownTail by viewModel.ownTail.collectAsStateWithLifecycle()
+    // #EXP-1990: the teammates' inputs the device has not consumed yet.
+    val teammateTail by viewModel.teammateTail.collectAsStateWithLifecycle()
     // #FEED-260 (steer-enet.json SYNCED TAIL): a NOT-live feed (the stored
     // tail painted at open, a dropped feed's cache, an empty feed) is
     // followed by the session's synced messages after it, so the agent's
@@ -1294,7 +1296,10 @@ private fun RunFaceContent(
                 // #EXP-1975 (find-in-chat.json): the placeholder's loaded
                 // rows = the sent inputs above it, then the own tail; find
                 // counts and paints them (no transcript to page in).
-                val placeholderInputs = if (!sessionEnded) noFeedInputs else emptyList()
+                // #EXP-1990: + the teammates' inputs still waiting for the device.
+                val placeholderInputs = remember(sessionEnded, noFeedInputs, teammateTail) {
+                    (if (!sessionEnded) noFeedInputs else emptyList()) + teammateTail
+                }
                 val placeholderBubbles = remember(placeholderInputs, ownTail) { placeholderInputs + ownTail }
                 // #EXP-1998: the sent inputs are the synced messages drawn
                 // here (a live or an ended placeholder draws none); an older
@@ -1400,8 +1405,8 @@ private fun RunFaceContent(
                             modifier = Modifier.padding(top = 8.dp),
                             // #EXP-1876: below the sent inputs = the same own group
                             // (#EXP-1990: unless a teammate's input ends them).
-                            startsGroup = sessionEnded || noFeedInputs.isEmpty() ||
-                                noFeedInputs.last().authorId.let { it != null && tailViewerId != null && it != tailViewerId },
+                            startsGroup = placeholderInputs.isEmpty() ||
+                                placeholderInputs.last().authorId.let { it != null && tailViewerId != null && it != tailViewerId },
                         )
                     }
                     }
@@ -1536,7 +1541,7 @@ private fun RunFaceContent(
                     sessionCards = cardSlots,
                     renderCard = renderSessionCard,
                     calls = feedCalls,
-                    ownTail = ownTail,
+                    ownTail = if (teammateTail.isEmpty()) ownTail else teammateTail + ownTail,
                     onOwnAction = viewModel::ownBubbleAction,
                 )
                 }
@@ -2063,7 +2068,8 @@ private fun ActivityFeed(
     renderCard: @Composable (SessionTree.SessionChatRow) -> Unit = {},
     /** #EXP-1736: who sent each row (null = no grouping: every row full). */
     senders: FeedSenders? = null,
-    /** #FEED-237: the viewer's own pending bubbles at the very bottom. */
+    /** #FEED-237: the viewer's own pending bubbles at the very bottom
+     *  (#EXP-1990: after the teammates' pending ones, which name their author). */
     ownTail: List<com.exponential.app.domain.MessageDelivery.Bubble> = emptyList(),
     onOwnAction: (com.exponential.app.domain.MessageDelivery.Bubble, com.exponential.app.domain.MessageDelivery.Action) -> Unit = { _, _ -> },
     /** #EXP-1943: the tree's call sessions (their reports draw as their cards). */
@@ -2798,7 +2804,12 @@ private fun ActivityFeed(
                     Box(Modifier.fillMaxWidth().onGloballyPositioned { ownTailItem[0] = it }) {
                         CompositionLocalProvider(LocalFindBubbleLanding provides ownLanding) {
                             TranscriptRow(TranscriptGap.Turn) {
-                                com.exponential.app.ui.chat.OwnTailBubbles(ownTail, onOwnAction)
+                                com.exponential.app.ui.chat.OwnTailBubbles(
+                                    ownTail,
+                                    onOwnAction,
+                                    viewerId = senders?.viewerId,
+                                    members = senders?.members.orEmpty(),
+                                )
                             }
                         }
                     }
