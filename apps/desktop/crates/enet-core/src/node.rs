@@ -36,6 +36,8 @@ pub(crate) struct Shared {
     pub(crate) calls: call::CallState,
     pub(crate) records: records::RecordsState,
     pub(crate) links: Links,
+    #[cfg(all(feature = "xfer", not(wasm_browser)))]
+    pub(crate) xfer: crate::xfer::XferState,
     events: mpsc::UnboundedSender<Event>,
 }
 
@@ -207,10 +209,15 @@ impl Node {
             calls: Default::default(),
             records: Default::default(),
             links,
+            #[cfg(all(feature = "xfer", not(wasm_browser)))]
+            xfer: Default::default(),
             events: tx,
         });
         let weak = Arc::downgrade(&shared);
-        let router = Router::builder(endpoint)
+        let builder = Router::builder(endpoint);
+        #[cfg(all(feature = "xfer", not(wasm_browser)))]
+        let builder = builder.accept(crate::xfer::XFER_ALPN, crate::xfer::XferProtocol { shared: weak.clone() });
+        let router = builder
             .accept(CHAT_ALPN, ChatProtocol { shared: weak.clone() })
             .accept(CALL_ALPN, CallProtocol { shared: weak.clone() })
             .accept(GOSSIP_ALPN, gossip)
@@ -327,6 +334,39 @@ impl Node {
     }
     pub async fn blob_fetch_ticket(&self, ticket: &str) -> Result<Vec<u8>> {
         blobs::fetch_ticket(&self.shared, ticket).await
+    }
+
+    // --- xfer (#FEED-295) ---------------------------------------------
+
+    /// Serves `offer.root` to `offer.peer` under `offer.id` (replacing an
+    /// offer of that id). The receiver resolves when the peer reports the
+    /// end; [`Node::xfer_withdraw`] stops serving.
+    #[cfg(all(feature = "xfer", not(wasm_browser)))]
+    pub fn xfer_offer(&self, offer: crate::xfer::XferOffer) -> tokio::sync::watch::Receiver<Option<crate::xfer::XferEnd>> {
+        self.shared.xfer.offer(offer)
+    }
+    #[cfg(all(feature = "xfer", not(wasm_browser)))]
+    pub fn xfer_withdraw(&self, id: &str) -> bool {
+        self.shared.xfer.withdraw(id)
+    }
+    /// One attempt to pull offer `id` from `peer` into `dest` (absolute; a
+    /// fresh transfer refuses an existing one), resuming from `journal`.
+    /// A [`crate::xfer_retryable`] error is worth another attempt.
+    #[cfg(all(feature = "xfer", not(wasm_browser)))]
+    pub async fn xfer_fetch(
+        &self,
+        peer: EndpointId,
+        id: &str,
+        dest: &std::path::Path,
+        journal: &std::path::Path,
+        progress: Arc<crate::xfer::XferProgress>,
+    ) -> Result<crate::xfer::XferSummary> {
+        crate::xfer::fetch(&self.shared, peer, id, dest, journal, progress).await
+    }
+    /// Tells the source a fetch gave up for good (best effort).
+    #[cfg(all(feature = "xfer", not(wasm_browser)))]
+    pub async fn xfer_fail(&self, peer: EndpointId, id: &str, error: String) -> Result<()> {
+        crate::xfer::end(&self.shared, peer, id, Some(error)).await
     }
 
     // --- records -------------------------------------------------------

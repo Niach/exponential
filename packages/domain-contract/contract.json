@@ -1286,6 +1286,39 @@
         "result": "none"
       },
       {
+        "name": "devices_transfer",
+        "title": "Transfer files",
+        "blurb": "Copies a file or directory between two of your own machines over P2P.",
+        "progressive": "Starting a transfer",
+        "done": "Started a transfer",
+        "progressiveMany": "Starting {n} transfers",
+        "doneMany": "Started {n} transfers",
+        "subjectKey": "destPath",
+        "result": "none"
+      },
+      {
+        "name": "devices_transfers",
+        "title": "List transfers",
+        "blurb": "Lists your device-to-device transfers, or reads one.",
+        "progressive": "Reading transfers",
+        "done": "Read transfers",
+        "progressiveMany": "Reading transfers {n} times",
+        "doneMany": "Read transfers {n} times",
+        "subjectKey": "transferId",
+        "result": "none"
+      },
+      {
+        "name": "devices_transfer_cancel",
+        "title": "Cancel transfer",
+        "blurb": "Cancels a device-to-device transfer.",
+        "progressive": "Cancelling a transfer",
+        "done": "Cancelled a transfer",
+        "progressiveMany": "Cancelling {n} transfers",
+        "doneMany": "Cancelled {n} transfers",
+        "subjectKey": "transferId",
+        "result": "none"
+      },
+      {
         "name": "agents_list",
         "title": "List agents",
         "blurb": "Lists the team's agents with their triggers, device and owner.",
@@ -2176,6 +2209,9 @@
       { "name": "repositories_credentials", "refs": "" },
       { "name": "devices_list", "refs": "list:device@" },
       { "name": "devices_account_login", "refs": "" },
+      { "name": "devices_transfer", "refs": "" },
+      { "name": "devices_transfers", "refs": "" },
+      { "name": "devices_transfer_cancel", "refs": "" },
       { "name": "agents_list", "refs": "list:agent@" },
       { "name": "agents_get", "refs": "agent@" },
       { "name": "agents_create", "refs": "agent@" },

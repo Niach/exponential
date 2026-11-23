@@ -1903,6 +1903,47 @@ export const deviceCommands = pgTable(
   ]
 )
 
+// #FEED-295: device-to-device file transfers, ONE row per transfer = the
+// log (server-only, never synced; read through `devices.transfers` and MCP
+// `exponential_devices {op: "transfers"}`). Both machines are the same
+// person's (`user_id` owns both rows when it is created); the bytes never
+// touch the server: the SOURCE gets a `file_send` command, the DESTINATION
+// a `file_receive` one, and the destination pulls over eNet (enet-core
+// `xfer`, resumable, BLAKE3 per file). Devices are named by their public
+// `device_id` (text, no FK) so the log outlives a removed machine.
+// status: `queued` → `running` → `done` | `failed` | `cancelled`.
+export const deviceTransfers = pgTable(
+  `device_transfers`,
+  {
+    id: uuidPk(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    // The session that asked (its wake line on the end); null = a person.
+    sessionId: uuid(`session_id`).references(() => sessions.id, {
+      onDelete: `set null`,
+    }),
+    fromDeviceId: varchar(`from_device_id`, { length: 128 }).notNull(),
+    toDeviceId: varchar(`to_device_id`, { length: 128 }).notNull(),
+    srcPath: text(`src_path`).notNull(),
+    destPath: text(`dest_path`).notNull(),
+    status: varchar({ length: 16 }).notNull().default(`queued`),
+    files: integer(),
+    filesDone: integer(`files_done`).notNull().default(0),
+    bytes: bigint({ mode: `number` }),
+    bytesDone: bigint(`bytes_done`, { mode: `number` }).notNull().default(0),
+    // Symlinks, special files and refused paths the source left out.
+    skipped: jsonb().$type<string[]>(),
+    error: text(),
+    startedAt: timestamp(`started_at`, { withTimezone: true }),
+    completedAt: timestamp(`completed_at`, { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [
+    index(`idx_device_transfers_user`).on(table.userId, table.createdAt),
+  ]
+)
+
 // EXP-1111: one-time CLI install tokens (SERVER-ONLY, never synced). The Add
 // device dialog mints one (`devices.createInstallToken`) and bakes it into
 // the install one-liner as EXP_INSTALL_TOKEN; the freshly installed daemon
@@ -5118,3 +5159,4 @@ export type SyncedDeviceWorktree = Omit<
   `userId` | `sharedTeamIds`
 >
 export type DeviceCommand = InferSelectModel<typeof deviceCommands>
+export type DeviceTransfer = InferSelectModel<typeof deviceTransfers>

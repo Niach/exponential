@@ -9,7 +9,9 @@
 //! - files (`iroh_blobs::ALPN`): content-addressed blobs (BLAKE3);
 //! - records ([`GOSSIP_ALPN`] + [`RECORDS_SYNC_ALPN`]): signed last-writer-wins
 //!   records per 32-byte space over iroh-gossip, with a pull sync on join;
-//! - call ([`CALL_ALPN`]): opaque audio frames over QUIC datagrams.
+//! - call ([`CALL_ALPN`]): opaque audio frames over QUIC datagrams;
+//! - xfer (feature `xfer`, #FEED-295): a file or directory copied between
+//!   two nodes, resumable and BLAKE3-checked per file.
 //!
 //! Plus [`push`]: sealed push payloads (X25519 + HKDF-SHA256 +
 //! ChaCha20-Poly1305) for the push relay's `/push` API, and [`sealed`]:
@@ -53,6 +55,8 @@ mod records;
 mod ticket;
 #[cfg(feature = "node")]
 mod util;
+#[cfg(all(feature = "xfer", not(wasm_browser)))]
+mod xfer;
 
 #[cfg(feature = "node")]
 pub use access::Access;
@@ -78,6 +82,11 @@ pub use push::{push_open, push_seal, PushKeypair};
 pub use records::{Clock, Record, SpaceId, GOSSIP_ALPN, MAX_RECORD_KEY, MAX_RECORD_VALUE, RECORDS_SYNC_ALPN};
 #[cfg(feature = "node")]
 pub use ticket::{Ticket, TICKET_PREFIX};
+#[cfg(all(feature = "xfer", not(wasm_browser)))]
+pub use xfer::{
+    build_manifest, retryable as xfer_retryable, safe_rel, PathFilter, XferEnd, XferFile, XferManifest, XferOffer, XferProgress, XferSummary, PART_SUFFIX,
+    XFER_ALPN, XFER_PARALLEL,
+};
 
 /// Re-exported iroh types that appear in this crate's API.
 #[cfg(feature = "node")]

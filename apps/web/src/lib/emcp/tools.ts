@@ -176,6 +176,7 @@ import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { MAX_PROMPT_BODY, MAX_PROMPT_NAME } from "@/lib/trpc/prompts"
 import { visibleDeviceRows } from "@/lib/trpc/devices"
+import { TRANSFER_COPY } from "@/lib/device-transfers"
 // EXP-1291: the session tree's core (lib/sessions/**) and the PR model
 // (lib/pull-requests.ts). These tools only add grants and resolve the caller.
 import { sendSession } from "@/lib/sessions/send"
@@ -400,6 +401,8 @@ interface CallerSession {
   /** NEW-2: the root is an agent's conversation (never ends). */
   rootAgentId: string | null
   unattended: boolean
+  /** #FEED-295: the machine it runs on (a transfer's default side). */
+  deviceId?: string | null
 }
 
 /** What a session-scoped tool answers a caller with no session of its own. */
@@ -752,6 +755,7 @@ export function registerExponentialTools(
       userId: row.userId,
       rootAgentId: row.rootAgentId ?? null,
       unattended: row.parentId !== null || row.watched === true,
+      deviceId: row.deviceId ?? null,
     }
   }
 
@@ -3569,6 +3573,75 @@ export function registerExponentialTools(
             getCommand: (commandId) => trpc.devices.getCommand({ commandId }),
           })
         )
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // #FEED-295: copy a file or directory between two of YOUR machines over
+  // eNet (lib/device-transfers.ts). One side defaults to this session's.
+  server.registerTool(
+    `exponential_devices_transfer`,
+    {
+      description: `Copy a file or directory between two of your own online machines (exponential_devices list), machine to machine over P2P: streamed, resumable, no size cap, end-to-end encrypted, every file's checksum verified. Push: {toDeviceId, srcPath, destPath} from this session's machine; pull: {fromDeviceId, srcPath, destPath} into it; or name both. destPath = where the copy lands (it must not exist yet). Absolute or ~/ paths; protected paths (~/.ssh, keyrings, credentials, Exponential's data) and symlinks are refused or skipped. Returns transferId; this session wakes when it ends.`,
+      inputSchema: strictInput({
+        fromDeviceId: z.string().min(1).max(128).optional(),
+        toDeviceId: z.string().min(1).max(128).optional(),
+        srcPath: z.string().min(1).max(4096),
+        destPath: z.string().min(1).max(4096),
+      }),
+    },
+    async ({ fromDeviceId, toDeviceId, srcPath, destPath }) => {
+      try {
+        assertFullAccess(access)
+        const own = await loadCallerSession()
+        const from = fromDeviceId ?? own?.deviceId
+        const to = toDeviceId ?? own?.deviceId
+        if (!from || !to) throw new Error(TRANSFER_COPY.noDevice)
+        return ok(
+          await caller(user, request).devices.startTransfer({
+            fromDeviceId: from,
+            toDeviceId: to,
+            srcPath,
+            destPath,
+            sessionId: own?.id ?? null,
+          })
+        )
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_devices_transfers`,
+    {
+      annotations: READ_ONLY,
+      description: `Your device-to-device transfers, newest first (every one is logged), or one by transferId: status queued|running|done|failed|cancelled, files/filesDone, bytes/bytesDone, skipped, error.`,
+      inputSchema: strictInput({ transferId: uuidString.optional(), limit: z.number().int().min(1).max(50).optional() }),
+    },
+    async ({ transferId, limit }) => {
+      try {
+        assertFullAccess(access)
+        const trpc = caller(user, request)
+        return ok(transferId ? await trpc.devices.transfer({ transferId }) : await trpc.devices.transfers({ limit: limit ?? 20 }))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_devices_transfer_cancel`,
+    {
+      description: `Cancel a running or queued device-to-device transfer (both machines stop; what arrived stays).`,
+      inputSchema: strictInput({ transferId: uuidString }),
+    },
+    async ({ transferId }) => {
+      try {
+        assertFullAccess(access)
+        return ok(await caller(user, request).devices.cancelTransfer({ transferId }))
       } catch (e) {
         return err(e)
       }

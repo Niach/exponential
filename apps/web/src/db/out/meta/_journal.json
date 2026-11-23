@@ -2052,6 +2052,13 @@
       "when": 1795376459054,
       "tag": "0292_feed293_merge_now_record",
       "breakpoints": true
+    },
+    {
+      "idx": 293,
+      "version": "7",
+      "when": 1795423392763,
+      "tag": "0293_feed295_device_transfers",
+      "breakpoints": true
     }
   ]
 }

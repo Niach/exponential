@@ -225,8 +225,14 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     name: `devices`,
     label: `devices`,
     group: `team`,
-    blurb: `Devices (machines running sessions): list, account_login (sign a device's agent login in).`,
-    ops: { list: `devices_list`, account_login: `devices_account_login` },
+    blurb: `Devices (machines running sessions): list, account_login (sign a device's agent login in), transfer (copy files between your own machines), transfers, transfer_cancel.`,
+    ops: {
+      list: `devices_list`,
+      account_login: `devices_account_login`,
+      transfer: `devices_transfer`,
+      transfers: `devices_transfers`,
+      transfer_cancel: `devices_transfer_cancel`,
+    },
   },
   // ── Agents (EXP-1663: + skills) ──
   {

@@ -410,6 +410,8 @@ fn device_caps_with(advertisement: &coding::AgentAdvertisement, key_holder: bool
     if updater::app_shot::capable() {
         caps.push(updater::app_shot::CAP.to_string());
     }
+    // #FEED-295: it sends and receives files between its owner's machines.
+    caps.push(steer::file_transfer::CAP.to_string());
     caps
 }
 
