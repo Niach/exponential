@@ -711,7 +711,7 @@ public enum Chats {
         return date.timeIntervalSince1970 * 1000
     }
 
-    private static let previewCards: Set<String> = ["question", "plan", "ask", "picture", "surface"]
+    private static let previewCards: Set<String> = ["question", "plan", "ask", "picture", "surface", "action"]
 
     /// A builtin command line a person sent (`/new`, `/compact …`): the
     /// transcript paints it as a divider, never a bubble.
@@ -825,6 +825,17 @@ public enum Chats {
             if let divider = commandDivider(newest.body) {
                 return ChatPreview(kind: divider == .new ? .new : .compact, text: divider.label)
             }
+            // #EXP-2067 (chat-express.json `previewCases`): an action row
+            // reads as its body, else as its marker.
+            if newest.card?.kind == "action" {
+                let body = plainLine(newest.body)
+                return ChatPreview(
+                    kind: .you,
+                    text: body.isEmpty
+                        ? ChatExpress.actionMarker(name: newest.card?.eventName ?? "", author: nil)
+                        : fill(Copy.Preview.you, body)
+                )
+            }
             return ChatPreview(kind: .you, text: fill(Copy.Preview.you, plainLine(newest.body)))
         }
         switch newest.card?.kind {
@@ -840,7 +851,12 @@ public enum Chats {
             if newest.body.hasPrefix(Copy.Preview.privateReplyLead) {
                 return ChatPreview(kind: .agent, text: Copy.Preview.privateReplyLead)
             }
-            return ChatPreview(kind: .agent, text: plainLine(newest.body))
+            // #EXP-2067: an agent text reads its PURE prose (Express blocks out).
+            let text = plainLine(ChatExpress.plainProse(newest.body))
+            return ChatPreview(
+                kind: .agent,
+                text: text.isEmpty && ChatExpress.hasExpressBlock(newest.body) ? ChatExpress.Copy.blockOnly : text
+            )
         }
     }
 
