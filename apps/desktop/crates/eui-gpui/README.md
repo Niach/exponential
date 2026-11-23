@@ -539,13 +539,16 @@ host.update(cx, |h, cx| h.connect(cx));
   `messages_from_mcp_result`, `ExpressDecoder`). A stream's `close` stops
   delivery at once; its blocked read returns at the next chunk.
 - **Express** (#AXC-12, `WireFormat`). `.format(WireFormat::express(surface))`
-  on the stream and WebSocket transports reads Express, the compact notation
-  an agent writes, compiled by the core into the same A2UI messages as each
-  statement becomes ready: an `application/a2ui+express` body (any other
-  content type stays JSONL), the SSE event `a2ui-express`, WebSocket
-  `{"express": "<chunk>"}` frames. The prose around a response's `<a2ui>`
-  blocks is `TransportEvent::Text`, landing in `HostOptions::on_text`; the
-  SDK draws none of it (`express_body` = one bare body, no prose).
+  on the stream and WebSocket transports asks for Express, the compact
+  notation an agent writes, compiled by the core into the same A2UI messages
+  as each statement becomes ready. Every transport reads an Express answer
+  in either format: an `application/a2ui+express` body (any other content
+  type stays JSONL), the SSE event `a2ui-express`, WebSocket
+  `{"express": "<chunk>"}` frames, MCP Express resources. The prose around
+  a response's `<a2ui>` blocks is `TransportEvent::Text`, landing in
+  `HostOptions::on_text`; the SDK draws none of it (`express_body` = one
+  bare body, no prose). A block that does not compile is a `DECODE_FAILED`
+  host issue (`on_issue`), and the stream reads on.
   `MemoryTransport::feed_express` / `feed_decoded` feed it in tests.
 - **Media** (`media`). `Image`, `Avatar`, `Video` posters and markdown
   block images load through `HostPlugin::media_request` (the media policy:

@@ -118,9 +118,10 @@ pub struct HostIssue {
 
 /// The issue code of a package that failed validation.
 pub const PACKAGE_INVALID: &str = "PACKAGE_INVALID";
-/// #AXC-12: the issue code of an Express block that did not compile (the
-/// message names the problem; the stream read on past it).
-pub const EXPRESS_INVALID: &str = "EXPRESS_INVALID";
+/// #AXC-12: the issue code of what a transport's decoder could not read (an
+/// Express block that did not compile, a line that is not JSON…; the
+/// message names it, the stream read on past it).
+pub const DECODE_FAILED: &str = "DECODE_FAILED";
 /// How many issues [`ExponentialHost::issues`] keeps (oldest dropped).
 pub const MAX_ISSUES: usize = 100;
 
@@ -675,11 +676,12 @@ impl ExponentialHost {
                         self.receive(&m, cx);
                     }
                     TransportEvent::Issue(issue) => {
-                        // #AXC-12: an Express block that did not compile:
-                        // the agent author's main signal (no surface to
-                        // answer on, so it is the host's to show or log).
-                        tracing::warn!(at = issue.at, "express: {}", issue.message);
-                        self.report(HostIssue { code: EXPRESS_INVALID.into(), message: issue.message, surface_id: None, path: None, package_id: None });
+                        // #AXC-12: what the wire decoders could not read (an
+                        // Express block that did not compile is the agent
+                        // author's main signal; no surface to answer on, so
+                        // it is the host's to show or log).
+                        tracing::warn!(at = issue.at, "transport: {}", issue.message);
+                        self.report(HostIssue { code: DECODE_FAILED.into(), message: issue.message, surface_id: None, path: None, package_id: None });
                     }
                     TransportEvent::Text(text) => {
                         if let Some(f) = self.on_text.clone() {

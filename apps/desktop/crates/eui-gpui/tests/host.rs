@@ -901,7 +901,7 @@ fn a_chunked_express_stream_builds_a_real_surface_and_its_prose_reaches_on_text(
     cx.run_until_parked();
 
     let format = WireFormat::express("main");
-    let mut decoder = format.express_decoder().unwrap();
+    let mut decoder = format.express_decoder();
     let chars: Vec<char> = response.chars().collect();
     let block_end = response.find("</a2ui>").unwrap();
     let mut seen = 0usize;
@@ -978,7 +978,7 @@ fn memory_feed_express_reaches_the_host(cx: &mut TestAppContext) {
     cx.run_until_parked();
     let issues = host.read_with(cx, |h, _| h.issues().to_vec());
     assert_eq!(issues.len(), 1, "{issues:?}");
-    assert_eq!(issues[0].code, eui_gpui::runtime::EXPRESS_INVALID);
+    assert_eq!(issues[0].code, eui_gpui::runtime::DECODE_FAILED);
     assert!(issues[0].message.contains("Sparkle"), "{issues:?}");
     assert!(host.read_with(cx, |h, _| h.surface("later")).is_some());
 }
