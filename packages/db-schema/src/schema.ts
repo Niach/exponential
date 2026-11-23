@@ -3148,6 +3148,11 @@ export const pullRequests = pgTable(
       onDelete: `set null`,
     }),
     mergeApprovedAt: timestamp(`merge_approved_at`, { withTimezone: true }),
+    // #FEED-293 (merge-train.json `merge_now`, SERVER-ONLY): the record of
+    // the latest Merge now: who forced it (the person, or the person whose
+    // agent passed `pr merge {force}`) and the gated checks red right then.
+    mergeNowBy: text(`merge_now_by`).references(() => users.id, { onDelete: `set null` }),
+    mergeNowRed: jsonb(`merge_now_red`).$type<string[]>(),
     // EXP-1709 (server-only): the head the train last composed; a bounced
     // (conflict/failing) PR re-queues only once its head moved (a push).
     mergeHeadSha: varchar(`merge_head_sha`, { length: 64 }),
