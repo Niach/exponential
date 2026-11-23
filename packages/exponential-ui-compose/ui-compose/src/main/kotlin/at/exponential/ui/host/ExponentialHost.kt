@@ -334,6 +334,7 @@ class ExponentialHost(
                 try {
                     if (metadata != null) t.send(message, metadata) else t.send(message)
                 } catch (e: Exception) {
+                    logTransportError("${t::class.java.simpleName}.send", e)
                     statusDetail = e.message ?: e.toString()
                 }
             }
