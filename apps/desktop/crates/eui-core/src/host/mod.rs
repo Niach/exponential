@@ -48,7 +48,7 @@ pub use components::validate_package_components;
 pub use contract::*;
 pub use expressions::{literal_type, record_row_type, records_value_type, schema_type, validate_package_expressions, validate_record_computed};
 pub use exposes::{expose_action_access, expose_issues, expose_name_destructive, expose_template_paths, validate_package_exposes, validate_upstreams, ExposeIssue};
-pub use decoders::{decode_jsonl, mcp_action_call, mcp_action_call_with, messages_from_mcp_result, DecodeIssue, Decoded, JsonlDecoder, SseDecoder};
+pub use decoders::{decode_jsonl, mcp_action_call, mcp_action_call_with, messages_from_mcp_result, DecodeIssue, Decoded, JsonlDecoder, SseDecoder, SseItem};
 pub use package::{
     available_extensions, client_capabilities, merge_data, renderer_capabilities, package_sources, source_allowed, supported_catalog_ids, template_messages, validate_package, validate_package_in, validate_package_with, version_satisfies, AvailableExtension, PackageIssue,
     PACKAGE_FORMAT_VERSION,
