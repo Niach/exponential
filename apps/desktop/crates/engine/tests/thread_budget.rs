@@ -205,6 +205,7 @@ fn host(runtime: &Arc<steer::SteerRuntime>, index: usize) -> Hosted {
             sink: Some(RecordingSink::new() as Arc<dyn EventSink>),
             conversation: None,
             computer: None,
+            thread: None,
         },
     )
     .expect("the engine starts");

@@ -1035,7 +1035,10 @@ describe.skipIf(!ready.ok)(`the watchdog`, () => {
     const finished = await w.child(rootId, `finished`)
     for (const id of [rootId, killed, refused, finished]) await w.host.claim({ sessionId: id, deviceId: w.deviceId })
     await w.host.report({ sessionId: killed, busy: true })
-    await w.host.report({ sessionId: killed, deviceId: w.deviceId, status: `ended`, lost: `process_lost` })
+    // #EXP-2058: the reply says the run was kept (nothing to tear down).
+    expect(
+      await w.host.report({ sessionId: killed, deviceId: w.deviceId, status: `ended`, lost: `process_lost` })
+    ).toMatchObject({ status: `idle` })
     expect(await row(killed)).toMatchObject({
       status: `idle`,
       busy: false,
