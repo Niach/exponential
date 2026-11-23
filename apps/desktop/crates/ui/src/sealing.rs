@@ -256,7 +256,8 @@ pub fn plan_send(input: &SendInput, cx: &App) -> SendPlan {
 /// session's root, `existing` the member's synced conversation with the
 /// send's agent / app.
 fn target_for(input: &SendInput, root_of: &dyn Fn(&str) -> Option<String>, existing: impl FnOnce() -> Option<String>) -> SealTarget {
-    let has_content = input.text.is_some() || input.name.is_some();
+    // #EXP-2067: an action card is content too (sealed like the body).
+    let has_content = input.text.is_some() || input.name.is_some() || input.action_card.is_some();
     let known = |id: &String| root_of(id).map_or_else(|| SealTarget::Unsynced(id.clone()), SealTarget::Root);
     if !has_content {
         SealTarget::None
@@ -370,6 +371,10 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) ->
             if sealed_text.is_some() {
                 input.text = sealed_text;
             }
+            if let Some(card) = input.action_card.as_ref() {
+                input.action_card =
+                    Some(action_envelope(enet_core::sealed::seal_card(public, *epoch, card).map_err(|err| failed(format!("{root_id}: {err}")))?));
+            }
             Ok(None)
         }
         SealTarget::Root(root_id) if sealing::tree_clear(root_id) => Ok(None),
@@ -383,6 +388,9 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) ->
             if sealed_name.is_some() {
                 input.sealed_name = sealed_name;
                 input.name = None;
+            }
+            if let Some(card) = input.action_card.as_ref() {
+                input.action_card = Some(action_envelope(writer.seal_card(root_id, card).map_err(|err| failed(format!("{root_id}: {err}")))?));
             }
             Ok(None)
         }
@@ -400,6 +408,9 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) ->
             if sealed_text.is_some() {
                 input.text = sealed_text;
             }
+            if let Some(card) = input.action_card.as_ref() {
+                input.action_card = Some(action_envelope(enet_core::sealed::seal_card(&public, seal.epoch, card).map_err(|err| failed(err.to_string()))?));
+            }
             input.seal = Some(SendSeal {
                 install_id: seal.install_id.clone(),
                 public_key: seal.public_key.clone(),
@@ -413,6 +424,13 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) ->
             Ok(Some(seal))
         }
     }
+}
+
+/// #EXP-2067: a sealed action card's wire is its envelope ALONE,
+/// `{kind: "action", sealed}` (`sessions.send` `actionCard`): the clear
+/// fields a card keeps (`messageId`) live inside it.
+fn action_envelope(sealed: Value) -> Value {
+    serde_json::json!({"kind": "action", "sealed": sealed.get("sealed").cloned().unwrap_or(Value::Null)})
 }
 
 /// #EDE-97: the failed-action error of a send that could not be sealed.
@@ -696,6 +714,23 @@ mod tests {
         assert_eq!(input.name, None);
         assert_eq!(writer.open_body(input.sealed_name.as_deref().unwrap()).text.as_deref(), Some("Title"));
         assert!(input.seal.is_none());
+    }
+
+    /// #EXP-2067: a press's action card rides sealed as its envelope alone
+    /// (`{kind, sealed}`), the whole card inside; an empty body sends none.
+    #[test]
+    fn an_action_card_seals_to_its_envelope() {
+        let writer = tree();
+        let card = serde_json::json!({"kind": "action", "name": "save", "context": {"a": 1}, "surfaceId": "m:1#1", "block": "m:1#1", "messageId": "m1"});
+        let mut input = SendInput { session_id: Some("s1".into()), action_card: Some(card.clone()), ..SendInput::default() };
+        let plan = SendPlan { target: SealTarget::Root("r1".into()), ..SendPlan::default() };
+        assert_eq!(target_for(&input, &|_| Some("r1".into()), || None), SealTarget::Root("r1".into()));
+        seal_send(&writer, &mut input, &plan.target).unwrap();
+        let wire = input.action_card.clone().unwrap();
+        assert_eq!(wire.as_object().unwrap().keys().collect::<Vec<_>>(), vec!["kind", "sealed"]);
+        assert_eq!(wire["kind"], "action");
+        assert_eq!(writer.open_card(&wire).card, card);
+        assert_eq!(input.text, None);
     }
 
     #[test]
