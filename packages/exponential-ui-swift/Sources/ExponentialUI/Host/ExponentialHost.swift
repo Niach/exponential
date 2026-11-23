@@ -48,6 +48,14 @@ public struct HostOptions {
     /// Round 9 §6.5: the transport's far end reads renderer → agent messages:
     /// a surface an untrusted `createSurface` made has an agent.
     public var agent: Bool
+    /// #AXC-12: the prose of an Express response (the text around its
+    /// `<a2ui>` blocks), piece by piece as it streams in: append them. The
+    /// SDK draws none; the host shows it (a chat bubble, a caption).
+    public var onText: ((String) -> Void)?
+    /// #AXC-12: the inference formats this host advertises
+    /// (`rendererCapabilities["1.0"].inferenceFormats`); default both.
+    /// `[.json]` = JSON only.
+    public var inferenceFormats: [InferenceFormat]
 
     public init(
         transport: Transport? = nil,
@@ -68,10 +76,14 @@ public struct HostOptions {
         onActionFailed: ((ActionFailure) -> Void)? = nil,
         navigate: ((NavigateTarget) -> Bool)? = nil,
         liftsLayers: Bool = false,
-        agent: Bool = false
+        agent: Bool = false,
+        onText: ((String) -> Void)? = nil,
+        inferenceFormats: [InferenceFormat] = InferenceFormat.allCases
     ) {
         self.liftsLayers = liftsLayers
         self.agent = agent
+        self.onText = onText
+        self.inferenceFormats = inferenceFormats
         self.transport = transport
         self.functions = functions
         self.sources = sources
@@ -160,8 +172,10 @@ public final class ExponentialHost {
 
     public var supportedCatalogIds: [String] { router.supportedCatalogIds() }
 
-    /// A2UI `rendererCapabilities` (`{"1.0": {supportedCatalogIds}}`).
-    public var rendererCapabilities: JSONValue { JSONValue.parse((try? rendererCapabilitiesJson(extensionIds: extensions.map(\.id), inlineCatalogsJson: nil)) ?? "{}") }
+    /// A2UI `rendererCapabilities` (`{"1.0": {supportedCatalogIds, inferenceFormats}}`).
+    public var rendererCapabilities: JSONValue {
+        JSONValue.parse((try? rendererCapabilitiesWithJson(extensionIds: extensions.map(\.id), inlineCatalogsJson: nil, inferenceFormats: options.inferenceFormats.map(\.rawValue))) ?? "{}")
+    }
 
     public var extensionIds: [String] { extensions.map(\.id) }
 
@@ -224,7 +238,7 @@ public final class ExponentialHost {
         t.start(receive: { [weak self] m in self?.receive(m) }, status: { [weak self] status, detail in
             self?.status = status
             self?.statusDetail = detail
-        })
+        }, text: { [weak self] piece in self?.options.onText?(piece) })
     }
 
     public func close() {

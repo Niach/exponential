@@ -314,6 +314,7 @@ HostSurface(host, "greenhouse", fallback = { Text("Waiting…") })
   - `JsonlStreamTransport` and `SseTransport`: a streamed `HttpURLConnection` GET on `Dispatchers.IO`, client messages POSTed to `postUrl`, reconnecting after `reconnectMs` (0 = never).
   - `McpTransport`: JSON-RPC `initialize`, then `tools/call`; client messages go out as `a2ui_event` calls.
   - `WebSocketTransport` runs over a socket the APP supplies. The AAR has no HTTP or WebSocket dependency: implement `fun interface WebSocketConnector { fun connect(url, listener): WebSocketConnection }`. The KDoc has the OkHttp version; it is ten lines.
+  - Express (#AXC-12): each also reads Express (an `application/a2ui+express` body, `a2ui-express` SSE events, `{"express": …}` frames, Express MCP resources; `format`, `surfaceId`); the prose goes to `HostOptions.onText`, and `HostOptions.inferenceFormats` is advertised in `rendererCapabilities()`.
 
 ## Publishing
 
