@@ -6,7 +6,7 @@ import XCTest
 // packages/domain-contract/fixtures/app-actions.json (TS `app-actions.test.ts`,
 // desktop `domain::app_actions`, Android `AppActionsTest`): `parseCases`,
 // `grantCases`, `grantableCases`, `declaredCases`, `consentCases`, VAPP-158
-// `ownerOnlyCases`, plus the list, the owner-only list, the tool map
+// `ownerOnlyCases`, FEED-301 `failureCases`, plus the list, the owner-only list, the tool map
 // and the copy.
 final class AppActionsTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
@@ -150,6 +150,23 @@ final class AppActionsTests: XCTestCase {
                 expectedArgs.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? NSDictionary },
                 name
             )
+        }
+    }
+
+    // FEED-301: a failed MCP answer is the failed-action toast, never a value.
+    func testFailureCases() throws {
+        let failure = try XCTUnwrap(try fixture()["failure"] as? [String: Any])
+        XCTAssertEqual(failure["runVerb"] as? String, AppActions.FailureCopy.runVerb)
+        XCTAssertEqual(failure["fallback"] as? String, AppActions.FailureCopy.fallback)
+        for item in try cases("failureCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let args = try XCTUnwrap(item["args"] as? [String: Any]).compactMapValues { CardJSON(any: $0) }
+            let got = AppActions.actionFailure(name, args: args, result: CardJSON(any: item["result"]) ?? .null)
+            guard let expected = item["expected"] as? [String: String] else {
+                XCTAssertNil(got, name)
+                continue
+            }
+            XCTAssertEqual(got, AppActions.ActionFailure(verb: expected["verb"] ?? "", thing: expected["thing"] ?? "", description: expected["description"] ?? ""), name)
         }
     }
 
