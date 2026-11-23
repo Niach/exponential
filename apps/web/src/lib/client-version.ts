@@ -54,13 +54,12 @@ export const DEVICE_SEALING_FLOOR = `0.14.96`
 
 /** The floors a CONFIGURED minimum is raised to, per platform: the sealing
  *  floor (desktop, CLI) and #EXP-1984's Assistant floor (agent-settings.json
- *  `assistant.move.clientFloor`: older builds look for the Assistant inside
- *  the current team only, and it lives in the personal team since #EXP-1989's
- *  migration). The highest applies. */
+ *  `assistant.move.clientFloor`, every platform: the first builds that work
+ *  across the move, which #EXP-1989's migration made unconditional). The
+ *  highest applies. */
 export function clientFloors(platform: ClientPlatform): readonly string[] {
   const sealing = platform === `desktop` || platform === `cli` ? [DEVICE_SEALING_FLOOR] : []
-  const assistant = platform !== `cli` ? [ASSISTANT_CLIENT_FLOOR[platform]] : []
-  return [...sealing, ...assistant]
+  return [...sealing, ASSISTANT_CLIENT_FLOOR[platform]]
 }
 
 /** The configured minimum, raised to the platform's floors. */
