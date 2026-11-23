@@ -682,7 +682,8 @@ export function AgentSessionView({
   const surfaceCards = useMemo(() => surfaceCardRows(session, sessionMessages), [session, sessionMessages])
   // EXP-1398 (ask-dock.json `anchorCases`): every card after the call that
   // posted it (#FEED-231: the card a show call names, its `preview.id`),
-  // the rest paired per kind; the rest at the head.
+  // the rest paired per kind; the rest at the head, a waiting one at the
+  // tail (#EXP-2087).
   const cardAnchors = useMemo(
     () =>
       anchorSessionCards(
@@ -1743,6 +1744,9 @@ export function AgentSessionView({
                     </div>
                   ) : null
                 })}
+                {/* #EXP-2087 (ask-dock.json `tail`): an open card with no
+                    call in the feed draws after the last row. */}
+                {renderToolCards(cardAnchors.tail, `tail`)}
                 {chatExtras}
                 {offlineLine && (
                   <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="transcript-offline-line">

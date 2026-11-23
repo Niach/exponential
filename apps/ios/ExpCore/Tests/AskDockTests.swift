@@ -198,7 +198,7 @@ final class AskDockTests: XCTestCase {
                 AskDock.SessionCard(
                     id: try XCTUnwrap(raw["id"] as? String),
                     kind: try XCTUnwrap((raw["kind"] as? String).flatMap(AskDock.SessionCardKind.init(rawValue:))),
-                    waiting: false
+                    waiting: raw["waiting"] as? Bool ?? false
                 )
             }
             let expected = try XCTUnwrap(c["expected"] as? [String: Any])
@@ -209,7 +209,8 @@ final class AskDockTests: XCTestCase {
                 "\(c["name"] ?? "")"
             )
             XCTAssertEqual(got.unanchored, expected["unanchored"] as? [String], "\(c["name"] ?? "")")
-            XCTAssertEqual(Set(expected.keys), ["anchors", "unanchored"], "\(c["name"] ?? "")")
+            XCTAssertEqual(got.tail, expected["tail"] as? [String], "\(c["name"] ?? "")")
+            XCTAssertEqual(Set(expected.keys), ["anchors", "unanchored", "tail"], "\(c["name"] ?? "")")
         }
     }
 
