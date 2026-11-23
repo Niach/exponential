@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest"
-import { and, eq, sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { deviceCommands, devices, deviceTransfers, installs, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { inRollback, probeRealDb, type RealDbTx } from "@/test/real-db"
 
@@ -121,11 +121,14 @@ describe.skipIf(!ready.ok)(`device transfers (#FEED-295)`, () => {
       row = await me.transfer({ transferId })
       expect(row).toMatchObject({ status: `done`, filesDone: 3, skipped: [`link`], error: null })
       expect(row.completedAt).not.toBeNull()
-      const pending = await tx
-        .select()
+      const closed = await tx
+        .select({ status: deviceCommands.status, result: deviceCommands.result })
         .from(deviceCommands)
-        .where(and(eq(deviceCommands.status, `pending`), sql`${deviceCommands.payload}->>'transferId' = ${transferId}`))
-      expect(pending).toHaveLength(0)
+        .where(sql`${deviceCommands.payload}->>'transferId' = ${transferId}`)
+      expect(closed).toEqual([
+        { status: `done`, result: `Transfer done.` },
+        { status: `done`, result: `Transfer done.` },
+      ])
       // Terminal once: a late report changes nothing and tells the machine.
       expect(await me.reportTransfer({ transferId, role: `receive`, status: `failed`, error: `late` })).toEqual({ ok: false, status: `done` })
       const [wake] = await tx.select().from(messages).where(eq(messages.sessionId, w.sessionId))

@@ -447,7 +447,8 @@ async fn receive(inner: &Arc<Inner>, command: &PendingCommand) -> (bool, String)
                     },
                 )
                 .await;
-                return (true, format!("Received {} files, {} bytes, every checksum verified.", summary.files, summary.bytes));
+                let resumed = if summary.resumed_files > 0 { format!(" ({} already there from an earlier attempt)", summary.resumed_files) } else { String::new() };
+                return (true, format!("Received {} files, {} bytes{resumed}, every checksum verified.", summary.files, summary.bytes));
             }
             Err(e) if enet_core::xfer_retryable(&e) && last_progress.0.elapsed() < STALL_LIMIT => {
                 log::info!("file transfer {transfer_id}: {e}; retrying in {}s", backoff.as_secs());

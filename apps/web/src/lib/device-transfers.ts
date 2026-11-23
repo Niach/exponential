@@ -308,12 +308,13 @@ export async function cancelTransfer(db: typeof defaultDb, userId: string, trans
 
 type Tx = Parameters<Parameters<typeof defaultDb.transaction>[0]>[0]
 
-/** An ended transfer: its still-pending commands never run (an offline
- *  machine back later does nothing), and the asking session wakes. */
+/** An ended transfer: its still-pending commands close with it (`done`
+ *  with a done transfer, else `failed`: an offline machine back later does
+ *  nothing), and the asking session wakes. */
 async function endTransferInTx(tx: Tx, row: DeviceTransfer): Promise<void> {
   await tx
     .update(deviceCommands)
-    .set({ status: `failed`, result: `Transfer ${row.status}.`, completedAt: new Date() })
+    .set({ status: row.status === `done` ? `done` : `failed`, result: `Transfer ${row.status}.`, completedAt: new Date() })
     .where(
       and(
         eq(deviceCommands.userId, row.userId),
