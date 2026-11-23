@@ -10,12 +10,15 @@ import { createSignal } from "solid-js"
 import { CORE_CATALOG_ID, reduceNested } from "@exponential_app/eui"
 import type { NestedNode } from "@exponential_app/eui"
 import fixture from "@exponential_app/eui/fixtures/interactions-round1.json"
+import type { HostedPopup } from "@exponential_app/eui/web"
+import type { HostPlugin } from "./host"
 import { ExponentialSurface } from "./surface"
 
 afterEach(() => cleanup())
 
 interface OverlayAnchorCase {
   name: string
+  hosted?: boolean
   step: { relayout?: boolean; scroll?: string; y?: number; insertAbove?: boolean; removeAnchor?: boolean }
   after: boolean
 }
@@ -34,9 +37,30 @@ describe(`fixtures/interactions-round1.json overlayAnchor`, () => {
       const shown = () => document.querySelector(`[data-xui-overlay="Popover"]`) !== null
       const frames = () => new Promise((resolve) => setTimeout(resolve, 50))
       const [root, setRoot] = createSignal(tree(fx.surface))
-      const { container } = render(() => <ExponentialSurface root={root()} theme="neutral" id="oa" />)
+      // #EXP-2047: a hosted case's host keeps one box per popup, placed at
+      // the anchor it last heard (`mount` again = its anchor moved).
+      const heard: HostedPopup[] = []
+      const boxes = new Map<string, HTMLElement>()
+      const host: HostPlugin | undefined = c.hosted
+        ? {
+            popupHost: {
+              mount: (p) => {
+                heard.push(p)
+                const el = boxes.get(p.owner) ?? document.body.appendChild(document.createElement(`div`))
+                boxes.set(p.owner, el)
+                return el
+              },
+              unmount: (p) => {
+                boxes.get(p.owner)?.remove()
+                boxes.delete(p.owner)
+              },
+            },
+          }
+        : undefined
+      const { container } = render(() => <ExponentialSurface root={root()} theme="neutral" id="oa" host={host} />)
       await frames()
       expect(shown(), `${c.name}: opens against its anchor`).toBe(true)
+      if (c.hosted) expect(document.querySelector(`[data-xui-hosted="pop"] [data-xui-overlay="Popover"]`), `${c.name}: the host holds it`).not.toBeNull()
       const children = [...(fx.surface.children ?? [])] as NestedNode[]
       if (c.step.insertAbove) children.unshift(fx.above)
       const next = c.step.removeAnchor ? children.filter((child) => child.id !== `target`) : children
@@ -44,6 +68,7 @@ describe(`fixtures/interactions-round1.json overlayAnchor`, () => {
       if (c.step.scroll) fireEvent.scroll(container.querySelector(`[data-xui-id="${c.step.scroll}"]`)!)
       await frames()
       expect(shown(), c.name).toBe(c.after)
+      if (c.hosted && c.step.insertAbove) expect(heard.at(-1)?.anchor.y, `${c.name}: the host heard the anchor's new box`).toBe(40)
       rect.mockRestore()
     })
   }
