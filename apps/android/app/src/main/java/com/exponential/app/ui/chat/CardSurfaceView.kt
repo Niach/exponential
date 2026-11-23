@@ -100,7 +100,7 @@ internal fun cardAllowPrivate(origin: String?): List<String>? = origin
 private class CardSurfaceHost(
     base: String?,
     token: String?,
-    private val onActionEvent: ((name: String, context: JsonObject?) -> Unit)? = null,
+    private val onActionEvent: ((name: String, context: JsonObject?, userMessage: String?) -> Unit)? = null,
     private val onOpenUrl: (String) -> Unit = {},
     private val onTextLinks: (String) -> List<TextLinkSegment>? = { null },
     private val linkBase: () -> String? = { null },
@@ -149,13 +149,13 @@ private class CardSurfaceHost(
     override fun onAction(event: SurfaceActionEvent) {
         val forward = onActionEvent ?: return
         val context = runCatching { Json.parseToJsonElement(event.context.json) as? JsonObject }.getOrNull()
-        forward(event.name, context)
+        forward(event.name, context, event.userMessage)
     }
 }
 
 private fun cardHost(
     context: Context,
-    onAction: ((name: String, context: JsonObject?) -> Unit)? = null,
+    onAction: ((name: String, context: JsonObject?, userMessage: String?) -> Unit)? = null,
     onOpenUrl: (String) -> Unit = {},
     onTextLinks: (String) -> List<TextLinkSegment>? = { null },
     linkBase: () -> String? = { null },
@@ -186,29 +186,15 @@ private fun paintedRoot(surface: CardSurface): String {
 @Composable
 internal fun rememberCardSurfaceModel(
     surface: CardSurface,
-    onAction: ((name: String, context: JsonObject?) -> Unit)? = null,
+    onAction: ((name: String, context: JsonObject?, userMessage: String?) -> Unit)? = null,
 ): SurfaceModel? {
-    val context = LocalContext.current
-    val latest = androidx.compose.runtime.rememberUpdatedState(onAction)
-    val forward: ((String, JsonObject?) -> Unit)? = if (onAction == null) null else { name, ctx -> latest.value?.invoke(name, ctx) }
-    // #EXP-1674: the session or chat screen's handler knows the card's team;
-    // anywhere else, the active team. Read late: neither rebuilds the model.
-    val ownLinks = rememberAppLinkHandler()
-    val links = LocalAppLinks.current ?: ownLinks
-    val latestLinks = androidx.compose.runtime.rememberUpdatedState(links)
-    val latestTextLinks = androidx.compose.runtime.rememberUpdatedState(rememberIssueTextLinks(links?.teamId, links?.team))
+    val host = rememberCardHostFactory(onAction)
     return remember(surface) {
         runCatching {
             SurfaceModel(
                 id = "card-${surface.root.hashCode()}",
                 options = SurfaceOptions(),
-                host = cardHost(
-                    context,
-                    forward,
-                    onOpenUrl = { url -> latestLinks.value?.openCardHref(url) },
-                    onTextLinks = { text -> latestTextLinks.value(text) },
-                    linkBase = { expandTeamLink("~/", latestLinks.value?.team) },
-                ),
+                host = host(),
             ) { error("set by ExponentialSurface") }.also { m ->
                 m.setNested(paintedRoot(surface))
                 surface.data?.forEach { (key, value) ->
@@ -216,6 +202,37 @@ internal fun rememberCardSurfaceModel(
                 }
             }
         }.getOrNull()
+    }
+}
+
+/**
+ * THE card host (links, media, image menu, [onAction]) as a factory: every
+ * surface the card host paints (a plan / question card, a show card, an
+ * Express block's surfaces) takes the same policy. Read late: neither the
+ * links nor the callback rebuild a model.
+ */
+@Composable
+internal fun rememberCardHostFactory(
+    onAction: ((name: String, context: JsonObject?, userMessage: String?) -> Unit)?,
+): () -> HostPlugin {
+    val context = LocalContext.current
+    val latest = androidx.compose.runtime.rememberUpdatedState(onAction)
+    val forward: ((String, JsonObject?, String?) -> Unit)? =
+        if (onAction == null) null else { name, ctx, user -> latest.value?.invoke(name, ctx, user) }
+    // #EXP-1674: the session or chat screen's handler knows the card's team;
+    // anywhere else, the active team. Read late: neither rebuilds the model.
+    val ownLinks = rememberAppLinkHandler()
+    val links = LocalAppLinks.current ?: ownLinks
+    val latestLinks = androidx.compose.runtime.rememberUpdatedState(links)
+    val latestTextLinks = androidx.compose.runtime.rememberUpdatedState(rememberIssueTextLinks(links?.teamId, links?.team))
+    return {
+        cardHost(
+            context,
+            forward,
+            onOpenUrl = { url -> latestLinks.value?.openCardHref(url) },
+            onTextLinks = { text -> latestTextLinks.value(text) },
+            linkBase = { expandTeamLink("~/", latestLinks.value?.team) },
+        )
     }
 }
 

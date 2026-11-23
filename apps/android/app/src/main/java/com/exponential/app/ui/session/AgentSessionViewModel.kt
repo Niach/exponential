@@ -1622,6 +1622,21 @@ class AgentSessionViewModel @AssistedInject constructor(
         return true
     }
 
+    /** #EXP-2067 (chat-express.json ACTIONS): a press on a genUI surface (a
+     *  block or a show card) = ONE person message into this session through
+     *  THE send path: the body + THE action card (sealed in a keyed tree). */
+    fun sendAction(post: com.exponential.app.domain.ChatExpress.ActionResult.Post) {
+        viewModelScope.launch {
+            val accountId = auth.activeAccountId.value ?: return@launch
+            try {
+                sessionsApi.send(accountId, SessionsSendInput.action(codingSessionId, post.body, post.card.toJson()))
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _sendError.value = trpcErrorMessage(t, "")
+            }
+        }
+    }
+
     /** EXP-849: the profile a switch is in flight to (its row spins). */
     private val _switchingAccount = MutableStateFlow<String?>(null)
     val switchingAccount: StateFlow<String?> = _switchingAccount

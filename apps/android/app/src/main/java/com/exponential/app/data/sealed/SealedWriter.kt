@@ -84,7 +84,7 @@ class SealedWriter @Inject constructor(
     suspend fun prepareSend(accountId: String, input: SessionsSendInput, fresh: Boolean = false): PreparedSend = withContext(Dispatchers.IO) {
         val text = input.text.orEmpty()
         val attachments = input.attachmentIds.orEmpty()
-        if (text.isBlank() && attachments.isEmpty()) return@withContext PreparedSend(input)
+        if (text.isBlank() && attachments.isEmpty() && input.actionCard == null) return@withContext PreparedSend(input)
         val db = dbs.database(accountId)
         val mentions = mentionIds(db, text)
         val refs = issueRefIds(db, text)
@@ -93,7 +93,7 @@ class SealedWriter @Inject constructor(
             refIssueIds = refs.takeIf { it.isNotEmpty() },
         )
         val body = SealedWrite.withAttachmentEmbeds(text, attachments)
-        if (text.isBlank()) {
+        if (text.isBlank() && input.actionCard == null) {
             return@withContext try {
                 attachmentsOnly(db, accountId, input, withMentions, body, fresh)
             } catch (err: CancellationException) {
@@ -163,7 +163,11 @@ class SealedWriter @Inject constructor(
                 val wraps = readerWraps(accountId, installId, readers, key.secret) ?: throw TrpcException(NO_KEY_REFUSAL)
                 val sealed = crypto.sealBody(key.publicKey, FIRST_EPOCH, body)
                 PreparedSend(
-                    sealedName(withMentions, key.publicKey, FIRST_EPOCH).copy(text = sealed, seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps)),
+                    sealedName(withMentions, key.publicKey, FIRST_EPOCH).copy(
+                        text = sealed,
+                        seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps),
+                        actionCard = sealedActionCard(withMentions.actionCard, key.publicKey, FIRST_EPOCH),
+                    ),
                 ) { result -> keep(accountId, result.sessionId, key.secret) }
             }
         }
@@ -262,7 +266,20 @@ class SealedWriter @Inject constructor(
         Keyless.Arrived(awaitWithin(SEAL_KEY_WAIT_MS, KEY_POLL_MS) { currentKey(db, accountId, rootId) })
 
     private fun sealedTo(input: SessionsSendInput, key: PublicTreeKey, body: String) =
-        PreparedSend(sealedName(input, key.publicKey, key.epoch).copy(text = crypto.sealBody(key.publicKey, key.epoch, body)))
+        PreparedSend(
+            sealedName(input, key.publicKey, key.epoch).copy(
+                // #EXP-2067: a press without a body sends no text at all.
+                text = if (body.isEmpty() && input.actionCard != null) "" else crypto.sealBody(key.publicKey, key.epoch, body),
+                actionCard = sealedActionCard(input.actionCard, key.publicKey, key.epoch),
+            ),
+        )
+
+    /** #EXP-2067: a keyed tree takes the action card sealed only: `{kind: "action", sealed}`. */
+    private fun sealedActionCard(card: JsonObject?, publicKey: String, epoch: Int): JsonObject? {
+        card ?: return null
+        val sealed = Json.parseToJsonElement(crypto.sealCard(publicKey, epoch, card.toString())) as JsonObject
+        return JsonObject(mapOf("kind" to card.getValue("kind"), "sealed" to sealed.getValue("sealed")))
+    }
 
     /** EXP-1458: a new session's `name` leaves as `sealedName` (the plaintext title stays neutral). */
     private fun sealedName(input: SessionsSendInput, publicKey: String, epoch: Int): SessionsSendInput {

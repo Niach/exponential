@@ -802,6 +802,9 @@ jobs:
       - name: Build the chat store facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p chat-store-ffi --release
+      - name: Build the eui facade for the JVM unit tests
+        working-directory: apps/desktop
+        run: cargo build -p exponential-ui-ffi --release
       # Restore only: seed-gradle-caches.yml saves the entry on master.
       - name: Restore the Gradle caches
         if: runner.environment == 'github-hosted'

@@ -745,7 +745,7 @@ fun ChatTranscriptSpecimenBody(modifier: Modifier = Modifier, withCall: Boolean 
                 onUnqueue = {},
                 modifier = Modifier.fillMaxWidth().then(if (withCall) Modifier.height(900.dp) else Modifier.weight(1f)),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
-                onSurfaceReply = {},
+                onSurfaceAction = {},
                 onOpenXref = {},
                 clock = ::specimenClock,
                 chat = SPECIMEN_CHAT,
@@ -929,7 +929,7 @@ fun SealedLockedSpecimenScreen() {
                 onUnqueue = {},
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                onSurfaceReply = {},
+                onSurfaceAction = {},
                 tail = {
                     // The rows span the screen: undo the transcript's 16dp gutters.
                     Column(

@@ -445,6 +445,10 @@ jobs:
       - name: Build the chat store facade for the JVM unit tests
         working-directory: apps/desktop
         run: cargo build -p chat-store-ffi --release --locked
+      # #EXP-2073: the eui facade, loaded by ChatExpressTest (chat-express.json).
+      - name: Build the eui facade for the JVM unit tests
+        working-directory: apps/desktop
+        run: cargo build -p exponential-ui-ffi --release --locked
       # Restore only: seed-gradle-caches.yml saves the entry on master (a PR
       # ref's entry no other ref can read). The Mint keeps its own warm home.
       - name: Restore the Gradle caches

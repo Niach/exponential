@@ -391,9 +391,9 @@ fun ChatConversation(
      *  WAITING plan or question card stays inline at its place WITH its
      *  actions besides the dock; only the suggestion rows leave. */
     dockedIds: Set<String> = emptySet(),
-    /** Session 58cb32df: a surface card's `reply` posts its text here (the
-     *  person's next message); null = inert. */
-    onSurfaceReply: ((String) -> Unit)? = null,
+    /** #EXP-2067 (chat-express.json ACTIONS): every press of a show card or
+     *  an Express block ([rememberExpressActionSink]); null = inert. */
+    onSurfaceAction: ((com.exponential.app.domain.ChatExpress.ActionResult) -> Unit)? = null,
     /** S-3: the view's `origin` (who started the viewed session); #EXP-1736
      *  its prompt reads as that session's bubble. Null = a person started it. */
     origin: SessionTree.SessionXref? = null,
@@ -519,6 +519,7 @@ fun ChatConversation(
     // provides [LocalIssueRefs]. Display-only: the composer sits outside.
     CompositionLocalProvider(
         LocalIssueRefBare provides true,
+        LocalExpressActions provides onSurfaceAction,
         com.exponential.app.ui.session.LocalCardHighlight provides deepLink.ringing,
     ) {
         Box(modifier = modifier) {
@@ -595,14 +596,31 @@ fun ChatConversation(
                                         tail = layout.hasTail(),
                                     ) { MarkdownView(markdown = row.body, softBreaksAsNewlines = true) }
                                 } else {
-                                    MessageBubble(
-                                        text = row.body,
-                                        own = false,
-                                        time = rowMeta?.time,
-                                        author = layout.authorLine(),
-                                        queued = row.queued,
-                                        tail = layout.hasTail(),
-                                    )
+                                    // #EXP-2067: an agent's text with Express
+                                    // blocks = its segments, one sender group.
+                                    val key = com.exponential.app.domain.ChatExpress.syncedRowKey(row.id)
+                                    val segments = if (row.author == "agent") rememberExpressSegments(key, row.body, final = true) else null
+                                    if (segments == null) {
+                                        MessageBubble(
+                                            text = row.body,
+                                            own = false,
+                                            time = rowMeta?.time,
+                                            author = layout.authorLine(),
+                                            queued = row.queued,
+                                            tail = layout.hasTail(),
+                                        )
+                                    } else {
+                                        ExpressSegments(rowKey = key, segments = segments, arrived = arrivals(row.id)) { text, first, last ->
+                                            MessageBubble(
+                                                text = text,
+                                                own = false,
+                                                time = if (last) rowMeta?.time else null,
+                                                author = if (first) layout.authorLine() else null,
+                                                queued = row.queued,
+                                                tail = first && layout.hasTail(),
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -613,8 +631,15 @@ fun ChatConversation(
                         SurfaceCard(
                             row = row,
                             animate = arrivals(row.id),
-                            onReply = { text -> onSurfaceReply?.invoke(text) },
+                            onAction = { result -> onSurfaceAction?.invoke(result) },
                         )
+                    }
+                    // #EXP-2067: a press without a body = THE marker.
+                    is SessionTree.SessionChatRow.ActionMarker -> {
+                        val author = row.authorId?.takeIf { it != viewerId }?.let { id ->
+                            meta(SessionTree.SessionChatRow.MessageRow(row.id, "user", id, "", false))?.authorName
+                        }
+                        FeedMarkerRow(com.exponential.app.domain.ChatExpress.actionMarker(row.name, author), testTag = "express-action-marker")
                     }
                     is SessionTree.SessionChatRow.SessionRow -> {
                         val card = row.card

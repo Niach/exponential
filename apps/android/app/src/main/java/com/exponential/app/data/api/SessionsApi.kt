@@ -85,6 +85,10 @@ data class SessionsSendInput(
     /** #EXP-1958 (sealed-content.json `cardStamps`): the SEALED replies /
      *  suggestions card item this send answers; the server stamps it. */
     val cardItem: CardItemRef? = null,
+    /** #EXP-2067 (chat-express.json ACTIONS): a press on a genUI surface:
+     *  THE `action` card (clear tree), or (a keyed tree) its envelope
+     *  `{kind: "action", sealed}`, sealed by [SessionsApi.send]'s writer. */
+    val actionCard: JsonObject? = null,
 ) {
     companion object {
         /** #EXP-1715: the wire of a Teams pick (null = every team). */
@@ -201,6 +205,10 @@ data class SessionsSendInput(
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },
             scopeTeamIds = scopeTeamIds,
         )
+
+        /** #EXP-2067: a press's person message ([body] may be empty) + its card. */
+        fun action(sessionId: String, body: String, card: JsonObject): SessionsSendInput =
+            SessionsSendInput(sessionId = sessionId, text = body, actionCard = card)
 
         /**
          * EXP-849: the mid-session account SWITCH — `{sessionId, account}`, no

@@ -1101,6 +1101,10 @@ object SessionTree {
          *  lock; [reason] = `noKey` | `unreadable`, [author] user | agent | system. */
         data class Locked(override val id: String, val reason: String, val author: String) : SessionChatRow
 
+        /** #EXP-2067 (chat-express.json ACTIONS): a press without a body =
+         *  THE inline marker `{author} pressed {name}` ([authorId] = who pressed). */
+        data class ActionMarker(override val id: String, val authorId: String?, val name: String) : SessionChatRow
+
         /** Session 58cb32df (chats.json): an agent's inline Exponential UI preview. */
         data class Surface(
             override val id: String,
@@ -1662,6 +1666,23 @@ object SessionTree {
                     }
                 }
                 DomainContract.messageCardKindSurface -> surfaceRow(message)?.let(rows::add)
+                // #EXP-2067: a press = the person's bubble with its body, else THE marker.
+                DomainContract.messageCardKindAction -> {
+                    val name = card.str("name") ?: continue
+                    if (TranscriptGrouping.isBlankText(message.body)) {
+                        rows.add(SessionChatRow.ActionMarker(message.id, message.authorId, name))
+                    } else {
+                        rows.add(
+                            SessionChatRow.MessageRow(
+                                id = message.id,
+                                author = DomainContract.messageAuthorKindUser,
+                                authorId = message.authorId,
+                                body = message.body,
+                                queued = message.consumedAt == null,
+                            ),
+                        )
+                    }
+                }
                 // NEW-1: a child's ask mirrored into its parent: the child's own
                 // card already surfaces in the Conversation, the mirror draws nothing.
                 // #EXP-1399: a mirror from ANOTHER tree (an agent's conversation

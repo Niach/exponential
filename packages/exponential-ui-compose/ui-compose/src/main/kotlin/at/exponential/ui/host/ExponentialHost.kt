@@ -13,7 +13,7 @@ import at.exponential.ui.extension.ExtensionPainter
 import at.exponential.ui.ffi.HostCalls
 import at.exponential.ui.ffi.HostRouter
 import at.exponential.ui.ffi.HostZone
-import at.exponential.ui.ffi.actionMessageJson
+import at.exponential.ui.ffi.actionMessageWithUserMessageJson
 import at.exponential.ui.ffi.rendererCapabilitiesWithJson
 import at.exponential.ui.ffi.combineDecisions
 import at.exponential.ui.ffi.decideFunction
@@ -593,7 +593,7 @@ class ExponentialHost(
     /** A component's server event: the A2UI client action message, sent. */
     fun action(event: SurfaceActionEvent, timestamp: String = Instant.now().toString()): JsonValue {
         val message = JsonValue.parse(
-            actionMessageJson(event.surfaceId, event.componentId, event.name, event.context.json, event.payload?.json, timestamp),
+            actionMessageWithUserMessageJson(event.surfaceId, event.componentId, event.name, event.context.json, event.payload?.json, timestamp, event.userMessage),
         )
         send(message)
         return message

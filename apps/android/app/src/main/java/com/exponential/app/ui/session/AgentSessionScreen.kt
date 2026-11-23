@@ -1156,12 +1156,15 @@ private fun RunFaceContent(
         cancelToaster.error(message)
         viewModel.clearCancelError()
     }
+    // #EXP-2067 (chat-express.json ACTIONS): every press of a block or a show
+    // card = ONE person message into this session (body + action card).
+    val expressActions = com.exponential.app.ui.chat.rememberExpressActionSink(viewModel::sendAction)
     val renderSessionCard: @Composable (SessionTree.SessionChatRow) -> Unit = { row ->
         when (row) {
             is SessionTree.SessionChatRow.Surface -> SurfaceCard(
                 row = row,
                 animate = false,
-                onReply = { text -> viewModel.sendCommand(text) },
+                onAction = expressActions,
             )
             else -> androidx.compose.runtime.CompositionLocalProvider(
                 LocalCardDismiss provides dismissToolCard,
@@ -1449,6 +1452,9 @@ private fun RunFaceContent(
                     LocalFeedFooter provides transcriptFooter,
                     LocalTranscriptFindHost provides findHost,
                     LocalTranscriptFindSynced provides tailSynced,
+                    // #EXP-2067: the feed's Express blocks: their session, their presses.
+                    com.exponential.app.ui.chat.LocalExpressActions provides expressActions,
+                    com.exponential.app.ui.chat.LocalExpressSession provides viewModel.codingSessionId,
                 ) {
                 ActivityFeed(
                     feed = feed,
@@ -2555,19 +2561,15 @@ private fun ActivityFeed(
                         is AgentFeedRow.Single -> when (val item = row.item) {
                             // #VAPP-258: the live tail is the reply being written.
                             is AgentFeedItem.Narration -> if (!TranscriptGrouping.isBlankText(item.text)) {
-                                MessageBubble(
-                                    own = false,
-                                    // #EXP-1864: its first fragment's time.
-                                    time = item.at?.let(::feedClock),
-                                    author = layout.authorLine(),
-                                    testTag = "session-agent-narration",
-                                    tail = layout.hasTail(),
-                                ) {
+                                // #EXP-2067: a row is FINAL once another row
+                                // follows it or its turn has ended.
+                                val streaming = working && index == rows.lastIndex
+                                ExpressNarration(item, final = !streaming, author = layout.authorLine(), tail = layout.hasTail()) { text, last ->
                                     // #EXP-1888: the whole reply, never folded.
                                     MarkdownView(
-                                        item.text,
+                                        text,
                                         softBreaksAsNewlines = true,
-                                        streaming = working && index == rows.lastIndex,
+                                        streaming = streaming && last,
                                         // #EDE-130: find in chat's marks.
                                         highlight = LocalFindPaint.current?.highlightOf(item.id),
                                     )
@@ -2621,9 +2623,19 @@ private fun ActivityFeed(
                                 // them) = ONE marker line.
                                 val checkIns = shownRows.checkIns[row.id]
                                 val callId = callFeed.first[item.id]
+                                // #EXP-2067: a press's input = its body's bubble, else THE marker.
+                                val action = com.exponential.app.domain.ChatExpress.parseActionInput(item.text)
                                 when {
                                     // #EXP-1943: a call's report relay = THE call card.
                                     callId != null -> callCard(callId)
+                                    action != null && action.body.isBlank() ->
+                                        FeedMarkerRow(com.exponential.app.domain.ChatExpress.actionMarker(action.card.name, null), testTag = "express-action-marker")
+                                    action != null -> MessageBubble(
+                                        own = true,
+                                        time = time,
+                                        status = com.exponential.app.domain.MessageDelivery.State.Read,
+                                        tail = layout.hasTail(),
+                                    ) { UserMessageBody(action.body, LocalFindPaint.current?.highlightOf(item.id)) }
                                     checkIns != null -> FeedMarkerRow(TranscriptGrouping.checkInLabel(checkIns, time))
                                     divider != null -> TranscriptDivider(divider, time)
                                     command != null -> CommandRow(command, item.text)
@@ -2964,7 +2976,9 @@ internal fun feedTranscriptLayout(
                     Chats.commandDivider(feedItem.text) != null || SlashCommands.commandFor(feedItem.text, agent) != null
                 ) {
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
-                } else if (TranscriptGrouping.feedInput(feedItem.text) is TranscriptGrouping.FeedInput.Marker) {
+                } else if (TranscriptGrouping.feedInput(feedItem.text) is TranscriptGrouping.FeedInput.Marker ||
+                    com.exponential.app.domain.ChatExpress.parseActionInput(feedItem.text)?.body?.isBlank() == true
+                ) {
                     // #EXP-1772: a system input is THE marker (full, never grouped).
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
                 } else {
@@ -3307,6 +3321,54 @@ private fun NarrationBubble(
         tail = tail,
     ) {
         MarkdownView(text, softBreaksAsNewlines = true)
+    }
+}
+
+/**
+ * #EXP-2067 / #EXP-2073 (chat-express.json DRAW): an agent's narration row:
+ * a text without a block = THE bubble as before; with blocks = its segments,
+ * each prose run THE bubble ([content] paints its markdown; `last` = the
+ * row's last segment), each block THE surface card frames, ONE sender group:
+ * name + tail on the first segment, the `HH:mm` on the last prose bubble.
+ */
+@Composable
+private fun ExpressNarration(
+    item: AgentFeedItem.Narration,
+    final: Boolean,
+    author: String?,
+    tail: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable (text: String, last: Boolean) -> Unit,
+) {
+    val sessionId = com.exponential.app.ui.chat.LocalExpressSession.current
+    val segments = if (sessionId != null) {
+        val key = com.exponential.app.ui.chat.feedExpressRowKey(sessionId.orEmpty(), item.messageId, item.seq ?: item.id)
+        com.exponential.app.ui.chat.rememberExpressSegments(key, item.text, final)?.let { key to it }
+    } else {
+        null
+    }
+    if (segments == null) {
+        MessageBubble(
+            own = false,
+            // #EXP-1864: its first fragment's time.
+            time = item.at?.let(::feedClock),
+            author = author,
+            modifier = modifier,
+            testTag = "session-agent-narration",
+            tail = tail,
+        ) { content(item.text, true) }
+        return
+    }
+    val (key, list) = segments
+    val lastIndex = list.lastIndex
+    com.exponential.app.ui.chat.ExpressSegments(rowKey = key, segments = list, modifier = modifier) { text, first, lastProse ->
+        MessageBubble(
+            own = false,
+            time = if (lastProse) item.at?.let(::feedClock) else null,
+            author = if (first) author else null,
+            testTag = "session-agent-narration",
+            tail = first && tail,
+        ) { content(text, lastProse && list.indexOfLast { it is com.exponential.app.domain.ChatExpress.RowSegment.Prose } == lastIndex) }
     }
 }
 
@@ -5137,7 +5199,13 @@ private fun LaneRow(
 private fun SubagentItemRow(item: AgentFeedItem, live: Boolean, nested: Boolean = false, author: String? = null, tail: Boolean = false) {
     when (item) {
         is AgentFeedItem.Tool -> ToolRow(item, nested = nested)
-        is AgentFeedItem.Narration -> NarrationBubble(item.text, author = author, at = item.at, nested = nested, tail = tail)
+        is AgentFeedItem.Narration -> ExpressNarration(
+            item,
+            final = !live,
+            author = author,
+            tail = tail,
+            modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,
+        ) { text, _ -> MarkdownView(text, softBreaksAsNewlines = true) }
         is AgentFeedItem.ApiError -> ApiErrorRow(item.message, item.errorType)
         is AgentFeedItem.UserMessage -> UserMessageBubble(item.text, nested = nested, at = item.at, tail = tail)
         is AgentFeedItem.Thought -> ThoughtRow(item, running = live && !item.ended)
