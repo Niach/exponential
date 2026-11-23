@@ -2956,6 +2956,14 @@ impl SseDecoder {
         Arc::new(SseDecoder { inner: Mutex::new(h::SseDecoder::new()) })
     }
 
+    /// #AXC-12: `a2ui-express` events (the chunks of the stream's ONE
+    /// Express response) target `surface_id` (default `main`); their prose
+    /// comes back in `text`.
+    #[uniffi::constructor]
+    pub fn with_surface(surface_id: Option<String>) -> Arc<Self> {
+        Arc::new(SseDecoder { inner: Mutex::new(h::SseDecoder::with_surface(surface_id.as_deref())) })
+    }
+
     pub fn push(&self, chunk: String) -> String {
         shield("push", || panic_decoded_json("push"), || {
             self.inner.lock().unwrap_or_else(|e| e.into_inner()).push(&chunk).to_json().to_string()
@@ -3000,6 +3008,50 @@ impl ExpressDecoder {
             self.inner.lock().unwrap_or_else(|e| e.into_inner()).end().to_json().to_string()
         })
     }
+}
+
+/// #AXC-12: WebSocket frames in order: an `{"express": "…"}` frame is the
+/// next chunk of the connection's ONE Express response (prose in `text`),
+/// any other frame one message or JSONL. `end()` at close flushes the
+/// Express response. Same JSON as `JsonlDecoder`.
+#[derive(uniffi::Object)]
+pub struct FrameDecoder {
+    inner: Mutex<h::FrameDecoder>,
+}
+
+#[uniffi::export]
+impl FrameDecoder {
+    #[uniffi::constructor]
+    pub fn new(surface_id: Option<String>) -> Arc<Self> {
+        Arc::new(FrameDecoder { inner: Mutex::new(h::FrameDecoder::new(surface_id.as_deref())) })
+    }
+
+    pub fn push(&self, frame: String) -> String {
+        shield("push", || panic_decoded_json("push"), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).push(&frame).to_json().to_string()
+        })
+    }
+
+    pub fn end(&self) -> String {
+        shield("end", || panic_decoded_json("end"), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).end().to_json().to_string()
+        })
+    }
+}
+
+/// #AXC-12: the inference format of an HTTP body by its Content-Type
+/// (`express` for `application/a2ui+express`, parameters and case ignored;
+/// else `json`).
+#[uniffi::export]
+pub fn inference_format_of(content_type: String) -> String {
+    shield("inference_format_of", || "json".to_string(), || h::inference_format_of(&content_type).to_string())
+}
+
+/// #AXC-12: the Express chunk a WebSocket frame carries (`{"express": "…"}`,
+/// exactly that one string key), else `None`.
+#[uniffi::export]
+pub fn express_frame_chunk(frame: String) -> Option<String> {
+    shield("express_frame_chunk", || None, || h::express_frame_chunk(&frame))
 }
 
 fn express_error(e: eui_core::express::ExpressError) -> UiError {
@@ -3062,6 +3114,17 @@ pub fn messages_from_mcp_result_json(result_json: String) -> Result<String, UiEr
     guarded("messages_from_mcp_result_json", || {
         let result: Value = parse(&result_json)?;
         Ok(h::messages_from_mcp_result(&result).to_json().to_string())
+    })
+}
+
+/// #AXC-12: [`messages_from_mcp_result_json`] with the surface Express
+/// statements target (Express resources and `structuredContent.a2uiExpress`
+/// are each one bare body; default `main`); prose in `text`.
+#[uniffi::export]
+pub fn messages_from_mcp_result_with_json(result_json: String, surface_id: Option<String>) -> Result<String, UiError> {
+    guarded("messages_from_mcp_result_with_json", || {
+        let result: Value = parse(&result_json)?;
+        Ok(h::messages_from_mcp_result_with(&result, surface_id.as_deref()).to_json().to_string())
     })
 }
 
@@ -3180,6 +3243,17 @@ pub fn renderer_capabilities_json(extension_ids: Vec<String>, inline_catalogs_js
     guarded("renderer_capabilities_json", || {
         let inline: Option<Vec<Value>> = inline_catalogs_json.map(|j| parse(&j)).transpose()?;
         Ok(h::renderer_capabilities(&extension_ids, inline).to_string())
+    })
+}
+
+/// #AXC-12: [`renderer_capabilities_json`] plus `inferenceFormats` (the
+/// formats this renderer compiles; `None` or empty = the key is absent).
+#[uniffi::export]
+pub fn renderer_capabilities_with_json(extension_ids: Vec<String>, inline_catalogs_json: Option<String>, inference_formats: Option<Vec<String>>) -> Result<String, UiError> {
+    guarded("renderer_capabilities_with_json", || {
+        let inline: Option<Vec<Value>> = inline_catalogs_json.map(|j| parse(&j)).transpose()?;
+        let formats: Option<Vec<&str>> = inference_formats.as_ref().map(|f| f.iter().map(String::as_str).collect());
+        Ok(h::renderer_capabilities_with(&extension_ids, inline, formats.as_deref()).to_string())
     })
 }
 

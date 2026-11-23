@@ -1,11 +1,14 @@
 package at.exponential.ui.host
 
 import at.exponential.ui.ffi.ExpressDecoder
+import at.exponential.ui.ffi.FrameDecoder
 import at.exponential.ui.ffi.JsonlDecoder
 import at.exponential.ui.ffi.SseDecoder
 import at.exponential.ui.ffi.decodeJsonlJson
+import at.exponential.ui.ffi.hostContractJson
+import at.exponential.ui.ffi.inferenceFormatOf
 import at.exponential.ui.ffi.mcpActionCallJson
-import at.exponential.ui.ffi.messagesFromMcpResultJson
+import at.exponential.ui.ffi.messagesFromMcpResultWithJson
 import at.exponential.ui.json.JsonValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,14 +33,32 @@ import java.util.concurrent.CopyOnWriteArrayList
 // `SseDecoder`, `ExpressDecoder`, `decodeJsonlJson`, `messagesFromMcpResultJson`,
 // `mcpActionCallJson` through the facade), never re-implemented here.
 // No HTTP library: `HttpURLConnection` on Dispatchers.IO.
+//
+// #AXC-12: each reads the Express inference format too (catalog/host.json
+// `inference`): an HTTP body by its Content-Type, `a2ui-express` SSE events,
+// `{express}` WebSocket frames, Express MCP resources. The prose goes to
+// `start`'s `text` (the host's `onText`); the SDK draws none.
 
 /** A transport's connection state. */
 enum class TransportStatus(val wire: String) { Connecting("connecting"), Open("open"), Closed("closed"), Error("error") }
+
+/** #AXC-12: what an agent writes: A2UI JSON messages (the default) or Express (compiled by the core against the core catalog). */
+enum class InferenceFormat(val wire: String) { Json("json"), Express("express") }
+
+/** #AXC-12: the `inference` keys of the core's contract, read once. */
+internal object InferenceWire {
+    private val express by lazy { JsonValue.parse(hostContractJson())["inference"]?.get("express") }
+    val mimeType: String by lazy { express?.get("mimeType")?.string ?: "application/a2ui+express" }
+    val defaultSurfaceId: String by lazy { express?.get("defaultSurfaceId")?.string ?: "main" }
+}
 
 /** Messages in, client messages out. Callbacks may come from any thread; [ExponentialHost] hops to its own scope. */
 interface Transport {
     /** Start delivering server messages; report the connection state. */
     fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit)
+
+    /** #AXC-12: [start] plus [text], the prose of an Express response piece by piece (append them). The default drops the prose. */
+    fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?) = start(receive, status)
 
     /** One client message (A2UI `action` / `error`). */
     suspend fun send(message: JsonValue)
@@ -112,6 +133,10 @@ data class HttpTransportOptions(
     /** Reconnect after a drop, ms (0 = never). */
     val reconnectMs: Long = 2000,
     val connectTimeoutMs: Int = 15_000,
+    /** #AXC-12: [InferenceFormat.Express] asks for Express (`accept`). Either way an `application/a2ui+express` body (and SSE `a2ui-express` events) is read as Express: the wire decides. */
+    val format: InferenceFormat = InferenceFormat.Json,
+    /** The surface Express statements before any `surface("…")` target (null = `main`). */
+    val surfaceId: String? = null,
 )
 
 /** A chunked decoder of the facade (JSONL, SSE or Express). */
@@ -184,13 +209,13 @@ abstract class StreamTransport(val options: HttpTransportOptions) : Transport {
     @Volatile private var closed = false
     @Volatile private var connection: HttpURLConnection? = null
 
-    /** #AXC-12: the prose of an Express stream, piece by piece (append them); never called for JSON. Any thread. */
-    @Volatile var onText: ((String) -> Unit)? = null
-
-    internal abstract fun decoder(): ChunkDecoder
+    /** The body's decoder; `express` = its Content-Type is Express. */
+    internal abstract fun decoder(express: Boolean): ChunkDecoder
     protected abstract val accept: String
 
-    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit) {
+    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit) = start(receive, status, null)
+
+    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?) {
         closed = false
         val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = s
@@ -202,12 +227,13 @@ abstract class StreamTransport(val options: HttpTransportOptions) : Transport {
                     connection = conn
                     conn.connectTimeout = options.connectTimeoutMs
                     conn.readTimeout = 0
-                    conn.setRequestProperty("accept", accept)
+                    conn.setRequestProperty("accept", if (options.format == InferenceFormat.Express) "${InferenceWire.mimeType}, $accept" else accept)
                     for ((k, v) in options.headers) conn.setRequestProperty(k, v)
                     val code = conn.responseCode
                     if (code !in 200..299) throw java.io.IOException("HTTP $code")
                     status(TransportStatus.Open, null)
-                    conn.inputStream.use { pump(it, decoder(), receive, onText) { !closed } }
+                    val express = inferenceFormatOf(conn.contentType ?: "") == InferenceFormat.Express.wire
+                    conn.inputStream.use { pump(it, decoder(express), receive, text) { !closed } }
                     if (!closed) status(TransportStatus.Closed, null)
                 } catch (e: Exception) {
                     if (closed) return@launch
@@ -234,29 +260,29 @@ abstract class StreamTransport(val options: HttpTransportOptions) : Transport {
     }
 }
 
-/** A2UI JSONL over a streamed HTTP response (`application/jsonl`), through the core's JSONL decoder. */
+/** A2UI JSONL over a streamed HTTP response (`application/jsonl`), through the core's JSONL decoder; an `application/a2ui+express` response is ONE Express response (prose + `<a2ui>` blocks). */
 class JsonlStreamTransport(options: HttpTransportOptions) : StreamTransport(options) {
-    constructor(url: String, postUrl: String? = null, headers: Map<String, String> = emptyMap(), reconnectMs: Long = 2000) :
-        this(HttpTransportOptions(url, postUrl, headers, reconnectMs))
+    constructor(url: String, postUrl: String? = null, headers: Map<String, String> = emptyMap(), reconnectMs: Long = 2000, format: InferenceFormat = InferenceFormat.Json, surfaceId: String? = null) :
+        this(HttpTransportOptions(url, postUrl, headers, reconnectMs, format = format, surfaceId = surfaceId))
 
     override val accept = "application/jsonl, application/x-ndjson"
 
-    override fun decoder(): ChunkDecoder = object : ChunkDecoder {
+    override fun decoder(express: Boolean): ChunkDecoder = if (express) expressChunkDecoder(true, options.surfaceId ?: InferenceWire.defaultSurfaceId) else object : ChunkDecoder {
         val d = JsonlDecoder()
         override fun push(chunk: String) = d.push(chunk)
         override fun end() = d.end().also { d.close() }
     }
 }
 
-/** Server-Sent Events (`text/event-stream`) over a streamed GET, through the core's SSE decoder. */
+/** Server-Sent Events (`text/event-stream`) over a streamed GET, through the core's SSE decoder; `a2ui-express` events are the chunks of the stream's ONE Express response. */
 class SseTransport(options: HttpTransportOptions) : StreamTransport(options) {
-    constructor(url: String, postUrl: String? = null, headers: Map<String, String> = emptyMap(), reconnectMs: Long = 2000) :
-        this(HttpTransportOptions(url, postUrl, headers, reconnectMs))
+    constructor(url: String, postUrl: String? = null, headers: Map<String, String> = emptyMap(), reconnectMs: Long = 2000, format: InferenceFormat = InferenceFormat.Json, surfaceId: String? = null) :
+        this(HttpTransportOptions(url, postUrl, headers, reconnectMs, format = format, surfaceId = surfaceId))
 
     override val accept = "text/event-stream"
 
-    override fun decoder(): ChunkDecoder = object : ChunkDecoder {
-        val d = SseDecoder()
+    override fun decoder(express: Boolean): ChunkDecoder = object : ChunkDecoder {
+        val d = SseDecoder.withSurface(options.surfaceId)
         override fun push(chunk: String) = d.push(chunk)
         override fun end() = d.end().also { d.close() }
     }
@@ -303,34 +329,55 @@ fun interface WebSocketConnector {
     fun connect(url: String, listener: WebSocketListener): WebSocketConnection
 }
 
-/** One A2UI message (or JSONL) per text frame; client messages go back as frames. */
+/** One A2UI message (or JSONL) per text frame; client messages go back as frames. #AXC-12: `{"express": "…"}` frames are the chunks of the connection's ONE Express response (flushed at close). */
 class WebSocketTransport(
     val url: String,
     private val connector: WebSocketConnector,
     /** Reconnect after a close, ms (0 = never). */
     val reconnectMs: Long = 2000,
+    /** #AXC-12: [InferenceFormat.Express] = the agent writes Express; the frames decide either way (nothing to negotiate on a socket). */
+    val format: InferenceFormat = InferenceFormat.Json,
+    /** The surface Express statements before any `surface("…")` target (null = `main`). */
+    val surfaceId: String? = null,
 ) : Transport {
     @Volatile private var closed = false
     @Volatile private var socket: WebSocketConnection? = null
     private var retry: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit) {
+    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit) = start(receive, status, null)
+
+    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?) {
         closed = false
         status(TransportStatus.Connecting, null)
+        // One decoder per connection: its `{express}` frames are ONE response.
+        val frames = FrameDecoder(surfaceId)
+        val prose = text
+        var ended = false
+        fun end() = synchronized(frames) {
+            if (ended) return@synchronized
+            ended = true
+            deliver(frames.end(), receive, text)
+            frames.close()
+        }
         val listener = object : WebSocketListener {
             override fun onOpen() = status(TransportStatus.Open, null)
 
-            override fun onText(text: String) = decodedMessages(decodeJsonlJson(text)).forEach(receive)
+            override fun onText(text: String) {
+                val out = synchronized(frames) { if (ended) null else frames.push(text) } ?: return
+                deliver(out, receive, prose)
+            }
 
             override fun onClosed(code: Int, reason: String) {
+                end()
                 status(TransportStatus.Closed, reason.ifEmpty { null })
-                reconnect(receive, status)
+                reconnect(receive, status, text)
             }
 
             override fun onFailure(error: Throwable) {
+                end()
                 status(TransportStatus.Error, error.message ?: "websocket error")
-                reconnect(receive, status)
+                reconnect(receive, status, text)
             }
         }
         socket = try {
@@ -341,12 +388,12 @@ class WebSocketTransport(
         }
     }
 
-    private fun reconnect(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit) {
+    private fun reconnect(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?) {
         if (closed || reconnectMs <= 0) return
         retry?.cancel()
         retry = scope.launch {
             delay(reconnectMs)
-            if (!closed) start(receive, status)
+            if (!closed) start(receive, status, text)
         }
     }
 
@@ -375,14 +422,22 @@ class McpTransport(
     val arguments: JsonValue = JsonValue.Obj(emptyMap()),
     val actionTool: String? = null,
     val headers: Map<String, String> = emptyMap(),
+    /** #AXC-12: [InferenceFormat.Express] = the agent writes Express; the result decides either way (an `application/a2ui+express` resource, `structuredContent.a2uiExpress`). */
+    val format: InferenceFormat = InferenceFormat.Json,
+    /** The surface Express statements before any `surface("…")` target (null = `main`). */
+    val surfaceId: String? = null,
 ) : Transport {
     private var id = 0
     @Volatile private var session: String? = null
     @Volatile private var receiveFn: ((JsonValue) -> Unit)? = null
+    @Volatile private var textFn: ((String) -> Unit)? = null
     private var scope: CoroutineScope? = null
 
-    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit) {
+    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit) = start(receive, status, null)
+
+    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?) {
         receiveFn = receive
+        textFn = text
         val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = s
         status(TransportStatus.Connecting, null)
@@ -394,7 +449,7 @@ class McpTransport(
                 )
                 val result = rpc("tools/call", JsonValue.Obj(mapOf("name" to JsonValue.Str(tool), "arguments" to arguments)))
                 status(TransportStatus.Open, null)
-                decodedMessages(messagesFromMcpResultJson(result.json)).forEach(receive)
+                deliverResult(result)
             } catch (e: Exception) {
                 status(TransportStatus.Error, e.message ?: e.toString())
             }
@@ -408,12 +463,18 @@ class McpTransport(
     private suspend fun call(message: JsonValue, metadata: JsonValue?) {
         val call = JsonValue.parse(mcpActionCallJson(message.json, actionTool, metadata?.json))
         val result = withContext(Dispatchers.IO) { rpc(call["method"]?.string ?: "tools/call", call["params"] ?: JsonValue.Null) }
+        deliverResult(result)
+    }
+
+    /** A tool result's messages (Express resources compiled) and prose. */
+    private fun deliverResult(result: JsonValue) {
         val r = receiveFn ?: return
-        decodedMessages(messagesFromMcpResultJson(result.json)).forEach(r)
+        deliver(messagesFromMcpResultWithJson(result.json, surfaceId), r, textFn)
     }
 
     override fun close() {
         receiveFn = null
+        textFn = null
         scope?.cancel()
         scope = null
     }

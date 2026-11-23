@@ -1031,6 +1031,156 @@ public func FfiConverterTypeExpressDecoder_lower(_ value: ExpressDecoder) -> UIn
 
 
 /**
+ * #AXC-12: WebSocket frames in order: an `{"express": "…"}` frame is the
+ * next chunk of the connection's ONE Express response (prose in `text`),
+ * any other frame one message or JSONL. `end()` at close flushes the
+ * Express response. Same JSON as `JsonlDecoder`.
+ */
+public protocol FrameDecoderProtocol: AnyObject, Sendable {
+    
+    func end()  -> String
+    
+    func push(frame: String)  -> String
+    
+}
+/**
+ * #AXC-12: WebSocket frames in order: an `{"express": "…"}` frame is the
+ * next chunk of the connection's ONE Express response (prose in `text`),
+ * any other frame one message or JSONL. `end()` at close flushes the
+ * Express response. Same JSON as `JsonlDecoder`.
+ */
+open class FrameDecoder: FrameDecoderProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_ui_ffi_fn_clone_framedecoder(self.handle, $0) }
+    }
+public convenience init(surfaceId: String?) {
+    let handle =
+        try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_constructor_framedecoder_new(
+        FfiConverterOptionString.lower(surfaceId),uniffiCallStatus
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_ui_ffi_fn_free_framedecoder(handle, $0) }
+    }
+
+    
+
+    
+open func end() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_framedecoder_end(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+open func push(frame: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_method_framedecoder_push(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(frame),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFrameDecoder: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = FrameDecoder
+
+    public static func lift(_ handle: UInt64) throws -> FrameDecoder {
+        return FrameDecoder(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: FrameDecoder) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FrameDecoder {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: FrameDecoder, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFrameDecoder_lift(_ handle: UInt64) throws -> FrameDecoder {
+    return try FfiConverterTypeFrameDecoder.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFrameDecoder_lower(_ value: FrameDecoder) -> UInt64 {
+    return FfiConverterTypeFrameDecoder.lower(value)
+}
+
+
+
+
+
+
+/**
  * A2UI JSONL over a byte stream: `push` any chunking, `end` flushes.
  * Both return `{"messages": […], "issues": [{at, message}]}`.
  * Round 9 §6.5–§6.8, §18.3: the host's routed calls (`eui_core::host::CallHub`):
@@ -3553,6 +3703,20 @@ public convenience init() {
         try! rustCall { uniffi_exponential_ui_ffi_fn_free_ssedecoder(handle, $0) }
     }
 
+    
+    /**
+     * #AXC-12: `a2ui-express` events (the chunks of the stream's ONE
+     * Express response) target `surface_id` (default `main`); their prose
+     * comes back in `text`.
+     */
+public static func withSurface(surfaceId: String?) -> SseDecoder  {
+    return try!  FfiConverterTypeSseDecoder_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_constructor_ssedecoder_with_surface(
+        FfiConverterOptionString.lower(surfaceId),uniffiCallStatus
+    )
+})
+}
     
 
     
@@ -9456,6 +9620,18 @@ public func evaluateExpressionJson(expr: String, varsJson: String, nowMs: Double
 })
 }
 /**
+ * #AXC-12: the Express chunk a WebSocket frame carries (`{"express": "…"}`,
+ * exactly that one string key), else `None`.
+ */
+public func expressFrameChunk(frame: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_express_frame_chunk(
+        FfiConverterString.lower(frame),uniffiCallStatus
+    )
+})
+}
+/**
  * #AXC-12: the Express section of an agent's system prompt over the core
  * catalog (plain text: the notation, the rules, every component's compact
  * signature). Needs the facade's `descriptions` feature (the model-facing
@@ -9557,6 +9733,19 @@ public func hostContractJson() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_host_contract_json(uniffiCallStatus
+    )
+})
+}
+/**
+ * #AXC-12: the inference format of an HTTP body by its Content-Type
+ * (`express` for `application/a2ui+express`, parameters and case ignored;
+ * else `json`).
+ */
+public func inferenceFormatOf(contentType: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_inference_format_of(
+        FfiConverterString.lower(contentType),uniffiCallStatus
     )
 })
 }
@@ -9709,6 +9898,20 @@ public func messagesFromMcpResultJson(resultJson: String)throws  -> String  {
         uniffiCallStatus in
     uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_json(
         FfiConverterString.lower(resultJson),uniffiCallStatus
+    )
+})
+}
+/**
+ * #AXC-12: [`messages_from_mcp_result_json`] with the surface Express
+ * statements target (Express resources and `structuredContent.a2uiExpress`
+ * are each one bare body; default `main`); prose in `text`.
+ */
+public func messagesFromMcpResultWithJson(resultJson: String, surfaceId: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_with_json(
+        FfiConverterString.lower(resultJson),
+        FfiConverterOptionString.lower(surfaceId),uniffiCallStatus
     )
 })
 }
@@ -9948,6 +10151,20 @@ public func rendererCapabilitiesJson(extensionIds: [String], inlineCatalogsJson:
     uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_json(
         FfiConverterSequenceString.lower(extensionIds),
         FfiConverterOptionString.lower(inlineCatalogsJson),uniffiCallStatus
+    )
+})
+}
+/**
+ * #AXC-12: [`renderer_capabilities_json`] plus `inferenceFormats` (the
+ * formats this renderer compiles; `None` or empty = the key is absent).
+ */
+public func rendererCapabilitiesWithJson(extensionIds: [String], inlineCatalogsJson: String?, inferenceFormats: [String]?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_with_json(
+        FfiConverterSequenceString.lower(extensionIds),
+        FfiConverterOptionString.lower(inlineCatalogsJson),
+        FfiConverterOptionSequenceString.lower(inferenceFormats),uniffiCallStatus
     )
 })
 }
@@ -10627,6 +10844,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json() != 24948) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_express_frame_chunk() != 24779) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_express_prompt() != 56200) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10649,6 +10869,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_host_contract_json() != 51131) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_inference_format_of() != 47636) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_is_identifier() != 50261) {
@@ -10685,6 +10908,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json() != 4900) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_with_json() != 56458) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_migrate_record_json() != 26496) {
@@ -10736,6 +10962,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_json() != 56379) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_with_json() != 15139) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_renderer_function_error_json() != 61747) {
@@ -10862,6 +11091,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_expressdecoder_push() != 60645) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_framedecoder_end() != 54023) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_framedecoder_push() != 61310) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_hostcalls_attach_surface() != 7511) {
@@ -11326,6 +11561,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_constructor_expressdecoder_new() != 58157) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_constructor_framedecoder_new() != 43) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_constructor_hostcalls_new() != 38197) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -11342,6 +11580,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_constructor_ssedecoder_new() != 18044) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_constructor_ssedecoder_with_surface() != 9998) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_constructor_surface_new() != 15339) {

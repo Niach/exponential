@@ -14,7 +14,7 @@ import at.exponential.ui.ffi.HostCalls
 import at.exponential.ui.ffi.HostRouter
 import at.exponential.ui.ffi.HostZone
 import at.exponential.ui.ffi.actionMessageJson
-import at.exponential.ui.ffi.rendererCapabilitiesJson
+import at.exponential.ui.ffi.rendererCapabilitiesWithJson
 import at.exponential.ui.ffi.combineDecisions
 import at.exponential.ui.ffi.decideFunction
 import at.exponential.ui.ffi.decideUrlJson
@@ -90,6 +90,10 @@ data class HostOptions(
     val navigate: ((NavigateTarget) -> Boolean)? = null,
     /** Round 9 §6.5: the transport's far end reads renderer → agent messages: a surface an untrusted `createSurface` made has an agent. */
     val agent: Boolean = false,
+    /** #AXC-12: the prose of an Express response (the text around its `<a2ui>` blocks), piece by piece as it streams in: append them. The SDK draws none; the host shows it (a chat bubble, a caption). Called on the host's scope. */
+    val onText: ((String) -> Unit)? = null,
+    /** #AXC-12: the inference formats this host advertises (`rendererCapabilities["1.0"].inferenceFormats`); default both. `listOf(Json)` = JSON only. */
+    val inferenceFormats: List<InferenceFormat> = InferenceFormat.entries,
 )
 
 /** The A2UI protocol version the host's own messages carry (the catalog's). */
@@ -179,7 +183,7 @@ class ExponentialHost(
     val supportedCatalogIds: List<String> get() = router.supportedCatalogIds()
 
     /** A2UI `rendererCapabilities`. */
-    fun rendererCapabilities(): JsonValue = JsonValue.parse(rendererCapabilitiesJson(extensions.map { it.id }, null))
+    fun rendererCapabilities(): JsonValue = JsonValue.parse(rendererCapabilitiesWithJson(extensions.map { it.id }, null, options.inferenceFormats.map { it.wire }))
 
     /** The registered extensions. */
     val extensionDefs: List<HostExtension> get() = extensions.toList()
@@ -259,6 +263,7 @@ class ExponentialHost(
                     statusDetail = detail
                 }
             },
+            options.onText?.let { onText -> { piece: String -> post { onText(piece) } } },
         )
     }
 

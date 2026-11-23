@@ -860,6 +860,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json(
     ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_express_frame_chunk(
+    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_express_prompt(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_extension_errors(
@@ -875,6 +877,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_ui_ffi_checksum_func_function_error_message_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_host_contract_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_inference_format_of(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_is_identifier(
     ): Int
@@ -899,6 +903,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_ui_ffi_checksum_func_media_request_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_with_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_migrate_record_json(
     ): Int
@@ -933,6 +939,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_json(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_with_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_renderer_function_error_json(
     ): Int
@@ -1017,6 +1025,10 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_ui_ffi_checksum_method_expressdecoder_end(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_expressdecoder_push(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_framedecoder_end(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_framedecoder_push(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_hostcalls_attach_surface(
     ): Int
@@ -1326,6 +1338,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_constructor_expressdecoder_new(
     ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_framedecoder_new(
+    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_constructor_hostcalls_new(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_constructor_hostrouter_new(
@@ -1337,6 +1351,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_ui_ffi_checksum_constructor_recordstore_newest_first(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_constructor_ssedecoder_new(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_constructor_ssedecoder_with_surface(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_constructor_surface_new(
     ): Int
@@ -1382,6 +1398,16 @@ internal object UniffiLib {
     external fun uniffi_exponential_ui_ffi_fn_method_expressdecoder_end(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_expressdecoder_push(`ptr`: Long,`chunk`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_clone_framedecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_free_framedecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_exponential_ui_ffi_fn_constructor_framedecoder_new(`surfaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_method_framedecoder_end(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_framedecoder_push(`ptr`: Long,`frame`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_clone_hostcalls(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
@@ -1518,6 +1544,8 @@ internal object UniffiLib {
     external fun uniffi_exponential_ui_ffi_fn_free_ssedecoder(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_exponential_ui_ffi_fn_constructor_ssedecoder_new(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_exponential_ui_ffi_fn_constructor_ssedecoder_with_surface(`surfaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_exponential_ui_ffi_fn_method_ssedecoder_end(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1831,6 +1859,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_evaluate_expression_json(`expr`: RustBuffer.ByValue,`varsJson`: RustBuffer.ByValue,`nowMs`: RustBuffer.ByValue,`zone`: RustBuffer.ByValue,`maxSteps`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_express_frame_chunk(`frame`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_express_prompt(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_extension_errors(`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1846,6 +1876,8 @@ internal object UniffiLib {
     external fun uniffi_exponential_ui_ffi_fn_func_function_error_message_json(`code`: RustBuffer.ByValue,`functionCallId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_host_contract_json(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_inference_format_of(`contentType`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_is_identifier(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
@@ -1870,6 +1902,8 @@ internal object UniffiLib {
     external fun uniffi_exponential_ui_ffi_fn_func_media_request_json(`url`: RustBuffer.ByValue,`optionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_json(`resultJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_with_json(`resultJson`: RustBuffer.ByValue,`surfaceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_migrate_record_json(`packageJson`: RustBuffer.ByValue,`version`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`now`: Double,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1904,6 +1938,8 @@ internal object UniffiLib {
     external fun uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(`deltaMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_json(`extensionIds`: RustBuffer.ByValue,`inlineCatalogsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_with_json(`extensionIds`: RustBuffer.ByValue,`inlineCatalogsJson`: RustBuffer.ByValue,`inferenceFormats`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_renderer_function_error_json(`functionCallId`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -3210,6 +3246,298 @@ public object FfiConverterTypeExpressDecoder: FfiConverter<ExpressDecoder, Long>
     override fun allocationSize(value: ExpressDecoder) = 8UL
 
     override fun write(value: ExpressDecoder, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * #AXC-12: WebSocket frames in order: an `{"express": "…"}` frame is the
+ * next chunk of the connection's ONE Express response (prose in `text`),
+ * any other frame one message or JSONL. `end()` at close flushes the
+ * Express response. Same JSON as `JsonlDecoder`.
+ */
+public interface FrameDecoderInterface {
+    
+    fun `end`(): kotlin.String
+    
+    fun `push`(`frame`: kotlin.String): kotlin.String
+    
+    companion object
+}
+
+/**
+ * #AXC-12: WebSocket frames in order: an `{"express": "…"}` frame is the
+ * next chunk of the connection's ONE Express response (prose in `text`),
+ * any other frame one message or JSONL. `end()` at close flushes the
+ * Express response. Same JSON as `JsonlDecoder`.
+ */
+open class FrameDecoder: Disposable, AutoCloseable, FrameDecoderInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+    constructor(`surfaceId`: kotlin.String?) :
+        this(UniffiWithHandle, 
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_framedecoder_new(
+    
+        
+        FfiConverterOptionalString.lower(`surfaceId`),_status)
+}
+    )
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_exponential_ui_ffi_fn_free_framedecoder(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_exponential_ui_ffi_fn_clone_framedecoder(handle, status)
+        }
+    }
+
+    override fun `end`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_framedecoder_end(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `push`(`frame`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_framedecoder_push(
+        it,
+        
+        FfiConverterString.lower(`frame`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFrameDecoder: FfiConverter<FrameDecoder, Long> {
+    override fun lower(value: FrameDecoder): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): FrameDecoder {
+        return FrameDecoder(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): FrameDecoder {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: FrameDecoder) = 8UL
+
+    override fun write(value: FrameDecoder, buf: ByteBuffer) {
         buf.putLong(lower(value))
     }
 }
@@ -7035,11 +7363,26 @@ open class SseDecoder: Disposable, AutoCloseable, SseDecoderInterface
 
 
     
-    
+    companion object {
+        
     /**
-     * @suppress
-     */
-    companion object
+     * #AXC-12: `a2ui-express` events (the chunks of the stream's ONE
+     * Express response) target `surface_id` (default `main`); their prose
+     * comes back in `text`.
+     */ fun `withSurface`(`surfaceId`: kotlin.String?): SseDecoder {
+            return FfiConverterTypeSseDecoder.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_ssedecoder_with_surface(
+    
+        
+        FfiConverterOptionalString.lower(`surfaceId`),_status)
+}
+    )
+    }
+    
+
+        
+    }
     
 }
 
@@ -13501,6 +13844,21 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
     
 
         /**
+         * #AXC-12: the Express chunk a WebSocket frame carries (`{"express": "…"}`,
+         * exactly that one string key), else `None`.
+         */ fun `expressFrameChunk`(`frame`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_express_frame_chunk(
+    
+        
+        FfiConverterString.lower(`frame`),_status)
+}
+    )
+    }
+    
+
+        /**
          * #AXC-12: the Express section of an agent's system prompt over the core
          * catalog (plain text: the notation, the rules, every component's compact
          * signature). Needs the facade's `descriptions` feature (the model-facing
@@ -13629,6 +13987,22 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_host_contract_json(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * #AXC-12: the inference format of an HTTP body by its Content-Type
+         * (`express` for `application/a2ui+express`, parameters and case ignored;
+         * else `json`).
+         */ fun `inferenceFormatOf`(`contentType`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_inference_format_of(
+    
+        
+        FfiConverterString.lower(`contentType`),_status)
 }
     )
     }
@@ -13823,6 +14197,24 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
     
         
         FfiConverterString.lower(`resultJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * #AXC-12: [`messages_from_mcp_result_json`] with the surface Express
+         * statements target (Express resources and `structuredContent.a2uiExpress`
+         * are each one bare body; default `main`); prose in `text`.
+         */
+    @Throws(UiException::class) fun `messagesFromMcpResultWithJson`(`resultJson`: kotlin.String, `surfaceId`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_with_json(
+    
+        
+        FfiConverterString.lower(`resultJson`),
+        FfiConverterOptionalString.lower(`surfaceId`),_status)
 }
     )
     }
@@ -14125,6 +14517,24 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
         
         FfiConverterSequenceString.lower(`extensionIds`),
         FfiConverterOptionalString.lower(`inlineCatalogsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * #AXC-12: [`renderer_capabilities_json`] plus `inferenceFormats` (the
+         * formats this renderer compiles; `None` or empty = the key is absent).
+         */
+    @Throws(UiException::class) fun `rendererCapabilitiesWithJson`(`extensionIds`: List<kotlin.String>, `inlineCatalogsJson`: kotlin.String?, `inferenceFormats`: List<kotlin.String>?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_renderer_capabilities_with_json(
+    
+        
+        FfiConverterSequenceString.lower(`extensionIds`),
+        FfiConverterOptionalString.lower(`inlineCatalogsJson`),
+        FfiConverterOptionalSequenceString.lower(`inferenceFormats`),_status)
 }
     )
     }

@@ -305,22 +305,42 @@ fun main(args: Array<String>) {
     } catch (e: UiException.Invalid) {
         check(e.reason.contains("Sparkle")) { "express: ${e.reason}" }
     }
-    (transport["express"] as List<Any?>?)?.map(::obj)?.forEach { c ->
-        val d = ExpressDecoder((c["wrapped"] as Boolean?) ?: true, (c["surfaceId"] as String?) ?: "main")
+    // #AXC-12: host-transport.json `express*` (the suite `host-express`).
+    fun expressFeed(push: (String) -> String, end: () -> String, chunks: List<Any?>): Map<String, Any?> {
         val messages = ArrayList<Any?>()
         val issues = ArrayList<Any?>()
         val prose = ArrayList<Any?>()
-        for (out in list(c["chunks"]).map { d.push(it as String) } + listOf(d.end())) {
+        for (out in chunks.map { push(it as String) } + listOf(end())) {
             val v = obj(Json.parse(out))
             messages.addAll(list(v["messages"]))
             issues.addAll(list(v["issues"]))
             (v["text"] as List<Any?>?)?.let { prose.addAll(it) }
         }
-        d.close()
         val got = LinkedHashMap<String, Any?>(mapOf("messages" to messages, "issues" to issues))
         if (prose.isNotEmpty()) got["text"] = prose
-        equal(Json.write(got), c["expected"], "express ${c["name"]}")
+        return got
     }
+    for (c in list(transport["express"]).map(::obj)) {
+        val d = ExpressDecoder(c["wrapped"] as Boolean, (c["surfaceId"] as String?) ?: "main")
+        equal(Json.write(expressFeed({ d.push(it) }, { d.end() }, list(c["chunks"]))), c["expected"], "express ${c["name"]}")
+        d.close()
+    }
+    for (c in list(transport["expressSse"]).map(::obj)) {
+        val d = SseDecoder.withSurface(c["surfaceId"] as String?)
+        equal(Json.write(expressFeed({ d.push(it) }, { d.end() }, list(c["chunks"]))), c["expected"], "expressSse ${c["name"]}")
+        d.close()
+    }
+    for (c in list(transport["expressWs"]).map(::obj)) {
+        val d = FrameDecoder(c["surfaceId"] as String?)
+        equal(Json.write(expressFeed({ d.push(it) }, { d.end() }, list(c["frames"]))), c["expected"], "expressWs ${c["name"]}")
+        d.close()
+    }
+    for (c in list(transport["expressMcp"]).map(::obj)) equal(messagesFromMcpResultWithJson(Json.write(c["result"]), c["surfaceId"] as String?), c["expected"], "expressMcp ${c["name"]}")
+    for (c in list(transport["expressContentTypes"]).map(::obj)) check(inferenceFormatOf(c["contentType"] as String) == c["expected"]) { "expressContentTypes ${c["name"]}" }
+    for (c in list(transport["expressCapabilities"]).map(::obj)) {
+        equal(rendererCapabilitiesWithJson(list(c["extensionIds"]).map { it as String }, null, (c["inferenceFormats"] as List<Any?>?)?.map { it as String }), c["expected"], "expressCapabilities ${c["name"]}")
+    }
+    check(expressFrameChunk("{\"express\": \"a\"}") == "a" && expressFrameChunk("{\"express\": \"a\", \"x\": 1}") == null) { "expressFrameChunk" }
     val policy = load("host-policy.json")
     for (c in list(policy["functions"]).map(::obj)) {
         val got = decideFunction(if (c.containsKey("policy")) Json.write(c["policy"]) else null, c["fn"] as String, c["registered"] as Boolean)

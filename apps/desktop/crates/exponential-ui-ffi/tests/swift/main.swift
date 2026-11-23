@@ -426,12 +426,29 @@ do {
 } catch {
     check(false, "express: \(error)")
 }
-if let express = transport["express"] as? [[String: Any]] {
-    for c in express {
-        let d = ExpressDecoder(wrapped: (c["wrapped"] as? Bool) ?? true, surfaceId: (c["surfaceId"] as? String) ?? "main")
-        equal(text(expressFeed({ d.push(chunk: $0) }, { d.end() }, c["chunks"] as! [String])), c["expected"]!, "express \(c["name"]!)")
-    }
+// #AXC-12: host-transport.json `express*` (the suite `host-express`).
+for c in transport["express"] as! [[String: Any]] {
+    let d = ExpressDecoder(wrapped: c["wrapped"] as! Bool, surfaceId: (c["surfaceId"] as? String) ?? "main")
+    equal(text(expressFeed({ d.push(chunk: $0) }, { d.end() }, c["chunks"] as! [String])), c["expected"]!, "express \(c["name"]!)")
 }
+for c in transport["expressSse"] as! [[String: Any]] {
+    let d = SseDecoder.withSurface(surfaceId: c["surfaceId"] as? String)
+    equal(text(expressFeed({ d.push(chunk: $0) }, { d.end() }, c["chunks"] as! [String])), c["expected"]!, "expressSse \(c["name"]!)")
+}
+for c in transport["expressWs"] as! [[String: Any]] {
+    let d = FrameDecoder(surfaceId: c["surfaceId"] as? String)
+    equal(text(expressFeed({ d.push(frame: $0) }, { d.end() }, c["frames"] as! [String])), c["expected"]!, "expressWs \(c["name"]!)")
+}
+for c in transport["expressMcp"] as! [[String: Any]] {
+    equal(try! messagesFromMcpResultWithJson(resultJson: text(c["result"]!), surfaceId: c["surfaceId"] as? String), c["expected"]!, "expressMcp \(c["name"]!)")
+}
+for c in transport["expressContentTypes"] as! [[String: Any]] {
+    check(inferenceFormatOf(contentType: c["contentType"] as! String) == c["expected"] as! String, "expressContentTypes \(c["name"]!)")
+}
+for c in transport["expressCapabilities"] as! [[String: Any]] {
+    equal(try! rendererCapabilitiesWithJson(extensionIds: c["extensionIds"] as! [String], inlineCatalogsJson: nil, inferenceFormats: c["inferenceFormats"] as? [String]), c["expected"]!, "expressCapabilities \(c["name"]!)")
+}
+check(expressFrameChunk(frame: #"{"express": "a"}"#) == "a" && expressFrameChunk(frame: #"{"express": "a", "x": 1}"#) == nil, "expressFrameChunk")
 let policy = load("host-policy.json") as! [String: Any]
 for c in policy["functions"] as! [[String: Any]] {
     let got = try! decideFunction(policyJson: c["policy"].map(text), name: c["fn"] as! String, registered: c["registered"] as! Bool)
