@@ -57,7 +57,20 @@ pub const RESET_MARGIN_SECS: u64 = 60;
 /// says it is, the entry is read again at least this often. A pin is only as
 /// good as the stamp it came from, and a row that has not been re-read for a
 /// day reports numbers nobody should still be trusting.
-pub const MAX_PIN_SECS: u64 = 6 * 3600;
+///
+/// #FEED-304: half an hour, down from six. "Nothing can move before the
+/// reset" is false whenever the provider moves the limits themselves: a
+/// login read at 100 % sat there for 21 hours while the same account read
+/// 62 % on the next machine. It is also the ceiling on ANY schedule
+/// ([`poll_due`]): numbers older than this are owed a read whatever
+/// `next_poll_at_secs` says, so no writer of that field can freeze a login.
+pub const MAX_PIN_SECS: u64 = 30 * 60;
+
+/// #FEED-304 — how old a login's numbers may be before the device ships them
+/// `stale` ([`wire_stale`]). Twice the slowest schedule there is
+/// ([`MAX_PIN_SECS`], the token probe's cadence), so only a login nothing
+/// re-reads crosses it.
+pub const WIRE_STALE_AFTER_SECS: u64 = 3600;
 
 /// A refused/timed-out credential read (the macOS Keychain ACL prompt on a
 /// headless daemon) stops the asking for an hour.
@@ -457,8 +470,34 @@ pub fn poll_due(entry: &AgentCacheEntry, now: u64) -> bool {
         && !entry
             .rate_limited_until_secs
             .is_some_and(|until| now < until);
-    (reset_passed || now >= entry.next_poll_at_secs)
+    // #FEED-304: the same override for numbers nothing has re-read for
+    // [`MAX_PIN_SECS`]. The schedule is a field several writers move (the
+    // maxed pin, a force that keeps it, a 429 hold); none of them may park a
+    // login past the ceiling. A cache an older build pinned to a reset days
+    // away comes due here too.
+    let overdue = entry.usage.is_some()
+        && now.saturating_sub(windows_read_at(entry)) >= MAX_PIN_SECS
+        && !last_attempt_failed
+        && !entry
+            .rate_limited_until_secs
+            .is_some_and(|until| now < until);
+    (reset_passed || overdue || now >= entry.next_poll_at_secs)
         && now.saturating_sub(entry.fetched_at_secs) >= SHARED_TTL_SECS
+}
+
+/// #FEED-304 — should the device ship these numbers `stale`? Yes once they
+/// are older than [`WIRE_STALE_AFTER_SECS`], or once a window they carry has
+/// reset: either way they no longer describe the account. A stamp that does
+/// not parse is no evidence of age.
+///
+/// The wire's answer only. The CACHE's `stale` keeps its one meaning, "an
+/// attempt failed since this report" ([`apply_outcome`]), which [`poll_due`]
+/// reads as a backoff.
+pub fn wire_stale(usage: &AgentUsage, now: u64) -> bool {
+    let aged = crate::agent_accounts::unix_millis_from_iso(&usage.fetched_at)
+        .filter(|millis| *millis > 0)
+        .is_some_and(|millis| now.saturating_sub((millis / 1000) as u64) >= WIRE_STALE_AFTER_SECS);
+    usage.stale || aged || any_reset_passed(&usage.windows, now)
 }
 
 /// EXP-1607 — the floor between two usage probes of a token-only claude
@@ -937,11 +976,14 @@ pub fn hold_rate_limited(entry: &mut AgentCacheEntry, now: u64, secs: u64) {
 ///
 /// * the 429 floor, the endpoint's own instruction — `Err(until)` names the
 ///   unix second it lifts, and the host answers with that instead of polling;
-/// * the EXP-817 reset pin: while EVERY window sits at 100 % nothing can move
-///   before the earliest reset, so a forced read there would spend a request
-///   to re-read numbers that are physically unchanged. The pin is kept (the
-///   pass reports what it holds) rather than refused, because a person
-///   pressing Refresh on a maxed account wants the caption, not an error;
+/// * the EXP-817 reset pin: while EVERY window sits at 100 % a forced read
+///   mostly re-reads 100 %, so the pin is kept (the pass reports what it
+///   holds) rather than refused, because a person pressing Refresh on a maxed
+///   account wants the caption, not an error. #FEED-304: only for
+///   [`MAX_PIN_SECS`] after the read. A force used to re-pin to the reset
+///   itself, days away, and every open Devices page and every wall's rotation
+///   is a force — so the six-hour ceiling never applied to a login anybody
+///   looked at;
 /// * `credential_denied_until_secs` (the hour after a keychain ACL refusal).
 ///   `agent_usage_refresh` reaches this from a person's Refresh AND from a
 ///   page's periodic refresh, and the call site cannot tell them apart — so
@@ -953,7 +995,9 @@ pub fn force_due(entry: &mut AgentCacheEntry, now: u64) -> Result<(), u64> {
     }
     let pinned = entry
         .earliest_reset_secs
-        .map(|reset| reset + RESET_MARGIN_SECS)
+        .map(|reset| {
+            (reset + RESET_MARGIN_SECS).min(windows_read_at(entry) + MAX_PIN_SECS)
+        })
         .filter(|at| now < *at)
         // EXP-964: …unless a window the cache holds has already reset. The pin
         // says "nothing can have moved", which a passed reset disproves — and
@@ -1180,12 +1224,12 @@ mod tests {
 
         // A window at 100 % pins every outcome past its reset + 60.
         let maxed = AgentCacheEntry {
-            earliest_reset_secs: Some(now + 4000),
+            earliest_reset_secs: Some(now + 1000),
             ..AgentCacheEntry::default()
         };
         assert_eq!(
             next_poll_at(&maxed, PollOutcome::Changed, now),
-            now + 4000 + 60
+            now + 1000 + 60
         );
         // A reset already past never PULLS the schedule forward.
         let stale_reset = AgentCacheEntry {
@@ -1790,7 +1834,8 @@ mod tests {
             "T1",
         );
         assert_eq!(entry.earliest_reset_secs, Some(1_756_006_000));
-        assert_eq!(entry.next_poll_at_secs, 1_756_006_000 + 60);
+        // #FEED-304: …but never further out than the pin's ceiling.
+        assert_eq!(entry.next_poll_at_secs, now + MAX_PIN_SECS);
 
         // EXP-964: a maxed window with NO reset stamp kills the pin — it may
         // be the first to open, and pinning to a later window's reset is what
@@ -1827,7 +1872,7 @@ mod tests {
     #[test]
     fn a_passed_reset_makes_a_pinned_entry_due() {
         let read_at = 1_756_000_000;
-        let reset = read_at + 3_600;
+        let reset = read_at + 1_200;
         let mut entry = AgentCacheEntry::default();
         apply_outcome(
             &mut entry,
@@ -1915,7 +1960,7 @@ mod tests {
         // quotes a stamp it already passed is not news, but one whose window
         // rolls over again is.
         let refetched_at = failed_at + FAILED_BACKOFF_SECS + UNAUTHORIZED_BACKOFF_SECS;
-        let next_reset = refetched_at + 3_600;
+        let next_reset = refetched_at + 1_200;
         apply_outcome(
             &mut entry,
             PollOutcome::Changed,
@@ -1936,7 +1981,7 @@ mod tests {
     /// at least every [`MAX_PIN_SECS`]: a pin is only as good as the stamp it
     /// came from.
     #[test]
-    fn the_maxed_reset_pin_is_capped_at_six_hours() {
+    fn the_maxed_reset_pin_is_capped() {
         let now = 1_756_000_000;
         let entry = AgentCacheEntry {
             earliest_reset_secs: Some(now + 7 * 86_400),
@@ -1948,13 +1993,114 @@ mod tests {
         );
         // A reset inside the ceiling still pins exactly where it says.
         let near = AgentCacheEntry {
-            earliest_reset_secs: Some(now + 4_000),
+            earliest_reset_secs: Some(now + 1_000),
             ..AgentCacheEntry::default()
         };
         assert_eq!(
             next_poll_at(&near, PollOutcome::Changed, now),
-            now + 4_000 + RESET_MARGIN_SECS
+            now + 1_000 + RESET_MARGIN_SECS
         );
+    }
+
+    /// The incident's own numbers: the MacBook read danny@yourev.at at
+    /// 22:00:28 with Week and Fable at 100 %, both resetting 45 hours later.
+    fn feed_304_entry() -> (AgentCacheEntry, u64, u64) {
+        let read_at = 1_795_384_828; // 2026-11-22T22:00:28Z
+        let reset = 1_795_546_800; // 2026-11-24T19:00:00Z
+        let stamp = crate::agent_accounts::iso_from_unix_secs(reset as i64);
+        let mut entry = AgentCacheEntry::default();
+        apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![
+                window("weekly", 100, stamp.as_deref()),
+                window("model:fable", 100, stamp.as_deref()),
+            ]),
+            read_at,
+            &crate::agent_accounts::iso_from_unix_secs(read_at as i64).expect("a stamp"),
+        );
+        (entry, read_at, reset)
+    }
+
+    /// #FEED-304 — a force (an open Devices page, a wall's rotation, a
+    /// Refresh) used to re-pin a maxed login to its reset, 45 hours out, so
+    /// it was never read again and sat at 100 % "fetched 21 h ago" while the
+    /// account had long moved to 62 %.
+    #[test]
+    fn a_force_never_parks_a_maxed_login_until_its_reset() {
+        let (mut entry, read_at, reset) = feed_304_entry();
+        assert_eq!(entry.next_poll_at_secs, read_at + MAX_PIN_SECS);
+
+        // The Devices page asks two minutes later: still pinned, but only
+        // to the ceiling.
+        assert_eq!(force_due(&mut entry, read_at + 120), Ok(()));
+        assert_eq!(entry.next_poll_at_secs, read_at + MAX_PIN_SECS);
+        assert_eq!(entry.endpoint_due_at_secs, Some(read_at + MAX_PIN_SECS));
+        assert!(!poll_due(&entry, read_at + 600));
+        assert!(poll_due(&entry, read_at + MAX_PIN_SECS));
+        assert!(poll_due(&entry, reset - 3_600), "never parked until the reset");
+
+        // A force past the ceiling reads: the wall's rotation decides on
+        // numbers at most half an hour old.
+        assert_eq!(force_due(&mut entry, read_at + MAX_PIN_SECS), Ok(()));
+        assert_eq!(entry.next_poll_at_secs, 0);
+        assert!(poll_due(&entry, read_at + MAX_PIN_SECS));
+    }
+
+    /// #FEED-304 — whatever parked the schedule (an older build's force wrote
+    /// the reset itself into the cache file), numbers nothing has re-read for
+    /// [`MAX_PIN_SECS`] are owed a read. The floors that are not ours stand.
+    #[test]
+    fn numbers_nothing_re_read_are_due_whatever_the_schedule_says() {
+        let (mut entry, read_at, reset) = feed_304_entry();
+        // What 0.14.176 left on disk after a force.
+        entry.next_poll_at_secs = reset + RESET_MARGIN_SECS;
+        entry.endpoint_due_at_secs = Some(reset + RESET_MARGIN_SECS);
+        entry.fetched_at_secs = 0;
+        let later = read_at + 21 * 3_600;
+        assert!(!poll_due(&entry, read_at + 600));
+        assert!(poll_due(&entry, later));
+
+        let mut limited = entry.clone();
+        limited.rate_limited_until_secs = Some(later + 60);
+        assert!(!poll_due(&limited, later), "the endpoint's 429 stands");
+        let mut denied = entry.clone();
+        denied.credential_denied_until_secs = Some(later + 60);
+        assert!(!poll_due(&denied, later), "a refused keychain stands");
+        let mut failed = entry.clone();
+        failed.usage.as_mut().unwrap().stale = true;
+        assert!(!poll_due(&failed, later), "a failed attempt keeps its backoff");
+        let mut just_tried = entry;
+        just_tried.fetched_at_secs = later - 10;
+        assert!(!poll_due(&just_tried, later), "the shared TTL stands");
+    }
+
+    /// #FEED-304 — the wire says `stale` once the numbers have aged out or a
+    /// window they carry has reset; the cache's own flag is ORed in.
+    #[test]
+    fn the_wire_marks_aged_and_reset_numbers_stale() {
+        let (entry, read_at, reset) = feed_304_entry();
+        let usage = entry.usage.expect("numbers");
+        assert!(!usage.stale);
+        assert!(!wire_stale(&usage, read_at + 60));
+        assert!(!wire_stale(&usage, read_at + WIRE_STALE_AFTER_SECS - 1));
+        assert!(wire_stale(&usage, read_at + WIRE_STALE_AFTER_SECS));
+        assert!(wire_stale(&usage, read_at + 21 * 3_600));
+
+        // Young numbers whose window reset a moment ago.
+        let fresh = AgentUsage {
+            fetched_at: crate::agent_accounts::iso_from_unix_secs((reset - 30) as i64).unwrap(),
+            ..usage.clone()
+        };
+        assert!(!wire_stale(&fresh, reset - 1));
+        assert!(wire_stale(&fresh, reset));
+
+        // A failed attempt's flag rides through; an unreadable stamp is no
+        // evidence of age.
+        let failed = AgentUsage { stale: true, ..fresh.clone() };
+        assert!(wire_stale(&failed, reset - 20));
+        let unstamped = AgentUsage { fetched_at: "s".into(), ..fresh };
+        assert!(!wire_stale(&unstamped, reset - 20));
     }
 
     /// EXP-964 — a person pressing Refresh after their window reset must get
@@ -1976,10 +2122,11 @@ mod tests {
             read_at,
             &crate::agent_accounts::iso_from_unix_secs(read_at as i64).expect("a stamp"),
         );
-        // Before the reset the force keeps the pin (EXP-792).
+        // Before the reset the force keeps the pin (EXP-792), up to its
+        // ceiling (#FEED-304).
         assert_eq!(force_due(&mut entry, read_at + 60), Ok(()));
-        assert_eq!(entry.next_poll_at_secs, reset + RESET_MARGIN_SECS);
-        assert_eq!(entry.endpoint_due_at_secs, Some(reset + RESET_MARGIN_SECS));
+        assert_eq!(entry.next_poll_at_secs, read_at + MAX_PIN_SECS);
+        assert_eq!(entry.endpoint_due_at_secs, Some(read_at + MAX_PIN_SECS));
         // Past it the same force opens everything.
         assert_eq!(force_due(&mut entry, reset + 1), Ok(()));
         assert_eq!(entry.next_poll_at_secs, 0);
