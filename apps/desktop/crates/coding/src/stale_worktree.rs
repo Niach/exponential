@@ -6,10 +6,18 @@
 //! finish's WIP commit was the exact inverse of that merge: "recovering" it
 //! would have reverted master's changes.
 //!
+//! Both merges were committed after their session had ended, so from
+//! another checkout: the branch moved under a worktree that was left
+//! standing, its files and index untouched.
+//!
 //! [`bring_up_to_head`] runs before every WIP save ([`crate::wip_save`]).
-//! For a parent `P` of `HEAD`, the worktree is stale when NONE of the paths
-//! `P..HEAD` changed is at `HEAD`'s version and at least one is still at
-//! `P`'s. Then:
+//! `P` is a parent of `HEAD`, or where the branch stood before its last
+//! move (`<branch>@{1}`, a fast-forward over several commits). The worktree
+//! is stale when NONE of the paths `P..HEAD` changed is at `HEAD`'s version
+//! and at least one is still at `P`'s. Under a merge commit that is enough;
+//! elsewhere the index must stand at `P` for those paths too, so a person's
+//! or an agent's own undo of the last commit (index at `HEAD`) is saved as
+//! the work it is. Then:
 //! - a path still at `P`'s version carries no work: it is checked out at
 //!   `HEAD` (a file `HEAD` deleted goes);
 //! - a path that differs from both was edited on top of `P`: the edit is
@@ -110,6 +118,20 @@ fn tree_entries(worktree: &Path, commit: &str, paths: &[&str]) -> Result<BTreeMa
     Ok(entries)
 }
 
+/// The blob id each of `paths` has in the index (stage 0).
+fn index_blobs(worktree: &Path, paths: &[&str]) -> Result<BTreeMap<String, String>, String> {
+    let out = chunked(worktree, &["ls-files", "-s", "-z"], paths)?;
+    let mut blobs = BTreeMap::new();
+    for field in nul_fields(&out) {
+        let Some((meta, path)) = field.split_once('\t') else { continue };
+        let mut meta = meta.split(' ');
+        if let (Some(_), Some(oid), Some("0")) = (meta.next(), meta.next(), meta.next()) {
+            blobs.insert(path.to_string(), oid.to_string());
+        }
+    }
+    Ok(blobs)
+}
+
 /// The blob id each of `paths` has in the worktree (clean filters applied);
 /// a missing file has none. A symlink hashes its target path, like git.
 fn worktree_blobs(worktree: &Path, paths: &[&str]) -> Result<BTreeMap<String, String>, String> {
@@ -193,6 +215,20 @@ pub fn bring_up_to_head(worktree: &Path) -> Result<Option<Stale>, String> {
         return Ok(None);
     };
     let parents: Vec<String> = ids.collect();
+    let merge_commit = parents.len() > 1;
+    let mut candidates = parents;
+    // Where the branch stood before its last move, when `HEAD` grew from it.
+    if let Ok(before) = git(worktree, &["rev-parse", "--verify", "--quiet", "@{1}^{commit}"]) {
+        let before = before.trim().to_string();
+        if !before.is_empty()
+            && before != head
+            && !candidates.contains(&before)
+            && git(worktree, &["merge-base", "--is-ancestor", &before, &head]).is_ok()
+        {
+            // First: it spans every commit of the move, a parent only the last.
+            candidates.insert(0, before);
+        }
+    }
     let Ok(changed) = git(worktree, &["diff", "--name-only", "-z", "--no-renames", "HEAD"]) else {
         return Ok(None);
     };
@@ -201,7 +237,7 @@ pub fn bring_up_to_head(worktree: &Path) -> Result<Option<Stale>, String> {
         return Ok(None);
     }
     let scratch = scratch_dir(worktree)?;
-    let result = parents.iter().find_map(|parent| match stale_at(worktree, &scratch, &head, parent, &changed, parents.len() > 1) {
+    let result = candidates.iter().find_map(|parent| match stale_at(worktree, &scratch, &head, parent, &changed, merge_commit) {
         Ok(None) => None,
         Ok(Some(stale)) => Some(Ok(stale)),
         Err(detail) => Some(Err(detail)),
@@ -241,9 +277,23 @@ fn stale_at(
     };
     let mut dropped: Vec<&Delta> = Vec::new();
     let mut edited: Vec<&Delta> = Vec::new();
+    // Same content on both sides (a mode change): follows `HEAD` when stale.
+    let mut modes: Vec<&str> = Vec::new();
     for entry in &delta {
         let blob = |entries: &BTreeMap<String, (String, String)>| entries.get(&entry.path).map(|(_, oid)| oid.clone());
+        let gitlink = |entries: &BTreeMap<String, (String, String)>| {
+            entries.get(&entry.path).is_some_and(|(mode, _)| mode == "160000")
+        };
+        if gitlink(&before) || gitlink(&after) {
+            continue;
+        }
         let current = now.get(&entry.path).cloned();
+        if blob(&before) == blob(&after) {
+            if current == blob(&after) {
+                modes.push(entry.path.as_str());
+            }
+            continue;
+        }
         if current == blob(&after) {
             // One path at `HEAD`'s version: the worktree has seen `HEAD`.
             return Ok(None);
@@ -256,6 +306,20 @@ fn stale_at(
     }
     if dropped.is_empty() {
         return Ok(None);
+    }
+    if !merge_commit {
+        // An undo made here leaves the index at `HEAD`; a branch moved from
+        // elsewhere leaves it where the files are.
+        let names: Vec<&str> = dropped.iter().map(|entry| entry.path.as_str()).collect();
+        let Ok(staged) = index_blobs(worktree, &names) else {
+            return Ok(None);
+        };
+        let index_behind = dropped
+            .iter()
+            .all(|entry| staged.get(&entry.path) == before.get(&entry.path).map(|(_, oid)| oid));
+        if !index_behind {
+            return Ok(None);
+        }
     }
     let mut merges: Vec<(&str, Vec<u8>)> = Vec::new();
     for entry in &edited {
@@ -285,7 +349,8 @@ fn stale_at(
     for (path, bytes) in &merges {
         std::fs::write(worktree.join(path), bytes).map_err(|err| format!("write {path}: {err}"))?;
     }
-    let kept: Vec<&str> = dropped.iter().filter(|entry| entry.status != 'D').map(|entry| entry.path.as_str()).collect();
+    let mut kept: Vec<&str> = dropped.iter().filter(|entry| entry.status != 'D').map(|entry| entry.path.as_str()).collect();
+    kept.extend(modes);
     let gone: Vec<&str> = dropped.iter().filter(|entry| entry.status == 'D').map(|entry| entry.path.as_str()).collect();
     chunked(worktree, &["restore", "--source=HEAD", "--staged", "--worktree"], &kept)?;
     chunked(worktree, &["rm", "-q", "-f", "--cached", "--ignore-unmatch"], &gone)?;
