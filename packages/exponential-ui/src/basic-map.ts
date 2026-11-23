@@ -176,6 +176,8 @@ export function mapBasicComponent(
   const rule = own(basicMap.components, flat.component) ? basicMap.components[flat.component] : undefined
   if (!rule) return null
   const props: Record<string, unknown> = {}
+  // #AXC-19: `@checks` (A2UI 1.0) reads as `checks`.
+  if (flat[`@checks`] !== undefined) flat = { ...flat, checks: flat[`@checks`] }
   for (const [coreProp, spec] of Object.entries(rule.props)) {
     if (typeof spec === `string`) {
       if (flat[spec] !== undefined) props[coreProp] = flat[spec]

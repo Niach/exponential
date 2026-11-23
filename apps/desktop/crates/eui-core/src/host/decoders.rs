@@ -20,12 +20,18 @@ pub struct DecodeIssue {
 pub struct Decoded {
     pub messages: Vec<Value>,
     pub issues: Vec<DecodeIssue>,
+    /// #AXC-12: the prose around an Express response's `<a2ui>` blocks, in
+    /// order, as it streamed in (the host shows it: `onText`; the SDK draws
+    /// none). Always empty for JSONL and SSE.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub text: Vec<String>,
 }
 
 impl Decoded {
     pub fn extend(&mut self, other: Decoded) {
         self.messages.extend(other.messages);
         self.issues.extend(other.issues);
+        self.text.extend(other.text);
     }
 
     pub fn to_json(&self) -> Value {
@@ -155,7 +161,7 @@ pub fn decode_jsonl(text: &str) -> Decoded {
     let trimmed = js_trim(text);
     if trimmed.starts_with('[') {
         if let Ok(Value::Array(messages)) = serde_json::from_str::<Value>(trimmed) {
-            return Decoded { messages, issues: vec![] };
+            return Decoded { messages, ..Decoded::default() };
         }
         // fall through: JSONL whose first line is an array is still JSONL
     }

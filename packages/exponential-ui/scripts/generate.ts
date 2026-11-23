@@ -169,6 +169,92 @@ function stripComments(value: unknown): unknown {
   if (value && typeof value === `object`) return Object.fromEntries(Object.entries(value).filter(([k]) => k !== `$comment`).map(([k, v]) => [k, stripComments(v)]))
   return value
 }
+/** #AXC-12: the A2UI catalog definition the Express compiler (`a2ui-express`)
+ *  loads inside eui-core: core.schema.json without its prose (`description`,
+ *  `instructions`, `x-deprecated-reason`, `examples`); a PROPERTY named
+ *  `description` (EmptyState's) stays, only text values go. */
+function expressCatalog(schema: unknown, inProperties = false): unknown {
+  if (Array.isArray(schema)) return schema.map((v) => expressCatalog(v))
+  if (!schema || typeof schema !== `object`) return schema
+  const prose = new Set([`description`, `instructions`, `x-deprecated-reason`, `examples`, `title`])
+  return Object.fromEntries(
+    Object.entries(schema)
+      .filter(([k, v]) => inProperties || !(prose.has(k) && (typeof v === `string` || k === `examples`)))
+      .map(([k, v]) => [k, expressCatalog(v, !inProperties && (k === `properties` || k === `$defs` || k === `components` || k === `functions`))]),
+  )
+}
+
+/** #AXC-12: fixtures/express-roundtrip.json: the three sample surfaces as the
+ *  ONE createSurface message (components + data model) an Express block
+ *  compiles to; every renderer's Express suite decompiles and recompiles each
+ *  with zero diffs, and the reduced tree keeps its node count. */
+/** A nested fixture → the A2UI wire list (the nested form's `template`
+ *  becomes `children: {componentId, path, key?}`, its node stays where it is
+ *  listed: the reducer lifts it; `checks` rides as `@checks`). */
+function nestedToFlat(tree: NestedNode): FlatComponent[] {
+  const out: FlatComponent[] = []
+  const walk = (n: NestedNode): string => {
+    const { checks, ...props } = (n.props ?? {}) as Record<string, unknown>
+    const flat: FlatComponent = { id: n.id, component: n.component, ...props, ...(checks !== undefined ? { "@checks": checks } : {}) }
+    if (n.catalogId) flat.catalogId = n.catalogId
+    if (n.metadata) flat.metadata = n.metadata
+    if (n.style) flat.style = n.style
+    if (n.on) flat.on = n.on
+    if (n.visible !== undefined) flat.visible = n.visible
+    if (n.accessibility) flat.accessibility = n.accessibility
+    out.push(flat)
+    const ids = (n.children ?? []).map(walk)
+    if (n.template) flat.children = { componentId: n.template.component, path: n.template.path, ...(n.template.key ? { key: n.template.key } : {}) }
+    else if (n.children) flat.children = ids
+    if (n.slots) flat.slots = Object.fromEntries(Object.entries(n.slots).map(([slot, child]) => [slot, walk(child)]))
+    return n.id
+  }
+  walk(tree)
+  return out
+}
+
+/** #AXC-12: what the three sample surfaces do not cover: a keyed data
+ *  template, a renderer-function handler (`on` → functionCall), an event
+ *  with context, checks. */
+const EXPRESS_EXTRAS: NestedNode = {
+  id: `root`,
+  component: `Stack`,
+  props: { direction: `vertical`, gap: `md` },
+  children: [
+    { id: `rows`, component: `List`, props: { divided: true }, template: { component: `row`, path: `/rows`, key: `id` }, children: [] },
+    { id: `row`, component: `Row`, props: { title: { "@path": `title` }, subtitle: { "@path": `owner` } } },
+    { id: `name`, component: `Input`, props: { label: `Name`, name: `name`, value: { "@path": `/form/name` }, checks: [{ condition: { "@call": `required`, args: { value: { "@path": `/form/name` } } }, message: `A name is required` }] } },
+    { id: `clear`, component: `Button`, props: { label: `Clear`, variant: `outline` }, on: { press: { functionCall: { "@call": `set`, args: { path: `/form/name`, value: `` } } } } },
+    { id: `save`, component: `Button`, props: { label: `Save` }, on: { press: { event: { name: `save`, context: { name: { "@path": `/form/name` } } } } } },
+  ],
+}
+
+/** #AXC-12: fixtures/express-roundtrip.json: the sample surfaces as the
+ *  ONE createSurface message (components + data model) an Express block
+ *  compiles to; every renderer's Express suite decompiles and recompiles each
+ *  with zero diffs, and the reduced tree keeps its node count. */
+function expressRoundtrip(): unknown {
+  const surfaces: [string, NestedNode, Record<string, unknown> | null][] = [
+    [`dashboard`, readJson<NestedNode>(`fixtures/dashboard.json`), readJson<Record<string, unknown>>(`fixtures/dashboard.data.json`)],
+    [`demo-surface`, readJson<NestedNode>(`fixtures/demo-surface.json`), null],
+    [`kitchen-sink`, readJson<NestedNode>(`fixtures/kitchen-sink.json`), null],
+    [`express-extras`, EXPRESS_EXTRAS, { rows: [{ id: `r1`, title: `Ship Express`, owner: `eui` }, { id: `r2`, title: `Round trip`, owner: `core` }], form: { name: `` } }],
+  ]
+  const countNodes = (n: NestedNode): number => 1 + (n.children ?? []).reduce((a, c) => a + countNodes(c), 0) + Object.values(n.slots ?? {}).reduce((a, c) => a + countNodes(c), 0)
+  return {
+    $comment: `${HEADER} #AXC-12: Express round trip. Each case is the createSurface an Express block compiles to (surfaceId \`main\`, the core catalog, the nested fixture as A2UI wire components with its top node renamed \`root\` as Express requires: templates as \`children: {componentId, path, key?}\`, checks as \`@checks\`; the data model without \`$comment\`). \`express-extras\` covers what the samples do not: a keyed template, a renderer-function handler, an event context, checks. A runner decompiles \`messages\` to Express, compiles it back for surface \`main\` and must get \`messages\` exactly; the reduced surface has \`nodes\` nodes (the nested fixture's count).`,
+    cases: surfaces.map(([name, nested, data]) => {
+      const { $comment: _c, ...root } = nested as NestedNode & { $comment?: string }
+      const model = data ? (stripComments(data) as Record<string, unknown>) : null
+      const { $comment: _d, ...dataModel } = model ?? {}
+      return {
+        name,
+        nodes: countNodes(root),
+        messages: [{ version: HOST_JSON.a2uiVersion, createSurface: { surfaceId: `main`, catalogId: CORE_CATALOG_ID, components: nestedToFlat({ ...root, id: `root` }), ...(model ? { dataModel } : {}) } }],
+      }
+    }),
+  }
+}
 const kebab = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, `$1-$2`).toLowerCase()
 /** VAPP-289: a generated component id (round 9 §4: UAX #31, so `_`, never `-`). */
 const snake = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, `$1_$2`).toLowerCase()
@@ -2585,6 +2671,12 @@ function renderFiles(): Record<string, string> {
     // Round 9 §11: the 1.0 catalog definitions (catalog_definition.json).
     "catalog/core.schema.json": json(coreSchema(icons)),
     "catalog/core-lite.schema.json": json(coreLiteSchema(icons)),
+    // #AXC-12: the Express compiler's catalog (prose stripped) in eui-core,
+    // and the round trip every Express suite replays.
+    "../../apps/desktop/crates/eui-core/src/generated/express.catalog.json": JSON.stringify(expressCatalog(coreSchema(icons))),
+    // The same WITH the prose, for express_prompt() (eui-core `descriptions`).
+    "../../apps/desktop/crates/eui-core/src/generated/express.catalog.described.json": JSON.stringify(coreSchema(icons)),
+    "fixtures/express-roundtrip.json": json(expressRoundtrip()),
     // VAPP-106: the runtime catalog and its text, split (src/catalog.described.ts).
     "generated/core.runtime.json": json(catalogSplit.runtime),
     "generated/core.descriptions.json": json(catalogSplit.descriptions),

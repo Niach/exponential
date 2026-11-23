@@ -300,10 +300,17 @@ function unknown(id: string, component: string, catalogId: string | undefined): 
   return { id, component: UNKNOWN_COMPONENT, props: catalogId === undefined ? { component } : { component, catalogId }, children: [] }
 }
 
+/** #AXC-19: A2UI 1.0 writes the check mixin as `@checks` (what the Express
+ *  compiler emits); the legacy bare `checks` is still read. Inside, the prop
+ *  is `checks` (catalog, nodes, painters); `@checks` wins when both are set. */
+export const WIRE_CHECKS = `@checks`
+
 function ownProps(flat: FlatComponent): Record<string, unknown> {
   const props: Record<string, unknown> = {}
+  const wire = flat[WIRE_CHECKS] !== undefined
   for (const [key, value] of Object.entries(flat)) {
-    if (!STRUCTURAL.has(key) && value !== undefined) props[key] = value
+    if (STRUCTURAL.has(key) || value === undefined || (wire && key === `checks`)) continue
+    props[key === WIRE_CHECKS ? `checks` : key] = value
   }
   return props
 }
