@@ -5976,6 +5976,9 @@ mod tests {
             ("express-failed", failed, 520.),
             ("express-press", pressed, 980.),
         ] {
+            if std::env::var("EXP_EXPRESS_ONLY").is_ok_and(|only| only != name) {
+                continue;
+            }
             let window = cx
                 .open_window(gpui::size(gpui::px(1100.), gpui::px(height)), |window, cx| cx.new(|cx| SessionChatScreenView::new("r1".to_string(), window, cx)))
                 .expect("a headless window");
@@ -5996,6 +5999,10 @@ mod tests {
             let shot = cx.capture_screenshot(window.into()).expect("a capture");
             shot.save(format!("{dir}/{name}.png")).expect("saved");
             eprintln!("{name}");
+            // Every scenario is session r1: its rows share keys with the
+            // next one's (a live window would keep re-splitting them).
+            cx.update_window(window.into(), |_, window, _| window.remove_window()).expect("closes");
+            cx.run_until_parked();
         }
         std::mem::forget(cx);
     }
