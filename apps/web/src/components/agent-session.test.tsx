@@ -32,7 +32,12 @@ vi.mock(`@/lib/steer-session-store`, async (importOriginal) => {
     }),
   }
 })
-vi.mock(`@/hooks/use-team-data`, () => ({ useTeamUsers: () => ({ users: [] }) }))
+vi.mock(`@/hooks/use-team-data`, () => ({ useTeamUsers: () => ({ users: [] }), useTeamsUsers: () => ({ users: [], userMap: new Map() }) }))
+// #EXP-2079: the feed reads its session's chat teams (one team here).
+vi.mock(`@/hooks/use-chat-teams`, () => ({
+  useSessionChatTeams: (session: { teamId?: string } | null) => ({ teamIds: session?.teamId ? [session.teamId] : [], teams: [], ownSynced: true }),
+  useSessionOwnDevices: () => false,
+}))
 let hostOnline = true
 vi.mock(`@/hooks/use-session-device`, () => ({
   useSessionDevice: () => ({ online: hostOnline, label: `Studio Mac` }),
