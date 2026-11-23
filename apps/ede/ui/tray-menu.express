@@ -1,0 +1,15 @@
+# Exponential Desktop's factory tray menu (#EDE-12): a tray item's dbusmenu (com.canonical.dbusmenu
+# over the session bus), opened as a popup above the taskbar's tray area when the item has one (an
+# item without a menu is activated instead). /traymenu holds the item and its rows, one submenu level
+# flattened; a row press sends the item its clicked event (ede_tray_menu).
+surface("tray-menu", extensions={ede: {popup: {parent: "taskbar", anchor: "tray", placement: "top-end", size: {width: 280, height: 360}}, functions: ["ede_tray_menu"]}})
+$/traymenu/items = []
+$/traymenu/service = ""
+$/traymenu/title = ""
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xs", padding: "$spacing.sm", backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[traymenu_title, traymenu_scroll])
+traymenu_title = Text(text=$/traymenu/title, variant="caption")
+traymenu_scroll = ScrollArea(maxHeight=310, children=[traymenu_list, traymenu_row])
+traymenu_list = List(gap="none", children=_template($/traymenu/items, traymenu_row, key="id"))
+traymenu_row = Box(children=[traymenu_sep, traymenu_entry])
+traymenu_sep = Separator(visible=cond(if=$separator, then=true, else=false))
+traymenu_entry = Row(title=$label, selected=$checked, density="compact", pressable=true, on={press: ede_tray_menu(id=$id, service=$/traymenu/service)}, visible=not(value=cond(if=$separator, then=true, else=false)))

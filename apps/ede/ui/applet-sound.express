@@ -1,0 +1,51 @@
+# Exponential Desktop's factory sound applet (#EDE-43): the taskbar's sound button opens it as a popup
+# surface. Cinnamon's content in the IDE's language: one card per MPRIS player
+# (/services/media/players: the art, the title and artist, previous / play-pause / next, a seek slider
+# over the track), the output volume with its mute switch, the output device
+# (/services/sound/sinkOptions → set_default), then Applications: one slider and mute per playback
+# stream (/services/sound/streams), and the Sound settings link. Every action is ede_service on the
+# sound or media domain. #EDE-168: the popup stands on its button and hugs its content, never taller
+# than the output has room for above the taskbar (the shell gives the root that maxHeight); everything
+# above the Sound settings link scrolls when it does not fit (854×534 logical: the slider and Mute
+# stay on screen).
+surface("applet-sound", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_sound", placement: "top-end", size: {width: 380, height: 600}}, functions: ["ede_service", "ede_open_document"]}})
+$/services/media/active = null
+$/services/media/available = false
+$/services/media/players = []
+$/services/sound/available = false
+$/services/sound/defaultSink = ""
+$/services/sound/muted = false
+$/services/sound/sinkOptions = []
+$/services/sound/sinks = []
+$/services/sound/streams = []
+$/services/sound/volume = 0
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[sound_scroll, sound_foot])
+sound_scroll = ScrollArea(style={flexShrink: 1}, children=[sound_body])
+sound_body = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", flexShrink: 0}, children=[players, player, volume, volume_muted, mute, output, apps_title, streams, stream])
+players = Stack(direction="vertical", gap="sm", children=_template($/services/media/players, player, key="name"))
+player = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.xs", padding: "$spacing.sm", borderRadius: "$radius.md", backgroundColor: "$color.card", borderWidth: 1, borderColor: "$color.border"}, children=[player_art, player_head, player_title, player_artist, player_transport, player_seek])
+player_art = Image(src=$artUrl, alt=$album, fit="cover", width=346, height=140, fallback="media-volume-up", style={borderRadius: "$radius.sm"})
+player_head = Stack(direction="horizontal", gap="xs", align="center", justify="between", children=[player_identity, player_status])
+player_identity = Text(text=$identity, variant="label", lines=1)
+player_status = Text(text=map(value=$status, cases={playing: "Playing", paused: "Paused", stopped: "Stopped"}, default=""), variant="muted")
+player_title = Text(text=$title, variant="title", lines=1)
+player_artist = Text(text=$artist, variant="muted", lines=1)
+player_transport = Stack(direction="horizontal", gap="sm", align="center", justify="center", children=[player_previous, player_pause, player_play, player_next])
+player_previous = Button(label="Previous", icon="media-skip-previous", variant="ghost", size="icon", on={press: ede_service(action="previous", args={name: $name}, domain="media")})
+player_pause = Button(label="Pause", icon="run-pause", variant="ghost", size="icon", on={press: ede_service(action="play_pause", args={name: $name}, domain="media")}, visible=eq(a=$status, b="playing"))
+player_play = Button(label="Play", icon="action-run", variant="ghost", size="icon", on={press: ede_service(action="play_pause", args={name: $name}, domain="media")}, visible=not(value=eq(a=$status, b="playing")))
+player_next = Button(label="Next", icon="media-skip-next", variant="ghost", size="icon", on={press: ede_service(action="next", args={name: $name}, domain="media")})
+player_seek = Slider(min=0, max=$length, step=1, value=$position, endLabel=$positionText, showValue=false, on={change: ede_service(action="seek", args={name: $name, position: $position}, domain="media")})
+volume = Slider(min=0, max=100, step=1, value=$/services/sound/volume, icon="media-volume-up", endLabel=concat(values=[$/services/sound/volume, "%"]), showValue=false, on={change: ede_service(action="set_volume", args={percent: $/services/sound/volume}, domain="sound")}, visible=not(value=cond(if=$/services/sound/muted, then=true, else=false)))
+volume_muted = Slider(min=0, max=100, step=1, value=$/services/sound/volume, icon="media-volume-mute", endLabel=concat(values=[$/services/sound/volume, "%"]), showValue=false, on={change: ede_service(action="set_volume", args={percent: $/services/sound/volume}, domain="sound")}, visible=cond(if=$/services/sound/muted, then=true, else=false))
+mute = Switch(label="Mute", name="mute", checked=$/services/sound/muted, on={change: ede_service(action="mute", args={on: $/services/sound/muted}, domain="sound")})
+output = Select(label="Output", name="output", options=$/services/sound/sinkOptions, value=$/services/sound/defaultSink, on={change: ede_service(action="set_default", args={id: $/services/sound/defaultSink}, domain="sound")})
+apps_title = Text(text="Applications", variant="label", visible=not(value=eq(a=len(value=$/services/sound/streams), b=0)))
+streams = List(gap="xs", children=_template($/services/sound/streams, stream, key="id"))
+stream = Stack(direction="vertical", gap="none", children=[stream_head, stream_volume])
+stream_head = Stack(direction="horizontal", gap="sm", align="center", justify="between", children=[stream_app, stream_mute])
+stream_app = Text(text=$app, variant="label", lines=1)
+stream_mute = Switch(label="Mute", name="stream-mute", checked=$muted, size="compact", on={change: ede_service(action="mute_stream", args={id: $id, on: $muted}, domain="sound")})
+stream_volume = Slider(min=0, max=100, step=1, value=$volume, icon="media-volume-up", endLabel=concat(values=[$volume, "%"]), showValue=false, on={change: ede_service(action="set_stream_volume", args={id: $id, percent: $volume}, domain="sound")})
+sound_foot = Stack(direction="horizontal", gap="sm", align="center", children=[sound_settings])
+sound_settings = Link(label="Sound settings", on={press: ede_open_document(name="settings")})
