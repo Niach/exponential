@@ -173,6 +173,8 @@ export const usersRouter = router({
       )
       const kind = input?.purpose ?? `personal`
       let scope: ApiKeyScope | null = null
+      // The personal team an Assistant's key was asked for (the answer names it).
+      let assistantTeamId: string | null = null
       const sessionId = input?.sessionId?.toLowerCase() ?? null
       if (sessionId) {
         if (kind !== `agent` || input?.scope || input?.teamId) {
@@ -191,10 +193,12 @@ export const usersRouter = router({
         await assertTeamMember(ctx.session.user.id, input.teamId)
         // #EXP-1720: the personal team's agent is the member's Assistant:
         // its key reaches all their teams (resolved per request).
-        scope =
-          input.teamId === (await getPersonalTeamId(ctx.session.user.id))
-            ? { allTeams: false, teamIds: [], boardIds: [], assistant: true }
-            : { allTeams: false, teamIds: [input.teamId], boardIds: [] }
+        if (input.teamId === (await getPersonalTeamId(ctx.session.user.id))) {
+          assistantTeamId = input.teamId
+          scope = { allTeams: false, teamIds: [], boardIds: [], assistant: true }
+        } else {
+          scope = { allTeams: false, teamIds: [input.teamId], boardIds: [] }
+        }
       } else if (input?.scope) {
         if (kind === `agent`) {
           throw new TRPCError({
@@ -234,7 +238,17 @@ export const usersRouter = router({
       // `key` is the RAW credential — returned exactly once (only a hash is
       // stored). The rest is display metadata so the client can render the new
       // row without a follow-up list call.
-      const [resolvedScope] = await resolveApiKeyScopes(ctx.db, [scope])
+      // #EXP-1989 follow-up: a device takes a team agent's key only when the
+      // ANSWER names exactly the team it asked for (desktop + CLI
+      // `mint_agent_team_key` → `scoped_to_team`, else it revokes the key and
+      // the conversation cannot launch). The Assistant's key stores no team
+      // (`assistant: true`, its teams resolve per request), so its answer
+      // names the personal team it was minted for, as a team key's names its
+      // team. Only this answer: the stored scope, the gate and the key list
+      // (`listPersonalApiKeys`) are unchanged.
+      const [resolvedScope] = await resolveApiKeyScopes(ctx.db, [
+        assistantTeamId ? { allTeams: false, teamIds: [assistantTeamId], boardIds: [] } : scope,
+      ])
       return {
         key: created.key,
         id: created.id,

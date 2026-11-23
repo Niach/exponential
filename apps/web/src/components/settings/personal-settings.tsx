@@ -2,6 +2,7 @@
 // bodies, ONE copy for the team-less md+ routes (`/settings/<page>`) and the
 // phones' team-scoped ones (`/t/$teamSlug/settings/<page>`). Each route keeps
 // its own loader + search; the body is the same.
+import { useMemo } from "react"
 import { ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
 import { EmptyState, SkeletonRows, conceptIcon } from "@exp/ui"
 import type { Team } from "@/db/schema"
@@ -126,7 +127,15 @@ export function AssistantSettingsBody({ team, isOwner }: { team?: Team | null; i
   const agent = row && row.role === `assistant` && row.ownerId === me ? row : null
   const home = useTeamById(team === undefined ? agent?.teamId : null)
   const homePermissions = useTeamPermissions(team === undefined ? home : null)
-  const pageTeam = team === undefined ? home : team
+  // The Assistant lives in its member's personal team, which the `teams`
+  // shape never carries (no row to wait for): the team-less page then stands
+  // on the agent's own team id. An Assistant's page reads nothing else of
+  // its team (its devices are the member's own; skills and MCP servers are
+  // the per-team sections).
+  const pageTeam = useMemo(
+    () => (team === undefined ? (home ?? (agent ? ({ id: agent.teamId, slug: ``, name: `` } as Team) : null)) : team),
+    [team, home, agent]
+  )
   const pageIsOwner = team === undefined ? homePermissions.isOwner : Boolean(isOwner)
 
   if (assistantId === null) {
