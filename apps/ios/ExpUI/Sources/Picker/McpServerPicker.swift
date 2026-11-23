@@ -42,8 +42,9 @@ public struct McpServerPicker<Trigger: View>: View {
     /// ones described by where they live. The glyph (#EXP-1795): a catalog
     /// server's brand mark untinted, a stdio command the shell, else the plug.
     /// #EXP-2079 (`assistant.chatTeams`): `teamNames` (server id → team,
-    /// `McpServers.chatPick`) = a chat with more than one team: a ready
-    /// row's second line names its team.
+    /// `McpServers.chatPick`) = a chat with more than one team: the row's
+    /// second line names its team instead of the host, then ` · ` and the
+    /// not-ready note when there is one.
     nonisolated public static func items(
         _ servers: [McpServerRow], teamNames: [String: String] = [:]
     ) -> [PickerItem<String>] {
@@ -62,7 +63,7 @@ public struct McpServerPicker<Trigger: View>: View {
                 value: server.id,
                 label: server.name,
                 icon: icon,
-                description: note ?? teamNames[server.id] ?? McpServers.location(server),
+                description: teamNames[server.id].map { team in note.map { "\(team) · \($0)" } ?? team } ?? note ?? McpServers.location(server),
                 disabled: note != nil,
                 brand: brand
             )

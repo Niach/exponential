@@ -100,9 +100,13 @@ fun mcpServerGlyph(server: McpServerOption): McpServerGlyph {
 }
 
 /** The muted second line: the not-ready note, else the host (or the command).
- *  #EXP-2079: a pick over several chat teams names the row's team there. */
-fun mcpServerCaption(server: McpServerOption): String? =
-    mcpNotReadyLabel(server) ?: server.teamName?.takeIf { it.isNotEmpty() } ?: mcpServerTarget(server)
+ *  #EXP-2079: a pick over several chat teams names the row's team there
+ *  instead of the host, then ` · ` and the not-ready note when there is one. */
+fun mcpServerCaption(server: McpServerOption): String? {
+    val note = mcpNotReadyLabel(server)
+    val team = server.teamName?.takeIf { it.isNotEmpty() } ?: return note ?: mcpServerTarget(server)
+    return if (note != null) "$team · $note" else team
+}
 
 /** The host (or the command) a row names; also a search keyword. */
 fun mcpServerTarget(server: McpServerOption): String? =

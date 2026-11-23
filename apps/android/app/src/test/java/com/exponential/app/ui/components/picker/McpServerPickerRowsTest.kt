@@ -67,7 +67,7 @@ class McpServerPickerRowsTest {
         val row = server(url = "https://mcp.linear.app/mcp").copy(teamName = "Acme")
         assertEquals("Acme", mcpServerCaption(row))
         // The disabled row keeps its reason.
-        assertEquals("Connect first", mcpServerCaption(row.copy(connectionStatus = "missing")))
+        assertEquals("Acme · Connect first", mcpServerCaption(row.copy(connectionStatus = "missing")))
         // One chat team (every team chat): no team name, the host as ever.
         assertEquals("mcp.linear.app", mcpServerCaption(row.copy(teamName = null)))
     }
