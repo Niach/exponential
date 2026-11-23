@@ -773,22 +773,34 @@ struct AgentSessionView: View {
                             // #EXP-2000: nothing to say; the own bubbles sit at the bottom.
                             if case .waiting = placeholder { Spacer(minLength: 0) }
                             if !inputs.isEmpty {
+                                let layouts = sentInputLayouts(inputs, model: model)
                                 VStack(alignment: .trailing, spacing: 0) {
                                     ForEach(Array(inputs.enumerated()), id: \.element.id) { index, input in
-                                        // #FEED-239: one own group under the viewer's avatar.
+                                        // #FEED-239: an own group under the viewer's avatar;
+                                        // #EXP-1990: a teammate's (a group chat) under theirs.
                                         let key = FindInChat.messageKey(input.id)
+                                        let layout = layouts[input.id]
                                         TranscriptRow(
-                                            side: .own,
-                                            gap: index == 0 ? 0 : TranscriptGrouping.Layout.gapInGroup,
-                                            avatar: index == 0 ? ownAvatar : nil
+                                            layout: layout,
+                                            avatar: { transcriptRows?.senderAvatar($0) ?? Self.fallbackAvatar($0) },
+                                            ownAvatar: ownAvatar
                                         ) {
-                                            UserMessageBubble(
-                                                text: input.text,
-                                                context: markdownContext,
-                                                caption: input.at.map { GlassTimeRow.formatted($0) },
-                                                status: .read,
-                                                tail: index == 0
-                                            )
+                                            Group {
+                                                if layout?.side == .other {
+                                                    senderBubble(
+                                                        input.text, layout: layout, streaming: false,
+                                                        time: input.at.map { GlassTimeRow.formatted($0) }
+                                                    )
+                                                } else {
+                                                    UserMessageBubble(
+                                                        text: input.text,
+                                                        context: markdownContext,
+                                                        caption: input.at.map { GlassTimeRow.formatted($0) },
+                                                        status: .read,
+                                                        tail: layout?.tail ?? (index == 0)
+                                                    )
+                                                }
+                                            }
                                             // #EXP-1975: a sent input is a loaded find row.
                                             .modifier(FindRowMark(id: TranscriptFind.bubbleItemId(key)))
                                         }
@@ -1667,6 +1679,35 @@ struct AgentSessionView: View {
         )
     }
 
+    /// #EXP-1990 (transcript-grouping.json): the sent inputs through THE
+    /// grouping by their synced author: the viewer's own group right, a
+    /// teammate's (a team agent's group chat) left under their avatar and
+    /// name; by input id.
+    private func sentInputLayouts(_ inputs: [NoFeedInput], model: AgentSessionModel) -> [String: TranscriptGrouping.RowLayout] {
+        let viewerId = deps.auth.userId
+        let items = inputs.map {
+            TranscriptGrouping.Item(
+                id: $0.id, kind: .message, authorKind: DomainContract.messageAuthorKindUser,
+                authorId: $0.authorId ?? viewerId
+            )
+        }
+        let viewed = model.session ?? session
+        let input = transcriptRows?.transcriptInput(
+            items: items, viewerId: viewerId, chat: viewed, originSessionId: nil, fromStart: false
+        ) ?? TranscriptGrouping.Input(
+            viewerId: viewerId,
+            chat: TranscriptGrouping.Chat(
+                sessionId: viewed.id, title: viewed.title ?? SessionTitle.Copy.untitled,
+                agentId: viewed.agentId, originSessionId: nil
+            ),
+            members: [], agents: [], sessions: [], items: items
+        )
+        return Dictionary(
+            zip(items.map(\.id), TranscriptGrouping.transcriptLayout(input)).map { ($0, $1) },
+            uniquingKeysWith: { a, _ in a }
+        )
+    }
+
     /// #EXP-1736: the feed's grouping — per entry id its layout, the
     /// avatar on a group's first row, and the grouping gap where a bubble
     /// follows a bubble (else the EXP-787 ladder stays).
@@ -2183,7 +2224,7 @@ struct AgentSessionView: View {
                 }
                 let inputs: [NoFeedInput] = picked.compactMap { m in
                     let text = m.locked.map(SealedPlaceholder.copy) ?? m.body
-                    return TranscriptGrouping.isBlankText(text) ? nil : NoFeedInput(id: m.id, text: text, at: WireTimestamps.parse(m.createdAt))
+                    return TranscriptGrouping.isBlankText(text) ? nil : NoFeedInput(id: m.id, text: text, at: WireTimestamps.parse(m.createdAt), authorId: m.authorId)
                 }
                 if inputs != noFeedInputs { noFeedInputs = inputs }
                 let read = (ids: rows.map(\.id), more: rows.count >= limit)
@@ -5659,4 +5700,6 @@ struct NoFeedInput: Identifiable, Equatable {
     let text: String
     /// #FEED-237: the bubble's `HH:mm` (message-delivery.json).
     var at: Date? = nil
+    /// #EXP-1990: who sent it (a group chat holds every member's inputs).
+    var authorId: String? = nil
 }
