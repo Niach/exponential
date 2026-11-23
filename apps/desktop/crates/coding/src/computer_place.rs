@@ -176,8 +176,9 @@ pub trait Machine {
 pub struct Epilot;
 
 impl Machine for Epilot {
+    /// #EXP-2065: asked now when the cache holds no fresh real answer.
     fn space_offer(&self) -> Offer {
-        Offer::of(&epilot::space_offer())
+        Offer::of(&epilot::space_offer_now())
     }
 
     /// The grant's own gate: a machine with nothing to drive (no display, a
@@ -311,10 +312,9 @@ mod tests {
         }
     }
 
-    /// #EXP-1514 (dark until the flip): what ePilot answers on an eDE that
-    /// has not said `space-readiness` (every one before the flip: its cache
-    /// empty, the compositor silent, or without the feature) is an older
-    /// desktop, and Auto resolves to the person's screen, as before spaces.
+    /// #EXP-1514: an eDE that answers without `space-readiness` (every one
+    /// before the flip) is an older desktop, and Auto resolves to the
+    /// person's screen, as before spaces; no answer (#EXP-2065) is a space.
     #[test]
     fn an_older_desktops_answer_is_the_screen_as_before() {
         let inputs = Inputs { switch: true, computer_use: true, session: SessionPlace::Auto, pick: Pick::Auto };

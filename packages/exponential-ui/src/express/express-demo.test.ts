@@ -41,7 +41,7 @@ describe(`express-demo.json`, () => {
   test(`the surface is existing core components only, reduced without an issue`, () => {
     const components = new Map<string, FlatComponent>()
     let catalogId = ``
-    for (const m of demo.expected.messages as Record<string, { catalogId?: string; components?: FlatComponent[] }>[]) {
+    for (const m of demo.expected.messages as unknown as Record<string, { catalogId?: string; components?: FlatComponent[] }>[]) {
       const body = m.createSurface ?? m.updateComponents
       if (m.createSurface) catalogId = m.createSurface.catalogId!
       for (const c of body?.components ?? []) components.set(c.id, c)

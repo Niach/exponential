@@ -2182,6 +2182,49 @@ fn a_seed_message_is_consumed_once_the_seed_turn_is_sent() {
     harness.session.kill("killed");
 }
 
+/// #FEED-273: a seed (a plan card's answer waking the run) handed to an
+/// agent that never begins the turn (claude "answered nothing for 90s at
+/// startup", the seed's one retry included) is NOT consumed: the next start
+/// delivers it again. It used to be consumed the moment it was sent, and
+/// the answer was lost.
+#[test]
+fn a_seed_the_agent_never_began_stays_unconsumed() {
+    let harness = start_fake_prepared(
+        "seed-never-began",
+        |_| {},
+        |prepared| {
+            prepared.acp.prompt = Some("fail-always".to_string());
+            prepared.seed_message_id = Some("m-answer".to_string());
+        },
+    );
+    until("the error reply", || !harness.conversation.replies().is_empty());
+    assert_eq!(harness.state.failures.load(Ordering::SeqCst), 2, "the seed and its one retry");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(harness.conversation.consumed().is_empty(), "never began: {:?}", harness.conversation.consumed());
+    harness.session.kill("killed");
+    harness.session.wait_timeout(BUDGET).expect("the run ends");
+    assert!(harness.conversation.consumed().is_empty(), "the end consumes nothing either");
+}
+
+/// #FEED-273: a seed the agent refused once and took on its retry is
+/// consumed once that retry began.
+#[test]
+fn a_retried_seed_is_consumed_once_the_agent_began() {
+    let harness = start_fake_prepared(
+        "seed-began-on-retry",
+        |_| {},
+        |prepared| {
+            prepared.acp.prompt = Some("fail-once".to_string());
+            prepared.seed_message_id = Some("m-answer".to_string());
+        },
+    );
+    until("the retried seed answers", || {
+        harness.state.answered.lock().expect("the answer log is not poisoned").clone() == vec!["fail-once".to_string()]
+    });
+    until("the consume", || harness.conversation.consumed() == vec!["m-answer".to_string()]);
+    harness.session.kill("killed");
+}
+
 /// FEED-153: a seed prompt (the brief) the agent refuses outright — several
 /// runs starting at once on one machine — is sent once more, so the first
 /// turn runs instead of the run idling with nothing done.
