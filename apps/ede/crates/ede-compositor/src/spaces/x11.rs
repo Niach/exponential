@@ -153,6 +153,15 @@ impl Ede {
         Some(wm.get_randr_primary_output().is_ok())
     }
 
+    /// #EDE-217: space `desk`'s window manager was cut off by its time
+    /// limit (and not for another reason: its server died, its space
+    /// closed). `None`: no window manager.
+    #[doc(hidden)]
+    pub fn space_xwm_timed_out(&self, desk: DeskId) -> Option<bool> {
+        let wm = self.spaces.get(desk)?.x11.as_ref()?.xwm.as_ref()?;
+        Some(wm.timed_out())
+    }
+
     /// A space's window manager, or a closed space's that is still parked.
     pub(crate) fn space_xwm_state(&mut self, xwm: XwmId) -> Option<&mut X11Wm> {
         if let Some(at) = self.spaces.closing_xwms.iter().position(|wm| wm.id() == xwm) {
