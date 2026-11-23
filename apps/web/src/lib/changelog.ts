@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-23-desktop-cli-0-14-176`,
+    date: `2026-11-23`,
+    title: `Screen memory keeps working when your displays change`,
+    summary: `Desktop and CLI 0.14.176: screen memory keeps working when your displays change, find in chat reaches older messages, and menus line up.`,
+    body: `- **Screen memory across display changes**: plugging in or removing a display no longer stops screen memory; it picks the new displays up on its own.
+- **Find in chat reaches older messages**: find in chat now also finds messages further back in the chat, and Ctrl/Cmd+F opens it when a chat is open.
+- **Menus line up**: menu rows line up again, and the Work screen's popup is wide enough for its longest option.
+- **Quiet until a device picks up**: a chat no device has picked up yet no longer shows a status.
+- **Device service survives updates**: the device service keeps running while the app restarts after an update.`,
+  },
+  {
     id: `2026-11-23-phones-chat-order`,
     date: `2026-11-23`,
     title: `Every chat message shows up, and find in chat reaches it`,
