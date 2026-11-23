@@ -5932,8 +5932,8 @@ mod tests {
                 cx.notify();
             });
         });
-        let tiles = "<a2ui>\nroot = Stack(children=[h, tiles])\nh = Heading(text=\"Cold start, Pixel 6a\", level=3)\ntiles = Stack(direction=\"row\", children=[a, b])\na = StatTile(label=\"Before\", value=\"1.35 s\")\nb = StatTile(label=\"After\", value=\"690 ms\", delta=\"-49%\")\n</a2ui>";
-        let ship = "<a2ui>\nroot = Stack(direction=\"row\", children=[go, hold])\ngo = Button(label=\"Ship to beta\", on={press: Event(\"reply\", userMessage=\"Ship it to beta\")})\nhold = Button(label=\"Not yet\", on={press: Event(\"hold\")})\n</a2ui>";
+        let tiles = "<a2ui>\nroot = Stack(children=[h, tiles])\nh = Heading(text=\"Cold start, Pixel 6a\", level=\"h3\")\ntiles = Stack(direction=\"horizontal\", children=[a, b])\na = StatTile(label=\"Before\", value=\"1.35 s\")\nb = StatTile(label=\"After\", value=\"690 ms\", delta=\"-49%\")\n</a2ui>";
+        let ship = "<a2ui>\nroot = Stack(direction=\"horizontal\", children=[go, hold])\ngo = Button(label=\"Ship to beta\", on={press: Event(\"reply\", userMessage=\"Ship it to beta\")})\nhold = Button(label=\"Not yet\", on={press: Event(\"hold\")})\n</a2ui>";
         let history = format!("Cold start is down to 690 ms. Here is where it went:\n{tiles}\nThe 2.4 build is green. Ship it to beta?\n{ship}");
         let press = |name: &str, body: &str| {
             let card = domain::chat_express::ActionCard {
@@ -5950,7 +5950,7 @@ mod tests {
             V::Phase(steer::ViewerPhase::Live),
             V::Activity(1, A::user_message("Sort today's widget reports.")),
             V::Activity(2, A::turn(steer::TurnState::Started)),
-            V::Activity(3, A::narration("Sorting the 14 open reports.\n<a2ui>\nroot = Stack(children=[h, p, t])\nh = Heading(text=\"Triage\", level=3)\np = Progress(value=6, max=14, label=\"Sorted\")\nt = Text(text=\"FB-8 is a duplicate of FB-3, merging it into")),
+            V::Activity(3, A::narration("Sorting the 14 open reports.\n<a2ui>\nroot = Stack(children=[h, p, t])\nh = Heading(text=\"Triage\", level=\"h3\")\np = Progress(value=6, max=14, label=\"Sorted\")\nt = Text(text=\"FB-8 is a duplicate of FB-3, merging it into")),
         ];
         let history_events = vec![
             V::Phase(steer::ViewerPhase::Live),
