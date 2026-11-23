@@ -174,10 +174,10 @@ class ChatStoreManagerTest {
         timings = ChatStoreTimings(writeDebounceMs = 20, messagesDebounceMs = 20, keysDebounceMs = 20, openWaitMs = 5_000, wipeTries = 2),
     )
 
-    private fun session(id: String, deviceId: String = "d1", rootId: String = id, userId: String = "u1", shared: Boolean = false, sealKey: String? = null) =
+    private fun session(id: String, deviceId: String = "d1", rootId: String = id, userId: String = "u1", shared: Boolean = false, sealKey: String? = null, teamId: String = "t1") =
         SessionEntity(
             id = id,
-            teamId = "t1",
+            teamId = teamId,
             rootId = rootId,
             userId = userId,
             deviceId = deviceId,
@@ -467,6 +467,53 @@ class ChatStoreManagerTest {
         stores.answerPage(node, "asker", "s1", JsonObject(page - "deviceId"))
         assertEquals(sentBefore, node.sent.size)
         assertEquals(PageAccess.UNAUTHORIZED, pageAccess(true, "u1", false, null))
+    }
+
+    @Test
+    fun aSessionInATeamWithoutAListAdmitsItsStarterOnly() = runBlocking {
+        // #EXP-2079 (steer-enet.json A TEAM WITHOUT A LIST): the Assistant's
+        // conversation sits in its starter's personal team, which never syncs:
+        // the registry (keyed by synced team) holds no list for it.
+        session("s1", userId = "u1", teamId = "p-u1")
+        net.registries["t1"] = listOf(
+            TeamInstall(installId = "i1", userId = "u1", kind = "phone", endpointId = "asker", x25519Public = "x"),
+            TeamInstall(installId = "i2", userId = "u2", kind = "phone", endpointId = "teammate", x25519Public = "x"),
+        )
+        val stores = manager()
+        stores.start()
+        waitUntil("the store open") { stores.openAccountId == "acct1" }
+        stores.feedStore("s1").record((1..3).map { TailEvent(narration(it), it.toLong()) })
+        stores.flushFeeds()
+        val node = FakeNode()
+        val page = buildJsonObject {
+            put("t", "history_page")
+            put("requestId", "cu-2")
+            put("deviceId", "d1")
+            put("limit", 200)
+            put("have", kotlinx.serialization.json.JsonArray(emptyList()))
+        }
+
+        // The starter's own install, known from another team's list: allowed.
+        stores.answerPage(node, "asker", "s1", page)
+        val chunk = answerFrom(node, "asker")
+        assertNull(chunk["error"])
+        assertEquals(3, chunk.getValue("events").jsonArray.size)
+        // Another user: refused, even on a shared row.
+        stores.answerPage(node, "teammate", "s1", page)
+        assertEquals("unauthorized", (answerFrom(node, "teammate")["error"] as JsonPrimitive).content)
+        session("s1", userId = "u1", shared = true, teamId = "p-u1")
+        stores.answerPage(node, "teammate", "s1", page)
+        assertEquals("unauthorized", (answerFrom(node, "teammate")["error"] as JsonPrimitive).content)
+        // An endpoint no list knows: refused.
+        stores.answerPage(node, "stranger", "s1", page)
+        assertEquals("unauthorized", (answerFrom(node, "stranger")["error"] as JsonPrimitive).content)
+        // The team HAS a list that lacks the endpoint: refused, the starter too.
+        session("s1", userId = "u1", teamId = "t2")
+        net.registries["t2"] = emptyList()
+        stores.answerPage(node, "asker", "s1", page)
+        assertEquals("unauthorized", (answerFrom(node, "asker")["error"] as JsonPrimitive).content)
+        assertEquals(PageAccess.ALLOWED, pageAccess(true, "u1", false, null, teamListed = false, anyTeamUserId = "u1"))
+        assertEquals(PageAccess.UNAUTHORIZED, pageAccess(true, "u1", true, null, teamListed = false, anyTeamUserId = "u2"))
     }
 
     @Test

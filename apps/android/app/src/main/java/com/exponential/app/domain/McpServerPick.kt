@@ -14,6 +14,9 @@ data class McpServerOption(
     val enabledByDefault: Boolean = false,
     val url: String? = null,
     val command: String? = null,
+    /** #EXP-2079 (agent-settings.json `assistant.chatTeams` (3)): the row's
+     *  team, set only where a pick lists MORE THAN ONE chat team's servers. */
+    val teamName: String? = null,
 )
 
 /** A run can use the server as the caller stands: nothing to sign in to, or
@@ -96,9 +99,10 @@ fun mcpServerGlyph(server: McpServerOption): McpServerGlyph {
     }
 }
 
-/** The muted second line: the not-ready note, else the host (or the command). */
+/** The muted second line: the not-ready note, else the host (or the command).
+ *  #EXP-2079: a pick over several chat teams names the row's team there. */
 fun mcpServerCaption(server: McpServerOption): String? =
-    mcpNotReadyLabel(server) ?: mcpServerTarget(server)
+    mcpNotReadyLabel(server) ?: server.teamName?.takeIf { it.isNotEmpty() } ?: mcpServerTarget(server)
 
 /** The host (or the command) a row names; also a search keyword. */
 fun mcpServerTarget(server: McpServerOption): String? =

@@ -523,12 +523,41 @@ class AgentSettingsTest {
     }
 
     @Test
-    fun `the personal team browses the active team and stays the viewer's (EXP-1714)`() {
+    fun `assistant chatTeams cases (EXP-2079)`() {
+        val cases = assistant.getValue("chatTeams").jsonObject.getValue("cases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                AgentSettings.Assistant.chatTeams(
+                    case.str("ownTeamId"),
+                    case.getValue("syncedTeamIds").jsonArray.map { it.jsonPrimitive.content },
+                    (case["pickedTeamIds"] as? kotlinx.serialization.json.JsonArray)?.map { it.jsonPrimitive.content },
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `assistant chatTeams deviceCases (EXP-2079)`() {
+        val cases = assistant.getValue("chatTeams").jsonObject.getValue("deviceCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonPrimitive.content.toBoolean(),
+                AgentSettings.Assistant.ownDevices(
+                    case.getValue("sessionTeamSynced").jsonPrimitive.content.toBoolean(),
+                    case.getValue("starterIsViewer").jsonPrimitive.content.toBoolean(),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `a team-scoped list keeps the viewer's personal sessions (EXP-1714)`() {
         val a = AgentSettings.Assistant
-        assertEquals("t-a", a.browseTeam("t-a", listOf("t-a", "t-b"), "t-b"))
-        assertEquals("t-b", a.browseTeam("p-me", listOf("t-a", "t-b"), "t-b"))
-        assertEquals("p-me", a.browseTeam("p-me", emptyList(), "t-b"))
-        assertEquals(null, a.browseTeam(null, listOf("t-a"), "t-b"))
         assertTrue(a.inTeamOrPersonal("t-a", "u-x", "t-a", listOf("t-a"), "u-me"))
         assertTrue(a.inTeamOrPersonal("p-me", "u-me", "t-a", listOf("t-a"), "u-me"))
         assertTrue(!a.inTeamOrPersonal("p-x", "u-x", "t-a", listOf("t-a"), "u-me"))

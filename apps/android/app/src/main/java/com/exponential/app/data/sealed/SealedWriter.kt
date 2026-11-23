@@ -12,6 +12,8 @@ import com.exponential.app.data.api.SessionsSendResult
 import com.exponential.app.data.api.TreeKeyWrap
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.chatTeamIssues
+import com.exponential.app.data.crossTeamOrder
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.SessionEntity
@@ -19,6 +21,7 @@ import com.exponential.app.data.enet.EnetFfi
 import com.exponential.app.data.enet.EnetIdentityStore
 import com.exponential.app.data.enet.EnetNodeManager
 import com.exponential.app.data.enet.base64Url
+import com.exponential.app.domain.AgentSettings
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -87,7 +90,7 @@ class SealedWriter @Inject constructor(
         if (text.isBlank() && attachments.isEmpty() && input.actionCard == null) return@withContext PreparedSend(input)
         val db = dbs.database(accountId)
         val mentions = mentionIds(db, text)
-        val refs = issueRefIds(db, text)
+        val refs = issueRefIds(db, accountId, input, text)
         val withMentions = input.copy(
             mentionUserIds = mentions.takeIf { it.isNotEmpty() },
             refIssueIds = refs.takeIf { it.isNotEmpty() },
@@ -361,7 +364,7 @@ class SealedWriter @Inject constructor(
             if (text.isBlank()) throw TrpcException(LOCKED_SEND)
             val db = dbs.database(accountId)
             val mentions = mentionIds(db, text)
-            val refs = issueRefIds(db, text)
+            val refs = issueRefIds(db, accountId, input, text)
             val root = db.sessionDao().getById(rootId)
             val key = root?.sealPublicKey?.let { it to root.sealEpoch } ?: publicKey(accountId, rootId)?.let { it.publicKey to it.epoch }
             val publicKey = key?.first ?: throw TrpcException(LOCKED_SEND)
@@ -382,11 +385,52 @@ class SealedWriter @Inject constructor(
         return runCatching { db.userDao().byEmails(emails).map { it.id }.distinct() }.getOrDefault(emptyList())
     }
 
-    /** The text's `#IDENT` refs this install knows (the server never parses a sealed text). */
-    private suspend fun issueRefIds(db: ExponentialDatabase, text: String): List<String> {
+    /** The text's `#IDENT` refs this install knows (the server never parses a sealed text).
+     *  #EXP-2079 (agent-settings.json `assistant.chatTeams` (1)): a send into
+     *  a team that is not synced (the Assistant's chat) resolves them in the
+     *  chat teams; an identifier found in several = the first team's in order. */
+    private suspend fun issueRefIds(db: ExponentialDatabase, accountId: String, input: SessionsSendInput, text: String): List<String> {
         val identifiers = SealedWrite.issueRefs(text)
         if (identifiers.isEmpty()) return emptyList()
-        return runCatching { db.issueDao().byIdentifiers(identifiers).map { it.id }.distinct() }.getOrDefault(emptyList())
+        return runCatching {
+            val issues = db.issueDao().byIdentifiers(identifiers)
+            val teams = unsyncedSendChatTeams(db, accountId, input)
+            val known = if (teams == null) issues else chatTeamIssues(issues, db.boardDao().observeAll().first(), teams)
+            known.map { it.id }.distinct()
+        }.getOrDefault(emptyList())
+    }
+
+    /** #EXP-2079: the chat teams of the tree [input] writes into while its
+     *  own team is NOT one of the synced teams; null = a synced team (or
+     *  nothing known): every team chat's send resolves as it always did. */
+    private suspend fun unsyncedSendChatTeams(db: ExponentialDatabase, accountId: String, input: SessionsSendInput): List<String>? {
+        val synced = crossTeamOrder(db.teamDao().observeAll().first()).map { it.id }
+        if (synced.isEmpty()) return null
+        val userId = auth.accounts.value.firstOrNull { it.id == accountId }?.userId
+        val explicitId = input.sessionId ?: input.parentId
+        val existing: SessionEntity? = when {
+            explicitId != null -> db.sessionDao().getById(explicitId)
+            input.agentId != null -> userId?.let { db.sessionDao().agentConversation(input.agentId, it) }
+            input.appId != null -> userId?.let { db.sessionDao().appConversation(input.appId, it) }
+            else -> null
+        }
+        val root = existing?.let { row ->
+            val rootId = row.rootId.ifEmpty { row.id }
+            if (rootId == row.id) row else db.sessionDao().getById(rootId)
+        }
+        val own = (root ?: existing)?.teamId?.takeIf { it.isNotEmpty() }
+            ?: input.teamId
+            ?: input.agentId?.let { db.agentDefinitionDao().observeById(it).first()?.teamId }
+            ?: input.appId?.let { db.appDao().observeById(it).first()?.teamId }
+        if (own.isNullOrEmpty() || own in synced) return null
+        // The turn's teams: this send's Teams pick (JSON null = every team),
+        // else the conversation root's.
+        val picked = when (val scope = input.scopeTeamIds) {
+            null -> root?.scopeTeamIdList
+            is kotlinx.serialization.json.JsonArray -> scope.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            else -> null
+        }
+        return AgentSettings.Assistant.chatTeams(own, synced, picked)
     }
 
     /** The tree [input] writes into (`staleTree`) and who its key is wrapped for. */

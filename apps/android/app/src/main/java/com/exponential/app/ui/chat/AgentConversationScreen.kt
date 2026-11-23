@@ -66,8 +66,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -96,7 +98,6 @@ class AgentConversationViewModel @Inject constructor(
     private val imagesApi: com.exponential.app.data.api.IssueImagesApi,
     private val promptsApi: com.exponential.app.data.api.PromptsApi,
     private val store: com.exponential.app.data.steer.SteerConnectionStore,
-    selection: com.exponential.app.data.TeamSelection,
     private val mcpServersApi: com.exponential.app.data.api.McpServersApi,
     // #FEED-219: the composer's synced draft.
     composerDrafts: com.exponential.app.data.composer.ComposerDrafts,
@@ -188,17 +189,28 @@ class AgentConversationViewModel @Inject constructor(
 
     // ── #EXP-1793 (composer-menu.json `mcpPick`): the agent chat's MCP servers ›
 
+    /** #EXP-2079 (agent-settings.json `assistant.chatTeams`): the teams the
+     *  composer's lists read: the agent's team while it is synced, else (the
+     *  global Assistant; its personal team never syncs) the turn's teams: no
+     *  conversation root yet = every synced team. Uploads keep the agent's. */
+    private val chatTeamIds: StateFlow<List<String>> =
+        com.exponential.app.data.chatTeamIdsFlow(dbFlow, agent.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } })
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     private val _mcpServers = MutableStateFlow<List<com.exponential.app.domain.McpServerOption>>(emptyList())
-    /** The agent's team's MCP servers (`mcpServers.list`, once per team). */
+    /** The chat teams' MCP servers (`mcpServers.list`, once per team list;
+     *  #EXP-2079: team by team in order). */
     val mcpServers: StateFlow<List<com.exponential.app.domain.McpServerOption>> = _mcpServers
 
     init {
         viewModelScope.launch {
-            agent.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged().collect { team ->
+            chatTeamIds.collectLatest { teams ->
                 _mcpServers.value = emptyList()
                 val accountId = auth.activeAccountId.value
-                if (team == null || accountId == null) return@collect
-                runCatching { mcpServersApi.list(accountId, team) }
+                if (teams.isEmpty() || accountId == null) return@collectLatest
+                runCatching {
+                    mcpServersApi.listForTeams(accountId, teams) { id -> dbFlow.first()?.teamDao()?.observeById(id)?.first()?.name }
+                }
                     .onFailure { if (it is CancellationException) throw it }
                     .getOrNull()
                     ?.let { _mcpServers.value = it }
@@ -241,22 +253,9 @@ class AgentConversationViewModel @Inject constructor(
      *  order (the agent session composer's source). */
     @OptIn(ExperimentalCoroutinesApi::class)
     val promptRows: StateFlow<List<com.exponential.app.domain.SlashPrompt>> =
-        // #EXP-1714: the global Assistant's personal team never syncs: the
-        // active team's prompts then (uploads keep the agent's own team).
-        com.exponential.app.data.browseTeamIdFlow(
-            dbFlow,
-            agent.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } },
-            selection.selectedId,
-        )
-            .flatMapLatest { team ->
-                if (team == null) {
-                    flowOf(emptyList())
-                } else {
-                    dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.PromptEntity>()) {
-                        it.promptDao().observeByTeam(team)
-                    }
-                }
-            }
+        // #EXP-2079: the global Assistant's personal team never syncs: the
+        // chat teams' prompts, team by team (uploads keep the agent's own team).
+        com.exponential.app.data.teamByTeamFlow(dbFlow, chatTeamIds) { db, team -> db.promptDao().observeByTeam(team) }
             .map { rows -> rows.map { com.exponential.app.domain.SlashPrompt(it.id, it.name, it.icon) } }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 

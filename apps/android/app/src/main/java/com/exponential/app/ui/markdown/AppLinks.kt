@@ -26,20 +26,26 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import java.net.URI
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 
 /**
  * EXP-1188: links in agent prose (narration, Guide, chat) that point at THIS
  * instance open in the app. [origin] = the active account's instance origin
  * (`https://host[:port]`, no trailing slash); [team] = the slug `~/` links
- * expand against (#EXP-1674: the surface's team, else the active team's);
- * [onOpen] opens a classified link, given its ABSOLUTE url.
+ * expand against (#EXP-1674: the surface's team, else the active team's;
+ * #EXP-2079: a chat's FIRST chat team); [onOpen] opens a classified link,
+ * given its ABSOLUTE url.
  */
 class AppLinkHandler(
     val origin: String,
     val team: String? = null,
     /** The id of the team [team] names, null while unknown. */
     val teamId: String? = null,
+    /** #EXP-2079 (agent-settings.json `assistant.chatTeams`): the teams the
+     *  surface's chips and text links resolve in, in order ([teamId] first). */
+    val teamIds: List<String> = listOfNotNull(teamId),
     val onOpen: (link: AppLink, url: String) -> Unit,
 )
 
@@ -141,15 +147,18 @@ private fun appLinksEntryPoint(context: Context): AppLinksEntryPoint =
  * through the app's [DeepLinkBus] — AppNavHost resolves an in-app link against
  * the local DB of the account on that host and applies the one open rule. Null
  * while no instance is known, which leaves links as plain browser links.
+ * #EXP-2079: [chatTeamIds] = a chat's chat teams; a team-less target resolves
+ * against the FIRST one (the Assistant's own team has no row and no slug).
  */
 @Composable
-fun rememberAppLinkHandler(teamId: String? = null): AppLinkHandler? {
+fun rememberAppLinkHandler(teamId: String? = null, chatTeamIds: List<String>? = null): AppLinkHandler? {
     val context = LocalContext.current
     val entryPoint = remember(context) { appLinksEntryPoint(context) }
     val instanceUrl by entryPoint.authRepository().instanceUrl.collectAsStateWithLifecycle()
     val accountId by entryPoint.authRepository().activeAccountId.collectAsStateWithLifecycle()
     val selectedTeamId by entryPoint.teamSelection().selectedId.collectAsStateWithLifecycle()
-    val slugTeamId = teamId?.takeIf { it.isNotEmpty() } ?: selectedTeamId
+    val slugTeamId = chatTeamIds?.firstOrNull() ?: teamId?.takeIf { it.isNotEmpty() } ?: selectedTeamId
+    val teamIds = chatTeamIds?.takeIf { it.isNotEmpty() } ?: listOfNotNull(slugTeamId)
     val team by produceState<String?>(null, accountId, slugTeamId) {
         val account = accountId
         val id = slugTeamId
@@ -162,12 +171,12 @@ fun rememberAppLinkHandler(teamId: String? = null): AppLinkHandler? {
         }
     }
     val origin = remember(instanceUrl) { instanceOrigin(instanceUrl) } ?: return null
-    return remember(origin, entryPoint, team, slugTeamId) {
+    return remember(origin, entryPoint, team, slugTeamId, teamIds) {
         val bus = entryPoint.deepLinkBus()
         // The resolver matches accounts by `URI(instanceUrl).host`, so hand it
         // that exact host rather than the link's (which may differ in case).
         val host = runCatching { URI(origin).host }.getOrNull().orEmpty()
-        AppLinkHandler(origin, team, slugTeamId) { link, url ->
+        AppLinkHandler(origin, team, slugTeamId, teamIds) { link, url ->
             when (link) {
                 is AppLink.External -> bus.openWebUrl(Uri.parse(url))
                 AppLink.Ignore -> Unit
@@ -209,11 +218,12 @@ internal fun rememberChippedProse(text: String): String {
                 when (kind) {
                     ProseLinks.ChipKind.Issue -> issueRefs?.resolve(id)?.title
                     ProseLinks.ChipKind.Board -> db.boardDao().observeBySlug(teamId, id).first()?.name
+                    // #EXP-2079: a row of any chat team ([teamId] = the first).
                     ProseLinks.ChipKind.Session -> db.sessionDao().observeById(id).first()
-                        ?.takeIf { it.teamId == teamId }
+                        ?.takeIf { it.teamId in links.teamIds }
                         ?.let { row -> row.title?.takeIf { it.isNotBlank() } ?: "Session" }
                     ProseLinks.ChipKind.Agent -> db.agentDefinitionDao().observeById(id).first()
-                        ?.takeIf { it.teamId == teamId }?.name
+                        ?.takeIf { it.teamId in links.teamIds }?.name
                 }
             }.getOrNull()
         }
@@ -244,6 +254,62 @@ fun rememberIssueTextLinks(teamId: String?, teamSlug: String?): (String) -> List
         }
     }
     return remember(known, teamSlug) { { text -> issueTextLinks(text, teamSlug, known) } }
+}
+
+/**
+ * #EXP-2079 (agent-settings.json `assistant.chatTeams` (1)): [rememberIssueTextLinks]
+ * over a chat's teams: a `#IDENT` links on the short issue route of the team
+ * that holds it; an identifier found in several = the first team's in order.
+ */
+@Composable
+fun rememberChatIssueTextLinks(teamIds: List<String>): (String) -> List<TextLinkSegment>? {
+    val context = LocalContext.current
+    val entryPoint = remember(context) { appLinksEntryPoint(context) }
+    val accountId by entryPoint.authRepository().activeAccountId.collectAsStateWithLifecycle()
+    val known by produceState(emptyMap<String, String>(), accountId, teamIds) {
+        val account = accountId
+        value = emptyMap()
+        if (account != null && teamIds.isNotEmpty()) {
+            runCatching {
+                val db = entryPoint.databaseHolder().database(account)
+                val perTeam: List<Flow<Pair<String?, List<String>>>> = teamIds.map { id ->
+                    combine(db.teamDao().observeById(id), db.issueDao().observeByTeam(id)) { team, issues ->
+                        team?.slug to issues.map { it.identifier.uppercase() }
+                    }
+                }
+                combine(perTeam) { teams -> issueTeamSlugs(teams.toList()) }.collect { value = it }
+            }
+        }
+    }
+    return remember(known) { { text -> issueTextLinks(text, known) } }
+}
+
+/** Uppercased identifier → its team's slug over [teams] (slug, identifiers)
+ *  in order: the FIRST team that holds an identifier names it. */
+internal fun issueTeamSlugs(teams: List<Pair<String?, List<String>>>): Map<String, String> {
+    val out = LinkedHashMap<String, String>()
+    for ((slug, identifiers) in teams) {
+        if (slug == null) continue
+        for (identifier in identifiers) out.putIfAbsent(identifier, slug)
+    }
+    return out
+}
+
+/** The pure half of [rememberChatIssueTextLinks]: [known] = uppercased
+ *  identifier → its team's slug; null = no link. */
+internal fun issueTextLinks(text: String, known: Map<String, String>): List<TextLinkSegment>? {
+    val segments = mutableListOf<TextLinkSegment>()
+    var at = 0
+    for (match in IssueRefs.findAll(text)) {
+        val team = known[match.identifier.uppercase()] ?: continue
+        val href = expandTeamLink("~/issues/${match.identifier}", team) ?: continue
+        if (match.start > at) segments += TextLinkSegment(text.substring(at, match.start))
+        segments += TextLinkSegment(text.substring(match.start, match.end), href)
+        at = match.end
+    }
+    if (segments.isEmpty()) return null
+    if (at < text.length) segments += TextLinkSegment(text.substring(at))
+    return segments
 }
 
 /** The pure half of [rememberIssueTextLinks]: null = no link. */

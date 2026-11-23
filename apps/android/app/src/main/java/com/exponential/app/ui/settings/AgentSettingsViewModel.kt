@@ -252,7 +252,14 @@ class AgentSettingsViewModel @Inject constructor(
     /** The agent's team's devices, offline ones too (#EXP-1849: the app
      *  agent slot lists the team-shared ones, offline ones disabled). */
     val teamDevices: StateFlow<List<SteerDevice>?> =
-        steerDeviceFlow(dbFlow, combine(agent, teamId) { row, selected -> row?.teamId ?: selected }, auth.userId)
+        // #EXP-2079 (agent-settings.json `assistant.chatTeams` DEVICES): an
+        // Assistant's page lists its member's OWN machines, whatever teams
+        // they are shared with (null = no team rule), no teammate's server.
+        steerDeviceFlow(
+            dbFlow,
+            combine(agent, teamId) { row, selected -> if (row?.isAssistant == true) null else row?.teamId ?: selected },
+            auth.userId,
+        )
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val devices: StateFlow<List<SteerDevice>?> = combine(

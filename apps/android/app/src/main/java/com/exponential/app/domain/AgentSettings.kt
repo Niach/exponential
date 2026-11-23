@@ -592,12 +592,26 @@ object AgentSettings {
         fun teamPick(ids: List<String>, rowTeams: Map<String, String>, teamId: String): List<String> =
             ids.distinct().filter { rowTeams[it] == teamId }
 
-        /** #EXP-1714: the team a composer BROWSES (`/` prompts, `#` issues,
-         *  `@` members): its own team when that is a synced team, else the
-         *  active one (the global Assistant's personal team never syncs).
-         *  Uploads and sends keep the own team. No synced teams yet = own. */
-        fun browseTeam(own: String?, teamIds: Collection<String>, active: String?): String? =
-            if (own != null && teamIds.isNotEmpty() && own !in teamIds) active else own
+        /** #EXP-2079 (`chatTeams.cases`, TS `assistantChatTeams`): the teams
+         *  the lists of a chat read (`#` refs, `@` members, the MCP pick,
+         *  prompts, Link / New issue): the own team while it is synced, else
+         *  the turn's teams (the Teams pick ∩ the synced teams, else all of
+         *  them), in the synced order ([syncedTeamIds] is given in the
+         *  cross-team order). Uploads and sends keep the own team. */
+        fun chatTeams(ownTeamId: String?, syncedTeamIds: List<String>, pickedTeamIds: Collection<String>?): List<String> {
+            if (!ownTeamId.isNullOrEmpty() && ownTeamId in syncedTeamIds) return listOf(ownTeamId)
+            if (syncedTeamIds.isEmpty()) return listOfNotNull(ownTeamId?.takeIf { it.isNotEmpty() })
+            val picked = pickedTeamIds.orEmpty().toSet()
+            val turn = syncedTeamIds.filter { it in picked }
+            return turn.ifEmpty { syncedTeamIds }
+        }
+
+        /** #EXP-2079 (`chatTeams.deviceCases`, TS `assistantOwnDevices`): the
+         *  device list of a session in a team the viewer does not sync, that
+         *  they started (the Assistant's conversation) = their own machines,
+         *  no team rule. */
+        fun ownDevices(sessionTeamSynced: Boolean, starterIsViewer: Boolean): Boolean =
+            !sessionTeamSynced && starterIsViewer
 
         /** #EXP-1714: a team-scoped session list also keeps the viewer's own
          *  sessions that sit in no synced team (their personal team). */

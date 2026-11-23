@@ -819,7 +819,9 @@ private fun RunFaceContent(
     val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
     val mentionResolver = remember(mentionMembers) { MentionResolver(mentionMembers) }
     // EXP-1188: links the agent writes to this instance open in the app.
-    val appLinkHandler = rememberAppLinkHandler(session?.teamId)
+    // #EXP-2079: a team-less target resolves against the FIRST chat team.
+    val chatTeamIds by viewModel.chatTeamIds.collectAsStateWithLifecycle()
+    val appLinkHandler = rememberAppLinkHandler(session?.teamId, chatTeamIds)
     val answerStates = activity.answerLocks
     // EXP-588: per locked card, what this client picked — joined for display.
     val answerLabels = remember(activity.answerLocks, activity.answerLabels) {
@@ -5850,7 +5852,9 @@ internal fun SessionComposer(
         moveError?.let { com.exponential.app.ui.components.FailedAction("move", "the session", it.ifBlank { null }) },
         onShown = viewModel::clearMoveError,
     )
-    LaunchedEffect(session?.teamId) { viewModel.loadMcpServers() }
+    // #EXP-2079: the chat teams' servers (the Assistant's chat: the turn's teams).
+    val mcpTeamIds by viewModel.chatTeamIds.collectAsStateWithLifecycle()
+    LaunchedEffect(session?.teamId, mcpTeamIds) { viewModel.loadMcpServers() }
     val composerAgent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
     val promptRows by viewModel.promptRows.collectAsStateWithLifecycle()
     // #EXP-1434: the + menu's prompt lands at the composer's caret (its
