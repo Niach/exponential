@@ -1074,7 +1074,8 @@ object Chats {
     ): List<AgentChatRow> {
         if (view == ChatListView.Archived) return emptyList()
         return agents.map { agent ->
-            val conversation = sessions.firstOrNull { it.parentId == null && it.agentId == agent.agentId && it.userId == me }
+            // #EXP-1990: a team agent's GROUP chat, else the viewer's own root.
+            val conversation = SessionTree.agentChat(agent.agentId, agent.groupChatId, sessions, me)
             val id = conversation?.id
             var newest: String? = null
             if (id != null) {

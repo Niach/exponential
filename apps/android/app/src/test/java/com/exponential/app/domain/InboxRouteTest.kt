@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -91,6 +92,7 @@ class InboxRouteTest {
                     agentId = s.str("agentId"),
                     userId = s.str("userId"),
                     viewerId = case.str("viewerId"),
+                    groupChat = s["groupChat"]?.jsonPrimitive?.booleanOrNull ?: false,
                 ),
             )
         }

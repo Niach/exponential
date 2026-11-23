@@ -214,12 +214,15 @@ class WebLinkResolver @Inject constructor(
         val session = db.sessionDao().getById(sessionId) ?: return@activeDb null
         val rootId = session.rootId.takeIf { it.isNotEmpty() } ?: session.id
         val root = if (rootId == session.id) session else db.sessionDao().getById(rootId)
+        val agentId = root?.agentId ?: session.agentId
         InboxRoute.sessionTarget(
             id = session.id,
             rootId = rootId,
-            agentId = root?.agentId ?: session.agentId,
+            agentId = agentId,
             userId = root?.userId ?: session.userId,
             viewerId = auth.userId.value,
+            // #EXP-1990: a team agent's group chat opens its page for every member.
+            groupChat = !agentId.isNullOrEmpty() && db.agentDefinitionDao().getById(agentId)?.groupChatId == rootId,
         )
     }
 

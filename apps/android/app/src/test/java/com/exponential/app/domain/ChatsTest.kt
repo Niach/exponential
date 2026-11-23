@@ -89,6 +89,7 @@ class ChatsTest {
         busy = json.bool("busy"),
         needsYou = json.bool("needsYou"),
         assistant = (json["assistant"] as? JsonPrimitive)?.boolean ?: false,
+        groupChatId = json.str("groupChatId"),
     )
 
     private fun groupKey(wire: String) = SessionTree.ChatsGroupKey.entries.first { it.wire == wire }

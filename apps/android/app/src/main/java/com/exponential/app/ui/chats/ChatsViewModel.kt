@@ -614,9 +614,10 @@ class ChatsViewModel @Inject constructor(
         sender.send(SessionsSendInput.toAgent(agentId, text))
     }
 
-    /** NEW-2: the viewer's conversation session per agent id (a row opens it). */
-    val conversations: StateFlow<Map<String, String>> = combine(sessions, auth.userId) { s, me ->
-        SessionTree.conversations(s, me)
+    /** NEW-2: the viewer's chat per agent id (a row opens it); #EXP-1990:
+     *  a team agent's group chat. */
+    val conversations: StateFlow<Map<String, String>> = combine(sessions, auth.userId, agentDefinitions) { s, me, defs ->
+        SessionTree.conversations(s, me, defs.associate { it.id to it.groupChatId })
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** The member teams, name order — the per-team bands. */
@@ -726,6 +727,8 @@ internal fun needsYouFold(
         },
         mergeMode = mergeMode,
         owner = owner,
+        // #EXP-1990 (needs-you.json): a team agent's group chat counts for every member.
+        groupChatIds = definitions.mapNotNull { it.groupChatId?.takeIf { id -> id.isNotEmpty() } },
     )
 }
 

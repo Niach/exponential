@@ -457,6 +457,7 @@ class SessionTreeTest {
         put("busy", agent.busy)
         put("needsYou", agent.needsYou)
         put("assistant", agent.assistant)
+        agent.groupChatId?.let { put("groupChatId", it) }
     }
 
     // ── the cases ───────────────────────────────────────────────────────────
@@ -780,6 +781,7 @@ class SessionTreeTest {
                     sortOrder = it.getValue("sortOrder").jsonPrimitive.double,
                     role = it.str("role"),
                     ownerId = it.str("ownerId"),
+                    groupChatId = it.str("groupChatId"),
                 )
             }
             val actual = SessionTree.listAgents(

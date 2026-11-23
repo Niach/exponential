@@ -163,3 +163,38 @@ class DropRetiredTableMigrationTest {
         )
     }
 }
+
+/** #EXP-1990: v134 adds `agents.group_chat_id` (nullable) and refetches ONLY the agents shape. */
+class GroupChatMigrationTest {
+    @Test
+    fun `v134 adds group_chat_id and refetches only agents`() {
+        assertEquals(133, MIGRATION_133_134.startVersion)
+        assertEquals(134, MIGRATION_133_134.endVersion)
+        val statements = mutableListOf<String>()
+        val db = Proxy.newProxyInstance(
+            SupportSQLiteDatabase::class.java.classLoader,
+            arrayOf(SupportSQLiteDatabase::class.java),
+        ) { _, method, args ->
+            if (method.name == "execSQL") statements += args!![0] as String else error("unexpected ${method.name}")
+            null
+        } as SupportSQLiteDatabase
+        MIGRATION_133_134.migrate(db)
+        assertEquals(
+            listOf(
+                "ALTER TABLE `agents` ADD COLUMN `group_chat_id` TEXT",
+                "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                    "`needs_refetch` = 1 WHERE `shape` = 'agents'",
+            ),
+            statements,
+        )
+    }
+
+    @Test
+    fun `the agents row decodes group_chat_id, absent or null = none`() {
+        val json = Json { ignoreUnknownKeys = true }
+        fun decode(raw: String) = json.decodeFromString(AgentDefinitionEntity.serializer(), raw)
+        assertEquals("g1", decode("""{"id":"ag1","group_chat_id":"g1"}""").groupChatId)
+        assertNull(decode("""{"id":"ag1","group_chat_id":null}""").groupChatId)
+        assertNull(decode("""{"id":"ag1"}""").groupChatId)
+    }
+}

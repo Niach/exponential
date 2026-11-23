@@ -500,3 +500,18 @@ val MIGRATION_132_133: Migration = object : Migration(132, 133) {
         db.execSQL("DELETE FROM `electric_offsets` WHERE `shape` = 'pins'")
     }
 }
+
+/**
+ * v134 (#EXP-1990, agent-settings.json `groupChat`): `agents.group_chat_id`,
+ * a team agent's group chat root (NULL = none). Only the agents shape
+ * refetches, so synced rows re-arrive carrying it.
+ */
+val MIGRATION_133_134: Migration = object : Migration(133, 134) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `agents` ADD COLUMN `group_chat_id` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'agents'",
+        )
+    }
+}
