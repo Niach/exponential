@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-23-phones-chat-order`,
+    date: `2026-11-23`,
+    title: `Every chat message shows up, and find in chat reaches it`,
+    summary: `Android 0.14.155 and iOS 0.14.143: messages that sync late show up in their place, find in chat reaches older messages, and a chat no device has picked up yet stays quiet.`,
+    body: `- **Late messages in their place**: a message that reaches your phone after newer ones no longer goes missing from the chat, find in chat or search.
+- **Find in chat**: find reaches older messages and your own unsent ones, and previous and next land on each hit's bubble.
+- **Quiet until picked up**: a chat that no device has picked up yet no longer shows a waiting notice.
+- **Android**: the last line of a very long message is no longer cut off, and the New chat shortcut puts the cursor in the composer.
+- **iOS**: the chat no longer goes blank after you send while scrolled up; the share sheet is dark throughout and names the agent you share to; the New chat quick action focuses the composer on a cold start.`,
+  },
+  {
     id: `2026-11-22-desktop-cli-0-14-175`,
     date: `2026-11-22`,
     title: `The desktop app stays light with many sessions`,

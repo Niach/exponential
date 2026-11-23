@@ -1,0 +1,4 @@
+- Messages that arrive late show up in their place in the chat
+- Find in chat reaches older messages and lands on each hit
+- A chat no device has picked up yet stays quiet
+- The last line of a very long message is no longer cut off
