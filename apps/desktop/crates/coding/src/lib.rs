@@ -63,6 +63,7 @@ pub mod continue_attempts;
 pub mod device_doctor;
 pub mod direct_inbox;
 pub mod doctor;
+pub mod express_blocks;
 pub mod git_credentials;
 pub mod git_worktree;
 pub mod inventory;

@@ -385,6 +385,29 @@
         }
       },
       {
+        "name": "action",
+        "card": {
+          "block": "m:00000000-0000-4000-8000-000000000035#1",
+          "context": {
+            "choice": "ship"
+          },
+          "kind": "action",
+          "messageId": "00000000-0000-4000-8000-000000000035",
+          "name": "approve",
+          "surfaceId": "m:00000000-0000-4000-8000-000000000035#1"
+        },
+        "clear": {
+          "kind": "action",
+          "messageId": "00000000-0000-4000-8000-000000000035"
+        },
+        "plaintext": "{\"block\":\"m:00000000-0000-4000-8000-000000000035#1\",\"context\":{\"choice\":\"ship\"},\"kind\":\"action\",\"messageId\":\"00000000-0000-4000-8000-000000000035\",\"name\":\"approve\",\"surfaceId\":\"m:00000000-0000-4000-8000-000000000035#1\"}",
+        "envelope": {
+          "kind": "action",
+          "messageId": "00000000-0000-4000-8000-000000000035",
+          "sealed": "v1:1:Af-MHZkKC6Lyhoz6H0VpfYpPYW9FCZ4jTvJ4iAQCYc5pLxZNwR58jNgFnNHkaK1qxIh8UD7LdFkcZhYZVXU6mN_PFg86r36vETQOHef-PKBZKiO8Q2GZir-5Cy7-dHDSFXDeejZd8vQgfn09yErZDf9HJPcNYeKV7Qrp5yM_iMXi7kMqO5w3O0DIvW2QR85P2b3Sl5E9OXFR4ie2qa_2AoAJMKyr7fG2t8MI4f1Xv4G5GQ4wb7uNhnUyX0vuLmoCJjO5wo6MbFVzXdwrkvp41Xdt47zmHPe5aujhHco3pk5UkP_Hbf5Ybp0N3uIWUvqjk0w1CIjUPmGr3Bpff_XKk6oX60y7REmHQzkmIg"
+        }
+      },
+      {
         "name": "sealed show in the chat only (story false, one picture uploaded, one still to upload)",
         "card": {
           "kind": "surface",

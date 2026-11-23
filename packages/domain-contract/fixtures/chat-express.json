@@ -1,0 +1,1058 @@
+{
+  "$comment": "#EXP-2067 (Danny, 2026-11-23, the #AXC-12 plan): EXPRESS BLOCKS IN THE CHAT ×4. Decisions: Danny 2026-11-23 (`decisions`). An agent writes Express (the A2UI inference format, eui SDK `@exponential_app/eui/express` / eui-core `express`, a2ui-express at the rev eui-core pins) between `<a2ui>` and `</a2ui>` lines anywhere in its assistant text; every transcript (web, desktop gpui, iOS, Android) draws each block as a genUI surface IN PLACE while it streams, and the prose around the blocks stays THE markdown it is today. WHAT IS STORED: nothing new. The agent's text is stored and carried VERBATIM, blocks included (`messages.body` of the turn's reply via `sessions.reply`, sealed like any body in a keyed tree (#EXP-1458); the feed's `narration` fragments over eNet; the chat store). The server never compiles, rewrites or validates a block (it cannot read a sealed body); every reader compiles on its own device from the text, so a stored row, a history page, a synced tail and a live feed draw the same surfaces from the same text. WHICH ROWS: only text the AGENT wrote is read for blocks: a card-less `message` row with `authorKind` agent (the chat's own agent, a relay, a child's report: transcript-grouping.json senders) and a feed `narration` row (main lane or a subagent's). A person's text, a `system` row, a `thought`, tool output and every card are never read for blocks (a pasted tag stays text). GATE (`segmentCases`, `expressSegments(text, rowKey, final)`): a row holds blocks only when one of its LINES starts with the open tag (`gate`: optional spaces or tabs, `<a2ui`, then `>` or a space or tab); otherwise the result is null and the row draws exactly as today (no compiler is loaded for it: the web loads the Express wasm chunk only for a row that passes the gate, and draws THE surface card skeleton for its blocks until it is loaded). A tag written inside a sentence or behind backticks is prose. While a row is NOT final, a last line that is a proper prefix of `<a2ui>` (`<`, `<a`, …, `<a2ui`) is held back, not drawn (the tag may still be arriving). SPLIT: a row that passes the gate is split by the SDK's `unwrap` (eui-core `express::unwrap`, its FFI and the wasm `unwrap`: the SAME lexer every platform calls, never a re-implementation: fences and inline-code backticks around a tag are dropped exactly as the SDK drops them) into segments in order: `prose` {text} (a run between blocks, its edges trimmed; an empty run is dropped) and `block` {key, raw, closed} (the Express without its tags; `closed` = its `</a2ui>` arrived). Block n (1-based, in the row's order) has the KEY `<rowKey>#<n>`, where rowKey = `m:<messages.id>` for a synced row and `n:<sessionId>:<narration messageId>` for a feed narration row (no messageId = `e:<sessionId>:<seq of its first fragment>`). The key is the block's surface id: the default surface of its statements (what a `reply` event names as its `surfaceId`); a `surface(\"name\")` line inside the block names its own surface instead. COMPILE: each block is ONE self-contained Express stream (`ExpressDecoder` unwrapped, surface id = its key, its own renderer state): its raw goes in, and the stream is finished when the block is `closed` or the row is final. Blocks never share state: a block can neither update nor delete a surface of another block or another row (`surface(\"x\", update=true)` naming a surface its own block did not create fails that block). STATUS per block (`segmentCases.expected[].status`): `open` (not closed, the row still streaming: draw what compiled so far, a sentence typing in as the SDK heals its open string), `ok`, `failed` (`error` = the SDK's error category, `ParseError` | `ValidationError` | `CatalogError`, or `Unclosed` for a final row whose last block never closed and parsed cleanly; the message is the SDK's and is never locked here), `tooMany` (past `limits.blocksPerRowMax`), `tooLarge` (raw past `limits.blockMaxBytes` UTF-8 bytes, or its surfaces past `limits.blockMaxSurfaces` or past `limits.blockMaxComponents` component ids together). `surfaces` = the ids its stream created and did not delete, in creation order. STREAMING (`streamCases`): a client appends each narration fragment to the row (mergeNarrationFragment, unchanged) and re-splits; a block whose new raw STARTS WITH its previous raw takes only the new suffix (`push`), any other change (an S-3 in-place edit of a stored text, a fence the lexer dropped late) restarts that block's stream from its whole raw. Whatever the chunking, after every fragment the blocks reach the SAME statuses and surfaces as `segmentCases` on the text so far (the SDK's guarantee: any chunking leaves the same surfaces); every step of `streamCases` is such a text. A row is FINAL when it is a synced `message` row, or a feed narration row followed by another row of its own lane, or its turn has ended (the `turn` slot idle, the session not busy). DRAW (Danny 2026-11-23: split): a row with blocks becomes its segments in order, each prose segment THE MessageBubble (markdown as today) and each block ONE item in the agent's column drawn by THE plan card surface painter (theme exponential, dark) in THE surface card frame (chats.json `surfaceCard`: glass frame, plan-card.json `surfaceRadius` / `surfacePadding`, max width the column, no title), one frame per surface of the block, stacked in creation order with `layout.blockGap` between them. The segments of one row stay ONE sender group (transcript-grouping.json): name, avatar and tail on the row's first segment only, no name or avatar again after a block; the `HH:mm` footer sits on the row's LAST prose bubble (a row without prose shows no time). A `failed` / `tooMany` / `tooLarge` block draws the surfaces it created (if any) and under them THE inline marker (the `Context compacted` row) labelled `copy.blockFailed`; an `open` block with no surface yet draws THE surface card skeleton (feedback-states.json). ENTER: a block surface created while its chat is open (live) enters like a surface card (`surfaceCard.enter`: the frame fades, rises and glows once); its children stream in without the stagger; history, a reopen, a restart or a re-split never re-enters. ACTIONS (Danny 2026-11-23: every action is forwarded; `actionCases`, `surfaceAction(event, origin)`): EVERY action event a block's surface fires posts ONE person message as the viewer into the session whose transcript draws the row (the chat's root in a chat, the opened session in a session view), through the composer's send path (`sessions.send`, sealed in a keyed tree, body AND card): `card` = THE `action` card `{kind: \"action\", name, context, surfaceId, block, messageId}` (`name` = the event name, `context` = the event's resolved context object or null when it has none, `surfaceId` = the surface that fired, `block` = its block key, `messageId` = the synced row's `messages.id`, null for a live feed row) and `body` = the event's text: for `replyEvent` its `userMessage` trimmed, else its `context.text` trimmed (show's convention, chats.json `replyCases`); for any other event its `userMessage` trimmed; else empty. A context past `limits.actionContextMaxBytes` (its compact JSON in UTF-8) or a name past `limits.actionNameMax` posts nothing and shows THE failed-action toast `copy.actionTooLarge` (feedback-states.json). exponential_show is the SAME rule (chats.json `surfaceCard` moves from `surfaceReply` to `surfaceAction`): a show surface's press posts the same card with `surfaceId` = `show:<its messages.id>`, `block` null and `messageId` = the card's message, so a `reply` still reads as the person's message there and every other event now reaches the agent too. DRAW: an action row with a body is THE MessageBubble of its author with the body (the viewer's own bubble for their own); without a body it is THE inline marker labelled `copy.actionMarker` ({author} = `copy.you` for the viewer, else the member's name; {name} = the event name). Its preview: a body = the person's line as today (`You: <body>`), else the marker's words. TO THE AGENT (`inputCases`, `actionInput(card, body)` / `parseActionInput(text)`): the device delivers the row as ONE input `[action] ` + the compact JSON `{name, surfaceId, block, messageId, context}` (that key order, null values kept) + (a body: a newline and the body); a feed input that parses back is drawn like the synced row (the bubble or the marker), never as raw text. A block's local state (typed input, toggles) is the reader's alone, sent only through an action's context or userMessage; reopening draws the block's initial data model. Media and links follow THE plan card host's URL policy (images only from `/api/attachments/{id}` and https, links through the app's link handler). FAILED BLOCKS TELL THE AGENT (Danny 2026-11-23; `failureNoteCases`, `failureNote(turnTexts)`): when a turn ENDS, the device engine (crates/eagent, desktop app + CLI daemon) reads the turn's main-lane narration texts in order (each final) and checks every block with the same rules (blocks numbered 1.. across the whole turn): a block that is `failed`, `tooMany` or `tooLarge` gets ONE line `[view] Block {n} of your last turn did not render ({category}): {message} Line {line}: {lineText}` where category = the SDK's error category, `Unclosed`, or `Limit` (tooMany: `More than {blocksPerRowMax} blocks in one message.`, tooLarge: `More than {blockMaxBytes} bytes in one block.` / `More than {blockMaxSurfaces} surfaces in one block.` / `More than {blockMaxComponents} components in one block.`), message = the SDK's message verbatim (the cases hold the pinned rev's words; a repin regenerates them), line = the 1-based line of the block whose push (the raw fed one line at a time, each with its newline) produced the error (an error of `finish` = the last line; a Limit of count or bytes = 1), lineText = that line trimmed, cut to `limits.noteLineMax` characters with `…`. The lines (block order, joined by a newline) are PREPENDED, once, to the NEXT input the engine hands the agent in that session (a person's message, an action, a trigger, a child's report: whatever comes next), followed by a blank line; they never wake the agent on their own, never reach the transcript (the feed shows the input without them), and a run that ends or restarts before a next input drops them. PROSE: the DRAWN prose of a row (`segmentCases.prose`, `expressProse`) = its prose segments joined by a blank line (`\\n\\n`), the whole text when the gate fails. Every place that reads an agent text WITHOUT drawing it reads the PURE prose (`plainProseCases`, `plainProse(text)`, no SDK, so a list never loads the compiler): the gate fails = the text; else every line from an open-tag line (the gate) through the next line that is only `</a2ui>` (or the end of the text; an open-tag line that itself holds `</a2ui>` is a one-line block) is dropped, with a fence line (```, ~~~ and an optional info word) right before or right after it; the remaining runs, trimmed and non-empty, joined by a blank line. It reads: the chat list preview, the rail and the digest (chats.json `chatPreview`: an agent text's line = plainLine(plainProse(body)), empty = `copy.blockOnly`; an action row = `previewCases`), push and mention notifications (the server, over a clear body), voice read-aloud (speak replies), Copy text, find in chat and the chat store's index (chat-store.json INDEX SCOPE: a block's raw is never indexed, never a hit). The bus copies, `sessions.digest` and the MCP message reads keep the VERBATIM text (an agent reading another session's line reads its Express). THE AGENT LEARNS THE FORMAT (Danny 2026-11-23: every session): the device launcher (crates/coding `skill::system_append_layers`, desktop app + CLI daemon, start AND resume) appends one `express` layer after the team prompt: `prompt.preamble` + eui-core `express::express_prompt()` (the compact style over the core catalog WITH its prose, ~31 KB / ~8k tokens at the pinned rev), measured as its own context_layout layer. It is the same text every session, so the provider's prompt cache carries it. LIMITS (`limits`): blocksPerRowMax, blockMaxBytes, blockMaxSurfaces, blockMaxComponents as above; the row itself stays under MESSAGE_BODY_MAX (65536) like any body. exponential_show stays THE tool for a result, a question, a plan and a surface the agent updates in place (`replace: true`); a block is part of the text it stands in and is never a result, never answers a waiting card and never moves a status. Reference: `packages/domain-contract/src/chat-express.ts` (to write, over the eui wasm); mirrors: desktop `domain::chat_express` (eui-core), ExpCore `ChatExpress` and Android `ChatExpress` (the eui FFI). Every mirror replays `segmentCases` (comparing the WHOLE expected array, `raw` included, `error` only as the category), `streamCases` step by step, `actionCases`, `inputCases`, `plainProseCases` and `previewCases`; the engine (and the TS reference) replays `failureNoteCases` byte for byte.",
+  "decisions": {
+    "$comment": "Danny, 2026-11-23 (via #AXC-12).",
+    "layout": "split: prose bubbles and block frames in the agent's column, one sender group",
+    "multiTurn": "selfContained: every block is its own surface; a living view = exponential_show replace",
+    "events": "forwardAll: every action posts a person message with an action card (reply = its text as the body); exponential_show follows the same rule",
+    "prompt": "everySession: every launch, start and resume",
+    "failedFeedback": "engineNote: one line per failed block, prepended to the agent's next input",
+    "compiler": "the eui SDK everywhere (unwrap + ExpressDecoder), never a re-implementation"
+  },
+  "gate": "^[ \\t]*<a2ui(?:[ \\t][^>\\n]*)?>",
+  "replyEvent": "reply",
+  "limits": {
+    "blocksPerRowMax": 8,
+    "blockMaxBytes": 32768,
+    "blockMaxSurfaces": 4,
+    "blockMaxComponents": 200,
+    "actionContextMaxBytes": 4096,
+    "actionNameMax": 64,
+    "noteLineMax": 120
+  },
+  "layout": {
+    "blockGap": 8
+  },
+  "copy": {
+    "blockFailed": "This view could not be drawn",
+    "blockOnly": "Sent a view",
+    "actionMarker": "{author} pressed {name}",
+    "you": "You",
+    "actionTooLarge": "That action carries too much data to send"
+  },
+  "prompt": {
+    "preamble": "## Views in the Exponential chat\nPeople read your text in the Exponential chat. To show a view, write an A2UI Express block (the format below) between a line `<a2ui>` and a line `</a2ui>` anywhere in your text: it renders where it stands, live as you write it; the text around it stays markdown. Use one when a view says more than prose (status, a comparison, a choice); answer in prose otherwise. Each block is its own view: it cannot change an earlier one (for a view you update, use exponential_show with replace). A button that answers you: on={press: Event(\"reply\", userMessage=\"<the answer>\")}: a press sends that text as the person's next message. Every other event reaches you too, as an input line `[action] {name, surfaceId, block, messageId, context}` (then the userMessage, if any). If a block fails to render, your next input starts with a `[view]` line naming it, the error and the line. At most 8 blocks per message and 200 components per block. Never write the tags anywhere else: not quoted, not in code."
+  },
+  "segmentCases": [
+    {
+      "name": "prose only: no block, today's markdown",
+      "text": "Merged **#212**, the build is green.",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": null,
+      "prose": "Merged **#212**, the build is green."
+    },
+    {
+      "name": "a tag mentioned inline is prose",
+      "text": "Wrap a view in `<a2ui>` and `</a2ui>` tags.",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": null,
+      "prose": "Wrap a view in `<a2ui>` and `</a2ui>` tags."
+    },
+    {
+      "name": "a line that starts with backticks is prose",
+      "text": "`<a2ui>` opens a block.",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": null,
+      "prose": "`<a2ui>` opens a block."
+    },
+    {
+      "name": "prose, one block, prose",
+      "text": "Here is the build:\n<a2ui>\nroot = Stack(children=[title, ship])\ntitle = Text(text=\"Build 1482 is green\")\nship = Button(label=\"Ship it\", on={press: Event(\"reply\", userMessage=\"Ship it\")})\n</a2ui>\nShip it?",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "Here is the build:"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "root = Stack(children=[title, ship])\ntitle = Text(text=\"Build 1482 is green\")\nship = Button(label=\"Ship it\", on={press: Event(\"reply\", userMessage=\"Ship it\")})",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#1"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "Ship it?"
+        }
+      ],
+      "prose": "Here is the build:\n\nShip it?"
+    },
+    {
+      "name": "a block alone",
+      "text": "<a2ui>\nroot = Text(text=\"Done\")\n</a2ui>",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": [
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "root = Text(text=\"Done\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#1"
+          ]
+        }
+      ],
+      "prose": ""
+    },
+    {
+      "name": "a fenced block loses its fence",
+      "text": "Look:\n```\n<a2ui>\nroot = Text(text=\"hi\")\n</a2ui>\n```\nafter",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "Look:"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "root = Text(text=\"hi\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#1"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "after"
+        }
+      ],
+      "prose": "Look:\n\nafter"
+    },
+    {
+      "name": "two blocks: each its own surface, keyed by its ordinal",
+      "text": "Before\n<a2ui>\nroot = Text(text=\"One\")\n</a2ui>\nBetween\n<a2ui>\nroot = Text(text=\"Two\")\n</a2ui>\nAfter",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "Before"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "root = Text(text=\"One\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#1"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "Between"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#2",
+          "raw": "root = Text(text=\"Two\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#2"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "After"
+        }
+      ],
+      "prose": "Before\n\nBetween\n\nAfter"
+    },
+    {
+      "name": "a feed narration row keys its blocks by the session and its messageId",
+      "text": "Status:\n<a2ui>\nroot = Text(text=\"Deploying\")\n</a2ui>",
+      "rowKey": "n:s1:msg_01",
+      "final": true,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "Status:"
+        },
+        {
+          "kind": "block",
+          "key": "n:s1:msg_01#1",
+          "raw": "root = Text(text=\"Deploying\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "n:s1:msg_01#1"
+          ]
+        }
+      ],
+      "prose": "Status:"
+    },
+    {
+      "name": "a component the catalog does not define fails the block alone",
+      "text": "A\n<a2ui>\nroot = Nope(x=1)\n</a2ui>\nB\n<a2ui>\nroot = Text(text=\"Three\")\n</a2ui>",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "A"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "root = Nope(x=1)",
+          "closed": true,
+          "status": "failed",
+          "error": "ValidationError",
+          "surfaces": []
+        },
+        {
+          "kind": "prose",
+          "text": "B"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#2",
+          "raw": "root = Text(text=\"Three\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#2"
+          ]
+        }
+      ],
+      "prose": "A\n\nB"
+    },
+    {
+      "name": "a block still streaming draws what compiled so far",
+      "text": "Working on it\n<a2ui>\nroot = Stack(children=[a])\na = Text(text=\"Buil",
+      "rowKey": "m:m1",
+      "final": false,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "Working on it"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "root = Stack(children=[a])\na = Text(text=\"Buil",
+          "closed": false,
+          "status": "open",
+          "surfaces": [
+            "m:m1#1"
+          ]
+        }
+      ],
+      "prose": "Working on it"
+    },
+    {
+      "name": "the same text once the row is final: the open block is unclosed",
+      "text": "Working on it\n<a2ui>\nroot = Stack(children=[a])\na = Text(text=\"Buil",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "Working on it"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "root = Stack(children=[a])\na = Text(text=\"Buil",
+          "closed": false,
+          "status": "failed",
+          "error": "ParseError",
+          "surfaces": [
+            "m:m1#1"
+          ]
+        }
+      ],
+      "prose": "Working on it"
+    },
+    {
+      "name": "a named surface keeps its name",
+      "text": "<a2ui>\nsurface(\"deploy\")\nroot = Text(text=\"Deploying\")\n</a2ui>",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": [
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "surface(\"deploy\")\nroot = Text(text=\"Deploying\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "deploy"
+          ]
+        }
+      ],
+      "prose": ""
+    },
+    {
+      "name": "a block cannot update a surface of an earlier block",
+      "text": "<a2ui>\nsurface(\"deploy\")\nroot = Text(text=\"Deploying\")\n</a2ui>\nlater\n<a2ui>\nsurface(\"deploy\", update=true)\nroot = Text(text=\"Done\")\n</a2ui>",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": [
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "surface(\"deploy\")\nroot = Text(text=\"Deploying\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "deploy"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "later"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#2",
+          "raw": "surface(\"deploy\", update=true)\nroot = Text(text=\"Done\")",
+          "closed": true,
+          "status": "failed",
+          "error": "ValidationError",
+          "surfaces": []
+        }
+      ],
+      "prose": "later"
+    },
+    {
+      "name": "two surfaces in one block, in creation order",
+      "text": "<a2ui>\nsurface(\"a\")\nroot = Text(text=\"A\")\nsurface(\"b\")\nroot = Text(text=\"B\")\n</a2ui>",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": [
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "surface(\"a\")\nroot = Text(text=\"A\")\nsurface(\"b\")\nroot = Text(text=\"B\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "prose": ""
+    },
+    {
+      "name": "past blocksPerRowMax the extra blocks draw the marker only",
+      "text": "Step 1\n<a2ui>\nroot = Text(text=\"1\")\n</a2ui>\nStep 2\n<a2ui>\nroot = Text(text=\"2\")\n</a2ui>\nStep 3\n<a2ui>\nroot = Text(text=\"3\")\n</a2ui>\nStep 4\n<a2ui>\nroot = Text(text=\"4\")\n</a2ui>\nStep 5\n<a2ui>\nroot = Text(text=\"5\")\n</a2ui>\nStep 6\n<a2ui>\nroot = Text(text=\"6\")\n</a2ui>\nStep 7\n<a2ui>\nroot = Text(text=\"7\")\n</a2ui>\nStep 8\n<a2ui>\nroot = Text(text=\"8\")\n</a2ui>\nStep 9\n<a2ui>\nroot = Text(text=\"9\")\n</a2ui>",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "Step 1"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "root = Text(text=\"1\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#1"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "Step 2"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#2",
+          "raw": "root = Text(text=\"2\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#2"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "Step 3"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#3",
+          "raw": "root = Text(text=\"3\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#3"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "Step 4"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#4",
+          "raw": "root = Text(text=\"4\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#4"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "Step 5"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#5",
+          "raw": "root = Text(text=\"5\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#5"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "Step 6"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#6",
+          "raw": "root = Text(text=\"6\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#6"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "Step 7"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#7",
+          "raw": "root = Text(text=\"7\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#7"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "Step 8"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#8",
+          "raw": "root = Text(text=\"8\")",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "m:m1#8"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "Step 9"
+        },
+        {
+          "kind": "block",
+          "key": "m:m1#9",
+          "raw": "root = Text(text=\"9\")",
+          "closed": true,
+          "status": "tooMany",
+          "surfaces": []
+        }
+      ],
+      "prose": "Step 1\n\nStep 2\n\nStep 3\n\nStep 4\n\nStep 5\n\nStep 6\n\nStep 7\n\nStep 8\n\nStep 9"
+    },
+    {
+      "name": "past blockMaxComponents the block draws the marker only",
+      "text": "<a2ui>\nroot = Stack(children=[t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t20, t21, t22, t23, t24, t25, t26, t27, t28, t29, t30, t31, t32, t33, t34, t35, t36, t37, t38, t39, t40, t41, t42, t43, t44, t45, t46, t47, t48, t49, t50, t51, t52, t53, t54, t55, t56, t57, t58, t59, t60, t61, t62, t63, t64, t65, t66, t67, t68, t69, t70, t71, t72, t73, t74, t75, t76, t77, t78, t79, t80, t81, t82, t83, t84, t85, t86, t87, t88, t89, t90, t91, t92, t93, t94, t95, t96, t97, t98, t99, t100, t101, t102, t103, t104, t105, t106, t107, t108, t109, t110, t111, t112, t113, t114, t115, t116, t117, t118, t119, t120, t121, t122, t123, t124, t125, t126, t127, t128, t129, t130, t131, t132, t133, t134, t135, t136, t137, t138, t139, t140, t141, t142, t143, t144, t145, t146, t147, t148, t149, t150, t151, t152, t153, t154, t155, t156, t157, t158, t159, t160, t161, t162, t163, t164, t165, t166, t167, t168, t169, t170, t171, t172, t173, t174, t175, t176, t177, t178, t179, t180, t181, t182, t183, t184, t185, t186, t187, t188, t189, t190, t191, t192, t193, t194, t195, t196, t197, t198, t199, t200])\nt0 = Text(text=\"0\")\nt1 = Text(text=\"1\")\nt2 = Text(text=\"2\")\nt3 = Text(text=\"3\")\nt4 = Text(text=\"4\")\nt5 = Text(text=\"5\")\nt6 = Text(text=\"6\")\nt7 = Text(text=\"7\")\nt8 = Text(text=\"8\")\nt9 = Text(text=\"9\")\nt10 = Text(text=\"10\")\nt11 = Text(text=\"11\")\nt12 = Text(text=\"12\")\nt13 = Text(text=\"13\")\nt14 = Text(text=\"14\")\nt15 = Text(text=\"15\")\nt16 = Text(text=\"16\")\nt17 = Text(text=\"17\")\nt18 = Text(text=\"18\")\nt19 = Text(text=\"19\")\nt20 = Text(text=\"20\")\nt21 = Text(text=\"21\")\nt22 = Text(text=\"22\")\nt23 = Text(text=\"23\")\nt24 = Text(text=\"24\")\nt25 = Text(text=\"25\")\nt26 = Text(text=\"26\")\nt27 = Text(text=\"27\")\nt28 = Text(text=\"28\")\nt29 = Text(text=\"29\")\nt30 = Text(text=\"30\")\nt31 = Text(text=\"31\")\nt32 = Text(text=\"32\")\nt33 = Text(text=\"33\")\nt34 = Text(text=\"34\")\nt35 = Text(text=\"35\")\nt36 = Text(text=\"36\")\nt37 = Text(text=\"37\")\nt38 = Text(text=\"38\")\nt39 = Text(text=\"39\")\nt40 = Text(text=\"40\")\nt41 = Text(text=\"41\")\nt42 = Text(text=\"42\")\nt43 = Text(text=\"43\")\nt44 = Text(text=\"44\")\nt45 = Text(text=\"45\")\nt46 = Text(text=\"46\")\nt47 = Text(text=\"47\")\nt48 = Text(text=\"48\")\nt49 = Text(text=\"49\")\nt50 = Text(text=\"50\")\nt51 = Text(text=\"51\")\nt52 = Text(text=\"52\")\nt53 = Text(text=\"53\")\nt54 = Text(text=\"54\")\nt55 = Text(text=\"55\")\nt56 = Text(text=\"56\")\nt57 = Text(text=\"57\")\nt58 = Text(text=\"58\")\nt59 = Text(text=\"59\")\nt60 = Text(text=\"60\")\nt61 = Text(text=\"61\")\nt62 = Text(text=\"62\")\nt63 = Text(text=\"63\")\nt64 = Text(text=\"64\")\nt65 = Text(text=\"65\")\nt66 = Text(text=\"66\")\nt67 = Text(text=\"67\")\nt68 = Text(text=\"68\")\nt69 = Text(text=\"69\")\nt70 = Text(text=\"70\")\nt71 = Text(text=\"71\")\nt72 = Text(text=\"72\")\nt73 = Text(text=\"73\")\nt74 = Text(text=\"74\")\nt75 = Text(text=\"75\")\nt76 = Text(text=\"76\")\nt77 = Text(text=\"77\")\nt78 = Text(text=\"78\")\nt79 = Text(text=\"79\")\nt80 = Text(text=\"80\")\nt81 = Text(text=\"81\")\nt82 = Text(text=\"82\")\nt83 = Text(text=\"83\")\nt84 = Text(text=\"84\")\nt85 = Text(text=\"85\")\nt86 = Text(text=\"86\")\nt87 = Text(text=\"87\")\nt88 = Text(text=\"88\")\nt89 = Text(text=\"89\")\nt90 = Text(text=\"90\")\nt91 = Text(text=\"91\")\nt92 = Text(text=\"92\")\nt93 = Text(text=\"93\")\nt94 = Text(text=\"94\")\nt95 = Text(text=\"95\")\nt96 = Text(text=\"96\")\nt97 = Text(text=\"97\")\nt98 = Text(text=\"98\")\nt99 = Text(text=\"99\")\nt100 = Text(text=\"100\")\nt101 = Text(text=\"101\")\nt102 = Text(text=\"102\")\nt103 = Text(text=\"103\")\nt104 = Text(text=\"104\")\nt105 = Text(text=\"105\")\nt106 = Text(text=\"106\")\nt107 = Text(text=\"107\")\nt108 = Text(text=\"108\")\nt109 = Text(text=\"109\")\nt110 = Text(text=\"110\")\nt111 = Text(text=\"111\")\nt112 = Text(text=\"112\")\nt113 = Text(text=\"113\")\nt114 = Text(text=\"114\")\nt115 = Text(text=\"115\")\nt116 = Text(text=\"116\")\nt117 = Text(text=\"117\")\nt118 = Text(text=\"118\")\nt119 = Text(text=\"119\")\nt120 = Text(text=\"120\")\nt121 = Text(text=\"121\")\nt122 = Text(text=\"122\")\nt123 = Text(text=\"123\")\nt124 = Text(text=\"124\")\nt125 = Text(text=\"125\")\nt126 = Text(text=\"126\")\nt127 = Text(text=\"127\")\nt128 = Text(text=\"128\")\nt129 = Text(text=\"129\")\nt130 = Text(text=\"130\")\nt131 = Text(text=\"131\")\nt132 = Text(text=\"132\")\nt133 = Text(text=\"133\")\nt134 = Text(text=\"134\")\nt135 = Text(text=\"135\")\nt136 = Text(text=\"136\")\nt137 = Text(text=\"137\")\nt138 = Text(text=\"138\")\nt139 = Text(text=\"139\")\nt140 = Text(text=\"140\")\nt141 = Text(text=\"141\")\nt142 = Text(text=\"142\")\nt143 = Text(text=\"143\")\nt144 = Text(text=\"144\")\nt145 = Text(text=\"145\")\nt146 = Text(text=\"146\")\nt147 = Text(text=\"147\")\nt148 = Text(text=\"148\")\nt149 = Text(text=\"149\")\nt150 = Text(text=\"150\")\nt151 = Text(text=\"151\")\nt152 = Text(text=\"152\")\nt153 = Text(text=\"153\")\nt154 = Text(text=\"154\")\nt155 = Text(text=\"155\")\nt156 = Text(text=\"156\")\nt157 = Text(text=\"157\")\nt158 = Text(text=\"158\")\nt159 = Text(text=\"159\")\nt160 = Text(text=\"160\")\nt161 = Text(text=\"161\")\nt162 = Text(text=\"162\")\nt163 = Text(text=\"163\")\nt164 = Text(text=\"164\")\nt165 = Text(text=\"165\")\nt166 = Text(text=\"166\")\nt167 = Text(text=\"167\")\nt168 = Text(text=\"168\")\nt169 = Text(text=\"169\")\nt170 = Text(text=\"170\")\nt171 = Text(text=\"171\")\nt172 = Text(text=\"172\")\nt173 = Text(text=\"173\")\nt174 = Text(text=\"174\")\nt175 = Text(text=\"175\")\nt176 = Text(text=\"176\")\nt177 = Text(text=\"177\")\nt178 = Text(text=\"178\")\nt179 = Text(text=\"179\")\nt180 = Text(text=\"180\")\nt181 = Text(text=\"181\")\nt182 = Text(text=\"182\")\nt183 = Text(text=\"183\")\nt184 = Text(text=\"184\")\nt185 = Text(text=\"185\")\nt186 = Text(text=\"186\")\nt187 = Text(text=\"187\")\nt188 = Text(text=\"188\")\nt189 = Text(text=\"189\")\nt190 = Text(text=\"190\")\nt191 = Text(text=\"191\")\nt192 = Text(text=\"192\")\nt193 = Text(text=\"193\")\nt194 = Text(text=\"194\")\nt195 = Text(text=\"195\")\nt196 = Text(text=\"196\")\nt197 = Text(text=\"197\")\nt198 = Text(text=\"198\")\nt199 = Text(text=\"199\")\nt200 = Text(text=\"200\")\n</a2ui>",
+      "rowKey": "m:m1",
+      "final": true,
+      "expected": [
+        {
+          "kind": "block",
+          "key": "m:m1#1",
+          "raw": "root = Stack(children=[t0, t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11, t12, t13, t14, t15, t16, t17, t18, t19, t20, t21, t22, t23, t24, t25, t26, t27, t28, t29, t30, t31, t32, t33, t34, t35, t36, t37, t38, t39, t40, t41, t42, t43, t44, t45, t46, t47, t48, t49, t50, t51, t52, t53, t54, t55, t56, t57, t58, t59, t60, t61, t62, t63, t64, t65, t66, t67, t68, t69, t70, t71, t72, t73, t74, t75, t76, t77, t78, t79, t80, t81, t82, t83, t84, t85, t86, t87, t88, t89, t90, t91, t92, t93, t94, t95, t96, t97, t98, t99, t100, t101, t102, t103, t104, t105, t106, t107, t108, t109, t110, t111, t112, t113, t114, t115, t116, t117, t118, t119, t120, t121, t122, t123, t124, t125, t126, t127, t128, t129, t130, t131, t132, t133, t134, t135, t136, t137, t138, t139, t140, t141, t142, t143, t144, t145, t146, t147, t148, t149, t150, t151, t152, t153, t154, t155, t156, t157, t158, t159, t160, t161, t162, t163, t164, t165, t166, t167, t168, t169, t170, t171, t172, t173, t174, t175, t176, t177, t178, t179, t180, t181, t182, t183, t184, t185, t186, t187, t188, t189, t190, t191, t192, t193, t194, t195, t196, t197, t198, t199, t200])\nt0 = Text(text=\"0\")\nt1 = Text(text=\"1\")\nt2 = Text(text=\"2\")\nt3 = Text(text=\"3\")\nt4 = Text(text=\"4\")\nt5 = Text(text=\"5\")\nt6 = Text(text=\"6\")\nt7 = Text(text=\"7\")\nt8 = Text(text=\"8\")\nt9 = Text(text=\"9\")\nt10 = Text(text=\"10\")\nt11 = Text(text=\"11\")\nt12 = Text(text=\"12\")\nt13 = Text(text=\"13\")\nt14 = Text(text=\"14\")\nt15 = Text(text=\"15\")\nt16 = Text(text=\"16\")\nt17 = Text(text=\"17\")\nt18 = Text(text=\"18\")\nt19 = Text(text=\"19\")\nt20 = Text(text=\"20\")\nt21 = Text(text=\"21\")\nt22 = Text(text=\"22\")\nt23 = Text(text=\"23\")\nt24 = Text(text=\"24\")\nt25 = Text(text=\"25\")\nt26 = Text(text=\"26\")\nt27 = Text(text=\"27\")\nt28 = Text(text=\"28\")\nt29 = Text(text=\"29\")\nt30 = Text(text=\"30\")\nt31 = Text(text=\"31\")\nt32 = Text(text=\"32\")\nt33 = Text(text=\"33\")\nt34 = Text(text=\"34\")\nt35 = Text(text=\"35\")\nt36 = Text(text=\"36\")\nt37 = Text(text=\"37\")\nt38 = Text(text=\"38\")\nt39 = Text(text=\"39\")\nt40 = Text(text=\"40\")\nt41 = Text(text=\"41\")\nt42 = Text(text=\"42\")\nt43 = Text(text=\"43\")\nt44 = Text(text=\"44\")\nt45 = Text(text=\"45\")\nt46 = Text(text=\"46\")\nt47 = Text(text=\"47\")\nt48 = Text(text=\"48\")\nt49 = Text(text=\"49\")\nt50 = Text(text=\"50\")\nt51 = Text(text=\"51\")\nt52 = Text(text=\"52\")\nt53 = Text(text=\"53\")\nt54 = Text(text=\"54\")\nt55 = Text(text=\"55\")\nt56 = Text(text=\"56\")\nt57 = Text(text=\"57\")\nt58 = Text(text=\"58\")\nt59 = Text(text=\"59\")\nt60 = Text(text=\"60\")\nt61 = Text(text=\"61\")\nt62 = Text(text=\"62\")\nt63 = Text(text=\"63\")\nt64 = Text(text=\"64\")\nt65 = Text(text=\"65\")\nt66 = Text(text=\"66\")\nt67 = Text(text=\"67\")\nt68 = Text(text=\"68\")\nt69 = Text(text=\"69\")\nt70 = Text(text=\"70\")\nt71 = Text(text=\"71\")\nt72 = Text(text=\"72\")\nt73 = Text(text=\"73\")\nt74 = Text(text=\"74\")\nt75 = Text(text=\"75\")\nt76 = Text(text=\"76\")\nt77 = Text(text=\"77\")\nt78 = Text(text=\"78\")\nt79 = Text(text=\"79\")\nt80 = Text(text=\"80\")\nt81 = Text(text=\"81\")\nt82 = Text(text=\"82\")\nt83 = Text(text=\"83\")\nt84 = Text(text=\"84\")\nt85 = Text(text=\"85\")\nt86 = Text(text=\"86\")\nt87 = Text(text=\"87\")\nt88 = Text(text=\"88\")\nt89 = Text(text=\"89\")\nt90 = Text(text=\"90\")\nt91 = Text(text=\"91\")\nt92 = Text(text=\"92\")\nt93 = Text(text=\"93\")\nt94 = Text(text=\"94\")\nt95 = Text(text=\"95\")\nt96 = Text(text=\"96\")\nt97 = Text(text=\"97\")\nt98 = Text(text=\"98\")\nt99 = Text(text=\"99\")\nt100 = Text(text=\"100\")\nt101 = Text(text=\"101\")\nt102 = Text(text=\"102\")\nt103 = Text(text=\"103\")\nt104 = Text(text=\"104\")\nt105 = Text(text=\"105\")\nt106 = Text(text=\"106\")\nt107 = Text(text=\"107\")\nt108 = Text(text=\"108\")\nt109 = Text(text=\"109\")\nt110 = Text(text=\"110\")\nt111 = Text(text=\"111\")\nt112 = Text(text=\"112\")\nt113 = Text(text=\"113\")\nt114 = Text(text=\"114\")\nt115 = Text(text=\"115\")\nt116 = Text(text=\"116\")\nt117 = Text(text=\"117\")\nt118 = Text(text=\"118\")\nt119 = Text(text=\"119\")\nt120 = Text(text=\"120\")\nt121 = Text(text=\"121\")\nt122 = Text(text=\"122\")\nt123 = Text(text=\"123\")\nt124 = Text(text=\"124\")\nt125 = Text(text=\"125\")\nt126 = Text(text=\"126\")\nt127 = Text(text=\"127\")\nt128 = Text(text=\"128\")\nt129 = Text(text=\"129\")\nt130 = Text(text=\"130\")\nt131 = Text(text=\"131\")\nt132 = Text(text=\"132\")\nt133 = Text(text=\"133\")\nt134 = Text(text=\"134\")\nt135 = Text(text=\"135\")\nt136 = Text(text=\"136\")\nt137 = Text(text=\"137\")\nt138 = Text(text=\"138\")\nt139 = Text(text=\"139\")\nt140 = Text(text=\"140\")\nt141 = Text(text=\"141\")\nt142 = Text(text=\"142\")\nt143 = Text(text=\"143\")\nt144 = Text(text=\"144\")\nt145 = Text(text=\"145\")\nt146 = Text(text=\"146\")\nt147 = Text(text=\"147\")\nt148 = Text(text=\"148\")\nt149 = Text(text=\"149\")\nt150 = Text(text=\"150\")\nt151 = Text(text=\"151\")\nt152 = Text(text=\"152\")\nt153 = Text(text=\"153\")\nt154 = Text(text=\"154\")\nt155 = Text(text=\"155\")\nt156 = Text(text=\"156\")\nt157 = Text(text=\"157\")\nt158 = Text(text=\"158\")\nt159 = Text(text=\"159\")\nt160 = Text(text=\"160\")\nt161 = Text(text=\"161\")\nt162 = Text(text=\"162\")\nt163 = Text(text=\"163\")\nt164 = Text(text=\"164\")\nt165 = Text(text=\"165\")\nt166 = Text(text=\"166\")\nt167 = Text(text=\"167\")\nt168 = Text(text=\"168\")\nt169 = Text(text=\"169\")\nt170 = Text(text=\"170\")\nt171 = Text(text=\"171\")\nt172 = Text(text=\"172\")\nt173 = Text(text=\"173\")\nt174 = Text(text=\"174\")\nt175 = Text(text=\"175\")\nt176 = Text(text=\"176\")\nt177 = Text(text=\"177\")\nt178 = Text(text=\"178\")\nt179 = Text(text=\"179\")\nt180 = Text(text=\"180\")\nt181 = Text(text=\"181\")\nt182 = Text(text=\"182\")\nt183 = Text(text=\"183\")\nt184 = Text(text=\"184\")\nt185 = Text(text=\"185\")\nt186 = Text(text=\"186\")\nt187 = Text(text=\"187\")\nt188 = Text(text=\"188\")\nt189 = Text(text=\"189\")\nt190 = Text(text=\"190\")\nt191 = Text(text=\"191\")\nt192 = Text(text=\"192\")\nt193 = Text(text=\"193\")\nt194 = Text(text=\"194\")\nt195 = Text(text=\"195\")\nt196 = Text(text=\"196\")\nt197 = Text(text=\"197\")\nt198 = Text(text=\"198\")\nt199 = Text(text=\"199\")\nt200 = Text(text=\"200\")",
+          "closed": true,
+          "status": "tooLarge",
+          "surfaces": []
+        }
+      ],
+      "prose": ""
+    }
+  ],
+  "streamCases": [
+    {
+      "text": "Checking the deploy.\n<a2",
+      "rowKey": "n:s1:msg_07",
+      "final": false,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "Checking the deploy."
+        }
+      ],
+      "prose": "Checking the deploy."
+    },
+    {
+      "text": "Checking the deploy.\n<a2ui>\nroot = Stack(children=[a, b])\na = Text(text=\"Deploy",
+      "rowKey": "n:s1:msg_07",
+      "final": false,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "Checking the deploy."
+        },
+        {
+          "kind": "block",
+          "key": "n:s1:msg_07#1",
+          "raw": "root = Stack(children=[a, b])\na = Text(text=\"Deploy",
+          "closed": false,
+          "status": "open",
+          "surfaces": [
+            "n:s1:msg_07#1"
+          ]
+        }
+      ],
+      "prose": "Checking the deploy."
+    },
+    {
+      "text": "Checking the deploy.\n<a2ui>\nroot = Stack(children=[a, b])\na = Text(text=\"Deploying 1482\")\nb = Button(label=\"Roll back\", on={press: Event(\"reply\", userMessage=\"Roll back 1482\")})\n</a2ui>\nI'll",
+      "rowKey": "n:s1:msg_07",
+      "final": false,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "Checking the deploy."
+        },
+        {
+          "kind": "block",
+          "key": "n:s1:msg_07#1",
+          "raw": "root = Stack(children=[a, b])\na = Text(text=\"Deploying 1482\")\nb = Button(label=\"Roll back\", on={press: Event(\"reply\", userMessage=\"Roll back 1482\")})",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "n:s1:msg_07#1"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "I'll"
+        }
+      ],
+      "prose": "Checking the deploy.\n\nI'll"
+    },
+    {
+      "text": "Checking the deploy.\n<a2ui>\nroot = Stack(children=[a, b])\na = Text(text=\"Deploying 1482\")\nb = Button(label=\"Roll back\", on={press: Event(\"reply\", userMessage=\"Roll back 1482\")})\n</a2ui>\nI'll report when it lands.",
+      "rowKey": "n:s1:msg_07",
+      "final": true,
+      "expected": [
+        {
+          "kind": "prose",
+          "text": "Checking the deploy."
+        },
+        {
+          "kind": "block",
+          "key": "n:s1:msg_07#1",
+          "raw": "root = Stack(children=[a, b])\na = Text(text=\"Deploying 1482\")\nb = Button(label=\"Roll back\", on={press: Event(\"reply\", userMessage=\"Roll back 1482\")})",
+          "closed": true,
+          "status": "ok",
+          "surfaces": [
+            "n:s1:msg_07#1"
+          ]
+        },
+        {
+          "kind": "prose",
+          "text": "I'll report when it lands."
+        }
+      ],
+      "prose": "Checking the deploy.\n\nI'll report when it lands."
+    }
+  ],
+  "actionCases": [
+    {
+      "name": "reply with userMessage: the text is the body",
+      "event": {
+        "name": "reply",
+        "userMessage": " Ship it "
+      },
+      "origin": {
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "expected": {
+        "body": "Ship it",
+        "card": {
+          "kind": "action",
+          "name": "reply",
+          "context": null,
+          "surfaceId": "m:m1#1",
+          "block": "m:m1#1",
+          "messageId": "m1"
+        }
+      }
+    },
+    {
+      "name": "reply with context.text (show's convention)",
+      "event": {
+        "name": "reply",
+        "context": {
+          "text": "Roll back"
+        }
+      },
+      "origin": {
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "expected": {
+        "body": "Roll back",
+        "card": {
+          "kind": "action",
+          "name": "reply",
+          "context": {
+            "text": "Roll back"
+          },
+          "surfaceId": "m:m1#1",
+          "block": "m:m1#1",
+          "messageId": "m1"
+        }
+      }
+    },
+    {
+      "name": "reply: userMessage wins over context.text",
+      "event": {
+        "name": "reply",
+        "userMessage": "Yes",
+        "context": {
+          "text": "No"
+        }
+      },
+      "origin": {
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "expected": {
+        "body": "Yes",
+        "card": {
+          "kind": "action",
+          "name": "reply",
+          "context": {
+            "text": "No"
+          },
+          "surfaceId": "m:m1#1",
+          "block": "m:m1#1",
+          "messageId": "m1"
+        }
+      }
+    },
+    {
+      "name": "a reply with no text still reaches the agent",
+      "event": {
+        "name": "reply",
+        "userMessage": "  "
+      },
+      "origin": {
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "expected": {
+        "body": "",
+        "card": {
+          "kind": "action",
+          "name": "reply",
+          "context": null,
+          "surfaceId": "m:m1#1",
+          "block": "m:m1#1",
+          "messageId": "m1"
+        }
+      }
+    },
+    {
+      "name": "any other event: its context, no body",
+      "event": {
+        "name": "save_deal",
+        "context": {
+          "rep": "Ana",
+          "amount": 1200
+        }
+      },
+      "origin": {
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "expected": {
+        "body": "",
+        "card": {
+          "kind": "action",
+          "name": "save_deal",
+          "context": {
+            "rep": "Ana",
+            "amount": 1200
+          },
+          "surfaceId": "m:m1#1",
+          "block": "m:m1#1",
+          "messageId": "m1"
+        }
+      }
+    },
+    {
+      "name": "any other event with a userMessage: the body",
+      "event": {
+        "name": "approve",
+        "userMessage": "Approved",
+        "context": {
+          "id": 7
+        }
+      },
+      "origin": {
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "expected": {
+        "body": "Approved",
+        "card": {
+          "kind": "action",
+          "name": "approve",
+          "context": {
+            "id": 7
+          },
+          "surfaceId": "m:m1#1",
+          "block": "m:m1#1",
+          "messageId": "m1"
+        }
+      }
+    },
+    {
+      "name": "a live feed row: a named surface, no message id",
+      "event": {
+        "name": "rollback"
+      },
+      "origin": {
+        "surfaceId": "deploy",
+        "block": "n:s1:msg_07#1",
+        "messageId": null
+      },
+      "expected": {
+        "body": "",
+        "card": {
+          "kind": "action",
+          "name": "rollback",
+          "context": null,
+          "surfaceId": "deploy",
+          "block": "n:s1:msg_07#1",
+          "messageId": null
+        }
+      }
+    },
+    {
+      "name": "an exponential_show surface: the same card",
+      "event": {
+        "name": "reply",
+        "context": {
+          "text": "Ship"
+        }
+      },
+      "origin": {
+        "surfaceId": "show:m9",
+        "block": null,
+        "messageId": "m9"
+      },
+      "expected": {
+        "body": "Ship",
+        "card": {
+          "kind": "action",
+          "name": "reply",
+          "context": {
+            "text": "Ship"
+          },
+          "surfaceId": "show:m9",
+          "block": null,
+          "messageId": "m9"
+        }
+      }
+    },
+    {
+      "name": "a context past actionContextMaxBytes posts nothing",
+      "event": {
+        "name": "save",
+        "context": {
+          "blob": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      "origin": {
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "expected": "tooLarge"
+    },
+    {
+      "name": "a name past actionNameMax posts nothing",
+      "event": {
+        "name": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+      },
+      "origin": {
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "expected": "tooLarge"
+    }
+  ],
+  "inputCases": [
+    {
+      "name": "a reply: the line, then the body",
+      "card": {
+        "kind": "action",
+        "name": "reply",
+        "context": null,
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "body": "Ship it",
+      "expected": "[action] {\"name\":\"reply\",\"surfaceId\":\"m:m1#1\",\"block\":\"m:m1#1\",\"messageId\":\"m1\",\"context\":null}\nShip it"
+    },
+    {
+      "name": "an event with a context and no body",
+      "card": {
+        "kind": "action",
+        "name": "save_deal",
+        "context": {
+          "rep": "Ana"
+        },
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "body": "",
+      "expected": "[action] {\"name\":\"save_deal\",\"surfaceId\":\"m:m1#1\",\"block\":\"m:m1#1\",\"messageId\":\"m1\",\"context\":{\"rep\":\"Ana\"}}"
+    },
+    {
+      "name": "a live row: nulls kept",
+      "card": {
+        "kind": "action",
+        "name": "rollback",
+        "context": null,
+        "surfaceId": "deploy",
+        "block": "n:s1:msg_07#1",
+        "messageId": null
+      },
+      "body": "",
+      "expected": "[action] {\"name\":\"rollback\",\"surfaceId\":\"deploy\",\"block\":\"n:s1:msg_07#1\",\"messageId\":null,\"context\":null}"
+    },
+    {
+      "name": "a multi-line body stays whole",
+      "card": {
+        "kind": "action",
+        "name": "approve",
+        "context": {
+          "id": 7
+        },
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "body": "Approved\nwith notes",
+      "expected": "[action] {\"name\":\"approve\",\"surfaceId\":\"m:m1#1\",\"block\":\"m:m1#1\",\"messageId\":\"m1\",\"context\":{\"id\":7}}\nApproved\nwith notes"
+    }
+  ],
+  "failureNoteCases": [
+    {
+      "name": "a turn without blocks: no note",
+      "texts": [
+        "Merged #212."
+      ],
+      "expected": null
+    },
+    {
+      "name": "every block rendered: no note",
+      "texts": [
+        "Status:\n<a2ui>\nroot = Text(text=\"Green\")\n</a2ui>"
+      ],
+      "expected": null
+    },
+    {
+      "name": "an undefined component names its line",
+      "texts": [
+        "Here:\n<a2ui>\nroot = Stack(children=[a, b])\na = Text(text=\"ok\")\nb = Gauge(value=3)\n</a2ui>"
+      ],
+      "expected": "[view] Block 1 of your last turn did not render (ValidationError): Function 'Gauge' is not defined in the catalog. Line 3: b = Gauge(value=3)"
+    },
+    {
+      "name": "blocks count across the turn's messages",
+      "texts": [
+        "<a2ui>\nroot = Text(text=\"one\")\n</a2ui>",
+        "Then:\n<a2ui>\nroot = Text(text=\"two\"\n</a2ui>"
+      ],
+      "expected": "[view] Block 2 of your last turn did not render (ParseError): Failed to parse expression: Syntax error at line 1:22: mismatched input '<EOF>' expecting {',', ')'} Line 1: root = Text(text=\"two\""
+    },
+    {
+      "name": "an unclosed block at the end of the turn",
+      "texts": [
+        "Done.\n<a2ui>\nroot = Text(text=\"x\")"
+      ],
+      "expected": "[view] Block 1 of your last turn did not render (Unclosed): The block has no </a2ui> line. Line 1: root = Text(text=\"x\")"
+    },
+    {
+      "name": "a block updating a surface it did not create",
+      "texts": [
+        "<a2ui>\nsurface(\"deploy\", update=true)\nroot = Text(text=\"Done\")\n</a2ui>"
+      ],
+      "expected": "[view] Block 1 of your last turn did not render (ValidationError): updateComponents names surface 'deploy', which has not been created. Line 2: root = Text(text=\"Done\")"
+    },
+    {
+      "name": "two failures: one line each, in block order",
+      "texts": [
+        "<a2ui>\nroot = Nope()\n</a2ui>\nand\n<a2ui>\nroot = Text(text=\"fine\")\n</a2ui>\n<a2ui>\nroot = Text(txt=\"bad\")\n</a2ui>"
+      ],
+      "expected": "[view] Block 1 of your last turn did not render (ValidationError): Component 'Nope' is not defined in the catalog. Line 1: root = Nope()\n[view] Block 3 of your last turn did not render (ValidationError): Property 'txt' is not a valid property of component 'Text'. Line 1: root = Text(txt=\"bad\")"
+    },
+    {
+      "name": "past blocksPerRowMax",
+      "texts": [
+        "<a2ui>\nroot = Text(text=\"1\")\n</a2ui>\n<a2ui>\nroot = Text(text=\"2\")\n</a2ui>\n<a2ui>\nroot = Text(text=\"3\")\n</a2ui>\n<a2ui>\nroot = Text(text=\"4\")\n</a2ui>\n<a2ui>\nroot = Text(text=\"5\")\n</a2ui>\n<a2ui>\nroot = Text(text=\"6\")\n</a2ui>\n<a2ui>\nroot = Text(text=\"7\")\n</a2ui>\n<a2ui>\nroot = Text(text=\"8\")\n</a2ui>\n<a2ui>\nroot = Text(text=\"9\")\n</a2ui>"
+      ],
+      "expected": "[view] Block 9 of your last turn did not render (Limit): More than 8 blocks in one message. Line 1: root = Text(text=\"9\")"
+    }
+  ],
+  "previewCases": [
+    {
+      "name": "prose around a block",
+      "authorKind": "agent",
+      "body": "Here is the build:\n<a2ui>\nroot = Text(text=\"Green\")\n</a2ui>\nShip **it**?",
+      "expected": {
+        "kind": "agent",
+        "text": "Here is the build: Ship it?"
+      }
+    },
+    {
+      "name": "a block alone",
+      "authorKind": "agent",
+      "body": "<a2ui>\nroot = Text(text=\"Green\")\n</a2ui>",
+      "expected": {
+        "kind": "agent",
+        "text": "Sent a view"
+      }
+    },
+    {
+      "name": "a person's pasted tag stays text",
+      "authorKind": "user",
+      "body": "<a2ui>\nroot = Text(text=\"x\")\n</a2ui>",
+      "expected": {
+        "kind": "you",
+        "text": "You: <a2ui> root = Text(text=\"x\") </a2ui>"
+      }
+    },
+    {
+      "name": "an inline mention is prose",
+      "authorKind": "agent",
+      "body": "Wrap it in `<a2ui>` tags.",
+      "expected": {
+        "kind": "agent",
+        "text": "Wrap it in <a2ui> tags."
+      }
+    },
+    {
+      "name": "an action row with a body reads as the person's line",
+      "authorKind": "user",
+      "body": "Ship it",
+      "card": {
+        "kind": "action",
+        "name": "reply",
+        "context": null,
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "expected": {
+        "kind": "you",
+        "text": "You: Ship it"
+      }
+    },
+    {
+      "name": "an action row without a body reads as the marker",
+      "authorKind": "user",
+      "body": "",
+      "card": {
+        "kind": "action",
+        "name": "save_deal",
+        "context": null,
+        "surfaceId": "m:m1#1",
+        "block": "m:m1#1",
+        "messageId": "m1"
+      },
+      "expected": {
+        "kind": "you",
+        "text": "You pressed save_deal"
+      }
+    }
+  ],
+  "plainProseCases": [
+    {
+      "name": "no block: the text",
+      "text": "Merged **#212**.",
+      "expected": "Merged **#212**."
+    },
+    {
+      "name": "an inline mention is no block",
+      "text": "Wrap it in `<a2ui>` tags.",
+      "expected": "Wrap it in `<a2ui>` tags."
+    },
+    {
+      "name": "prose around a block",
+      "text": "Here is the build:\n<a2ui>\nroot = Text(text=\"Green\")\n</a2ui>\nShip it?",
+      "expected": "Here is the build:\n\nShip it?"
+    },
+    {
+      "name": "a fenced block goes with its fences",
+      "text": "Look:\n```\n<a2ui>\nroot = Text(text=\"hi\")\n</a2ui>\n```\nafter",
+      "expected": "Look:\n\nafter"
+    },
+    {
+      "name": "a one-line block",
+      "text": "A\n<a2ui>root = Text(text=\"x\")</a2ui>\nB",
+      "expected": "A\n\nB"
+    },
+    {
+      "name": "an unclosed block runs to the end",
+      "text": "Working\n<a2ui>\nroot = Text(text=\"x",
+      "expected": "Working"
+    },
+    {
+      "name": "a block alone: empty",
+      "text": "<a2ui>\nroot = Text(text=\"x\")\n</a2ui>",
+      "expected": ""
+    },
+    {
+      "name": "two blocks, three runs",
+      "text": "A\n<a2ui>\nroot = Text(text=\"1\")\n</a2ui>\nB\n\n<a2ui>\nroot = Text(text=\"2\")\n</a2ui>\nC",
+      "expected": "A\n\nB\n\nC"
+    }
+  ]
+}

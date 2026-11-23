@@ -142,6 +142,7 @@ pub mod prose_links;
 pub mod board;
 // Chat 58cb32df: Chats (menus, dividers, the surface card's reply rule), fixture-locked ×4.
 pub mod chats;
+pub mod chat_express;
 // #EDE-65 lane O: the session tree's chat rows as the shared uicore chat document's (eDE + the IDE).
 pub mod chat_document;
 pub mod client_version;

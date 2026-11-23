@@ -864,6 +864,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_express_prompt(
     ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_express_unwrap_json(
+    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_extension_errors(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_format_call_json(
@@ -1872,6 +1874,8 @@ internal object UniffiLib {
     external fun uniffi_exponential_ui_ffi_fn_func_express_frame_chunk(`frame`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_express_prompt(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_express_unwrap_json(`text`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_extension_errors(`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -13936,6 +13940,22 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_express_prompt(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * #EXP-2067: a whole response split into prose runs and raw blocks, in
+         * order (JSON array of `{"text"}` | `{"a2ui_raw", "is_final"?}`, the
+         * wasm `unwrap`'s shape); no compile.
+         */ fun `expressUnwrapJson`(`text`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_express_unwrap_json(
+    
+        
+        FfiConverterString.lower(`text`),_status)
 }
     )
     }

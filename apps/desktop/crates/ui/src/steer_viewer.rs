@@ -1506,6 +1506,10 @@ impl SteerSessionView {
                         match feed_input(text) {
                             // #EXP-1772: a system input = THE marker, full width.
                             Some(FeedInput::Marker { .. }) => TranscriptItem::full(id),
+                            // #EXP-2071: a press without a body = THE marker too.
+                            _ if domain::chat_express::parse_action_input(text).is_some_and(|(_, body)| body.trim().is_empty()) => {
+                                TranscriptItem::full(id)
+                            }
 
                             Some(FeedInput::Relay { name, session_id, .. }) => {
                                 if !input.sessions.iter().any(|session| session.id == session_id) {
@@ -1543,6 +1547,8 @@ impl SteerSessionView {
             let id = synthetic_row_id(index).unwrap_or(ORPHAN_ROW_BASE).to_string();
             let item = if row.agent {
                 TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_AGENT, None, None)
+            } else if domain::chat_express::parse_action_input(&row.text).is_some_and(|(_, body)| body.trim().is_empty()) {
+                TranscriptItem::full(id)
             } else {
                 TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_USER, Some(VIEWER), None)
             };
@@ -2120,6 +2126,17 @@ impl SteerSessionView {
             } else {
                 fingerprint
             };
+            // #EXP-2071: an Express row's block views land and grow after
+            // its text (their revision is part of its measure).
+            let fingerprint = match spec {
+                FeedRowSpec::Single { item, .. } => match items.get(*item).map(|item| &item.kind) {
+                    Some(FeedKind::Narration { text, .. }) => {
+                        transcript_rows::fold_extra(fingerprint, crate::express_view::row_extra(text, cx))
+                    }
+                    _ => fingerprint,
+                },
+                _ => fingerprint,
+            };
             keys.push(RowKey { id, fingerprint });
         }
         // The synthetic rows share the ids between ORPHAN_ROW_BASE and the
@@ -2143,6 +2160,9 @@ impl SteerSessionView {
                 fingerprint,
                 self.row_layout(at).map_or(0, crate::session_chat::layout_fingerprint),
             );
+            if row.agent {
+                fingerprint = transcript_rows::fold_extra(fingerprint, crate::express_view::row_extra(&row.text, cx));
+            }
             keys.push(RowKey { id: row_id, fingerprint });
         }
         self.orphan_workflows.truncate(SYNTHETIC_ROWS - synced);
@@ -6418,9 +6438,24 @@ impl SteerSessionView {
         let layout = self.row_layout(ix).cloned();
         if row.agent {
             let key = domain::find_in_chat::message_key(&row.id);
-            let element = self.render_narration(row_id, row.text, row.at, false, Some(&key), cx);
+            let express = NarrationRow {
+                row_key: domain::chat_express::synced_row_key(&row.id),
+                message_id: Some(row.id.clone()),
+                is_final: true,
+            };
+            let element = self.render_narration(row_id, row.text, row.at, false, Some(&key), express, window, cx);
             return crate::session_chat::sender_row(layout.as_ref(), element, cx);
         }
+        // #EXP-2071: a press = the viewer's bubble with its body, else THE
+        // inline marker.
+        let row = match domain::chat_express::parse_action_input(&row.text) {
+            Some((card, body)) if body.trim().is_empty() => {
+                let label = domain::chat_express::action_marker(&card.name, None);
+                return crate::surface_card::transcript_marker(SharedString::from(format!("steer-action-{}", row.id)), &label, None, cx);
+            }
+            Some((_, body)) => SyncedTailRow { text: body, ..row },
+            None => row,
+        };
         let avatar = layout.as_ref().is_none_or(|layout| layout.avatar);
         let sizes = crate::session_chat::transcript_sizes();
         let width = self.user_bubble_width(&row.text, sizes.avatar + sizes.avatar_gap, true, window);
@@ -6623,25 +6658,83 @@ impl SteerSessionView {
     /// written: genUI holds its unfinished tail back).
     /// #EXP-1736: THE bubble under the session's (or its agent's) avatar,
     /// its name over a group's first bubble.
-    fn render_narration(&self, id: FeedItemId, text: String, at: Option<i64>, streaming: bool, find_key: Option<&str>, cx: &mut gpui::Context<Self>) -> AnyElement {
+    fn render_narration(
+        &self,
+        id: FeedItemId,
+        text: String,
+        at: Option<i64>,
+        streaming: bool,
+        find_key: Option<&str>,
+        express: NarrationRow,
+        window: &Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
         // #EXP-1772: a blank agent turn draws nothing (no empty bubble).
         if domain::transcript_grouping::is_blank_text(&text) {
             return div().into_any_element();
         }
+        let layout = self.item_layout(id).cloned();
+        let mark = find_key.and_then(|key| self.find_mark(key));
+        // #EXP-2071 (chat-express.json DRAW): a row with Express blocks =
+        // its prose bubbles and its block frames, ONE sender group.
+        let segments = crate::express_view::split(&express.row_key, &text, express.is_final, cx);
+        let Some(segments) = segments else {
+            return self.narration_bubble(SharedString::from(format!("{id}")), text, at, streaming, mark, layout.as_ref(), cx);
+        };
+        let marks = crate::express_view::segment_marks(&segments, mark.as_ref());
+        let target = crate::express_view::ExpressTarget {
+            session_id: self.session_id.clone(),
+            message_id: express.message_id,
+            row_key: express.row_key,
+        };
+        let count = segments.len();
+        let mut prose = |index: usize, text: &str, first: bool, last_prose: bool, cx: &mut App| {
+            // The name, avatar and tail on the row's first segment only; the
+            // `HH:mm` on its LAST prose bubble.
+            let layout = layout.clone().map(|mut layout| {
+                if !first {
+                    layout.name = false;
+                    layout.tail = false;
+                }
+                layout
+            });
+            self.narration_bubble(
+                SharedString::from(format!("{id}-{index}")),
+                text.to_string(),
+                at.filter(|_| last_prose),
+                streaming && index + 1 == count,
+                marks.get(index).cloned().flatten(),
+                layout.as_ref(),
+                cx,
+            )
+        };
+        crate::express_view::row_column(&format!("steer-{id}"), &segments, &target, &mut prose, window, cx)
+    }
+
+    /// THE agent bubble of one prose run (`key` suffixes its ids).
+    fn narration_bubble(
+        &self,
+        key: SharedString,
+        text: String,
+        at: Option<i64>,
+        streaming: bool,
+        mark: Option<serde_json::Value>,
+        layout: Option<&domain::transcript_grouping::TranscriptRowLayout>,
+        cx: &mut App,
+    ) -> AnyElement {
         // #EXP-1888: the whole reply, never folded.
         let view = self.with_issue_chips(
-            self.prose(SharedString::from(format!("steer-narration-{id}")), text)
+            self.prose(SharedString::from(format!("steer-narration-{key}")), text)
                 .streaming(streaming)
                 // #EXP-1975: a narration the IDE draws (cards beside it, the
                 // synced tail's host rows) paints find in chat's marks too.
-                .highlight(find_key.and_then(|key| self.find_mark(key))),
+                .highlight(mark),
             cx,
         );
-        let layout = self.item_layout(id);
         let body = div().w_full().min_w_0().child(body_text(div()).min_w_0().child(view)).into_any_element();
         crate::session_chat::message_bubble(
             crate::session_chat::MessageBubble {
-                id: SharedString::from(format!("steer-bubble-{id}")),
+                id: SharedString::from(format!("steer-bubble-{key}")),
                 body,
                 // #EXP-1864: every bubble wears its `HH:mm` (the first
                 // fragment's `at`).
@@ -6677,10 +6770,17 @@ impl SteerSessionView {
     ) -> AnyElement {
         let muted = cx.theme().muted_foreground;
         match &item.kind {
-            FeedKind::Narration { text, at, .. } => {
+            FeedKind::Narration { text, at, message_id, .. } => {
                 let streaming = self.phase == ViewerPhase::Live && self.feed.items().last().is_some_and(|last| last.id == item.id);
                 let key = self.find_item_key(item);
-                self.render_narration(item.id, text.clone(), *at, streaming, key.as_deref(), cx)
+                // #EXP-2071: a feed narration row is final once another row
+                // follows it or its turn ended.
+                let express = NarrationRow {
+                    row_key: domain::chat_express::feed_row_key(&self.session_id, message_id.as_deref(), item.seq.unwrap_or(item.id)),
+                    message_id: None,
+                    is_final: !streaming || !self.feed.turn_state().is_working(),
+                };
+                self.render_narration(item.id, text.clone(), *at, streaming, key.as_deref(), express, window, cx)
             }
             // Session 58cb32df (chats.json TRANSCRIPT): a person's `/new` or
             // `/compact` line is THE divider pill, never a bubble.
@@ -6771,10 +6871,19 @@ impl SteerSessionView {
             FeedKind::UserMessage { text, at, .. } => {
                 let layout = self.item_layout(item.id);
                 let own = layout.map_or(true, |layout| layout.side == domain::transcript_grouping::TranscriptSide::Own);
+                // #EXP-2071 (chat-express.json `inputCases`): a press the
+                // device delivered = its author's bubble with the body, else
+                // THE inline marker, never the raw line.
+                let action = domain::chat_express::parse_action_input(text);
+                if let Some((card, _)) = action.as_ref().filter(|(_, body)| body.trim().is_empty()) {
+                    let author = layout.filter(|_| !own).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.name.clone());
+                    let label = domain::chat_express::action_marker(&card.name, author.as_deref());
+                    return crate::surface_card::transcript_marker(SharedString::from(format!("steer-action-{}", item.id)), &label, None, cx);
+                }
                 let relay = !own && layout.and_then(|layout| layout.sender.as_ref()).is_some_and(|sender| sender.link.is_some());
                 let parsed = match domain::transcript_grouping::feed_input(text).filter(|_| !own) {
                     Some(domain::transcript_grouping::FeedInput::Relay { body, .. }) => Some(body),
-                    _ => None,
+                    _ => action.map(|(_, body)| body),
                 };
                 let body = parsed.as_deref().unwrap_or(text.as_str());
                 // EXP-818: a DEFINITE width — inside the EXP-787 column a
@@ -10802,6 +10911,14 @@ pub(crate) fn no_feed_inputs(messages: &[domain::rows::MessageRow], max: usize) 
 /// a settled tool's time), each body opened (a sealed one it cannot open
 /// reads the sealed placeholder). #EXP-1998: every one (no cap; the
 /// caller cuts the shown stretch).
+/// #EXP-2071: a narration row's Express facts (chat-express.json): its row
+/// key, the synced row's message id (`None` = a live feed row), final.
+pub(crate) struct NarrationRow {
+    pub row_key: String,
+    pub message_id: Option<String>,
+    pub is_final: bool,
+}
+
 fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: &[domain::rows::MessageRow]) -> Vec<SyncedTailRow> {
     use steer::enet_steer::{synced_tail, SyncedTailRow as Row, TailFeedRow};
     if live {
@@ -10822,10 +10939,16 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
             _ => Some(TailFeedRow { author: None, text: None, at_ms: None }),
         })
         .collect();
+    // #EXP-2071: a press (a person's row with THE `action` card) reads as
+    // the input line the device delivers (`inputCases`), drawn like it.
+    let action = |m: &domain::rows::MessageRow| -> Option<domain::chat_express::ActionCard> {
+        (m.locked().is_none() && m.card_kind() == Some("action")).then(|| serde_json::from_value(m.card.clone()?).ok()).flatten()
+    };
     let body = |m: &domain::rows::MessageRow| -> String {
-        match m.locked() {
-            Some(reason) => domain::sealed::PLACEHOLDER.text(reason).to_string(),
-            None => m.body_text().to_string(),
+        match (m.locked(), action(m)) {
+            (Some(reason), _) => domain::sealed::PLACEHOLDER.text(reason).to_string(),
+            (None, Some(card)) => domain::chat_express::action_input(&card, m.body_text().trim()),
+            (None, None) => m.body_text().to_string(),
         }
     };
     let bodies: Vec<String> = messages.iter().map(body).collect();
@@ -10835,7 +10958,7 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
         Row {
             id: &m.id,
             author_kind: m.author_kind.as_deref().unwrap_or_default(),
-            has_card: m.card.as_ref().is_some_and(|card| !card.is_null()),
+            has_card: m.card.as_ref().is_some_and(|card| !card.is_null()) && action(m).is_none(),
             consumed_at: m.consumed_at.as_deref().filter(|at| !at.is_empty()),
             created_at: m.created_at.as_deref().unwrap_or_default(),
             body: &bodies[i],

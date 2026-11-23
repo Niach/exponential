@@ -9691,6 +9691,19 @@ public func expressPrompt()throws  -> String  {
 })
 }
 /**
+ * #EXP-2067: a whole response split into prose runs and raw blocks, in
+ * order (JSON array of `{"text"}` | `{"a2ui_raw", "is_final"?}`, the
+ * wasm `unwrap`'s shape); no compile.
+ */
+public func expressUnwrapJson(text: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_express_unwrap_json(
+        FfiConverterString.lower(text),uniffiCallStatus
+    )
+})
+}
+/**
  * Validate an extension definition; `[]` when fine.
  */
 public func extensionErrors(extensionJson: String)throws  -> [String]  {
@@ -10909,6 +10922,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_express_prompt() != 56200) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_express_unwrap_json() != 1583) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 12274) {

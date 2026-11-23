@@ -36,7 +36,10 @@ enet-core = { path = "../enet-core", default-features = false }
 # `exponential_show` cards before sealing them (the server can no longer see
 # the surface): the SAME reducer + core catalog as the TS reference. No
 # built-in themes: only the reducer is used.
-eui-core = { path = "../eui-core", default-features = false }
+# #EXP-2067: `express` = the chat blocks (express_blocks: the split, the
+# per-block streams, the failure note); `descriptions` = the agent prompt
+# (eui-core `express::express_prompt`).
+eui-core = { path = "../eui-core", default-features = false, features = ["express", "descriptions"] }
 # NEW-58: the voice device's screen memory (`get_screenshots`): the
 # launcher mints the voice conversation's grant while the IDE captures.
 epilot-screen = { path = "../epilot-screen" }
