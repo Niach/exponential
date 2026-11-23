@@ -1,0 +1,1074 @@
+{
+  "$comment": "#AXC-12 (VAPP-299): the Express demo. ONE recorded, streamed model response (an agent answering 'how are this week's releases?'): prose, one `<a2ui>` block that builds a release-health surface from EXISTING core components only (Stack, Heading, Badge, Grid, StatTile, Card, Table, Button), closing prose. `chunks` = the timeline as it streamed: each chunk's text arrives `delayMs` after the previous one (a token or a few per chunk; a statement, a string and the tags span chunks). Replayed by guides/agent `GET /express` (SSE `a2ui-express` events, the delays real) and its MCP mode (`application/a2ui+express`, the block body). `expected` = what ONE wrapped ExpressDecoder reads from the chunks in order: `messages` (the A2UI 1.0 messages, statement by statement), `text` (the prose pieces joined: what the host's `onText` hands the app), no issues. Locked by src/express/express-demo.test.ts (TS over the vendored wasm) and eui-core tests/express_demo.rs (the native core): a catalog change that breaks the block fails both.",
+  "name": "release-health",
+  "surfaceId": "main",
+  "chunks": [
+    {
+      "delayMs": 650,
+      "text": "Here "
+    },
+    {
+      "delayMs": 59,
+      "text": "is t"
+    },
+    {
+      "delayMs": 61,
+      "text": "his"
+    },
+    {
+      "delayMs": 46,
+      "text": " week's release "
+    },
+    {
+      "delayMs": 42,
+      "text": "health "
+    },
+    {
+      "delayMs": 29,
+      "text": "across the th"
+    },
+    {
+      "delayMs": 44,
+      "text": "ree plat"
+    },
+    {
+      "delayMs": 44,
+      "text": "forms. Crash-"
+    },
+    {
+      "delayMs": 35,
+      "text": "fre"
+    },
+    {
+      "delayMs": 44,
+      "text": "e sessions a"
+    },
+    {
+      "delayMs": 49,
+      "text": "re up again, col"
+    },
+    {
+      "delayMs": 39,
+      "text": "d starts got f"
+    },
+    {
+      "delayMs": 56,
+      "text": "aster, "
+    },
+    {
+      "delayMs": 51,
+      "text": "and one r"
+    },
+    {
+      "delayMs": 48,
+      "text": "ollout i"
+    },
+    {
+      "delayMs": 33,
+      "text": "s still in pro"
+    },
+    {
+      "delayMs": 46,
+      "text": "gre"
+    },
+    {
+      "delayMs": 59,
+      "text": "ss.\n\n<a"
+    },
+    {
+      "delayMs": 26,
+      "text": "2ui>\nroot = Stack(direct"
+    },
+    {
+      "delayMs": 33,
+      "text": "ion=\"vertical\", gap="
+    },
+    {
+      "delayMs": 21,
+      "text": "\"md\", children=[head"
+    },
+    {
+      "delayMs": 33,
+      "text": "er, "
+    },
+    {
+      "delayMs": 41,
+      "text": "kpis,"
+    },
+    {
+      "delayMs": 41,
+      "text": " releases, actions])"
+    },
+    {
+      "delayMs": 34,
+      "text": "\nheade"
+    },
+    {
+      "delayMs": 39,
+      "text": "r = Stack(directio"
+    },
+    {
+      "delayMs": 32,
+      "text": "n=\"horizontal\", gap=\"sm\""
+    },
+    {
+      "delayMs": 33,
+      "text": ", align=\"center\", "
+    },
+    {
+      "delayMs": 37,
+      "text": "justify=\""
+    },
+    {
+      "delayMs": 37,
+      "text": "bet"
+    },
+    {
+      "delayMs": 32,
+      "text": "ween\", children"
+    },
+    {
+      "delayMs": 26,
+      "text": "=[title, sta"
+    },
+    {
+      "delayMs": 49,
+      "text": "tus])\ntitle ="
+    },
+    {
+      "delayMs": 20,
+      "text": " Head"
+    },
+    {
+      "delayMs": 50,
+      "text": "ing(text=\"Release h"
+    },
+    {
+      "delayMs": 45,
+      "text": "ealth · week 4"
+    },
+    {
+      "delayMs": 37,
+      "text": "7\", level"
+    },
+    {
+      "delayMs": 23,
+      "text": "=\"h3\")\nstatus = B"
+    },
+    {
+      "delayMs": 27,
+      "text": "adge(te"
+    },
+    {
+      "delayMs": 24,
+      "text": "xt=\""
+    },
+    {
+      "delayMs": 51,
+      "text": "Healthy\", var"
+    },
+    {
+      "delayMs": 36,
+      "text": "iant=\"secondary\", "
+    },
+    {
+      "delayMs": 31,
+      "text": "icon=\"ui-check\")\nkpi"
+    },
+    {
+      "delayMs": 46,
+      "text": "s = Grid(c"
+    },
+    {
+      "delayMs": 30,
+      "text": "olumns={"
+    },
+    {
+      "delayMs": 25,
+      "text": "base: 1, m"
+    },
+    {
+      "delayMs": 46,
+      "text": "d: 3}, gap=\"m"
+    },
+    {
+      "delayMs": 20,
+      "text": "d\", children=[c"
+    },
+    {
+      "delayMs": 19,
+      "text": "rash_fr"
+    },
+    {
+      "delayMs": 27,
+      "text": "ee, cold_s"
+    },
+    {
+      "delayMs": 27,
+      "text": "tart, incidents])\ncra"
+    },
+    {
+      "delayMs": 39,
+      "text": "sh_"
+    },
+    {
+      "delayMs": 47,
+      "text": "free = StatT"
+    },
+    {
+      "delayMs": 23,
+      "text": "ile("
+    },
+    {
+      "delayMs": 22,
+      "text": "label=\""
+    },
+    {
+      "delayMs": 39,
+      "text": "Crash-fre"
+    },
+    {
+      "delayMs": 20,
+      "text": "e sessions\","
+    },
+    {
+      "delayMs": 25,
+      "text": " va"
+    },
+    {
+      "delayMs": 44,
+      "text": "lue=\"99.82 %\", delta"
+    },
+    {
+      "delayMs": 36,
+      "text": "=\"+0.14 %\""
+    },
+    {
+      "delayMs": 51,
+      "text": ", tone=\"success\", "
+    },
+    {
+      "delayMs": 47,
+      "text": "trend=["
+    },
+    {
+      "delayMs": 48,
+      "text": "99.61, 99.66, 99.7, "
+    },
+    {
+      "delayMs": 47,
+      "text": "99.68, 99.75, 99.7"
+    },
+    {
+      "delayMs": 23,
+      "text": "9, 99.82])\ncold_star"
+    },
+    {
+      "delayMs": 30,
+      "text": "t = StatTile(label="
+    },
+    {
+      "delayMs": 33,
+      "text": "\"p95 c"
+    },
+    {
+      "delayMs": 30,
+      "text": "old"
+    },
+    {
+      "delayMs": 47,
+      "text": " start\""
+    },
+    {
+      "delayMs": 38,
+      "text": ", value=\"1."
+    },
+    {
+      "delayMs": 52,
+      "text": "18 "
+    },
+    {
+      "delayMs": 42,
+      "text": "s\", delta"
+    },
+    {
+      "delayMs": 34,
+      "text": "=\"−90 ms\", t"
+    },
+    {
+      "delayMs": 38,
+      "text": "one=\"succe"
+    },
+    {
+      "delayMs": 41,
+      "text": "ss\", trend=[1.34, 1.31"
+    },
+    {
+      "delayMs": 40,
+      "text": ", 1.29, 1.2"
+    },
+    {
+      "delayMs": 23,
+      "text": "7, 1.22, 1.2, 1.18])"
+    },
+    {
+      "delayMs": 48,
+      "text": "\nincide"
+    },
+    {
+      "delayMs": 47,
+      "text": "nts = St"
+    },
+    {
+      "delayMs": 18,
+      "text": "atTile(l"
+    },
+    {
+      "delayMs": 22,
+      "text": "abel=\""
+    },
+    {
+      "delayMs": 28,
+      "text": "Open incidents\", value="
+    },
+    {
+      "delayMs": 18,
+      "text": "\"1\", delta=\"+1"
+    },
+    {
+      "delayMs": 35,
+      "text": "\", ton"
+    },
+    {
+      "delayMs": 38,
+      "text": "e=\"w"
+    },
+    {
+      "delayMs": 49,
+      "text": "arning\", trend=[0, 0, "
+    },
+    {
+      "delayMs": 46,
+      "text": "1, 0, 0, 0, 1])\nreleases"
+    },
+    {
+      "delayMs": 30,
+      "text": " = Card(title=\"R"
+    },
+    {
+      "delayMs": 23,
+      "text": "eleases\""
+    },
+    {
+      "delayMs": 43,
+      "text": ", padded=fal"
+    },
+    {
+      "delayMs": 20,
+      "text": "se, children=[release_"
+    },
+    {
+      "delayMs": 39,
+      "text": "table])\n"
+    },
+    {
+      "delayMs": 24,
+      "text": "relea"
+    },
+    {
+      "delayMs": 29,
+      "text": "se_table = Table(co"
+    },
+    {
+      "delayMs": 21,
+      "text": "lumns=[{key: \"pl"
+    },
+    {
+      "delayMs": 37,
+      "text": "atform\", label: \"Pl"
+    },
+    {
+      "delayMs": 51,
+      "text": "atf"
+    },
+    {
+      "delayMs": 51,
+      "text": "orm\"}, {key: \"versi"
+    },
+    {
+      "delayMs": 45,
+      "text": "on\", label: \"Version"
+    },
+    {
+      "delayMs": 47,
+      "text": "\"}, {key: \"roll"
+    },
+    {
+      "delayMs": 48,
+      "text": "out\", label: \"Rollout"
+    },
+    {
+      "delayMs": 49,
+      "text": "\", align: \"end"
+    },
+    {
+      "delayMs": 44,
+      "text": "\"}, {key: \"st"
+    },
+    {
+      "delayMs": 31,
+      "text": "ate"
+    },
+    {
+      "delayMs": 31,
+      "text": "\", label: \""
+    },
+    {
+      "delayMs": 24,
+      "text": "State\", "
+    },
+    {
+      "delayMs": 24,
+      "text": "type: \"badg"
+    },
+    {
+      "delayMs": 23,
+      "text": "e\"}], row"
+    },
+    {
+      "delayMs": 33,
+      "text": "s=$"
+    },
+    {
+      "delayMs": 22,
+      "text": "/releases, rowK"
+    },
+    {
+      "delayMs": 25,
+      "text": "ey=\"id\")\n$/r"
+    },
+    {
+      "delayMs": 40,
+      "text": "eleases = ["
+    },
+    {
+      "delayMs": 52,
+      "text": "{id: \"io"
+    },
+    {
+      "delayMs": 19,
+      "text": "s\", platform: \"iOS\", ve"
+    },
+    {
+      "delayMs": 26,
+      "text": "rsion: \"0."
+    },
+    {
+      "delayMs": 22,
+      "text": "14.140\", ro"
+    },
+    {
+      "delayMs": 36,
+      "text": "llout: \"100 %\", state"
+    },
+    {
+      "delayMs": 49,
+      "text": ": \"Live\"}, "
+    },
+    {
+      "delayMs": 44,
+      "text": "{id: \"android\", platfor"
+    },
+    {
+      "delayMs": 27,
+      "text": "m: \"Android\", ver"
+    },
+    {
+      "delayMs": 48,
+      "text": "sion: \"0.14."
+    },
+    {
+      "delayMs": 52,
+      "text": "140\", rollout: \"40"
+    },
+    {
+      "delayMs": 25,
+      "text": " %\", "
+    },
+    {
+      "delayMs": 19,
+      "text": "state: \"Rolli"
+    },
+    {
+      "delayMs": 41,
+      "text": "ng out\"}, {id"
+    },
+    {
+      "delayMs": 20,
+      "text": ": \"w"
+    },
+    {
+      "delayMs": 29,
+      "text": "eb\", platform: \"Web\""
+    },
+    {
+      "delayMs": 45,
+      "text": ", version: \"2026."
+    },
+    {
+      "delayMs": 41,
+      "text": "11.23\", rollou"
+    },
+    {
+      "delayMs": 45,
+      "text": "t: \"100 %"
+    },
+    {
+      "delayMs": 19,
+      "text": "\", state: \"Live\"}, {"
+    },
+    {
+      "delayMs": 49,
+      "text": "id: \"desktop\", platfo"
+    },
+    {
+      "delayMs": 44,
+      "text": "rm: \"Desktop\", version:"
+    },
+    {
+      "delayMs": 44,
+      "text": " \"0.9.1"
+    },
+    {
+      "delayMs": 21,
+      "text": "2\", rollout:"
+    },
+    {
+      "delayMs": 31,
+      "text": " \"100 %\", state: \"Liv"
+    },
+    {
+      "delayMs": 48,
+      "text": "e\"}]\nact"
+    },
+    {
+      "delayMs": 25,
+      "text": "ions = Stack(di"
+    },
+    {
+      "delayMs": 37,
+      "text": "rection=\"horiz"
+    },
+    {
+      "delayMs": 49,
+      "text": "ontal\", gap=\"sm\", jus"
+    },
+    {
+      "delayMs": 19,
+      "text": "tify=\"end\", chi"
+    },
+    {
+      "delayMs": 51,
+      "text": "ldren=[hold, p"
+    },
+    {
+      "delayMs": 33,
+      "text": "romote])\nho"
+    },
+    {
+      "delayMs": 42,
+      "text": "ld = Button(la"
+    },
+    {
+      "delayMs": 42,
+      "text": "bel=\"Hold"
+    },
+    {
+      "delayMs": 38,
+      "text": " Android\", variant=\"o"
+    },
+    {
+      "delayMs": 18,
+      "text": "utline\", on={"
+    },
+    {
+      "delayMs": 24,
+      "text": "press: "
+    },
+    {
+      "delayMs": 47,
+      "text": "Event(\"holdRollou"
+    },
+    {
+      "delayMs": 23,
+      "text": "t\", {plat"
+    },
+    {
+      "delayMs": 28,
+      "text": "form: \"androi"
+    },
+    {
+      "delayMs": 51,
+      "text": "d\"})"
+    },
+    {
+      "delayMs": 51,
+      "text": "})\npromote "
+    },
+    {
+      "delayMs": 29,
+      "text": "= Button(label=\""
+    },
+    {
+      "delayMs": 38,
+      "text": "Promote to 1"
+    },
+    {
+      "delayMs": 33,
+      "text": "00 %\", o"
+    },
+    {
+      "delayMs": 32,
+      "text": "n={press: Event(\"pr"
+    },
+    {
+      "delayMs": 48,
+      "text": "omoteRollout\", {p"
+    },
+    {
+      "delayMs": 30,
+      "text": "latform"
+    },
+    {
+      "delayMs": 22,
+      "text": ": \"android\""
+    },
+    {
+      "delayMs": 27,
+      "text": "})})\n</a2ui>\n\nAndroid 0."
+    },
+    {
+      "delayMs": 42,
+      "text": "14.140 is"
+    },
+    {
+      "delayMs": 40,
+      "text": " at 40 % with"
+    },
+    {
+      "delayMs": 53,
+      "text": " no new "
+    },
+    {
+      "delayMs": 32,
+      "text": "crash cluster"
+    },
+    {
+      "delayMs": 52,
+      "text": "s in the last 2"
+    },
+    {
+      "delayMs": 51,
+      "text": "4 hours. Wan"
+    },
+    {
+      "delayMs": 58,
+      "text": "t me to promo"
+    },
+    {
+      "delayMs": 53,
+      "text": "te it to e"
+    },
+    {
+      "delayMs": 46,
+      "text": "very"
+    },
+    {
+      "delayMs": 49,
+      "text": "one, or hold it "
+    },
+    {
+      "delayMs": 47,
+      "text": "until "
+    },
+    {
+      "delayMs": 52,
+      "text": "the in"
+    },
+    {
+      "delayMs": 33,
+      "text": "cident is clos"
+    },
+    {
+      "delayMs": 54,
+      "text": "ed?"
+    }
+  ],
+  "expected": {
+    "text": "Here is this week's release health across the three platforms. Crash-free sessions are up again, cold starts got faster, and one rollout is still in progress.\n\nAndroid 0.14.140 is at 40 % with no new crash clusters in the last 24 hours. Want me to promote it to everyone, or hold it until the incident is closed?",
+    "messages": [
+      {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "main",
+          "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "direction": "vertical",
+              "gap": "md",
+              "children": [
+                "header",
+                "kpis",
+                "releases",
+                "actions"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "header",
+              "component": "Stack",
+              "direction": "horizontal",
+              "gap": "sm",
+              "align": "center",
+              "justify": "between",
+              "children": [
+                "title",
+                "status"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "title",
+              "component": "Heading",
+              "text": "Release h"
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "title",
+              "component": "Heading",
+              "text": "Release health · week 4"
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "title",
+              "component": "Heading",
+              "text": "Release health · week 47",
+              "level": "h3"
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "status",
+              "component": "Badge",
+              "text": ""
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "status",
+              "component": "Badge",
+              "text": "Healthy",
+              "variant": "secondary",
+              "icon": "ui-check"
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "kpis",
+              "component": "Grid",
+              "columns": {
+                "base": 1,
+                "md": 3
+              },
+              "gap": "md",
+              "children": [
+                "crash_free",
+                "cold_start",
+                "incidents"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "crash_free",
+              "component": "StatTile",
+              "label": "Crash-free sessions",
+              "value": "99.82 %",
+              "delta": "+0.14 %",
+              "tone": "success",
+              "trend": [
+                99.61,
+                99.66,
+                99.7,
+                99.68,
+                99.75,
+                99.79,
+                99.82
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "cold_start",
+              "component": "StatTile",
+              "label": "p95 cold start",
+              "value": "1.18 s",
+              "delta": "−90 ms",
+              "tone": "success",
+              "trend": [
+                1.34,
+                1.31,
+                1.29,
+                1.27,
+                1.22,
+                1.2,
+                1.18
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "incidents",
+              "component": "StatTile",
+              "label": "Open incidents",
+              "value": "1",
+              "delta": "+1",
+              "tone": "warning",
+              "trend": [
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                1
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "releases",
+              "component": "Card",
+              "title": "Releases",
+              "padded": false,
+              "children": [
+                "release_table"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "release_table",
+              "component": "Table",
+              "columns": [
+                {
+                  "key": "platform",
+                  "label": "Platform"
+                },
+                {
+                  "key": "version",
+                  "label": "Version"
+                },
+                {
+                  "key": "rollout",
+                  "label": "Rollout",
+                  "align": "end"
+                },
+                {
+                  "key": "state",
+                  "label": "State",
+                  "type": "badge"
+                }
+              ],
+              "rows": {
+                "@path": "/releases"
+              },
+              "rowKey": "id"
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateDataModel": {
+          "surfaceId": "main",
+          "path": "/releases",
+          "value": [
+            {
+              "id": "ios",
+              "platform": "iOS",
+              "version": "0.14.140",
+              "rollout": "100 %",
+              "state": "Live"
+            },
+            {
+              "id": "android",
+              "platform": "Android",
+              "version": "0.14.140",
+              "rollout": "40 %",
+              "state": "Rolling out"
+            },
+            {
+              "id": "web",
+              "platform": "Web",
+              "version": "2026.11.23",
+              "rollout": "100 %",
+              "state": "Live"
+            },
+            {
+              "id": "desktop",
+              "platform": "Desktop",
+              "version": "0.9.12",
+              "rollout": "100 %",
+              "state": "Live"
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "actions",
+              "component": "Stack",
+              "direction": "horizontal",
+              "gap": "sm",
+              "justify": "end",
+              "children": [
+                "hold",
+                "promote"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "hold",
+              "component": "Button",
+              "label": "Hold Android",
+              "variant": "outline",
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "holdRollout",
+                    "context": {
+                      "platform": "android"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "main",
+          "components": [
+            {
+              "id": "promote",
+              "component": "Button",
+              "label": "Promote to 100 %",
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "promoteRollout",
+                    "context": {
+                      "platform": "android"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

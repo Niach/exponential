@@ -1321,6 +1321,21 @@ impl Surface {
         })
     }
 
+    /// #VAPP-300: an Express block is still streaming this surface (the
+    /// host sets it from its decoder's `open`: the surfaces the open block
+    /// writes): it reduces `streaming`, so a child not streamed yet renders
+    /// as nothing. Off again when the block closes: the tree re-reduces and
+    /// a child still missing is the Unknown placeholder with its issue.
+    /// True when it changed (the host lays out again).
+    pub fn set_streaming(&self, on: bool) -> bool {
+        self.shield("set_streaming", || false, || self.core().set_streaming(on))
+    }
+
+    /// #VAPP-300: whether an Express block is still streaming this surface.
+    pub fn streaming(&self) -> bool {
+        self.shield("streaming", || false, || self.core().streaming())
+    }
+
     pub fn set_locale(&self, locale: String) {
         self.shield("set_locale", || (), || {
             self.core().set_locale(&locale)
@@ -2445,6 +2460,20 @@ pub fn reduce_surface_json(components_json: String, catalog_id: String, extensio
         let components: Vec<FlatComponent> = parse(&components_json)?;
         let extensions = extensions_of(extensions_json)?;
         let options = eui_core::reducer::ReduceOptions::new(&catalog_id).with_view(eui_core::catalog::CatalogView::with(&extensions));
+        let result = eui_core::reducer::reduce_surface(&components, &options);
+        serde_json::to_string(&result).map_err(invalid)
+    })
+}
+
+/// #VAPP-300: [`reduce_surface_json`] with the `streaming` option (the
+/// surface's Express block is still open: a child not streamed yet is no
+/// node and no issue).
+#[uniffi::export]
+pub fn reduce_surface_streaming_json(components_json: String, catalog_id: String, extensions_json: Option<String>, streaming: bool) -> Result<String, UiError> {
+    guarded("reduce_surface_streaming_json", || {
+        let components: Vec<FlatComponent> = parse(&components_json)?;
+        let extensions = extensions_of(extensions_json)?;
+        let options = eui_core::reducer::ReduceOptions { streaming, ..eui_core::reducer::ReduceOptions::new(&catalog_id).with_view(eui_core::catalog::CatalogView::with(&extensions)) };
         let result = eui_core::reducer::reduce_surface(&components, &options);
         serde_json::to_string(&result).map_err(invalid)
     })

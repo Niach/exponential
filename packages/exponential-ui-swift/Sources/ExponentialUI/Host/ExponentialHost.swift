@@ -115,6 +115,8 @@ public final class ExponentialHost {
     @ObservationIgnored public let router: HostRouter
     /// The live surfaces by id.
     public private(set) var surfaces: [String: SurfaceModel] = [:]
+    /// #VAPP-300: the surfaces an open Express block is writing.
+    @ObservationIgnored private var streaming: Set<String> = []
     /// Their ids in creation order.
     public private(set) var surfaceIds: [String] = []
     /// Each surface's components by id, in first-seen order: an
@@ -242,7 +244,17 @@ public final class ExponentialHost {
         t.start(receive: { [weak self] m in self?.receive(m) }, status: { [weak self] status, detail in
             self?.status = status
             self?.statusDetail = detail
-        }, text: { [weak self] piece in self?.options.onText?(piece) })
+        }, text: { [weak self] piece in self?.options.onText?(piece) }, open: { [weak self] ids, settled in self?.setStreaming(ids, settled: settled) })
+    }
+
+    /// #VAPP-300: the surfaces an Express block is still streaming (the
+    /// decoder's `open`): each reduces `streaming` (a child not streamed yet
+    /// renders as nothing). `settled` = the exact set (a surface left out
+    /// closed: it re-reduces, a still-missing child is the Unknown
+    /// placeholder again); else only adds. The TS `setStreaming`.
+    public func setStreaming(_ surfaceIds: [String], settled: Bool = true) {
+        if settled { streaming = Set(surfaceIds) } else { streaming.formUnion(surfaceIds) }
+        for (id, model) in surfaces { model.setStreaming(streaming.contains(id)) }
     }
 
     public func close() {
@@ -468,6 +480,7 @@ public final class ExponentialHost {
             guard let model = try? SurfaceModel(id: surfaceId, options: o, host: bridge) else { return }
             for e in extensions { try? model.register(extension: e.json, painters: e.painters) }
             if op["sendDataModel"]?.bool == true { sendDataModel.insert(surfaceId) } else { sendDataModel.remove(surfaceId) }
+            model.setStreaming(streaming.contains(surfaceId))
             surfaces[surfaceId] = model
             calls.attachSurface(surfaceId: surfaceId, surface: model.surface)
             if !surfaceIds.contains(surfaceId) { surfaceIds.append(surfaceId) }
