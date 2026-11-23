@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory battery applet (#EDE-43): the taskbar's battery button opens it as a popup surface. The battery (/services/power/battery: the percent as a progress bar, the state and the time left or until full), the power profile tiles (set_profile), and the Power settings link; without a battery the profile still shows. Every action is ede_service on the power domain.",
+  "$comment": "Exponential Desktop's factory battery applet (#EDE-43): the taskbar's battery button opens it as a popup surface. The battery (/services/power/battery: the percent as a progress bar, the state and the time left or until full), the power profile tiles (set_profile), and the Power settings link; without a battery the profile still shows. Every action is ede_service on the power domain. #EDE-214: Power settings opens Settings on Power (ede_open_document {name: settings, page}) and closes the popup.",
   "surface": {
     "popup": {
       "parent": "taskbar",
@@ -240,7 +240,8 @@
                 "functionCall": {
                   "@call": "ede_open_document",
                   "args": {
-                    "name": "settings"
+                    "name": "settings",
+                    "page": "power"
                   }
                 }
               }

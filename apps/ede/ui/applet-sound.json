@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory sound applet (#EDE-43): the taskbar's sound button opens it as a popup surface. Cinnamon's content in the IDE's language: one card per MPRIS player (/services/media/players: the art, the title and artist, previous / play-pause / next, a seek slider over the track), the output volume with its mute switch, the output device (/services/sound/sinkOptions → set_default), then Applications: one slider and mute per playback stream (/services/sound/streams), and the Sound settings link. Every action is ede_service on the sound or media domain. #EDE-168: the popup stands on its button and hugs its content, never taller than the output has room for above the taskbar (the shell gives the root that maxHeight); everything above the Sound settings link scrolls when it does not fit (854×534 logical: the slider and Mute stay on screen).",
+  "$comment": "Exponential Desktop's factory sound applet (#EDE-43): the taskbar's sound button opens it as a popup surface. Cinnamon's content in the IDE's language: one card per MPRIS player (/services/media/players: the art, the title and artist, previous / play-pause / next, a seek slider over the track), the output volume with its mute switch, the output device (/services/sound/sinkOptions → set_default), then Applications: one slider and mute per playback stream (/services/sound/streams), and the Sound settings link. Every action is ede_service on the sound or media domain. #EDE-168: the popup stands on its button and hugs its content, never taller than the output has room for above the taskbar (the shell gives the root that maxHeight); everything above the Sound settings link scrolls when it does not fit (854×534 logical: the slider and Mute stay on screen). #EDE-214: Sound settings opens Settings on Sound (ede_open_document {name: settings, page}) and closes the popup.",
   "surface": {
     "popup": {
       "parent": "taskbar",
@@ -673,7 +673,8 @@
                 "functionCall": {
                   "@call": "ede_open_document",
                   "args": {
-                    "name": "settings"
+                    "name": "settings",
+                    "page": "sound"
                   }
                 }
               }

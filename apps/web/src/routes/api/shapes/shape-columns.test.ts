@@ -182,6 +182,8 @@ describe(`sessions allowlist`, () => {
     )
     expect(PULL_REQUEST_COLUMNS).not.toContain(`merge_ready_at`)
     expect(PULL_REQUEST_COLUMNS).not.toContain(`merge_approved_at`)
+    expect(PULL_REQUEST_COLUMNS).not.toContain(`merge_now_by`)
+    expect(PULL_REQUEST_COLUMNS).not.toContain(`merge_now_red`)
   })
   it(`keeps a meeting message's expiry server-only (NEW-57)`, () => {
     expect(MESSAGE_COLUMNS).not.toContain(`expires_at`)

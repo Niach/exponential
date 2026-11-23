@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory network applet (#EDE-43): the taskbar's network button opens it as a popup surface. Cinnamon's content in the IDE's language: the Wired and Wi-Fi switches (wired_enable, wifi_enable), the saved VPNs each with its own switch (vpn_connect / vpn_disconnect), the Wi-Fi networks in reach (a press joins one: connect), and the Network settings link. Every action is ede_service on the network domain. #EDE-168: the popup hugs its rows (no empty height under a short list) and stands on its button, never taller than the output has room for above the taskbar.",
+  "$comment": "Exponential Desktop's factory network applet (#EDE-43): the taskbar's network button opens it as a popup surface. Cinnamon's content in the IDE's language: the Wired and Wi-Fi switches (wired_enable, wifi_enable), the saved VPNs each with its own switch (vpn_connect / vpn_disconnect), the Wi-Fi networks in reach (a press joins one: connect), and the Network settings link. Every action is ede_service on the network domain. #EDE-168: the popup hugs its rows (no empty height under a short list) and stands on its button, never taller than the output has room for above the taskbar. #EDE-214: Network settings opens Settings on Network (ede_open_document {name: settings, page}) and closes the popup.",
   "surface": {
     "popup": {
       "parent": "taskbar",
@@ -433,7 +433,8 @@
                 "functionCall": {
                   "@call": "ede_open_document",
                   "args": {
-                    "name": "settings"
+                    "name": "settings",
+                    "page": "network"
                   }
                 }
               }

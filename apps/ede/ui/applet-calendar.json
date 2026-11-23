@@ -1,5 +1,5 @@
 {
-  "$comment": "Exponential Desktop's factory calendar applet (#EDE-43): the taskbar's clock opens it as a popup surface. Cinnamon's layout in the IDE's language: the agenda pane on the left (today's date as its caption; no calendar source yet, so it says No events), the big weekday and date (/dateText) over the inline month grid (/date is today and the selected day) on the right, and the Date & time settings link.",
+  "$comment": "Exponential Desktop's factory calendar applet (#EDE-43): the taskbar's clock opens it as a popup surface. Cinnamon's layout in the IDE's language: the agenda pane on the left (today's date as its caption; no calendar source yet, so it says No events), the big weekday and date (/dateText) over the inline month grid (/date is today and the selected day) on the right, and the Date & time settings link. #EDE-214: Date & time settings opens Settings on Date & Time (ede_open_document {name: settings, page}) and closes the popup.",
   "surface": {
     "popup": {
       "parent": "taskbar",
@@ -152,7 +152,8 @@
                 "functionCall": {
                   "@call": "ede_open_document",
                   "args": {
-                    "name": "settings"
+                    "name": "settings",
+                    "page": "datetime"
                   }
                 }
               }
