@@ -1481,15 +1481,30 @@ struct AgentSessionView: View {
             case let .narration(_, text, _, _, _) where TranscriptGrouping.isBlankText(text):
                 // #FEED-256: a blank narration draws nothing.
                 EmptyView()
-            case let .narration(id, text, _, _, at):
+            case let .narration(id, text, messageId, _, at):
                 // #EXP-1736: the agent's prose = THE message bubble under its
                 // avatar. #VAPP-258: the live tail is the reply being written.
                 // #EXP-1864: its first fragment's `HH:mm`.
-                senderBubble(
-                    text, layout: layout, streaming: isLast && model?.agentWorking == true,
-                    time: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
-                )
-                .modifier(FindRowMark(id: id))
+                let streaming = isLast && model?.agentWorking == true
+                let time = at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
+                let key = expressRowKey(id: id, messageId: messageId)
+                // #EXP-2067 (chat-express.json): a text with Express blocks =
+                // its segments in ONE sender group.
+                if let segments = ExpressRowStore.shared.segments(key: key.key, text: text, final: !streaming) {
+                    ExpressSegmentsView(
+                        rowKey: key.key, segments: segments, messageId: key.messageId,
+                        onAction: expressActionHandler(model)
+                    ) { prose, first, last in
+                        senderBubble(
+                            prose, layout: first ? layout : layout.map(Self.continuing),
+                            streaming: streaming && last, time: last ? time : nil
+                        )
+                    }
+                    .modifier(FindRowMark(id: id))
+                } else {
+                    senderBubble(text, layout: layout, streaming: streaming, time: time)
+                        .modifier(FindRowMark(id: id))
+                }
             case let .apiError(_, message, errorType, _):
                 ApiErrorRow(message: message, errorType: errorType)
             case let .tool(_, name, _, _, _, _, _, _, _, _, _, _, _)
@@ -1513,7 +1528,20 @@ struct AgentSessionView: View {
                 // EXP-724: a steered slash command is a control action, not
                 // prose — it renders as a compact pill instead of a bubble.
                 // NEW-2: the contract catalog alone (agent commands hidden).
-                if case let .marker(_, label) = TranscriptGrouping.feedInput(text) {
+                if let action = ChatExpress.parseActionInput(text) {
+                    // #EXP-2067 (chat-express.json ACTIONS): a press = the
+                    // person's bubble with its body, else THE inline marker.
+                    if action.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        TranscriptMarkerRow(label: ChatExpress.actionMarker(name: action.card.name, author: nil))
+                            .accessibilityIdentifier("express-action-marker")
+                    } else {
+                        UserMessageBubble(
+                            text: action.body, context: markdownContext, caption: time, status: .read,
+                            tail: layout?.tail == true
+                        )
+                        .modifier(FindRowMark(id: id))
+                    }
+                } else if case let .marker(_, label) = TranscriptGrouping.feedInput(text) {
                     // #EXP-1772: a system input = THE inline marker (a
                     // hidden one never reaches the transcript).
                     TranscriptMarkerRow(label: label)
@@ -1570,6 +1598,39 @@ struct AgentSessionView: View {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    /// #EXP-2067 (chat-express.json DRAW): a row's later segments stay in
+    /// its sender group: no name, avatar or tail again after a block.
+    private static func continuing(_ layout: TranscriptGrouping.RowLayout) -> TranscriptGrouping.RowLayout {
+        TranscriptGrouping.RowLayout(
+            id: layout.id, side: layout.side, sender: layout.sender, avatar: false, name: false, tail: false, gap: 0
+        )
+    }
+
+    /// #EXP-2067: a narration row's Express key: a synced-tail row's
+    /// `m:<messages.id>`, a feed row's `n:<session>:<messageId>` (none =
+    /// `e:<session>:<its first seq>`), and the synced row's id.
+    private func expressRowKey(id: Int, messageId: String?) -> (key: String, messageId: String?) {
+        if let messageId, messageId.hasPrefix("synced:") {
+            let synced = String(messageId.dropFirst("synced:".count))
+            return (ChatExpress.syncedRowKey(synced), synced)
+        }
+        return (ChatExpress.feedRowKey(sessionId: session.id, messageId: messageId, firstSeq: model?.findSeq(id) ?? id), nil)
+    }
+
+    /// #EXP-2067 (chat-express.json ACTIONS): a block's press posts THE
+    /// action card into this session as the viewer; nil = the viewer may
+    /// not post here.
+    private func expressActionHandler(_ model: AgentSessionModel?) -> ((ChatExpress.ActionEvent, ChatExpress.ActionOrigin) -> Void)? {
+        guard let model, model.mayPost, !model.sessionEnded else { return nil }
+        let api = deps.sessionsApi
+        let accountId = accountId
+        let sessionId = session.id
+        let toaster = toaster
+        return { event, origin in
+            ExpressActions.post(event, origin: origin, sessionId: sessionId, accountId: accountId, api: api, toaster: toaster)
         }
     }
 
@@ -1946,7 +2007,7 @@ struct AgentSessionView: View {
                     surface: surface,
                     title: title,
                     animate: false,
-                    onReply: canAnswerCards ? { text in replyFromSurface(text) } : nil
+                    onAction: canAnswerCards ? { event in actFromSurface(event, messageId: id) } : nil
                 )
                 .waitingHighlight(highlightId == id)
                 .deepLinkRow(deepLink?.target == id, frame: $deepLinkFrame)
@@ -2138,20 +2199,13 @@ struct AgentSessionView: View {
 
     /// EXP-1398: a surface card's reply = the person's next message, through
     /// the one send path (ChatScreen `reply`).
-    private func replyFromSurface(_ text: String) {
-        let api = deps.sessionsApi
-        let accountId = accountId
-        let sessionId = session.id
-        Task {
-            do {
-                _ = try await api.send(accountId: accountId, .message(sessionId: sessionId, text: text))
-            } catch {
-                toaster.error(
-                    FeedbackStates.Errors.title(verb: "send", thing: "the message"),
-                    description: error.userFacingMessage
-                )
-            }
-        }
+    /// #EXP-2067 (chat-express.json ACTIONS): an exponential_show card's
+    /// press = THE action card (`surfaceId` `show:<its message>`).
+    private func actFromSurface(_ event: ChatExpress.ActionEvent, messageId: String) {
+        ExpressActions.post(
+            event, origin: ChatExpress.showActionOrigin(messageId), sessionId: session.id, accountId: accountId,
+            api: deps.sessionsApi, toaster: toaster
+        )
     }
 
     /// EXP-1280: answer a tool-posted card (`sessions.answer`); a refusal
@@ -2197,17 +2251,24 @@ struct AgentSessionView: View {
                 // #FEED-239: the group's first bubble wears the viewer's avatar.
                 avatar: index == 0 ? ownAvatar : nil
             ) {
-                UserMessageBubble(
-                    text: bubble.text,
-                    context: markdownContext,
-                    caption: bubble.at.map { GlassTimeRow.formatted($0) },
-                    status: bubble.state,
-                    actions: bubble.actions,
-                    onAction: { action in ownBubbleAction(action, bubble: bubble, model: model) },
-                    tail: index == 0
-                )
-                // #EXP-1975: the own tail is a loaded find row.
-                .modifier(FindRowMark(id: TranscriptFind.bubbleItemId(TranscriptFind.ownKey(bubble))))
+                if let name = bubble.actionName, bubble.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // #EXP-2067 (chat-express.json ACTIONS): a press without
+                    // a body = THE inline marker.
+                    TranscriptMarkerRow(label: ChatExpress.actionMarker(name: name, author: nil))
+                        .accessibilityIdentifier("express-action-marker")
+                } else {
+                    UserMessageBubble(
+                        text: bubble.text,
+                        context: markdownContext,
+                        caption: bubble.at.map { GlassTimeRow.formatted($0) },
+                        status: bubble.state,
+                        actions: bubble.actions,
+                        onAction: { action in ownBubbleAction(action, bubble: bubble, model: model) },
+                        tail: index == 0
+                    )
+                    // #EXP-1975: the own tail is a loaded find row.
+                    .modifier(FindRowMark(id: TranscriptFind.bubbleItemId(TranscriptFind.ownKey(bubble))))
+                }
             }
             // #EXP-1975: its find key (where find centres it).
             .id(TranscriptFind.ownKey(bubble))

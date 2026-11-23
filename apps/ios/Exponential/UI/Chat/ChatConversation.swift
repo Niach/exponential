@@ -409,20 +409,22 @@ struct PlanConversationRow: View {
 /// Session 58cb32df (chats.json SURFACE CARD): an agent's inline Exponential
 /// UI preview in the agent's column — THE plan card's surface painter in its
 /// own rounded glass frame (`SurfaceCardFrame`, which plays the ENTER
-/// animation on a live arrival); a `reply` press posts its text.
+/// animation on a live arrival). #EXP-2067 (chat-express.json ACTIONS):
+/// EVERY press is forwarded (`ChatExpress.surfaceAction` over
+/// `showActionOrigin`, the caller posts it).
 struct SurfaceCardRow: View {
     let surface: CardSurface
     let title: String?
     let animate: Bool
-    var onReply: ((String) -> Void)?
+    var onAction: ((ChatExpress.ActionEvent) -> Void)?
 
     @State private var handle = PlanCardSurfaceHandle()
 
     var body: some View {
         SurfaceCardFrame(title: title, animate: animate) {
             PlanCardSurfaceView(
-                surface: surface, handle: handle, editable: onReply != nil,
-                onReply: onReply, bare: true, staggerChildren: animate
+                surface: surface, handle: handle, editable: onAction != nil,
+                onAction: onAction, bare: true, staggerChildren: animate
             )
         }
     }

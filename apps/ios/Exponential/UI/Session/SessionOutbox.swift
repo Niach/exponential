@@ -126,6 +126,17 @@ struct OwnPendingBubble: Identifiable, Equatable {
     let clientId: String?
     /// The row to unqueue (nil = not stored yet).
     let messageId: String?
+    /// #EXP-2067: a press's row: its event name (nil = a plain message).
+    var actionName: String? = nil
+
+    /// #EXP-2067: a row's `action` card's event name (opened when sealed);
+    /// nil = another card or none.
+    static func actionName(_ row: MessageEntity) -> String? {
+        guard let card = row.card else { return nil }
+        let opened = SealedOpener.shared.card(card, rootId: row.rootId)
+        guard let parsed = TreeMessageCard.parse(opened.json), parsed.kind == "action" else { return nil }
+        return parsed.eventName ?? ""
+    }
 
     var actions: [MessageDelivery.Action] {
         MessageDelivery.bubbleActions(state: state, stored: stored)
@@ -161,7 +172,8 @@ struct OwnPendingBubble: Identifiable, Equatable {
                     state: MessageDelivery.deliveryState(MessageDelivery.StateInput(
                         local: nil, stored: true, deliveredAt: row.deliveredAt, consumedAt: row.consumedAt, echoed: false
                     )),
-                    stored: true, clientId: nil, messageId: row.id
+                    stored: true, clientId: nil, messageId: row.id,
+                    actionName: actionName(row)
                 )
             }
         let byClientId = Dictionary(outbox.map { ($0.clientId, $0) }, uniquingKeysWith: { first, _ in first })

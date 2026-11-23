@@ -2020,14 +2020,17 @@ final class AgentSessionModel {
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let id = sessionId
         let observation = ValueObservation.tracking { db -> ([MessageEntity], [String: String], [MessageOutboxEntity]) in
+            // #EXP-2067 (chat-express.json ACTIONS): a press's `action` row
+            // is the viewer's own row too (its body, else THE marker).
             let rows = try MessageEntity
                 .filter(Column("session_id") == id)
                 .filter(Column("author_kind") == "user")
                 .filter(Column("author_id") == viewerId)
-                .filter(Column("card") == nil)
+                .filter(Column("card") == nil || Column("card").like("%\"action\"%"))
                 .order(Column("created_at").desc)
                 .limit(50)
                 .fetchAll(db)
+                .filter { $0.card == nil || OwnPendingBubble.actionName($0) != nil }
             let outbox = try MessageOutboxEntity
                 .filter(Column("session_id") == id)
                 .fetchAll(db)

@@ -120,14 +120,18 @@ public final class SessionSealer: @unchecked Sendable {
     /// Seals the text of a send (and keys the root when it has no key).
     /// `fresh` = the server refused this send's key write once: the tree is
     /// resolved from the server, never this store (#FEED-250 `staleTree`).
-    public func prepare(accountId: String, _ input: SessionsSendInput, fresh: Bool = false) async throws -> PreparedSend {
+    /// #EXP-2067: `actionCard` = a press's card, sealed with the text.
+    public func prepare(
+        accountId: String, _ input: SessionsSendInput, fresh: Bool = false, actionCard: String? = nil
+    ) async throws -> PreparedSend {
         try await sending.prepare(
             accountId: accountId,
             input,
             root: root(accountId: accountId, for: input),
             mentions: mentionUserIds(accountId: accountId, text: input.text),
             deviceIds: { deviceIds(accountId: accountId, steerDeviceId: $0) },
-            fresh: fresh
+            fresh: fresh,
+            actionCard: actionCard
         )
     }
 
