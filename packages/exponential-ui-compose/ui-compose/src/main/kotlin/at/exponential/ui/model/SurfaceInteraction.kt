@@ -37,6 +37,7 @@ internal fun SurfaceModel.dispatch(events: List<FfiEvent>, inputRevision: Int? =
         componentId = v["componentId"]?.string ?: "",
         context = v["context"] ?: JsonValue.Obj(emptyMap()),
         payload = v["payload"],
+        userMessage = v["userMessage"]?.string,
     )
     var next = 0
     while (next < events.size) {

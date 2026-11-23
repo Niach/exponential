@@ -20,6 +20,8 @@ data class SurfaceActionEvent(
     val context: JsonValue,
     /** What the component adds (a Select's `value`, a Tabs' `value`…). */
     val payload: JsonValue?,
+    /** #EXP-2067: the Action's `event.userMessage`, resolved to a string (null = none). */
+    val userMessage: String? = null,
 )
 
 /**
