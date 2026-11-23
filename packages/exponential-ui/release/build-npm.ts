@@ -169,7 +169,10 @@ export async function bundle(dir: string, options: BundleOptions): Promise<Bundl
     outputs[path] = {
       bytes: out.bytes,
       inputs: Object.fromEntries(Object.entries(out.inputs).map(([k, v]) => [repoRelative(k), v.bytesInOutput])),
-      imports: out.imports.filter((i) => i.kind !== `dynamic-import` || true).map((i) => i.path),
+      // #AXC-12: a lazy chunk (a dynamic import: the Express compiler the
+      // transports load only when a stream carries Express) is no part of an
+      // entry's load; it is measured as its own entry (`express/index`).
+      imports: out.imports.filter((i) => i.kind !== `dynamic-import`).map((i) => i.path),
       entry: out.entryPoint,
     }
   }
