@@ -444,6 +444,56 @@ final class ConformanceTests: XCTestCase {
         return .object(["messages": .array(messages), "issues": .array(issues)])
     }
 
+    /// `feed` plus the prose pieces (`text`, absent when empty).
+    func feedExpress(_ decoder: (String) -> String, _ end: () -> String, _ chunks: [JSONValue]) -> JSONValue {
+        var messages: [JSONValue] = [], issues: [JSONValue] = [], text: [JSONValue] = []
+        for out in chunks.map({ decoder($0.string ?? "") }) + [end()] {
+            let v = JSONValue.parse(out)
+            messages += v["messages"]?.array ?? []
+            issues += v["issues"]?.array ?? []
+            text += v["text"]?.array ?? []
+        }
+        var out: [String: JSONValue] = ["messages": .array(messages), "issues": .array(issues)]
+        if !text.isEmpty { out["text"] = .array(text) }
+        return .object(out)
+    }
+
+    /// #AXC-12: `host-transport.json` `express*`: the Express inference format on every wire.
+    func expressSuite() throws -> [Case] {
+        let f = try Fixtures.json("host-transport.json")
+        var out: [Case] = []
+        for c in f["express"]?.array ?? [] {
+            out.append(run("express: \(c["name"]?.string ?? "")") {
+                let d = ExpressDecoder(wrapped: c["wrapped"]?.bool ?? true, surfaceId: c["surfaceId"]?.string ?? "main")
+                return same(feedExpress({ d.push(chunk: $0) }, { d.end() }, c["chunks"]?.array ?? []).json, c["expected"]!)
+            })
+        }
+        for c in f["expressSse"]?.array ?? [] {
+            out.append(run("sse: \(c["name"]?.string ?? "")") {
+                let d = SseDecoder.withSurface(surfaceId: c["surfaceId"]?.string)
+                return same(feedExpress({ d.push(chunk: $0) }, { d.end() }, c["chunks"]?.array ?? []).json, c["expected"]!)
+            })
+        }
+        for c in f["expressWs"]?.array ?? [] {
+            out.append(run("ws: \(c["name"]?.string ?? "")") {
+                let d = FrameDecoder(surfaceId: c["surfaceId"]?.string)
+                return same(feedExpress({ d.push(frame: $0) }, { d.end() }, c["frames"]?.array ?? []).json, c["expected"]!)
+            })
+        }
+        for c in f["expressMcp"]?.array ?? [] {
+            out.append(run("mcp: \(c["name"]?.string ?? "")") { same(try messagesFromMcpResultWithJson(resultJson: c["result"]!.json, surfaceId: c["surfaceId"]?.string), c["expected"]!) })
+        }
+        for c in f["expressContentTypes"]?.array ?? [] {
+            out.append(run("contentType: \(c["name"]?.string ?? "")") { same(JSONValue.string(inferenceFormatOf(contentType: c["contentType"]?.string ?? "")).json, c["expected"]!) })
+        }
+        for c in f["expressCapabilities"]?.array ?? [] {
+            out.append(run("capabilities: \(c["name"]?.string ?? "")") {
+                same(try rendererCapabilitiesWithJson(extensionIds: (c["extensionIds"]?.array ?? []).compactMap(\.string), inlineCatalogsJson: nil, inferenceFormats: c["inferenceFormats"]?.array?.compactMap(\.string)), c["expected"]!)
+            })
+        }
+        return out
+    }
+
     func transportSuite() throws -> [Case] {
         let f = try Fixtures.json("host-transport.json")
         var out: [Case] = []
@@ -649,6 +699,7 @@ final class ConformanceTests: XCTestCase {
         case "overlay": try overlaySuite()
         case "replay": try replaySuite()
         case "host-transport": try transportSuite()
+        case "host-express": try expressSuite()
         case "host-policy": try policySuite()
         case "host-router": try routerSuite()
         case "a2ui10": try a2ui10Suite()

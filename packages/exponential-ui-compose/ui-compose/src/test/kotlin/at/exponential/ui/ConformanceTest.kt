@@ -20,7 +20,12 @@ import at.exponential.ui.ffi.actionMessageWithUserMessageJson
 import at.exponential.ui.ffi.cardV10Json
 import at.exponential.ui.ffi.errorMessageJson
 import at.exponential.ui.ffi.functionErrorMessageJson
+import at.exponential.ui.ffi.ExpressDecoder
+import at.exponential.ui.ffi.FrameDecoder
 import at.exponential.ui.ffi.JsonlDecoder
+import at.exponential.ui.ffi.inferenceFormatOf
+import at.exponential.ui.ffi.messagesFromMcpResultWithJson
+import at.exponential.ui.ffi.rendererCapabilitiesWithJson
 import at.exponential.ui.ffi.SseDecoder
 import at.exponential.ui.ffi.basicCatalogId
 import at.exponential.ui.ffi.builtinThemeIds
@@ -511,6 +516,51 @@ class ConformanceTest {
         return JsonValue.Obj(mapOf("messages" to JsonValue.Arr(messages), "issues" to JsonValue.Arr(issues))).json
     }
 
+    /** [feed] plus the prose pieces (`text`, absent when empty). */
+    private fun feedExpress(push: (String) -> String, end: () -> String, chunks: List<JsonValue>): String {
+        val messages = ArrayList<JsonValue>()
+        val issues = ArrayList<JsonValue>()
+        val text = ArrayList<JsonValue>()
+        for (d in chunks.map { push(it.string ?: "") } + end()) {
+            val v = JsonValue.parse(d)
+            messages.addAll(v["messages"]?.array ?: emptyList())
+            issues.addAll(v["issues"]?.array ?: emptyList())
+            text.addAll(v["text"]?.array ?: emptyList())
+        }
+        val out = linkedMapOf<String, JsonValue>("messages" to JsonValue.Arr(messages), "issues" to JsonValue.Arr(issues))
+        if (text.isNotEmpty()) out["text"] = JsonValue.Arr(text)
+        return JsonValue.Obj(out).json
+    }
+
+    /** #AXC-12: `host-transport.json` `express*`: the Express inference format on every wire. */
+    private fun hostExpressSuite(): List<Case> {
+        val f = json("host-transport.json")
+        return list(f, "express").map { c ->
+            case("express: ${s(c, "name")}") {
+                val d = ExpressDecoder(c["wrapped"]?.bool ?: true, c["surfaceId"]?.string ?: "main")
+                try { same(feedExpress({ d.push(it) }, { d.end() }, list(c, "chunks")), c["expected"]!!) } finally { d.close() }
+            }
+        } + list(f, "expressSse").map { c ->
+            case("sse: ${s(c, "name")}") {
+                val d = SseDecoder.withSurface(c["surfaceId"]?.string)
+                try { same(feedExpress({ d.push(it) }, { d.end() }, list(c, "chunks")), c["expected"]!!) } finally { d.close() }
+            }
+        } + list(f, "expressWs").map { c ->
+            case("ws: ${s(c, "name")}") {
+                val d = FrameDecoder(c["surfaceId"]?.string)
+                try { same(feedExpress({ d.push(it) }, { d.end() }, list(c, "frames")), c["expected"]!!) } finally { d.close() }
+            }
+        } + list(f, "expressMcp").map { c ->
+            case("mcp: ${s(c, "name")}") { same(messagesFromMcpResultWithJson(c["result"]!!.json, c["surfaceId"]?.string), c["expected"]!!) }
+        } + list(f, "expressContentTypes").map { c ->
+            case("contentType: ${s(c, "name")}") { same(JsonValue.Str(inferenceFormatOf(s(c, "contentType"))).json, c["expected"]!!) }
+        } + list(f, "expressCapabilities").map { c ->
+            case("capabilities: ${s(c, "name")}") {
+                same(rendererCapabilitiesWithJson(list(c, "extensionIds").map { it.string!! }, null, c["inferenceFormats"]?.array?.map { it.string!! }), c["expected"]!!)
+            }
+        }
+    }
+
     private fun hostTransportSuite(): List<Case> {
         val f = json("host-transport.json")
         val jsonl = { JsonlDecoder().let { d -> Pair<(String) -> String, () -> String>({ d.push(it) }, { d.end() }) } }
@@ -688,6 +738,7 @@ class ConformanceTest {
         "overlay" -> overlaySuite()
         "replay" -> replaySuite()
         "host-transport" -> hostTransportSuite()
+        "host-express" -> hostExpressSuite()
         "host-policy" -> hostPolicySuite()
         "host-router" -> hostRouterSuite()
         "a2ui10" -> a2ui10Suite()
