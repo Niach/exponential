@@ -315,10 +315,10 @@ const train = vi.hoisted(() => ({
   approvePullRequest: vi.fn(async () => {}),
   queuePullRequest: vi.fn(async () => {}),
   runRepository: vi.fn(async () => {}),
-  queueReport: vi.fn(async () => ({ state: `queued`, wait: null, position: 2, testingWith: 0, holdReason: null, attempts: 0 })),
+  queueReport: vi.fn(async () => ({ state: `queued`, wait: null, position: 2, testingWith: 0, behind: [] as number[], holdReason: null, attempts: 0 })),
   holdPullRequest: vi.fn(async () => null),
   resumePullRequest: vi.fn(async () => null),
-  mergeNowPullRequest: vi.fn(async () => null),
+  mergeNowPullRequest: vi.fn(async (): Promise<{ refused: string | null; red: string[] }> => ({ refused: null, red: [] })),
 }))
 vi.mock(`@/lib/merge-train/worker`, () => train)
 const trainEdge = vi.hoisted(() => vi.fn())
@@ -3057,7 +3057,7 @@ describe(`pull request tools (EXP-1291)`, () => {
       url: PR.url,
       merged: false,
       queued: true,
-      mergeQueue: { state: `queued`, wait: null, position: 2, testingWith: 0, holdReason: null, attempts: 0 },
+      mergeQueue: { state: `queued`, wait: null, position: 2, testingWith: 0, behind: [], holdReason: null, attempts: 0 },
       checks: NO_CHECKS,
     })
     expect(prs.resolvePullRequest).toHaveBeenCalledWith({
@@ -3099,7 +3099,25 @@ describe(`pull request tools (EXP-1291)`, () => {
     const result = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ force: true }))
     expect(result).toMatchObject({ mergeNow: true })
     // #FEED-283: an agent's force never lifts a person's Hold.
-    expect(train.mergeNowPullRequest).toHaveBeenCalledWith(expect.any(String), { keepPersonHolds: true })
+    // #FEED-293: the force records who passed it.
+    expect(train.mergeNowPullRequest).toHaveBeenCalledWith(expect.any(String), { keepPersonHolds: true, by: USER.id })
+  })
+
+  it(`#FEED-293: force says plainly it lands past red checks and behind which run; a refusal is no queue`, async () => {
+    dbRows.current = [callerRow()]
+    membership.getTeamMember.mockResolvedValueOnce({ role: `owner` })
+    train.mergeNowPullRequest.mockResolvedValueOnce({ refused: null, red: [`gate`] })
+    train.queueReport.mockResolvedValueOnce({ state: `queued`, wait: null, position: 3, testingWith: 0, behind: [3319, 3321], holdReason: null, attempts: 0 })
+    const forced = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ force: true })) as { number: number; note: string }
+    expect(forced).toMatchObject({ queued: true, mergeNow: true })
+    expect(forced.note).toBe(`Merge now: #${forced.number} lands next, untested, past red checks: gate, once the live run of #3319, #3321 finishes.`)
+    dbRows.current = [callerRow()]
+    membership.getTeamMember.mockResolvedValueOnce({ role: `owner` })
+    train.mergeNowPullRequest.mockResolvedValueOnce({ refused: `Can't merge #7 now: it is a draft. Mark it ready for review first.`, red: [] })
+    train.runRepository.mockClear()
+    const refused = parseOk(await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ force: true }))
+    expect(refused).toMatchObject({ merged: false, queued: false, mergeNow: false, refused: `Can't merge #7 now: it is a draft. Mark it ready for review first.` })
+    expect(train.runRepository).not.toHaveBeenCalled()
   })
 
   it(`pr_update hold holds and resumes`, async () => {
