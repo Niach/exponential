@@ -204,6 +204,11 @@ export function ChatLeadDisc({
  *  full emphasis before the muted rest. */
 function previewParts(preview: ChatRowModel[`preview`]): { prefix: string; rest: string } {
   const kind = preview.kind
+  // #EXP-1990: a teammate's line leads with their name, as `You: ` does.
+  if (kind === `member`) {
+    const at = preview.text.indexOf(`: `)
+    return at > 0 ? { prefix: preview.text.slice(0, at + 2), rest: preview.text.slice(at + 2) } : { prefix: ``, rest: preview.text }
+  }
   if (kind === `question` || kind === `plan` || kind === `you`) {
     const prefix = CHATS_COPY.preview[kind].split(`{text}`)[0] ?? ``
     if (prefix && preview.text.startsWith(prefix)) {

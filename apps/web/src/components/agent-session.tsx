@@ -527,6 +527,15 @@ export function AgentSessionView({
   const unqueue = useUnqueueMessage()
   const { data: auth } = useSession()
   const viewerId = auth?.user?.id ?? null
+  // #EXP-1736 / #EXP-1990: a teammate's bubble wears their name + picture
+  // (a shared chat, a team agent's group chat), never "Former member".
+  const memberAvatar = useCallback(
+    (userId: string) => {
+      const user = teamUsers.find((row) => row.id === userId)
+      return user ? { id: user.id, name: user.name ?? null, email: user.email ?? null, image: user.image ?? null } : null
+    },
+    [teamUsers]
+  )
   // #FEED-239: the viewer's own avatar right of their own bubbles.
   const viewerUser = auth?.user ?? null
   const viewerAvatar = useMemo(
@@ -818,9 +827,11 @@ export function AgentSessionView({
           fromStart: windowStart === 0 && !snapshotCanLoadEarlier,
           isCommand: (text) => parseSteerCommand(text, agentCommands) !== null,
           callIds,
+          viewerId,
+          memberName: (userId) => memberAvatar(userId)?.name ?? null,
         }
       ),
-    [rows, session.id, sessionCardModel?.name, session.title, session.agentId, origin, windowStart, snapshotCanLoadEarlier, agentCommands, callIds]
+    [rows, session.id, sessionCardModel?.name, session.title, session.agentId, origin, windowStart, snapshotCanLoadEarlier, agentCommands, callIds, viewerId, memberAvatar]
   )
   /** EXP-389/848: the agent is EXECUTING a turn. */
   const working = sessionIsWorking({
@@ -965,7 +976,7 @@ export function AgentSessionView({
         layout={layout ? { ...layout, gap: bubbles ? layout.gap : 0 } : null}
         avatar={
           sender ? (
-            <SenderAvatar sender={sender} agent={sender.kind === `agent` ? xrefAgent(sender.id) : null} />
+            <SenderAvatar sender={sender} user={sender.kind === `member` ? memberAvatar(sender.id) : null} agent={sender.kind === `agent` ? xrefAgent(sender.id) : null} />
           ) : layout?.side === `own` && viewerAvatar ? (
             // #FEED-239: the viewer's own group wears THEIR avatar, right.
             <UserAvatar user={viewerAvatar} size={32} />
@@ -1139,7 +1150,7 @@ export function AgentSessionView({
         const link = layout?.side === `other` ? (sender?.link ?? null) : null
         return wrap(
           <UserMessageBubble
-            text={action ? action.body : input?.kind === `relay` ? input.body : item.text}
+            text={action ? action.body : input?.kind === `relay` || input?.kind === `member` ? input.body : item.text}
             side={layout?.side === `other` ? `in` : `out`}
             author={link ? null : bubbleName}
             tail={layout?.tail ?? false}
@@ -1304,6 +1315,7 @@ export function AgentSessionView({
           attachmentSrc={attachmentUrl}
           chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
           viewerId={viewerId}
+          member={memberAvatar}
           viewer={viewerAvatar}
           messageTime={messageTime}
           onUnqueue={(rowId) => void unqueue(rowId)}
@@ -1580,6 +1592,7 @@ export function AgentSessionView({
                   attachmentSrc={attachmentUrl}
                   chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
                   viewerId={viewerId}
+                  member={memberAvatar}
                   viewer={viewerAvatar}
                   messageTime={messageTime}
                   onOpenSession={onOpenSession}
@@ -1713,6 +1726,7 @@ export function AgentSessionView({
                       attachmentSrc={attachmentUrl}
                       chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
                       viewerId={viewerId}
+                      member={memberAvatar}
                       viewer={viewerAvatar}
                       messageTime={messageTime}
                       deliveryOf={deliveryOf}
@@ -2109,7 +2123,7 @@ export function transcriptFindRows(
       const input = feedInput(item.text)
       if (input?.kind === `marker`) continue
       const action = parseActionInput(item.text)
-      const shown = action ? action.body : userBubbleText(input?.kind === `relay` ? input.body : item.text)
+      const shown = action ? action.body : userBubbleText(input?.kind === `relay` || input?.kind === `member` ? input.body : item.text)
       out.push({ key, count: shown ? markdownHighlightCount(shown, query) : 0, itemId: item.id, outputCount: 0 })
     } else if (item.kind === `tool` && !item.workflowId && !traceNotice(item.name) && !item.diff) {
       out.push(findToolRow(item, key, query, null, item.id))
@@ -2130,9 +2144,13 @@ export function feedTranscriptLayout(
     isCommand?: (text: string) => boolean
     /** #EXP-1943: the tree's call sessions (their reports = cards). */
     callIds?: ReadonlySet<string>
+    /** #EXP-1990: the viewer and the members' names (a group chat's inputs). */
+    viewerId?: string | null
+    memberName?: (userId: string) => string | null
   } = {}
 ): Map<string, TranscriptRowLayout> {
   const sessions = new Map<string, { id: string; title: string; agentId: string | null }>()
+  const members = new Map<string, string>()
   const origin = options.origin ?? null
   if (origin) sessions.set(origin.sessionId, { id: origin.sessionId, title: origin.name, agentId: origin.agentId })
   const items: TranscriptItem[] = rows.map((row) => {
@@ -2150,6 +2168,13 @@ export function feedTranscriptLayout(
         if (options.callIds?.size && feedCallSession(item.text ?? ``, options.callIds)) return { id, kind: `full` }
         const cross = feedInput(item.text ?? ``)
         if (cross?.kind === `marker`) return { id, kind: `full` }
+        // #EXP-1990: a member's line in a team agent's group chat: theirs
+        // (the viewer's own = their own bubble).
+        if (cross?.kind === `member`) {
+          if (cross.userId === options.viewerId) return { id, kind: `message`, authorKind: `user`, authorId: FEED_VIEWER }
+          if (!members.has(cross.userId)) members.set(cross.userId, options.memberName?.(cross.userId) ?? cross.name)
+          return { id, kind: `message`, authorKind: `user`, authorId: cross.userId }
+        }
         if (cross) {
           if (!sessions.has(cross.sessionId)) {
             sessions.set(cross.sessionId, { id: cross.sessionId, title: cross.name, agentId: null })
@@ -2171,7 +2196,7 @@ export function feedTranscriptLayout(
   const layouts = transcriptLayout({
     viewerId: FEED_VIEWER,
     chat: { ...chat, originSessionId: origin?.sessionId ?? null, fromStart: options.fromStart ?? true },
-    members: [],
+    members: [...members].map(([id, name]) => ({ id, name })),
     agents: [],
     sessions: [...sessions.values()],
     items,

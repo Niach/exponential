@@ -17,7 +17,7 @@ import {
 } from "./session-tree"
 import { SEALED_BODY_PREFIX, SEALED_PLACEHOLDER, type LockedReason } from "./sealed-content"
 import { titleLine, usableTitleLine } from "./session-title"
-import { isBlankText } from "./transcript-grouping"
+import { isBlankText, TRANSCRIPT_COPY } from "./transcript-grouping"
 import { actionMarker, EXPRESS_COPY, hasExpressBlock, plainProse } from "./chat-express"
 import { agentChatOf } from "./agent-settings"
 
@@ -93,6 +93,8 @@ export type ChatPreviewKind =
   | `question`
   | `plan`
   | `you`
+  /** #EXP-1990: a teammate's text, under their name; drawn as `you`. */
+  | `member`
   | `agent`
   | `picture`
   | `surface`
@@ -232,6 +234,10 @@ export function chatPreview(input: {
   busy: boolean
   /** #EXP-1399 review: the viewer's synced session ids (absent = no check). */
   visibleSessionIds?: readonly string[] | null
+  /** #EXP-1990: the viewer, and the team's members by id: a person's text
+   *  by anyone else reads `copy.preview.member` with their name. */
+  me?: string | null
+  members?: Readonly<Record<string, string>> | null
 }): ChatPreview {
   const copy = fixture.copy.preview
   const visible = input.visibleSessionIds ? new Set(input.visibleSessionIds) : null
@@ -257,6 +263,12 @@ export function chatPreview(input: {
     if (newest.card?.kind === `action`) {
       const body = plainLine(newest.body)
       return { kind: `you`, text: body ? copy.you.replace(`{text}`, body) : actionMarker(String(newest.card.name ?? ``), null) }
+    }
+    // #EXP-1990: a teammate's line (a shared chat, a team agent's group
+    // chat) reads under their name; an unknown author (an older digest) = you.
+    if (newest.authorId && input.me && newest.authorId !== input.me) {
+      const name = input.members?.[newest.authorId] ?? TRANSCRIPT_COPY.formerMember
+      return { kind: `member`, text: copy.member.replace(`{name}`, name).replace(`{text}`, plainLine(newest.body)) }
     }
     return { kind: `you`, text: copy.you.replace(`{text}`, plainLine(newest.body)) }
   }
@@ -328,6 +340,9 @@ export function chatList(input: {
   utcOffsetMinutes: number
   /** #EXP-1399 review: the viewer's synced session ids (`chatPreview`). */
   visibleSessionIds?: readonly string[] | null
+  /** #EXP-1990: the viewer and the members' names (`chatPreview`). */
+  me?: string | null
+  members?: Readonly<Record<string, string>> | null
 }): ChatList {
   const reads = input.reads ?? []
   const archivedIds = new Set(reads.filter((r) => r.archivedAt).map((r) => r.sessionId))
@@ -353,6 +368,8 @@ export function chatList(input: {
           needsYou: row.needsYou,
           busy: row.busy,
           visibleSessionIds: input.visibleSessionIds,
+          me: input.me,
+          members: input.members,
         }),
         activityAt: row.activityAt,
         time: chatTimeLabel(row.activityAt, input.now, input.utcOffsetMinutes),
@@ -428,6 +445,8 @@ export function agentChatRows(input: {
   messages: readonly TreeMessage[]
   reads?: readonly TreeSessionRead[]
   me: string | null
+  /** #EXP-1990: the members' names (`chatPreview`). */
+  members?: Readonly<Record<string, string>> | null
   view?: ChatListView
   now: string
   utcOffsetMinutes: number
@@ -451,7 +470,7 @@ export function agentChatRows(input: {
       color: agent.color,
       assistant: agent.assistant,
       preview: id
-        ? chatPreview({ rootId: id, messages: input.messages, needsYou: agent.needsYou, busy: agent.busy })
+        ? chatPreview({ rootId: id, messages: input.messages, needsYou: agent.needsYou, busy: agent.busy, me: input.me, members: input.members })
         : { kind: `empty`, text: fixture.copy.preview.empty },
       time: activityAt ? chatTimeLabel(activityAt, input.now, input.utcOffsetMinutes) : ``,
       activityAt,
@@ -490,6 +509,8 @@ export function appChatRows(input: {
   messages: readonly TreeMessage[]
   reads?: readonly TreeSessionRead[]
   me: string | null
+  /** #EXP-1990: the members' names (`chatPreview`). */
+  members?: Readonly<Record<string, string>> | null
   view?: ChatListView
   now: string
   utcOffsetMinutes: number
@@ -519,7 +540,7 @@ export function appChatRows(input: {
         icon: app.icon,
         color: app.color,
         preview: id
-          ? chatPreview({ rootId: id, messages: input.messages, needsYou, busy })
+          ? chatPreview({ rootId: id, messages: input.messages, needsYou, busy, me: input.me, members: input.members })
           : { kind: `empty`, text: fixture.copy.preview.empty },
         time: activityAt ? chatTimeLabel(activityAt, input.now, input.utcOffsetMinutes) : ``,
         activityAt,
@@ -643,6 +664,10 @@ export interface DigestMessage {
   id: string
   authorKind: string
   authorSessionId: string | null
+  /** #EXP-1990: a PERSON's message names its author (`chatPreview`: a
+   *  teammate's line never reads `You:`); absent on an agent's message and
+   *  on a digest written before it. */
+  authorId?: string
   body: string
   /** EXP-1458: a sealed card = its clear fields + `sealed`, whole. */
   card: { kind: string; question?: string; plan?: string; title?: string; sealed?: string; [key: string]: unknown } | null
@@ -728,6 +753,7 @@ function digestMessage(m: TreeMessage, body: string = digestText(m.body)): Diges
     id: m.id,
     authorKind: m.authorKind,
     authorSessionId: m.authorSessionId ?? null,
+    ...(m.authorKind === `user` && m.authorId ? { authorId: m.authorId } : {}),
     body: sealedBody ? m.body : cut(body),
     card,
     answeredAt: m.answeredAt,
@@ -786,7 +812,7 @@ export function digestMessages(sessionId: string, digest: ConversationDigest | n
       id: m.id,
       sessionId,
       authorKind: m.authorKind,
-      authorId: null,
+      authorId: m.authorId ?? null,
       authorSessionId: m.authorSessionId,
       body: m.body,
       card: m.card,

@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { agentChatOf, agentsInTeam } from "@exp/domain-contract/agent-settings"
-import { agentCollection, sessionCollection, teamCollection } from "@/lib/collections"
+import { agentCollection, sessionCollection, teamCollection, userCollection } from "@/lib/collections"
 import type { SessionRow } from "@/lib/session-tree"
 import type { SyncedAgent } from "@/components/team/agents-section"
 
@@ -90,5 +90,15 @@ export function useMyAgentConversation(agentId: string | null | undefined, me: s
         ? agentChatOf({ agent: { agentId, groupChatId }, sessions: (data ?? []) as SessionRow[], me })
         : null,
     [data, agentId, groupChatId, me]
+  )
+}
+
+/** #EXP-1990 (chats.json `chatPreview`): every synced member's name by id:
+ *  a teammate's line in a chat list reads under their name. */
+export function useMemberNames(): Readonly<Record<string, string>> {
+  const { data } = useLiveQuery((query) => query.from({ users: userCollection }))
+  return useMemo(
+    () => Object.fromEntries(((data ?? []) as { id: string; name?: string | null }[]).flatMap((user) => (user.name ? [[user.id, user.name]] : []))),
+    [data]
   )
 }
