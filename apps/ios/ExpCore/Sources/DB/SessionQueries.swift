@@ -183,12 +183,16 @@ public enum SessionQueries {
 
     /// steer-enet.json SYNCED TAIL (#FEED-260): one session's card-less agent
     /// lines and person inputs, the newest `limit` (newest first;
-    /// `SteerNoFeed.syncedTail` orders).
+    /// `SteerNoFeed.syncedTail` orders). #EXP-2075: a person's `action` row
+    /// too (a sealed card keeps its `kind` in the clear; it opens where it
+    /// is read).
     public static func tailMessageRows(db: Database, sessionId: String, limit: Int) throws -> [SessionMessage] {
         try SessionMessage.fetchAll(db, sql: """
             \(keyedMessagesSQL) AND "messages"."session_id" = ?
                 AND "messages"."author_kind" IN ('user', 'agent')
-                AND ("messages"."card" IS NULL OR "messages"."card" = 'null')
+                AND ("messages"."card" IS NULL OR "messages"."card" = 'null'
+                    OR ("messages"."author_kind" = 'user' AND json_valid("messages"."card")
+                        AND json_extract("messages"."card", '$.kind') = 'action'))
             ORDER BY "messages"."created_at" DESC, "messages"."id" DESC
             LIMIT ?
             """, arguments: [sessionId, limit])

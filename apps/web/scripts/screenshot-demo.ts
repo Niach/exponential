@@ -411,6 +411,12 @@ export const DEMO_CHAT_IDS = {
 /** The chat the `guide` view opens on its Guide tab (`?tab=guide`). */
 export const DEMO_GUIDE_CHAT_ID = DEMO_CHAT_IDS.batchLabels
 
+/** #EXP-2075: the `session-synced-tail` view's session: FB-9's chat on the
+ *  (offline) build server, so its transcript is NOT live and draws its
+ *  synced messages as the tail (steer-enet.json SYNCED TAIL): the agent's
+ *  line with a view, then a teammate's two presses. */
+export const DEMO_AWAY_SESSION_ID = DEMO_CHAT_IDS.sortReports
+
 /** The chat whose PR carries the REAL GitHub diff (APP-14's, stacked on
  *  batchLabels): the `review-diff` and `guide-section` pages under its Guide
  *  (EXP-1308: APP-15's Guide draws no Changes row, as on iOS + Android). */

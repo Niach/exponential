@@ -1,6 +1,9 @@
 package com.exponential.app.data.steer
 
 import com.exponential.app.domain.AgentPhase
+import com.exponential.app.domain.ChatExpress
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 // VAPP-43: the viewer feed rides eNet only, so the relay's close-code policy
 // (4001 ended, 4003 unauthorized, 4008 slow consumer) is gone with the relay
@@ -198,7 +201,17 @@ data class SteerTailMessage(
     val createdAtMs: Long?,
     /** The OPENED body. */
     val body: String,
+    /** #EXP-2075: the row's `action` card when it reads ([steerTailActionCard]); [hasCard] stays "any card". */
+    val action: ChatExpress.ActionCard? = null,
 )
+
+/** #EXP-2075: a stored card as THE `action` card when it reads (kind
+ *  `action`, a string name and surfaceId), else null. */
+fun steerTailActionCard(card: JsonObject?): ChatExpress.ActionCard? =
+    ChatExpress.ActionCard.of(card)?.takeIf { (card?.get("surfaceId") as? JsonPrimitive)?.isString == true }
+
+private fun samePress(a: ChatExpress.ActionCard, b: ChatExpress.ActionCard): Boolean =
+    a.name == b.name && a.surfaceId == b.surfaceId && a.block == b.block && a.messageId == b.messageId && a.context == b.context
 
 /**
  * #FEED-260 (fixtures/steer-enet.json "SYNCED TAIL", TS `steerSyncedTail`):
@@ -207,9 +220,12 @@ data class SteerTailMessage(
  * body, the agent's or a person's CONSUMED input, later than the feed's
  * newest known row time, not already held by the feed (an agent line equal
  * to, a prefix of or prefixed by a narration; an input equal to a feed
- * input). An empty feed takes the tail only while its live transcript
- * cannot be loaded ([unreachable], the OFFLINE LINE's condition) and only
- * when it holds an agent line.
+ * input). #EXP-2075: a person's CONSUMED row with THE `action` card is an
+ * input too, with or without a body; a feed input that parses with
+ * [ChatExpress.parseActionInput] is that press (its body the parsed one; a
+ * bodiless press compared by its card). An empty feed takes the tail only
+ * while its live transcript cannot be loaded ([unreachable], the OFFLINE
+ * LINE's condition) and only when it holds an agent line.
  */
 fun <T> steerSyncedTail(
     live: Boolean,
@@ -224,16 +240,27 @@ fun <T> steerSyncedTail(
     val feedAt = feed.mapNotNull { it.at }.maxOrNull()
     if (feed.isNotEmpty() && feedAt == null) return emptyList()
     val narrations = feed.filter { it.author == "agent" && !it.text.isNullOrEmpty() }.map { it.text!!.trim() }
-    val inputs = feed.filter { it.author == "user" && !it.text.isNullOrEmpty() }.mapTo(HashSet()) { it.text!!.trim() }
+    val inputs = HashSet<String>()
+    val presses = ArrayList<ChatExpress.ActionCard>()
+    for (r in feed) {
+        if (r.author != "user" || r.text.isNullOrEmpty()) continue
+        val action = ChatExpress.parseActionInput(r.text)
+        val body = (action?.body ?: r.text).trim()
+        if (body.isNotEmpty()) inputs += body else if (action != null) presses += action.card
+    }
     val tail = messages
         .map { it to row(it) }
         .filter { (_, m) ->
-            if (m.hasCard) return@filter false
+            val action = if (m.hasCard && m.authorKind == "user") m.action else null
+            if (m.hasCard && action == null) return@filter false
             val body = m.body.trim()
-            if (body.isEmpty()) return@filter false
-            when (m.authorKind) {
-                "agent" -> if (narrations.any { it.isNotEmpty() && (it.startsWith(body) || body.startsWith(it)) }) return@filter false
-                "user" -> if (m.consumedAt == null || body in inputs) return@filter false
+            when {
+                action != null && body.isEmpty() ->
+                    if (m.consumedAt == null || presses.any { samePress(it, action) }) return@filter false
+                body.isEmpty() -> return@filter false
+                m.authorKind == "agent" ->
+                    if (narrations.any { it.isNotEmpty() && (it.startsWith(body) || body.startsWith(it)) }) return@filter false
+                m.authorKind == "user" -> if (m.consumedAt == null || body in inputs) return@filter false
                 else -> return@filter false
             }
             feedAt == null || (m.createdAtMs != null && m.createdAtMs > feedAt)

@@ -165,12 +165,15 @@ pub struct TailFeedRow<'a> {
 }
 
 /// One synced message as [`synced_tail`] reads it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SyncedTailRow<'a> {
     pub id: &'a str,
     pub author_kind: &'a str,
     /// The row carries a card (`card` set and not JSON null).
     pub has_card: bool,
+    /// #EXP-2075: that card when it is THE `action` card that reads (a
+    /// name and a surfaceId; `None` = any other card, or one not opened).
+    pub action: Option<domain::chat_express::ActionCard>,
     pub consumed_at: Option<&'a str>,
     pub created_at: &'a str,
     pub body: &'a str,
@@ -182,10 +185,13 @@ pub struct SyncedTailRow<'a> {
 /// body, the agent's or a person's CONSUMED input, later than the feed's
 /// newest known row time, and not already held by the feed (an agent line
 /// equal to, a prefix of or prefixed by a narration; an input equal to a feed
-/// input). An empty feed takes the tail only while its live transcript
-/// cannot be loaded (`unreachable`, the OFFLINE LINE's condition) and only
-/// when it holds an agent line (else SENT INPUTS keeps the placeholder). A
-/// live feed = none.
+/// input). #EXP-2075: a person's CONSUMED row with THE `action` card is an
+/// input too, with or without a body; a feed input that parses with
+/// `parse_action_input` is that press (its body the parsed one; a bodiless
+/// press compared by its card). An empty feed takes the tail only while its
+/// live transcript cannot be loaded (`unreachable`, the OFFLINE LINE's
+/// condition) and only when it holds an agent line (else SENT INPUTS keeps
+/// the placeholder). A live feed = none.
 pub fn synced_tail<'r, T>(
     live: bool,
     feed: &[TailFeedRow<'_>],
@@ -207,35 +213,51 @@ pub fn synced_tail<'r, T>(
         .filter_map(|r| r.text.filter(|t| !t.is_empty()))
         .map(str::trim)
         .collect();
-    let inputs: Vec<&str> = feed
-        .iter()
-        .filter(|r| r.author == Some("user"))
-        .filter_map(|r| r.text.filter(|t| !t.is_empty()))
-        .map(str::trim)
-        .collect();
+    let mut inputs: Vec<String> = Vec::new();
+    let mut presses: Vec<domain::chat_express::ActionCard> = Vec::new();
+    for text in feed.iter().filter(|r| r.author == Some("user")).filter_map(|r| r.text.filter(|t| !t.is_empty())) {
+        let (card, body) = match domain::chat_express::parse_action_input(text) {
+            Some((card, body)) => (Some(card), body.trim().to_string()),
+            None => (None, text.trim().to_string()),
+        };
+        if !body.is_empty() {
+            inputs.push(body);
+        } else if let Some(card) = card {
+            presses.push(card);
+        }
+    }
+    let same_press = |a: &domain::chat_express::ActionCard, b: &domain::chat_express::ActionCard| {
+        a.name == b.name && a.surface_id == b.surface_id && a.block == b.block && a.message_id == b.message_id && a.context == b.context
+    };
     let mut tail: Vec<(SyncedTailRow<'r>, &'r T)> = rows
         .iter()
         .map(|item| (row(item), item))
         .filter(|(m, _)| {
-            if m.has_card {
+            let action = m.action.as_ref().filter(|_| m.has_card && m.author_kind == "user");
+            if m.has_card && action.is_none() {
                 return false;
             }
             let body = m.body.trim();
-            if body.is_empty() {
+            if let Some(action) = action.filter(|_| body.is_empty()) {
+                if m.consumed_at.is_none() || presses.iter().any(|press| same_press(press, action)) {
+                    return false;
+                }
+            } else if body.is_empty() {
                 return false;
-            }
-            match m.author_kind {
-                "agent" => {
-                    if narrations.iter().any(|text| !text.is_empty() && (text.starts_with(body) || body.starts_with(text))) {
-                        return false;
+            } else {
+                match m.author_kind {
+                    "agent" => {
+                        if narrations.iter().any(|text| !text.is_empty() && (text.starts_with(body) || body.starts_with(text))) {
+                            return false;
+                        }
                     }
-                }
-                "user" => {
-                    if m.consumed_at.is_none() || inputs.contains(&body) {
-                        return false;
+                    "user" => {
+                        if m.consumed_at.is_none() || inputs.iter().any(|input| input == body) {
+                            return false;
+                        }
                     }
+                    _ => return false,
                 }
-                _ => return false,
             }
             match feed_at {
                 None => true,
@@ -1351,6 +1373,10 @@ mod tests {
                 id: m["id"].as_str().unwrap(),
                 author_kind: m["authorKind"].as_str().unwrap(),
                 has_card: !m["card"].is_null(),
+                // #EXP-2075: the card when it reads as THE `action` card.
+                action: serde_json::from_value::<domain::chat_express::ActionCard>(m["card"].clone())
+                    .ok()
+                    .filter(|card| card.kind == "action"),
                 consumed_at: m["consumedAt"].as_str(),
                 created_at: m["createdAt"].as_str().unwrap(),
             });
@@ -1383,6 +1409,10 @@ mod tests {
                 id: m["id"].as_str().unwrap(),
                 author_kind: m["authorKind"].as_str().unwrap(),
                 has_card: !m["card"].is_null(),
+                // #EXP-2075: the card when it reads as THE `action` card.
+                action: serde_json::from_value::<domain::chat_express::ActionCard>(m["card"].clone())
+                    .ok()
+                    .filter(|card| card.kind == "action"),
                 consumed_at: m["consumedAt"].as_str(),
                 created_at: m["createdAt"].as_str().unwrap(),
                 body: m["body"].as_str().unwrap(),

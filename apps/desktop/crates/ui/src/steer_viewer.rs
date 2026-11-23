@@ -6632,11 +6632,18 @@ impl SteerSessionView {
             let element = self.render_narration(row_id, row.text, row.at, false, Some(&key), express, window, cx);
             return crate::session_chat::sender_row(layout.as_ref(), element, cx);
         }
-        // #EXP-2071: a press = the viewer's bubble with its body, else THE
-        // inline marker.
+        // #EXP-2071: a press = its author's bubble with its body, else THE
+        // inline marker; #EXP-2075: a teammate's marker names them (a full
+        // row carries no sender: their synced name, as the grouping's
+        // members), the viewer's own reads `you`.
         let row = match domain::chat_express::parse_action_input(&row.text) {
             Some((card, body)) if body.trim().is_empty() => {
-                let label = domain::chat_express::action_marker(&card.name, None);
+                let viewer = crate::queries::active_account(cx).map(|account| account.user_id).filter(|id| !id.is_empty());
+                let author = row.author_id.as_deref().filter(|id| viewer.as_deref() != Some(*id)).map(|id| {
+                    let user = sync::Store::try_global(cx).and_then(|store| store.collections().users.read(cx).get(id).cloned());
+                    crate::comments::user_label(id, user.as_ref())
+                });
+                let label = domain::chat_express::action_marker(&card.name, author.as_deref());
                 return crate::surface_card::transcript_marker(SharedString::from(format!("steer-action-{}", row.id)), &label, None, cx);
             }
             Some((_, body)) => SyncedTailRow { text: body, ..row },
@@ -11150,26 +11157,32 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
             _ => Some(TailFeedRow { author: None, text: None, at_ms: None }),
         })
         .collect();
-    // #EXP-2071: a press (a person's row with THE `action` card) reads as
-    // the input line the device delivers (`inputCases`), drawn like it.
-    let action = |m: &domain::rows::MessageRow| -> Option<domain::chat_express::ActionCard> {
-        (m.locked().is_none() && m.card_kind() == Some("action")).then(|| serde_json::from_value(m.card.clone()?).ok()).flatten()
-    };
-    let body = |m: &domain::rows::MessageRow| -> String {
-        match (m.locked(), action(m)) {
-            (Some(reason), _) => domain::sealed::PLACEHOLDER.text(reason).to_string(),
-            (None, Some(card)) => domain::chat_express::action_input(&card, m.body_text().trim()),
-            (None, None) => m.body_text().to_string(),
-        }
-    };
-    let bodies: Vec<String> = messages.iter().map(body).collect();
+    // #EXP-2075: the reference decides on a press (a person's row with THE
+    // `action` card, opened); the drawn row reads as the input line the
+    // device delivers (#EXP-2071 `inputCases`), drawn like it.
+    let actions: Vec<Option<domain::chat_express::ActionCard>> = messages
+        .iter()
+        .map(|m| {
+            (m.locked().is_none() && m.card_kind() == Some("action"))
+                .then(|| serde_json::from_value(m.card.clone()?).ok())
+                .flatten()
+        })
+        .collect();
+    let bodies: Vec<String> = messages
+        .iter()
+        .map(|m| match m.locked() {
+            Some(reason) => domain::sealed::PLACEHOLDER.text(reason).to_string(),
+            None => m.body_text().to_string(),
+        })
+        .collect();
     let indexed: Vec<usize> = (0..messages.len()).collect();
     synced_tail(live, &rows, &indexed, usize::MAX, unreachable, |&i| {
         let m = &messages[i];
         Row {
             id: &m.id,
             author_kind: m.author_kind.as_deref().unwrap_or_default(),
-            has_card: m.card.as_ref().is_some_and(|card| !card.is_null()) && action(m).is_none(),
+            has_card: m.card.as_ref().is_some_and(|card| !card.is_null()),
+            action: actions[i].clone(),
             consumed_at: m.consumed_at.as_deref().filter(|at| !at.is_empty()),
             created_at: m.created_at.as_deref().unwrap_or_default(),
             body: &bodies[i],
@@ -11182,7 +11195,10 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
             id: m.id.clone(),
             agent: m.author_kind.as_deref() == Some(domain::contract::MESSAGE_AUTHOR_KIND_AGENT),
             author_id: m.author_id.clone().filter(|id| !id.is_empty()),
-            text: bodies[i].clone(),
+            text: match &actions[i] {
+                Some(card) => domain::chat_express::action_input(card, bodies[i].trim()),
+                None => bodies[i].clone(),
+            },
             at: m.created_at.as_deref().and_then(domain::session_tree::iso_ms),
         }
     })
@@ -11430,6 +11446,50 @@ mod tests {
         let tail = synced_tail_rows(false, false, &recorded, &synced);
         assert_eq!(tail.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m2"]);
         assert_eq!(tail[0].author_id.as_deref(), Some("u-mira"));
+    }
+
+    /// #EXP-2075 (steer-enet.json SYNCED TAIL): a teammate's consumed press,
+    /// bodied or bodiless, follows a not-live feed as its input line (their
+    /// author kept); once the feed holds its `[action]` line it is not
+    /// drawn twice.
+    #[test]
+    fn a_teammates_consumed_press_follows_the_feed_once() {
+        let item = |id: u64, text: &str| FeedItem {
+            id,
+            kind: FeedKind::UserMessage { text: text.into(), subagent_id: None, at: Some(1_000) },
+            seq: None,
+        };
+        let press = |id: &str, name: &str, body: &str| -> domain::rows::MessageRow {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "session_id": "g1", "root_id": "g1", "author_kind": "user", "author_id": "u-mira", "body": body,
+                "card": { "kind": "action", "name": name, "context": null, "surfaceId": "n:g1:msg_01#1", "block": "n:g1:msg_01#1", "messageId": null },
+                "created_at": "2026-11-23T10:00:05.000Z", "consumed_at": "2026-11-23T10:00:06.000Z"
+            }))
+            .unwrap()
+        };
+        let synced = [press("p1", "reply", "Ship it"), press("p2", "refresh", "")];
+        let tail = synced_tail_rows(false, false, &[item(1, "Cut the release?")], &synced);
+        assert_eq!(tail.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["p1", "p2"]);
+        assert!(tail.iter().all(|row| row.author_id.as_deref() == Some("u-mira")));
+        let (_, body) = domain::chat_express::parse_action_input(&tail[0].text).expect("a press reads as its input line");
+        assert_eq!(body, "Ship it");
+        let (card, body) = domain::chat_express::parse_action_input(&tail[1].text).expect("a press reads as its input line");
+        assert_eq!((card.name.as_str(), body.as_str()), ("refresh", ""));
+        // The feed holds both `[action]` lines: none again.
+        let card = |name: &str| domain::chat_express::ActionCard {
+            kind: "action".into(),
+            name: name.into(),
+            context: None,
+            surface_id: "n:g1:msg_01#1".into(),
+            block: Some("n:g1:msg_01#1".into()),
+            message_id: None,
+        };
+        let recorded = [
+            item(1, "Cut the release?"),
+            item(2, &domain::chat_express::action_input(&card("reply"), "Ship it")),
+            item(3, &domain::chat_express::action_input(&card("refresh"), "")),
+        ];
+        assert!(synced_tail_rows(false, false, &recorded, &synced).is_empty());
     }
 
     /// EXP-1294 rfix: a card's row is the one carrying ITS question id —

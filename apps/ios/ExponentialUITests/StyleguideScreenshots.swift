@@ -145,6 +145,8 @@ final class StyleguideScreenshots: XCTestCase {
     private static let myIssueTitle = "Dark mode contrast pass across settings"
     /// APP-14: the seed's realPr issue (its open PR row).
     private static let guideTitle = "Group board issues by assignee"
+    /// FB-9's chat (DEMO_AWAY_SESSION_ID), on the offline build server.
+    private static let awayChatTitle = "Screenshots attached to feedback"
     /// APP-15: its chat carries the seeded quick replies.
     private static let batchGuideTitle = "Batch-edit labels from the board"
     private static let searchQuery = "by:alex"
@@ -806,6 +808,16 @@ final class StyleguideScreenshots: XCTestCase {
         // (the PR's files loaded) and a result.
         if ScreenshotShots.isWanted("sg_chat-results") {
             walkChatResults(app)
+            showBoard(app)
+            settle(1)
+        }
+
+        // ── sg_session-synced-tail: FB-9's chat, its device away ───────
+        // #EXP-2075 (steer-enet.json SYNCED TAIL): a NOT-live transcript
+        // drawing the session's synced messages, a teammate's presses among
+        // them.
+        if ScreenshotShots.isWanted("sg_session-synced-tail") {
+            walkSyncedTail(app)
             showBoard(app)
             settle(1)
         }
@@ -1809,6 +1821,27 @@ final class StyleguideScreenshots: XCTestCase {
         dismissKeyboard(app)
         snapshot("sg_app-import", settle: 2)
         dismissSheet(app, whileVisible: app.staticTexts["Import an app"])
+        settle(1)
+    }
+
+    /// #EXP-2075: Chats → FB-9's chat (DEMO_AWAY_SESSION_ID, on the seeded
+    /// build server, which is offline): its Chat tab draws the synced tail,
+    /// gated on the teammate's press marker; ends back on the Chats list.
+    @MainActor
+    private func walkSyncedTail(_ app: XCUIApplication) {
+        let chatsTab = app.buttons["tab-chats"]
+        expect(chatsTab, within: Wait.nav, "Chats tab missing")
+        chatsTab.tap()
+        let row = chatRow(app, containing: Self.awayChatTitle)
+        expect(row, within: Wait.sync, "The Chats list has no \"\(Self.awayChatTitle)\" chat — reseed with `bun run seed:screenshots`")
+        row.tap()
+        expect(
+            anyElement(app, identified: "express-action-marker"),
+            within: Wait.sync,
+            "The away chat drew no press marker — is its device seeded offline?"
+        )
+        snapshot("sg_session-synced-tail", settle: 3)
+        goBack(app)
         settle(1)
     }
 

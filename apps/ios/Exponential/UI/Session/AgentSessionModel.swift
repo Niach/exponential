@@ -1948,8 +1948,8 @@ final class AgentSessionModel {
     }
 
     /// #FEED-260 (steer-enet.json SYNCED TAIL): the session's newest card-less
-    /// agent lines and person inputs, opened off main, oldest first; a locked
-    /// body reads the sealed placeholder copy.
+    /// agent lines and person inputs (#EXP-2075: and action rows), opened off
+    /// main, oldest first; a locked body reads the sealed placeholder copy.
     private func startObservingTailMessages() {
         guard tailObservationTask == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
         let id = sessionId
@@ -1964,7 +1964,9 @@ final class AgentSessionModel {
                         consumedAt: m.consumedAt, createdAt: m.createdAt,
                         createdAtMs: WireTimestamps.parse(m.createdAt).map { Int(($0.timeIntervalSince1970 * 1000).rounded()) },
                         body: m.locked.map(SealedPlaceholder.copy) ?? m.body,
-                        authorId: m.authorId
+                        authorId: m.authorId,
+                        // #EXP-2075: the OPENED `action` card (a locked one = none).
+                        action: m.cardSealStatus.isReadable ? ChatExpress.actionCard(m.card) : nil
                     )
                 }
         }

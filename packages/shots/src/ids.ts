@@ -57,6 +57,9 @@ export interface DemoIds {
   guideChatId?: string
   diffChatId?: string
   agentId?: string
+  /** #EXP-2075: `$awaySession` = FB-9's chat on the offline build server
+   *  (a not-live transcript, the `session-synced-tail` view). */
+  awaySessionId?: string
 }
 
 /**
@@ -72,6 +75,7 @@ const NAMED: Record<string, (ids: DemoIds) => string | undefined> = {
   guideChat: (ids) => ids.guideChatId,
   diffChat: (ids) => ids.diffChatId,
   agent: (ids) => ids.agentId,
+  awaySession: (ids) => ids.awaySessionId,
   issueA: (ids) => ids.issueAId,
   issueB: (ids) => ids.issueBId,
   prIssue: (ids) => ids.prIssueId,
@@ -111,6 +115,7 @@ export function parseDemoIds(stdout: string): DemoIds {
     guideChatId: parsed.guideChatId,
     diffChatId: parsed.diffChatId,
     agentId: parsed.agentId,
+    awaySessionId: parsed.awaySessionId,
   }
 }
 

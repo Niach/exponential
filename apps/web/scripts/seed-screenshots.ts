@@ -610,6 +610,10 @@ async function seedFeedbackIssues(ctx: {
  * The LIVE rows' state comes from `DEMO_LIVE_SESSIONS` (the stand-in desktop
  * re-asserts it on every beat), so the seed and the stub cannot disagree.
  */
+/** #EXP-2075: the block a teammate pressed in the away session's seeded
+ *  transcript (a live feed row's key: `messageId` null). */
+const DEMO_AWAY_BLOCK = `n:${DEMO_CHAT_IDS.sortReports}:msg_01#1`
+
 async function seedSessionTree(ctx: {
   teamId: string
   demoId: string
@@ -1361,6 +1365,8 @@ async function seedSessionTree(ctx: {
     rootId?: string
     /** S-3: the session that posted it (its own card = a result). */
     authorSessionId?: string
+    /** #EXP-2075: a teammate's message (absent = the demo user's). */
+    by?: string
   }
   const message = (spec: MessageSpec): typeof messages.$inferInsert => ({
     conversationId: conversationOf(spec.sessionId),
@@ -1369,7 +1375,7 @@ async function seedSessionTree(ctx: {
     shared: spec.shared ?? true,
     ownerId: demoId,
     authorKind: spec.author,
-    authorId: spec.author === `user` ? demoId : null,
+    authorId: spec.author === `user` ? (spec.by ?? demoId) : null,
     authorSessionId: spec.authorSessionId ?? null,
     body: spec.body ?? ``,
     card: spec.card ?? null,
@@ -1527,6 +1533,41 @@ async function seedSessionTree(ctx: {
         author: `agent`,
         body: `#${issue(`FB-9`).identifier}: screenshots attached from Android lose their bottom third. Reproduce with a Pixel-sized capture, fix the crop and open a PR.`,
         at: minutesAgo(8),
+      },
+      // #EXP-2075 (steer-enet.json SYNCED TAIL, the `session-synced-tail`
+      // view): the build server is offline, so this transcript is NOT live
+      // and draws its synced messages: the agent's line with a view, then a
+      // teammate's presses on it (a `reply` = his bubble, any other event =
+      // THE inline marker).
+      {
+        sessionId: ids.sortReports,
+        author: `agent`,
+        body: [
+          `Reproduced on a Pixel 6a: the crop uses the window height, not the image height.`,
+          `<a2ui>`,
+          `root = Stack(children=[title, ship, later])`,
+          `title = Text(text="The fix is one line in the capture crop")`,
+          `ship = Button(label="Ship it", on={press: Event("reply", userMessage="Ship it")})`,
+          `later = Button(label="Add a test first", on={press: Event("add_test")})`,
+          `</a2ui>`,
+        ].join(`\n`),
+        at: minutesAgo(6),
+      },
+      {
+        sessionId: ids.sortReports,
+        author: `user`,
+        by: ctx.jonas,
+        body: ``,
+        card: { kind: `action`, name: `add_test`, context: null, surfaceId: DEMO_AWAY_BLOCK, block: DEMO_AWAY_BLOCK, messageId: null },
+        at: minutesAgo(5),
+      },
+      {
+        sessionId: ids.sortReports,
+        author: `user`,
+        by: ctx.jonas,
+        body: `Ship it`,
+        card: { kind: `action`, name: `reply`, context: null, surfaceId: DEMO_AWAY_BLOCK, block: DEMO_AWAY_BLOCK, messageId: null },
+        at: minutesAgo(4),
       },
       {
         sessionId: ids.offlineSpike,
@@ -1835,7 +1876,9 @@ async function seedSessionTree(ctx: {
     [...Object.values(ids), DEMO_SESSION_ID, DEMO_REPORT_SESSION_ID, DEMO_AGENT_CONVERSATION_ID].map((sessionId) => ({
       userId: demoId,
       sessionId,
-      readAt: sessionId === ids.sortReports ? minutesAgo(10) : new Date(now),
+      // #EXP-2075: read up to its brief, so its ONE unread stays the agent's
+      // newest line (the seeded view the teammate pressed).
+      readAt: sessionId === ids.sortReports ? minutesAgo(7) : new Date(now),
     }))
   )
 
