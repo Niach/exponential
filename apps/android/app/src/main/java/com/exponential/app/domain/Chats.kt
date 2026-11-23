@@ -541,6 +541,8 @@ object Chats {
         DomainContract.messageCardKindAsk,
         DomainContract.messageCardKindPicture,
         DomainContract.messageCardKindSurface,
+        // #EXP-2067 (chat-express.json `previewCases`): a press's row.
+        ChatExpress.ACTION_CARD_KIND,
     )
 
     /** #EXP-1383 (`agentHint.banner`): the agent chat's "Instructions
@@ -808,6 +810,12 @@ object Chats {
         if (newest.authorKind == DomainContract.messageAuthorKindUser) {
             val divider = commandDivider(newest.body)
             if (divider != null) return ChatPreview(divider, Copy.divider(divider))
+            // #EXP-2067 (chat-express.json `previewCases`): an action row reads
+            // as its body, else as its marker.
+            ChatExpress.ActionCard.of(newest.card)?.let { action ->
+                val body = plainLine(newest.body)
+                return ChatPreview("you", if (body.isNotEmpty()) Copy.PREVIEW_YOU.replace("{text}", body) else ChatExpress.actionMarker(action.name, null))
+            }
             return ChatPreview("you", Copy.PREVIEW_YOU.replace("{text}", plainLine(newest.body)))
         }
         val card = newest.card
@@ -822,7 +830,11 @@ object Chats {
             // #EXP-1408: the bus's neutral relay of a private chat: its lead only.
             else ->
                 if (newest.body.startsWith(Copy.PREVIEW_PRIVATE_REPLY_LEAD)) ChatPreview("agent", Copy.PREVIEW_PRIVATE_REPLY_LEAD)
-                else ChatPreview("agent", plainLine(newest.body))
+                else {
+                    // #EXP-2067: an agent text reads its PURE prose (Express blocks out).
+                    val text = plainLine(ChatExpress.plainProse(newest.body))
+                    ChatPreview("agent", if (text.isNotEmpty() || !ChatExpress.hasExpressBlock(newest.body)) text else ChatExpress.Copy.BLOCK_ONLY)
+                }
         }
     }
 

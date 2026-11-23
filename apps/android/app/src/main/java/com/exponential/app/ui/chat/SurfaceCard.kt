@@ -29,7 +29,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.compose.ExponentialSurface
+import at.exponential.ui.model.SurfaceModel
+import com.exponential.app.domain.ChatExpress
 import com.exponential.app.domain.Chats
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.domain.PlanCard
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.theme.GlassTokens
@@ -50,9 +53,8 @@ private val SurfaceFrameFill: Color = GlassTokens.OpaqueCardFill
  * Exponential UI preview (card kind `surface`), painted by the same renderer
  * as the plan card's surface ([rememberCardSurfaceModel] over
  * `ExponentialSurface`) in its own rounded glass frame, as wide as the
- * agent's column. It answers nothing: a press whose event is
- * [Chats.SurfaceCard.REPLY_EVENT] with a non-empty `context.text` posts that
- * text as the person's next message ([Chats.surfaceReply] → [onReply]).
+ * agent's column. It answers nothing.
+ * #EXP-2067: every press posts an action card ([onAction]).
  *
  * ENTER ([animate] = the card ARRIVED while the chat was open; history, a
  * reopen or a scroll never animates): the frame fades in from
@@ -68,7 +70,10 @@ private val SurfaceFrameFill: Color = GlassTokens.OpaqueCardFill
 fun SurfaceCard(
     row: SessionTree.SessionChatRow.Surface,
     animate: Boolean,
-    onReply: (String) -> Unit,
+    /** #EXP-2067 (chat-express.json ACTIONS): EVERY press of the surface as
+     *  [ChatExpress.surfaceAction] over its show origin (`show:<id>`); a
+     *  [ChatExpress.ActionResult.TooLarge] = THE failed-action toast. */
+    onAction: (ChatExpress.ActionResult) -> Unit,
     modifier: Modifier = Modifier,
     /** false = no title caption (the host names it). */
     showTitle: Boolean = true,
@@ -76,15 +81,43 @@ fun SurfaceCard(
      *  hairline, glow or inset). */
     chrome: Boolean = true,
 ) {
-    val reduce = LocalReduceMotion.current
-    val model = rememberCardSurfaceModel(row.surface) { name, context ->
-        Chats.surfaceReply(name, context)?.let(onReply)
+    val model = rememberCardSurfaceModel(row.surface) { name, context, userMessage ->
+        ChatExpress.surfaceAction(name, context, userMessage, ChatExpress.showActionOrigin(row.id))?.let(onAction)
     }
+    SurfaceCardFrame(
+        key = row.id,
+        model = model,
+        animate = animate,
+        modifier = modifier,
+        title = row.title?.trim()?.takeIf { showTitle && it.isNotEmpty() },
+        chrome = chrome,
+    )
+}
+
+/**
+ * THE surface card frame + painter ([SurfaceCard]'s, and #EXP-2073 every
+ * Express block surface's): [model] painted in the glass frame, the ENTER
+ * when [animate]; a null [model] = the empty frame; [placeholder] (no
+ * model) = THE skeleton inside the frame.
+ */
+@Composable
+fun SurfaceCardFrame(
+    key: String,
+    model: SurfaceModel?,
+    animate: Boolean,
+    modifier: Modifier = Modifier,
+    title: String? = null,
+    chrome: Boolean = true,
+    placeholder: Boolean = false,
+    /** #EXP-2067: a block's stream adds children live: no stagger. */
+    stagger: Boolean = true,
+) {
+    val reduce = LocalReduceMotion.current
     // Decided once: a recomposition never re-plays the entrance.
-    val frame = remember(row.id) { Animatable(if (animate) 0f else 1f) }
-    val glow = remember(row.id) { Animatable(if (animate && !reduce) 0f else 1f) }
-    val children = remember(row.id) { List(Chats.SurfaceCard.Children.MAX_STAGGERED) { Animatable(if (animate && !reduce) 0f else 1f) } }
-    LaunchedEffect(row.id) {
+    val frame = remember(key) { Animatable(if (animate) 0f else 1f) }
+    val glow = remember(key) { Animatable(if (animate && !reduce) 0f else 1f) }
+    val children = remember(key) { List(Chats.SurfaceCard.Children.MAX_STAGGERED) { Animatable(if (animate && !reduce && stagger) 0f else 1f) } }
+    LaunchedEffect(key) {
         if (frame.value >= 1f) return@LaunchedEffect
         launch {
             frame.animateTo(
@@ -106,6 +139,7 @@ fun SurfaceCard(
             )
         }
         children.forEachIndexed { index, child ->
+            if (child.value >= 1f) return@forEachIndexed
             launch {
                 delay(Chats.SurfaceCard.childDelayMs(index).toLong())
                 child.animateTo(
@@ -121,7 +155,6 @@ fun SurfaceCard(
     val shape = RoundedCornerShape(PlanCard.Look.SURFACE_RADIUS.dp)
     val stroke = GlassTokens.StrokeCard
     val primary = MaterialTheme.colorScheme.primary
-    val title = row.title?.trim()?.takeIf { showTitle && it.isNotEmpty() }
     // The title = the plan card's surface caption (plan-card.json `card`:
     // 2xs medium muted, `surfaceLabelGap` ABOVE the frame) ×4; it enters
     // with the frame.
@@ -198,6 +231,9 @@ fun SurfaceCard(
                     onDispose { model.nodeModifier = null }
                 }
                 ExponentialSurface(model)
+            } else if (placeholder) {
+                // An open block with no surface yet: THE skeleton (feedback-states.json).
+                SkeletonRows(rows = 2, rowHeight = 24.dp, dot = false)
             } else {
                 // A surface the core refuses: the empty frame.
                 Box(Modifier.size(1.dp).offset(0.dp, 0.dp))
