@@ -3044,8 +3044,8 @@ pub fn decompile_express_json(messages_json: String) -> Result<String, UiError> 
 /// prose); a build without it returns `Invalid`. Always exported, so the
 /// bindings stay one shape across builds.
 #[uniffi::export]
-pub fn express_prompt_json() -> Result<String, UiError> {
-    guarded("express_prompt_json", || {
+pub fn express_prompt() -> Result<String, UiError> {
+    guarded("express_prompt", || {
         #[cfg(feature = "descriptions")]
         {
             eui_core::express::express_prompt().map_err(express_error)

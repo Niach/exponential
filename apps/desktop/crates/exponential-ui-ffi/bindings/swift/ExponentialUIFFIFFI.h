@@ -1518,9 +1518,9 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_error_message_json(RustBuffer code,
 RustBuffer uniffi_exponential_ui_ffi_fn_func_evaluate_expression_json(RustBuffer expr, RustBuffer vars_json, RustBuffer now_ms, RustBuffer zone, RustBuffer max_steps, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_EXPRESS_PROMPT_JSON
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_EXPRESS_PROMPT_JSON
-RustBuffer uniffi_exponential_ui_ffi_fn_func_express_prompt_json(RustCallStatus *_Nonnull out_status
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_EXPRESS_PROMPT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_EXPRESS_PROMPT
+RustBuffer uniffi_exponential_ui_ffi_fn_func_express_prompt(RustCallStatus *_Nonnull out_status
     
 );
 #endif
@@ -2359,9 +2359,9 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_EXPRESS_PROMPT_JSON
-#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_EXPRESS_PROMPT_JSON
-uint16_t uniffi_exponential_ui_ffi_checksum_func_express_prompt_json(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_EXPRESS_PROMPT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_EXPRESS_PROMPT
+uint16_t uniffi_exponential_ui_ffi_checksum_func_express_prompt(void
     
 );
 #endif

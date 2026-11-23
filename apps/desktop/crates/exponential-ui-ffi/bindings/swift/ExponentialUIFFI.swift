@@ -9462,10 +9462,10 @@ public func evaluateExpressionJson(expr: String, varsJson: String, nowMs: Double
  * prose); a build without it returns `Invalid`. Always exported, so the
  * bindings stay one shape across builds.
  */
-public func expressPromptJson()throws  -> String  {
+public func expressPrompt()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
         uniffiCallStatus in
-    uniffi_exponential_ui_ffi_fn_func_express_prompt_json(uniffiCallStatus
+    uniffi_exponential_ui_ffi_fn_func_express_prompt(uniffiCallStatus
     )
 })
 }
@@ -10627,7 +10627,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json() != 24948) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_express_prompt_json() != 34057) {
+    if (uniffi_exponential_ui_ffi_checksum_func_express_prompt() != 56200) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 12274) {

@@ -660,7 +660,7 @@ fn express_errors_cross_the_facade() {
         other => panic!("{other:?}"),
     }
     assert!(matches!(decompile_express_json("{".into()), Err(UiError::Invalid { .. })));
-    let prompt = express_prompt_json();
+    let prompt = express_prompt();
     if cfg!(feature = "descriptions") {
         let prompt = prompt.unwrap();
         assert!(prompt.len() < 60_000 && prompt.contains("Input"), "{} chars", prompt.len());

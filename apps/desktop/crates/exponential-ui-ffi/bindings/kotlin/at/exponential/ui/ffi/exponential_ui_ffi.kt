@@ -860,7 +860,7 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json(
     ): Int
-    external fun uniffi_exponential_ui_ffi_checksum_func_express_prompt_json(
+    external fun uniffi_exponential_ui_ffi_checksum_func_express_prompt(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_extension_errors(
     ): Int
@@ -1831,7 +1831,7 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_evaluate_expression_json(`expr`: RustBuffer.ByValue,`varsJson`: RustBuffer.ByValue,`nowMs`: RustBuffer.ByValue,`zone`: RustBuffer.ByValue,`maxSteps`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
-    external fun uniffi_exponential_ui_ffi_fn_func_express_prompt_json(uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_exponential_ui_ffi_fn_func_express_prompt(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_extension_errors(`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -13507,10 +13507,10 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
          * prose); a build without it returns `Invalid`. Always exported, so the
          * bindings stay one shape across builds.
          */
-    @Throws(UiException::class) fun `expressPromptJson`(): kotlin.String {
+    @Throws(UiException::class) fun `expressPrompt`(): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCallWithError(UiException) { _status ->
-    UniffiLib.uniffi_exponential_ui_ffi_fn_func_express_prompt_json(
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_express_prompt(
     
         _status)
 }
