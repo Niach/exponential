@@ -251,7 +251,7 @@ describe.skipIf(!ready.ok)(`#EXP-1935 the voice Assistant follows team membershi
     })
   })
 
-  // Old data (a per-team row an install held before migration 0293).
+  // Old data (a per-team row an install held before #EXP-1989's migration).
   it(`leaving the only team with an Assistant clears voice`, async () => {
     const me = await user()
     const boss = await user()

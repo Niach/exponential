@@ -802,6 +802,42 @@ pub fn my_assistant<'a>(
         .find(|agent| agent.is_assistant() && agent.owner_id.as_deref() == Some(me))
 }
 
+/// #EXP-1990 (TS `agentChatOf`, agent-settings.json `groupChat.chatCases`):
+/// THE chat of an agent for the viewer: its group chat (`group_chat_id`)
+/// when that root is synced, none when it names a root the viewer does not
+/// sync (private to its owner, never their old conversation); with no group
+/// chat the root with `agent_id` the viewer started (the Assistant; a team
+/// agent before the switch).
+pub fn agent_chat_of<'a>(
+    agent_id: &str,
+    group_chat_id: Option<&str>,
+    sessions: impl IntoIterator<Item = &'a crate::rows::SessionRow>,
+    me: Option<&str>,
+) -> Option<&'a crate::rows::SessionRow> {
+    let mut sessions = sessions.into_iter();
+    if let Some(group) = group_chat_id.filter(|id| !id.is_empty()) {
+        return sessions.find(|session| session.id == group && session.is_root());
+    }
+    let me = me.filter(|me| !me.is_empty())?;
+    sessions.find(|session| {
+        session.is_root() && session.agent_id.as_deref() == Some(agent_id) && session.user_id.as_deref() == Some(me)
+    })
+}
+
+/// #EXP-1990: `root` is its agent's group chat (`agents.group_chat_id`
+/// names it): every member's chat with the agent, whoever started it.
+pub fn is_group_chat_root<'a>(
+    root: &crate::rows::SessionRow,
+    agents: impl IntoIterator<Item = &'a crate::rows::AgentDefRow>,
+) -> bool {
+    let Some(agent_id) = root.agent_id.as_deref().filter(|id| !id.is_empty()) else {
+        return false;
+    };
+    agents
+        .into_iter()
+        .any(|agent| agent.id == agent_id && agent.group_chat_id.as_deref() == Some(root.id.as_str()))
+}
+
 /// #EXP-1988 (TS `assistantPickAgent`, `teamPicks.pickAgentCases`): the agent
 /// a team's section of Settings › Assistant edits: the viewer's Assistant
 /// `agents_in_team` lists in that team, else the page's Assistant.
@@ -1140,6 +1176,53 @@ mod tests {
         serde_json::from_str(AGENT_SETTINGS_JSON).unwrap()
     }
 
+
+    /// #EXP-1990: `groupChat.chatCases` (TS `agentChatOf`).
+    #[test]
+    fn group_chat_chat_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["groupChat"]["chatCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let sessions: Vec<crate::rows::SessionRow> = case["sessions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|session| crate::rows::SessionRow {
+                    id: session["id"].as_str().unwrap().to_string(),
+                    parent_id: session["parentId"].as_str().map(str::to_string),
+                    agent_id: session["agentId"].as_str().map(str::to_string),
+                    user_id: session["userId"].as_str().map(str::to_string),
+                    ..Default::default()
+                })
+                .collect();
+            let got = agent_chat_of(
+                case["agent"]["agentId"].as_str().unwrap(),
+                case["agent"]["groupChatId"].as_str(),
+                &sessions,
+                case["me"].as_str(),
+            );
+            assert_eq!(got.map(|session| session.id.as_str()), case["expected"].as_str(), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_group_chat_root_is_named_by_its_agent() {
+        let agent = |id: &str, group: Option<&str>| -> crate::rows::AgentDefRow {
+            serde_json::from_value(serde_json::json!({"id": id, "group_chat_id": group})).unwrap()
+        };
+        let root = |id: &str, agent: Option<&str>| crate::rows::SessionRow {
+            id: id.to_string(),
+            agent_id: agent.map(str::to_string),
+            ..Default::default()
+        };
+        let agents = [agent("ag1", Some("g1")), agent("ag2", None)];
+        assert!(is_group_chat_root(&root("g1", Some("ag1")), &agents));
+        assert!(!is_group_chat_root(&root("c1", Some("ag1")), &agents));
+        assert!(!is_group_chat_root(&root("g1", Some("ag2")), &agents));
+        assert!(!is_group_chat_root(&root("g1", None), &agents));
+    }
 
     #[test]
     fn actor_cases_match_the_fixture() {

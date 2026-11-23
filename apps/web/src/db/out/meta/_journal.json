@@ -2056,8 +2056,15 @@
     {
       "idx": 293,
       "version": "7",
-      "when": 1795461064672,
-      "tag": "0293_exp1989_one_assistant_per_owner",
+      "when": 1795461456793,
+      "tag": "0293_exp1990_agent_group_chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 294,
+      "version": "7",
+      "when": 1795473093131,
+      "tag": "0294_exp1989_one_assistant_per_owner",
       "breakpoints": true
     }
   ]

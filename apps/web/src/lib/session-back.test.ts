@@ -36,6 +36,8 @@ describe(`session back stack`, () => {
     expect(sessionTarget(`c1`, lookup, `u1`)).toEqual({ to: `chat`, chatId: `t1`, session: `c1` })
     expect(sessionTarget(`ac1`, lookup, `u1`)).toEqual({ to: `agent`, agentId: `a1` })
     expect(sessionTarget(`ac2`, lookup, `u1`)).toEqual({ to: `session`, sessionId: `ac2` })
+    // #EXP-1990: a team agent's group chat is every member's chat with it.
+    expect(sessionTarget(`ac2`, lookup, `u1`, (root) => root.id === `ac2`)).toEqual({ to: `agent`, agentId: `a1` })
     expect(sessionTarget(`ak1`, lookup, `u1`)).toEqual({ to: `session`, sessionId: `ak1` })
     expect(sessionTarget(`ghost`, lookup, `u1`)).toEqual({ to: `session`, sessionId: `ghost` })
   })
@@ -52,7 +54,8 @@ describe(`session target replays inbox-route.json`, () => {
         [rootId, { id: rootId, rootId, agentId: session.agentId, userId: session.userId }],
       ])
       if (rootId !== session.id) rows.set(session.id, { id: session.id, rootId, agentId: null, userId: session.userId })
-      const target = sessionTarget(session.id, (id) => rows.get(id), entry.viewerId)
+      const group = (session as { groupChat?: boolean }).groupChat === true
+      const target = sessionTarget(session.id, (id) => rows.get(id), entry.viewerId, (root) => group && root.id === rootId)
       const expected = entry.expected as { kind: string; agentId?: string; chatId?: string; sessionId?: string | null }
       expect(target).toEqual(
         expected.kind === `agent`

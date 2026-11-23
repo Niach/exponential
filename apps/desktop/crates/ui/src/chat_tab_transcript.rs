@@ -143,7 +143,8 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
     let body = match facts.content {
         // A session's input (`Message from …`) reads as its body alone.
         RowContent::Prompt(text) if !own => match feed_input(text) {
-            Some(FeedInput::Relay { body, .. }) => body,
+            // #EXP-1990: a group chat's member line too.
+            Some(FeedInput::Relay { body, .. } | FeedInput::Member { body, .. }) => body,
             _ => text.to_string(),
         },
         RowContent::Prompt(text) | RowContent::Narration(text) => text.to_string(),
@@ -1120,6 +1121,23 @@ mod tests {
     }
 
     /// #EXP-2071: an Express row and a press are the IDE's rows.
+    /// #EXP-1990: a teammate's member line in a group chat reads as its
+    /// body alone under their name; the viewer's own is the IDE's row.
+    #[test]
+    fn a_member_line_is_its_body_alone() {
+        let line = "Message from Mira Chen (member u-mira): Also check the changelog.";
+        let member = TranscriptSender { kind: SenderKind::Member, id: "u-mira".into(), name: "Mira Chen".into(), link: None };
+        let other = layout(TranscriptSide::Other, Some(member), true, true);
+        let ChatRowInput::Message { body, name, .. } = chat_row(&facts(RowContent::Prompt(line), Some(&other), 16., false)) else {
+            panic!("a message row")
+        };
+        assert_eq!(body, "Also check the changelog.");
+        assert_eq!(name.as_deref(), Some("Mira Chen"));
+        let own = layout(TranscriptSide::Own, None, true, false);
+        let mine = "Message from Alex Carter (member u-alex): Ship it";
+        assert!(matches!(chat_row(&facts(RowContent::Prompt(mine), Some(&own), 16., false)), ChatRowInput::Host { .. }));
+    }
+
     #[test]
     fn express_rows_and_presses_are_host_rows() {
         let first = layout(TranscriptSide::Other, None, true, true);

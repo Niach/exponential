@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, onTestFinished } from "vitest"
 import {
   CLIENT_VERSION_HEADER,
   DEVICE_SEALING_FLOOR,
@@ -8,7 +8,7 @@ import {
   parseVersionTuple,
   versionPayload,
 } from "./client-version"
-import { ASSISTANT_CLIENT_FLOOR } from "@exp/domain-contract/agent-settings"
+import { ASSISTANT_CLIENT_FLOOR, GROUP_CHAT_CLIENT_FLOOR } from "@exp/domain-contract/agent-settings"
 import sealedFixture from "@exp/domain-contract/fixtures/sealed-content.json"
 
 // The min-version gate must fail OPEN on every ambiguity: clients shipped
@@ -154,6 +154,32 @@ describe(`checkClientVersion`, () => {
     delete process.env.CLIENT_MIN_VERSION_ANDROID
     expect(checkClientVersion(req(`android/0.1.0`))).toBeNull()
     expect(versionPayload()).toMatchObject({ desktop: { min: `0.14.171` }, cli: { min: `0.14.171` }, android: { min: null }, ios: { min: `0.15.0` } })
+  })
+
+  it(`raises a configured minimum below the group chat floor once team agents' group chats are on (#EXP-1990)`, async () => {
+    process.env.CLIENT_MIN_VERSION_DESKTOP = `0.14.137`
+    process.env.CLIENT_MIN_VERSION_ANDROID = `0.14.122`
+    process.env.CLIENT_MIN_VERSION_IOS = `0.14.116`
+    process.env.CLIENT_MIN_VERSION_CLI = `0.14.100`
+    // Off: no floor of its own, only the Assistant's (#EXP-1989, always).
+    expect(checkClientVersion(req(`desktop/${ASSISTANT_CLIENT_FLOOR.desktop}`))).toBeNull()
+    process.env.AGENT_GROUP_CHATS = `on`
+    onTestFinished(() => {
+      delete process.env.AGENT_GROUP_CHATS
+    })
+    const floor = GROUP_CHAT_CLIENT_FLOOR
+    const below = (version: string) => version.replace(/\d+$/, (patch) => String(Number(patch) - 1))
+    for (const platform of [`desktop`, `android`, `ios`] as const) {
+      const res = checkClientVersion(req(`${platform}/${below(floor[platform])}`))
+      expect(res?.status).toBe(426)
+      expect(await res?.json()).toMatchObject({ platform, min: floor[platform] })
+      expect(checkClientVersion(req(`${platform}/${floor[platform]}`))).toBeNull()
+    }
+    // The CLI daemon looks nothing up per member: no group chat floor,
+    // only the Assistant's; unset still gates nothing.
+    expect(checkClientVersion(req(`cli/${ASSISTANT_CLIENT_FLOOR.cli}`))).toBeNull()
+    delete process.env.CLIENT_MIN_VERSION_IOS
+    expect(checkClientVersion(req(`ios/0.1.0`))).toBeNull()
   })
 
   it(`ignores a -staging suffix on the client version`, () => {

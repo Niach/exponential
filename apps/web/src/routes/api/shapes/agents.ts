@@ -33,6 +33,8 @@ export const AGENT_COLUMNS = [
   `role`,
   // #EXP-1383: when the instructions last changed (chats.json `agentHint`).
   `instructions_updated_at`,
+  // #EXP-1990: a team agent's group chat root (agent-settings.json `groupChat`).
+  `group_chat_id`,
   `created_at`,
   `updated_at`,
 ]

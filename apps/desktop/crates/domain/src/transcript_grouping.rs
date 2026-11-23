@@ -567,6 +567,19 @@ pub enum FeedInput {
     Marker { key: String, label: String },
     /// Another session's message or a child's report.
     Relay { name: String, session_id: String, body: String, report: bool },
+    /// #EXP-1990: a member's message in a team agent's group chat.
+    Member { name: String, user_id: String, body: String },
+}
+
+static MEMBER_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^Message from (.+?) \(member ([^,)\s]+)\): ([\s\S]*)$").expect("the member-input pattern compiles")
+});
+
+/// #EXP-1990 (`memberInputCases`): a person's message as the device words
+/// it in a team agent's group chat (`coding::pickup::input_text`), so the
+/// agent and the transcript know who wrote it.
+pub fn member_input(name: &str, user_id: &str, body: &str) -> String {
+    format!("Message from {name} (member {user_id}): {body}")
 }
 
 static TAG_PATTERN: LazyLock<Regex> =
@@ -582,7 +595,8 @@ fn marker(key: &str) -> Option<FeedInput> {
 }
 
 /// A feed input: the device's tagged system line = a marker, another
-/// session's input = a relay, else `None` (a person's prompt).
+/// session's input = a relay, a member's line in a group chat = a member
+/// (#EXP-1990), else `None` (a person's prompt).
 pub fn feed_input(text: &str) -> Option<FeedInput> {
     if let Some(found) = TAG_PATTERN.captures(text).and_then(|tag| marker(&tag[1])) {
         return Some(found);
@@ -592,6 +606,13 @@ pub fn feed_input(text: &str) -> Option<FeedInput> {
     }
     if EVENT_PATTERN.is_match(text) {
         return marker("event");
+    }
+    if let Some(member) = MEMBER_PATTERN.captures(text) {
+        return Some(FeedInput::Member {
+            name: member[1].to_string(),
+            user_id: member[2].to_string(),
+            body: member[3].to_string(),
+        });
     }
     let cross = cross_session_input(text)?;
     Some(FeedInput::Relay {
@@ -906,8 +927,32 @@ mod tests {
                     "body": body,
                     "report": report,
                 }),
+                FeedInput::Member { name, user_id, body } => {
+                    json!({"kind": "member", "name": name, "userId": user_id, "body": body})
+                }
             });
             assert_eq!(got.unwrap_or(Value::Null), case["expected"], "{name}");
+        }
+    }
+
+    /// #EXP-1990: `memberInputCases`, and each line reads back whole.
+    #[test]
+    fn every_member_input_case_words() {
+        let fixture = fixture();
+        let cases = fixture["memberInputCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let input = &case["input"];
+            let (member, user_id, body) =
+                (input["name"].as_str().unwrap(), input["userId"].as_str().unwrap(), input["body"].as_str().unwrap());
+            let got = member_input(member, user_id, body);
+            assert_eq!(got, case["expected"].as_str().unwrap(), "{name}");
+            assert_eq!(
+                feed_input(&got),
+                Some(FeedInput::Member { name: member.into(), user_id: user_id.into(), body: body.into() }),
+                "{name}"
+            );
         }
     }
 

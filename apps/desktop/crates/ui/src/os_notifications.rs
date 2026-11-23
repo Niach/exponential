@@ -721,19 +721,10 @@ fn session_roots(cx: &App) -> impl Fn(&str) -> Option<String> + 'static {
     move |id: &str| roots.get(id).cloned()
 }
 
-/// The viewer's own conversation with an agent (the Agent page's chat): the
-/// root session carrying that agent and the viewer's user id.
+/// The viewer's chat with an agent (the Agent page's chat): #EXP-1990
+/// `agent_chat_of` (a team agent's group chat, else their own conversation).
 fn agent_conversation(agent_id: &str, cx: &App) -> Option<String> {
-    let user_id = queries::active_account(cx)?.user_id;
-    let sessions = Store::global(cx).collections().sessions.read(cx);
-    sessions
-        .iter()
-        .find(|session| {
-            session.agent_id.as_deref() == Some(agent_id)
-                && session.user_id.as_deref() == Some(user_id.as_str())
-                && session.parent_id.is_none()
-        })
-        .map(|session| session.id.clone())
+    crate::session_data::my_conversation(agent_id, cx).map(|session| session.id)
 }
 
 /// What the app shows: focused or not, and the focused shell window's

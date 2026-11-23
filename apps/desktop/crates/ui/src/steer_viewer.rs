@@ -288,8 +288,101 @@ fn own_bubble_fingerprint(bubble: &crate::session_outbox::OwnBubble) -> u64 {
 struct SyncedTailRow {
     id: String,
     agent: bool,
+    /// #EXP-1990: who wrote a person's row (`messages.author_id`): a
+    /// teammate's reads as theirs (transcript-grouping.json), never the
+    /// viewer's.
+    author_id: Option<String>,
     text: String,
     at: Option<i64>,
+}
+
+/// #EXP-1990 (transcript-grouping.json): who wrote each person's row of a
+/// transcript whose device feed names no author: the session's synced
+/// person messages in order (their opened body, their `author_id`). `None`
+/// while every one is the viewer's (their own chats: nothing to resolve).
+struct PersonAuthors {
+    rows: Vec<(String, String)>,
+    cursor: usize,
+}
+
+impl PersonAuthors {
+    fn of(messages: &[domain::rows::MessageRow], viewer: &str) -> Option<Self> {
+        let person = |m: &&domain::rows::MessageRow| m.author_kind.as_deref() == Some(domain::contract::MESSAGE_AUTHOR_KIND_USER);
+        let author = |m: &domain::rows::MessageRow| m.author_id.clone().filter(|id| !id.is_empty());
+        if !messages.iter().filter(person).any(|m| author(m).is_some_and(|id| id != viewer)) {
+            return None;
+        }
+        let rows = messages
+            .iter()
+            .filter(person)
+            .filter(|m| m.locked().is_none())
+            .filter_map(|m| Some((m.body_text().trim().to_string(), author(m)?)))
+            .collect();
+        Some(Self { rows, cursor: 0 })
+    }
+
+    /// The author of the next person row reading `text` (the feed's rows
+    /// come in the messages' order); `None` = no synced row says.
+    fn next(&mut self, text: &str) -> Option<String> {
+        let text = text.trim();
+        let at = self.rows[self.cursor..].iter().position(|(body, _)| body == text)? + self.cursor;
+        self.cursor = at + 1;
+        Some(self.rows[at].1.clone())
+    }
+
+    /// The members the rows name (the layout's `members`).
+    fn members(&self, cx: &App) -> Vec<domain::transcript_grouping::TranscriptMember> {
+        let users = sync::Store::try_global(cx).map(|store| store.collections().users.clone());
+        let mut ids: Vec<&str> = self.rows.iter().map(|(_, id)| id.as_str()).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids.into_iter()
+            .map(|id| {
+                let user = users.as_ref().and_then(|users| users.read(cx).get(id).cloned());
+                domain::transcript_grouping::TranscriptMember { id: id.to_string(), name: crate::comments::user_label(id, user.as_ref()) }
+            })
+            .collect()
+    }
+}
+
+/// #EXP-1990: a member's synced name (`None` = no row, or a nameless one).
+fn synced_member_name(user_id: &str, cx: &App) -> Option<String> {
+    let user = sync::Store::try_global(cx)?.collections().users.read(cx).get(user_id).cloned()?;
+    user.name.filter(|name| !name.trim().is_empty())
+}
+
+/// #EXP-1990 (transcript-grouping.json MEMBER INPUTS): a group chat's feed
+/// line as its transcript item: a `message` by that member (the viewer's
+/// own id = their own bubble); a teammate joins `members` under their
+/// synced name, else the line's own.
+fn member_line_item(
+    id: String,
+    user_id: &str,
+    line_name: &str,
+    viewer: &str,
+    synced_name: Option<String>,
+    members: &mut Vec<domain::transcript_grouping::TranscriptMember>,
+) -> domain::transcript_grouping::TranscriptItem {
+    if user_id != viewer {
+        let member = domain::transcript_grouping::TranscriptMember {
+            id: user_id.to_string(),
+            name: synced_name.unwrap_or_else(|| line_name.to_string()),
+        };
+        match members.iter_mut().find(|known| known.id == user_id) {
+            Some(known) => *known = member,
+            None => members.push(member),
+        }
+    }
+    domain::transcript_grouping::TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_USER, Some(user_id), None)
+}
+
+/// #EXP-1990: the text a feed input's bubble holds, is found over and is
+/// compared by: a group chat's member line reads as its `body` alone.
+pub(crate) fn member_body(text: &str) -> std::borrow::Cow<'_, str> {
+    match domain::transcript_grouping::feed_input(text) {
+        Some(domain::transcript_grouping::FeedInput::Member { body, .. }) => std::borrow::Cow::Owned(body),
+        _ => std::borrow::Cow::Borrowed(text),
+    }
 }
 
 /// A conversation card's measure: its whole row (an answer, a decision, a
@@ -1473,8 +1566,17 @@ impl SteerSessionView {
                 .filter(|id| !id.is_empty())
                 .and_then(|parent| Self::transcript_session(parent, None, cx)),
         };
+        // #EXP-1990: a teammate's row is theirs (a shared chat, a team
+        // agent's group chat); a row no synced message names stays the
+        // viewer's, as before.
+        let viewer = crate::queries::active_account(cx)
+            .map(|account| account.user_id)
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| VIEWER.to_string());
+        let mut authors = PersonAuthors::of(&crate::session_data::messages_of_session(&self.session_id, cx), &viewer);
         let mut input = TranscriptInput {
-            viewer_id: Some(VIEWER.to_string()),
+            viewer_id: Some(viewer.clone()),
+            members: authors.as_ref().map(|authors| authors.members(cx)).unwrap_or_default(),
             chat: TranscriptChat {
                 session_id: self.session_id.clone(),
                 title,
@@ -1523,7 +1625,28 @@ impl SteerSessionView {
                                     Some(session_id.as_str()),
                                 )
                             }
-                            None => TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_USER, Some(VIEWER), None),
+                            // #EXP-1990 (MEMBER INPUTS): a group chat's line
+                            // names its member: theirs (the viewer's own =
+                            // their own bubble), under the synced member's
+                            // name, else the line's.
+                            Some(FeedInput::Member { name, user_id, body }) => {
+                                // The synced rows stay in step for any bare
+                                // line after it.
+                                let _ = authors.as_mut().and_then(|authors| authors.next(&body));
+                                let synced = (user_id != viewer).then(|| synced_member_name(&user_id, cx)).flatten();
+                                member_line_item(id, &user_id, &name, &viewer, synced, &mut input.members)
+                            }
+                            // No member line (a plain shared chat): the
+                            // synced row's author.
+                            None => {
+                                let author = authors.as_mut().and_then(|authors| authors.next(text));
+                                TranscriptItem::message(
+                                    id,
+                                    domain::contract::MESSAGE_AUTHOR_KIND_USER,
+                                    Some(author.as_deref().unwrap_or(viewer.as_str())),
+                                    None,
+                                )
+                            }
                         }
                     }
                     // #EXP-1864: a notice = THE marker, full width.
@@ -1550,7 +1673,12 @@ impl SteerSessionView {
             } else if domain::chat_express::parse_action_input(&row.text).is_some_and(|(_, body)| body.trim().is_empty()) {
                 TranscriptItem::full(id)
             } else {
-                TranscriptItem::message(id, domain::contract::MESSAGE_AUTHOR_KIND_USER, Some(VIEWER), None)
+                TranscriptItem::message(
+                    id,
+                    domain::contract::MESSAGE_AUTHOR_KIND_USER,
+                    Some(row.author_id.as_deref().unwrap_or(viewer.as_str())),
+                    None,
+                )
             };
             kinds.push(item.kind);
             input.items.push(item);
@@ -6163,6 +6291,12 @@ impl SteerSessionView {
     /// oldest first: what [`Self::render_no_feed_inputs`] draws and find
     /// in chat counts (#EXP-1975).
     pub(crate) fn no_feed_input_rows(&self, cx: &App) -> Vec<(String, String, String)> {
+        self.no_feed_inputs_authored(cx).into_iter().map(|(id, text, time, _)| (id, text, time)).collect()
+    }
+
+    /// [`Self::no_feed_input_rows`] with each input's author
+    /// (`messages.author_id`, #EXP-1990).
+    fn no_feed_inputs_authored(&self, cx: &App) -> Vec<(String, String, String, Option<String>)> {
         let messages = crate::session_data::messages_of_session(&self.session_id, cx);
         // #EXP-1998: the newest `NO_FEED_INPUTS_MAX`, or every one from the
         // message find in chat landed on.
@@ -6178,43 +6312,95 @@ impl SteerSessionView {
                 };
                 // #FEED-237: the time the bubble wears (message-delivery.json).
                 let time = crate::session_chat::clock(message.created_at.as_deref());
-                (!domain::transcript_grouping::is_blank_text(&text)).then(|| (message.id.clone(), text, time))
+                (!domain::transcript_grouping::is_blank_text(&text))
+                    .then(|| (message.id.clone(), text, time, message.author_id.clone().filter(|id| !id.is_empty())))
             })
             .collect()
+    }
+
+    /// #EXP-1990 (transcript-grouping.json): the SENT INPUTS' grouping: the
+    /// viewer's own on the right, a teammate's on the left under their
+    /// avatar and name (a shared chat, a team agent's group chat).
+    fn no_feed_layouts(
+        &self,
+        inputs: &[(String, String, String, Option<String>)],
+        cx: &App,
+    ) -> Vec<domain::transcript_grouping::TranscriptRowLayout> {
+        use domain::transcript_grouping::{transcript_layout, TranscriptChat, TranscriptInput, TranscriptItem, TranscriptMember};
+        let viewer = crate::queries::active_account(cx).map(|account| account.user_id).filter(|id| !id.is_empty());
+        let users = sync::Store::try_global(cx).map(|store| store.collections().users.clone());
+        let mut ids: Vec<&str> = inputs.iter().filter_map(|(_, _, _, author)| author.as_deref()).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let members = ids
+            .into_iter()
+            .map(|id| {
+                let user = users.as_ref().and_then(|users| users.read(cx).get(id).cloned());
+                TranscriptMember { id: id.to_string(), name: crate::comments::user_label(id, user.as_ref()) }
+            })
+            .collect();
+        transcript_layout(&TranscriptInput {
+            viewer_id: viewer.clone(),
+            members,
+            chat: TranscriptChat {
+                session_id: self.session_id.clone(),
+                agent_id: self.row.as_ref().and_then(|row| row.agent_id.clone()).filter(|id| !id.is_empty()),
+                ..TranscriptChat::default()
+            },
+            items: inputs
+                .iter()
+                .map(|(id, _, _, author)| {
+                    TranscriptItem::message(
+                        id.clone(),
+                        domain::contract::MESSAGE_AUTHOR_KIND_USER,
+                        author.as_deref().or(viewer.as_deref()),
+                        None,
+                    )
+                })
+                .collect(),
+            ..TranscriptInput::default()
+        })
     }
 
     /// #EXP-1998: one element per bubble (the placeholder's scrolling
     /// column holds them with the own tail, find in chat centres by index).
     fn render_no_feed_inputs(&self, window: &mut Window, cx: &mut gpui::Context<Self>) -> Vec<AnyElement> {
-        let inputs = self.no_feed_input_rows(cx);
+        let inputs = self.no_feed_inputs_authored(cx);
+        let layouts = self.no_feed_layouts(&inputs, cx);
         let count = inputs.len() as FeedItemId;
         let mut column = Vec::with_capacity(inputs.len());
-        for (index, (id, text, time)) in inputs.into_iter().enumerate() {
+        for (index, (id, text, time, _)) in inputs.into_iter().enumerate() {
+            let layout = layouts.get(index);
+            let own = layout.is_none_or(|layout| layout.side == domain::transcript_grouping::TranscriptSide::Own);
             // A synthetic item id just below the synthetic rows' (the feed
             // is empty while these show).
             let item = ORPHAN_ROW_BASE - count + index as FeedItemId;
             let sizes = crate::session_chat::transcript_sizes();
-            let width = self.user_bubble_width(&text, sizes.avatar + sizes.avatar_gap, true, window);
+            let width = self.user_bubble_width(&text, sizes.avatar + sizes.avatar_gap, own, window);
             let bubble = crate::session_chat::message_bubble(
                 crate::session_chat::MessageBubble {
                     id: SharedString::from(format!("steer-sent-input-{id}")),
                     body: self.render_user_message(item, &text, Some(&domain::find_in_chat::message_key(&id)), cx),
                     time,
-                    own: true,
-                    name: None,
+                    own,
+                    name: layout.filter(|layout| !own && layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
                     link: None,
                     // #FEED-237: a consumed input = processed into the
                     // session (message-delivery.json `read`); the
                     // unconsumed ones and the outbox follow as the own tail.
-                    status: Some(domain::message_delivery::DeliveryState::Read),
+                    status: own.then_some(domain::message_delivery::DeliveryState::Read),
                     menu: None,
                     width: Some(width),
-                    tail: (index == 0).into(),
+                    tail: layout.map_or(index == 0, |layout| layout.tail).into(),
                 },
                 cx,
             );
-            // #FEED-239: one own group, the viewer's avatar on its first.
-            column.push(crate::session_chat::own_row(index == 0, bubble, cx).into_any_element());
+            // #FEED-239: an own group wears the viewer's avatar on its
+            // first; #EXP-1990: a teammate's group theirs.
+            column.push(match layout {
+                Some(layout) => crate::session_chat::sender_row(Some(layout), bubble, cx),
+                None => crate::session_chat::own_row(index == 0, bubble, cx).into_any_element(),
+            });
         }
         column
     }
@@ -6457,25 +6643,31 @@ impl SteerSessionView {
             None => row,
         };
         let avatar = layout.as_ref().is_none_or(|layout| layout.avatar);
+        // #EXP-1990: a teammate's input is theirs (left, their avatar and
+        // name), never the viewer's.
+        let own = layout.as_ref().is_none_or(|layout| layout.side == domain::transcript_grouping::TranscriptSide::Own);
         let sizes = crate::session_chat::transcript_sizes();
-        let width = self.user_bubble_width(&row.text, sizes.avatar + sizes.avatar_gap, true, window);
+        let width = self.user_bubble_width(&row.text, sizes.avatar + sizes.avatar_gap, own, window);
         let bubble = crate::session_chat::message_bubble(
             crate::session_chat::MessageBubble {
                 id: SharedString::from(format!("steer-synced-tail-{}", row.id)),
                 body: self.render_user_message(row_id, &row.text, Some(&domain::find_in_chat::message_key(&row.id)), cx),
                 time: row.at.map(crate::session_chat::clock_ms).unwrap_or_default(),
-                own: true,
-                name: None,
+                own,
+                name: layout.as_ref().filter(|layout| !own && layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
                 link: None,
                 // A consumed input = processed into the session
                 // (message-delivery.json `read`).
-                status: Some(domain::message_delivery::DeliveryState::Read),
+                status: own.then_some(domain::message_delivery::DeliveryState::Read),
                 menu: None,
                 width: Some(width),
                 tail: layout.as_ref().is_none_or(|layout| layout.tail).into(),
             },
             cx,
         );
+        if !own {
+            return crate::session_chat::sender_row(layout.as_ref(), bubble, cx);
+        }
         crate::session_chat::own_row(avatar, bubble, cx)
     }
 
@@ -6881,8 +7073,11 @@ impl SteerSessionView {
                     return crate::surface_card::transcript_marker(SharedString::from(format!("steer-action-{}", item.id)), &label, None, cx);
                 }
                 let relay = !own && layout.and_then(|layout| layout.sender.as_ref()).is_some_and(|sender| sender.link.is_some());
-                let parsed = match domain::transcript_grouping::feed_input(text).filter(|_| !own) {
-                    Some(domain::transcript_grouping::FeedInput::Relay { body, .. }) => Some(body),
+                let parsed = match domain::transcript_grouping::feed_input(text) {
+                    Some(domain::transcript_grouping::FeedInput::Relay { body, .. }) if !own => Some(body),
+                    // #EXP-1990: a member's line = its body alone, on
+                    // either side.
+                    Some(domain::transcript_grouping::FeedInput::Member { body, .. }) => Some(body),
                     _ => action.map(|(_, body)| body),
                 };
                 let body = parsed.as_deref().unwrap_or(text.as_str());
@@ -10226,7 +10421,11 @@ pub(crate) fn drop_silent_rows(rows: &mut Vec<FeedRowSpec>, items: &[steer::feed
                 Some(item) => match &item.kind {
                     FeedKind::UserMessage { text, .. } => match feed_input(text) {
                         // #FEED-254: another session's relayed line with a blank body draws nothing.
-                        Some(FeedInput::Relay { body, .. }) if domain::transcript_grouping::is_blank_text(&body) => FeedRowRole::Blank,
+                        Some(FeedInput::Relay { body, .. } | FeedInput::Member { body, .. })
+                            if domain::transcript_grouping::is_blank_text(&body) =>
+                        {
+                            FeedRowRole::Blank
+                        }
                         Some(FeedInput::Marker { key, .. }) if key == "schedule" => FeedRowRole::Schedule,
                         Some(FeedInput::Marker { .. }) => FeedRowRole::Marker,
                         _ => FeedRowRole::Input,
@@ -10924,15 +11123,27 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
     if live {
         return Vec::new();
     }
+    // #EXP-1990: a group chat's member line is compared by its body (what
+    // the synced row holds).
+    let inputs: Vec<Option<std::borrow::Cow<'_, str>>> = feed
+        .iter()
+        .map(|item| match &item.kind {
+            FeedKind::UserMessage { text, subagent_id: None, .. } => Some(member_body(text)),
+            _ => None,
+        })
+        .collect();
     let rows: Vec<TailFeedRow> = feed
         .iter()
-        .filter_map(|item| match &item.kind {
+        .zip(&inputs)
+        .filter_map(|(item, input)| match &item.kind {
             FeedKind::Narration { subagent_id: Some(_), .. }
             | FeedKind::UserMessage { subagent_id: Some(_), .. }
             | FeedKind::Tool { subagent_id: Some(_), .. }
             | FeedKind::Thought { subagent_id: Some(_), .. } => None,
             FeedKind::Narration { text, at, .. } => Some(TailFeedRow { author: Some("agent"), text: Some(text), at_ms: *at }),
-            FeedKind::UserMessage { text, at, .. } => Some(TailFeedRow { author: Some("user"), text: Some(text), at_ms: *at }),
+            FeedKind::UserMessage { text, at, .. } => {
+                Some(TailFeedRow { author: Some("user"), text: Some(input.as_deref().unwrap_or(text)), at_ms: *at })
+            }
             FeedKind::Tool { settled, settled_at, .. } => {
                 Some(TailFeedRow { author: None, text: None, at_ms: if *settled { *settled_at } else { None } })
             }
@@ -10970,6 +11181,7 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
         SyncedTailRow {
             id: m.id.clone(),
             agent: m.author_kind.as_deref() == Some(domain::contract::MESSAGE_AUTHOR_KIND_AGENT),
+            author_id: m.author_id.clone().filter(|id| !id.is_empty()),
             text: bodies[i].clone(),
             at: m.created_at.as_deref().and_then(domain::session_tree::iso_ms),
         }
@@ -11123,6 +11335,102 @@ mod tests {
     }
 
     use super::*;
+
+    /// #EXP-1990 (transcript-grouping.json): a transcript's person rows read
+    /// their synced author: a teammate's message is theirs, in the feed's
+    /// order, and a chat only the viewer wrote into resolves nothing.
+    #[test]
+    fn person_rows_read_their_synced_author() {
+        let message = |id: &str, kind: &str, author: Option<&str>, body: &str| -> domain::rows::MessageRow {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "session_id": "g1", "root_id": "g1", "author_kind": kind, "author_id": author, "body": body,
+                "created_at": "2026-11-23T10:00:00.000Z"
+            }))
+            .unwrap()
+        };
+        let mine = [message("m1", "user", Some("u-me"), "hi"), message("m2", "agent", None, "hello")];
+        assert!(PersonAuthors::of(&mine, "u-me").is_none());
+        let group = [
+            message("m1", "user", Some("u-me"), "Cut the build?"),
+            message("m2", "agent", None, "On it."),
+            message("m3", "user", Some("u-mira"), " Looks good "),
+            message("m4", "user", Some("u-me"), "Looks good"),
+        ];
+        let mut authors = PersonAuthors::of(&group, "u-me").expect("a teammate wrote");
+        assert_eq!(authors.next("Cut the build?").as_deref(), Some("u-me"));
+        // The same text twice: the feed's order names each.
+        assert_eq!(authors.next("Looks good").as_deref(), Some("u-mira"));
+        assert_eq!(authors.next("Looks good").as_deref(), Some("u-me"));
+        // A row no synced message names: the caller keeps the viewer.
+        assert_eq!(authors.next("never synced"), None);
+    }
+
+    /// #EXP-1990 (transcript-grouping.json MEMBER INPUTS), over a recorded
+    /// group chat feed: each member line is a message by that member (the
+    /// viewer's own right, a teammate's left under their name: the synced
+    /// one, else the line's), its bubble and its synced-tail compare the
+    /// body alone.
+    #[test]
+    fn a_group_chats_member_lines_are_their_members_bubbles() {
+        use domain::transcript_grouping::{feed_input, transcript_layout, FeedInput, TranscriptChat, TranscriptInput, TranscriptItem, TranscriptSide};
+        let feed = [
+            "Message from Alex Carter (member u-alex): Cut the release?",
+            "Message from Mira C. (member u-mira): Also check the changelog.\n\n![shot.png](/api/attachments/a1)",
+            "Message from Jo (member u-gone): bye",
+            "plain line",
+        ];
+        let mut input = TranscriptInput {
+            viewer_id: Some("u-alex".to_string()),
+            chat: TranscriptChat { session_id: "g1".into(), agent_id: Some("ag1".into()), ..TranscriptChat::default() },
+            ..TranscriptInput::default()
+        };
+        for (index, text) in feed.iter().enumerate() {
+            let item = match feed_input(text) {
+                Some(FeedInput::Member { name, user_id, .. }) => {
+                    let synced = (user_id == "u-mira").then(|| "Mira Chen".to_string());
+                    member_line_item(index.to_string(), &user_id, &name, "u-alex", synced, &mut input.members)
+                }
+                _ => TranscriptItem::message(index.to_string(), domain::contract::MESSAGE_AUTHOR_KIND_USER, Some("u-alex"), None),
+            };
+            input.items.push(item);
+        }
+        let layouts = transcript_layout(&input);
+        let read = |index: usize| {
+            let layout = &layouts[index];
+            (layout.side, layout.sender.as_ref().map(|sender| sender.name.as_str()))
+        };
+        assert_eq!(read(0).0, TranscriptSide::Own);
+        assert_eq!(read(1), (TranscriptSide::Other, Some("Mira Chen")));
+        assert_eq!(read(2), (TranscriptSide::Other, Some("Jo")));
+        assert_eq!(read(3).0, TranscriptSide::Own);
+        // The viewer is never a listed member (their bubble wears no name).
+        assert!(input.members.iter().all(|member| member.id != "u-alex"));
+        // The bubble, find in chat and the synced tail read the body alone.
+        assert_eq!(member_body(feed[0]), "Cut the release?");
+        assert_eq!(member_body(feed[1]), "Also check the changelog.\n\n![shot.png](/api/attachments/a1)");
+        assert_eq!(member_body(feed[3]), "plain line");
+        // A not-live feed never draws a member line's synced row again.
+        let item = |id: u64, text: &str| FeedItem {
+            id,
+            kind: FeedKind::UserMessage { text: text.into(), subagent_id: None, at: Some(1_000) },
+            seq: None,
+        };
+        let message = |id: &str, author: &str, body: &str, at: &str| -> domain::rows::MessageRow {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "session_id": "g1", "root_id": "g1", "author_kind": "user", "author_id": author, "body": body,
+                "created_at": at, "consumed_at": at
+            }))
+            .unwrap()
+        };
+        let recorded = [item(1, feed[0])];
+        let synced = [
+            message("m1", "u-alex", "Cut the release?", "2026-11-23T10:00:00.000Z"),
+            message("m2", "u-mira", "Later line", "2026-11-23T10:00:05.000Z"),
+        ];
+        let tail = synced_tail_rows(false, false, &recorded, &synced);
+        assert_eq!(tail.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m2"]);
+        assert_eq!(tail[0].author_id.as_deref(), Some("u-mira"));
+    }
 
     /// EXP-1294 rfix: a card's row is the one carrying ITS question id —
     /// never the newest open card of its kind (an agent's tool-posted ask

@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react"
+import { isGroupChatRoot } from "@/lib/group-chat"
 import { useNavigate } from "@tanstack/react-router"
 import type { UserAvatarAgent } from "@exp/ui"
 import { agentCollection, sessionCollection } from "@/lib/collections"
@@ -35,7 +36,8 @@ export function useSessionNav({
       const target = sessionTarget(
         sessionId,
         (id) => sessionCollection.get(id) as SessionRow | undefined,
-        viewerId
+        viewerId,
+        isGroupChatRoot
       )
       const backValue = backParam(next)
       const backSearch = backValue ? { back: backValue } : {}

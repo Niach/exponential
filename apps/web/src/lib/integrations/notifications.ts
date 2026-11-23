@@ -70,6 +70,7 @@ import type { CodingSessionBlocked, MessageCard } from "@exp/db-schema/domain"
 import type { NotificationType } from "@/lib/domain"
 import { alias } from "drizzle-orm/pg-core"
 import { agentSignOutTitle, type AgentSignOut } from "@/lib/agent-sign-out"
+import { groupAskRecipients } from "@/lib/agents/group-chat"
 
 // The canonical push `data.type` discriminator vocabulary (D8/D13). The web
 // emits these; the native clients route on them. Every value is now a real
@@ -1124,7 +1125,8 @@ export function notificationActionData(
  * #VAPP-45 (question-push.json): a ROOT session posted a question or plan
  * card on itself (it now waits on a person): ONE issue-less `agent_message`
  * row + push to its OWNER alone (#EXP-1439: an Assistant's decision is the
- * same push under its own title). A child's ask routes to its parent agent:
+ * same push under its own title; #EXP-1990: a team agent's group chat
+ * pushes the asker, agent-settings.json `groupChat.askCases`). A child's ask routes to its parent agent:
  * nothing. A SEALED card is never opened: the row and the push say the
  * generic copy and the push's data carries the device's tree-sealed
  * `askText` verbatim (`sealedText`), which the phone opens. Best-effort,
@@ -1146,6 +1148,7 @@ export async function notifySessionAsk(args: {
         rootId: sessions.rootId,
         title: sessions.title,
         userId: sessions.userId,
+        agentId: sessions.agentId,
         teamId: sessions.teamId,
         teamSlug: teams.slug,
         agentRole: agents.role,
@@ -1156,7 +1159,8 @@ export async function notifySessionAsk(args: {
       .where(eq(sessions.id, args.sessionId))
       .limit(1)
     if (!session) return
-    const recipientIds = questionPushRecipients(session)
+    // #EXP-1990: a team agent's group chat pushes the asker (else its owner).
+    const recipientIds = questionPushRecipients(session, await groupAskRecipients(db, session))
     if (recipientIds.length === 0) return
     const sealed = isSealedCard(args.card)
     const sealedText = sealed && args.sealedAskText && isSealedBody(args.sealedAskText) ? args.sealedAskText : null

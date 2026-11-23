@@ -106,6 +106,7 @@ class NeedsYouTest {
                     )
                 },
                 mergeMode = input.str("mergeMode"),
+                groupChatIds = input["groupChatIds"]?.jsonArray.orEmpty().map { it.jsonPrimitive.content },
             )
             assertEquals(case.str("name"), case.getValue("expected"), JsonArray(rows.map(::encode)))
         }

@@ -323,9 +323,16 @@ static ATTACHMENT_LINE: LazyLock<Regex> =
 /// #FEED-239 (`echoMatches`): an echo is the row's when its trimmed text
 /// equals the body, or it is the session's BRIEFED first prompt
 /// (`## Request` + the body without its attachment lines + the brief's
-/// other sections). `body` arrives trimmed.
-fn echo_matches(text: &str, body: &str) -> bool {
-    let echo = text.trim();
+/// other sections). `body` arrives trimmed. #EXP-1990 (transcript-grouping
+/// MEMBER INPUTS): in a team agent's group chat the echo is worded
+/// `Message from <name> (member <id>): <body>`; the viewer's own line
+/// matches by that body, a teammate's never.
+fn echo_matches(text: &str, body: &str, viewer_id: &str) -> bool {
+    let member = match crate::transcript_grouping::feed_input(text) {
+        Some(crate::transcript_grouping::FeedInput::Member { user_id, body, .. }) if user_id == viewer_id => Some(body),
+        _ => None,
+    };
+    let echo = member.as_deref().unwrap_or(text).trim();
     if echo == body {
         return true;
     }
@@ -363,7 +370,7 @@ pub fn own_handoff(viewer_id: &str, now: i64, feed_empty: bool, rows: &[HandoffR
         let echo = echoes
             .iter()
             .enumerate()
-            .position(|(index, echo)| !taken.contains(&index) && echo_matches(&echo.text, body) && echo.at.is_none_or(|at| at >= from));
+            .position(|(index, echo)| !taken.contains(&index) && echo_matches(&echo.text, body, viewer_id) && echo.at.is_none_or(|at| at >= from));
         match echo {
             Some(index) => {
                 taken.insert(index);

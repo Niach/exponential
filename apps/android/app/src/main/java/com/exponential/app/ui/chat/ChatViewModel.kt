@@ -413,12 +413,15 @@ class ChatViewModel @Inject constructor(
         val session = knownSessions[sessionId] ?: return null
         val sessionRoot = session.rootId.ifEmpty { session.id }
         val root = knownSessions[sessionRoot]
+        val agentId = root?.agentId ?: session.agentId
         return InboxRoute.sessionTarget(
             id = session.id,
             rootId = sessionRoot,
-            agentId = root?.agentId ?: session.agentId,
+            agentId = agentId,
             userId = root?.userId ?: session.userId,
             viewerId = currentUserId.value,
+            // #EXP-1990: a team agent's group chat opens its page for every member.
+            groupChat = !agentId.isNullOrEmpty() && agentMarks.value[agentId]?.groupChatId == sessionRoot,
         )
     }
 

@@ -1,7 +1,7 @@
 // @vitest-environment node
 // #EXP-1986 / #EXP-1989 (agent-settings.json `assistant.move`, #EXP-1984):
 // THE MIGRATION that moves every per-team Assistant and then holds one per
-// owner (db/out/0293_exp1989_one_assistant_per_owner.sql, the move's only
+// owner (db/out/*_exp1989_one_assistant_per_owner.sql, the move's only
 // copy) against the REAL migrated Postgres, replayed in a rolled-back
 // transaction that first puts the (team, owner) index back, over rows shaped
 // like before it (per-team Assistants), the move scoped to this file's
@@ -22,7 +22,7 @@
 //     with that team's picks before and after the move;
 //   * #EXP-1989: on a member who already moved, and with nobody to move, the
 //     file changes only the index; the index refuses a second Assistant row.
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it, vi } from "vitest"
@@ -78,8 +78,10 @@ const { ensureAssistant, personalTeamSlug } = await import(`@/lib/agents/assista
 const { conversationInTx } = await import(`@/lib/agents/conversation`)
 const { sessionLaunchPick, sessionLaunchTeams, mergedAgentPick } = await import(`@/lib/agents/team-picks`)
 
+const OUT = join(dirname(fileURLToPath(import.meta.url)), `../../db/out`)
+// Found by name: its number moves when another migration lands first.
 const MIGRATION = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), `../../db/out/0293_exp1989_one_assistant_per_owner.sql`),
+  join(OUT, readdirSync(OUT).find((name) => name.endsWith(`_exp1989_one_assistant_per_owner.sql`))!),
   `utf8`
 )
   .split(`--> statement-breakpoint`)

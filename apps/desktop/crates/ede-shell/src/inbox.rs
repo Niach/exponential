@@ -421,6 +421,8 @@ pub fn needs_you_items(rows: &AccountRows, now_ms: i64) -> Vec<NeedsYouItem> {
             messages,
             pull_requests,
             merge_mode: Some(team.merge_mode().to_string()),
+            // #EXP-1990: the team agents' group chats count for every member.
+            group_chat_ids: rows.agents.iter().filter_map(|a| a.group_chat_id.clone()).collect(),
         };
         out.extend(needs_you(&input).into_iter().map(|row| NeedsYouItem { account_id: rows.account_id.clone(), team: team.name.clone(), row }));
     }

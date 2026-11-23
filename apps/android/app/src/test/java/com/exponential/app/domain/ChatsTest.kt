@@ -89,6 +89,7 @@ class ChatsTest {
         busy = json.bool("busy"),
         needsYou = json.bool("needsYou"),
         assistant = (json["assistant"] as? JsonPrimitive)?.boolean ?: false,
+        groupChatId = json.str("groupChatId"),
     )
 
     private fun groupKey(wire: String) = SessionTree.ChatsGroupKey.entries.first { it.wire == wire }
@@ -139,6 +140,8 @@ class ChatsTest {
                 needsYou = input.bool("needsYou"),
                 busy = input.bool("busy"),
                 visible = input["visibleSessionIds"]?.jsonArray?.map { it.jsonPrimitive.content }?.toSet(),
+                me = input.str("me"),
+                members = (input["members"] as? JsonObject)?.mapValues { it.value.jsonPrimitive.content },
             )
             assertEquals(case.str("name"), case.getValue("expected"), encode(actual))
         }
@@ -547,6 +550,7 @@ class ChatsTest {
         assertEquals(preview.str("question"), Chats.Copy.PREVIEW_QUESTION)
         assertEquals(preview.str("plan"), Chats.Copy.PREVIEW_PLAN)
         assertEquals(preview.str("you"), Chats.Copy.PREVIEW_YOU)
+        assertEquals(preview.str("member"), Chats.Copy.PREVIEW_MEMBER)
         assertEquals(preview.str("picture"), Chats.Copy.PREVIEW_PICTURE)
         assertEquals(preview.str("surface"), Chats.Copy.PREVIEW_SURFACE)
         assertEquals(preview.str("empty"), Chats.Copy.PREVIEW_EMPTY)
@@ -559,7 +563,7 @@ class ChatsTest {
         assertEquals(preview.str("privateReplyLead"), Chats.Copy.PREVIEW_PRIVATE_REPLY_LEAD)
         assertEquals(preview.str("privateReportLead"), Chats.Copy.PREVIEW_PRIVATE_REPORT_LEAD)
         assertEquals(preview.str("privatePrLead"), Chats.Copy.PREVIEW_PRIVATE_PR_LEAD)
-        assertEquals(16, preview.size)
+        assertEquals(17, preview.size)
         val time = copy.getValue("time").jsonObject
         assertEquals(time.str("yesterday"), Chats.Copy.TIME_YESTERDAY)
         assertEquals(time.getValue("weekdaysShort").jsonArray.map { it.jsonPrimitive.content }, Chats.Copy.WEEKDAYS_SHORT)

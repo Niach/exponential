@@ -1,4 +1,5 @@
 import { and, eq, isNull, sql } from "drizzle-orm"
+import { agentGroupChatsOn } from "@/lib/agents/group-chat-switch"
 import { db } from "@/db/connection"
 import { users } from "@/db/auth-schema"
 import { emailEnabled } from "@/lib/email-enabled"
@@ -103,6 +104,9 @@ export async function runBootstrapPass(): Promise<void> {
   await reconcileBuiltinSkills()
   // #EXP-1829: package automations move onto their app agents' triggers.
   await import(`@/lib/apps/automations-migrate`).then((m) => m.migrateAppAutomations())
+  // #EXP-1990: team agents' private conversations end, only once the group
+  // chats' switch is on (idempotent).
+  if (agentGroupChatsOn()) await import(`@/lib/agents/group-chat`).then((m) => m.runGroupChatMove())
 }
 
 const RETRY_BASE_DELAY_MS = 5 * 1000

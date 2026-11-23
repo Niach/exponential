@@ -64,14 +64,16 @@ export type SessionTarget =
 
 /** Where a session opens (S-3): the viewer's own agent conversation root =
  *  the agent's page, a chat's root or child = the chat, anything else
- *  under an agent = the session itself. `agentId` + `userId` are the root's. */
+ *  under an agent = the session itself. `agentId` + `userId` are the root's.
+ *  #EXP-1990: a team agent's group chat (`groupChat`: the root is its
+ *  agent's `agents.groupChatId`) is every member's chat with it. */
 export function sessionTarget(
-  session: { id: string; rootId: string | null; agentId: string | null; userId: string | null },
+  session: { id: string; rootId: string | null; agentId: string | null; userId: string | null; groupChat?: boolean },
   viewerId: string | null
 ): SessionTarget {
   const rootId = session.rootId ?? session.id
   if (session.agentId) {
-    return rootId === session.id && session.userId === viewerId
+    return rootId === session.id && (session.userId === viewerId || session.groupChat === true)
       ? { kind: `agent`, agentId: session.agentId }
       : { kind: `session`, sessionId: session.id }
   }

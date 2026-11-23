@@ -20,7 +20,7 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 // every member's ONE Assistant across their teams (`agents.role =
 // assistant`), stored in their hidden personal team (`teams.kind =
 // personal`, created with it; #EXP-1989: `uniq_agents_assistant` holds one
-// per owner, and migration 0293 moved every per-team one). Created on first use on the member's own
+// per owner, and its migration moved every per-team one). Created on first use on the member's own
 // newest desktop (else their newest device); owned and edited by that member
 // only; never deleted. Its device is the member's VOICE device:
 // `user_voice_settings.voice_device_id` / `agent_id` stay as a server-kept

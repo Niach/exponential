@@ -450,6 +450,70 @@ export function assistantMoveOf(assistants: readonly MoveAssistantLike[], roots:
   })
 }
 
+export const GROUP_CHAT = fixture.groupChat
+/** #EXP-1990 (`groupChat.clientFloor`): the oldest build per platform that
+ *  opens a team agent's chat by `agents.groupChatId`. */
+export const GROUP_CHAT_CLIENT_FLOOR = fixture.groupChat.clientFloor as Record<`desktop` | `android` | `ios`, string>
+
+export interface AgentChatSessionLike {
+  id: string
+  parentId: string | null
+  agentId?: string | null
+  userId: string
+}
+
+/** #EXP-1990 (`groupChat.chatCases`): THE chat of an agent for the viewer:
+ *  its group chat (`groupChatId`) when that root is synced, none when it
+ *  names a root the viewer does not sync; with no group chat the root with
+ *  its `agentId` the viewer started (the Assistant; a team agent before the
+ *  switch). */
+export function agentChatOf<T extends AgentChatSessionLike>(input: {
+  agent: { agentId: string; groupChatId?: string | null }
+  sessions: readonly T[]
+  me: string | null | undefined
+}): T | null {
+  const { agent, sessions, me } = input
+  if (agent.groupChatId) {
+    return sessions.find((session) => session.id === agent.groupChatId && session.parentId === null) ?? null
+  }
+  if (!me) return null
+  return (
+    sessions.find((session) => session.parentId === null && session.agentId === agent.agentId && session.userId === me) ??
+    null
+  )
+}
+
+/** #EXP-1990 (`groupChat.moveCases`): the conversation roots the move ends,
+ *  detaches and turns private: every root of a team agent (never an
+ *  Assistant's, never an app's editor root) that is not its agent's group
+ *  chat; by id. */
+export function groupChatMoveOf(
+  agents: readonly { id: string; role?: string | null; groupChatId?: string | null }[],
+  roots: readonly { id: string; agentId: string; appId?: string | null }[]
+): string[] {
+  const byId = new Map(agents.map((agent) => [agent.id, agent]))
+  return roots
+    .filter((root) => {
+      const agent = byId.get(root.agentId)
+      return !!agent && !isAssistant(agent) && !root.appId && agent.groupChatId !== root.id
+    })
+    .map((root) => root.id)
+    .sort()
+}
+
+/** #EXP-1990 (`groupChat.askCases`): who is pushed a question or plan a
+ *  team agent asks in its group chat: the asker (the member whose message
+ *  the agent is working on) while a member, else the agent's owner while a
+ *  member, else nobody. */
+export function groupAskRecipient(input: {
+  turnStarterId: string | null
+  ownerId: string
+  memberIds: readonly string[]
+}): string[] {
+  if (input.turnStarterId && input.memberIds.includes(input.turnStarterId)) return [input.turnStarterId]
+  return input.memberIds.includes(input.ownerId) ? [input.ownerId] : []
+}
+
 export const COORDINATOR = fixture.coordinator
 export const COORDINATOR_COPY = fixture.coordinator.copy
 /** The option id of "no coordinator". */

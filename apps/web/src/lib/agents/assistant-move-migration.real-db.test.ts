@@ -2,7 +2,7 @@
 // #EXP-1989 (agent-settings.json `assistant.move`, #EXP-1984 phase 5): THE
 // TRAP. An install that never set the old `ASSISTANT_MOVE` switch still
 // holds one Assistant per (team, member) when it updates, and drizzle runs
-// the migrations before anything of the server boots: migration 0293 must
+// the migrations before anything of the server boots: the migration `exp1989_one_assistant_per_owner` must
 // move them itself before it builds the index on owner. So this suite runs
 // the journal THE WAY AN INSTALL DOES, through drizzle's migrator, on
 // databases of its own (created beside DATABASE_URL's, dropped after):
@@ -47,8 +47,11 @@ import {
 } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
-const TAG = `0293_exp1989_one_assistant_per_owner`
 const OUT = join(dirname(fileURLToPath(import.meta.url)), `../../db/out`)
+// Found by name: its number moves when another migration lands first.
+const TAG = (JSON.parse(readFileSync(join(OUT, `meta`, `_journal.json`), `utf8`)) as { entries: Array<{ tag: string }> }).entries
+  .map((entry) => entry.tag)
+  .find((tag) => tag.endsWith(`_exp1989_one_assistant_per_owner`))!
 
 // Its own databases: the role must be allowed to create them.
 const ready = await probeRealDb(`
@@ -119,7 +122,7 @@ afterAll(async () => {
   for (const database of Object.values(names)) await admin(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`)
 })
 
-describe.skipIf(!ready.ok)(`migration 0293 through drizzle's migrator (#EXP-1989)`, () => {
+describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzle's migrator (#EXP-1989)`, () => {
   it(`moves an install that never set the switch, leaves who already moved, then holds one Assistant per owner`, async () => {
     const total = (JSON.parse(readFileSync(join(OUT, `meta`, `_journal.json`), `utf8`)) as { entries: unknown[] }).entries.length
     await admin(`CREATE DATABASE "${names.moved}"`)

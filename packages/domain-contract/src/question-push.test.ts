@@ -17,7 +17,7 @@ const keyMap = (keys: Record<string, string> | null) =>
 
 describe(`question push (fixtures/question-push.json)`, () => {
   test.each(fixture.routingCases)(`routing: $name`, (c) => {
-    expect(questionPushRecipients(c.session)).toEqual(c.recipients)
+    expect(questionPushRecipients(c.session, (c as { groupRecipients?: string[] }).groupRecipients)).toEqual(c.recipients)
   })
   test(`its copy is the Assistant's decision push and the chats' ask leads`, () => {
     expect(fixture.copy.assistantTitle).toBe(ASSISTANT_COPY.decisionPush)

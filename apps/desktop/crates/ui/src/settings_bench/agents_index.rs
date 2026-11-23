@@ -9,7 +9,7 @@ use serde_json::json;
 const TEAM: &str = "team-shots";
 
 fn agent(id: &str, name: &str, icon: &str, color: &str, assistant: bool) -> AgentRow {
-    AgentRow { agent_id: id.into(), team_id: TEAM.into(), name: name.into(), icon: icon.into(), color: color.into(), busy: false, needs_you: false, assistant }
+    AgentRow { agent_id: id.into(), team_id: TEAM.into(), name: name.into(), icon: icon.into(), color: color.into(), busy: false, needs_you: false, assistant, group_chat_id: None }
 }
 
 fn agents() -> Vec<AgentRow> {

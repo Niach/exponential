@@ -1273,6 +1273,9 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
     public let mcpServerIds: [String]
     /// #EXP-1847: the agent's own voice (jsonb `voice`, `{}` = the member's).
     public let voice: AgentVoice
+    /// #EXP-1990 (agent-settings.json `groupChat`): a team agent's group chat
+    /// root (`agents.group_chat_id`); nil = none yet, or the switch is off.
+    public let groupChatId: String?
 
     /// S-3: the member's own Assistant (`agents.role = assistant`).
     public var isAssistant: Bool { role == DomainContract.agentRoleAssistant }
@@ -1302,9 +1305,11 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         role: String = DomainContract.agentRoleAgent,
         skillIds: [String] = [],
         mcpServerIds: [String] = [],
-        voice: AgentVoice = AgentVoice()
+        voice: AgentVoice = AgentVoice(),
+        groupChatId: String? = nil
     ) {
         self.voice = voice
+        self.groupChatId = groupChatId
         self.instructionsUpdatedAt = instructionsUpdatedAt
         self.role = role
         self.skillIds = skillIds
@@ -1333,6 +1338,7 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         case skillIds = "skill_ids"
         case mcpServerIds = "mcp_server_ids"
         case voice
+        case groupChatId = "group_chat_id"
     }
 }
 
@@ -1367,6 +1373,9 @@ extension AgentDefinitionEntity: Codable {
         // #EXP-1847: the jsonb object (wire) or its JSON text (store);
         // missing, null or garbage = `{}`.
         voice = AgentVoice.parse(c.decodeWireJsonString(forKey: .voice))
+        // #EXP-1990: absent (an old snapshot / the switch off) or empty = none.
+        let groupChatId = try c.decodeIfPresent(String.self, forKey: .groupChatId) ?? ""
+        self.groupChatId = groupChatId.isEmpty ? nil : groupChatId
     }
 }
 

@@ -204,6 +204,42 @@ fn open_heals_missing_columns_from_an_older_schema() {
     assert!(store.shape_state("boards").unwrap().is_none());
 }
 
+/// #EXP-1990: an older build's `agents` table (no `group_chat_id`) heals at
+/// open: the column is added, the shape re-snapshots (every agent row's
+/// group chat arrives), and a row naming its group chat applies.
+#[test]
+fn open_heals_the_agents_group_chat_column() {
+    let db = TempDb::new();
+    if let Some(dir) = db.path.parent() {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    {
+        let conn = rusqlite::Connection::open(&db.path).unwrap();
+        conn.execute_batch(
+            r#"CREATE TABLE "agents" ("id" TEXT NOT NULL, "team_id" TEXT, "name" TEXT, "instructions_updated_at" TEXT, "created_at" TEXT, "updated_at" TEXT, PRIMARY KEY ("id"));
+               INSERT INTO "agents" ("id", "team_id", "name") VALUES ('ag-old', 't1', 'Release');"#,
+        )
+        .unwrap();
+    }
+    let store = db.open();
+    let agents = shape_by_name("agents").unwrap();
+    assert!(store.shape_state("agents").unwrap().unwrap().needs_refetch, "the healed agents shape re-snapshots");
+    store
+        .apply_batch(
+            agents,
+            &[insert("ag-new", json!({"id": "ag-new", "team_id": "t1", "name": "Designer", "group_chat_id": "g1"}))],
+            None,
+        )
+        .unwrap();
+    let rows = store.read_all(agents).unwrap();
+    assert_eq!(row_by_id(&rows, "ag-new").get("group_chat_id").and_then(Value::as_str), Some("g1"));
+    assert_eq!(row_by_id(&rows, "ag-old").get("group_chat_id"), Some(&Value::Null));
+    let decoded: domain::rows::AgentDefRow = serde_json::from_value(Value::Object(row_by_id(&rows, "ag-new").clone())).unwrap();
+    assert_eq!(decoded.group_chat_id.as_deref(), Some("g1"));
+    let old: domain::rows::AgentDefRow = serde_json::from_value(Value::Object(row_by_id(&rows, "ag-old").clone())).unwrap();
+    assert_eq!(old.group_chat_id, None);
+}
+
 /// SLOP-17 + EXP-1294 + NEW-8: open drops the tables of shapes that left the
 /// registry (`automations`, `coding_sessions`, `threads`, `thread_items`,
 /// `actions`)

@@ -1,5 +1,5 @@
 {
-  "id": "eeb90961-3029-4121-8d6f-c84e680ac38b",
+  "id": "7285241f-6059-4e34-8ee4-4a7f159e6e46",
   "prevId": "f0c88964-1d96-434c-ae86-e636690138df",
   "version": "7",
   "dialect": "postgresql",
@@ -132,6 +132,12 @@
           "notNull": true,
           "default": "'agent'"
         },
+        "group_chat_id": {
+          "name": "group_chat_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "sort_order": {
           "name": "sort_order",
           "type": "double precision",
@@ -189,6 +195,12 @@
           "name": "uniq_agents_assistant",
           "columns": [
             {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
               "expression": "owner_id",
               "isExpression": false,
               "asc": true,
@@ -227,6 +239,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "agents_group_chat_id_sessions_id_fk": {
+          "name": "agents_group_chat_id_sessions_id_fk",
+          "tableFrom": "agents",
+          "tableTo": "sessions",
+          "columnsFrom": [
+            "group_chat_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

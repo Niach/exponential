@@ -326,7 +326,7 @@ final class SessionTreeTests: XCTestCase {
     }
 
     private func json(_ agent: AgentRow) -> [String: Any] {
-        [
+        var row: [String: Any] = [
             "agentId": agent.agentId,
             "teamId": agent.teamId,
             "name": agent.name,
@@ -336,6 +336,9 @@ final class SessionTreeTests: XCTestCase {
             "needsYou": agent.needsYou,
             "assistant": agent.assistant,
         ]
+        // #EXP-1990: only when the agent has a group chat.
+        if let groupChatId = agent.groupChatId { row["groupChatId"] = groupChatId }
+        return row
     }
 
     private func assertJSON(_ actual: Any, _ expected: Any?, _ name: String, file: StaticString = #filePath, line: UInt = #line) {
@@ -839,7 +842,8 @@ final class SessionTreeTests: XCTestCase {
                     color: string(row["color"]),
                     sortOrder: try XCTUnwrap(row["sortOrder"] as? Double),
                     role: string(row["role"]),
-                    ownerId: string(row["ownerId"])
+                    ownerId: string(row["ownerId"]),
+                    groupChatId: string(row["groupChatId"])
                 )
             }
             let agents = SessionTree.listAgents(

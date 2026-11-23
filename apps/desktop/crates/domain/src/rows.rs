@@ -1357,6 +1357,11 @@ pub struct AgentDefRow {
     /// #EXP-1383: when the instructions TEXT last changed (chats.json
     /// `agentHint`).
     pub instructions_updated_at: Option<String>,
+    /// #EXP-1990 (agent-settings.json `groupChat`): a team agent's ONE chat
+    /// for the whole team (a session root); `None` = none yet, or the
+    /// server switch is off. Read through
+    /// [`crate::agent_settings::agent_chat_of`].
+    pub group_chat_id: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }
@@ -1397,6 +1402,8 @@ struct AgentDefWire {
     #[serde(default)]
     instructions_updated_at: Option<String>,
     #[serde(default)]
+    group_chat_id: Option<String>,
+    #[serde(default)]
     created_at: Option<String>,
     #[serde(default)]
     updated_at: Option<String>,
@@ -1431,6 +1438,7 @@ impl From<AgentDefWire> for AgentDefRow {
             sort_order: wire.sort_order,
             role: wire.role,
             instructions_updated_at: wire.instructions_updated_at,
+            group_chat_id: wire.group_chat_id.filter(|id| !id.is_empty()),
             created_at: wire.created_at,
             updated_at: wire.updated_at,
         }

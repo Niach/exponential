@@ -14,7 +14,7 @@ import {
 } from "@exp/domain-contract/chats"
 import { sortApps } from "@exp/domain-contract/apps"
 import { chatWordOf, useTeamsPullRequestsByRoot } from "@/components/chat/chats-list"
-import { useTeamAgentRows } from "@/hooks/use-agent-row"
+import { useMemberNames, useTeamAgentRows } from "@/hooks/use-agent-row"
 import { toListEntry } from "@/hooks/use-apps"
 import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { useNow } from "@/hooks/use-now"
@@ -93,6 +93,8 @@ export function useCrossTeamChatList(
   const nowIso = now.toISOString()
   const offset = localUtcOffsetMinutes(now)
 
+  // #EXP-1990: a teammate's line reads under their name.
+  const members = useMemberNames()
   const list = useMemo(() => {
     const prStates: Record<string, string[]> = {}
     const words: Record<string, ChatRowWord | null> = {}
@@ -114,8 +116,10 @@ export function useCrossTeamChatList(
       now: nowIso,
       utcOffsetMinutes: offset,
       visibleSessionIds: tree.map((session) => session.id),
+      me: me ?? null,
+      members,
     })
-  }, [groups, messages, reads, prs, view, nowIso, offset, tree, waiting])
+  }, [groups, messages, reads, prs, view, nowIso, offset, tree, waiting, me, members])
 
   const agentRows = useMemo(
     () =>
@@ -125,11 +129,12 @@ export function useCrossTeamChatList(
         messages: agentMessages,
         reads,
         me: me ?? null,
+        members,
         view,
         now: nowIso,
         utcOffsetMinutes: offset,
       }),
-    [agents, apps, agentTree, agentMessages, reads, me, view, nowIso, offset]
+    [agents, apps, agentTree, agentMessages, reads, me, members, view, nowIso, offset]
   )
 
   const appRows = useMemo(
@@ -140,11 +145,12 @@ export function useCrossTeamChatList(
         messages,
         reads,
         me: me ?? null,
+        members,
         view,
         now: nowIso,
         utcOffsetMinutes: offset,
       }),
-    [apps, tree, messages, reads, me, view, nowIso, offset]
+    [apps, tree, messages, reads, me, members, view, nowIso, offset]
   )
 
   const deviceGlyph = useDeviceGlyphs()

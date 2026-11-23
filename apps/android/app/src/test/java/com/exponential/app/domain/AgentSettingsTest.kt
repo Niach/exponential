@@ -774,4 +774,19 @@ class AgentSettingsTest {
         assertEquals(false, AgentSettings.Assistant.ownChat("t-personal", "u1", emptyList(), "u1"))
         assertEquals(false, AgentSettings.Assistant.ownChat("t-personal", null, teams, null))
     }
+
+    @Test
+    fun `every groupChat chat case matches the fixture (EXP-1990)`() {
+        val cases = fixture.getValue("groupChat").jsonObject.getValue("chatCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (c in cases) {
+            val name = c.str("name")
+            val agent = c.getValue("agent").jsonObject
+            val sessions = c.getValue("sessions").jsonArray.map { it.jsonObject }
+            val got = AgentSettings.agentChatOf(agent.str("agentId")!!, agent.str("groupChatId"), sessions, c.str("me")) {
+                AgentSettings.ChatSessionLike(it.str("id")!!, it.str("parentId"), it.str("agentId"), it.str("userId"))
+            }
+            assertEquals(name, c.str("expected"), got?.str("id"))
+        }
+    }
 }

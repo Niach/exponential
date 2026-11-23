@@ -7,7 +7,8 @@
 // the header existed never send it and must keep working, and a malformed
 // env var must never brick the whole install base.
 
-import { ASSISTANT_CLIENT_FLOOR } from "@exp/domain-contract/agent-settings"
+import { ASSISTANT_CLIENT_FLOOR, GROUP_CHAT_CLIENT_FLOOR } from "@exp/domain-contract/agent-settings"
+import { agentGroupChatsOn } from "@/lib/agents/group-chat-switch"
 
 export const CLIENT_VERSION_HEADER = `x-client-version`
 
@@ -53,13 +54,17 @@ function envVersion(kind: `MIN` | `LATEST`, platform: ClientPlatform) {
 export const DEVICE_SEALING_FLOOR = `0.14.96`
 
 /** The floors a CONFIGURED minimum is raised to, per platform: the sealing
- *  floor (desktop, CLI) and #EXP-1984's Assistant floor (agent-settings.json
+ *  floor (desktop, CLI), #EXP-1984's Assistant floor (agent-settings.json
  *  `assistant.move.clientFloor`, every platform: the first builds that work
- *  across the move, which #EXP-1989's migration made unconditional). The
- *  highest applies. */
+ *  across the move, which #EXP-1989's migration made unconditional) and,
+ *  once team agents' group chats are switched on (#EXP-1990
+ *  `AGENT_GROUP_CHATS`), their floor. The highest applies. */
 export function clientFloors(platform: ClientPlatform): readonly string[] {
   const sealing = platform === `desktop` || platform === `cli` ? [DEVICE_SEALING_FLOOR] : []
-  return [...sealing, ASSISTANT_CLIENT_FLOOR[platform]]
+  // #EXP-1990 (agent-settings.json `groupChat.clientFloor`): older builds
+  // look up a team agent's chat per (agent, viewer) and lose the group chat.
+  const group = agentGroupChatsOn() && platform !== `cli` ? [GROUP_CHAT_CLIENT_FLOOR[platform]] : []
+  return [...sealing, ASSISTANT_CLIENT_FLOOR[platform], ...group]
 }
 
 /** The configured minimum, raised to the platform's floors. */

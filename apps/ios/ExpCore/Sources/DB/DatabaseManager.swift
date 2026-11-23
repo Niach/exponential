@@ -3462,6 +3462,25 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v114 (#EXP-1990, agent-settings.json `groupChat`): `agents.group_chat_id`
+        // (a team agent's group chat root; NULL = none), voice's twin: the
+        // agents cursor resets only when the column was added, so synced
+        // definitions re-arrive carrying it.
+        migrator.registerMigration("v114_agent_group_chat") { db in
+            guard try db.tableExists("agents") else { return }
+            guard try db.columns(in: "agents").contains(where: { $0.name == "group_chat_id" }) == false else { return }
+            try db.alter(table: "agents") { t in
+                t.add(column: "group_chat_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'agents'
+                    """)
+            }
+        }
+
         return migrator
     }
 

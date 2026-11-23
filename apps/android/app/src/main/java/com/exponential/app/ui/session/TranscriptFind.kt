@@ -253,7 +253,10 @@ internal fun transcriptFindRows(
                             out += TranscriptFindRow(FindInChat.Row(keys.getValue(item.id), countMarkdown(action.body)), item.id, 0)
                         }
                     } else if (!skip && input !is TranscriptGrouping.FeedInput.Marker) {
-                        val text = (input as? TranscriptGrouping.FeedInput.Relay)?.body ?: item.text
+                        // #EXP-1990: a member input = its body.
+                        val text = (input as? TranscriptGrouping.FeedInput.Relay)?.body
+                            ?: (input as? TranscriptGrouping.FeedInput.Member)?.body
+                            ?: item.text
                         out += TranscriptFindRow(FindInChat.Row(keys.getValue(item.id), countMarkdown(findUserMessageProse(text))), item.id, 0)
                     }
                 }

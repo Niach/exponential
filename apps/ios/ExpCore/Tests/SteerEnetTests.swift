@@ -284,6 +284,68 @@ final class SteerEnetTests: XCTestCase {
         }
     }
 
+    // #EXP-1990 (MEMBER INPUTS): a member-worded feed line holds its synced
+    // row (the bare body), so it never draws a second time after the feed.
+    func testSyncedTailMatchesAMemberWordedFeedLine() {
+        let worded = TranscriptGrouping.memberInput(name: "Ada", userId: "u-ada", body: "ship it")
+        let feed: [AgentFeedItem] = [
+            .userMessage(id: 1, text: worded, at: 1_000),
+            .narration(id: 2, text: "On it.", at: 2_000),
+        ]
+        let rows = feed.compactMap(SteerNoFeed.tailFeedRow)
+        XCTAssertEqual(rows.first, SteerNoFeed.TailFeedRow(author: "user", text: "ship it", at: 1_000))
+        // A subagent's input stays out of the main lane.
+        XCTAssertNil(SteerNoFeed.tailFeedRow(.userMessage(id: 3, text: worded, subagentId: "s", at: 1_000)))
+        func message(_ id: String, _ body: String) -> SteerNoFeed.TailMessage {
+            SteerNoFeed.TailMessage(
+                id: id, authorKind: "user", hasCard: false, consumedAt: "2026-01-01T00:00:03Z",
+                createdAt: "2026-01-01T00:00:03Z", createdAtMs: 3_000, body: body, authorId: "u-ada"
+            )
+        }
+        let kept = SteerNoFeed.syncedTail(
+            live: false, feed: rows, messages: [message("m1", "ship it"), message("m2", "and tag it")]
+        ) { $0 }
+        XCTAssertEqual(kept.map(\.id), ["m2"])
+    }
+
+    // #EXP-1990: a teammate's kept synced row draws under their name, the
+    // viewer's own on their side.
+    func testSyncedTailItemAttributesATeammate() {
+        func message(_ id: String, kind: String = "user", author: String?) -> SteerNoFeed.TailMessage {
+            SteerNoFeed.TailMessage(
+                id: id, authorKind: kind, hasCard: false, consumedAt: "2026-01-01T00:00:03Z",
+                createdAt: "2026-01-01T00:00:03Z", createdAtMs: 3_000, body: " hello \n", authorId: author
+            )
+        }
+        let names = ["u-ada": "Ada"]
+        func item(_ m: SteerNoFeed.TailMessage, viewer: String? = "u-me") -> AgentFeedItem {
+            SteerNoFeed.syncedTailItem(m, viewerId: viewer, memberName: { names[$0] })
+        }
+        func input(_ item: AgentFeedItem) -> (text: String, at: Int?)? {
+            if case let .userMessage(_, text, _, at) = item { return (text, at) }
+            return nil
+        }
+        let teammate = input(item(message("m1", author: "u-ada")))
+        XCTAssertEqual(
+            teammate.flatMap { TranscriptGrouping.feedInput($0.text) },
+            .member(name: "Ada", userId: "u-ada", body: "hello")
+        )
+        XCTAssertEqual(teammate?.at, 3_000)
+        XCTAssertEqual(
+            input(item(message("m2", author: "u-gone"))).flatMap { TranscriptGrouping.feedInput($0.text) },
+            .member(name: TranscriptGrouping.Copy.formerMember, userId: "u-gone", body: "hello")
+        )
+        // The viewer's own, an unknown author and an unknown viewer stay bare.
+        XCTAssertEqual(input(item(message("m3", author: "u-me")))?.text, "hello")
+        XCTAssertEqual(input(item(message("m4", author: nil)))?.text, "hello")
+        XCTAssertEqual(input(item(message("m5", author: "u-ada"), viewer: nil))?.text, "hello")
+        XCTAssertEqual(
+            item(message("m6", kind: "agent", author: nil)),
+            .narration(id: SteerNoFeed.syncedTailId("m6"), text: "hello", messageId: "synced:m6", at: 3_000)
+        )
+        XCTAssertEqual(item(message("m1", author: "u-ada")).id, SteerNoFeed.syncedTailId("m1"))
+    }
+
     // #FEED-260 OFFLINE LINE: a not-live transcript ends with the marker.
     func testOfflineLineCases() throws {
         let all = try cases("offlineLineCases")
