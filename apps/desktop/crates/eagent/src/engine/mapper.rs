@@ -375,6 +375,10 @@ pub struct Mapper {
     /// starts it over; a turn start clears it.
     turn_reply: String,
     turn_reply_id: Option<String>,
+    /// #FEED-277: the main lane's last tool call was
+    /// `exponential_session_self {op: "quiet"}` (nothing to say): prose
+    /// after it is filler ("No text."), never the turn's reply.
+    quiet_answered: bool,
     /// FEED-153: the turn's `session/prompt` failed ([`Mapper::on_turn_error`]):
     /// a turn that ends with nothing said replies the error instead.
     turn_error: Option<String>,
@@ -674,6 +678,7 @@ impl Mapper {
             ordinal: 0,
             turn_reply: String::new(),
             turn_reply_id: None,
+            quiet_answered: false,
             turn_error: None,
             turn_output: false,
             turn_stop: None,
@@ -1321,7 +1326,11 @@ impl Mapper {
         let reply = std::mem::take(&mut self.turn_reply);
         self.turn_reply_id = None;
         let error = self.turn_error.take();
-        if self.turn_live && !wire::activity::is_blank_text(&reply) {
+        // #FEED-277: a turn that ended on `quiet` posts no text, whatever
+        // filler the model wrote after it ("No text.", measured): it reached
+        // the parent as the child's reply and woke it on every quiet turn.
+        let quiet = std::mem::take(&mut self.quiet_answered);
+        if self.turn_live && !quiet && !is_empty_reply(&reply) {
             out.replies.push(Reply::text(self.clean_marked(
                 reply.trim(),
                 REPLY_BODY_MAX,
@@ -1853,6 +1862,7 @@ impl Mapper {
     fn reset_turn_reply(&mut self) {
         self.turn_reply.clear();
         self.turn_reply_id = None;
+        self.quiet_answered = false;
     }
 
     /// EXP-1292: the turn's reply as it stands (raw) — tests and hosts.
@@ -2538,6 +2548,8 @@ impl Mapper {
         // reply is what the agent says AFTER its last tool.
         if subagent_id.is_none() {
             self.reset_turn_reply();
+            // #FEED-277: `quiet` is the agent's whole answer.
+            self.quiet_answered = is_quiet_call(&call.title, call.raw_input.as_ref());
         }
         // EXP-748: count it for the subagent's completed edge — the rows
         // themselves are the first thing a replay drops.
@@ -4345,6 +4357,57 @@ fn exp_tool_title(tools: &dyn HostTools, title: &str, raw_input: Option<&Value>)
     } else {
         title.to_string()
     }
+}
+
+/// #FEED-294: a reply that says nothing: blank text (#FEED-256), or only
+/// `<br>` line breaks among blanks (measured: a quiet turn's "<br>" reached
+/// the parent as the child's message, seven times in two hours).
+fn is_empty_reply(reply: &str) -> bool {
+    let mut rest = reply;
+    let mut text = String::with_capacity(reply.len());
+    while let Some(at) = rest.find('<') {
+        text.push_str(&rest[..at]);
+        rest = &rest[at..];
+        match br_tag_len(rest) {
+            Some(len) => {
+                text.push(' ');
+                rest = &rest[len..];
+            }
+            None => return false,
+        }
+    }
+    text.push_str(rest);
+    wire::activity::is_blank_text(&text)
+}
+
+/// The byte length of a `<br>` tag (`<br>`, `<br/>`, `<br />`, any case) at
+/// the start of `text`, else None.
+fn br_tag_len(text: &str) -> Option<usize> {
+    let head = text.get(..3)?;
+    if !head.eq_ignore_ascii_case("<br") {
+        return None;
+    }
+    let after = &text[3..];
+    let spaces = after.len() - after.trim_start_matches([' ', '\t']).len();
+    let after = &after[spaces..];
+    let close = if after.starts_with("/>") { 2 } else if after.starts_with('>') { 1 } else { return None };
+    Some(3 + spaces + close)
+}
+
+/// #FEED-277: `exponential_session_self {op: "quiet"}` as either adapter
+/// titles it (claude `mcp__exponential__exponential_session_self`, codex
+/// `mcp.exponential.exponential_session_self`).
+fn is_quiet_call(title: &str, raw_input: Option<&Value>) -> bool {
+    let title = title.trim();
+    // The composed display name (`exp_tool_title`) already carries the op.
+    if title.ends_with("exponential_session_self_quiet") {
+        return true;
+    }
+    title.ends_with("exponential_session_self")
+        && raw_input
+            .and_then(|input| input.get("op"))
+            .and_then(Value::as_str)
+            .is_some_and(|op| op.trim() == "quiet")
 }
 
 /// EXP-920: the ACP `raw_input` worth RETAINING on a tool's state — only an
@@ -7030,6 +7093,93 @@ mod conversation_tests {
             mapper.on_stop(StopReason::EndTurn, &mut out);
             assert!(out.replies.is_empty(), "{blank:?}: {:?}", out.replies);
         }
+    }
+
+    fn quiet_call(mapper: &mut Mapper, id: &str, out: &mut MapOut) {
+        mapper.on_update(
+            &notify(SessionUpdate::ToolCall(
+                ToolCall::new(ToolCallId::new(id), "mcp__exponential__exponential_session_self")
+                    .kind(ToolKind::Other)
+                    .raw_input(json!({"op": "quiet"})),
+            )),
+            out,
+        );
+    }
+
+    #[test]
+    fn prose_after_quiet_is_no_reply() {
+        // #FEED-277 (measured, session ef140070): `quiet`, its `{"ok":true}`
+        // and then the literal "No text." reached the parent as the child's
+        // reply and woke it on every quiet turn.
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        say(&mut mapper, "Delivered; waiting for CI.", "m-1", &mut out);
+        quiet_call(&mut mapper, "tc-quiet", &mut out);
+        say(&mut mapper, "No text.", "m-2", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert!(texts(&out.replies).is_empty(), "{:?}", out.replies);
+        assert!(
+            !format!("{:?}", out.wire).contains("without a reply"),
+            "a quiet turn is no empty turn: {:?}",
+            out.wire
+        );
+
+        // Real work after the quiet re-opens the answer: its prose is the reply.
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        quiet_call(&mut mapper, "tc-quiet-2", &mut out);
+        read_call(&mut mapper, "tc-read", &mut out);
+        say(&mut mapper, "Found the cause.", "m-3", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(texts(&out.replies), vec!["Found the cause.".to_string()]);
+
+        // A quiet turn does not silence the next one.
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        quiet_call(&mut mapper, "tc-quiet-3", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        say(&mut mapper, "PR #12 is open.", "m-4", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(texts(&out.replies), vec!["PR #12 is open.".to_string()]);
+    }
+
+    #[test]
+    fn a_br_only_reply_is_no_reply() {
+        // #FEED-294 (measured, session 764ec9ce): a turn ending on "<br>"
+        // reached the parent as the child's message on every quiet turn.
+        for body in ["<br>", "<br/>", " <BR /> \n<br>", "\u{200B}<br>&nbsp;"] {
+            let mut mapper = live();
+            let mut out = MapOut::default();
+            mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+            say(&mut mapper, body, "m-1", &mut out);
+            mapper.on_stop(StopReason::EndTurn, &mut out);
+            assert!(texts(&out.replies).is_empty(), "{body:?}: {:?}", out.replies);
+        }
+        assert!(is_empty_reply(""));
+        assert!(!is_empty_reply("Done.<br>"));
+        assert!(!is_empty_reply("<b>"));
+        assert!(!is_empty_reply("<brx>"));
+        assert!(!is_empty_reply("a < b"));
+
+        // Real prose around a line break is still the reply.
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        say(&mut mapper, "PR open.<br>CI next.", "m-2", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(texts(&out.replies).len(), 1, "{:?}", out.replies);
+    }
+
+    #[test]
+    fn another_session_self_op_is_no_quiet() {
+        assert!(is_quiet_call("mcp__exponential__exponential_session_self", Some(&json!({"op": "quiet"}))));
+        assert!(is_quiet_call("mcp.exponential.exponential_session_self", Some(&json!({"op": "quiet"}))));
+        assert!(is_quiet_call("mcp__exponential__exponential_session_self_quiet", None));
+        assert!(!is_quiet_call("mcp__exponential__exponential_session_self", Some(&json!({"op": "suggest"}))));
+        assert!(!is_quiet_call("mcp__exponential__exponential_show", Some(&json!({"op": "quiet"}))));
     }
 
     #[test]
