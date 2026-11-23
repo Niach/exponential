@@ -18,6 +18,11 @@
 //! latest regardless (the focus-change capture). When every stream has
 //! ended (the person stopped sharing from the system's indicator) the grabs
 //! return `Err`.
+//!
+//! #EXP-2064: the numbering and the session's life over the display set
+//! are [`Shared`]'s: a changed set closes this session and opens a new one
+//! the same way ([`Share::open`], with the restore token the last start
+//! saved).
 
 use std::cell::RefCell;
 use std::fs;
@@ -26,7 +31,7 @@ use std::os::fd::OwnedFd;
 use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -41,7 +46,7 @@ use pw::spa::param::ParamType;
 use pw::spa::pod::Pod;
 use pw::stream::{StreamFlags, StreamState};
 
-use super::{DisplayCache, StreamRect};
+use super::{Answer, Ask, DisplayCache, Shared, StreamRect, Streams};
 use crate::capture::{Capturer, Frame, Want};
 
 const TOKEN_FILE: &str = "screencast-restore-token";
@@ -54,40 +59,42 @@ const GRAB_TIMEOUT: Duration = Duration::from_secs(3);
 enum Message {
     /// Convert the held buffer of each `(stream index, seq seen, since)`
     /// whose seq is newer than the one seen and that arrived no earlier than
-    /// `since` (STALE); answer one [`Grabbed`] per entry.
-    Grab { wanted: Vec<(usize, u64, Option<Instant>)>, reply: mpsc::Sender<Vec<Grabbed>> },
+    /// `since` (STALE); answer one [`Answer`] per entry.
+    Grab { wanted: Vec<Ask>, reply: mpsc::Sender<Vec<Answer>> },
     Quit,
 }
 
-/// One stream's answer.
-struct Grabbed {
-    ended: bool,
-    seq: u64,
-    /// STAMP: when the held buffer arrived (Unix ms).
-    at: i64,
-    image: Option<(u32, u32, Vec<u8>)>,
-}
-
 pub(super) struct Portal {
-    // Kept alive: dropping the D-Bus connection closes the portal session.
-    _proxy: Screencast,
-    session: Session<Screencast>,
-    rects: Vec<StreamRect>,
-    numbers: Vec<u32>,
-    /// The pixel size of each display the streams were numbered against.
-    sizes: Vec<(u32, (u32, u32))>,
-    mapped_from: Option<Vec<epilot::Display>>,
+    shared: Shared<Share>,
     displays: DisplayCache,
-    /// Per stream: the seq `grab_all` last handed out.
-    seen: Vec<u64>,
-    sender: pw::channel::Sender<Message>,
-    thread: Option<JoinHandle<()>>,
 }
 
 impl Portal {
     /// Start the portal session (the dialog, unless the restore token still
     /// holds) and the PipeWire streams. Blocks until the person answers.
+    /// #EXP-2064: a display set that changes later opens it again the same
+    /// way, off the capture thread.
     pub(super) fn open(state_dir: &Path) -> Result<Portal, String> {
+        let first = Share::open(state_dir)?;
+        let state_dir = state_dir.to_path_buf();
+        Ok(Portal { shared: Shared::new(first, Arc::new(move || Share::open(&state_dir))), displays: DisplayCache::default() })
+    }
+}
+
+/// One ScreenCast session and its PipeWire streams; dropping it ends both.
+struct Share {
+    // Kept alive: dropping the D-Bus connection closes the portal session.
+    _proxy: Screencast,
+    session: Session<Screencast>,
+    rects: Vec<StreamRect>,
+    sender: pw::channel::Sender<Message>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Share {
+    /// The portal session (with the saved restore token, saving the next)
+    /// and its PipeWire streams. Blocks until the person answers.
+    fn open(state_dir: &Path) -> Result<Share, String> {
         let token_path = state_dir.join(TOKEN_FILE);
         let token = fs::read_to_string(&token_path).ok().map(|token| token.trim().to_string()).filter(|token| !token.is_empty());
         let started = async_io::block_on(start(token.as_deref()))?;
@@ -98,7 +105,7 @@ impl Portal {
             return Err("the portal shared no monitor".to_string());
         }
         let nodes: Vec<(u32, Option<(i32, i32)>)> = streams.iter().map(|stream| (stream.0, stream.1.size)).collect();
-        let rects: Vec<StreamRect> = streams.iter().map(|stream| stream.1).collect();
+        let rects: Vec<StreamRect> = streams.into_iter().map(|stream| stream.1).collect();
         let (sender, receiver) = pw::channel::channel::<Message>();
         let (ready_tx, ready_rx) = mpsc::channel();
         let thread = std::thread::Builder::new()
@@ -116,32 +123,16 @@ impl Portal {
             return Err(reason);
         }
         log::info!("[screen] ScreenCast portal: {} monitor stream(s)", rects.len());
-        let count = rects.len();
-        Ok(Portal {
-            _proxy: proxy,
-            session,
-            rects,
-            numbers: Vec::new(),
-            sizes: Vec::new(),
-            mapped_from: None,
-            displays: DisplayCache::default(),
-            seen: vec![0; count],
-            sender,
-            thread: Some(thread),
-        })
+        Ok(Share { _proxy: proxy, session, rects, sender, thread: Some(thread) })
+    }
+}
+
+impl Streams for Share {
+    fn rects(&self) -> &[StreamRect] {
+        &self.rects
     }
 
-    /// Re-number the streams when the display set changed.
-    fn refresh_numbers(&mut self) {
-        let displays = self.displays.get();
-        if self.mapped_from.as_deref() != Some(displays) {
-            self.numbers = super::number_streams(&self.rects, displays);
-            self.sizes = displays.iter().map(|display| (display.number, epilot::pixel_size(display))).collect();
-            self.mapped_from = Some(displays.to_vec());
-        }
-    }
-
-    fn ask(&self, wanted: Vec<(usize, u64, Option<Instant>)>) -> Result<Vec<Grabbed>, String> {
+    fn ask(&mut self, wanted: Vec<Ask>) -> Result<Vec<Answer>, String> {
         let (reply, answer) = mpsc::channel();
         if self.sender.send(Message::Grab { wanted, reply }).is_err() {
             return Err("The PipeWire thread is gone.".to_string());
@@ -150,51 +141,15 @@ impl Portal {
     }
 }
 
-const ENDED: &str = "The screen sharing session ended.";
-
 impl Capturer for Portal {
     fn grab_all(&mut self, wanted: &[Want]) -> Result<Vec<Frame>, String> {
-        self.refresh_numbers();
-        // Every stream is asked (an all-ended answer is the session's end);
-        // only the wanted ones are converted.
-        let asks = (0..self.seen.len())
-            .map(|index| match wanted.iter().find(|want| self.numbers.get(index) == Some(&want.display)) {
-                Some(want) => (index, self.seen[index], want.since),
-                None => (index, u64::MAX, None),
-            })
-            .collect();
-        let answers = self.ask(asks)?;
-        if answers.iter().all(|answer| answer.ended) {
-            return Err(ENDED.to_string());
-        }
-        let mut frames = Vec::new();
-        for (index, answer) in answers.into_iter().enumerate() {
-            let Some((width, height, rgba)) = answer.image else { continue };
-            self.seen[index] = answer.seq;
-            if !super::frame_fits(&self.sizes, self.numbers[index], width, height) {
-                log::debug!("[screen] a {width}x{height} frame is not display {}'s: dropped", self.numbers[index]);
-                continue;
-            }
-            frames.push(Frame::rgba(self.numbers[index], width, height, rgba).stamped(answer.at));
-        }
-        Ok(frames)
+        let displays = self.displays.get().to_vec();
+        self.shared.grab_all(wanted, &displays)
     }
 
     fn grab(&mut self, wanted: Want) -> Result<Option<Frame>, String> {
-        self.refresh_numbers();
-        let Some(index) = self.numbers.iter().position(|&number| number == wanted.display) else {
-            return Ok(None);
-        };
-        let mut answers = self.ask(vec![(index, 0, wanted.since)])?;
-        let Some(answer) = answers.pop() else { return Ok(None) };
-        let Some((width, height, rgba)) = answer.image else {
-            return if answer.ended { Err(ENDED.to_string()) } else { Ok(None) };
-        };
-        self.seen[index] = answer.seq;
-        if !super::frame_fits(&self.sizes, wanted.display, width, height) {
-            return Ok(None);
-        }
-        Ok(Some(Frame::rgba(wanted.display, width, height, rgba).stamped(answer.at)))
+        let displays = self.displays.get().to_vec();
+        self.shared.grab(wanted, &displays)
     }
 
     /// FRESH: PipeWire too delivers on damage only, so a still screen after
@@ -210,7 +165,7 @@ impl Capturer for Portal {
     }
 }
 
-impl Drop for Portal {
+impl Drop for Share {
     fn drop(&mut self) {
         let _ = self.sender.send(Message::Quit);
         if let Some(thread) = self.thread.take() {
@@ -301,7 +256,7 @@ async fn start(token: Option<&str>) -> Result<Started, String> {
         .streams()
         .iter()
         .filter(|stream| stream.source_type().is_none_or(|kind| kind == SourceType::Monitor))
-        .map(|stream| (stream.pipe_wire_node_id(), StreamRect { position: stream.position(), size: stream.size() }))
+        .map(|stream| (stream.pipe_wire_node_id(), StreamRect { id: stream.id().map(str::to_string), position: stream.position(), size: stream.size() }))
         .collect();
     let token = response.restore_token().map(str::to_string);
     Ok(Started { proxy, session, streams, token, fd })
@@ -440,7 +395,7 @@ fn run(
                 .into_iter()
                 .map(|(index, seen, since)| match slots.get(index) {
                     Some(slot) => grab(&slot.borrow(), seen, since),
-                    None => Grabbed { ended: true, seq: 0, at: 0, image: None },
+                    None => Answer { ended: true, seq: 0, at: 0, image: None },
                 })
                 .collect();
             let _ = reply.send(answers);
@@ -548,8 +503,8 @@ unsafe fn pixels<'a>(buffer: *mut pw::sys::pw_buffer) -> Option<&'a mut spa::buf
 
 /// A slot's held buffer as RGBA when its seq is newer than `seen` and it
 /// arrived no earlier than `since` (STALE).
-fn grab(slot: &Slot, seen: u64, since: Option<Instant>) -> Grabbed {
-    let mut answer = Grabbed { ended: slot.ended, seq: slot.seq, at: slot.at, image: None };
+fn grab(slot: &Slot, seen: u64, since: Option<Instant>) -> Answer {
+    let mut answer = Answer { ended: slot.ended, seq: slot.seq, at: slot.at, image: None };
     if slot.seq <= seen || slot.delivered.is_none_or(|delivered| since.is_some_and(|since| delivered < since)) {
         return answer;
     }

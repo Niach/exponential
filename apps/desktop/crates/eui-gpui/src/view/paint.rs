@@ -1998,7 +1998,14 @@ impl SurfaceView {
         let painted = self.hosted_shown.entry(layer.owner.clone()).or_insert((1.0, 0));
         *painted = (shown, painted.1 + 1);
         let el = self.paint_layer_at(k, &layer, None, window, cx);
-        Some(div().relative().w(px(f.w)).h(px(f.h)).child(el).into_any_element())
+        // #EDE-155: the popup's window is not under the surface's root, so
+        // it carries the root's type itself: anything inside that inherits
+        // (an Avatar's initials, a section label) paints in the theme's
+        // family, never gpui's `.SystemUIFont` (which panics when the
+        // machine has none of its fallbacks).
+        let theme = self.surface.theme().cloned();
+        let ink = crate::paint::parts::default_ink(theme.as_deref(), self.surface.mode());
+        Some(div().relative().w(px(f.w)).h(px(f.h)).font(self.default_font()).text_size(px(14.0)).line_height(px(20.0)).text_color(ink).child(el).into_any_element())
     }
 
     /// #EXP-2045: how much of the hosted popup layer `owner` its host's last

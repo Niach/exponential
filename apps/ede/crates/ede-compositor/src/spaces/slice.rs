@@ -534,6 +534,16 @@ impl Units {
         self.systemctl(&["stop", unit]).spawn().inspect_err(|e| tracing::warn!("systemctl stop {unit}: {e}")).ok()
     }
 
+    /// #EDE-195: asks the own user manager of the space whose directory
+    /// (its runtime directory) is `space_dir` to exit (`exit.target`: its
+    /// units get SIGTERM from it, one by one), and does not wait: the
+    /// caller reaps the child.
+    pub(crate) fn exit_manager(&self, space_dir: &Path) -> Option<Child> {
+        let mut cmd = self.systemctl(&["exit"]);
+        cmd.env("XDG_RUNTIME_DIR", space_dir).env_remove("DBUS_SESSION_BUS_ADDRESS");
+        cmd.spawn().inspect_err(|e| tracing::warn!("systemctl --user exit in {}: {e}", space_dir.display())).ok()
+    }
+
     /// Stops `unit` and waits until it is gone, for at most `limit`: only
     /// at the session's start and at the compositor's end, never in the
     /// event loop.
@@ -573,6 +583,53 @@ impl Units {
             .filter(|unit| parse_spaces_slice(unit).is_some_and(|pid| !alive(pid)))
             .map(str::to_string)
             .collect()
+    }
+}
+
+/// #EDE-149: the scope of a space's Xwayland, start number `serial`.
+pub fn x11_scope(compositor: u32, space: u32, serial: u32) -> String {
+    format!("exponential-p{compositor}-s{space}-x11-{serial}.scope")
+}
+
+/// #EDE-149: what the scope of a space's Xwayland holds it to: one
+/// space's `MemoryMax`, no swap, and nothing else. Not in the space's
+/// slices: their CPU quota and any `MemoryHigh` would slow the server
+/// down, and the compositor waits for its window manager's answers. At its
+/// limit the kernel ends it; the space's next launch starts another.
+pub fn x11_limits(spaces: &config::Spaces, machine: Machine) -> Vec<(String, Value)> {
+    let (_, one) = limits(spaces, machine);
+    let memory = number(&one, "MemoryMax").unwrap_or(u64::MAX);
+    vec![("MemoryMax".into(), Value::T(memory)), ("MemoryHigh".into(), Value::T(u64::MAX)), ("MemorySwapMax".into(), Value::T(0))]
+}
+
+impl Units {
+    /// #EDE-149: `busctl` asking the person's user manager to move the
+    /// running process `pid` (space number `space`'s Xwayland, start
+    /// `serial`) out of the login session's scope into a scope of its own
+    /// in `app.slice` ([`x11_limits`]). Not waited for: the caller reaps
+    /// it.
+    pub fn x11_scope_command(&self, spaces: &config::Spaces, space: u32, serial: u32, pid: u32) -> Command {
+        let mut cmd = Command::new(&self.busctl);
+        cmd.args(["--user", &format!("--timeout={ASK_SECONDS}"), "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager"]);
+        cmd.args(["StartTransientUnit", "ssa(sv)a(sa(sv))", &x11_scope(self.compositor, space, serial), "fail"]);
+        let limits = x11_limits(spaces, self.machine);
+        cmd.arg((limits.len() + 4).to_string());
+        cmd.args(["Description", "s", &format!("Xwayland of agent space {space}")]);
+        cmd.args(["Slice", "s", "app.slice"]);
+        cmd.args(["CollectMode", "s", "inactive-or-failed"]);
+        cmd.args(["PIDs", "au", "1", &pid.to_string()]);
+        for (name, value) in &limits {
+            let (signature, value) = value.bus();
+            cmd.args([name.as_str(), signature, &value]);
+        }
+        // No auxiliary units.
+        cmd.arg("0");
+        cmd.env("XDG_RUNTIME_DIR", &self.runtime).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+        match &self.bus {
+            Some(bus) => cmd.env("DBUS_SESSION_BUS_ADDRESS", bus),
+            None => cmd.env_remove("DBUS_SESSION_BUS_ADDRESS"),
+        };
+        cmd
     }
 }
 
@@ -1105,6 +1162,27 @@ mod tests {
         assert!(scope.windows(2).any(|pair| pair == ["-p", "Delegate=yes"]), "{scope:?}");
         assert!(scope.windows(2).any(|pair| pair == ["-p", "OOMPolicy=continue"]), "the kernel's one kill leaves the space's manager to it: {scope:?}");
         assert_eq!(args(&cmd)[3..], ["/usr/lib/systemd/systemd", "--user"]);
+    }
+
+    /// #EDE-149: a space's Xwayland leaves the login session for a scope
+    /// of its own with a memory limit alone: no CPU quota, no
+    /// `MemoryHigh`, nothing that slows it down.
+    #[test]
+    fn a_spaces_xwayland_gets_a_scope_with_a_memory_limit_alone() {
+        let cmd = units().x11_scope_command(&config::Spaces::default(), 3, 2, 4242);
+        let argv = args(&cmd);
+        assert_eq!(argv[..10], ["--user", "--timeout=5", "call", "org.freedesktop.systemd1", "/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))", "exponential-p41-s3-x11-2.scope", "fail"]);
+        let memory = pages(16 * GIB * 30 / 100);
+        assert_eq!(
+            argv[10..],
+            [
+                "7", "Description", "s", "Xwayland of agent space 3", "Slice", "s", "app.slice", "CollectMode", "s", "inactive-or-failed", "PIDs", "au", "1", "4242",
+                "MemoryMax", "t", &memory.to_string(), "MemoryHigh", "t", "18446744073709551615", "MemorySwapMax", "t", "0", "0"
+            ]
+        );
+        assert!(!argv.iter().any(|arg| arg.starts_with("CPU") || arg.starts_with("Tasks")), "{argv:?}");
+        let env = |name: &str| cmd.get_envs().find(|(n, _)| *n == name).map(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()));
+        assert_eq!(env("XDG_RUNTIME_DIR"), Some(Some("/run/user/1000".into())), "the PERSON's user manager");
     }
 
     #[test]

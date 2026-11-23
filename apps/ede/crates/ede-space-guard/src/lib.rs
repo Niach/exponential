@@ -8,7 +8,9 @@
 //! that, when a process INSIDE a space slice asks, attaches fixed eBPF
 //! programs to that slice. The person's uid can neither load, detach nor
 //! replace them. What they refuse: [`devices::RULES`] (every open of a
-//! device node), [`connect::Policy`] (every connect of a unix socket).
+//! device node), [`connect::Policy`] (every connect of a unix socket),
+//! [`signals`] (every signal to a process outside the space, #EDE-157,
+//! where the kernel runs BPF LSM programs).
 //!
 //! A hostile caller can only make the guard restrict a cgroup of its own
 //! user's: it writes no file, touches no other user, detaches nothing.
@@ -21,6 +23,7 @@ pub mod devices;
 pub mod ebpf;
 pub mod guard;
 pub mod protocol;
+pub mod signals;
 pub mod slots;
 pub mod sys;
 

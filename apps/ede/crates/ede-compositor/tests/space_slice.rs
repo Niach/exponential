@@ -17,7 +17,10 @@ use std::{
 use common::space::start_with_spaces;
 use ede_compositor::{
     backend::headless::Harness,
-    spaces::slice::{Machine, Units},
+    spaces::{
+        slice::{Machine, Units},
+        EXIT_BOUND,
+    },
 };
 use ede_protocol::{Capability, Client, SessionId, SpaceId, SpaceInfo};
 
@@ -59,13 +62,18 @@ impl Tools {
         let busctl = format!(
             "#!/bin/sh\ncase \"$*\" in *GetNameOwner*) exit 0;; esac\n{log}\n[ -e \"$d/refuse-slices\" ] && {{ echo 'Call failed: Access denied' >&2; exit 1; }}\nunit=$9\n{place}\nif [ \"$7\" = StartTransientUnit ]; then\n  [ -d \"$place\" ] && {{ echo \"Call failed: Unit $unit was already loaded or has a fragment file.\" >&2; exit 1; }}\n  mkdir -p \"$place\"\nfi\nexit 0\n"
         );
+        // `exit` (#EDE-195, in a space's runtime directory): its manager
+        // exits, unless `manager-stays` is there.
         let systemctl = format!(
-            "#!/bin/sh\n{log}\n[ \"$2\" = list-units ] && [ -e \"$d/units\" ] && cat \"$d/units\"\nif [ \"$2\" = stop ]; then\n  [ -e \"$d/slow\" ] && sleep 3\n  unit=$3\n  {place}\n  [ -e \"$d/stubborn\" ] || rm -rf \"$place\"\nfi\nexit 0\n"
+            "#!/bin/sh\n{log}\n[ \"$2\" = list-units ] && [ -e \"$d/units\" ] && cat \"$d/units\"\n[ \"$2\" = exit ] && [ ! -e \"$d/manager-stays\" ] && kill \"$(cat \"$XDG_RUNTIME_DIR/manager.pid\")\"\nif [ \"$2\" = stop ]; then\n  [ -e \"$d/slow\" ] && sleep 3\n  unit=$3\n  {place}\n  [ -e \"$d/stubborn\" ] || rm -rf \"$place\"\nfi\nexit 0\n"
         );
         // The space's own user manager: brings the bus (a file stands for
         // its socket), writes its environment and its process id, stays.
+        // It stays with no environment: a real one is in its space's slice,
+        // so a close never counts it among the space's strays (#EDE-183),
+        // and only `systemctl exit` ends it (#EDE-195).
         let systemd = format!(
-            "#!/bin/sh\n{log}\n[ -e \"$d/refuse-manager\" ] && exit 1\nspace=$(basename \"$XDG_RUNTIME_DIR\")\nenv > \"$d/manager-$space.env\"\necho $$ > \"$d/manager-$space.pid\"\n: > \"$XDG_RUNTIME_DIR/bus\"\nexec sleep 300\n"
+            "#!/bin/sh\n{log}\n[ -e \"$d/refuse-manager\" ] && exit 1\nspace=$(basename \"$XDG_RUNTIME_DIR\")\nenv > \"$d/manager-$space.env\"\necho $$ > \"$d/manager-$space.pid\"\necho $$ > \"$XDG_RUNTIME_DIR/manager.pid\"\n: > \"$XDG_RUNTIME_DIR/bus\"\nexec env -i sleep 300\n"
         );
         // #EXP-1514: readiness reads that the user manager was given the
         // memory and pids controllers (`user@<uid>.service`, the parent of
@@ -281,29 +289,42 @@ fn a_launch_asks_the_persons_user_manager_for_its_slices_and_its_scope() {
     assert!(log[9].contains(&format!(" [--unit=exponential-p{me}-s2-session1.scope] ")) && log[10].starts_with("systemd [--user] "), "{log:#?}");
     assert!(log[11].contains(&format!(" [--slice=app-exponential_p{me}-s2.slice] [--unit=exponential-p{me}-s2-3.scope] ")), "{}", log[11]);
 
-    // The close tells the user manager to stop the space's slice and does
-    // not wait for it: the stand-in takes 3 s, the compositor answers at once.
+    // #EDE-195: the close first asks the space's own user manager to exit
+    // (in the space's runtime directory, not on any bus): a slice stop
+    // while it runs SIGKILLs it at once when a root helper of its bus is
+    // in its scope. Once it has exited, the close tells the person's user
+    // manager to stop the space's slice and does not wait for it: the
+    // stand-in takes 3 s, the compositor answers at once.
     tools.flag("slow", true);
     let asked = Instant::now();
     agent.destroy_space(space.id.clone()).unwrap();
     h.ipc().windows().unwrap();
     assert!(asked.elapsed() < Duration::from_secs(2), "the close waited for the user manager: {:?}", asked.elapsed());
-    until("the user manager was never told to stop the space's slice", || tools.log().len() == 13);
-    assert!(tools.log()[12].starts_with(&format!("systemctl [--user] [stop] [app-exponential_p{me}-s1.slice] XDG_RUNTIME_DIR={} BUS=", runtime.display())), "{}", tools.log()[12]);
+    until("the user manager was never told to stop the space's slice", || tools.log().len() == 14);
+    assert!(tools.log()[12].starts_with(&format!("systemctl [--user] [exit] XDG_RUNTIME_DIR={} BUS= ", space_dir.display())), "{}", tools.log()[12]);
+    assert!(tools.log()[13].starts_with(&format!("systemctl [--user] [stop] [app-exponential_p{me}-s1.slice] XDG_RUNTIME_DIR={} BUS=", runtime.display())), "{}", tools.log()[13]);
+    assert!(asked.elapsed() < Duration::from_secs(1), "the slice's stop waited for more than the manager's exit: {:?}", asked.elapsed());
     until("the closed space's launches outlived it", || !alive(pid));
     until("the closed space's slice was never done with", || h.with(|state| state.spaces.settled()));
-    assert!(!first_cgroup.exists() && tools.log().len() == 13, "a slice that the stop ended is not ended again: {:#?}", tools.log());
+    assert!(!first_cgroup.exists() && tools.log().len() == 14, "a slice that the stop ended is not ended again: {:#?}", tools.log());
     tools.flag("slow", false);
 
     // A slice that outlives its stop (a scope in it asked to be left
     // alone): after the grace the kernel ends what is in its cgroup, and
-    // the slice is stopped once more.
+    // the slice is stopped once more. Its manager does not exit when
+    // asked: the slice is stopped after the bound all the same.
     tools.flag("stubborn", true);
+    tools.flag("manager-stays", true);
+    let asked = Instant::now();
     other.destroy_space(other_space.id.clone()).unwrap();
+    let first_stop = format!("systemctl [--user] [stop] [app-exponential_p{me}-s2.slice] ");
+    until("the slice of a space whose manager stays was never stopped", || tools.log().iter().any(|line| line.starts_with(&first_stop)));
+    assert!(asked.elapsed() >= EXIT_BOUND, "the slice was stopped before its manager's bound: {:?} {:#?}", asked.elapsed(), tools.log());
     until("the kernel was never told to end what the stop left", || std::fs::read_to_string(second_cgroup.join("cgroup.kill")).is_ok_and(|told| told == "1"));
     until("the outlived slice was not stopped once more", || tools.log().iter().filter(|line| line.starts_with(&format!("systemctl [--user] [stop] [app-exponential_p{me}-s2.slice] "))).count() == 2);
     until("the other space's launch outlived it", || !alive(other_pid));
     until("the outlived slice was never done with", || h.with(|state| state.spaces.settled()));
+    let _ = std::process::Command::new("kill").arg(tools.manager("space-2").to_string()).status();
 
     // The compositor ends: everything in the slice of all its spaces at
     // once, and the user manager is told to take it away (waited for).
@@ -752,7 +773,7 @@ fn an_installed_guard_is_asked_by_every_launch_whatever_it_answered_at_the_start
     assert_eq!(h.with(|state| state.space_readiness()), Err("guard"));
     // The doctor reads what the session decided.
     let state = std::fs::read_to_string(ede_compositor::spaces::guard::state_file(&spaces_dir)).unwrap();
-    assert_eq!(state, "guard required\nprobe the space guard: busy\nuser-manager yes\npolkit pending\nwayland open\n");
+    assert_eq!(state, "guard required\nprobe the space guard: busy\nuser-manager yes\npolkit pending\nwayland open\nsignals pending\n");
 
     // The guard's socket is gone (stopped, removed): `unavailable` at once.
     std::fs::remove_file(&socket).unwrap();

@@ -142,17 +142,20 @@ export function steerNoFeedAway(deviceName: string | null | undefined): { title:
 }
 
 /** EXP-1487: what an empty transcript says while NO FEED holds. */
-export type SteerNoFeedState = `offline` | `away` | `starting` | `idle`
+export type SteerNoFeedState = `offline` | `away` | `starting` | `idle` | `waiting`
 
 /**
  * EXP-1487: an ended row = the device-offline copy; #EXP-1703: a live row
- * whose device is offline = `away`; a busy row = starting, anything else
- * (idle, waiting on a question) = the idle empty state, never "starting".
+ * whose device is offline = `away`; a busy row = starting; #EXP-2000 a row
+ * no device picked up yet (`started` false: `startedAt` null) = `waiting`
+ * (the placeholder says nothing); anything else (idle, waiting on a
+ * question) = the idle empty state, never "starting".
  */
-export function steerNoFeedState(row: { ended: boolean; busy: boolean; deviceOffline?: boolean }): SteerNoFeedState {
+export function steerNoFeedState(row: { ended: boolean; busy: boolean; deviceOffline?: boolean; started?: boolean }): SteerNoFeedState {
   if (row.ended) return `offline`
   if (row.deviceOffline) return `away`
-  return row.busy ? `starting` : `idle`
+  if (row.busy) return `starting`
+  return row.started === false ? `waiting` : `idle`
 }
 
 /** Android 0.14.134: how many consumed inputs a no-feed placeholder shows. */

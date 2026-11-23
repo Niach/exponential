@@ -206,6 +206,61 @@ pub fn refused_file(name: &str) -> String {
     format!(".{}.refused", file_of(name))
 }
 
+/// The eDE release this runtime is (a set-aside file's suffix).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// #EDE-202: where documents set aside at start wait for the shell's toast
+/// (hidden: the shell's runtime, the watcher and history never read it).
+pub const NOTICES_FILE: &str = ".reset-notices.json";
+
+/// A document set aside at start ([`Runtime::open_with_factory`]): the
+/// shell tells the person once, with its toast.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResetNotice {
+    pub name: String,
+    /// The person's file, next to the document: `<name>.json.refused-<version>`.
+    pub backup: String,
+}
+
+impl ResetNotice {
+    /// The toast's title and description.
+    pub fn toast(&self) -> (String, String) {
+        (
+            format!("Your {} was reset", file_of(&self.name)),
+            format!("This version of Exponential Desktop refuses it. Your copy is kept as {}.", self.backup),
+        )
+    }
+}
+
+/// `<file>.refused-<version>`, `-2`, `-3`… when that is taken.
+fn backup_name(dir: &Path, file: &str) -> String {
+    let base = format!("{file}.refused-{VERSION}");
+    let mut name = base.clone();
+    let mut n = 2;
+    while dir.join(&name).exists() {
+        name = format!("{base}-{n}");
+        n += 1;
+    }
+    name
+}
+
+fn add_notice(dir: &Path, notice: ResetNotice) -> io::Result<()> {
+    let path = dir.join(NOTICES_FILE);
+    let mut all: Vec<ResetNotice> = fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    all.retain(|n| n.name != notice.name);
+    all.push(notice);
+    write_atomic(&path, &serde_json::to_vec_pretty(&all).map_err(io::Error::other)?)
+}
+
+/// The notices waiting in `dir`, taken: each is handed out once (the
+/// shell's start toasts them).
+pub fn take_notices(dir: &Path) -> Vec<ResetNotice> {
+    let path = dir.join(NOTICES_FILE);
+    let Ok(bytes) = fs::read(&path) else { return Vec::new() };
+    let _ = fs::remove_file(&path);
+    serde_json::from_slice(&bytes).unwrap_or_default()
+}
+
 /// The names of the top-level `*.json` files (hidden files, editor
 /// leftovers and anything that is not a document name are skipped).
 fn names_on_disk(dir: &Path) -> io::Result<Vec<String>> {
@@ -292,13 +347,67 @@ impl Runtime {
                 // follows the new factory copy, as another such commit. An
                 // edited one stays theirs.
                 let shipped = ui.factory.as_ref().and_then(|f| fs::read(f.join(&file)).ok());
-                if shipped.as_ref().is_some_and(|s| *s != current) && ui.repo.show_at_newest(&file, &format!("Factory {name}"))?.as_deref() == Some(current.as_slice()) {
+                if shipped.as_ref().is_some_and(|s| *s != current) && ui.unedited_factory_copy(&name, &current)? {
                     changes.extend(ui.restore_factory(&name)?);
                 }
             }
         }
         changes.extend(ui.reload()?);
+        if ui.commits && ui.factory.is_some() {
+            changes = ui.set_aside_refused(changes)?;
+        }
         Ok((ui, changes))
+    }
+
+    /// #EDE-34, #EDE-202: whether `current` is a factory copy the person
+    /// never changed: what any `Factory <name>` commit left (not only the
+    /// newest: a stale copy that still validates must not shadow a newer
+    /// factory document for ever), unless the person undid a factory update
+    /// (`Undo: Factory <name>` is their choice).
+    fn unedited_factory_copy(&self, name: &str, current: &[u8]) -> io::Result<bool> {
+        let file = file_of(name);
+        let subject = format!("Factory {name}");
+        if self.repo.newest_of(&file)?.is_some_and(|c| c.summary == format!("Undo: {subject}")) {
+            return Ok(false);
+        }
+        Ok(self.repo.show_all_at(&file, &subject)?.iter().any(|b| b.as_slice() == current))
+    }
+
+    /// #EDE-202: a document refused at start whose file is what git holds
+    /// (it validated when it was committed: an older release's checks, or
+    /// one the person edited then) is refused at every start from now on.
+    /// It is set aside as `<name>.json.refused-<version>` next to it, the
+    /// factory copy takes its place (one the factory no longer ships is
+    /// removed), each a commit, and a [`ResetNotice`] waits for the shell's
+    /// toast. A broken edit nobody committed stays the person's to fix.
+    fn set_aside_refused(&mut self, changes: Vec<Change>) -> io::Result<Vec<Change>> {
+        let shipped = self.factory_names()?;
+        let mut out = Vec::new();
+        for change in changes {
+            let Change::Rejected { name, .. } = &change else {
+                out.push(change);
+                continue;
+            };
+            let name = name.clone();
+            let file = file_of(&name);
+            let path = self.dir.join(&file);
+            let disk = fs::read(&path).ok();
+            if disk.is_none() || self.repo.show_head(&file)? != disk {
+                out.push(change);
+                continue;
+            }
+            let backup = backup_name(&self.dir, &file);
+            fs::rename(&path, self.dir.join(&backup))?;
+            if shipped.contains(&name) {
+                out.extend(self.restore_factory(&name)?);
+            } else {
+                let commit = self.commit_tracked(std::slice::from_ref(&file), &format!("Set aside {file}: refused by eDE {VERSION}"))?;
+                self.reload_names(Some(&name), None)?;
+                out.push(Change::Removed { name: name.clone(), commit });
+            }
+            add_notice(&self.dir, ResetNotice { name, backup })?;
+        }
+        Ok(out)
     }
 
     pub fn dir(&self) -> &Path {

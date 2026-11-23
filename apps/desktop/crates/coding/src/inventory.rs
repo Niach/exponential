@@ -253,6 +253,22 @@ mod tests {
         assert_eq!(entry.issue_identifier(), Some("EXP-7"));
     }
 
+    /// EXP-2060: the device beat's inventory (the worktree list, one
+    /// status per worktree) spawns its gits through posix_spawn, never as a
+    /// fork of the app.
+    #[cfg(unix)]
+    #[test]
+    fn the_inventory_scan_never_forks_the_host() {
+        terminal::process::catch_ignored_signals();
+        let dir = temp_dir("no-fork");
+        let clone = seed_repo(&dir.0, "acme", "web");
+        create_worktree(&clone, "exp/EXP-8", "origin/main", &TokenUrl::new("acme/web", "ghs_dead")).unwrap();
+        let before = terminal::process::forks_on_this_thread();
+        let inventory = scan_inventory(&dir.0);
+        assert_eq!(terminal::process::forks_on_this_thread(), before, "the scan forked the host");
+        assert_eq!(inventory.len(), 1);
+    }
+
     #[test]
     fn batch_branches_carry_no_issue_identifier() {
         let entry = WorktreeInventoryEntry {

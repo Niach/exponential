@@ -21,6 +21,7 @@ A change of the pick applies from a session's next start.
 
 - **One per session.** Every session gets its own space, a child session too. A space lives as long as its session, so the next message finds the apps the agent left open. A chat never ends by itself: its space stays until you delete the chat, switch Computer use off, log out, or close the space.
 - **Apps start signed out.** A space has a profile of its own: its own browser profile, keyring and caches, none of yours. What an agent signs into there stays signed in until its space closes; then it is gone.
+- **Its apps.** An agent can start your system's apps and the Flatpaks installed for all users. A Flatpak installed for you alone (`flatpak install --user`) is not there. A browser as a snap or Flatpak that agent spaces do not know yet does not start in a space, so it never opens your profile.
 - **You can watch it.** While a space is open, the taskbar shows the **Agent spaces** button. Its list has one row per space with the session's title (`Agent space n` when this desktop cannot read it): press a row to pin a live view of it, or close the space from its row. The person at this computer can watch every space on it, a teammate's session's too. The view is only a view: nothing you do on it reaches the space.
 - **Closing a space** ends what runs in it, not its session: the agent's next step starts in a new, empty space.
 - **Its limits.** All spaces together get half of the cores and half of the memory, one space at most 30 % of the memory, and there is one space per GiB of that memory at most (32 on any machine). When the desktop is full, the space unused longest closes for a new one; a space that is in use or whose session is working never does. A space over its memory limit loses its biggest program at once, inside the space, and no space swaps. `[spaces]` in `~/.config/exponential-desktop/compositor.toml` sets the limits:
@@ -56,5 +57,6 @@ A space guards against accidents, not against a program that works at it. Its pr
 - **One user, no wall.** A program in a space can still move itself into another of your cgroups, use a file descriptor passed in from outside, or read and write your files.
 - **A space's X11 apps** are drawn by an Xwayland of the space's that runs outside the space's limits.
 - **GPU time and disk** are shared with your apps; a busy space can slow them.
+- **Signals**: where the kernel runs no BPF LSM programs (Ubuntu 24.04, for example), a program in a space can end your apps (`pkill firefox`). `exponential doctor` says so. Elsewhere the space guard refuses a space's signals to your apps.
 - **Sound**: a snap in a space can play sound on your speakers.
 - **An edited taskbar**: if you or an agent changed `~/.config/exponential-desktop/ui/taskbar.json`, your copy stays and the **Agent spaces** button is not in it. Take the button from the factory copy, `/usr/share/exponential-desktop/ui/taskbar.json`.

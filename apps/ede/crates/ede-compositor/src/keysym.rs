@@ -5,12 +5,21 @@
 //! of them with its release. A keysym only another of the configured
 //! layouts makes (`v` while the Russian one is active) is pressed in that
 //! layout, which is switched to for the length of the stroke (#EXP-1907).
-//! No key for it on any layout = `Ok(false)`, which the socket answers as
-//! `not_found`.
+//! A keysym no configured layout makes (`é` or `😀` on a US layout) is
+//! typed through a throwaway keymap that binds it to a spare keycode, sent
+//! to the focused client alone and replaced by the seat's again right
+//! after the tap (what `wtype` does): the seat's own keymap and xkb state
+//! are never touched, so the person's keys mean what they meant, and its
+//! other clients hear neither keymap (smithay's `inject_text_keysyms`
+//! sends both to every keyboard on the seat) (#EDE-85). Its press types it; its release
+//! does nothing. A keysym xkb has no name for = `Ok(false)`, which the
+//! socket answers as `not_found`.
 
 use smithay::{
     backend::input::KeyState,
-    input::keyboard::{xkb, Keycode, Layout},
+    input::keyboard::{xkb, KeymapFile, Keycode, Keysym, Layout},
+    reexports::wayland_server::{protocol::wl_keyboard, Resource},
+    utils::SERIAL_COUNTER,
 };
 
 use crate::{desk::DeskId, protected::Refused, state::Ede};
@@ -103,7 +112,11 @@ impl Ede {
     pub fn drive_keysym(&mut self, desk: DeskId, keysym: u32, pressed: bool, bindings: bool, time: u32) -> Result<bool, Refused> {
         // #EDE-136: `ipc_input` refuses the bindings on any other desk.
         debug_assert!(!bindings || desk == DeskId::PERSON, "the bindings are the person's desk alone");
-        let Some((key, mods, layout)) = self.key_for_keysym(desk, keysym) else { return Ok(false) };
+        // A Unicode keysym (`0x10020ac`) is on a key by its legacy one
+        // (`EuroSign`) when it has one.
+        let legacy = xkb::utf32_to_keysym(xkb::keysym_to_utf32(Keysym::new(keysym))).raw();
+        let found = self.key_for_keysym(desk, keysym).or_else(|| (legacy != 0 && legacy != keysym).then(|| self.key_for_keysym(desk, legacy)).flatten());
+        let Some((key, mods, layout)) = found else { return self.inject_keysym(desk, keysym, pressed, bindings, time) };
         let send = |ede: &mut Ede, keycode: Keycode, state: KeyState| -> Result<(), Refused> {
             if bindings {
                 ede.keyboard_key(keycode, state, time);
@@ -136,6 +149,63 @@ impl Ede {
             for m in added.iter().rev() {
                 send(self, *m, KeyState::Released)?;
             }
+        }
+        Ok(true)
+    }
+
+    /// A keysym no key makes: tapped on its press through a throwaway
+    /// keymap for the focused client (see the module). The agent's is
+    /// refused on the lock and protected surfaces like any driven key; the
+    /// person's (`bindings`) stops while their input is held.
+    fn inject_keysym(&mut self, desk: DeskId, keysym: u32, pressed: bool, bindings: bool, time: u32) -> Result<bool, Refused> {
+        let name = xkb::keysym_get_name(Keysym::new(keysym));
+        // xkb names an unknown keysym by its number (`0x…`): not a character.
+        let unknown = name.starts_with("0x") && xkb::keysym_to_utf32(Keysym::new(keysym)) == 0;
+        if keysym == 0 || unknown || name.is_empty() || name == "NoSymbol" {
+            return Ok(false);
+        }
+        if !pressed {
+            return Ok(true);
+        }
+        if bindings {
+            self.note_activity();
+            if self.person_input_held() {
+                return Ok(true);
+            }
+        } else if self.desk_locked(desk) {
+            return Err(Refused::Locked);
+        } else if self.keyboard_focus_protected(desk) {
+            return Err(Refused::Protected);
+        }
+        let Some(keyboard) = self.try_desk(desk).and_then(|d| d.seat.get_keyboard()) else { return Ok(false) };
+        let Some(client) = keyboard.current_focus().and_then(|surface| surface.client()) else { return Ok(true) };
+        // The keysym on keycode 9 (evdev 1), nothing else.
+        let text = format!(
+            "xkb_keymap {{\n\
+             xkb_keycodes \"ede\" {{ minimum = 8; maximum = 255; <K9> = 9; }};\n\
+             xkb_types \"ede\" {{ include \"complete\" }};\n\
+             xkb_compatibility \"ede\" {{ include \"complete\" }};\n\
+             xkb_symbols \"ede\" {{ key <K9> {{ [ {name} ] }}; }};\n\
+             }};\n"
+        );
+        let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
+        let Some(keymap) = xkb::Keymap::new_from_string(&context, text, xkb::KEYMAP_FORMAT_TEXT_V1, xkb::KEYMAP_COMPILE_NO_FLAGS) else { return Ok(false) };
+        let (throwaway, seat_keymap, mods) = (KeymapFile::new(&keymap), keyboard.keymap_file(), keyboard.modifier_state().serialized);
+        let send = |kbd: &wl_keyboard::WlKeyboard, file: &KeymapFile| {
+            if let Err(error) = file.with_fd(kbd.version() >= 7, |fd, size| kbd.keymap(wl_keyboard::KeymapFormat::XkbV1, fd, size as u32)) {
+                tracing::warn!(?error, "a keymap did not reach the focused client");
+            }
+        };
+        for kbd in keyboard.client_keyboards(&client) {
+            send(&kbd, &throwaway);
+            kbd.modifiers(SERIAL_COUNTER.next_serial().into(), 0, 0, 0, 0);
+            kbd.key(SERIAL_COUNTER.next_serial().into(), time, 1, wl_keyboard::KeyState::Pressed);
+            kbd.key(SERIAL_COUNTER.next_serial().into(), time, 1, wl_keyboard::KeyState::Released);
+            send(&kbd, &seat_keymap);
+            kbd.modifiers(SERIAL_COUNTER.next_serial().into(), mods.depressed, mods.latched, mods.locked, mods.layout_effective);
+        }
+        if desk != DeskId::PERSON {
+            self.space_active(desk);
         }
         Ok(true)
     }

@@ -1065,6 +1065,26 @@ mod tests {
         assert_eq!(fx.origin_rev(&wip_ref(BRANCH)), None);
     }
 
+    /// EXP-2060: a pass (the HEAD check, the snapshot in its temporary
+    /// index, the push with its idle deadline) spawns every git through
+    /// posix_spawn, never as a fork of the app.
+    #[cfg(unix)]
+    #[test]
+    fn a_pass_never_forks_the_host() {
+        terminal::process::catch_ignored_signals();
+        let fx = Fixture::new("no-fork");
+        let (_, wt) = fx.device("a", BRANCH);
+        commit(&wt, "work.txt", "not released yet");
+        std::fs::write(wt.join("wip.txt"), "uncommitted\n").unwrap();
+        let before = terminal::process::forks_on_this_thread();
+        let head = rev(&wt, "HEAD");
+        let report = sync(&target(&wt), true);
+        assert_eq!(terminal::process::forks_on_this_thread(), before, "a pass forked the host");
+        assert!(head.is_some());
+        assert!(matches!(report.branch, BranchPush::Unpushed(_)), "{report:?}");
+        assert!(matches!(report.wip, Some(WipPush::Pushed { .. })), "{report:?}");
+    }
+
     #[test]
     fn the_default_branch_and_the_base_are_never_pushed() {
         let fx = Fixture::new("protected");

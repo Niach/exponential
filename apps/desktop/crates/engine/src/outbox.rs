@@ -377,6 +377,9 @@ pub struct Outbox {
     replies: flume::Sender<Outgoing>,
     consumes: flume::Sender<String>,
     shared: Arc<Shared>,
+    /// #PERF-12: wakes the idle workers for [`Outbox::close`] (they wait on
+    /// the runtime, not in a `recv_timeout` loop).
+    closing: tokio::sync::watch::Sender<bool>,
     done: Vec<flume::Receiver<()>>,
 }
 
@@ -394,11 +397,16 @@ struct Shared {
 }
 
 impl Outbox {
-    /// Spawn both workers for `session_id`.
-    pub fn spawn(api: Arc<dyn ConversationApi>, session_id: &str) -> Outbox {
+    /// Spawn both workers for `session_id`, as tasks on `runtime`
+    /// (#PERF-12: two threads per run before). A worker waits for its queue
+    /// on the runtime and posts on its blocking pool — the posts are
+    /// blocking HTTP, a seal, the retry ladder's waits — giving the pool
+    /// thread back once the queue is empty.
+    pub fn spawn(runtime: &tokio::runtime::Handle, api: Arc<dyn ConversationApi>, session_id: &str) -> Outbox {
         let shared = Arc::new(Shared::default());
         let (replies, reply_rx) = flume::unbounded::<Outgoing>();
         let (consumes, consume_rx) = flume::unbounded::<String>();
+        let (closing, closing_rx) = tokio::sync::watch::channel(false);
         let mut done = Vec::new();
 
         let (reply_done, reply_done_rx) = flume::bounded(1);
@@ -407,70 +415,67 @@ impl Outbox {
             let api = Arc::clone(&api);
             let shared = Arc::clone(&shared);
             let session_id = session_id.to_string();
-            spawn_named(&format!("engine-replies-{}", short(&session_id)), move || {
-                // EXP-1458: the listening trees, fetched before the first
-                // sealed line that needs copies, then kept current off each
-                // sealed reply's result.
-                let mut listeners: Option<Vec<ListenerTree>> = None;
-                while let Some(item) = next(&reply_rx, &shared.closing) {
-                    let reply = match item {
-                        Outgoing::Reply(reply) => reply,
-                        Outgoing::Subagent(mut row) => {
-                            // #FEED-192: a keyed tree takes no plaintext from the device: its
-                            // subagent rows go out without the model's title and summary.
-                            if sealing::root_of(&session_id).is_some_and(|root| sealing::tree_keyed(&root)) {
-                                row.title = None;
-                                row.summary = None;
-                            }
-                            let _ = with_retry(&shared.closing, "sessions.subagent", false, || {
-                                api.subagent(&session_id, &row)
-                            });
-                            continue;
+            // EXP-1458: the listening trees, fetched before the first
+            // sealed line that needs copies, then kept current off each
+            // sealed reply's result.
+            let mut listeners: Option<Vec<ListenerTree>> = None;
+            spawn_worker(runtime, reply_rx, closing_rx.clone(), reply_done, move |item, _queue| {
+                let reply = match item {
+                    Outgoing::Reply(reply) => reply,
+                    Outgoing::Subagent(mut row) => {
+                        // #FEED-192: a keyed tree takes no plaintext from the device: its
+                        // subagent rows go out without the model's title and summary.
+                        if sealing::root_of(&session_id).is_some_and(|root| sealing::tree_keyed(&root)) {
+                            row.title = None;
+                            row.summary = None;
                         }
-                    };
-                    let Some((body, card, plain_card)) = sealed_reply_retrying(api.as_ref(), &shared.closing, &session_id, &reply) else {
-                        continue;
-                    };
-                    let sealed = body.starts_with(sealing::SEALED_BODY_PREFIX)
-                        || card.as_ref().is_some_and(|card| card.get("sealed").is_some());
-                    let mut extras = if sealed {
-                        reply_extras(api.as_ref(), &session_id, &reply, plain_card.as_ref(), &mut listeners)
-                    } else {
-                        ReplyExtras::default()
-                    };
-                    extras.mention_user_ids = reply_mentions(&session_id, &reply, plain_card.as_ref());
-                    let posted = with_retry(&shared.closing, "sessions.reply", false, || {
-                        api.reply(&session_id, &body, card.as_ref(), &extras)
-                    })
-                    .map(|result| {
-                        if sealed {
-                            listeners = Some(result.listeners);
-                        }
-                        result.message_id
-                    });
-                    // A sealed question card's full form, for the device's
-                    // write-back of an answer given in the session view.
-                    if let (Some(message_id), Some(plain), Some(sealed)) = (&posted, &plain_card, &card) {
-                        if sealed.get("sealed").is_some() && card_question_id(reply.card.as_ref()).is_some() {
-                            coding::pickup::remember_sealed_card(message_id, &session_id, plain);
-                        }
+                        let _ = with_retry(&shared.closing, "sessions.subagent", false, || {
+                            api.subagent(&session_id, &row)
+                        });
+                        return;
                     }
-                    if let (Some(message_id), Some(question_id)) =
-                        (posted, card_question_id(reply.card.as_ref()))
-                    {
-                        let resolved = shared
-                            .resolved
-                            .lock()
-                            .map(|mut resolved| resolved.remove(question_id))
-                            .unwrap_or(false);
-                        if !resolved {
-                            if let Ok(mut open) = shared.open_cards.lock() {
-                                open.insert(message_id, question_id.to_string());
-                            }
+                };
+                let Some((body, card, plain_card)) = sealed_reply_retrying(api.as_ref(), &shared.closing, &session_id, &reply) else {
+                    return;
+                };
+                let sealed = body.starts_with(sealing::SEALED_BODY_PREFIX)
+                    || card.as_ref().is_some_and(|card| card.get("sealed").is_some());
+                let mut extras = if sealed {
+                    reply_extras(api.as_ref(), &session_id, &reply, plain_card.as_ref(), &mut listeners)
+                } else {
+                    ReplyExtras::default()
+                };
+                extras.mention_user_ids = reply_mentions(&session_id, &reply, plain_card.as_ref());
+                let posted = with_retry(&shared.closing, "sessions.reply", false, || {
+                    api.reply(&session_id, &body, card.as_ref(), &extras)
+                })
+                .map(|result| {
+                    if sealed {
+                        listeners = Some(result.listeners);
+                    }
+                    result.message_id
+                });
+                // A sealed question card's full form, for the device's
+                // write-back of an answer given in the session view.
+                if let (Some(message_id), Some(plain), Some(sealed)) = (&posted, &plain_card, &card) {
+                    if sealed.get("sealed").is_some() && card_question_id(reply.card.as_ref()).is_some() {
+                        coding::pickup::remember_sealed_card(message_id, &session_id, plain);
+                    }
+                }
+                if let (Some(message_id), Some(question_id)) =
+                    (posted, card_question_id(reply.card.as_ref()))
+                {
+                    let resolved = shared
+                        .resolved
+                        .lock()
+                        .map(|mut resolved| resolved.remove(question_id))
+                        .unwrap_or(false);
+                    if !resolved {
+                        if let Ok(mut open) = shared.open_cards.lock() {
+                            open.insert(message_id, question_id.to_string());
                         }
                     }
                 }
-                let _ = reply_done.send(());
             });
         }
 
@@ -479,19 +484,16 @@ impl Outbox {
         {
             let shared = Arc::clone(&shared);
             let session_id = session_id.to_string();
-            spawn_named(&format!("engine-consume-{}", short(&session_id)), move || {
-                while let Some(first) = next(&consume_rx, &shared.closing) {
-                    let mut ids = vec![first];
-                    ids.extend(consume_rx.drain());
-                    ids.dedup();
-                    let settled = consume_batch(api.as_ref(), &shared.closing, &session_id, ids);
-                    if let Ok(mut unconsumed) = shared.unconsumed.lock() {
-                        for id in &settled {
-                            unconsumed.remove(id);
-                        }
+            spawn_worker(runtime, consume_rx, closing_rx, consume_done, move |first, queue| {
+                let mut ids = vec![first];
+                ids.extend(queue.drain());
+                ids.dedup();
+                let settled = consume_batch(api.as_ref(), &shared.closing, &session_id, ids);
+                if let Ok(mut unconsumed) = shared.unconsumed.lock() {
+                    for id in &settled {
+                        unconsumed.remove(id);
                     }
                 }
-                let _ = consume_done.send(());
             });
         }
 
@@ -499,6 +501,7 @@ impl Outbox {
             replies,
             consumes,
             shared,
+            closing,
             done,
         }
     }
@@ -574,6 +577,7 @@ impl Outbox {
     /// to `grace` for both queues to drain. Idempotent.
     pub fn close(&self, grace: Duration) {
         self.shared.closing.store(true, Ordering::SeqCst);
+        self.closing.send_replace(true);
         let deadline = Instant::now() + grace;
         for done in &self.done {
             let left = deadline.saturating_duration_since(Instant::now());
@@ -585,15 +589,52 @@ impl Outbox {
     }
 }
 
+/// #PERF-12: one outbox worker. It waits for its queue on the runtime and
+/// runs `step` on the blocking pool for each item — the first, and every one
+/// queued meanwhile — then gives the pool thread back. Ends once the outbox
+/// is closing and the queue is empty (or every sender is gone), then says so
+/// on `done`. `step` sees the queue too (the consumes batch what is there).
+fn spawn_worker<T: Send + 'static>(
+    runtime: &tokio::runtime::Handle,
+    queue: flume::Receiver<T>,
+    mut closing: tokio::sync::watch::Receiver<bool>,
+    done: flume::Sender<()>,
+    step: impl FnMut(T, &flume::Receiver<T>) + Send + 'static,
+) {
+    runtime.spawn(async move {
+        let mut step = Some(step);
+        while let Some(first) = next(&queue, &mut closing).await {
+            let Some(mut run) = step.take() else { return };
+            let queue = queue.clone();
+            let ran = tokio::task::spawn_blocking(move || {
+                run(first, &queue);
+                while let Ok(item) = queue.try_recv() {
+                    run(item, &queue);
+                }
+                run
+            })
+            .await;
+            match ran {
+                Ok(run) => step = Some(run),
+                // A panicking post: `done` goes unsent, the way a dead
+                // worker thread's did (`close` logs the undrained outbox).
+                Err(_) => return,
+            }
+        }
+        let _ = done.send(());
+    });
+}
+
 /// The next queued item; `None` once the outbox is closing and the queue is
 /// empty (or every sender is gone).
-fn next<T>(rx: &flume::Receiver<T>, closing: &AtomicBool) -> Option<T> {
+async fn next<T>(queue: &flume::Receiver<T>, closing: &mut tokio::sync::watch::Receiver<bool>) -> Option<T> {
     loop {
-        match rx.recv_timeout(POLL) {
-            Ok(item) => return Some(item),
-            Err(flume::RecvTimeoutError::Disconnected) => return None,
-            Err(flume::RecvTimeoutError::Timeout) => {
-                if closing.load(Ordering::SeqCst) && rx.is_empty() {
+        tokio::select! {
+            biased;
+            item = queue.recv_async() => return item.ok(),
+            // A gone `Outbox` (its sender dropped) is closing too.
+            () = async { let _ = closing.wait_for(|closing| *closing).await; } => {
+                if queue.is_empty() {
                     return None;
                 }
             }
@@ -683,16 +724,6 @@ fn sleep_unless_closing(wait: Duration, closing: &AtomicBool) {
     }
 }
 
-fn spawn_named(name: &str, body: impl FnOnce() + Send + 'static) {
-    if let Err(err) = std::thread::Builder::new().name(name.to_string()).spawn(body) {
-        log::error!("engine: could not start {name}: {err}");
-    }
-}
-
-fn short(session_id: &str) -> &str {
-    session_id.get(..8).unwrap_or(session_id)
-}
-
 /// EXP-1458: a [`sealing::SealService`] over an in-memory keyring for this
 /// crate's tests (coding's own fake is test-only there). Installing it is
 /// process-global: hold [`fake_seal::serial`], and use session ids no other
@@ -745,6 +776,14 @@ pub(crate) mod fake_seal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The workers' runtime (a host's shared one in production).
+    fn test_runtime() -> &'static tokio::runtime::Handle {
+        static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+        RUNTIME
+            .get_or_init(|| tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap())
+            .handle()
+    }
 
     #[derive(Debug, Clone, PartialEq)]
     enum Call {
@@ -835,7 +874,7 @@ mod tests {
     #[test]
     fn replies_post_in_order_and_cards_stay_open_until_resolved() {
         let fake = Arc::new(Fake::default());
-        let outbox = Outbox::spawn(fake.clone(), clear("sess-1"));
+        let outbox = Outbox::spawn(test_runtime(), fake.clone(), clear("sess-1"));
         outbox.post(vec![
             Reply { body: "first".into(), card: None },
             Reply { body: String::new(), card: Some(question("q-1")) },
@@ -863,7 +902,7 @@ mod tests {
     #[test]
     fn subagent_edges_post_in_order_with_the_replies() {
         let fake = Arc::new(Fake::default());
-        let outbox = Outbox::spawn(fake.clone(), clear("sess-1"));
+        let outbox = Outbox::spawn(test_runtime(), fake.clone(), clear("sess-1"));
         let row = |status| SubagentRow {
             key: "task-1".into(),
             status,
@@ -890,7 +929,7 @@ mod tests {
     fn a_failed_reply_is_retried_before_the_next_one_posts() {
         let fake = Arc::new(Fake::default());
         *fake.fail_replies.lock().unwrap() = 1;
-        let outbox = Outbox::spawn(fake.clone(), clear("sess-1"));
+        let outbox = Outbox::spawn(test_runtime(), fake.clone(), clear("sess-1"));
         outbox.post(vec![
             Reply { body: "one".into(), card: None },
             Reply { body: "two".into(), card: None },
@@ -910,7 +949,7 @@ mod tests {
     #[test]
     fn a_card_resolved_before_it_posted_is_not_open() {
         let fake = Arc::new(Fake::default());
-        let outbox = Outbox::spawn(fake.clone(), clear("sess-1"));
+        let outbox = Outbox::spawn(test_runtime(), fake.clone(), clear("sess-1"));
         outbox.resolve_question("q-9");
         outbox.post(vec![Reply { body: String::new(), card: Some(question("q-9")) }]);
         outbox.close(Duration::from_secs(5));
@@ -923,7 +962,7 @@ mod tests {
             stale: Some("m-gone".into()),
             ..Fake::default()
         });
-        let outbox = Outbox::spawn(fake.clone(), clear("sess-1"));
+        let outbox = Outbox::spawn(test_runtime(), fake.clone(), clear("sess-1"));
         outbox.consume(["m-1".to_string(), "m-gone".to_string(), "m-2".to_string()]);
         outbox.close(Duration::from_secs(5));
         let consumed: Vec<String> = fake
@@ -952,13 +991,13 @@ mod tests {
                 Err(ApiError::transport("offline"))
             }
         }
-        let outbox = Outbox::spawn(Arc::new(Down), clear("sess-1"));
+        let outbox = Outbox::spawn(test_runtime(), Arc::new(Down), clear("sess-1"));
         outbox.consume(["m-2".to_string(), "m-1".to_string()]);
         outbox.close(Duration::from_secs(5));
         assert_eq!(outbox.unconsumed(), vec!["m-1".to_string(), "m-2".to_string()]);
 
         let fake = Arc::new(Fake { stale: Some("m-gone".into()), ..Fake::default() });
-        let outbox = Outbox::spawn(fake, clear("sess-1"));
+        let outbox = Outbox::spawn(test_runtime(), fake, clear("sess-1"));
         outbox.consume(["m-1".to_string(), "m-gone".to_string()]);
         outbox.close(Duration::from_secs(5));
         assert!(outbox.unconsumed().is_empty());
@@ -986,7 +1025,7 @@ mod tests {
             },
             ListenerTree { root_id: "keyless-root".into(), epoch: None, public_key: None },
         ];
-        let outbox = Outbox::spawn(api.clone(), "sealed-child");
+        let outbox = Outbox::spawn(test_runtime(), api.clone(), "sealed-child");
         outbox.post(vec![
             Reply { body: "the secret answer".into(), card: None },
             Reply { body: String::new(), card: Some(question("q-7")) },
@@ -1041,7 +1080,7 @@ mod tests {
             ("u-bob".to_string(), "Bob@Team.test".to_string()),
         ]);
         let api = Arc::new(Fake::default());
-        let outbox = Outbox::spawn(api.clone(), clear("plain-child"));
+        let outbox = Outbox::spawn(test_runtime(), api.clone(), clear("plain-child"));
         outbox.post(vec![
             Reply { body: "ping @bob@team.test and @ada@team.test (again @ada@team.test), not @eve@team.test".into(), card: None },
             Reply { body: "no one".into(), card: None },
@@ -1071,7 +1110,7 @@ mod tests {
         let _serial = fake_seal::serial();
         sealing::uninstall();
         let api = Arc::new(Fake::default());
-        let outbox = Outbox::spawn(api.clone(), "late-child");
+        let outbox = Outbox::spawn(test_runtime(), api.clone(), "late-child");
         outbox.post(vec![Reply { body: "the late secret".into(), card: None }]);
         std::thread::sleep(Duration::from_millis(300));
         assert!(api.calls.lock().unwrap().is_empty(), "nothing leaves without a key holder");
@@ -1113,7 +1152,7 @@ mod tests {
         assert_eq!(sealing::holder_off_reason(), Some(sealing::HolderOff::NodeFailed));
 
         let api = Arc::new(Fake::default());
-        let outbox = Outbox::spawn(api.clone(), "nkh-child");
+        let outbox = Outbox::spawn(test_runtime(), api.clone(), "nkh-child");
         outbox.post(vec![
             Reply { body: "the first answer".into(), card: None },
             Reply { body: "the second answer".into(), card: None },

@@ -600,6 +600,11 @@ mod tests {
         let device = std::fs::read_to_string(root.join("systemd/exponential-device.service")).unwrap();
         assert!(device.contains("ExecStart=/usr/bin/exponential-session --device\n") && device.contains("Restart=on-failure\n"));
         assert!(device.contains("After=graphical-session.target exponential-shell.service\n"), "the panel comes first");
+        // #EDE-215: the app's self-update starts the new version from a child
+        // and quits with status 0; the unit must outlast its main process,
+        // or systemd kills the relaunch with the cgroup (the device stays
+        // offline until the next login).
+        assert!(device.contains("ExitType=cgroup\n"), "the update's relaunch survives the old app quitting");
         // #EDE-172 (P4): what the compositor starts itself when asked stays
         // installed, and off while it does (the variable reaches systemd).
         assert!(EXPORTED_ENV.contains(&"EDE_HELPERS_SPAWNED"));
