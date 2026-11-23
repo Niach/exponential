@@ -649,12 +649,12 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  team members by id: a teammate's line in a team agent's group chat
      *  sits under THEIR avatar and name. */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val teamMembers: StateFlow<Map<String, UserEntity>> = browseTeamId
-        .flatMapLatest { teamId ->
-            if (teamId == null) {
+    val teamMembers: StateFlow<Map<String, UserEntity>> = chatTeamIds
+        .flatMapLatest { teamIds ->
+            if (teamIds.isEmpty()) {
                 flowOf(emptyList())
             } else {
-                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(teamId) }
+                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeams(teamIds) }
             }
         }
         .map { users -> users.associateBy { it.id } }
