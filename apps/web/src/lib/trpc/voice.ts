@@ -46,6 +46,7 @@ import { createTreeKeyInTx, loadRoot, lockTreeKeys } from "@/lib/sessions/tree-k
 import { getSteerRelayConfig, mintSteerTicket, relayPostNudge } from "@/lib/steer"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { callSpeechOf } from "@/lib/voice-call/availability"
+import { callSealPlatformOf, callSealPlatforms } from "@/lib/voice-call/seal-switch"
 import { mintCallId, verifyCallId } from "@/lib/voice-call-id"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED, postMeetingStopNote } from "@/lib/sessions/meeting-access"
 import { voiceAssistantOf } from "@/lib/agents/assistant"
@@ -538,17 +539,21 @@ export const voiceRouter = router({
       }
       // #EXP-1941: ONE boolean for the id and for the answer, so the host is
       // never told another mode than the caller: the caller's claim
-      // (`input.seal`, it holds a key holder) AND the target's `call-seal`
-      // cap (its host process holds one, `devices.caps`). An older caller
-      // claims nothing and an older host has no cap: today's clear call.
-      // Until sealing is mandatory the SERVER decides here which calls are
-      // sealed; the relay writes nothing that decides it.
+      // (`input.seal`, it holds a key holder), its platform being switched
+      // on (`VOICE_CALL_SEAL`, lib/voice-call/seal-switch.ts: only platforms
+      // whose real call was proven sealed) AND the target's `call-seal` cap
+      // (its host process holds a key holder, `devices.caps`). An older
+      // caller claims nothing and an older host has no cap: today's clear
+      // call. Until sealing is mandatory the SERVER decides here which calls
+      // are sealed; the relay writes nothing that decides it.
       const claim = input.seal === true
-      const cap = claim && (await deviceCanSeal(db, userId, target.device))
-      const sealed = claim && cap
+      const from = callSealPlatformOf(input.platform, ctx.request)
+      const on = from !== null && callSealPlatforms().has(from)
+      const cap = claim && on && (await deviceCanSeal(db, userId, target.device))
+      const sealed = claim && on && cap
       // The count of clear answers (who still calls readable, and why);
       // never an id.
-      console.info(`[voice] startCall: platform=${input.platform} claim=${claim} cap=${cap} sealed=${sealed}`)
+      console.info(`[voice] startCall: platform=${from ?? input.platform} claim=${claim} on=${on} cap=${cap} sealed=${sealed}`)
       // The id vouches for this member, device, agent and mode
       // (lib/voice-call-id.ts). Without the secret it could vouch for
       // nothing: no call.

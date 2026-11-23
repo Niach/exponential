@@ -32,10 +32,11 @@
 // `call_event`, `call_end`) ride beside them.
 //
 // The relay never decodes audio and never persists anything. #EXP-1941: a
-// call between updated apps is sealed end to end (fixtures/voice-call.json
+// call between updated apps is sealed end to end once the server switches
+// its caller's platform on (`VOICE_CALL_SEAL`; fixtures/voice-call.json
 // `seal`: the contract and its vectors); this file then sees a `hello`, then
-// `sealed` events and padded frames it cannot open. A call from or to an
-// older app is NOT sealed: `call_event` carries what the member said and each
+// `sealed` events and padded frames it cannot open. Every other call is
+// NOT sealed: `call_event` carries what the member said and each
 // sentence of the reply as text this file parses, and the Opus is plain, so
 // whoever runs or reads this process can read and hear that call. Until
 // sealing is mandatory the server decides which calls are sealed, and whoever

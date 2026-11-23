@@ -155,25 +155,33 @@ describe.skipIf(!ready.ok)(`#EXP-1941 voice.callConversation`, () => {
     const doctor = { checkedAt: NOW.toISOString(), items: [{ key: `speech`, group: `voice`, state: `ok` }] } as never
     const row = and(eq(devices.userId, w.me), eq(devices.deviceId, w.deviceId))
     const call = (callId: string) => voice(w.me).callConversation({ agentId: w.agentId, callId, deviceId: w.deviceId, seal: w.mine.seal() })
+    // The caller is the web app (no client header); the switch names it below.
+    process.env.VOICE_CALL_SEAL = ``
+    await db.update(devices).set({ doctor, caps: [`voice`, `call-seal`] }).where(row)
+    const off = await voice(w.me).startCall({ agentId: w.agentId, platform: `web`, seal: true })
+    expect(off.seal).toBe(false)
+    await expect(call(off.callId)).rejects.toMatchObject(refusedCall)
+    process.env.VOICE_CALL_SEAL = `web`
 
     // A host without a key holder advertises no cap: a claiming caller gets a clear call.
     await db.update(devices).set({ doctor, caps: [`voice`] }).where(row)
-    const clear = await voice(w.me).startCall({ agentId: w.agentId, platform: `phone`, seal: true })
+    const clear = await voice(w.me).startCall({ agentId: w.agentId, platform: `web`, seal: true })
     expect(clear.seal).toBe(false)
     await expect(call(clear.callId)).rejects.toMatchObject(refusedCall)
     await expect(voice(w.me).callHostTicket({ callId: clear.callId, deviceId: w.deviceId, agentId: w.agentId })).resolves.toMatchObject({ seal: false })
 
     await db.update(devices).set({ caps: [`voice`, `call-seal`] }).where(row)
     // An older caller claims nothing: clear, whatever the host can do.
-    const old = await voice(w.me).startCall({ agentId: w.agentId, platform: `phone` })
+    const old = await voice(w.me).startCall({ agentId: w.agentId, platform: `web` })
     expect(old.seal).toBe(false)
     await expect(call(old.callId)).rejects.toMatchObject(refusedCall)
 
-    const sealed = await voice(w.me).startCall({ agentId: w.agentId, platform: `phone`, seal: true })
+    const sealed = await voice(w.me).startCall({ agentId: w.agentId, platform: `web`, seal: true })
     expect(sealed.seal).toBe(true)
     await expect(voice(w.me).callHostTicket({ callId: sealed.callId, deviceId: w.deviceId, agentId: w.agentId })).resolves.toMatchObject({ seal: true })
     const out = await call(sealed.callId)
     expect((await rootRow(out.rootId)).sealEpoch).toBe(1)
+    delete process.env.VOICE_CALL_SEAL
   })
 
   it(`a second call answers the stored key and writes none: the host's own seal is not adopted`, async () => {

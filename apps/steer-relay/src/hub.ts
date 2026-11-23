@@ -6,8 +6,9 @@
 //
 // VAPP-43: the hub carries NO session content, EXCEPT a voice call's events
 // and audio WHEN THE CALL IS NOT SEALED (#EXP-1941, voice-call.json `seal`):
-// a call between updated apps is sealed end to end; a call from or to an
-// older app still crosses readable (the member's words and each sentence of
+// a call between updated apps is sealed end to end once the server switches
+// its caller's platform on (`VOICE_CALL_SEAL`); every other call still
+// crosses readable (the member's words and each sentence of
 // the reply as `call_event` text, the Opus as plain binary frames). Until
 // sealing is mandatory the server decides which calls are sealed, and whoever
 // holds its signing secret can act as any member and decide it too; the relay

@@ -11,8 +11,9 @@
 // it carries NO session content: no session rooms, no activity, no history;
 // viewers read sessions over eNet from the device (fixtures/steer-enet.json)
 // and every content frame is refused. THE EXCEPTION is a voice call that is
-// not sealed: a call between updated apps is sealed end to end (#EXP-1941);
-// a call from or to an older app still crosses this process readable (the
+// not sealed: a call between updated apps is sealed end to end once the
+// server switches its caller's platform on (#EXP-1941, `VOICE_CALL_SEAL`);
+// every other call still crosses this process readable (the
 // member's words, the reply's sentences, the audio), and until sealing is
 // mandatory the server decides which calls are sealed. It never persists a
 // byte.
