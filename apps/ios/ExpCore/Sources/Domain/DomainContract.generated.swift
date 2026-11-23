@@ -47,7 +47,7 @@ public enum DomainContract {
     public static let messageAuthorKindValues: [String] = ["user", "agent", "system"]
     public static let conversationKindValues: [String] = ["dm", "channel", "session"]
     public static let agentRoleValues: [String] = ["assistant", "agent", "coordinator"]
-    public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface"]
+    public static let messageCardKindValues: [String] = ["question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface", "action"]
     public static let messageEventKindValues: [String] = ["issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused", "pr_checks", "pr_merge", "watch_fired"]
     public static let codingAgentValues: [String] = ["claude", "codex"]
     public static let codingModelValues: [String] = ["fable", "opus", "sonnet", "haiku"]
@@ -297,6 +297,7 @@ public enum DomainContract {
     public static let messageCardKindReplies: String = "replies"
     public static let messageCardKindAsk: String = "ask"
     public static let messageCardKindSurface: String = "surface"
+    public static let messageCardKindAction: String = "action"
     public static let messageEventKindIssueLinked: String = "issue_linked"
     public static let messageEventKindIssueFiled: String = "issue_filed"
     public static let messageEventKindIssueUnlinked: String = "issue_unlinked"
