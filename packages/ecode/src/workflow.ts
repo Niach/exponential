@@ -32,8 +32,25 @@ const STEP_KEYS = [`name`, `run`, `env`, `timeout-minutes`, `continue-on-error`,
 const STEP_IGNORED = [`id`]
 const SHELLS = [`bash`, `sh`]
 /** `uses:` our runner covers itself: the checkout (it checks out the job's
- *  commit) and the cache (a no-op until runner caches exist). */
-const ACTIONS = [`actions/checkout`, `actions/cache`]
+ *  commit) and the caches (a no-op until runner caches exist). */
+const ACTIONS = [`actions/checkout`, `actions/cache`, `swatinem/rust-cache`]
+/** Setup actions (#EXP-2078) → the tool each one puts on the PATH. The runner
+ *  runs the host's processes and installs nothing, so the step only checks
+ *  the tool is there: a no-op when it is, a failure naming it when not. */
+const SETUP_ACTIONS: Record<string, string> = {
+  "actions/setup-node": `node`,
+  "actions/setup-python": `python3`,
+  "actions/setup-go": `go`,
+  "actions/setup-java": `java`,
+  "actions/setup-dotnet": `dotnet`,
+  "dtolnay/rust-toolchain": `cargo`,
+  "actions-rust-lang/setup-rust-toolchain": `cargo`,
+  "astral-sh/setup-uv": `uv`,
+  "oven-sh/setup-bun": `bun`,
+  "pnpm/action-setup": `pnpm`,
+  "denoland/setup-deno": `deno`,
+  "ruby/setup-ruby": `ruby`,
+}
 const EVENT_KEYS: Record<string, string[]> = {
   push: [`branches`, `tags`, `paths`],
   pull_request: [`branches`, `paths`, `types`],
@@ -280,7 +297,9 @@ export function readWorkflow(workflow: Json): WorkflowRead {
           unknown(s, STEP_KEYS, STEP_IGNORED, sat)
           if (s.uses !== undefined) {
             const action = typeof s.uses === `string` ? s.uses.split(`@`)[0]!.toLowerCase() : null
-            if (!action || !ACTIONS.includes(action)) err(`${sat}/uses`, `unsupported_action`)
+            const tool = action ? SETUP_ACTIONS[action] : undefined
+            if (tool) steps.push({ name: action, run: `command -v ${tool} || { echo "${action}: ${tool} is not on this runner" >&2; exit 1; }` })
+            else if (!action || !ACTIONS.includes(action)) err(`${sat}/uses`, `unsupported_action`)
             if (s.run !== undefined) err(`${sat}/run`, `invalid_value`)
             return
           }
