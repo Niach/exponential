@@ -397,6 +397,32 @@ export function assistantPickAgent<T extends TeamAgentLike>(
   return listed?.id ?? pageAgentId
 }
 
+/** #EXP-2079 (`assistant.chatTeams`): the teams the lists of a chat read
+ *  (`#` refs, `@` members, the MCP pick, prompts, Link / New issue): the
+ *  own team while it is synced, else the turn's teams (the Teams pick ∩ the
+ *  synced teams, else all of them), in the synced order. */
+export function assistantChatTeams(input: {
+  ownTeamId: string | null | undefined
+  /** The viewer's synced teams, in the cross-team order. */
+  syncedTeamIds: readonly string[]
+  /** The conversation root's Teams pick (`scopeTeamIds`). */
+  pickedTeamIds: readonly string[] | null | undefined
+}): string[] {
+  const { ownTeamId, syncedTeamIds, pickedTeamIds } = input
+  if (ownTeamId && syncedTeamIds.includes(ownTeamId)) return [ownTeamId]
+  if (syncedTeamIds.length === 0) return ownTeamId ? [ownTeamId] : []
+  const picked = new Set(pickedTeamIds ?? [])
+  const turn = syncedTeamIds.filter((id) => picked.has(id))
+  return turn.length > 0 ? turn : [...syncedTeamIds]
+}
+
+/** #EXP-2079 (`assistant.chatTeams` `deviceCases`): the device list of a
+ *  session in a team the viewer does not sync, that they started (the
+ *  Assistant's conversation) = their own machines, no team rule. */
+export function assistantOwnDevices(input: { sessionTeamSynced: boolean; starterIsViewer: boolean }): boolean {
+  return !input.sessionTeamSynced && input.starterIsViewer
+}
+
 export const ASSISTANT_TEAM_PICKS = fixture.assistant.teamPicks
 
 export const ASSISTANT_MOVE = fixture.assistant.move

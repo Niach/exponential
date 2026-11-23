@@ -10,7 +10,9 @@ import {
   launchPick,
   mergeTeamPicks,
   teamPick,
+  assistantChatTeams,
   assistantMoveOf,
+  assistantOwnDevices,
   coordinatorOf,
   coordinatorOptions,
   leadOptions,
@@ -239,6 +241,19 @@ describe(`MCP servers row (#EXP-1793)`, () => {
   for (const c of fixture.mcpValueCases) {
     it(`mcpValueCases: ${c.name}`, () => {
       expect(agentMcpServersValue(c.names)).toBe(c.expected)
+    })
+  }
+})
+
+describe(`#EXP-2079 the Assistant's chat reads the turn's teams (assistant.chatTeams)`, () => {
+  for (const c of fixture.assistant.chatTeams.cases) {
+    test(c.name, () => {
+      expect(assistantChatTeams(c)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.chatTeams.deviceCases) {
+    test(`devices: ${c.name}`, () => {
+      expect(assistantOwnDevices(c)).toBe(c.expected)
     })
   }
 })
