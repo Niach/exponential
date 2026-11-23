@@ -2952,6 +2952,9 @@ internal fun dropHiddenFeedRows(rows: List<AgentFeedRow>): ShownFeedRows {
                 // #FEED-254: another session's relayed line with a blank body draws nothing.
                 is TranscriptGrouping.FeedInput.Relay ->
                     if (TranscriptGrouping.isBlankText(input.body)) TranscriptGrouping.FeedRowRole.Blank else TranscriptGrouping.FeedRowRole.Input
+                // #EXP-1990: so does a member's line with a blank body.
+                is TranscriptGrouping.FeedInput.Member ->
+                    if (TranscriptGrouping.isBlankText(input.body)) TranscriptGrouping.FeedRowRole.Blank else TranscriptGrouping.FeedRowRole.Input
                 else -> TranscriptGrouping.FeedRowRole.Input
             }
             is AgentFeedItem.Narration ->
