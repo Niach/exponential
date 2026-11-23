@@ -243,15 +243,15 @@ fn express_case(key: &str, c: &Value) -> Result<(), String> {
             let opens: Vec<Value> = match c["decoder"].as_str() {
                 Some("sse") => {
                     let mut d = SseDecoder::with_surface(sid);
-                    chunks.iter().map(|ch| d.push(ch)).chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
+                    chunks.iter().map(|ch| d.push(ch)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
                 }
                 Some("ws") => {
                     let mut d = FrameDecoder::new(sid);
-                    chunks.iter().map(|ch| d.push(ch)).chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
+                    chunks.iter().map(|ch| d.push(ch)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
                 }
                 _ => {
                     let mut d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap_or(false), sid.unwrap_or("main"));
-                    chunks.iter().map(|ch| d.push(ch)).chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
+                    chunks.iter().map(|ch| d.push(ch)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
                 }
             };
             Value::Array(opens)

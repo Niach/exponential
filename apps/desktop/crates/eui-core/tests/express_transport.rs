@@ -57,15 +57,15 @@ fn express_transport_cases_equal_the_ts_reference() {
         let reads: Vec<Decoded> = match c["decoder"].as_str() {
             Some("sse") => {
                 let mut d = SseDecoder::with_surface(sid);
-                chunks.iter().map(|s| d.push(s)).chain(std::iter::once(d.end())).collect()
+                chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
             }
             Some("ws") => {
                 let mut d = FrameDecoder::new(sid);
-                chunks.iter().map(|s| d.push(s)).chain(std::iter::once(d.end())).collect()
+                chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
             }
             _ => {
                 let mut d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap(), sid.unwrap_or("main"));
-                chunks.iter().map(|s| d.push(s)).chain(std::iter::once(d.end())).collect()
+                chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
             }
         };
         let got = json!(reads.iter().map(|d| d.open.clone()).collect::<Vec<_>>());

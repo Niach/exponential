@@ -688,15 +688,15 @@ fn host_suite(id: &str) -> Vec<Case> {
                 let reads: Vec<Decoded> = match c["decoder"].as_str() {
                     Some("sse") => {
                         let mut d = SseDecoder::with_surface(sid.as_deref());
-                        chunks.iter().map(|s| d.push(s)).chain(std::iter::once(d.end())).collect()
+                        chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
                     }
                     Some("ws") => {
                         let mut d = FrameDecoder::new(sid.as_deref());
-                        chunks.iter().map(|s| d.push(s)).chain(std::iter::once(d.end())).collect()
+                        chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
                     }
                     _ => {
                         let mut d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap_or(true), sid.as_deref().unwrap_or(eui_core::host::contract::EXPRESS_DEFAULT_SURFACE_ID));
-                        chunks.iter().map(|s| d.push(s)).chain(std::iter::once(d.end())).collect()
+                        chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
                     }
                 };
                 let got = Value::Array(reads.into_iter().map(|d| Value::from(d.open)).collect());

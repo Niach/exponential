@@ -640,15 +640,15 @@ fn the_host_express_fixture_replays_through_the_facade() {
         let reads: Vec<String> = match c["decoder"].as_str() {
             Some("sse") => {
                 let d = SseDecoder::with_surface(surface_of(c));
-                chunks.iter().map(|s| d.push(s.clone())).chain(std::iter::once(d.end())).collect()
+                chunks.iter().map(|s| d.push(s.clone())).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
             }
             Some("ws") => {
                 let d = FrameDecoder::new(surface_of(c));
-                chunks.iter().map(|s| d.push(s.clone())).chain(std::iter::once(d.end())).collect()
+                chunks.iter().map(|s| d.push(s.clone())).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
             }
             _ => {
                 let d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap(), surface_of(c).unwrap_or_else(|| "main".into()));
-                chunks.iter().map(|s| d.push(s.clone())).chain(std::iter::once(d.end())).collect()
+                chunks.iter().map(|s| d.push(s.clone())).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
             }
         };
         let opens: Vec<Value> = reads.iter().map(|r| serde_json::from_str::<Value>(r).unwrap().get("open").cloned().unwrap_or(json!([]))).collect();

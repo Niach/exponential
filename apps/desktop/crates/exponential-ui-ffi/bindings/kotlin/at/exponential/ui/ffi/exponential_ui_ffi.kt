@@ -936,6 +936,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json(
     ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_reduce_surface_streaming_json(
+    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_renderer_capabilities_json(
@@ -1240,6 +1242,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_states(
     ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_streaming(
+    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_surface_scroll(
@@ -1251,6 +1255,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_set_viewport(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_settings(
+    ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_method_surface_streaming(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_method_surface_strings_json(
     ): Int
@@ -1679,6 +1685,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_exponential_ui_ffi_fn_method_surface_set_states(`ptr`: Long,`id`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_set_streaming(`ptr`: Long,`on`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_exponential_ui_ffi_fn_method_surface_set_strings_json(`ptr`: Long,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_exponential_ui_ffi_fn_method_surface_set_surface_scroll(`ptr`: Long,`x`: Float,`y`: Float,uniffi_out_err: UniffiRustCallStatus, 
@@ -1691,6 +1699,8 @@ internal object UniffiLib {
     ): Byte
     external fun uniffi_exponential_ui_ffi_fn_method_surface_settings(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_method_surface_streaming(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_exponential_ui_ffi_fn_method_surface_strings_json(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_method_surface_structure_version(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -1934,6 +1944,8 @@ internal object UniffiLib {
     external fun uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(`nestedJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_reduce_surface_json(`componentsJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_reduce_surface_streaming_json(`componentsJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,`streaming`: Byte,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(`deltaMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -7825,6 +7837,16 @@ public interface SurfaceInterface {
     fun `setStates`(`id`: kotlin.String, `states`: List<kotlin.String>): kotlin.Boolean
     
     /**
+     * #VAPP-300: an Express block is still streaming this surface (the
+     * host sets it from its decoder's `open`: the surfaces the open block
+     * writes): it reduces `streaming`, so a child not streamed yet renders
+     * as nothing. Off again when the block closes: the tree re-reduces and
+     * a child still missing is the Unknown placeholder with its issue.
+     * True when it changed (the host lays out again).
+     */
+    fun `setStreaming`(`on`: kotlin.Boolean): kotlin.Boolean
+    
+    /**
      * Built-in string overrides `{id: text}`.
      */
     fun `setStringsJson`(`stringsJson`: kotlin.String)
@@ -7852,6 +7874,11 @@ public interface SurfaceInterface {
     fun `setViewport`(`width`: kotlin.Float, `height`: kotlin.Float, `maxHeight`: kotlin.Float?): kotlin.Boolean
     
     fun `settings`(): FfiSettings
+    
+    /**
+     * #VAPP-300: whether an Express block is still streaming this surface.
+     */
+    fun `streaming`(): kotlin.Boolean
     
     /**
      * The built-in string table in effect, as JSON.
@@ -9074,6 +9101,28 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
 
     
     /**
+     * #VAPP-300: an Express block is still streaming this surface (the
+     * host sets it from its decoder's `open`: the surfaces the open block
+     * writes): it reduces `streaming`, so a child not streamed yet renders
+     * as nothing. Off again when the block closes: the tree re-reduces and
+     * a child still missing is the Unknown placeholder with its issue.
+     * True when it changed (the host lays out again).
+     */override fun `setStreaming`(`on`: kotlin.Boolean): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_set_streaming(
+        it,
+        
+        FfiConverterBoolean.lower(`on`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Built-in string overrides `{id: text}`.
      */
     @Throws(UiException::class)override fun `setStringsJson`(`stringsJson`: kotlin.String)
@@ -9166,6 +9215,22 @@ open class Surface: Disposable, AutoCloseable, SurfaceInterface
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_settings(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * #VAPP-300: whether an Express block is still streaming this surface.
+     */override fun `streaming`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_surface_streaming(
         it,
         _status)
 }
@@ -14485,6 +14550,26 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
         FfiConverterString.lower(`componentsJson`),
         FfiConverterString.lower(`catalogId`),
         FfiConverterOptionalString.lower(`extensionsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * #VAPP-300: [`reduce_surface_json`] with the `streaming` option (the
+         * surface's Express block is still open: a child not streamed yet is no
+         * node and no issue).
+         */
+    @Throws(UiException::class) fun `reduceSurfaceStreamingJson`(`componentsJson`: kotlin.String, `catalogId`: kotlin.String, `extensionsJson`: kotlin.String?, `streaming`: kotlin.Boolean): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_reduce_surface_streaming_json(
+    
+        
+        FfiConverterString.lower(`componentsJson`),
+        FfiConverterString.lower(`catalogId`),
+        FfiConverterOptionalString.lower(`extensionsJson`),
+        FfiConverterBoolean.lower(`streaming`),_status)
 }
     )
     }
