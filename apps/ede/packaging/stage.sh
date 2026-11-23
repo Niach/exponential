@@ -61,7 +61,7 @@ install -Dm644 "$here/portal/exponential.portal" "$stage/usr/share/xdg-desktop-p
 install -Dm644 "$here/portal/exponential-portals.conf" "$stage/usr/share/xdg-desktop-portal/exponential-portals.conf"
 install -Dm644 "$here/portal/org.freedesktop.impl.portal.desktop.exponential.service" "$stage/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.exponential.service"
 install -Dm644 "$here/portal/xdg-desktop-portal-exponential.service" "$stage/usr/lib/systemd/user/xdg-desktop-portal-exponential.service"
-for f in "$ede"/ui/*.json; do install -Dm644 "$f" "$stage/usr/share/exponential-desktop/ui/$(basename "$f")"; done
+for f in "$ede"/ui/*.express; do install -Dm644 "$f" "$stage/usr/share/exponential-desktop/ui/$(basename "$f")"; done
 # #VAPP-273: the factory apps (Apps packages the shell runs on the Engine); a
 # person's ~/.config/exponential-desktop/apps/<name>.app.json replaces one by file name.
 for f in "$ede"/apps/*.app.json; do install -Dm644 "$f" "$stage/usr/share/exponential-desktop/apps/$(basename "$f")"; done
