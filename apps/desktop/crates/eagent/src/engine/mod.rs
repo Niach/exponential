@@ -30,6 +30,7 @@ pub mod runtime;
 pub mod session;
 pub mod sink;
 pub mod stall;
+pub mod starved;
 pub mod transport;
 
 pub use adapters::{Adapter, AdapterKind, LaunchSpec};
