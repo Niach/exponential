@@ -69,9 +69,9 @@ unicode-normalization = "0.1"
 # VAPP-124: stacker has no Android or iOS stack-limit backend; `src/stack.rs`
 # asks pthread there.
 # #AXC-12: the Express compiler (Niach/a2ui-express-compiler-rust, public),
-# pinned to a rev; its runtime deps are serde, serde_json (preserve_order)
+# pinned to a rev (2378a4f: #AXC-17 checks fix); its runtime deps are serde, serde_json (preserve_order)
 # and thiserror, all already in the tree.
-a2ui-express = { git = "https://github.com/Niach/a2ui-express-compiler-rust", rev = "6e43f14d38649edac234b7a3ee7448556e1d0559", optional = true }
+a2ui-express = { git = "https://github.com/Niach/a2ui-express-compiler-rust", rev = "2378a4fef49b990c44c049af79363b4e2b1ceab0", optional = true }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 libc = "0.2"
