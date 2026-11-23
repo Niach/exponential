@@ -585,7 +585,7 @@ export const voiceRouter = router({
           installId: z.string().uuid(),
           publicKey: z.string().length(43),
           epoch: z.literal(1),
-          wraps: z.array(z.object({ installId: z.string().uuid(), wrapped: z.string().min(1).max(256) })).min(1).max(200),
+          wraps: z.array(z.object({ installId: z.string().uuid(), wrapped: z.string().min(1).max(256), signature: z.string().min(1).max(128).nullish() })).min(1).max(200),
         }),
       })
     )
