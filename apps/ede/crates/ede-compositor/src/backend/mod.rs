@@ -148,7 +148,13 @@ where
         return elements;
     }
     let upper = |l: &smithay::desktop::LayerSurface| matches!(l.layer(), Layer::Overlay | Layer::Top);
-    draw(renderer, &mut elements, &upper);
+    // #EDE-213: a sealed surface (a polkit, consent or share prompt) and
+    // its popups sit above every other layer and every other layer's
+    // popups: the taskbar's Agent spaces list never covers Allow. The
+    // compositor's order, whatever layer or popup the shell asks for.
+    let sealed = |l: &smithay::desktop::LayerSurface| upper(l) && crate::sealed::layer_origin(l).sealed;
+    draw(renderer, &mut elements, &sealed);
+    draw(renderer, &mut elements, &|l| upper(l) && !sealed(l));
     for w in state.desk.space.elements().rev() {
         let Some(bbox) = state.desk.space.element_bbox(w) else { continue };
         if out.overlaps(bbox) {
