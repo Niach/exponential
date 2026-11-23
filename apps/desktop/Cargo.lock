@@ -13952,6 +13952,7 @@ dependencies = [
 name = "uicore-docs"
 version = "0.14.175"
 dependencies = [
+ "ede-ui",
  "eui-core",
  "serde_json",
  "tracing",

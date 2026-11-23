@@ -108,3 +108,50 @@ fn apply_cases() {
         }
     }
 }
+
+const EXPRESS: &str = include_str!("../../../../../packages/ede/fixtures/express.json");
+
+/// #EDE-216: `express.json`: compile (the JSON form or the issues at their
+/// lines) and the migration (the exact Express a JSON document becomes, and
+/// that it compiles back to a document that validates). Rewrite the expected
+/// values with EDE_WRITE_FIXTURES=1 (then review the diff).
+#[test]
+fn express_cases() {
+    let mut fixture: Value = serde_json::from_str(EXPRESS).unwrap();
+    let write = std::env::var_os("EDE_WRITE_FIXTURES").is_some();
+    let functions: serde_json::Map<String, Value> = ede_ui::express::HOST_FUNCTIONS.iter().map(|(n, a)| (n.to_string(), serde_json::json!(a))).collect();
+    if write {
+        fixture["hostFunctions"] = Value::Object(functions.clone());
+    }
+    assert_eq!(fixture["hostFunctions"], Value::Object(functions), "hostFunctions");
+    for case in fixture["compileCases"].as_array_mut().unwrap() {
+        let name = case["name"].as_str().unwrap().to_string();
+        let doc = case["document"].as_str().unwrap();
+        let source = case["express"].as_str().unwrap();
+        let got = match ede_ui::validate_express(doc, source) {
+            Ok(_) => serde_json::json!({"document": ede_ui::compile_document(doc, source).unwrap()}),
+            Err(issues) => serde_json::json!({"issues": issues}),
+        };
+        if write {
+            case["expected"] = got;
+        } else {
+            assert_eq!(got, case["expected"], "{name}");
+        }
+    }
+    for case in fixture["migrationCases"].as_array_mut().unwrap() {
+        let name = case["name"].as_str().unwrap().to_string();
+        let doc = case["document"].as_str().unwrap();
+        let express = ede_ui::decompile_document(doc, &case["json"]).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let back = ede_ui::validate_express(doc, &express).unwrap_or_else(|e| panic!("{name}: {e:?}\n{express}"));
+        let got = serde_json::json!({"express": express, "document": back.source});
+        if write {
+            case["expected"] = got;
+        } else {
+            assert_eq!(got, case["expected"], "{name}");
+        }
+    }
+    if write {
+        let path = format!("{}/../../../../packages/ede/fixtures/express.json", env!("CARGO_MANIFEST_DIR"));
+        std::fs::write(path, serde_json::to_string_pretty(&fixture).unwrap() + "\n").unwrap();
+    }
+}
