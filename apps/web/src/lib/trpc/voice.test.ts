@@ -767,7 +767,6 @@ describe(`voice.callHostTicket`, () => {
     h.state.selectQueue = [[{ deviceId: `d-mint` }]]
     const ahead = mint({}, new Date(Date.now() + 60_000))
     await expect(caller.callHostTicket({ callId: ahead, deviceId: `d-mint`, agentId: AGENT })).resolves.toMatchObject({ seal: false })
-    // Until sealing is turned on `startCall` mints no sealed id: this one comes from the lib.
     h.state.selectQueue = [[{ deviceId: `d-mint` }]]
     const sealed = mint({ sealed: true })
     await expect(caller.callHostTicket({ callId: sealed, deviceId: `d-mint`, agentId: AGENT })).resolves.toMatchObject({ seal: true, callId: sealed })
@@ -782,13 +781,76 @@ describe(`#EXP-1941 voice.startCall mints the id callHostTicket vouches for`, ()
     return caller.startCall({ agentId: AGENT, platform: `phone`, ...input })
   }
 
-  it(`the answer says seal: false, also to a caller that claims it, and the host is told the same`, async () => {
-    for (const input of [{}, { seal: false }, { seal: true }]) {
+  // The claiming caller's extra read: the target device's caps.
+  const startClaiming = (caps: unknown) => {
+    h.state.selectQueue = [[{ id: AGENT, deviceId: `d-mint` }], [{ userId: `me`, ...stored }], [MINT], caps === undefined ? [] : [{ caps }]]
+    return caller.startCall({ agentId: AGENT, platform: `phone`, seal: true })
+  }
+  const hostIsTold = async (out: { callId: string; seal: boolean }) => {
+    h.state.selectQueue = [[{ deviceId: `d-mint` }]]
+    await expect(caller.callHostTicket({ callId: out.callId, deviceId: `d-mint`, agentId: AGENT })).resolves.toMatchObject({ seal: out.seal })
+  }
+
+  it(`a claim AND the target's call-seal cap seal the call: the id vouches for the mode and the host is told the same`, async () => {
+    const out = await startClaiming([`voice`, `call-seal`])
+    expect(out.seal).toBe(true)
+    expect(verifyCallId(out.callId, { userId: `me`, deviceId: `d-mint`, agentId: AGENT, sealed: true })).toBe(true)
+    // The mode is inside the id's MAC: the same id never vouches for a clear call.
+    expect(verifyCallId(out.callId, { userId: `me`, deviceId: `d-mint`, agentId: AGENT, sealed: false })).toBe(false)
+    await hostIsTold(out)
+  })
+
+  it(`no claim (an older caller) is a clear call, whatever the host can do: the caps are not even read`, async () => {
+    for (const input of [{}, { seal: false }]) {
       const out = await start(input)
       expect(out.seal).toBe(false)
+      expect(h.state.selectQueue).toEqual([])
       expect(verifyCallId(out.callId, { userId: `me`, deviceId: `d-mint`, agentId: AGENT, sealed: false })).toBe(true)
-      h.state.selectQueue = [[{ deviceId: `d-mint` }]]
-      await expect(caller.callHostTicket({ callId: out.callId, deviceId: `d-mint`, agentId: AGENT })).resolves.toMatchObject({ seal: out.seal })
+      expect(verifyCallId(out.callId, { userId: `me`, deviceId: `d-mint`, agentId: AGENT, sealed: true })).toBe(false)
+      await hostIsTold(out)
+    }
+  })
+
+  it(`a claim to a host without the cap (an older host, no key holder, a caps column that is no list) is a clear call`, async () => {
+    for (const caps of [[], [`voice`], null, `call-seal`, { "call-seal": true }, undefined]) {
+      const out = await startClaiming(caps)
+      expect(out.seal).toBe(false)
+      expect(verifyCallId(out.callId, { userId: `me`, deviceId: `d-mint`, agentId: AGENT, sealed: false })).toBe(true)
+      await hostIsTold(out)
+    }
+  })
+
+  it(`a sealed id from startCall opens callConversation for its agent and device only`, async () => {
+    const out = await startClaiming([`call-seal`])
+    const seal = { installId: AGENT, publicKey: `A`.repeat(43), epoch: 1 as const, wraps: [{ installId: AGENT, wrapped: `A`.repeat(108) }] }
+    // A relay that moves the id to another agent or device, and a clear id: refused before any read.
+    const clear = await start()
+    for (const input of [
+      { agentId: OTHER_AGENT, callId: out.callId, deviceId: `d-mint` },
+      { agentId: AGENT, callId: out.callId, deviceId: `d-other` },
+      { agentId: AGENT, callId: clear.callId, deviceId: `d-mint` },
+    ]) {
+      h.state.selectQueue = []
+      await expect(caller.callConversation({ ...input, seal })).rejects.toMatchObject({ code: `NOT_FOUND`, message: `No such call` })
+    }
+  })
+
+  it(`counts every answer by claim, cap and mode, never an id`, async () => {
+    const info = vi.spyOn(console, `info`).mockImplementation(() => {})
+    try {
+      const sealed = await startClaiming([`call-seal`])
+      const clear = await startClaiming([])
+      await start()
+      const lines = info.mock.calls.map((call) => String(call[0])).filter((line) => line.startsWith(`[voice] startCall`))
+      expect(lines).toEqual([
+        `[voice] startCall: platform=phone claim=true cap=true sealed=true`,
+        `[voice] startCall: platform=phone claim=true cap=false sealed=false`,
+        `[voice] startCall: platform=phone claim=false cap=false sealed=false`,
+      ])
+      expect(lines.join(`\n`)).not.toContain(sealed.callId)
+      expect(lines.join(`\n`)).not.toContain(clear.callId)
+    } finally {
+      info.mockRestore()
     }
   })
 

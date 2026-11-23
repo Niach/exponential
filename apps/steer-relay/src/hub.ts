@@ -5,10 +5,13 @@
 // because nothing durable existed.
 //
 // VAPP-43: the hub carries NO session content, EXCEPT a voice call's events
-// and audio, which the relay can read until #EXP-1941 seals them (the member's
-// words and each sentence of the reply cross as `call_event` text, the Opus
-// as plain binary frames; voice-call.json `seal` is the contract, no end
-// seals yet). Session rooms, the activity
+// and audio WHEN THE CALL IS NOT SEALED (#EXP-1941, voice-call.json `seal`):
+// a call between updated apps is sealed end to end; a call from or to an
+// older app still crosses readable (the member's words and each sentence of
+// the reply as `call_event` text, the Opus as plain binary frames). Until
+// sealing is mandatory the server decides which calls are sealed, and whoever
+// holds its signing secret can act as any member and decide it too; the relay
+// can take the caller's place in a call that is not sealed. Session rooms, the activity
 // log + replay, viewers, keepalives and the stored-transcript machinery are
 // gone: every viewer reads a session over eNet from the device that runs it
 // (fixtures/steer-enet.json). A content frame (`CONTENT_FRAME_TYPES`) from any
