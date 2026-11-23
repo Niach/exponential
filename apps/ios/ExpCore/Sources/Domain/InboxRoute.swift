@@ -77,12 +77,15 @@ public enum InboxRoute {
     }
 
     /// `agentId` + `userId` are the ROOT's (a child resolves through its root).
+    /// #EXP-1990: a team agent's group chat (`groupChat`: the root is its
+    /// agent's `agents.groupChatId`) is every member's chat with it.
     public static func sessionTarget(
-        id: String, rootId: String?, agentId: String?, userId: String?, viewerId: String?
+        id: String, rootId: String?, agentId: String?, userId: String?, viewerId: String?,
+        groupChat: Bool = false
     ) -> SessionTarget {
         let root = rootId ?? id
         if let agentId {
-            return root == id && userId == viewerId
+            return root == id && (userId == viewerId || groupChat)
                 ? .agent(agentId: agentId)
                 : .session(id: id)
         }
@@ -104,7 +107,8 @@ extension InboxRoute {
         guard let root else { return .session(id: sessionId) }
         return sessionTarget(
             id: session.id, rootId: session.rootId,
-            agentId: root.agentId, userId: root.userId, viewerId: viewerId
+            agentId: root.agentId, userId: root.userId, viewerId: viewerId,
+            groupChat: try AgentSettings.isGroupChatRoot(db: db, rootId: root.id, agentId: root.agentId)
         )
     }
 

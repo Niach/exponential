@@ -1076,9 +1076,9 @@ public enum Chats {
     ) -> [AgentChatRow] {
         if view == .archived { return [] }
         return agents.map { agent -> AgentChatRow in
-            let conversation = sessions.first {
-                $0.parentId == nil && $0.agentId == agent.agentId && $0.userId == me
-            }
+            let conversation = AgentSettings.agentChatOf(
+                agentId: agent.agentId, groupChatId: agent.groupChatId, sessions: sessions, me: me
+            )
             let id = conversation?.id
             var newest: String?
             if let id {

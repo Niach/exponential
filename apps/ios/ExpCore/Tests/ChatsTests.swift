@@ -131,7 +131,8 @@ final class ChatsTests: XCTestCase {
                 color: try XCTUnwrap(string($0["color"])),
                 busy: try XCTUnwrap($0["busy"] as? Bool),
                 needsYou: try XCTUnwrap($0["needsYou"] as? Bool),
-                assistant: ($0["assistant"] as? Bool) ?? false
+                assistant: ($0["assistant"] as? Bool) ?? false,
+                groupChatId: string($0["groupChatId"])
             )
         }
     }

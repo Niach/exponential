@@ -2971,10 +2971,12 @@ struct AgentSessionView: View {
     }
 
     /// #EXP-1793 (composer-menu.json `mcpPick`): the agent whose conversation
-    /// ROOT this is, while it is the viewer's own; nil anywhere else (a
-    /// child, another member's conversation, any other session).
+    /// ROOT this is, while the viewer steers it (their own, or #EXP-1990 a
+    /// shared one: a team agent's group chat, whose pick is the chat's); nil
+    /// anywhere else (a child, another member's private conversation, any
+    /// other session).
     private var mcpPickAgentId: String? {
-        guard session.parentId == nil, session.userId == deps.auth.userId,
+        guard session.parentId == nil, session.userId == deps.auth.userId || session.shared,
               let agentId = session.agentId, !agentId.isEmpty
         else { return nil }
         return agentId

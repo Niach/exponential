@@ -19,9 +19,13 @@ final class SessionListsModel {
     /// Every team's agents (`listAgents(teamId: nil)`, NEW-2: the synced
     /// `agents` definitions).
     private(set) var agents: [AgentRow] = []
-    /// NEW-2: my conversation session with each agent (a root with
-    /// `agent_id` I started), by agent id; absent = none yet.
+    /// NEW-2: my chat with each agent (`AgentSettings.agentChatOf`, #EXP-1990:
+    /// a team agent's group chat, else the root with its `agent_id` I
+    /// started), by agent id; absent = none yet.
     private(set) var agentConversations: [String: String] = [:]
+    /// #EXP-1990 (agent-settings.json `groupChat`): the synced agents' group
+    /// chat roots (they count for every member in Needs you).
+    private(set) var groupChatIds: [String] = []
     /// #EXP-1733: each team's live apps (the synced `apps` rows, trash
     /// hidden), by team id: the Chats list's Apps section.
     private(set) var appsByTeam: [String: [Chats.ChatApp]] = [:]
@@ -87,6 +91,25 @@ final class SessionListsModel {
     /// active team drives the phone: it reads that team's rows alone.
     func chatsBadge(teamId: String?) -> NavBadges.Value {
         NavBadges.chatsBadge(teamGroups(teamId), reads: reads)
+    }
+
+    /// #EXP-1990 (agent-settings.json `groupChat.chatCases`): each agent's
+    /// chat for the viewer, by agent id.
+    nonisolated static func agentConversations(agents: [AgentLike], sessions: [TreeSession], userId: String?) -> [String: String] {
+        let roots = sessions.filter { $0.parentId == nil }
+        var out: [String: String] = [:]
+        for agent in agents {
+            if let chat = AgentSettings.agentChatOf(
+                agentId: agent.id, groupChatId: agent.groupChatId, sessions: roots, me: userId
+            ) {
+                out[agent.id] = chat.id
+            }
+        }
+        return out
+    }
+
+    private nonisolated static func agentConversations(_ rows: Rows, userId: String?) -> [String: String] {
+        agentConversations(agents: rows.agents, sessions: rows.sessions, userId: userId)
     }
 
     /// #FEED-232 (`rowCases`): an agent row's badge: my conversation's unread
@@ -178,7 +201,8 @@ final class SessionListsModel {
             messages: input.messages,
             pullRequests: input.pullRequests,
             mergeMode: input.mergeMode,
-            owner: me.map { input.owners.contains($0) } ?? false
+            owner: me.map { input.owners.contains($0) } ?? false,
+            groupChatIds: groupChatIds
         )
     }
 
@@ -212,6 +236,8 @@ final class SessionListsModel {
         boundAccountId = nil
         groups = []
         agents = []
+        agentConversations = [:]
+        groupChatIds = []
         appsByTeam = [:]
         running = []
         identifiers = [:]
@@ -258,6 +284,7 @@ final class SessionListsModel {
         var groups: [ChatsListGroup]
         var agents: [AgentRow]
         var agentConversations: [String: String]
+        var groupChatIds: [String]
         var appsByTeam: [String: [Chats.ChatApp]]
         var running: [ChatsListRow]
         var identifiers: [String: String]
@@ -284,6 +311,7 @@ final class SessionListsModel {
         groups = derived.groups
         agents = derived.agents
         agentConversations = derived.agentConversations
+        groupChatIds = derived.groupChatIds
         appsByTeam = derived.appsByTeam
         running = derived.running
         identifiers = derived.identifiers
@@ -458,15 +486,8 @@ final class SessionListsModel {
             agents: SessionTree.listAgents(
                 agents: rows.agents, sessions: rows.sessions, teamId: nil, me: userId
             ),
-            agentConversations: Dictionary(
-                rows.sessions.compactMap { session -> (String, String)? in
-                    guard session.parentId == nil, session.userId == userId,
-                          let agentId = session.agentId, !agentId.isEmpty
-                    else { return nil }
-                    return (agentId, session.id)
-                },
-                uniquingKeysWith: { a, _ in a }
-            ),
+            agentConversations: Self.agentConversations(rows, userId: userId),
+            groupChatIds: rows.agents.compactMap { ($0.groupChatId ?? "").isEmpty ? nil : $0.groupChatId }.sorted(),
             appsByTeam: Dictionary(grouping: rows.apps, by: \.teamId).mapValues { apps in
                 apps.map {
                     Chats.ChatApp(appId: $0.id, slug: $0.slug, name: $0.name, icon: $0.icon, color: $0.color, agentId: $0.agentId)
