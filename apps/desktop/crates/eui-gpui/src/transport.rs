@@ -112,6 +112,12 @@ pub enum TransportEvent {
     /// line / event / frame that is not JSON, an oversized message. The
     /// stream reads on past it; the host records it (`HostOptions::on_issue`).
     Issue(DecodeIssue),
+    /// #VAPP-300: the surfaces whose Express block is still open (the
+    /// decoder's `open`), around each decoded batch: `settled: false` BEFORE
+    /// its messages (those surfaces stream as they arrive), `true` after
+    /// (every other surface's block closed). The host reduces them
+    /// `streaming`: a child not streamed yet renders as nothing.
+    Open { surface_ids: Vec<String>, settled: bool },
     Status(TransportStatus, Option<String>),
 }
 
@@ -136,7 +142,8 @@ impl TransportSink {
         (self.deliver)(TransportEvent::Text(text))
     }
 
-    /// One decoder output: its messages, its prose, then its issues.
+    /// One decoder output: its open block around its messages, its prose,
+    /// then its issues.
     pub fn decoded(&self, decoded: Decoded) {
         decoded_events(decoded).into_iter().for_each(|e| self.event(e));
     }
@@ -145,15 +152,23 @@ impl TransportSink {
         (self.deliver)(event)
     }
 
+    /// #VAPP-300: no Express block is open any more (a dropped stream).
+    pub fn settle(&self) {
+        self.event(TransportEvent::Open { surface_ids: Vec::new(), settled: true })
+    }
+
     pub fn status(&self, status: TransportStatus, detail: Option<String>) {
         (self.deliver)(TransportEvent::Status(status, detail))
     }
 }
 
 fn decoded_events(decoded: Decoded) -> Vec<TransportEvent> {
+    // #VAPP-300: the open block around the messages.
+    let opening = TransportEvent::Open { surface_ids: decoded.open.clone(), settled: false };
+    let settled = TransportEvent::Open { surface_ids: decoded.open, settled: true };
     let messages = decoded.messages.into_iter().map(TransportEvent::Message);
     let text = decoded.text.into_iter().map(TransportEvent::Text);
-    messages.chain(text).chain(decoded.issues.into_iter().map(TransportEvent::Issue)).collect()
+    std::iter::once(opening).chain(messages).chain(std::iter::once(settled)).chain(text).chain(decoded.issues.into_iter().map(TransportEvent::Issue)).collect()
 }
 
 /// Messages in, client messages out.
@@ -660,7 +675,11 @@ mod net {
                         wait_ms = ms;
                     }
                 }
-                Err(e) => sink.status(TransportStatus::Error, Some(e)),
+                Err(e) => {
+                    // #VAPP-300: a dropped stream's open block never closes: settle it.
+                    sink.settle();
+                    sink.status(TransportStatus::Error, Some(e))
+                }
             }
             if wait_ms == 0 {
                 return;

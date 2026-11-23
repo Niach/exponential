@@ -29,4 +29,4 @@ ap = Row(title=$ssid, meta=concat(values=[$strength, "%"]), icon="ede-wifi", sel
 ap_secured = Icon(name="ede-lock", size="sm", tone="neutral", label="Secured", visible=cond(if=$secured, then=true, else=false))
 no_aps = Text(text="No Wi-Fi network in reach", variant="muted", visible=eq(a=len(value=$/services/network/accessPoints), b=0))
 network_foot = Stack(direction="horizontal", gap="sm", align="center", children=[network_settings])
-network_settings = Link(label="Network settings", on={press: ede_open_document(name="settings")})
+network_settings = Link(label="Network settings", on={press: ede_open_document(name="settings", page="network")})

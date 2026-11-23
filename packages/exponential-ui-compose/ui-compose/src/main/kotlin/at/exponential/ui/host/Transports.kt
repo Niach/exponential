@@ -1,5 +1,6 @@
 package at.exponential.ui.host
 
+import android.util.Log
 import at.exponential.ui.ffi.ExpressDecoder
 import at.exponential.ui.ffi.FrameDecoder
 import at.exponential.ui.ffi.JsonlDecoder
@@ -39,6 +40,11 @@ import java.util.concurrent.CopyOnWriteArrayList
 // `{express}` WebSocket frames, Express MCP resources. The prose goes to
 // `start`'s `text` (the host's `onText`); the SDK draws none.
 
+/** #VAPP-301: every transport failure (connect, decode, a stale native library) is one log line, never only a status. */
+internal fun logTransportError(transport: String, error: Throwable) {
+    Log.w("ExponentialUI", "$transport: ${error.message ?: error}", error)
+}
+
 /** A transport's connection state. */
 enum class TransportStatus(val wire: String) { Connecting("connecting"), Open("open"), Closed("closed"), Error("error") }
 
@@ -60,6 +66,13 @@ interface Transport {
     /** #AXC-12: [start] plus [text], the prose of an Express response piece by piece (append them). The default drops the prose. */
     fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?) = start(receive, status)
 
+    /**
+     * #VAPP-300: [start] plus [open], the surfaces whose Express block is still open (the decoder's `open`) around each decoded
+     * batch: `settled = false` BEFORE its messages (those surfaces stream as they arrive), `true` after (every other surface's
+     * block closed). The default never reports one (a transport without streamed Express).
+     */
+    fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?, open: ((List<String>, Boolean) -> Unit)?) = start(receive, status, text)
+
     /** One client message (A2UI `action` / `error`). */
     suspend fun send(message: JsonValue)
 
@@ -75,10 +88,13 @@ internal fun decodedMessages(json: String): List<JsonValue> = JsonValue.parse(js
 /** #AXC-12: the prose pieces of a decoder result (`text`: an Express response's prose around its `<a2ui>` blocks; never for JSON). Append them in order; the SDK draws none. */
 internal fun decodedText(json: String): List<String> = JsonValue.parse(json)["text"]?.array?.mapNotNull { it.string } ?: emptyList()
 
-/** One decoder result: messages to [receive], prose to [text]. */
-internal fun deliver(json: String, receive: (JsonValue) -> Unit, text: ((String) -> Unit)?) {
+/** One decoder result: messages to [receive], prose to [text]; #VAPP-300: the open Express block around the messages ([open]). */
+internal fun deliver(json: String, receive: (JsonValue) -> Unit, text: ((String) -> Unit)?, open: ((List<String>, Boolean) -> Unit)? = null) {
     val v = JsonValue.parse(json)
+    val ids = v["open"]?.array?.mapNotNull { it.string } ?: emptyList()
+    open?.invoke(ids, false)
     v["messages"]?.array?.forEach(receive)
+    open?.invoke(ids, true)
     if (text != null) v["text"]?.array?.forEach { piece -> piece.string?.let(text) }
 }
 
@@ -169,16 +185,16 @@ internal fun expressChunkDecoder(wrapped: Boolean, surfaceId: String): ChunkDeco
 }
 
 /** Read a stream through a decoder, delivering every message (and, to [text], an Express stream's prose). */
-internal fun pump(stream: InputStream, decoder: ChunkDecoder, receive: (JsonValue) -> Unit, text: ((String) -> Unit)? = null, alive: () -> Boolean) {
+internal fun pump(stream: InputStream, decoder: ChunkDecoder, receive: (JsonValue) -> Unit, text: ((String) -> Unit)? = null, open: ((List<String>, Boolean) -> Unit)? = null, alive: () -> Boolean) {
     val chars = Utf8Chunks()
     val buf = ByteArray(8192)
     while (alive()) {
         val n = stream.read(buf)
         if (n < 0) break
         if (n == 0) continue
-        deliver(decoder.push(chars.decode(buf, n)), receive, text)
+        deliver(decoder.push(chars.decode(buf, n)), receive, text, open)
     }
-    deliver(decoder.end(), receive, text)
+    deliver(decoder.end(), receive, text, open)
 }
 
 /** POST a JSON body; returns (status, content type, body text, headers). */
@@ -215,7 +231,9 @@ abstract class StreamTransport(val options: HttpTransportOptions) : Transport {
 
     override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit) = start(receive, status, null)
 
-    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?) {
+    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?) = start(receive, status, text, null)
+
+    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?, open: ((List<String>, Boolean) -> Unit)?) {
         closed = false
         val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = s
@@ -233,10 +251,13 @@ abstract class StreamTransport(val options: HttpTransportOptions) : Transport {
                     if (code !in 200..299) throw java.io.IOException("HTTP $code")
                     status(TransportStatus.Open, null)
                     val express = inferenceFormatOf(conn.contentType ?: "") == InferenceFormat.Express.wire
-                    conn.inputStream.use { pump(it, decoder(express), receive, text) { !closed } }
+                    conn.inputStream.use { pump(it, decoder(express), receive, text, open) { !closed } }
                     if (!closed) status(TransportStatus.Closed, null)
                 } catch (e: Exception) {
                     if (closed) return@launch
+                    // #VAPP-300: a dropped stream's open block never closes: settle it.
+                    open?.invoke(emptyList(), true)
+                    logTransportError(this@StreamTransport::class.java.simpleName, e)
                     status(TransportStatus.Error, e.message ?: e.toString())
                 } finally {
                     connection?.disconnect()
@@ -347,7 +368,9 @@ class WebSocketTransport(
 
     override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit) = start(receive, status, null)
 
-    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?) {
+    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?) = start(receive, status, text, null)
+
+    override fun start(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?, open: ((List<String>, Boolean) -> Unit)?) {
         closed = false
         status(TransportStatus.Connecting, null)
         // One decoder per connection: its `{express}` frames are ONE response.
@@ -357,27 +380,33 @@ class WebSocketTransport(
         fun end() = synchronized(frames) {
             if (ended) return@synchronized
             ended = true
-            deliver(frames.end(), receive, text)
+            deliver(frames.end(), receive, text, open)
             frames.close()
         }
         val listener = object : WebSocketListener {
             override fun onOpen() = status(TransportStatus.Open, null)
 
             override fun onText(text: String) {
-                val out = synchronized(frames) { if (ended) null else frames.push(text) } ?: return
-                deliver(out, receive, prose)
+                try {
+                    val out = synchronized(frames) { if (ended) null else frames.push(text) } ?: return
+                    deliver(out, receive, prose, open)
+                } catch (e: Exception) {
+                    logTransportError("WebSocketTransport", e)
+                    status(TransportStatus.Error, e.message ?: e.toString())
+                }
             }
 
             override fun onClosed(code: Int, reason: String) {
                 end()
                 status(TransportStatus.Closed, reason.ifEmpty { null })
-                reconnect(receive, status, text)
+                reconnect(receive, status, text, open)
             }
 
             override fun onFailure(error: Throwable) {
+                logTransportError("WebSocketTransport", error)
                 end()
                 status(TransportStatus.Error, error.message ?: "websocket error")
-                reconnect(receive, status, text)
+                reconnect(receive, status, text, open)
             }
         }
         socket = try {
@@ -388,12 +417,12 @@ class WebSocketTransport(
         }
     }
 
-    private fun reconnect(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?) {
+    private fun reconnect(receive: (JsonValue) -> Unit, status: (TransportStatus, String?) -> Unit, text: ((String) -> Unit)?, open: ((List<String>, Boolean) -> Unit)?) {
         if (closed || reconnectMs <= 0) return
         retry?.cancel()
         retry = scope.launch {
             delay(reconnectMs)
-            if (!closed) start(receive, status, text)
+            if (!closed) start(receive, status, text, open)
         }
     }
 
@@ -451,6 +480,7 @@ class McpTransport(
                 status(TransportStatus.Open, null)
                 deliverResult(result)
             } catch (e: Exception) {
+                logTransportError("McpTransport", e)
                 status(TransportStatus.Error, e.message ?: e.toString())
             }
         }

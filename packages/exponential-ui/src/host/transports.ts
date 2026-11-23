@@ -22,6 +22,7 @@ const wire = (message: ClientMessage, metadata?: MessageMetadata): unknown => (m
 type Receive = (message: unknown) => void
 type Status = (status: TransportStatus, detail?: string) => void
 type Text = (text: string) => void
+type Open = (surfaceIds: readonly string[], settled: boolean) => void
 
 /** What every transport takes for Express (#AXC-12). */
 export interface ExpressTransportOptions {
@@ -43,9 +44,14 @@ async function ensureExpress(options: ExpressTransportOptions): Promise<void> {
   await loadExpress(options.expressWasmUrl)
 }
 
-/** Delivers one decoded batch: messages to the host, prose to onText. */
-function deliver(d: Decoded, receive: Receive, text?: Text): void {
+/** Delivers one decoded batch: messages to the host, prose to onText;
+ *  #VAPP-300: the batch's open Express block around its messages (its
+ *  surfaces stream as they arrive, then the ones it closed settle). */
+function deliver(d: Decoded, receive: Receive, text?: Text, open?: Open): void {
+  const ids = d.open ?? []
+  open?.(ids, false)
   d.messages.forEach(receive)
+  open?.(ids, true)
   if (text) d.text?.forEach(text)
 }
 
@@ -119,13 +125,13 @@ abstract class StreamTransport implements Transport {
     return false
   }
 
-  start(receive: Receive, status: Status, text?: Text): void {
+  start(receive: Receive, status: Status, text?: Text, open?: Open): void {
     this.controller?.abort()
     const gen = ++this.generation
-    void this.run(gen, receive, status, text)
+    void this.run(gen, receive, status, text, open)
   }
 
-  private async run(gen: number, receive: Receive, status: Status, onText?: Text): Promise<void> {
+  private async run(gen: number, receive: Receive, status: Status, onText?: Text, open?: Open): Promise<void> {
     const f = this.options.fetch ?? fetch
     const live = () => gen === this.generation
     while (live()) {
@@ -139,7 +145,7 @@ abstract class StreamTransport implements Transport {
         const res = await f(this.options.url, { headers: { accept, ...this.options.headers }, signal: controller.signal })
         if (!live()) return
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
-        const express = inferenceFormatOf(res.headers.get(`content-type`)) === `express`
+        const express = inferenceFormatOf(res.headers?.get?.(`content-type`) ?? null) === `express`
         if (express) await ensureExpress(this.options)
         if (!live()) return
         status(`open`)
@@ -158,9 +164,9 @@ abstract class StreamTransport implements Transport {
             if (!live()) return
           }
           tail = chunk.slice(-32)
-          deliver(dec.push(chunk), receive, onText)
+          deliver(dec.push(chunk), receive, onText, open)
         }
-        deliver(dec.end(), receive, onText)
+        deliver(dec.end(), receive, onText, open)
         status(`closed`)
         // A clean end: done, unless the server said it resumes the stream.
         const resumable = this.options.resumable === true || dec.retryMs !== undefined
@@ -171,6 +177,8 @@ abstract class StreamTransport implements Transport {
         if (dec.retryMs !== undefined && this.options.reconnectMs === undefined) wait = dec.retryMs
       } catch (e) {
         if (!live()) return
+        // A dropped stream's open block never closes: settle it.
+        open?.([], true)
         status(`error`, e instanceof Error ? e.message : String(e))
       }
       if (!wait || !live()) return
@@ -226,7 +234,7 @@ export class WebSocketTransport implements Transport {
 
   constructor(private options: ExpressTransportOptions & { url: string; protocols?: string | string[]; reconnectMs?: number; WebSocket?: typeof WebSocket }) {}
 
-  start(receive: Receive, status: Status, text?: Text): void {
+  start(receive: Receive, status: Status, text?: Text, open?: Open): void {
     const gen = ++this.generation
     const live = () => gen === this.generation
     const WS = this.options.WebSocket ?? WebSocket
@@ -235,12 +243,27 @@ export class WebSocketTransport implements Transport {
     this.socket = socket
     // One decoder per connection: its `{express}` frames are ONE response.
     const frames = new FrameDecoder({ surfaceId: this.options.surfaceId })
-    // Frames decode in order, also while the compiler loads.
-    let queue: Promise<void> = this.options.format === `express` ? ensureExpress(this.options).catch(() => {}) : Promise.resolve()
+    // Frames decode in order, also while the compiler loads: a frame is
+    // delivered at once unless the compiler is loading (then it, and every
+    // frame after it, waits its turn).
+    let pending = 0
+    let queue: Promise<void> = Promise.resolve()
+    const later = (step: () => Promise<void> | void) => {
+      pending += 1
+      queue = queue.then(step).finally(() => {
+        pending -= 1
+      })
+    }
+    if (this.options.format === `express` && !expressLoaded()) later(() => ensureExpress(this.options).catch(() => {}))
     const decode = (data: string) => {
-      queue = queue.then(async () => {
-        if (!expressLoaded() && data.includes(EXPRESS_WS_KEY)) await ensureExpress(this.options).catch(() => {})
-        if (live()) deliver(frames.push(data), receive, text)
+      const needs = !expressLoaded() && data.includes(EXPRESS_WS_KEY)
+      if (!pending && !needs) {
+        if (live()) deliver(frames.push(data), receive, text, open)
+        return
+      }
+      later(async () => {
+        if (needs) await ensureExpress(this.options).catch(() => {})
+        if (live()) deliver(frames.push(data), receive, text, open)
       })
     }
     socket.onopen = () => live() && status(`open`)
@@ -250,12 +273,13 @@ export class WebSocketTransport implements Transport {
     socket.onerror = () => live() && status(`error`, `websocket error`)
     socket.onclose = () => {
       if (!live()) return
-      queue = queue.then(() => {
-        if (live()) deliver(frames.end(), receive, text)
+      if (pending) later(() => {
+        if (live()) deliver(frames.end(), receive, text, open)
       })
+      else deliver(frames.end(), receive, text, open)
       status(`closed`)
       const wait = this.options.reconnectMs ?? 2000
-      if (wait) setTimeout(() => live() && this.start(receive, status, text), wait)
+      if (wait) setTimeout(() => live() && this.start(receive, status, text, open), wait)
     }
   }
 

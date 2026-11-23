@@ -325,6 +325,16 @@ fun main(args: Array<String>) {
         equal(Json.write(expressFeed({ d.push(it) }, { d.end() }, list(c["chunks"]))), c["expected"], "express ${c["name"]}")
         d.close()
     }
+    // #VAPP-300: the open block after every push, then after end().
+    for (c in list(transport["expressOpen"]).map(::obj)) {
+        val chunks = list(c["chunks"]).map { it as String }
+        val reads: List<String> = when (c["decoder"]) {
+            "sse" -> SseDecoder.withSurface(c["surfaceId"] as String?).let { d -> (chunks.map { d.push(it) } + d.end()).also { d.close() } }
+            "ws" -> FrameDecoder(c["surfaceId"] as String?).let { d -> (chunks.map { d.push(it) } + d.end()).also { d.close() } }
+            else -> ExpressDecoder(c["wrapped"] as Boolean, (c["surfaceId"] as String?) ?: "main").let { d -> (chunks.map { d.push(it) } + d.end()).also { d.close() } }
+        }
+        equal(Json.write(reads.map { obj(Json.parse(it))["open"] ?: emptyList<Any?>() }), c["expected"], "expressOpen ${c["name"]}")
+    }
     for (c in list(transport["expressSse"]).map(::obj)) {
         val d = SseDecoder.withSurface(c["surfaceId"] as String?)
         equal(Json.write(expressFeed({ d.push(it) }, { d.end() }, list(c["chunks"]))), c["expected"], "expressSse ${c["name"]}")
@@ -415,7 +425,8 @@ fun main(args: Array<String>) {
     }
     val items = load("template-items.json")
     for (c in list(items["reduce"]).map(::obj)) {
-        val got = if (c["nested"] != null) reduceNestedJson(Json.write(c["nested"]), c["catalogId"] as String, null) else reduceSurfaceJson(Json.write(c["components"]), c["catalogId"] as String, null)
+        // #VAPP-300: `streaming` = the surface's Express block is still open.
+        val got = if (c["nested"] != null) reduceNestedJson(Json.write(c["nested"]), c["catalogId"] as String, null) else reduceSurfaceStreamingJson(Json.write(c["components"]), c["catalogId"] as String, null, c["streaming"] == true)
         equal(got, c["expected"], "reduce ${c["name"]}")
     }
     class Loud : HostFormatter {

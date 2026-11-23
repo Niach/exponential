@@ -91,6 +91,10 @@ export function renderHost(): Record<string, string> {
   transport.expressSse = transport.expressSse.map((c: Case) => ({ ...c, expected: feed(new SseDecoder(at(c)), c.chunks as string[]) }))
   transport.expressWs = transport.expressWs.map((c: Case) => ({ ...c, expected: feed(new FrameDecoder(at(c)), c.frames as string[]) }))
   transport.expressMcp = transport.expressMcp.map((c: Case) => ({ ...c, expected: messagesFromMcpResult(c.result, at(c)) }))
+  // #VAPP-300: the open block after every push, then after end().
+  const opens = (dec: { push(c: string): Decoded; end(): Decoded }, chunks: string[]) => [...chunks.map((c) => dec.push(c)), dec.end()].map((d) => d.open ?? [])
+  const openDecoder = (c: Case) => (c.decoder === `sse` ? new SseDecoder(at(c)) : c.decoder === `ws` ? new FrameDecoder(at(c)) : new ExpressDecoder({ wrapped: c.wrapped as boolean, ...at(c) }))
+  transport.expressOpen = transport.expressOpen.map((c: Case) => ({ ...c, expected: opens(openDecoder(c), c.chunks as string[]) }))
   transport.expressContentTypes = transport.expressContentTypes.map((c: Case) => ({ ...c, expected: inferenceFormatOf(c.contentType as string) }))
   transport.expressCapabilities = transport.expressCapabilities.map((c: Case) => ({ ...c, expected: rendererCapabilities(c.extensionIds as string[], c.inferenceFormats ? { inferenceFormats: c.inferenceFormats as string[] } : {}) }))
   transport.mcpAction = transport.mcpAction.map((c: Case) => ({ ...c, expected: mcpActionCall(c.message as ClientMessage, c.tool as string | undefined, c.metadata as Record<string, unknown> | undefined) }))

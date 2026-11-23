@@ -46,6 +46,34 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-23-desktop-cli-0-14-176",
+    date: "2026-11-23",
+    title: "Screen memory keeps working when your displays change",
+    summary: "Desktop and CLI 0.14.176: screen memory keeps working when your displays change, find in chat reaches older messages, and menus line up.",
+    body: r##"- **Screen memory across display changes**: plugging in or removing a display no longer stops screen memory; it picks the new displays up on its own.
+- **Find in chat reaches older messages**: find in chat now also finds messages further back in the chat, and Ctrl/Cmd+F opens it when a chat is open.
+- **Menus line up**: menu rows line up again, and the Work screen's popup is wide enough for its longest option.
+- **Quiet until a device picks up**: a chat no device has picked up yet no longer shows a status.
+- **Device service survives updates**: the device service keeps running while the app restarts after an update."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_351: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-23-phones-chat-order",
+    date: "2026-11-23",
+    title: "Every chat message shows up, and find in chat reaches it",
+    summary: "Android 0.14.155 and iOS 0.14.143: messages that sync late show up in their place, find in chat reaches older messages, and a chat no device has picked up yet stays quiet.",
+    body: r##"- **Late messages in their place**: a message that reaches your phone after newer ones no longer goes missing from the chat, find in chat or search.
+- **Find in chat**: find reaches older messages and your own unsent ones, and previous and next land on each hit's bubble.
+- **Quiet until picked up**: a chat that no device has picked up yet no longer shows a waiting notice.
+- **Android**: the last line of a very long message is no longer cut off, and the New chat shortcut puts the cursor in the composer.
+- **iOS**: the chat no longer goes blank after you send while scrolled up; the share sheet is dark throughout and names the agent you share to; the New chat quick action focuses the composer on a cold start."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_350: ChangelogEntry = ChangelogEntry {
     id: "2026-11-22-desktop-cli-0-14-175",
     date: "2026-11-22",
     title: "The desktop app stays light with many sessions",

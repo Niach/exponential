@@ -1047,6 +1047,61 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     expect(fake.dispatches).toEqual([])
   })
 
+  it(`#FEED-293: a Merge now past a red gate is next: a red batch's re-run yields to it; the force is recorded`, async () => {
+    const w = await world()
+    const b = await w.pr(972)
+    const c = await w.pr(973)
+    const a = await w.pr(971)
+    await db.update(pullRequestChecks).set({ conclusion: `failure` }).where(eq(pullRequestChecks.pullRequestId, a))
+    await w.idle()
+    // The batch of #972 + #973 is under way and comes back red (a flake).
+    fake.judge = (numbers) => ({ red: numbers.includes(972) && fake.dispatches.length === 1 })
+    fake.hold = true
+    await pass(w.repoId)
+    expect((await prRow(b)).mergeState).toBe(`testing`)
+    expect((await prRow(a)).mergeState).toBe(`failing`)
+    const forced = await worker.mergeNowPullRequest(a, { keepPersonHolds: true, by: w.owner })
+    expect(forced).toEqual({ refused: null, red: [`gate`] })
+    await worker.drainMergeTrainEdges()
+    // Its red gate is no wait: it waits only for the live run.
+    expect(await worker.queueReport(a)).toMatchObject({ state: `queued`, wait: null, behind: [972, 973] })
+    expect(await prRow(a)).toMatchObject({ mergeNow: true, mergeNowBy: w.owner, mergeNowRed: [`gate`] })
+    fake.hold = false
+    await pass(w.repoId)
+    // The red batch's re-run yields: #971 rides next, alone, untested.
+    expect(fake.dispatches.map((d) => [d.inputs.mode, d.units.flatMap((u) => u.prs.map((p) => p.number))])).toEqual([
+      [`test`, [972, 973]],
+      [`untested`, [971]],
+    ])
+    expect((await prRow(b)).mergeState).toBe(`queued`)
+    await pass(w.repoId, 3)
+    expect((await prRow(a)).mergeState).toBe(`merged`)
+    expect(fake.closed[0]!.number).toBe(971)
+    expect((await lines(w.children[971]!)).map((l) => l.body).at(-1)).toBe(`Merged #971 into main by Merge now (Tester), past red checks: gate.`)
+    expect((await prRow(b)).mergeState).toBe(`merged`)
+    expect((await prRow(c)).mergeState).toBe(`merged`)
+  })
+
+  it(`#FEED-293: a Merge now of a draft or a person's Hold is refused with its reason, nothing queues`, async () => {
+    const w = await world()
+    const a = await w.pr(974)
+    const b = await w.pr(975)
+    await w.idle()
+    await db.update(pullRequests).set({ state: `draft`, mergeState: `draft` }).where(eq(pullRequests.id, a))
+    await worker.holdPullRequest(b)
+    await worker.drainMergeTrainEdges()
+    expect(await worker.mergeNowPullRequest(a, { keepPersonHolds: true, by: w.owner })).toMatchObject({
+      refused: `Can't merge #974 now: it is a draft. Mark it ready for review first.`,
+    })
+    expect(await worker.mergeNowPullRequest(b, { keepPersonHolds: true, by: w.owner })).toMatchObject({
+      refused: `Can't merge #975 now: a person put it on hold. Only their Resume lifts it.`,
+    })
+    await pass(w.repoId, 2)
+    expect(await prRow(a)).toMatchObject({ mergeState: `draft`, mergeNow: false, mergeNowBy: null })
+    expect(await prRow(b)).toMatchObject({ mergeState: `held`, mergeHold: `person`, mergeNow: false })
+    expect(fake.dispatches).toEqual([])
+  })
+
   it(`hold, resume and the queue report`, async () => {
     const w = await world()
     const a = await w.pr(701)

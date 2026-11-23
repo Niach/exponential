@@ -600,6 +600,8 @@ pub struct Surface {
     /// VAPP-103: `components` changed since the last reduce (a streamed
     /// `updateComponents` reduces on the next read, never per message).
     reduce_pending: bool,
+    /// #VAPP-300: an Express block is still streaming this surface.
+    streaming: bool,
     /// `components` positions by id (an update replaces BY ID in O(1)).
     component_index: HashMap<String, usize>,
     /// Last placements by slot, so an event can find anchor frames.
@@ -720,6 +722,7 @@ impl Surface {
             visuals_dirty: HashSet::new(),
             template_cache: HashMap::new(),
             reduce_pending: false,
+            streaming: false,
             component_index: HashMap::new(),
             last_frames: Vec::new(),
             archive: HashMap::new(),
@@ -907,6 +910,27 @@ impl Surface {
         if old.insets != s.insets {
             self.engine.mark_all_dirty();
         }
+    }
+
+    /// #VAPP-300: an Express block is still streaming this surface (the
+    /// host sets it from its decoder's `open`): it reduces `streaming`, so a
+    /// child not streamed yet renders as nothing. Off again when the block
+    /// closes: the tree re-reduces and a child still missing is the Unknown
+    /// placeholder with its issue, as on any JSON surface. True when it
+    /// changed.
+    pub fn set_streaming(&mut self, on: bool) -> bool {
+        if self.streaming == on {
+            return false;
+        }
+        self.streaming = on;
+        self.reduce_pending = true;
+        self.needs_build = true;
+        true
+    }
+
+    /// #VAPP-300: whether an Express block is still streaming this surface.
+    pub fn streaming(&self) -> bool {
+        self.streaming
     }
 
     /// VAPP-200: a read-only surface (every writing control disabled).
@@ -1729,7 +1753,7 @@ impl Surface {
         self.local.items.clear();
         self.local.static_keys.clear();
         self.local.key_cache.clear();
-        let options = ReduceOptions::new(&self.catalog_id).with_view(self.view.clone());
+        let options = ReduceOptions { streaming: self.streaming, ..ReduceOptions::new(&self.catalog_id).with_view(self.view.clone()) };
         let result: Option<ReduceResult> = if let Some(nested) = &self.nested {
             Some(crate::reducer::reduce_nested(nested, &options))
         } else if !self.components.is_empty() {

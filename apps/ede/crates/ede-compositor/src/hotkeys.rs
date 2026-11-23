@@ -247,10 +247,21 @@ impl Ede {
 
     /// Does a layer surface (the shell) have a popup mapped?
     pub fn layer_popups_open(&self) -> bool {
+        self.layer_popups_open_where(|_| true)
+    }
+
+    /// #EDE-213: does a layer surface other than a sealed one (the shell's
+    /// taskbar, whose Agent spaces list never takes the keyboard) have a
+    /// popup mapped? Escape closes those, wherever the keyboard is.
+    pub fn shell_popups_open(&self) -> bool {
+        self.layer_popups_open_where(|l| !crate::sealed::layer_origin(l).sealed)
+    }
+
+    fn layer_popups_open_where(&self, which: impl Fn(&smithay::desktop::LayerSurface) -> bool) -> bool {
         use smithay::desktop::PopupManager;
         self.desk.space.outputs().any(|o| {
             let map = smithay::desktop::layer_map_for_output(o);
-            let any = map.layers().any(|l| PopupManager::popups_for_surface(l.wl_surface()).next().is_some());
+            let any = map.layers().filter(|l| which(l)).any(|l| PopupManager::popups_for_surface(l.wl_surface()).next().is_some());
             any
         })
     }
