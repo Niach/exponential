@@ -429,11 +429,18 @@ pub enum SpaceBlock {
 /// from a cache, never waiting on the desktop (the heartbeat and the IDE's
 /// foreground may call it): an answer older than a few seconds is
 /// refreshed on a thread of its own. No answer (none yet, or none in time)
-/// is [`SpaceOffer::Unknown`] only once this process has heard this
-/// desktop say it can answer (`space-readiness`); before that it is
-/// [`SpaceBlock::OlderDesktop`], the person's screen as before spaces.
+/// is [`SpaceOffer::Unknown`], never [`SpaceBlock::OlderDesktop`]
+/// (#EXP-2065): only a desktop that answers without `space-readiness` is
+/// older.
 pub fn space_offer() -> SpaceOffer {
     backend::space_offer()
+}
+
+/// #EXP-2065: [`space_offer`] for a launch placing its run: the cache's
+/// real answer while fresh, else the desktop asked now (up to a few
+/// seconds). A cached timeout or an empty cache is never the answer.
+pub fn space_offer_now() -> SpaceOffer {
+    backend::space_offer_now()
 }
 
 /// #EXP-1514: [`space_offer`] for a process that asks once and ends
