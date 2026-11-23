@@ -388,17 +388,20 @@ impl SteerSessionView {
             match spec {
                 FeedRowSpec::Single { item, .. } => {
                     let Some(item) = items.get(*item) else { continue };
+                    // #EXP-2071 (chat-express.json PROSE): an agent text is
+                    // found over its pure prose (a block's raw is never a
+                    // hit); a press over its body.
                     let text = match &item.kind {
-                        FeedKind::Narration { text, .. } => Some(text),
+                        FeedKind::Narration { text, .. } => Some(domain::chat_express::plain_prose(text)),
                         FeedKind::UserMessage { text, .. }
                             if domain::chats::command_divider(text).is_none() && steer::commands::parse_command(text, agent).is_none() =>
                         {
-                            Some(text)
+                            Some(domain::chat_express::parse_action_input(text).map_or_else(|| text.clone(), |(_, body)| body))
                         }
                         _ => None,
                     };
                     if let Some(text) = text {
-                        let count = eui_gpui::paint::highlight::markdown_highlight_count(text, query);
+                        let count = eui_gpui::paint::highlight::markdown_highlight_count(&text, query);
                         out.push(Located { row: FindRow { key: item_key(&self.session_id, item), count, group: None, output_hit: false }, ix: Some(ix), run: None, slot: None });
                     } else if item.is_tool() && !matches!(&item.kind, FeedKind::Tool { diff: Some(diff), .. } if !diff.is_empty()) {
                         out.extend(tool(item, ix, None));
@@ -414,7 +417,12 @@ impl SteerSessionView {
         }
         // #FEED-260: the synced tail's bubbles (a not-live feed), after it.
         for (offset, row) in self.synced_tail.iter().enumerate() {
-            let count = eui_gpui::paint::highlight::markdown_highlight_count(&row.text, query);
+            let text = match domain::chat_express::parse_action_input(&row.text) {
+                Some((_, body)) => body,
+                None if row.agent => domain::chat_express::plain_prose(&row.text),
+                None => row.text.clone(),
+            };
+            let count = eui_gpui::paint::highlight::markdown_highlight_count(&text, query);
             out.push(Located { row: FindRow { key: find::message_key(&row.id), count, group: None, output_hit: false }, ix: Some(self.rows.len() + offset), run: None, slot: None });
         }
         // #EXP-1975: then the viewer's own bubbles (the unconsumed rows, the

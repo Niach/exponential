@@ -160,3 +160,34 @@ export function actionConsent(name: string, args: Record<string, unknown>): Acti
   const json = JSON.stringify(args)
   return { tool: target.tool, title, destructive: callDestructive(name, args), args: json === `{}` ? null : json }
 }
+
+export const APP_ACTION_FAILURE = { runVerb: fixture.failure.runVerb, fallback: fixture.failure.fallback }
+
+/** FEED-301: the failed-action toast's words for a call: a typed action's
+ *  display row title split at its first word (`Send to session` → `send`,
+ *  `to session`); `harness_mcp` (its `tool` arg) and anything without a row
+ *  = `run` + the tool. */
+export function actionFailedWords(name: string, args: Record<string, unknown> | null | undefined): { verb: string; thing: string } {
+  const target = parseActionName(name)
+  const title = target ? actionTitle(name) : null
+  if (target && title && title !== name) {
+    const space = title.indexOf(` `)
+    if (space > 0) return { verb: title.slice(0, space).toLowerCase(), thing: title.slice(space + 1) }
+  }
+  const tool = name === `harness_mcp` ? String(args?.tool ?? ``) : (target?.tool ?? name)
+  return { verb: APP_ACTION_FAILURE.runVerb, thing: tool }
+}
+
+/** FEED-301: an MCP answer that is a FAILURE (`isError: true`): the toast's
+ *  words + the server's sentence (the text items joined, trimmed; empty =
+ *  the fallback). Null for any other answer: the call's value. */
+export function actionFailure(name: string, args: Record<string, unknown> | null | undefined, result: unknown): { verb: string; thing: string; description: string } | null {
+  if (!result || typeof result !== `object` || (result as { isError?: unknown }).isError !== true) return null
+  const content = (result as { content?: unknown }).content
+  const text = (Array.isArray(content) ? content : [])
+    .filter((item): item is { type: string; text: string } => !!item && typeof item === `object` && item.type === `text` && typeof item.text === `string`)
+    .map((item) => item.text)
+    .join(`\n`)
+    .trim()
+  return { ...actionFailedWords(name, args), description: text || APP_ACTION_FAILURE.fallback }
+}

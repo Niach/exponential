@@ -9,9 +9,12 @@
 //!   preview (`exponential_session_self {op: "show"}`), painted by THE plan
 //!   card's surface painter ([`crate::plan_card::card_surface_view`], theme
 //!   exponential, dark) in its own rounded glass frame, the column's width.
-//!   It answers nothing: a press whose action is the `reply` event with
-//!   text posts that text as the person's next message
-//!   ([`domain::chats::surface_reply`]); every other event is ignored.
+//!   It answers nothing: #EXP-2067 EVERY action event posts ONE person
+//!   message with THE `action` card (`surface_action` over
+//!   [`domain::chat_express::show_action_origin`], a `reply`'s text as the
+//!   body; [`crate::chat_actions::send_surface_action`]). The Express
+//!   blocks of an agent's text paint through the same host and frame
+//!   ([`crate::express_view`]).
 //!
 //! ENTER (`surfaceCard.enter`, motion tokens only): a surface card that
 //! ARRIVES while its chat is open (its id was not among the rows the screen
@@ -140,22 +143,51 @@ pub(crate) fn transcript_marker(
 // The surface card
 // ---------------------------------------------------------------------------
 
-/// The surface card's host: the plan card's sandbox ([`crate::plan_card::
-/// CardSurfaceHost`]: media, urls, no pickers), plus the reply rule.
-struct ReplyHost {
-    inner: crate::plan_card::CardSurfaceHost,
-    session_id: String,
+/// Where a chat surface's press comes from (chat-express.json `actionCases`).
+#[derive(Clone, Debug)]
+pub(crate) enum ActionSource {
+    /// An exponential_show card (its message id): `show:<id>`, no block.
+    Show(String),
+    /// An Express block (its key), in a synced row (`message_id`) or a live
+    /// feed row (`None`); the surface is the event's.
+    Block { key: String, message_id: Option<String> },
 }
 
-impl HostPlugin for ReplyHost {
+impl ActionSource {
+    fn origin(&self, event: &ActionEvent) -> domain::chat_express::ActionOrigin {
+        match self {
+            ActionSource::Show(message_id) => domain::chat_express::show_action_origin(message_id),
+            ActionSource::Block { key, message_id } => domain::chat_express::ActionOrigin {
+                surface_id: event.surface_id.clone(),
+                block: Some(key.clone()),
+                message_id: message_id.clone(),
+            },
+        }
+    }
+}
+
+/// A chat surface's host: the plan card's sandbox ([`crate::plan_card::
+/// CardSurfaceHost`]: media, urls, no pickers), plus the action rule: every
+/// event posts into `session_id` (the transcript's session).
+pub(crate) struct ActionHost {
+    inner: crate::plan_card::CardSurfaceHost,
+    session_id: String,
+    source: ActionSource,
+}
+
+impl ActionHost {
+    pub(crate) fn new(session_id: &str, source: ActionSource, cx: &App) -> Self {
+        ActionHost { inner: crate::plan_card::CardSurfaceHost::for_session(session_id, cx), session_id: session_id.to_string(), source }
+    }
+}
+
+impl HostPlugin for ActionHost {
     fn icon(&self, name: &str) -> Option<SharedString> {
         self.inner.icon(name)
     }
 
     fn on_action(&self, event: &ActionEvent, cx: &mut App) {
-        if let Some(text) = domain::chats::surface_reply(Some(&event.name), Some(&event.context)) {
-            crate::chat_actions::send_surface_reply(&self.session_id, &text, cx);
-        }
+        crate::chat_actions::send_surface_action(&self.session_id, event, &self.source.origin(event), cx);
     }
 
     fn url_policy(&self) -> Option<eui_core::host::UrlPolicy> {
@@ -283,10 +315,7 @@ fn ensure_view(id: &str, session_id: &str, surface: &CardSurface, window: &Windo
     cards.built.insert(id.to_string(), surface.clone());
     let (id, session_id, surface) = (id.to_string(), session_id.to_string(), surface.clone());
     window.defer(cx, move |window, cx| {
-        let host = Rc::new(ReplyHost {
-            inner: crate::plan_card::CardSurfaceHost::for_session(&session_id, cx),
-            session_id,
-        });
+        let host = Rc::new(ActionHost::new(&session_id, ActionSource::Show(id.clone()), cx));
         let view = crate::plan_card::card_surface_view(&format!("surface-card-{id}"), &surface, host, window, cx);
         let cards = cx.default_global::<SurfaceCards>();
         cards.building.remove(&id);

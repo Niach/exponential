@@ -9,13 +9,14 @@ const mocks = vi.hoisted(() => {
   const now = new Date().toISOString()
   return {
     devices: [
-      { id: `d2`, label: `Studio`, kind: `server`, platform: `linux`, version: `0.14.1`, icon: null, lastSeenAt: `2020-01-01T00:00:00.000Z` },
-      { id: `d1`, label: `MacBook`, kind: `desktop`, platform: `macos`, version: `0.14.40`, icon: null, lastSeenAt: now },
+      { id: `d2`, deviceId: `steer-d2`, label: `Studio`, kind: `server`, platform: `linux`, version: `0.14.1`, icon: null, lastSeenAt: `2020-01-01T00:00:00.000Z` },
+      { id: `d1`, deviceId: `steer-d1`, label: `MacBook`, kind: `desktop`, platform: `macos`, version: `0.14.40`, icon: null, lastSeenAt: now },
     ],
     listeners: [] as (() => void)[],
     teams: [] as unknown[],
     apps: [] as unknown[],
     toast: vi.fn(),
+    failedAction: vi.fn(),
     upstreamRead: vi.fn(async (_input: { source: string }): Promise<unknown> => ({ ok: true, value: { mrr: 1200 } })),
   }
 })
@@ -52,6 +53,7 @@ vi.mock(`@/lib/collections`, () => {
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: { apps: { upstreamRead: { query: (input: { source: string }) => mocks.upstreamRead(input) } } },
 }))
+vi.mock(`@/lib/action-error`, async (importOriginal) => ({ ...((await importOriginal()) as Record<string, unknown>), failedAction: mocks.failedAction }))
 vi.mock(`@exp/ui`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   const toast = Object.assign(mocks.toast, { error: mocks.toast })
@@ -191,6 +193,60 @@ describe(`VAPP-120: typed actions`, () => {
   })
 })
 
+// FEED-301 (app-actions.json `failure`): Allow on a press whose call the
+// server refuses used to do nothing: the MCP answer `isError: true` came back
+// as the function's value. It is the failed-action toast and a failure now.
+describe(`FEED-301: a refused call after Allow`, () => {
+  const refused = (text: string) => answering((id) => new Response(JSON.stringify({ jsonrpc: `2.0`, id, result: { content: [{ type: `text`, text }], isError: true } }), { status: 200, headers: { "content-type": `application/json` } }))
+  const press = { surfaceId: `s`, componentId: `runBtn`, name: `exponential_sessions_send`, args: { teamId: `t1`, deviceId: `d1`, promptId: `p1`, mcpServerIds: [`m1`] } }
+
+  it(`toasts the server's sentence and fails the call`, async () => {
+    mocks.failedAction.mockClear()
+    vi.stubGlobal(`fetch`, refused(`This device is not yours and not shared with the team`))
+    const ask = vi.fn(async () => true)
+    const host = createAppHost({ consent: { ask } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {} })
+    const outcome = await host.callFunction(press)
+    expect(ask).toHaveBeenCalledOnce()
+    expect(outcome).toMatchObject({ decision: `allow`, error: `This device is not yours and not shared with the team` })
+    expect(mocks.failedAction).toHaveBeenCalledExactlyOnceWith(`send`, `to session`, undefined, { description: `This device is not yours and not shared with the team` })
+    vi.unstubAllGlobals()
+  })
+
+  it(`an HTTP failure toasts too; a landed call does not`, async () => {
+    mocks.failedAction.mockClear()
+    const host = createAppHost({ consent: { ask: async () => true } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {} })
+    vi.stubGlobal(`fetch`, answering(() => new Response(`nope`, { status: 502 })))
+    expect((await host.callFunction({ ...press, name: `harness_mcp`, args: { tool: `exponential_issues`, arguments: { op: `get`, id: `APP-5` } } })).error).toBe(`MCP 502`)
+    expect(mocks.failedAction).toHaveBeenCalledExactlyOnceWith(`run`, `exponential_issues`, expect.any(Error), {})
+    vi.stubGlobal(`fetch`, answering((id) => new Response(JSON.stringify({ jsonrpc: `2.0`, id, result: { content: [{ type: `text`, text: `{"sessionId":"s9"}` }] } }), { status: 200, headers: { "content-type": `application/json` } })))
+    expect((await host.callFunction(press)).error).toBeUndefined()
+    expect(mocks.failedAction).toHaveBeenCalledOnce()
+    vi.unstubAllGlobals()
+  })
+
+  it(`a package action failed by its call toasts once`, async () => {
+    mocks.failedAction.mockClear()
+    vi.stubGlobal(`fetch`, refused(`Prompt not found`))
+    const pkg = {
+      formatVersion: 6,
+      id: `feed301.sync`,
+      name: `Sync`,
+      version: `1.0.0`,
+      catalogId: `https://ui.exponential.at/catalogs/core/v1`,
+      functions: [`exponential_sessions_send`],
+      screens: [{ template: `sync`, title: `Sync` }],
+      actions: { run: { steps: [{ call: `exponential_sessions_send`, args: { promptId: `'p1'` } }] } },
+      templates: { sync: { components: [{ id: `root`, component: `Text`, text: `Sync` }] } },
+    } as unknown as AppPackage
+    const host = createAppHost({ consent: { ask: async () => true } as unknown as ReturnType<typeof createConsentGate>, navigate: () => {}, packages: [pkg] })
+    host.applyTemplate({ surfaceId: `s`, packageId: pkg.id, templateId: `sync` })
+    const outcome = await host.callFunction({ surfaceId: `s`, componentId: `runBtn`, name: `actions_run`, args: {} })
+    expect(outcome.error).toBe(`Prompt not found`)
+    expect(mocks.failedAction).toHaveBeenCalledExactlyOnceWith(`send`, `to session`, undefined, { description: `Prompt not found` })
+    vi.unstubAllGlobals()
+  })
+})
+
 describe(`VAPP-158: owner-only actions`, () => {
   it(`a stored grant of an owner-only action is ignored: the call still asks`, async () => {
     const fetchMock = vi.fn()
@@ -276,7 +332,7 @@ describe(`callMcp`, () => {
 })
 
 describe(`exp:devices liveness`, () => {
-  const device = (lastSeenAt: string | null) => ({ id: `d`, label: `Mac`, kind: `desktop`, platform: `macos`, version: null, icon: null, lastSeenAt })
+  const device = (lastSeenAt: string | null) => ({ id: `d`, deviceId: `steer-d`, label: `Mac`, kind: `desktop`, platform: `macos`, version: null, icon: null, lastSeenAt })
 
   it(`words "Last seen" with the readiness helper (floored)`, () => {
     const now = new Date(`2026-10-09T12:00:00.000Z`)
@@ -285,6 +341,11 @@ describe(`exp:devices liveness`, () => {
     expect(ago(119 * 60_000)).toBe(`Last seen 1 h ago`)
     expect(ago(47 * 3_600_000)).toBe(`Last seen 1 d ago`)
     expect(devicesValue([device(null)], now).rows[0].status).toBe(`Offline`)
+  })
+
+  it(`FEED-301: a row carries the device id sessions_send takes, as the Select value`, () => {
+    const row = devicesValue([device(null)], new Date()).rows[0]
+    expect(row).toMatchObject({ id: `d`, deviceId: `steer-d`, value: `steer-d`, label: `Mac` })
   })
 
   it(`re-derives on the liveness tick with no collection change`, () => {

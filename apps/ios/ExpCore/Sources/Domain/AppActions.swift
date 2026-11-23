@@ -347,6 +347,63 @@ public enum AppActions {
     public static func actionConsent(_ name: String, args: [String: CardJSON]) -> ActionConsent? {
         actionConsent(name, args: args.keys.sorted().map { (key: $0, value: args[$0] ?? .null) })
     }
+
+    /// FEED-301: the fixture's `failure` copy (`AppActionsTests` locks it).
+    public enum FailureCopy {
+        public static let runVerb = "run"
+        public static let fallback = "The operation failed."
+    }
+
+    /// FEED-301: a failed call's toast (`Couldn't <verb> <thing>` + the description).
+    public struct ActionFailure: Equatable, Sendable {
+        public let verb: String
+        public let thing: String
+        public let description: String
+
+        public init(verb: String, thing: String, description: String) {
+            self.verb = verb
+            self.thing = thing
+            self.description = description
+        }
+    }
+
+    /// FEED-301: the failed-action toast's words for a call: a typed
+    /// action's display row title split at its first word (`Send to
+    /// session` → `send`, `to session`); `harness_mcp` (its `tool` arg) and
+    /// anything without a row = `run` + the tool.
+    public static func actionFailedWords(_ name: String, args: [String: CardJSON]) -> (verb: String, thing: String) {
+        let target = parseActionName(name)
+        if let title = target.flatMap(displayRow)?.title, let space = title.firstIndex(of: " "), space > title.startIndex {
+            return (String(title[..<space]).lowercased(), String(title[title.index(after: space)...]))
+        }
+        let tool: String
+        if name == "harness_mcp" {
+            switch args["tool"] {
+            case let .string(value)?: tool = value
+            case nil, .null?: tool = ""
+            case let other?: tool = other.compactString
+            }
+        } else {
+            tool = target?.tool ?? name
+        }
+        return (FailureCopy.runVerb, tool)
+    }
+
+    /// FEED-301: an MCP answer that is a FAILURE (`isError: true`): the
+    /// toast's words + the server's sentence (the text items joined by a
+    /// newline, trimmed; empty = the fallback). Nil for any other answer.
+    public static func actionFailure(_ name: String, args: [String: CardJSON], result: CardJSON) -> ActionFailure? {
+        guard case let .object(object) = result, object["isError"] == .bool(true) else { return nil }
+        var texts: [String] = []
+        if case let .array(items)? = object["content"] {
+            for case let .object(item) in items {
+                if item["type"] == .string("text"), case let .string(text)? = item["text"] { texts.append(text) }
+            }
+        }
+        let text = texts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = actionFailedWords(name, args: args)
+        return ActionFailure(verb: words.verb, thing: words.thing, description: text.isEmpty ? FailureCopy.fallback : text)
+    }
 }
 
 public extension Prompts {

@@ -1162,5 +1162,157 @@
       "expected": true,
       "$why": "an alias (a name from before EXP-1657) follows its new name"
     }
+  ],
+  "failure": {
+    "$comment": "FEED-301: a call that FAILED is never a value. An MCP tools/call answers a refused operation with HTTP 200 and a result `isError: true` (its text = the server's sentence, e.g. `This device is not yours and not shared with the team`); a host that handed that result back as the function's value made a press after Allow do nothing at all. ×4 every typed action (`exponential_*`, aliases included) and `harness_mcp`: a result with `isError: true`, an HTTP failure, a JSON-RPC error or no answer is the function's FAILURE: the platform's failed-action toast (feedback-states.json, `Couldn't <verb> <thing>` + the description) and the call rejects with the description, so an action's later steps never run. The words (`actionFailure`, `failureCases`): a typed action's display row title split at its first word, the verb lower-cased (`Send to session` → verb `send`, thing `to session`); `harness_mcp` and a name without a row = verb `runVerb`, thing = the tool (`harness_mcp`'s `tool` arg). The description = the result's text items joined by a newline, trimmed; empty = `fallback`; a thrown failure's description = its own message. A package action whose step failed this way toasts ONCE: its `onActionFailed` stays quiet for a failure the call already toasted.",
+    "runVerb": "run",
+    "fallback": "The operation failed."
+  },
+  "failureCases": [
+    {
+      "name": "exponential_sessions_send",
+      "args": {
+        "teamId": "t1",
+        "deviceId": "d1",
+        "promptId": "p1",
+        "mcpServerIds": [
+          "m1"
+        ]
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "This device is not yours and not shared with the team"
+          }
+        ],
+        "isError": true
+      },
+      "expected": {
+        "verb": "send",
+        "thing": "to session",
+        "description": "This device is not yours and not shared with the team"
+      },
+      "$why": "FEED-301: the refusal a press after Allow used to swallow"
+    },
+    {
+      "name": "exponential_sessions_send",
+      "args": {
+        "teamId": "t1",
+        "deviceId": "d1"
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"sessionId\":\"s1\"}"
+          }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "name": "exponential_issues_update_status",
+      "args": {
+        "id": "APP-5",
+        "status": "done"
+      },
+      "result": {
+        "content": [],
+        "isError": true
+      },
+      "expected": {
+        "verb": "set",
+        "thing": "issue status",
+        "description": "The operation failed."
+      },
+      "$why": "no text = the fallback"
+    },
+    {
+      "name": "exponential_comments_create",
+      "args": {
+        "issueId": "APP-5"
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": " Line one "
+          },
+          {
+            "type": "text",
+            "text": "Line two"
+          }
+        ],
+        "isError": true
+      },
+      "expected": {
+        "verb": "comment",
+        "thing": "on issue",
+        "description": "Line one \nLine two"
+      }
+    },
+    {
+      "name": "exponential_team_config_prompts_create",
+      "args": {},
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Only owners can do that"
+          }
+        ],
+        "isError": true
+      },
+      "expected": {
+        "verb": "create",
+        "thing": "prompt",
+        "description": "Only owners can do that"
+      },
+      "$why": "an alias follows its new name's row"
+    },
+    {
+      "name": "harness_mcp",
+      "args": {
+        "tool": "exponential_issues",
+        "arguments": {
+          "op": "get",
+          "id": "APP-5"
+        }
+      },
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Issue not found"
+          }
+        ],
+        "isError": true
+      },
+      "expected": {
+        "verb": "run",
+        "thing": "exponential_issues",
+        "description": "Issue not found"
+      }
+    },
+    {
+      "name": "exponential_issues_get",
+      "args": {
+        "id": "APP-5"
+      },
+      "result": {
+        "content": [],
+        "isError": false
+      },
+      "expected": null
+    },
+    {
+      "name": "exponential_issues_get",
+      "args": {
+        "id": "APP-5"
+      },
+      "result": null,
+      "expected": null
+    }
   ]
 }
