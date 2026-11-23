@@ -3,6 +3,16 @@
 version = 4
 
 [[package]]
+name = "a2ui-express"
+version = "0.1.0"
+source = "git+https://github.com/Niach/a2ui-express-compiler-rust?rev=6e43f14d38649edac234b7a3ee7448556e1d0559#6e43f14d38649edac234b7a3ee7448556e1d0559"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "accesskit"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3610,6 +3620,7 @@ dependencies = [
 name = "eui-core"
 version = "0.21.0"
 dependencies = [
+ "a2ui-express",
  "cosmic-text",
  "indexmap 2.14.0",
  "libc",

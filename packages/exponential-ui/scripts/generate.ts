@@ -45,6 +45,7 @@ import { mangle } from "../src/ids"
 import { catalogPrompt, componentPrompt, estimateTokens } from "../src/prompt"
 import { reduceNested, reduceSurface } from "../src/reducer"
 import { coreLiteSchema, coreSchema } from "../src/schema"
+import { flattenSurface, type SurfaceNode } from "../src/define"
 import { STYLE_KEYS, STYLE_STATES, resolveConditions, type ConditionContext } from "../src/style"
 import { BIND_FUNCTION_NAMES, bindRowSlot, bindTree, hasRowSlots, isDataSchema, runAction } from "../src/dynamic"
 import { tokenizeCode, CODE_LANGUAGE_NAMES } from "../src/code"
@@ -168,6 +169,48 @@ function stripComments(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripComments)
   if (value && typeof value === `object`) return Object.fromEntries(Object.entries(value).filter(([k]) => k !== `$comment`).map(([k, v]) => [k, stripComments(v)]))
   return value
+}
+/** #AXC-12: the A2UI catalog definition the Express compiler (`a2ui-express`)
+ *  loads inside eui-core: core.schema.json without its prose (`description`,
+ *  `instructions`, `x-deprecated-reason`, `examples`); a PROPERTY named
+ *  `description` (EmptyState's) stays, only text values go. */
+function expressCatalog(schema: unknown, inProperties = false): unknown {
+  if (Array.isArray(schema)) return schema.map((v) => expressCatalog(v))
+  if (!schema || typeof schema !== `object`) return schema
+  const prose = new Set([`description`, `instructions`, `x-deprecated-reason`, `examples`, `title`])
+  return Object.fromEntries(
+    Object.entries(schema)
+      .filter(([k, v]) => inProperties || !(prose.has(k) && (typeof v === `string` || k === `examples`)))
+      .map(([k, v]) => [k, expressCatalog(v, !inProperties && (k === `properties` || k === `$defs` || k === `components` || k === `functions`))]),
+  )
+}
+
+/** #AXC-12: fixtures/express-roundtrip.json: the three sample surfaces as the
+ *  ONE createSurface message (components + data model) an Express block
+ *  compiles to; every renderer's Express suite decompiles and recompiles each
+ *  with zero diffs, and the reduced tree keeps its node count. */
+function expressRoundtrip(): unknown {
+  const surfaces: [string, string, string | null][] = [
+    [`dashboard`, `fixtures/dashboard.json`, `fixtures/dashboard.data.json`],
+    [`demo-surface`, `fixtures/demo-surface.json`, null],
+    [`kitchen-sink`, `fixtures/kitchen-sink.json`, null],
+  ]
+  const countNodes = (n: { children?: unknown[]; slots?: Record<string, unknown> }): number =>
+    1 + (n.children ?? []).reduce<number>((a, c) => a + countNodes(c as typeof n), 0) + Object.values(n.slots ?? {}).reduce<number>((a, c) => a + countNodes(c as typeof n), 0)
+  return {
+    $comment: `${HEADER} #AXC-12: Express round trip. Each case is the createSurface an Express block compiles to (surfaceId \`main\`, the core catalog, the fixture flattened by flattenSurface with its top node renamed \`root\` as Express requires, the data model without \`$comment\`). A runner decompiles \`messages\` to Express, compiles it back for surface \`main\` and must get \`messages\` exactly; the reduced surface has \`nodes\` nodes (the nested fixture's count).`,
+    cases: surfaces.map(([name, tree, data]) => {
+      const nested = readJson<SurfaceNode & { $comment?: string }>(tree)
+      const { $comment: _c, ...root } = nested
+      const dataModel = data ? (stripComments(readJson<Record<string, unknown>>(data)) as Record<string, unknown>) : null
+      const { $comment: _d, ...model } = dataModel ?? {}
+      return {
+        name,
+        nodes: countNodes(root as never),
+        messages: [{ version: HOST_JSON.a2uiVersion, createSurface: { surfaceId: `main`, catalogId: CORE_CATALOG_ID, components: flattenSurface({ ...root, id: `root` } as SurfaceNode), ...(dataModel ? { dataModel: model } : {}) } }],
+      }
+    }),
+  }
 }
 const kebab = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, `$1-$2`).toLowerCase()
 /** VAPP-289: a generated component id (round 9 §4: UAX #31, so `_`, never `-`). */
@@ -2585,6 +2628,10 @@ function renderFiles(): Record<string, string> {
     // Round 9 §11: the 1.0 catalog definitions (catalog_definition.json).
     "catalog/core.schema.json": json(coreSchema(icons)),
     "catalog/core-lite.schema.json": json(coreLiteSchema(icons)),
+    // #AXC-12: the Express compiler's catalog (prose stripped) in eui-core,
+    // and the round trip every Express suite replays.
+    "../../apps/desktop/crates/eui-core/src/generated/express.catalog.json": JSON.stringify(expressCatalog(coreSchema(icons))),
+    "fixtures/express-roundtrip.json": json(expressRoundtrip()),
     // VAPP-106: the runtime catalog and its text, split (src/catalog.described.ts).
     "generated/core.runtime.json": json(catalogSplit.runtime),
     "generated/core.descriptions.json": json(catalogSplit.descriptions),

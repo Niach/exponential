@@ -143,6 +143,10 @@ pub mod validate;
 #[cfg(feature = "shaping")]
 pub mod shaping;
 
+/// #AXC-12: the Express inference format (`express` feature).
+#[cfg(feature = "express")]
+pub mod express;
+
 pub use catalog::{
     is_known_token, parse_token_ref, CatalogView, A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID,
     CORE_LITE_CATALOG_ID, UNKNOWN_COMPONENT,
