@@ -150,6 +150,50 @@ final class WaitingCardsTests: XCTestCase {
         XCTAssertEqual(link.step(frame(), nowMs: now + 16), .none)
     }
 
+    /// #FEED-298: a card far above keeps paging while pages land, past
+    /// `deepLinkMs`: a 6,200-row chat that loads its newest 200 rows and
+    /// pages 100 at a time, each page landing ~0.5 s after it was asked
+    /// (60 pages = ~30 s, three times `deepLinkMs`), still rings.
+    func testDeepLinkDriverKeepsPagingWhilePagesLand() {
+        let total = 6_200
+        let target = 10
+        var loadedFrom = total - 200
+        var link = WaitingCards.DeepLink(target: "m\(target)", takenAtMs: 0)
+        var now: Double = 0
+        var distance: Double?
+        var landsAt: Double?
+        var last: WaitingCards.DeepLink.Action?
+        func frame() -> WaitingCards.DeepLink.Frame {
+            let found = target >= loadedFrom
+            return .init(found: found, distance: found ? distance : nil, more: loadedFrom > 0, loaded: "\(loadedFrom)")
+        }
+        while !link.settled, now < 120_000 {
+            now += 16
+            if let at = landsAt, now >= at {
+                landsAt = nil
+                loadedFrom = max(0, loadedFrom - 100)
+                link.pageLanded()
+            }
+            let action = link.step(frame(), nowMs: now)
+            if action != .none { last = action }
+            switch action {
+            case .page: landsAt = now + 480
+            case .reveal: distance = -2400
+            case .scroll: distance = 0.5
+            default: break
+            }
+        }
+        XCTAssertEqual(last, .ring)
+        XCTAssertEqual(loadedFrom, 0)
+        XCTAssertGreaterThan(now, Double(WaitingCards.Constants.deepLinkMs) * 2)
+
+        // A page that never lands still gives up at `deepLinkMs`.
+        var stalled = WaitingCards.DeepLink(target: "x", takenAtMs: 0)
+        XCTAssertEqual(stalled.step(.init(found: false, more: true, loaded: "a"), nowMs: 10), .page)
+        stalled.pageLanded()
+        XCTAssertEqual(stalled.step(.init(found: false, more: true, loaded: "a"), nowMs: 10_000), .missing)
+    }
+
     func testDeepLinkDriverGivesUpAndStalls() {
         var lost = WaitingCards.DeepLink(target: "x", takenAtMs: 1000)
         XCTAssertEqual(lost.step(.init(found: false, more: false), nowMs: 1010), .missing)

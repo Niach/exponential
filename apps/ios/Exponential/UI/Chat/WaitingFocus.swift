@@ -257,9 +257,13 @@ struct DeepLinkScroll: ViewModifier {
         let distance = viewport.height == nil ? nil : viewport.target.map { Double($0.midY - centre) }
         let atEdge = distance.map { ($0 < 0 && viewport.atTop) || ($0 > 0 && viewport.atBottom) } ?? false
         let action = current.step(
-            .init(found: found(target), distance: distance, atEdge: atEdge, more: more),
+            .init(found: found(target), distance: distance, atEdge: atEdge, more: more, loaded: arrival),
             nowMs: Self.nowMs()
         )
+        // #FEED-298: a landed page restarted the clock; give up past it.
+        if current.takenAtMs != link?.takenAtMs {
+            schedule(afterMs: Double(WaitingCards.Constants.deepLinkMs) + 16)
+        }
         link = current.settled ? nil : current
         switch action {
         case .none:
