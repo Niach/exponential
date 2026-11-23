@@ -99,9 +99,9 @@ mod tests {
         json!({"id": format!("r{n:03}"), "team_id": TEAM, "title": title, "cli": "claude", "status": "active", "updated_at": "2026-11-24T10:00:00.000Z"})
     }
 
-    /// The shell's `chats_changed`, on the test's state: the rail's own read
+    /// The shell's `chats_moved`, on the test's state: the rail's own read
     /// ([`chats::Source::read`]) through [`read`].
-    fn chats_changed(rail: &Rc<RefCell<Rail>>, cx: &mut App) {
+    fn chats_moved(rail: &Rc<RefCell<Rail>>, cx: &mut App) {
         read(
             rail,
             |r| &mut r.gate,
@@ -119,7 +119,7 @@ mod tests {
                 }
             },
             |rail, chats, _| rail.borrow_mut().chats = chats,
-            chats_changed,
+            chats_moved,
             cx,
         );
     }
@@ -156,7 +156,7 @@ mod tests {
         let (_dir, rail) = rail(Some(session(BURST, "The last one")));
         for n in 0..BURST {
             put(&rail.borrow().store, session(n, &format!("Chat {n:03}")));
-            cx.update(|cx| chats_changed(&rail, cx));
+            cx.update(|cx| chats_moved(&rail, cx));
         }
         assert_eq!(rail.borrow().reads.load(Ordering::SeqCst), 0, "no read ran in the main loop's turns: the store is read on the background executor");
         assert!(rail.borrow().chats.is_empty(), "nothing is drawn before a read is in");
@@ -173,13 +173,13 @@ mod tests {
     fn a_single_delta_reads_the_rail_once(cx: &mut gpui::TestAppContext) {
         let (_dir, rail) = rail(None);
         put(&rail.borrow().store, session(1, "First"));
-        cx.update(|cx| chats_changed(&rail, cx));
+        cx.update(|cx| chats_moved(&rail, cx));
         cx.run_until_parked();
         assert_eq!((rail.borrow().reads.load(Ordering::SeqCst), titles(&rail)), (1, vec!["First".to_string()]));
 
         // The gate is free again: the next delta reads at once.
         put(&rail.borrow().store, session(2, "Second"));
-        cx.update(|cx| chats_changed(&rail, cx));
+        cx.update(|cx| chats_moved(&rail, cx));
         cx.run_until_parked();
         assert_eq!((rail.borrow().reads.load(Ordering::SeqCst), titles(&rail)), (2, vec!["First".to_string(), "Second".to_string()]));
     }

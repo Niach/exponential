@@ -2186,7 +2186,7 @@ fn chats_refresh(shell: &SharedShell, cx: &mut App) {
 /// rail's chats again, read off the main loop like the tray's inbox
 /// (#EDE-141, [`off_loop::read`]): one read at a time, a burst of deltas is
 /// two reads at most and the last one starts after the last delta.
-fn chats_changed(shell: &SharedShell, cx: &mut App) {
+fn chats_moved(shell: &SharedShell, cx: &mut App) {
     if demo() {
         return;
     }
@@ -2204,7 +2204,7 @@ fn chats_changed(shell: &SharedShell, cx: &mut App) {
                 chats_apply(shell, chats, cx);
             }
         },
-        chats_changed,
+        chats_moved,
         cx,
     );
 }
@@ -4554,7 +4554,7 @@ fn main() {
                 chats_changed |= chat_changed;
                 chats_changed |= s.borrow().local_sessions.as_ref().is_some_and(|rx| rx.drain().any(|d| d.table == "sessions"));
                 if chats_changed {
-                    cx.update(|cx| chats_changed(&s, cx));
+                    cx.update(|cx| chats_moved(&s, cx));
                 }
                 let expired = s.borrow_mut().notifications.expire(Instant::now());
                 if expired {
