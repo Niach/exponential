@@ -46,7 +46,7 @@ object DomainContract {
     val messageAuthorKindValues: List<String> = listOf("user", "agent", "system")
     val conversationKindValues: List<String> = listOf("dm", "channel", "session")
     val agentRoleValues: List<String> = listOf("assistant", "agent", "coordinator")
-    val messageCardKindValues: List<String> = listOf("question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface")
+    val messageCardKindValues: List<String> = listOf("question", "plan", "subagent", "session", "picture", "event", "thread_started", "report", "suggestions", "replies", "ask", "surface", "action")
     val messageEventKindValues: List<String> = listOf("issue_linked", "issue_filed", "issue_unlinked", "pr_opened", "pr_merged", "pr_closed", "session_ended", "session_claimed", "session_blocked", "session_unclaimed", "session_stuck", "device_offline", "trigger_fired", "session_interrupted", "pr_merge_refused", "pr_checks", "pr_merge", "watch_fired")
     val codingAgentValues: List<String> = listOf("claude", "codex")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet", "haiku")
@@ -296,6 +296,7 @@ object DomainContract {
     const val messageCardKindReplies: String = "replies"
     const val messageCardKindAsk: String = "ask"
     const val messageCardKindSurface: String = "surface"
+    const val messageCardKindAction: String = "action"
     const val messageEventKindIssueLinked: String = "issue_linked"
     const val messageEventKindIssueFiled: String = "issue_filed"
     const val messageEventKindIssueUnlinked: String = "issue_unlinked"
