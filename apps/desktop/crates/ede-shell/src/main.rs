@@ -817,7 +817,9 @@ impl HostPlugin for Host {
                     cx.defer(move |cx| {
                         if open_it {
                             // #EDE-214: the popup the link sat in goes, as the menus do.
-                            for popup in open_popups(&shell.borrow()) {
+                            // The borrow ends before the closes (a for loop's head lives through it).
+                            let popups = open_popups(&shell.borrow());
+                            for popup in popups {
                                 close(&shell, &popup, cx);
                             }
                             close(&shell, "menu", cx);
