@@ -68,7 +68,7 @@ pub fn pages_json() -> Value {
 /// open. Unset = the document keeps its own state.
 pub fn demo_state() -> Option<Value> {
     let spec = std::env::var("EDE_SHELL_SETTINGS_PAGE").ok().filter(|v| !v.is_empty() && demo())?;
-    Some(demo_state_for(&spec))
+    Some(state_for(&spec))
 }
 
 /// `EDE_SHELL_SHARE=picking|running|done|failed` (the goldens): `/sharing`.
@@ -83,7 +83,9 @@ pub fn demo_sharing() -> Option<Value> {
     })
 }
 
-fn demo_state_for(spec: &str) -> Value {
+/// `/settings` opening on `spec` (`page` or `page,switcher`): the page's
+/// group of the nav open (the goldens, and #EDE-214 a tray popup's link).
+pub fn state_for(spec: &str) -> Value {
     let (page, switcher) = spec.split_once(',').map(|(p, s)| (p, s == "switcher")).unwrap_or((spec, false));
     let coding = ["tools", "coding-clis", "worktrees", "sessions"].contains(&page);
     let personal = ["account", "devices", "security", "whats-new", "about"].contains(&page);
@@ -770,8 +772,8 @@ mod tests {
         assert!(handle(&json!({"page": "mouse", "key": "tap", "value": true})).is_err());
         assert!(handle(&json!({"page": "workspaces", "key": "count", "value": 6})).is_err());
         assert!(handle(&json!({"page": "windows"})).is_err(), "a key is required");
-        assert_eq!(demo_state_for("worktrees"), json!({"page": "worktrees", "deviceOpen": true, "personalOpen": true, "codingOpen": true, "team": {"kind": "", "id": "", "name": ""}, "switcherOpen": false}));
-        let team = demo_state_for("local-general,switcher");
+        assert_eq!(state_for("worktrees"), json!({"page": "worktrees", "deviceOpen": true, "personalOpen": true, "codingOpen": true, "team": {"kind": "", "id": "", "name": ""}, "switcherOpen": false}));
+        let team = state_for("local-general,switcher");
         assert_eq!((team["switcherOpen"].as_bool(), team["deviceOpen"].as_bool(), team["personalOpen"].as_bool()), (Some(true), Some(false), Some(false)));
     }
 }
