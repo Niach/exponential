@@ -119,6 +119,7 @@ object ChatStoreCodec {
                     snippet = str("snippet").orEmpty(),
                     matchStart = (long("matchStart") ?: 0L).toInt(),
                     matchLen = (long("matchLen") ?: 0L).toInt(),
+                    system = (hit["system"] as? JsonPrimitive)?.booleanOrNull == true,
                 ),
             )
         }

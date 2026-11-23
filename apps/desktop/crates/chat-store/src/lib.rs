@@ -214,6 +214,10 @@ pub struct Hit {
     pub snippet: String,
     pub match_start: usize,
     pub match_len: usize,
+    /// SYSTEM INPUTS (#FEED-300): `true` on an input or message that is not
+    /// a person's own words (`text::system_input`); absent otherwise.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub system: bool,
 }
 
 /// FIND IN CHAT's answer.
@@ -279,6 +283,7 @@ pub fn collect_hits(docs: impl IntoIterator<Item = Doc>, tool_rows: &HashMap<Too
             snippet: found.snippet,
             match_start: found.match_start,
             match_len: found.match_len,
+            system: matches!(doc.kind, DocKind::UserMessage | DocKind::Message) && text::system_input(&doc.text),
         };
         if doc.kind == DocKind::Message {
             messages.push((hit, text::collapse(&doc.text)));
@@ -550,6 +555,12 @@ mod tests {
         for case in f["search"]["allCases"].as_array().unwrap() {
             let got = store.search_all(case["query"].as_str().unwrap(), case["limit"].as_u64().unwrap() as usize);
             assert_eq!(serde_json::to_value(got).unwrap(), case["expect"], "{}", case["name"]);
+        }
+        // #FEED-300: SYSTEM INPUTS.
+        let system = f["search"]["systemCases"].as_array().unwrap();
+        assert!(!system.is_empty());
+        for case in system {
+            assert_eq!(text::system_input(case["text"].as_str().unwrap()), case["expected"].as_bool().unwrap(), "{}", case["name"]);
         }
     }
 

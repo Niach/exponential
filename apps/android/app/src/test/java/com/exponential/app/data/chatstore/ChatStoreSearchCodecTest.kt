@@ -32,7 +32,7 @@ class ChatStoreSearchCodecTest {
         val chats = ChatStoreCodec.parseAll(
             """{"chats":[
               {"rootId":"r1","count":4,"hit":{"rootId":"r1","sessionId":"c1","deviceId":"d1","kind":"tool_output","at":1794823200000,"seq":7,"snippet":"disk cache hit","matchStart":5,"matchLen":5}},
-              {"rootId":"r2","count":1,"hit":{"rootId":"r2","sessionId":"r2","kind":"message","at":4,"messageId":"m3","snippet":"x","matchStart":0,"matchLen":1}},
+              {"rootId":"r2","count":1,"hit":{"rootId":"r2","sessionId":"r2","kind":"message","at":4,"messageId":"m3","snippet":"x","matchStart":0,"matchLen":1,"system":true}},
               {"rootId":"r3","count":1}
             ],"total":3}""",
         )
@@ -43,6 +43,9 @@ class ChatStoreSearchCodecTest {
             chats[0].hit,
         )
         assertEquals("m3", chats[1].hit.messageId)
+        // #FEED-300: the store's SYSTEM INPUTS flag, absent = a person's.
+        assertTrue(chats[1].hit.system)
+        assertTrue(!chats[0].hit.system)
         assertTrue(ChatStoreCodec.parseAll("nope").isEmpty())
     }
 

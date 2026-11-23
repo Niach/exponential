@@ -35,6 +35,57 @@ pub fn collapse(text: &str) -> String {
     out
 }
 
+/// SYSTEM INPUTS (#FEED-300, chat-store.json `search.systemCases`, TS
+/// `systemInput`): is this input or message text a line the device or the
+/// server worded (a tagged system line, a firing, another speaker's line),
+/// not a person's own words?
+pub fn system_input(text: &str) -> bool {
+    system_tag(text) || system_firing(text) || system_speaker(text)
+}
+
+/// `[` + one or more of a-z and `_` + `] `.
+fn system_tag(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix('[') else { return false };
+    let tag = rest.chars().take_while(|ch| ch.is_ascii_lowercase() || *ch == '_').count();
+    tag > 0 && rest[tag..].starts_with("] ")
+}
+
+/// The text after a backticked name (one or more characters, no backtick or
+/// newline) that follows `prefix`, starting at its closing backtick.
+fn after_name<'t>(text: &'t str, prefix: &str) -> Option<&'t str> {
+    let rest = text.strip_prefix(prefix)?;
+    let end = rest.find(['`', '\n'])?;
+    (end > 0 && rest[end..].starts_with('`')).then(|| &rest[end..])
+}
+
+/// `Schedule \`…\`` + ` fired` on the same line, or `Event \`…\` (from `.
+fn system_firing(text: &str) -> bool {
+    if let Some(rest) = after_name(text, "Schedule `") {
+        if rest[1..].split('\n').next().is_some_and(|line| line.contains(" fired")) {
+            return true;
+        }
+    }
+    after_name(text, "Event `").is_some_and(|rest| rest.starts_with("` (from "))
+}
+
+/// `Report from ` / `Message from ` + a name + ` (session <id>)`,
+/// ` (session <id>, ended)` or ` (member <id>)` + `: `, on the first line.
+fn system_speaker(text: &str) -> bool {
+    let Some(rest) = text.strip_prefix("Report from ").or_else(|| text.strip_prefix("Message from ")) else { return false };
+    let line = rest.split('\n').next().unwrap_or_default();
+    [" (session ", " (member "].into_iter().any(|open| {
+        line.match_indices(open).any(|(at, _)| {
+            if at == 0 {
+                return false;
+            }
+            let after = &line[at + open.len()..];
+            let id = after.find(|ch: char| ch == ',' || ch == ')' || is_space(ch)).unwrap_or(after.len());
+            let tail = &after[id..];
+            id > 0 && tail.strip_prefix(", ended").unwrap_or(tail).starts_with("): ")
+        })
+    })
+}
+
 /// The fold, per code point: NFD, marks dropped, lowercased. Returns the
 /// folded chars and, per folded char, the code point of `text` it came from.
 pub fn fold(text: &str) -> (Vec<char>, Vec<usize>) {
