@@ -3,6 +3,16 @@
 version = 4
 
 [[package]]
+name = "a2ui-express"
+version = "0.1.0"
+source = "git+https://github.com/Niach/a2ui-express-compiler-rust?rev=bc9c1d7fa04709cccc87b6190655e1c369676bb2#bc9c1d7fa04709cccc87b6190655e1c369676bb2"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1147,6 +1157,7 @@ dependencies = [
 name = "eui-core"
 version = "0.21.0"
 dependencies = [
+ "a2ui-express",
  "indexmap",
  "libc",
  "rustc-hash",

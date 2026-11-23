@@ -17,7 +17,7 @@ categories = ["gui", "rendering::engine"]
 exclude = ["tests/", "benches/", "examples/"]
 
 [features]
-default = ["builtin-themes"]
+default = ["builtin-themes", "express"]
 # Rust-side text shaping on the system fonts (cosmic-text + fontdb): the
 # prototype of the "no measure upcalls at all" path. Off by default — hosts
 # measure through the batched protocol; the desktop painter measures in-process.
@@ -34,8 +34,9 @@ builtin-themes = []
 descriptions = []
 # #AXC-12: the Express inference format (`express` module): a2ui-express
 # compiles an agent's Express into the A2UI messages the reducer takes.
-# Off by default until the crate is on crates.io (crates.io refuses a
-# git-only dependency); the FFI, the gpui painter and eDE turn it on.
+# On by default (every SDK reads Express, and the conformance suite
+# `host-express` needs it); the crate publishes once a2ui-express is on
+# crates.io (crates.io refuses a git-only dependency).
 express = ["dep:a2ui-express"]
 
 [dependencies]
