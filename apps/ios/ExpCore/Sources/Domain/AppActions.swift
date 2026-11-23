@@ -359,6 +359,12 @@ public enum AppActions {
         public let verb: String
         public let thing: String
         public let description: String
+
+        public init(verb: String, thing: String, description: String) {
+            self.verb = verb
+            self.thing = thing
+            self.description = description
+        }
     }
 
     /// FEED-301: the failed-action toast's words for a call: a typed
