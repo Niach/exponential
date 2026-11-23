@@ -71,6 +71,7 @@ use super::LaunchSpec;
 use crate::engine::launch::{CANCEL_QUEUED_META_KEY, FRESH_CONTEXT_META_KEY, NATIVE_SESSION_META_KEY};
 use crate::engine::mapper::{API_ERROR_META_KEY, RATE_LIMIT_META_KEY};
 use crate::engine::launch::{EngineError, ResumeHandle};
+use crate::engine::starved::{self, StartClock, StartEnd};
 use crate::engine::transport::{spawn_lines, ChildLines, StderrPolicy};
 
 /// `_meta` key carrying a subagent edge — the engine's own
@@ -126,8 +127,18 @@ const CONFIG_DEFAULT_VALUE: &str = "default";
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// #FEED-253: how many times a CLI that answers NOTHING at startup is
-/// spawned before the start fails (the first plus one restart).
-const START_ATTEMPTS: u32 = 2;
+/// spawned before the start fails. #FEED-296: three (the first plus two
+/// restarts, [`START_BACKOFF`] apart): two back to back failed whole
+/// starts on a machine that was only briefly choked.
+pub const START_ATTEMPTS: u32 = 3;
+
+/// #FEED-296: the waits before the second and the third spawn.
+pub const START_BACKOFF: [Duration; 2] = [Duration::from_secs(10), Duration::from_secs(30)];
+
+/// #FEED-296: how much longer than its window one attempt may wait while
+/// its cgroup throttles it on memory ([`crate::engine::starved`]): the
+/// silence clock pauses meanwhile, up to window + this of wall time.
+pub const START_STARVED_GRACE: Duration = Duration::from_secs(150);
 
 /// #FEED-253: the run-scoped override of the startup `initialize` wait
 /// (milliseconds, on the child's own spawn env); unset = [`CONTROL_TIMEOUT`]
@@ -137,25 +148,61 @@ const START_ATTEMPTS: u32 = 2;
 /// which a loaded runner needs).
 pub const START_TIMEOUT_ENV: &str = "EXP_CLAUDE_START_TIMEOUT_MS";
 
+/// #FEED-296: the run-scoped override of [`START_BACKOFF`] (milliseconds,
+/// a list like [`START_TIMEOUT_ENV`]'s; `0` = no wait).
+pub const START_BACKOFF_ENV: &str = "EXP_CLAUDE_START_BACKOFF_MS";
+
+/// The `attempt`th (from 1) value of a millisecond list in `env`.
+fn env_ms(env: &[(String, String)], key: &str, attempt: u32) -> Option<u64> {
+    env.iter().find(|(name, _)| name == key).and_then(|(_, value)| {
+        let values: Vec<&str> = value.split(',').collect();
+        let index = (attempt.max(1) as usize - 1).min(values.len() - 1);
+        values[index].trim().parse::<u64>().ok()
+    })
+}
+
 /// The startup window of `attempt` (the first is 1).
 fn start_timeout(env: &[(String, String)], attempt: u32) -> Duration {
-    env.iter()
-        .find(|(key, _)| key == START_TIMEOUT_ENV)
-        .and_then(|(_, value)| {
-            let windows: Vec<&str> = value.split(',').collect();
-            let index = (attempt.max(1) as usize - 1).min(windows.len() - 1);
-            windows[index].trim().parse::<u64>().ok()
-        })
+    env_ms(env, START_TIMEOUT_ENV, attempt)
         .filter(|ms| *ms > 0)
         .map_or(CONTROL_TIMEOUT, Duration::from_millis)
 }
 
-/// #FEED-253: the failed start's reason (the parent reads it).
-fn silent_start_reason(timeout: Duration, attempts: u32) -> String {
-    format!(
-        "claude did not start: it answered nothing for {}s at startup, {attempts} times in a row",
-        timeout.as_secs()
+/// #FEED-296: the wait before spawn `attempt` + 1, after `attempt` failed.
+fn start_backoff(env: &[(String, String)], attempt: u32) -> Duration {
+    env_ms(env, START_BACKOFF_ENV, attempt).map_or_else(
+        || START_BACKOFF[(attempt.max(1) as usize - 1).min(START_BACKOFF.len() - 1)],
+        Duration::from_millis,
     )
+}
+
+/// #FEED-296: the longest a claude start can take before it answers or
+/// fails with its reason: every attempt waited to its cap, plus the
+/// backoffs. The host's handshake deadline must outlast it (EXP-1669's
+/// 3 minutes equalled two 90 s windows exactly and fired first, so the
+/// parent read "did not answer for 3 minutes" instead of the reason).
+pub fn start_budget_max(env: &[(String, String)]) -> Duration {
+    (1..=START_ATTEMPTS)
+        .map(|attempt| {
+            let backoff = if attempt < START_ATTEMPTS { start_backoff(env, attempt) } else { Duration::ZERO };
+            start_timeout(env, attempt) + START_STARVED_GRACE + backoff
+        })
+        .sum()
+}
+
+/// #FEED-253: the failed start's reason, in plain words (the parent reads
+/// it). #FEED-296: a start the machine starved of memory says so; it is
+/// not the agent's fault and a person can act on it.
+fn silent_start_reason(timeout: Duration, attempts: u32, starved: Option<&str>) -> String {
+    match starved {
+        Some(cgroup) => format!(
+            "claude did not start: this machine is short of memory ({cgroup} is over its memory limit, so every agent in it is throttled), and it answered nothing at startup, {attempts} times in a row"
+        ),
+        None => format!(
+            "claude did not start: it answered nothing for {}s at startup, {attempts} times in a row",
+            timeout.as_secs()
+        ),
+    }
 }
 
 /// How long a live background task may hold back the settlement of the turn
@@ -180,6 +227,13 @@ const ANTICIPATED_CONTINUATION_GRACE: Duration = Duration::from_secs(30);
 /// SDK sessions itself), so a long first turn would otherwise stay "Chat"
 /// until it finished. Only while no title is known yet.
 const TITLE_EARLY_POLLS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(30)];
+
+/// #FEED-296: how the startup `initialize` wait ended.
+enum Startup {
+    Answered(Result<wire::ControlResp, Error>),
+    Silent { starved: Option<String> },
+    Late,
+}
 
 pub struct ClaudeAgent {
     spec: LaunchSpec,
@@ -1429,9 +1483,11 @@ impl ClaudeSession {
         // it never runs the prompt either, and the run used to sit silent
         // until the stall watchdog ended it 45 minutes later with the
         // parent told only "Ended without a summary.". It is stopped (its
-        // process group) and spawned once more; a second silent start
-        // fails the start with the reason (EXP-1669's `Could not start`).
+        // process group) and spawned again after a backoff (#FEED-296:
+        // up to [`START_ATTEMPTS`]); the last silent start fails the start
+        // with the reason (EXP-1669's `Could not start`).
         let mut attempt = 1;
+        let mut starved_by: Option<String> = None;
         let child = loop {
             let timeout = start_timeout(&self.spec.spawn.env, attempt);
             let child = Arc::new(self.spawn_child(resume).map_err(|error| {
@@ -1457,47 +1513,80 @@ impl ClaudeSession {
             // command catalog, model list and custom agents. A CLI that
             // answers late (a slow MCP handshake) is not fatal: the session
             // seeds from `system/init` instead. One that said nothing at
-            // all is the wedge above.
-            match self
-                .control_request_within(
-                    wire::initialize(wire::initialize_hooks()),
-                    timeout,
-                )
-                .await
-            {
-                Ok(response) => {
+            // all is the wedge above. #FEED-296: time its cgroup spends
+            // throttling it on memory is not silence ([`StartClock`]).
+            match self.initialize_within(&child, &heard, timeout).await {
+                Startup::Answered(Ok(response)) => {
                     let info: wire::InitializeInfo =
                         serde_json::from_value(response.response.clone()).unwrap_or_default();
                     self.apply_initialize_info(info);
                     break child;
                 }
-                Err(error) if !heard.load(Ordering::SeqCst) && !child.stdout_drained() => {
+                Startup::Silent { starved } if !heard.load(Ordering::SeqCst) && !child.stdout_drained() => {
                     // Retired FIRST, so its pump's end reads as a stale
                     // child's (no `closed`, no connection teardown).
                     self.retire_child(&child);
-                    if attempt >= START_ATTEMPTS {
-                        log::warn!(
-                            "engine: claude answered nothing at startup ({}s, {attempt} attempts): {error}",
-                            timeout.as_secs()
-                        );
-                        return Err(Error::internal_error().data(json!({
-                            "reason": silent_start_reason(timeout, attempt)
-                        })));
+                    if starved.is_some() {
+                        starved_by = starved;
                     }
+                    if attempt >= START_ATTEMPTS {
+                        let reason = silent_start_reason(timeout, attempt, starved_by.as_deref());
+                        log::warn!("engine: {reason}");
+                        return Err(Error::internal_error().data(json!({ "reason": reason })));
+                    }
+                    let backoff = start_backoff(&self.spec.spawn.env, attempt);
                     log::warn!(
-                        "engine: claude answered nothing for {}s at startup ({error}) — restarting it",
-                        timeout.as_secs()
+                        "engine: claude answered nothing for {}s at startup{} — restarting it in {}s",
+                        timeout.as_secs(),
+                        starved_by.as_deref().map(|cgroup| format!(" ({cgroup} throttled it on memory)")).unwrap_or_default(),
+                        backoff.as_secs()
                     );
+                    tokio::time::sleep(backoff).await;
                     attempt += 1;
                 }
-                Err(error) => {
+                Startup::Answered(Err(error)) => {
                     log::warn!("engine: claude initialize did not answer: {error}");
+                    break child;
+                }
+                Startup::Silent { .. } | Startup::Late => {
+                    log::warn!("engine: claude initialize did not answer in {}s", timeout.as_secs());
                     break child;
                 }
             }
         };
         child.forward_exit(&self.spec.exit);
         Ok(())
+    }
+
+    /// #FEED-296: the startup `initialize`, raced against [`StartClock`]:
+    /// `window` of time the CLI could run without one stdout line ends it
+    /// ([`Startup::Silent`]), memory-throttled time does not count (up to
+    /// [`START_STARVED_GRACE`] more), a CLI that spoke but never answered
+    /// ends at `window` ([`Startup::Late`]).
+    async fn initialize_within(&self, child: &ChildLines, heard: &AtomicBool, window: Duration) -> Startup {
+        let cap = window + START_STARVED_GRACE;
+        let step = (window / 20).clamp(Duration::from_millis(50), Duration::from_secs(2));
+        let pid = child.pid;
+        let watch = async {
+            let mut clock = StartClock::new(window, cap);
+            loop {
+                tokio::time::sleep(step).await;
+                let heard = heard.load(Ordering::SeqCst);
+                let starved = if heard { None } else { starved::memory_starved(pid) };
+                if let Some(end) = clock.tick(step, heard, starved) {
+                    return end;
+                }
+            }
+        };
+        tokio::select! {
+            answered = self.control_request_within(wire::initialize(wire::initialize_hooks()), cap + step) => {
+                Startup::Answered(answered)
+            }
+            end = watch => match end {
+                StartEnd::Silent { starved } => Startup::Silent { starved },
+                StartEnd::Late => Startup::Late,
+            },
+        }
     }
 
     /// #FEED-253: stop a child that never answered at startup, by its own
@@ -5969,6 +6058,32 @@ mod tests {
         assert_eq!(start_timeout(&listed, 2), Duration::from_secs(20));
         assert_eq!(start_timeout(&listed, 3), Duration::from_secs(20));
         assert_eq!(start_timeout(&env("1500,0"), 2), CONTROL_TIMEOUT);
+    }
+
+    /// #FEED-296: restarts wait 10 s, then 30 s (the env overrides them,
+    /// a test's `0` none), and the whole start's longest wait counts every
+    /// attempt at its memory-starved cap plus those waits.
+    #[test]
+    fn restarts_back_off_and_the_start_budget_counts_every_attempt() {
+        assert_eq!(start_backoff(&[], 1), Duration::from_secs(10));
+        assert_eq!(start_backoff(&[], 2), Duration::from_secs(30));
+        assert_eq!(start_backoff(&[], 3), Duration::from_secs(30));
+        let env = vec![(START_BACKOFF_ENV.to_string(), "0".to_string())];
+        assert_eq!(start_backoff(&env, 1), Duration::ZERO);
+        assert_eq!(START_ATTEMPTS, 3);
+        // 3 × (90 s + 150 s) + 10 s + 30 s.
+        assert_eq!(start_budget_max(&[]), Duration::from_secs(760));
+    }
+
+    /// #FEED-296: the reason says what a person can act on.
+    #[test]
+    fn a_starved_start_says_the_machine_is_short_of_memory() {
+        assert_eq!(
+            silent_start_reason(Duration::from_secs(90), 3, None),
+            "claude did not start: it answered nothing for 90s at startup, 3 times in a row"
+        );
+        let starved = silent_start_reason(Duration::from_secs(90), 3, Some("expbg.slice"));
+        assert!(starved.contains("this machine is short of memory (expbg.slice is over its memory limit"), "{starved}");
     }
 
     /// EXP-1330: an aside adds the read-only set to the form gate.
