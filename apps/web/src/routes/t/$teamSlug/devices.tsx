@@ -11,6 +11,8 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { pageTitle } from "@/lib/page-title"
+import { isProductionBuild } from "@/lib/production-build"
+import { PendingInstallsDraft } from "@/components/devices/install-approval-draft"
 
 // Team Devices view (EXP-686 — the old Agents route, minus the actions
 // surface: Actions is its own route now): the caller's
@@ -42,14 +44,18 @@ export const Route = createFileRoute(`/t/$teamSlug/devices`)({
   },
   // #EXP-1534 (inbox-route.json): `?device=<devices row id>` opens that
   // device's settings (an `agent_signed_out` inbox row or push).
-  validateSearch: (search: Record<string, unknown>): { device?: string } =>
-    typeof search.device === `string` ? { device: search.device } : {},
+  // #EXP-1950 DRAFT: `?draft=install-approval` adds the stubbed pending
+  // installs band; never parsed in a production build.
+  validateSearch: (search: Record<string, unknown>): { device?: string; draft?: `install-approval` } => ({
+    ...(typeof search.device === `string` ? { device: search.device } : {}),
+    ...(!isProductionBuild && search.draft === `install-approval` ? { draft: `install-approval` as const } : {}),
+  }),
   component: DevicesPage,
 })
 
 function DevicesPage() {
   const { teamSlug } = Route.useParams()
-  const { device: openSettingsRowId } = Route.useSearch()
+  const { device: openSettingsRowId, draft } = Route.useSearch()
   const navigate = useNavigate()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
@@ -114,6 +120,7 @@ function DevicesPage() {
           className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${PAGE_END_CLEARANCE}`}
         >
           {header}
+          {draft === `install-approval` && <PendingInstallsDraft />}
           {isMember && steerConfig?.enabled && (
             <MyMachines
               devices={remote.devices}

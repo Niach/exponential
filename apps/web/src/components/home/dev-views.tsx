@@ -31,6 +31,7 @@ import {
 } from "@exp/ui"
 import { CiRunSpecimen } from "@/components/ci/ci-run-page"
 import { RunnerSettingsSpecimen } from "@/components/ci/runner-section"
+import { InstallWaitingDraft, PendingInstallsDraft } from "@/components/devices/install-approval-draft"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { isProductionBuild } from "@/lib/production-build"
 
@@ -84,6 +85,10 @@ export const DEV_VIEWS = [
   `schedule-picker`,
   `pr-row`,
   `sealed-locked`,
+  // #EXP-1950 DRAFT: md+ has no Devices page (#EXP-2027), so the pending
+  // installs band shows here; the new install waiting for approval.
+  `install-approval`,
+  `install-waiting`,
 ] as const
 export type DevView = (typeof DEV_VIEWS)[number]
 /** EXP-1857: the web `voice-call` row of five (the fallback replaces
@@ -146,6 +151,12 @@ export function HomeDevView({ dev }: { dev: DevView }) {
         <PrRowSpecimen />
       ) : dev === `sealed-locked` ? (
         <SealedLockedSpecimen />
+      ) : dev === `install-approval` ? (
+        <div className="mx-auto w-full max-w-3xl">
+          <PendingInstallsDraft />
+        </div>
+      ) : dev === `install-waiting` ? (
+        <InstallWaitingDraft />
       ) : dev === `code-block` ? (
         <CodeBlockSpecimen />
       ) : dev === `voice-call` ? (

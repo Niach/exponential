@@ -8346,6 +8346,62 @@
       }
     },
     {
+      "id": "install-approval",
+      "group": "coding",
+      "title": "New install approval (draft)",
+      "blurb": "#EXP-1950 DRAFT (signed key wraps, decisions a1 + b1): on a trusted install, Devices (web-mobile; md+ has no Devices page, so the band sits on Home there) lists each install waiting for approval above My devices: one Row (label, the short code), a Badge (New install, or Reset for a team-mate who lost every install), Approve and Remove. Stubbed list, no server.",
+      "order": 95,
+      "web": {
+        "route": "/home?dev=install-approval",
+        "anchor": {
+          "testId": "pending-installs-draft",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/devices?draft=install-approval",
+        "anchor": {
+          "testId": "pending-installs-draft",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "notes": {
+        "desktop": "#EXP-1950 DRAFT: pictures for approval on web first; ported only once approved.",
+        "ios": "See desktop.",
+        "android": "See desktop."
+      }
+    },
+    {
+      "id": "install-waiting",
+      "group": "coding",
+      "title": "New install waiting (draft)",
+      "blurb": "#EXP-1950 DRAFT: the new, not yet trusted install, where an encrypted chat would open: THE page EmptyState with the locked glyph, Waiting for approval, and its own short code to compare.",
+      "order": 96,
+      "web": {
+        "route": "/home?dev=install-waiting",
+        "anchor": {
+          "testId": "install-waiting-draft",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": {
+        "route": "/t/$teamSlug/agent?dev=install-waiting",
+        "anchor": {
+          "testId": "install-waiting-draft",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "notes": {
+        "desktop": "#EXP-1950 DRAFT: pictures for approval on web first; ported only once approved.",
+        "ios": "See desktop.",
+        "android": "See desktop."
+      }
+    },
+    {
       "id": "schedule-picker",
       "group": "coding",
       "title": "Schedule picker",
