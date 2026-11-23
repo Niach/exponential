@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
 import android.util.Log
+import com.exponential.app.data.api.CreateSessionKeyInput
 import com.exponential.app.data.api.InstallsApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.auth.AuthRepository
@@ -287,6 +288,7 @@ class EnetNodeManager @Inject constructor(
             installSecret = SealedFfi.installSecret(identity),
             crypto = SealedFfi,
             vault = treeKeys.vault,
+            installPublic = base64Url(EnetFfi.x25519PublicOf(identity)),
             api = object : HolderApi {
                 override suspend fun mine(installId: String, rootIds: List<String>?) =
                     withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.mine(accountId, installId, rootIds) } ?: error("mine timed out")
@@ -294,6 +296,11 @@ class EnetNodeManager @Inject constructor(
                     withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.pending(accountId, installId) } ?: error("pending timed out")
                 override suspend fun wrap(installId: String, wraps: List<PendingWrap>) {
                     withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.wrap(accountId, installId, wraps) } ?: error("wrap timed out")
+                }
+                override suspend fun due(installId: String) =
+                    withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.due(accountId, installId) } ?: error("due timed out")
+                override suspend fun create(input: CreateSessionKeyInput) {
+                    withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.create(accountId, input) } ?: error("create timed out")
                 }
             },
         )

@@ -6,7 +6,9 @@ import os
 // secret (derived from the install identity, `PushKeypair::derive`) into the
 // key ring, and answers `sessionKeys.pending` on start and every minute while
 // online: readers still missing a wrap for a tree it holds get one,
-// automatically (no approval, #EXP-1457 decision). As a WRITER it seals to a
+// automatically (no approval, #EXP-1457 decision). Before that it ROTATES
+// the roots that are due (#EXP-1951, sealed-content.json `rotation`: a
+// reader was dropped). As a WRITER it seals to a
 // tree's key, creating the key when an existing root has none yet, or hands
 // a new chat its inline `seal`.
 
@@ -96,6 +98,8 @@ public actor TreeKeyHolder {
     private var requested: [String: Date] = [:]
     private var synced: Set<String> = []
     private var cachedKey: (identity: Data, secret: Data, publicKey: String)?
+    /// #EXP-1951: rotations the server refused this install, `root\nepoch`.
+    private var left: Set<String> = []
 
     public init(
         keys: SessionKeysRegistry,
@@ -136,6 +140,7 @@ public actor TreeKeyHolder {
         if !synced.contains(accountId) {
             if await fetch(accountId: accountId, installId: install, rootIds: nil) { synced.insert(accountId) }
         }
+        await rotateDue(accountId: accountId, installId: install)
         await answerPending(accountId: accountId, installId: install)
         return true
     }
@@ -144,6 +149,7 @@ public actor TreeKeyHolder {
     public func forgetAll() {
         synced.removeAll()
         requested.removeAll()
+        left.removeAll()
         cachedKey = nil
         ring.removeAll()
     }
@@ -188,6 +194,52 @@ public actor TreeKeyHolder {
             logger.error("sessionKeys.mine failed: \(error.localizedDescription)")
             return false
         }
+    }
+
+    /// #EXP-1951 (sealed-content.json `rotation`): a fresh key at the next
+    /// epoch for every root the server names as due whose current secret this
+    /// install holds, wrapped for THIS install only: the current readers get
+    /// theirs from `pending`, which lists readers and nobody else.
+    @discardableResult
+    func rotateDue(accountId: String, installId: String) async -> Int {
+        guard let own = installKey(), let due = try? await keys.due(accountId: accountId, installId: installId), !due.isEmpty else { return 0 }
+        // The server holds a wrap of each for this install: unwrap what is missing.
+        let missing = due.filter { !ring.holds(rootId: $0.rootId, epoch: $0.epoch) }.map(\.rootId)
+        if !missing.isEmpty { _ = await fetch(accountId: accountId, installId: installId, rootIds: missing) }
+        var rotated = 0
+        for root in due {
+            let held = ring.keys(rootId: root.rootId)
+            let mark = "\(root.rootId)\n\(root.epoch)"
+            guard let epoch = rotationEpoch(
+                flagged: root.epoch, current: max(root.epoch, held.keys.max() ?? 0),
+                held: held[root.epoch] != nil, left: left.contains(mark)
+            ) else { continue }
+            let key = crypto.generateTreeKey()
+            guard let wrapped = try? crypto.wrap(installPublic: own.publicKey, treeSecret: key.secret) else { continue }
+            var failure: CreateFailure?
+            do {
+                try await keys.create(accountId: accountId, input: CreateTreeKeyInput(
+                    rootId: root.rootId, installId: installId, epoch: epoch, publicKey: key.publicKey,
+                    wraps: [TreeKeyWrap(installId: installId, wrapped: wrapped)]
+                ))
+            } catch {
+                let body: TrpcErrorBody? = if case let .httpError(_, raw) = error as? TrpcError { TrpcErrorBody.parse(raw) } else { nil }
+                failure = createFailure(code: body?.code, message: body?.message)
+            }
+            switch rotationAfter(failure) {
+            case .adopt:
+                ring.add([(root.rootId, epoch, key.secret)])
+                rotated += 1
+                logger.info("Rotated the tree key of \(root.rootId, privacy: .public) to epoch \(epoch)")
+            case .reread:
+                _ = await fetch(accountId: accountId, installId: installId, rootIds: [root.rootId])
+            case .leave:
+                left.insert(mark)
+            case .retry:
+                break
+            }
+        }
+        return rotated
     }
 
     func answerPending(accountId: String, installId: String) async {

@@ -892,4 +892,200 @@ mod tests {
         assert_eq!(*api.attempts.lock().unwrap(), before + 1);
         assert_eq!(api.roots.lock().unwrap()["root"].0, 1);
     }
+
+    // ── #EXP-1951: sealed-content.json `rotation.holderCases` ───────────────
+
+    fn rotation_fixture() -> serde_json::Value {
+        serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/sealed-content.json")).unwrap()
+    }
+
+    fn hex32(text: &str) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        for (n, byte) in out.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&text[n * 2..n * 2 + 2], 16).unwrap();
+        }
+        out
+    }
+
+    /// The fixture's server double: it answers what the case says, and a
+    /// `serves: foreign` one keeps handing out a row wrapped for another
+    /// install.
+    struct RotationDouble {
+        case: serde_json::Value,
+        fixture: serde_json::Value,
+        answers: Mutex<Vec<String>>,
+        /// Accepted creates `(root, epoch, public key)`.
+        created: Mutex<Vec<(String, u32, String)>>,
+        /// CONFLICTs: the other holder's key is current at that epoch.
+        conflicted: Mutex<Vec<(String, u32)>>,
+        creates: Mutex<Vec<(String, u32, Vec<String>)>>,
+        wraps: Mutex<Vec<(String, u32, String)>>,
+    }
+
+    impl RotationDouble {
+        fn readers(&self) -> Vec<String> {
+            self.case["readers"].as_array().unwrap().iter().map(|r| r.as_str().unwrap().to_string()).collect()
+        }
+    }
+
+    impl KeyApi for RotationDouble {
+        fn create(&self, input: &CreateKey) -> Result<(), ApiError> {
+            let wraps = input.wraps.iter().map(|wrap| wrap.install_id.clone()).collect();
+            self.creates.lock().unwrap().push((input.root_id.clone(), input.epoch, wraps));
+            let answer = {
+                let mut answers = self.answers.lock().unwrap();
+                if answers.is_empty() { "ok".to_string() } else { answers.remove(0) }
+            };
+            let refuse = |status| Err(ApiError::Http { status, message: answer.clone() });
+            match answer.as_str() {
+                "ok" => {
+                    self.created.lock().unwrap().push((input.root_id.clone(), input.epoch, input.public_key.clone()));
+                    Ok(())
+                }
+                "blip" => Err(ApiError::Transport { message: "no answer".into(), offline: true }),
+                "CONFLICT" => {
+                    self.conflicted.lock().unwrap().push((input.root_id.clone(), input.epoch));
+                    refuse(409)
+                }
+                "FORBIDDEN" => refuse(403),
+                "NOT_FOUND" => refuse(404),
+                other => panic!("unknown answer {other}"),
+            }
+        }
+        fn mine(&self, _install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<HeldKey>, ApiError> {
+            let mut rows = Vec::new();
+            if self.case["serves"] == "foreign" {
+                for root in self.case["held"].as_object().unwrap().keys() {
+                    rows.push(HeldKey { root_id: root.clone(), epoch: 9, wrapped: self.fixture["rotation"]["foreignWrap"].as_str().unwrap().into() });
+                }
+            }
+            for (root, epoch) in self.conflicted.lock().unwrap().iter() {
+                rows.push(HeldKey { root_id: root.clone(), epoch: *epoch, wrapped: self.fixture["rotation"]["rotatedWrap"].as_str().unwrap().into() });
+            }
+            rows.retain(|row| root_ids.is_none_or(|ids| ids.contains(&row.root_id)));
+            Ok(rows)
+        }
+        fn pending(&self, _install_id: &str, _root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError> {
+            let done = self.wraps.lock().unwrap().clone();
+            let mut out = Vec::new();
+            for (root, epoch, public) in self.created.lock().unwrap().iter() {
+                for reader in self.readers() {
+                    if done.iter().any(|(r, _, to)| r == root && *to == reader) {
+                        continue;
+                    }
+                    out.push(PendingWrap {
+                        root_id: root.clone(),
+                        epoch: *epoch,
+                        public_key: public.clone(),
+                        target_install_id: reader,
+                        target_x25519_public: self.fixture["tree"]["publicKey"].as_str().unwrap().into(),
+                    });
+                }
+            }
+            Ok(out)
+        }
+        fn wrap(&self, _install_id: &str, wraps: &[PairWrap]) -> Result<(), ApiError> {
+            let mut sent = self.wraps.lock().unwrap();
+            for wrap in wraps {
+                // Like the server: a pair another pass wrapped is skipped.
+                if !sent.iter().any(|(r, _, to)| *r == wrap.root_id && *to == wrap.target_install_id) {
+                    sent.push((wrap.root_id.clone(), wrap.epoch, wrap.target_install_id.clone()));
+                }
+            }
+            Ok(())
+        }
+        fn public_keys(&self, root_ids: &[String]) -> Result<Vec<RootKey>, ApiError> {
+            Ok(self
+                .conflicted
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(root, _)| root_ids.contains(root))
+                .map(|(root, epoch)| RootKey { root_id: root.clone(), epoch: *epoch, public_key: self.fixture["rotatedTree"]["publicKey"].as_str().unwrap().into() })
+                .collect())
+        }
+    }
+
+    /// #EXP-1951: every holder platform replays the same cases. Here the
+    /// due roots arrive as the synced root rows (`seal_rotate_epoch`).
+    #[test]
+    fn rotation_holder_cases_replay() {
+        let fixture = rotation_fixture();
+        let install = PushKeypair::from_secret(hex32(fixture["install"]["secret"].as_str().unwrap()));
+        let secret_at = |epoch: u32| hex32(fixture[if epoch == 1 { "tree" } else { "rotatedTree" }]["secret"].as_str().unwrap());
+        for case in fixture["rotation"]["holderCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let api = Arc::new(RotationDouble {
+                case: case.clone(),
+                fixture: fixture.clone(),
+                answers: Mutex::new(case["create"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_string()).collect()),
+                created: Mutex::default(),
+                conflicted: Mutex::default(),
+                creates: Mutex::default(),
+                wraps: Mutex::default(),
+            });
+            let holder = KeyHolder::new("self".into(), &install, api.clone(), Keyring::in_memory());
+            let held = case["held"].as_object().unwrap();
+            for (root, epochs) in held {
+                for epoch in epochs.as_array().unwrap() {
+                    let epoch = epoch.as_u64().unwrap() as u32;
+                    holder.keyring().insert_secret(root, epoch, secret_at(epoch));
+                }
+            }
+            // The synced rows: each due root flagged, at the epoch this install knows as current.
+            let rows: Vec<domain::rows::SessionRow> = case["due"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|due| {
+                    let root = due["rootId"].as_str().unwrap();
+                    let flagged = due["epoch"].as_i64().unwrap();
+                    let current = held.get(root).and_then(|e| e.as_array()).and_then(|e| e.iter().filter_map(|n| n.as_i64()).max()).unwrap_or(flagged);
+                    let public = enet_core::PushKeypair::from_secret(secret_at(current as u32)).public();
+                    domain::rows::SessionRow {
+                        id: root.into(),
+                        seal_public_key: Some(sealing::b64url_encode(&public)),
+                        seal_epoch: Some(current),
+                        seal_rotate_epoch: Some(flagged),
+                        ..Default::default()
+                    }
+                })
+                .collect();
+            holder.keyring().note_sessions(&rows);
+            for _ in 0..case["passes"].as_u64().unwrap_or(1) {
+                holder.pass();
+            }
+            // The create's own pending pass runs on a thread: let it finish.
+            std::thread::sleep(Duration::from_millis(50));
+
+            let creates: Vec<serde_json::Value> = api
+                .creates
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|(root, epoch, wraps)| serde_json::json!({ "rootId": root, "epoch": epoch, "wraps": wraps }))
+                .collect();
+            assert_eq!(serde_json::Value::Array(creates), case["creates"], "{name}: creates");
+            let mut wraps: Vec<(String, u64, String)> = api.wraps.lock().unwrap().iter().map(|(r, e, to)| (r.clone(), u64::from(*e), to.clone())).collect();
+            wraps.sort();
+            let mut want: Vec<(String, u64, String)> = case["wraps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|w| (w["rootId"].as_str().unwrap().into(), w["epoch"].as_u64().unwrap(), w["to"].as_str().unwrap().into()))
+                .collect();
+            want.sort();
+            assert_eq!(wraps, want, "{name}: wraps");
+            for (root, epochs) in case["holds"].as_object().unwrap() {
+                for epoch in 1..=3u32 {
+                    let wanted = epochs.as_array().unwrap().iter().any(|e| e.as_u64() == Some(u64::from(epoch)));
+                    assert_eq!(holder.keyring().secret(root, epoch).is_some(), wanted, "{name}: {root} epoch {epoch}");
+                }
+            }
+            // The foreign row a lying server handed out is never held.
+            for root in held.keys() {
+                assert!(holder.keyring().secret(root, 9).is_none(), "{name}: a foreign wrap was kept");
+            }
+        }
+    }
 }
