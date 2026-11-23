@@ -117,6 +117,10 @@ public final class ExponentialHost {
     public private(set) var surfaces: [String: SurfaceModel] = [:]
     /// Their ids in creation order.
     public private(set) var surfaceIds: [String] = []
+    /// Each surface's components by id, in first-seen order: an
+    /// `updateComponents` replaces BY ID and keeps the rest (A2UI; the
+    /// Compose host keeps the same map).
+    @ObservationIgnored private var components: [String: (order: [String], byId: [String: JSONValue])] = [:]
     public private(set) var status: TransportStatus = .closed
     public private(set) var statusDetail: String?
     /// The last UNSUPPORTED_CATALOG id seen (the catalog-update banner).
@@ -470,7 +474,14 @@ public final class ExponentialHost {
         case "components":
             forgetPaintErrors(surfaceId, components: (op["components"]?.array ?? []).compactMap { $0["id"]?.string })
             guard let model = surfaces[surfaceId] else { return }
-            _ = try? model.setComponents(json: (op["components"] ?? .array([])).json)
+            var known = components[surfaceId] ?? (order: [], byId: [:])
+            for c in op["components"]?.array ?? [] {
+                guard let id = c["id"]?.string else { continue }
+                if known.byId[id] == nil { known.order.append(id) }
+                known.byId[id] = c
+            }
+            components[surfaceId] = known
+            _ = try? model.setComponents(json: JSONValue.array(known.order.compactMap { known.byId[$0] }).json)
         case "data":
             surfaces[surfaceId]?.setData(path: op["path"]?.string ?? "", value: op["value"])
         case "bind":
@@ -492,6 +503,7 @@ public final class ExponentialHost {
             unbind(surfaceId)
             forgetPaintErrors(surfaceId)
             surfaces[surfaceId] = nil
+            components[surfaceId] = nil
             surfaceIds.removeAll { $0 == surfaceId }
             sendDataModel.remove(surfaceId)
         case "send":
