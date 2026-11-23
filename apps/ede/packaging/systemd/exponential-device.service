@@ -7,6 +7,14 @@
 # --device` does nothing when the CLI daemon's own unit
 # (`exponential daemon install`, exponential-daemon.service) runs already, or
 # when neither is installed.
+#
+# ExitType=cgroup (#EDE-215): the app updates itself by starting its new
+# version and quitting (gpui's restart: a small script waits for the old pid,
+# then runs the new AppImage). With the default ExitType=main the main process
+# quitting with status 0 ended the unit, which killed the waiting script with
+# the rest of the cgroup: after every update at login the device stayed
+# offline until the next login, and only then did the new version start. The
+# unit now lasts while anything in it still runs, so the relaunch survives.
 [Unit]
 Description=Exponential device (the Exponential app or daemon, online for the whole session)
 Documentation=https://github.com/Niach/exponential/tree/master/apps/ede
@@ -16,6 +24,7 @@ ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 ExecStart=/usr/bin/exponential-session --device
+ExitType=cgroup
 Restart=on-failure
 RestartSec=5
 Slice=app.slice

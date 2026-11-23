@@ -57,7 +57,7 @@ pub const HOST_FUNCTIONS: &[(&str, &[&str])] = &[
     ("ede_notify_clear", &[]),
     ("ede_notify_close", &["id", "toast"]),
     ("ede_notify_open", &["id"]),
-    ("ede_open_document", &["name"]),
+    ("ede_open_document", &["name", "page"]),
     ("ede_output", &["mode", "name", "scale"]),
     ("ede_pin", &["app"]),
     ("ede_power", &["action"]),

@@ -198,6 +198,40 @@ fn the_lock_unlocks_over_its_channel_and_no_second_connection_of_its_process_doe
     assert!(!h.with(|ede| ede.is_locked()));
 }
 
+/// #EDE-212: with the helpers on, a lock whose client cannot start is a
+/// lock all the same; the start that works later gets a channel of its own
+/// and unlocks over it.
+#[test]
+fn a_lock_whose_client_cannot_start_on_its_channel_stays_locked_until_one_does() {
+    let h = harness();
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("report");
+    let mut env = base_env();
+    env.push((ROLE.into(), "lock".into()));
+    env.push((OUT.into(), out.clone().into()));
+    h.with(move |ede| {
+        ede.helpers.on = true;
+        ede.helpers.base_env = Some(env);
+        ede.begin_sealed_lock_with(vec!["/nonexistent/exponential-sealed".into(), "lock".into()]);
+    });
+    assert!(h.with(|ede| ede.is_locked()), "a lock client that cannot start left the session unlocked");
+    assert!(lock_state(&h, |s| s.child.is_none() && s.conn.is_none()));
+    let token = lock_state(&h, |s| s.token.clone());
+    assert!(h.ipc_with(token).is_err(), "a lock with no client holds no grant to take");
+
+    lock_state(&h, |s| s.command = role_argv("role_lock"));
+    // Started once it can (it may unlock at once: the lock is then gone).
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while h.with(|ede| matches!(&ede.lock, LockState::Sealed(s) if s.child.is_none())) {
+        assert!(Instant::now() < deadline, "the lock client was never started once it could");
+        h.with(|ede| ede.sealed_tick());
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let said = report(&out, "first");
+    assert!(said.contains("first unlocked\n"), "the started lock client did not unlock over its channel: {said}");
+    assert!(!h.with(|ede| ede.is_locked()));
+}
+
 #[test]
 #[ignore = "#EDE-172: a role of the helper tests"]
 fn role_lock() {

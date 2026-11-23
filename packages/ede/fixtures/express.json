@@ -70,7 +70,8 @@
       "id"
     ],
     "ede_open_document": [
-      "name"
+      "name",
+      "page"
     ],
     "ede_output": [
       "mode",

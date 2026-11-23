@@ -634,6 +634,26 @@ fn the_host_express_fixture_replays_through_the_facade() {
         let d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap(), surface_of(c).unwrap_or_else(|| "main".into()));
         eq(&feed_express(|s| d.push(s), || d.end(), &c["chunks"]).to_string(), &c["expected"], &name("express", c));
     }
+    // #VAPP-300: the open block after every push, then after end().
+    for c in f["expressOpen"].as_array().unwrap() {
+        let chunks: Vec<String> = c["chunks"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect();
+        let reads: Vec<String> = match c["decoder"].as_str() {
+            Some("sse") => {
+                let d = SseDecoder::with_surface(surface_of(c));
+                chunks.iter().map(|s| d.push(s.clone())).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
+            }
+            Some("ws") => {
+                let d = FrameDecoder::new(surface_of(c));
+                chunks.iter().map(|s| d.push(s.clone())).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
+            }
+            _ => {
+                let d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap(), surface_of(c).unwrap_or_else(|| "main".into()));
+                chunks.iter().map(|s| d.push(s.clone())).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
+            }
+        };
+        let opens: Vec<Value> = reads.iter().map(|r| serde_json::from_str::<Value>(r).unwrap().get("open").cloned().unwrap_or(json!([]))).collect();
+        eq(&Value::Array(opens).to_string(), &c["expected"], &name("expressOpen", c));
+    }
     for c in f["expressSse"].as_array().unwrap() {
         let d = SseDecoder::with_surface(surface_of(c));
         eq(&feed_express(|s| d.push(s), || d.end(), &c["chunks"]).to_string(), &c["expected"], &name("expressSse", c));
@@ -918,7 +938,8 @@ fn the_round_2_fixtures_replay_through_the_free_functions() {
     for c in items["reduce"].as_array().unwrap() {
         let got = match c.get("nested") {
             Some(n) => reduce_nested_json(n.to_string(), c["catalogId"].as_str().unwrap().into(), None).unwrap(),
-            None => reduce_surface_json(c["components"].to_string(), c["catalogId"].as_str().unwrap().into(), None).unwrap(),
+            // #VAPP-300: `streaming` = the surface's Express block is still open.
+            None => reduce_surface_streaming_json(c["components"].to_string(), c["catalogId"].as_str().unwrap().into(), None, c["streaming"].as_bool().unwrap_or(false)).unwrap(),
         };
         eq(&got, &c["expected"], c["name"].as_str().unwrap());
     }

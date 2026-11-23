@@ -21,4 +21,4 @@ device_connect = Button(label="Connect", variant="outline", size="sm", on={press
 no_devices = Text(text="No devices", variant="muted", visible=eq(a=len(value=$/services/bluetooth/devices), b=0))
 discover = Switch(label="Search for devices", name="discover", checked=$/services/bluetooth/discovering, on={change: ede_service(action="discover", args={on: $/services/bluetooth/discovering}, domain="bluetooth")}, visible=cond(if=$/services/bluetooth/powered, then=true, else=false))
 bluetooth_foot = Stack(direction="horizontal", gap="sm", align="center", children=[bluetooth_settings])
-bluetooth_settings = Link(label="Bluetooth settings", on={press: ede_open_document(name="settings")})
+bluetooth_settings = Link(label="Bluetooth settings", on={press: ede_open_document(name="settings", page="bluetooth")})

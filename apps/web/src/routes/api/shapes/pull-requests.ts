@@ -26,7 +26,7 @@ export const PULL_REQUEST_COLUMNS = [
   // EXP-1709 (merge-train.json STATE): the train's state of the PR, what it
   // still waits for, bounces, the hold reason, the 24 h clock, Merge now,
   // the queue position and the testing run (`Testing with N`). Server-only:
-  // `merge_ready_at`, `merge_approved_at`.
+  // `merge_ready_at`, `merge_approved_at`, `merge_now_by`, `merge_now_red`.
   `merge_state`,
   `merge_wait`,
   `merge_attempts`,

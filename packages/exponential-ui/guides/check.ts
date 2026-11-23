@@ -14,7 +14,8 @@
 //            plus the typed DSL from the plain project (src/defined.ts; src/mount-defined.ts
 //            feeds it to <exponential-surface>)
 //   agent    the same tarballs, `tsc --noEmit`, then the server started and asked
-//            for a valid and an invalid surface over MCP
+//            for a valid and an invalid surface over MCP, JSON and Express, and
+//            its `GET /express` replay read back into fixtures/express-demo.json
 //   define   the same tarballs, `tsc --noEmit`, then `node surface.ts` must print
 //            a valid surface (VAPP-108: the typed authoring DSL)
 //   theme    validateTheme + loadTheme over the built-ins: no issues
@@ -221,7 +222,22 @@ async function agent(): Promise<void> {
     if (!bad.result.isError) throw new Error(`an invalid surface was not refused: ${JSON.stringify(bad.result)}`)
     const schema = (await (await fetch(`http://127.0.0.1:${port}/catalog.schema.json`)).json()) as { catalogId?: string }
     if (!schema.catalogId) throw new Error(`/catalog.schema.json: not the catalog schema`)
-    console.log(`agent: tools/list, a valid surface (2 A2UI messages), an invalid one refused, the schema served`)
+    // #AXC-12 (VAPP-299): Express over MCP (the demo's block, a bad one refused) and the SSE replay.
+    const { initExpress } = await import(`../src/express/index.ts`)
+    initExpress(readFileSync(join(GUIDES, `..`, `wasm`, `express`, `a2ui_express_bg.wasm`)))
+    const express = await call({ jsonrpc: `2.0`, id: 4, method: `tools/call`, params: { name: `show_ui_express`, arguments: {} } })
+    const fromMcp = messagesFromMcpResult(express.result)
+    if (express.result.isError || !fromMcp.messages.length || fromMcp.issues.length) throw new Error(`show_ui_express: no Express resource: ${JSON.stringify(express.result).slice(0, 400)}`)
+    const refused = await call({ jsonrpc: `2.0`, id: 5, method: `tools/call`, params: { name: `show_ui_express`, arguments: { express: `root = Nope(x=1)` } } })
+    if (!refused.result.isError) throw new Error(`an invalid Express block was not refused`)
+    const { SseDecoder, mergeDecoded } = await import(`../src/index.ts`)
+    const demo = JSON.parse(readFileSync(join(GUIDES, `..`, `fixtures`, `express-demo.json`), `utf8`)) as { expected: { text: string; messages: unknown[] } }
+    const sse = new SseDecoder({})
+    const replayed = { messages: [] as unknown[], issues: [] as unknown[], text: [] as string[] }
+    mergeDecoded(replayed, sse.push(await (await fetch(`http://127.0.0.1:${port}/express`)).text()))
+    mergeDecoded(replayed, sse.end())
+    if (replayed.issues.length || replayed.text.join(``) !== demo.expected.text || JSON.stringify(replayed.messages) !== JSON.stringify(demo.expected.messages)) throw new Error(`GET /express did not replay fixtures/express-demo.json`)
+    console.log(`agent: tools/list, a valid surface (2 A2UI messages), an invalid one refused, the schema served, Express over MCP and SSE`)
   } finally {
     server.kill()
   }

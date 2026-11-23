@@ -1460,6 +1460,9 @@ mod tests {
         use crate::computer::{SpaceBlock, SpaceOffer};
         let mut seen = SpaceSeen::default();
         assert_eq!(seen.see(SpaceOffer::Unknown), SpaceOffer::Unknown, "no answer ever: nothing stands");
+        // #EXP-2065: a first read that timed out (eDE's consent question
+        // open) says Not responding, never Update Exponential Desktop.
+        assert_eq!(space_row(&SpaceOffer::Unknown), (DoctorState::Missing, NOT_RESPONDING));
         assert_eq!(seen.see(SpaceOffer::Offered), SpaceOffer::Offered);
         assert_eq!(seen.see(SpaceOffer::Unknown), SpaceOffer::Offered);
         assert_eq!(seen.see(SpaceOffer::Unknown), SpaceOffer::Offered);
