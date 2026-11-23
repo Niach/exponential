@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react"
+import { isGroupChatRoot } from "@/lib/group-chat"
 import { useNavigate } from "@tanstack/react-router"
 import { needsYou, type NeedsYouMessageInput, type NeedsYouRow, type NeedsYouSessionInput } from "@exp/domain-contract/needs-you"
 import { resultAge } from "@exp/domain-contract/results-tab"
@@ -10,7 +11,7 @@ import { resolveSessionDevice } from "@/lib/session-device"
 import { useNow } from "@/hooks/use-now"
 import { useTeamById } from "@/hooks/use-team-data"
 import { useAgents, useDigestMessages, useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
-import { useTeamAgentRows } from "@/hooks/use-agent-row"
+import { useGroupChatIds, useTeamAgentRows } from "@/hooks/use-agent-row"
 import { sessionTarget } from "@/lib/session-back"
 import type { Device } from "@/db/schema"
 import { prMergeState, type PullRequestRow, type SessionRow, type TreeMessage } from "@/lib/session-tree"
@@ -64,6 +65,7 @@ export function useNeedsYou(
   const mergeMode = (useTeamById(teamId)?.mergeMode ?? `auto`) as TeamMergeMode
 
   const inputs = useMemo(() => waitingInputs(messages), [messages])
+  const groupChatIds = useGroupChatIds()
 
   // THE session title, read only for the sessions holding a card (and roots).
   const byId = useMemo(() => new Map(sessions.map((row) => [row.id, row])), [sessions])
@@ -97,10 +99,11 @@ export function useNeedsYou(
       devices: (deviceRows ?? []) as Device[],
       now,
       me: me ?? null,
+      groupChatIds,
       owner,
       mergeMode,
     })
-  }, [sessions, agents, titles, inputs, pullRequests, now, me, owner, deviceRows, mergeMode])
+  }, [sessions, agents, titles, inputs, pullRequests, now, me, owner, deviceRows, mergeMode, groupChatIds])
 
   return { rows, isReady: sessionsReady && digestsReady }
 }
@@ -133,6 +136,7 @@ export function useCrossTeamNeedsYou(
   const { data: deviceRows } = useLiveQuery((query) => query.from({ d: deviceCollection }), [])
   const now = useNow(60_000).getTime()
   const inputs = useMemo(() => waitingInputs(messages), [messages])
+  const groupChatIds = useGroupChatIds()
   const pullRequests = useMemo(
     () => ((prRows ?? []) as PullRequestRow[]).filter((pr) => teamIds.includes(pr.teamId)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,6 +181,7 @@ export function useCrossTeamNeedsYou(
         devices: (deviceRows ?? []) as Device[],
         now,
         me: me ?? null,
+      groupChatIds,
         owner: teamId ? ownerOf(teamId) : false,
         mergeMode: ((teamId ? modes.get(teamId) : null) ?? `auto`) as TeamMergeMode,
       }).map((row) => ({ ...row, teamId }))
@@ -189,7 +194,7 @@ export function useCrossTeamNeedsYou(
         Date.parse(right.createdAt) - Date.parse(left.createdAt)
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions, agents, titles, inputs, pullRequests, deviceRows, teamRows, now, me, personal, key, ownerOf])
+  }, [sessions, agents, titles, inputs, pullRequests, deviceRows, teamRows, now, me, personal, key, ownerOf, groupChatIds])
 
   return { rows, isReady: sessionsReady && digestsReady }
 }
@@ -221,6 +226,8 @@ export function needsYouListRows(input: {
   me: string | null
   owner: boolean
   mergeMode: TeamMergeMode
+  /** #EXP-1990: the team agents' group chats (they count for every member). */
+  groupChatIds?: readonly string[]
 }): NeedsYouListRow[] {
   const { sessions, pullRequests, now, me, mergeMode } = input
   const byId = new Map(sessions.map((row) => [row.id, row]))
@@ -249,6 +256,7 @@ export function needsYouListRows(input: {
       createdAt: iso(pr.createdAt),
     })),
     mergeMode,
+    groupChatIds: input.groupChatIds,
   })
   const folded = withStuckRows(base, {
     pullRequests,
@@ -283,6 +291,7 @@ export function useNeedsYouCounts(
   const { data: deviceRows } = useLiveQuery((query) => query.from({ d: deviceCollection }), [])
   const now = useNow(60_000).getTime()
   const inputs = useMemo(() => waitingInputs(messages), [messages])
+  const groupChatIds = useGroupChatIds()
   return useMemo(() => {
     const byTeam = new Map<string, number>()
     const seen = new Set<string>()
@@ -299,6 +308,7 @@ export function useNeedsYouCounts(
         devices: (deviceRows ?? []) as Device[],
         now,
         me: me ?? null,
+      groupChatIds,
         owner: false,
         mergeMode: (modes.get(teamId) ?? `auto`) as TeamMergeMode,
       })
@@ -307,7 +317,7 @@ export function useNeedsYouCounts(
     }
     return { byTeam, total: seen.size }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions, inputs, prRows, teamRows, deviceRows, now, me, personal, teamIds.join(`,`)])
+  }, [sessions, inputs, prRows, teamRows, deviceRows, now, me, personal, teamIds.join(`,`), groupChatIds])
 }
 
 /** Fold the stuck PRs (merge-train `stuckRow`) into `needsYou()`'s rows: a
@@ -423,7 +433,7 @@ export function needsYouDestination(
       params: { teamSlug, sessionId: row.sessionId, messageId: row.messageId },
     }
   }
-  const target = sessionTarget(row.rootId, lookup, me)
+  const target = sessionTarget(row.rootId, lookup, me, isGroupChatRoot)
   const search =
     row.opens === `card`
       ? { search: { card: row.messageId } }

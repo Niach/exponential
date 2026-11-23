@@ -105,6 +105,9 @@ export async function runBootstrapPass(): Promise<void> {
   await import(`@/lib/apps/automations-migrate`).then((m) => m.migrateAppAutomations())
   // #EXP-1986: the Assistant move, only once its switch is on (idempotent).
   await import(`@/lib/agents/assistant-move`).then((m) => m.runAssistantMove())
+  // #EXP-1990: team agents' private conversations end, only once the group
+  // chats' switch is on (idempotent).
+  await import(`@/lib/agents/group-chat`).then((m) => m.runGroupChatMove())
 }
 
 const RETRY_BASE_DELAY_MS = 5 * 1000

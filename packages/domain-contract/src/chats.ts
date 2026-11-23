@@ -19,6 +19,7 @@ import { SEALED_BODY_PREFIX, SEALED_PLACEHOLDER, type LockedReason } from "./sea
 import { titleLine, usableTitleLine } from "./session-title"
 import { isBlankText } from "./transcript-grouping"
 import { actionMarker, EXPRESS_COPY, hasExpressBlock, plainProse } from "./chat-express"
+import { agentChatOf } from "./agent-settings"
 
 export const CHATS_COPY = fixture.copy
 
@@ -434,9 +435,7 @@ export function agentChatRows(input: {
   if (input.view === `archived`) return []
   const reads = input.reads ?? []
   return input.agents.map((agent): AgentChatRow => {
-    const conversation = input.sessions.find(
-      (s) => s.parentId === null && s.agentId === agent.agentId && s.userId === input.me
-    )
+    const conversation = agentChatOf({ agent, sessions: input.sessions, me: input.me })
     const id = conversation?.id ?? null
     const newest = id
       ? input.messages

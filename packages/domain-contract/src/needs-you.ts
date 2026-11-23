@@ -137,6 +137,7 @@ function pullRequestRows(input: {
   me: string | null
   sessions: readonly NeedsYouSessionInput[]
   pullRequests: readonly NeedsYouPullRequestInput[]
+  groupChatIds?: readonly string[]
 }): NeedsYouRow[] {
   const sessions = new Map(input.sessions.map((session) => [session.id, session]))
   const live = new Set(input.pullRequests.filter((pr) => pr.state === `open` || pr.state === `draft`).map((pr) => pr.id))
@@ -144,7 +145,7 @@ function pullRequestRows(input: {
   return input.pullRequests.flatMap((pr): NeedsYouRow[] => {
     const root = pr.rootSessionId ? sessions.get(pr.rootSessionId) : undefined
     if (!root || pr.state !== `open` || pr.checksState !== `success`) return []
-    if (root.agentId !== null && root.userId !== input.me) return []
+    if (root.agentId !== null && root.userId !== input.me && !input.groupChatIds?.includes(root.id)) return []
     if (working.has(root.id) || (pr.basePullRequestId !== null && live.has(pr.basePullRequestId))) return []
     return [
       {
@@ -174,11 +175,16 @@ export function needsYou(input: {
   /** #EXP-1710: the team's contract teamMergeMode; `auto` = no PR waits for
    *  a person (merge-train.json NEEDS YOU), so no ready rows. */
   mergeMode?: TeamMergeMode | null
+  /** #EXP-1990 (agent-settings.json `groupChat`): the roots that are a team
+   *  agent's group chat (`agents.groupChatId`): they count for every member. */
+  groupChatIds?: readonly string[]
 }): NeedsYouRow[] {
-  // Another member's agent conversation is theirs (chats.json `listAgents`).
+  // Another member's agent conversation is theirs (chats.json `listAgents`);
+  // a team agent's group chat is everyone's.
+  const group = new Set(input.groupChatIds ?? [])
   const readable = new Map(
     input.sessions
-      .filter((session) => session.agentId === null || session.userId === input.me)
+      .filter((session) => session.agentId === null || session.userId === input.me || group.has(session.rootId))
       .map((session) => [session.id, session])
   )
   const sessions = new Map([...readable].filter(([, session]) => session.status !== `ended`))

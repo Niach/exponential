@@ -29,7 +29,7 @@ export interface SendTarget {
 export async function sendTarget(userId: string, input: { agentId?: string; appId?: string }): Promise<SendTarget> {
   if (input.agentId) {
     const agent = await loadAgentForUser(userId, input.agentId)
-    const root = await findConversation(db, agent.id, userId)
+    const root = await findConversation(db, agent, userId)
     return { ...keyOf(root), brief: null }
   }
   const app = await loadAppForUser(userId, input.appId!)

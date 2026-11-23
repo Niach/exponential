@@ -6,6 +6,7 @@ import { db } from "@/db/connection"
 import { agents, apps, conversations, messages, sessions, type Agent, type Event, type Session } from "@/db/schema"
 import { briefedText } from "@/lib/apps/editor-session"
 import { conversationInTx } from "@/lib/agents/conversation"
+import { groupChatAgent } from "@/lib/agents/group-chat"
 import { latestCronMatch, parseCron } from "@/lib/agents/cron"
 import { askHidden } from "@/lib/sessions/bus"
 import { fillPrompt } from "@/lib/agents/app-triggers"
@@ -16,7 +17,8 @@ import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 
 // NEW-2: the SERVER fires an agent's triggers (the device armed nothing
 // since migration 0182). A firing = a message into the agent OWNER's
-// conversation session, authored by the owner (so every device delivers it
+// conversation session (#EXP-1990: a team agent's GROUP CHAT, once
+// `AGENT_GROUP_CHATS` is on), authored by the owner (so every device delivers it
 // as pending input) and carrying the `trigger_fired` event card. Schedules
 // are evaluated every watchdog tick: the window since the last tick (capped
 // at `agentTrigger.catchUpHours`) is searched for the latest matching
@@ -136,7 +138,10 @@ async function foldableTick(tx: Tx, agent: Agent): Promise<{ id: string; pending
     .where(
       and(
         eq(sessions.agentId, agent.id),
-        eq(sessions.userId, agent.ownerId),
+        // #EXP-1990: a team agent's firings land in its group chat.
+        groupChatAgent(agent) && agent.groupChatId
+          ? eq(sessions.id, agent.groupChatId)
+          : eq(sessions.userId, agent.ownerId),
         sql`${messages.card}->>'event' = 'trigger_fired' AND ${messages.card}->>'eventId' IS NULL AND ${messages.card}->>'triggerId' IS NOT NULL`
       )
     )

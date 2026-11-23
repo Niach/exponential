@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import { agentsInTeam } from "@exp/domain-contract/agent-settings"
+import { agentChatOf, agentsInTeam } from "@exp/domain-contract/agent-settings"
 import { agentCollection, sessionCollection, teamCollection } from "@/lib/collections"
 import type { SessionRow } from "@/lib/session-tree"
 import type { SyncedAgent } from "@/components/team/agents-section"
@@ -59,20 +59,36 @@ export function useTeamAgentRows(teamIds: readonly string[], me: string | null |
   }, [all, teams, key, me])
 }
 
-/** The viewer's conversation with an agent (its root: `agentId`, theirs),
- *  in ANY team: #EXP-1714, the global Assistant's lives in the personal team. */
+/** #EXP-1990 (agent-settings.json `groupChat`): the roots that are a team
+ *  agent's group chat (every synced agent): they count for every member. */
+export function useGroupChatIds(): string[] {
+  const all = useAllAgentRows()
+  return useMemo(() => all.flatMap((agent) => (agent.groupChatId ? [agent.groupChatId] : [])).sort(), [all])
+}
+
+/** The viewer's chat with an agent (`agentChatOf`): a team agent's GROUP
+ *  chat (#EXP-1990, `agents.groupChatId`), else the root with its `agentId`
+ *  they started, in ANY team: #EXP-1714, the global Assistant's lives in
+ *  the personal team. */
 export function useMyAgentConversation(agentId: string | null | undefined, me: string | null | undefined): SessionRow | null {
+  const { agent } = useAgentRow(agentId)
+  const groupChatId = agent?.groupChatId ?? null
   const { data } = useLiveQuery(
     (query) =>
-      agentId && me
-        ? query
-            .from({ sessions: sessionCollection })
-            .where(({ sessions }) => and(eq(sessions.agentId, agentId), eq(sessions.userId, me)))
-        : undefined,
-    [agentId ?? null, me ?? null]
+      groupChatId
+        ? query.from({ sessions: sessionCollection }).where(({ sessions }) => eq(sessions.id, groupChatId))
+        : agentId && me
+          ? query
+              .from({ sessions: sessionCollection })
+              .where(({ sessions }) => and(eq(sessions.agentId, agentId), eq(sessions.userId, me)))
+          : undefined,
+    [agentId ?? null, me ?? null, groupChatId]
   )
   return useMemo(
-    () => ((data ?? []) as SessionRow[]).find((row) => row.parentId === null) ?? null,
-    [data]
+    () =>
+      agentId
+        ? agentChatOf({ agent: { agentId, groupChatId }, sessions: (data ?? []) as SessionRow[], me })
+        : null,
+    [data, agentId, groupChatId, me]
   )
 }

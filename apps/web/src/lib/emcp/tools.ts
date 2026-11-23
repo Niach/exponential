@@ -202,7 +202,7 @@ import {
   sealedCardEnvelope,
   sealedShowExtrasSchema,
 } from "@/lib/sessions/plan"
-import { loadAgentForUser } from "@/lib/agents/conversation"
+import { findConversation, loadAgentForUser } from "@/lib/agents/conversation"
 import { loadAppForUser } from "@/lib/apps/editor-session"
 import { APP_CATALOG_SECTIONS, appCatalogText, componentCatalogText, linkableScreens } from "@/lib/apps/package"
 import coreCatalog from "@exponential_app/eui/catalog/core.catalog.json"
@@ -4707,8 +4707,8 @@ export function registerExponentialTools(
         // #EXP-1730: its root session (phase A: your conversation with it)
         // and the app it builds, if any.
         const [[root], [app]] = await Promise.all([
-          db.select({ id: sessions.id }).from(sessions)
-            .where(and(eq(sessions.agentId, id), eq(sessions.userId, user.id), isNull(sessions.parentId))).limit(1),
+          // #EXP-1990: a team agent's group chat, else your conversation with it.
+          findConversation(db, agent, user.id).then((row) => (row ? [{ id: row.id }] : [])),
           db.select({ slug: apps.slug }).from(apps).where(and(eq(apps.agentId, id), isNull(apps.deletedAt))).limit(1),
         ])
         return ok({ ...rest, rootSessionId: root?.id ?? null, appSlug: app?.slug ?? null })
