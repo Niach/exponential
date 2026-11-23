@@ -9,6 +9,7 @@ import { notificationTypeValues } from "@exp/db-schema/domain"
 import type { Issue, Notification, Board, Team } from "@/db/schema"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { inboxRowListed, inboxRowTarget } from "@exp/domain-contract/inbox-route"
+import { chatTeamSlug } from "@/lib/chat-teams"
 import { planPageFor } from "@exp/domain-contract/plan-page"
 import { sessionWaitingCard } from "@exp/domain-contract/chat-row-action"
 import { trpc } from "@/lib/trpc-client"
@@ -207,13 +208,17 @@ export function InboxView({
           // team) lists in every team's inbox and opens from it.
           if (!inboxRowListed({ type: n.type, teamId: n.teamId ?? null, issueId: null }, teamId ?? null, [...teamMap.keys()])) continue
           const team = n.teamId ? teamMap.get(n.teamId) : undefined
-          const slug = team?.slug ?? routeTeamSlug
           messages.push({
             kind: `message`,
             teamId: team?.id ?? null,
             teamName: team?.name ?? null,
             session: (() => {
               const target = inboxRowTarget(n)
+              // #EXP-2079 (agent-settings.json `assistant.chatTeams` (7)):
+              // on a team-less page (Home) the row opens through the first
+              // chat team of its session.
+              const slug =
+                team?.slug ?? routeTeamSlug ?? (target.kind === `session` ? chatTeamSlug(target.sessionId) : null)
               return target.kind === `session` && slug
                 ? { teamSlug: slug, sessionId: target.sessionId }
                 : null

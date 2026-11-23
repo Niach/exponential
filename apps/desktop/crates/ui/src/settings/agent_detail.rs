@@ -99,7 +99,12 @@ impl AgentDevice {
 }
 
 /// The machines an agent of `team_id` can run on, online first, then by name.
-pub(crate) fn agent_devices(team_id: &str, cx: &App) -> Vec<AgentDevice> {
+/// #EXP-2079 (agent-settings.json `assistant.chatTeams` DEVICES): `None` =
+/// THE VIEWER'S OWN MACHINES, whatever teams they are shared with, and no
+/// teammate's server: an Assistant's Runs on › Device and a suggestion card's
+/// Start on in its conversation (its personal team is never synced, and no
+/// device shared with a team is "usable" in it).
+pub(crate) fn agent_devices(team_id: Option<&str>, cx: &App) -> Vec<AgentDevice> {
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
@@ -112,9 +117,11 @@ pub(crate) fn agent_devices(team_id: &str, cx: &App) -> Vec<AgentDevice> {
         .iter()
         .filter(|row| {
             // #EXP-1440: an own machine shared only with OTHER teams is theirs.
-            (me.as_deref().is_some_and(|me| row.user_id.as_deref() == Some(me))
-                && row.is_usable_in_team(team_id))
-                || row.is_shared_with(team_id)
+            let mine = me.as_deref().is_some_and(|me| row.user_id.as_deref() == Some(me));
+            match team_id {
+                Some(team_id) => (mine && row.is_usable_in_team(team_id)) || row.is_shared_with(team_id),
+                None => mine,
+            }
         })
         .filter_map(|row| {
             let device_id = row.device_id.clone().filter(|id| !id.is_empty())?;
@@ -150,7 +157,7 @@ pub(crate) fn agent_devices(team_id: &str, cx: &App) -> Vec<AgentDevice> {
                     .as_deref()
                     .is_some_and(|me| row.user_id.as_deref() == Some(me))
                     && row.is_default.unwrap_or(false),
-                team_shared: row.is_shared_with(team_id),
+                team_shared: team_id.is_some_and(|team_id| row.is_shared_with(team_id)),
                 agents,
                 accounts: crate::device_settings::parse_agent_map(row.agent_accounts.as_ref()),
                 usage: crate::device_settings::parse_agent_map(row.agent_usage.as_ref()),
@@ -1037,7 +1044,11 @@ impl AgentDetailPane {
     /// The machines the page offers: every team machine; the Assistant's
     /// (NEW-99 `runsOnCases`) desktops only, a bound non-desktop kept.
     fn devices(&self, agent: &AgentDefRow, team_id: &str, cx: &App) -> Vec<AgentDevice> {
-        let all = agent_devices(team_id, cx);
+        // #EXP-2079 (`deviceCases`): the viewer's own Assistant runs on their
+        // own machines, whatever teams those are shared with.
+        let me = queries::active_account(cx).map(|account| account.user_id);
+        let own = agent.is_assistant() && me.is_some() && agent.owner_id == me;
+        let all = agent_devices((!own).then_some(team_id), cx);
         // #EXP-1849: an app agent's slot = a device shared with the team.
         if self.slot.is_some() {
             return all.into_iter().filter(|device| device.team_shared).collect();

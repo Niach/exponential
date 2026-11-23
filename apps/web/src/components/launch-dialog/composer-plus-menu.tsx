@@ -170,7 +170,8 @@ export interface ComposerPromptsBinding {
 /** MCP servers › on an agent chat (#EXP-1793, composer-menu.json
  *  `mcpPick`): the conversation's pick over the team's servers. */
 export interface ComposerMcpBinding {
-  servers: McpServerList
+  /** `teamName`: #EXP-2079, a pick over several teams names each row's. */
+  servers: readonly (McpServerList[number] & { teamName?: string | null })[]
   selectedIds: readonly string[]
   onToggle: (id: string) => void
   connectHref: (serverId: string) => string | null

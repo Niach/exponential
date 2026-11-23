@@ -31,7 +31,7 @@ import {
   useMediaQuery,
   useToastLift,
 } from "@exp/ui"
-import type { Team, User } from "@/db/schema"
+import type { Team } from "@/db/schema"
 import { InPlaceSession } from "@/components/chat/session-body"
 import { renderChatText } from "@/components/chat/chat-markdown"
 import { SessionComposer } from "@/components/session-composer"
@@ -40,8 +40,8 @@ import { useMyAgentConversation } from "@/hooks/use-agent-row"
 import { useSession } from "@/hooks/use-session"
 import { useSessionNav } from "@/hooks/use-session-nav"
 import { useAgents, useDigestMessages, useSessionChat, useSessionReads, useSessionReadsReady, useTeamSessions } from "@/hooks/use-session-tree"
+import { useSessionOwnDevices } from "@/hooks/use-chat-teams"
 import { useSuggestionActions } from "@/hooks/use-suggestion-actions"
-import { useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import type { AgentRow, SessionRow } from "@/lib/session-tree"
 
@@ -343,8 +343,10 @@ function AssistantWidgetChat({
   const conversation = useMyAgentConversation(assistant.agentId, me)
   const chat = useSessionChat(conversation?.id ?? null)
   const nav = useSessionNav({ teamSlug, here: chat.root?.id ?? null, back: undefined })
-  const suggestions = useSuggestionActions({ teamId: team.id, enabled: permissions.isMember, agentFor: () => chat.root?.cli ?? null })
-  const { users } = useTeamUsers(team.id)
+  // #EXP-2079 (`assistant.chatTeams` `deviceCases`): Start on lists the
+  // member's own machines for their conversation in a not-synced team.
+  const ownDevices = useSessionOwnDevices(chat.root, me)
+  const suggestions = useSuggestionActions({ teamId: team.id, enabled: permissions.isMember, agentFor: () => chat.root?.cli ?? null, ownDevices })
   const sessionName = useMemo(() => chatSessionNames(chat.view?.tabs ?? []), [chat.view?.tabs])
   const dockChildren = useMemo(
     () =>
@@ -361,7 +363,6 @@ function AssistantWidgetChat({
         row={chat.root}
         origin={chat.view?.origin ?? null}
         surface="agent"
-        browseTeamId={team.id}
         onOpenXref={(sessionId) => {
           onLeave()
           nav.open(sessionId)
@@ -380,12 +381,10 @@ function AssistantWidgetChat({
   const composer = permissions.isMember ? (
     <SessionComposer
       teamId={assistant.teamId}
-      browseTeamId={team.id}
       sessionId={null}
       agentId={assistant.agentId}
       surface="agent"
       placeholder={`Message ${assistant.name}`}
-      users={users as User[]}
       testId="agent-composer"
     />
   ) : null

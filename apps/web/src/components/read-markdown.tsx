@@ -33,23 +33,42 @@ import { imageSource, imageSourceAllowed } from "@exp/domain-contract/image-acti
 export function useChippedProse(text: string): string {
   const issueRefs = useIssueRefs()
   if (typeof window === `undefined` || !text.includes(`://`)) return text
-  const teamId = issueRefs?.teamId
-  return chipBareAppLinks(text, window.location.origin, teamSlugOfPath(window.location.pathname), (kind, id) => {
+  // #EXP-2079 (agent-settings.json `assistant.chatTeams` (7)): the rows of
+  // the CHAT TEAMS (the Assistant's conversation: its turn's teams), plus
+  // the viewer's own rows of a team they do not sync (their personal team).
+  const teamIds = refTeamIds(issueRefs)
+  const inScope = (teamId: string) => teamIds.includes(teamId) || !teamCollection.has(teamId)
+  return chipBareAppLinks(text, window.location.origin, linkTeamSlug(issueRefs), (kind, id) => {
     switch (kind) {
       case `issue`:
         return issueRefs?.resolve(id)?.title
       case `board`:
-        return boardCollection.toArray.find((board) => board.teamId === teamId && board.slug === id)?.name
+        return boardCollection.toArray.find((board) => teamIds.includes(board.teamId) && board.slug === id)?.name
       case `session`: {
         const session = sessionCollection.get(id)
-        return session && session.teamId === teamId ? session.title?.trim() || `Session` : null
+        return session && inScope(session.teamId) ? session.title?.trim() || `Session` : null
       }
       case `agent`: {
         const agent = agentCollection.get(id)
-        return agent && agent.teamId === teamId ? agent.name : null
+        return agent && inScope(agent.teamId) ? agent.name : null
       }
     }
   })
+}
+
+/** The teams the refs of this surface resolve in (a chat's scope: its chat
+ *  teams, else the page's team). */
+function refTeamIds(issueRefs: IssueRefContextValue | null): readonly string[] {
+  return issueRefs?.teamIds ?? (issueRefs?.teamId ? [issueRefs.teamId] : [])
+}
+
+/** The team a team-less in-app link opens through: inside a chat's own scope
+ *  its first chat team, else the team on screen, else the refs' team. */
+function linkTeamSlug(issueRefs: IssueRefContextValue | null): string | null {
+  const scoped = issueRefs?.scopeKey ? issueRefs.teamIds?.[0] : undefined
+  const onScreen = typeof window === `undefined` ? null : teamSlugOfPath(window.location.pathname)
+  const refs = issueRefs?.teamId ? teamCollection.get(issueRefs.teamId)?.slug : undefined
+  return (scoped ? teamCollection.get(scoped)?.slug : undefined) ?? onScreen ?? refs ?? null
 }
 
 export type ReadMarkdownSurface = `document` | `chat`
@@ -213,7 +232,7 @@ export function useReadMarkdownHost(options: MarkdownOptions, agentProse: boolea
   const { breaks, density, streaming, imageMaxHeight, selectable } = options
   const origin = typeof window === `undefined` ? `http://localhost` : window.location.origin
   // `~/x` = the team on screen, else the team the refs resolve in.
-  const team = (typeof window === `undefined` ? null : teamSlugOfPath(window.location.pathname)) ?? (issueRefs?.teamId ? teamCollection.get(issueRefs.teamId)?.slug : undefined) ?? null
+  const team = linkTeamSlug(issueRefs)
   return useMemo(() => {
     const allowPrivate = ownPrivateHosts()
     return {

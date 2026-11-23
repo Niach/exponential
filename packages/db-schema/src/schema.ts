@@ -1725,6 +1725,11 @@ export const installs = pgTable(
     }),
     label: varchar({ length: 64 }),
     platform: varchar({ length: 32 }),
+    // #EXP-2082: the app version THIS install last registered with (the
+    // `x-client-version` header; `devices.version` is per machine, and a
+    // desktop app and a daemon on one machine may differ). NULL = a build
+    // that never said, or a phone / the web. Server-only.
+    appVersion: varchar(`app_version`, { length: 32 }),
     endpointId: varchar(`endpoint_id`, { length: 64 }).notNull().unique(),
     x25519Public: varchar(`x25519_public`, { length: 43 }).notNull(),
     createdAt: timestamp(`created_at`, { withTimezone: true })

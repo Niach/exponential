@@ -14,7 +14,6 @@ import {
 } from "@exp/ui"
 import { isAssistant, triggerSummary, type AgentTriggerLike } from "@exp/domain-contract/agent-settings"
 import { sessionScreen, sessionScreenKind, sessionScreenSubtitle } from "@exp/domain-contract/session-screen"
-import type { User } from "@/db/schema"
 import { SessionComposer } from "@/components/session-composer"
 import { HEADER_BUTTON_CLASS } from "@/components/team/mobile-detail-header"
 import { renderChatText } from "@/components/chat/chat-markdown"
@@ -30,7 +29,7 @@ import { CallButton, useVoiceCall, useVoiceCallAvailability, VoiceCallOverlay } 
 import { useAgentRow, useMyAgentConversation } from "@/hooks/use-agent-row"
 import { useSession } from "@/hooks/use-session"
 import { useSessionChat } from "@/hooks/use-session-tree"
-import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
+import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { CHATS_LIST_COPY } from "@/lib/session-tree"
@@ -92,7 +91,6 @@ function AgentChannelPage() {
   )
   // The empty screen's Results (no tree yet = none).
   const emptyResults = useResultsTab(team?.id, null)
-  const { users } = useTeamUsers(team?.id)
   // S-3: the back stack while no conversation exists yet (the session
   // screen keeps its own once it does).
   const nav = useSessionNav({ teamSlug, here: null, back: search.back })
@@ -248,12 +246,10 @@ function AgentChannelPage() {
   const composer = permissions.isMember ? (
     <SessionComposer
       teamId={agent.teamId}
-      browseTeamId={team.id}
       sessionId={null}
       agentId={agent.id}
       surface="agent"
       placeholder={`Message ${name}`}
-      users={users as User[]}
       opaque={isMobile}
       testId="agent-composer"
     />

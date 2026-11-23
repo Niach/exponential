@@ -178,7 +178,7 @@ impl NewAgentPane {
     /// The caller's default machine, else the only one, else the first online.
     fn seed_device(&mut self, cx: &App) {
         if self.device_id.is_none() {
-            let devices = agent_devices(&self.team_id, cx);
+            let devices = agent_devices(Some(&self.team_id), cx);
             self.device_id = seed_device(&devices).or_else(|| devices.iter().find(|device| device.online).map(|device| device.device_id.clone()));
         }
     }
@@ -269,7 +269,7 @@ impl NewAgentPane {
                 self.clear_error("device", cx);
             }
             "account" => {
-                let devices = agent_devices(&self.team_id, cx);
+                let devices = agent_devices(Some(&self.team_id), cx);
                 let before = self.cli(&devices);
                 let (options, _) = self.picked_account(&devices);
                 if let Some(option) = options.iter().find(|option| option.account_option_key() == value) {
@@ -301,7 +301,7 @@ impl NewAgentPane {
             crate::action_error::failed_action("create", "the agent", Some("Not signed in.".into()), cx);
             return;
         };
-        let (_, login) = self.picked_account(&agent_devices(&self.team_id, cx));
+        let (_, login) = self.picked_account(&agent_devices(Some(&self.team_id), cx));
         self.pending = true;
         cx.notify();
 
@@ -351,7 +351,7 @@ impl NewAgentPane {
 
     /// The page as the document binds it.
     fn project(&self, cx: &App) -> Value {
-        let devices = agent_devices(&self.team_id, cx);
+        let devices = agent_devices(Some(&self.team_id), cx);
         // THE device picker: each machine by its glyph, offline ones say so.
         let device_options: Vec<Value> = devices
             .iter()

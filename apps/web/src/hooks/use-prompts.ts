@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
+import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import type { SyncedPrompt } from "@/db/schema"
 import { promptCollection } from "@/lib/collections"
 
@@ -27,4 +27,26 @@ export function usePrompts(teamId: string | null | undefined): {
   )
   const prompts = useMemo(() => sortPrompts((data ?? []) as SyncedPrompt[]), [data])
   return { prompts, isReady: Boolean(teamId) && isReady }
+}
+
+/** #EXP-2079 (agent-settings.json `assistant.chatTeams` (4)): the prompts of
+ *  SEVERAL teams, team by team in `teamIds`' order, each team's in its own
+ *  order. One team = exactly `usePrompts`. */
+export function usePromptsForTeams(teamIds: readonly string[]): {
+  prompts: SyncedPrompt[]
+  isReady: boolean
+} {
+  const key = teamIds.join(`,`)
+  const { data, isReady } = useLiveQuery(
+    (query) =>
+      teamIds.length > 0
+        ? query.from({ p: promptCollection }).where(({ p }) => inArray(p.teamId, [...teamIds]))
+        : undefined,
+    [key]
+  )
+  const prompts = useMemo(() => {
+    const rows = (data ?? []) as SyncedPrompt[]
+    return key.split(`,`).flatMap((teamId) => sortPrompts(rows.filter((row) => row.teamId === teamId)))
+  }, [data, key])
+  return { prompts, isReady: teamIds.length > 0 && isReady }
 }
