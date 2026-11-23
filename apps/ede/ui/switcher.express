@@ -1,0 +1,20 @@
+# Exponential Desktop's factory window switcher (#EDE-12, Mint's "Icons and thumbnails" look #EDE-65):
+# hold Alt, Tab / Shift+Tab (or the arrow keys) cycle the current workspace's windows most recent
+# first, Alt+` only the focused app's; the popup shows centred after 100 ms (a quick Alt+Tab flips to
+# the previous window without it), releasing Alt focuses the selected window (a minimized one is
+# restored), Escape cancels, a click picks a tile, the pointer entering one selects it (Box `on.hover`
+# → `altTab.select`, Mint's hover). The shell feeds /switcher: windows [{id, title, app, icon,
+# minimized, selected, thumbnail}] (live thumbnails at about 5 fps captured over ede-protocol into
+# Image; protected windows show no picture) and title (the selected window's, under the tiles); it
+# sizes the surface's width to the tiles (208 px each, sm gaps, lg padding).
+surface("switcher", extensions={ede: {layer: "overlay", size: {width: 760, height: 204}, onDemand: true, functions: ["ede_select", "ede_alt_tab_select"]}})
+$/switcher/title = ""
+$/switcher/windows = []
+root = Box(style={display: "flex", flexDirection: "column", alignItems: "center", gap: "$spacing.md", padding: "$spacing.lg", height: 204, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.lg"}, children=[tiles, tile, title])
+tiles = Stack(direction="horizontal", gap="sm", align="center", justify="center", children=_template($/switcher/windows, tile, key="id"))
+tile = Box(style={position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: "$spacing.sm", width: 208, height: 136, borderRadius: "$radius.md"}, pressable=true, children=[tile_selected, thumb_frame], on={press: ede_select(window=$id), hover: ede_alt_tab_select(window=$id)})
+tile_selected = Box(style={position: "absolute", inset: 0, borderRadius: "$radius.md", backgroundColor: "$color.accent"}, visible=cond(if=$selected, then=true, else=false))
+thumb_frame = Box(style={position: "relative", width: 192, height: 120}, children=[thumb, app_icon])
+thumb = Image(src=$thumbnail, alt=$title, fit="contain", width=192, height=120, fallback="ede-window")
+app_icon = Image(src=$icon, alt=$app, fit="contain", width=32, height=32, fallback="nav-apps", style={position: "absolute", left: 80, bottom: 0})
+title = Text(text=$/switcher/title, align="center", lines=1, style={width: "100%"})

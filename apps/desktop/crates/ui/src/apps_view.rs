@@ -1,7 +1,7 @@
 //! VAPP-110 — the team's apps for the IDE (fixtures/apps.json). VAPP-242:
 //! no Apps list page on desktop (wide); the sidebar's APPS group lists the
 //! apps (a row RUNS the app, [`Screen::AppRun`]) and its `+` opens THE NEW
-//! MENU (`apps/ede/ui/sidebar.json`: New app = a draft and its editor at once,
+//! MENU (`apps/ede/ui/sidebar.express`: New app = a draft and its editor at once,
 //! [`new_app`]; Import… = the import dialog). Here: the entries (the team's
 //! synced apps, by name), the version pill, the delete prompt.
 

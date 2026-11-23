@@ -19,6 +19,11 @@ use serde_json::Value;
 
 use crate::host::decoders::{DecodeIssue, Decoded};
 
+/// The compiler crate itself, for a host that extends the catalog (eDE's
+/// shell documents add its host functions, #EDE-216) or reads the syntax
+/// tree (an issue at its line).
+pub use a2ui_express;
+
 /// The core catalog as the A2UI catalog definition the compiler loads.
 pub const EXPRESS_CATALOG_JSON: &str = include_str!("generated/express.catalog.json");
 
