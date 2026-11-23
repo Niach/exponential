@@ -3,8 +3,20 @@ import { ExponentialHost, JsonlStreamTransport } from "@exponential_app/eui"
 import { HostSurface } from "@exponential_app/eui-react"
 import { Button } from "@exponential_app/eui-react/primitives"
 import "@exponential_app/eui-react/styles.css"
+import { ExpressStream } from "./ExpressStream"
 
 export function App() {
+  // `#express`: the Express stream (a model's prose + the UI it writes).
+  const [express, setExpress] = useState(location.hash === `#express`)
+  useEffect(() => {
+    const onHash = () => setExpress(location.hash === `#express`)
+    addEventListener(`hashchange`, onHash)
+    return () => removeEventListener(`hashchange`, onHash)
+  }, [])
+  return express ? <ExpressStream /> : <Agent />
+}
+
+function Agent() {
   // One host per connection: A2UI messages in over a transport, actions back
   // out. A surface id lives once per host, so a reconnect that replays the
   // agent's createSurface needs a new host.
@@ -25,6 +37,9 @@ export function App() {
       <HostSurface host={host} surfaceId="main" theme="exponential" mode="dark" fallback={<p>Waiting for the agent…</p>} />
       <Button variant="outline" onClick={() => setConnection((n) => n + 1)}>
         Reconnect
+      </Button>
+      <Button variant="ghost" onClick={() => (location.hash = `express`)}>
+        Express stream
       </Button>
     </>
   )

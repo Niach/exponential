@@ -105,6 +105,10 @@ describe(`host-transport.json express`, () => {
     ])
   })
   for (const c of transport.express) test(`express: ${c.name}`, () => expect(all(new ExpressDecoder({ wrapped: c.wrapped, ...at(c) }), c.chunks)).toEqual(c.expected as Decoded))
+  // #VAPP-300: the open block after every read.
+  const opens = (dec: { push(c: string): Decoded; end(): Decoded }, chunks: string[]) => [...chunks.map((c) => dec.push(c)), dec.end()].map((d) => d.open ?? [])
+  for (const c of transport.expressOpen as { name: string; decoder: string; wrapped?: boolean; surfaceId?: string; chunks: string[]; expected: string[][] }[])
+    test(`open: ${c.name}`, () => expect(opens(c.decoder === `sse` ? new SseDecoder(at(c)) : c.decoder === `ws` ? new FrameDecoder(at(c)) : new ExpressDecoder({ wrapped: c.wrapped, ...at(c) }), c.chunks)).toEqual(c.expected))
   for (const c of transport.expressSse) test(`sse: ${c.name}`, () => expect(all(new SseDecoder(at(c as { surfaceId?: string })), c.chunks)).toEqual(c.expected as Decoded))
   for (const c of transport.expressWs) test(`ws: ${c.name}`, () => expect(all(new FrameDecoder(at(c as { surfaceId?: string })), c.frames)).toEqual(c.expected as Decoded))
   for (const c of transport.expressMcp) test(`mcp: ${c.name}`, () => expect(messagesFromMcpResult(c.result, at(c as { surfaceId?: string }))).toEqual(c.expected as Decoded))
@@ -172,6 +176,78 @@ describe(`transports read Express (onText = the prose)`, () => {
   test(`the host advertises both formats unless told otherwise`, () => {
     expect(new ExponentialHost().rendererCapabilities()[`1.0`].inferenceFormats).toEqual([`json`, `express`])
     expect(new ExponentialHost({ inferenceFormats: [`json`] }).rendererCapabilities()[`1.0`].inferenceFormats).toEqual([`json`])
+  })
+})
+
+// #VAPP-300: a streaming surface draws no Unknown placeholder for a child
+// that has not arrived yet; once its block closes, a child still missing is
+// the placeholder (and its issue goes to the agent) as on any JSON surface.
+describe(`a streaming Express block renders a child not streamed yet as nothing`, () => {
+  const unknowns = (n: UiNode | null | undefined): string[] => (n ? [...(n.component === `Unknown` ? [n.id] : []), ...n.children.flatMap(unknowns), ...Object.values(n.slots ?? {}).flatMap(unknowns)] : [])
+  /** A fetch whose body the test releases chunk by chunk. */
+  const gated = (type: string) => {
+    let push!: (text: string | null) => void
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        push = (text) => (text === null ? c.close() : c.enqueue(new TextEncoder().encode(text)))
+      },
+    })
+    const fetchBody = (async () => new Response(stream, { headers: { "content-type": type } })) as unknown as typeof globalThis.fetch
+    return { fetch: fetchBody, push: (text: string | null) => push(text) }
+  }
+  const tick = () => new Promise((r) => setTimeout(r, 5))
+  const timeline = [`Here is the release.\n<a2ui>\nroot = Stack(gap="sm", children=[title, later, ok])\n`, `title = Text(text="Release 0.18.84")\n`, `ok = Button(label="Promote", variant="default")\n`]
+
+  async function host(close: string) {
+    const wire = gated(EXPRESS_MIME_TYPE)
+    const sent: unknown[] = []
+    const transport = new JsonlStreamTransport({ url: `https://agent.test/s`, fetch: wire.fetch })
+    transport.send = async (m) => void sent.push(m)
+    const h = new ExponentialHost({ transport })
+    h.connect()
+    for (let i = 0; i < 20 && h.status !== `open`; i++) await tick()
+    const mid: { ids: string[] | undefined; unknown: string[] }[] = []
+    for (const chunk of timeline) {
+      wire.push(chunk)
+      await tick()
+      const root = h.surface(`main`)?.root
+      mid.push({ ids: root?.children.map((c) => c.id), unknown: unknowns(root) })
+    }
+    expect(sent).toEqual([])
+    wire.push(close)
+    wire.push(null)
+    for (let i = 0; i < 50 && h.status !== `closed`; i++) await tick()
+    return { h, mid, sent }
+  }
+
+  test(`mid-stream: no Unknown node, no issue sent`, async () => {
+    const { mid } = await host(`later = Text(text="Arrived")\n</a2ui>\nDone.`)
+    // The root came first: its children arrive one by one, `later` never
+    // mid-stream, and nothing draws in its place.
+    expect(mid).toEqual([
+      { ids: [], unknown: [] },
+      { ids: [`title`], unknown: [] },
+      { ids: [`title`, `ok`], unknown: [] },
+    ])
+  })
+
+  test(`closed with every child: no Unknown node`, async () => {
+    const { h, sent } = await host(`later = Text(text="Arrived")\n</a2ui>\nDone.`)
+    expect(unknowns(h.surface(`main`)?.root)).toEqual([])
+    expect(sent).toEqual([])
+  })
+
+  test(`closed with a child still missing: the Unknown placeholder and its issue`, async () => {
+    const { h, sent } = await host(`</a2ui>\nDone.`)
+    expect(unknowns(h.surface(`main`)?.root)).toEqual([`later`])
+    expect(JSON.stringify(sent)).toContain(`no component with this id`)
+  })
+
+  test(`a JSON surface keeps the placeholder at once`, () => {
+    const h = new ExponentialHost()
+    h.receive({ version: `1.0`, createSurface: { surfaceId: `j`, catalogId: `https://ui.exponential.at/catalogs/core/v1` } })
+    h.receive({ version: `1.0`, updateComponents: { surfaceId: `j`, components: [{ id: `root`, component: `Stack`, children: [`later`] }] } })
+    expect(unknowns(h.surface(`j`)?.root)).toEqual([`later`])
   })
 })
 

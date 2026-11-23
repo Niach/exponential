@@ -34,6 +34,8 @@ export const REDIRECTS: Record<string, string> = {
   "/core": `/sdk/core/`,
   "/apps": `/sdk/apps/`,
   "/sdk": `/docs/sdk/`,
+  // #AXC-12: the Express page is a docs page.
+  "/sdk/genui/express": `/docs/sdk/genui/express/`,
 
   // The docs of each module moved from /docs/libraries/ and /docs/eapps/
   "/docs/libraries": `/docs/sdk/`,

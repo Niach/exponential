@@ -209,7 +209,7 @@ pub fn transport_cases() -> Vec<Case> {
 /// eui-core `express`; built without it every case fails, naming the feature.
 pub fn express_cases() -> Vec<Case> {
     let f = fixture("host-transport.json");
-    let keys = ["express", "expressSse", "expressWs", "expressMcp", "expressContentTypes", "expressCapabilities"];
+    let keys = ["express", "expressOpen", "expressSse", "expressWs", "expressMcp", "expressContentTypes", "expressCapabilities"];
     let mut out = Vec::new();
     for key in keys {
         for c in list(&f, key) {
@@ -236,6 +236,26 @@ fn express_case(key: &str, c: &Value) -> Result<(), String> {
         out
     };
     let got = match key {
+        // #VAPP-300: the open block after every push, then after end().
+        "expressOpen" => {
+            let chunks = strs(&c["chunks"]);
+            let sid = c["surfaceId"].as_str();
+            let opens: Vec<Value> = match c["decoder"].as_str() {
+                Some("sse") => {
+                    let mut d = SseDecoder::with_surface(sid);
+                    chunks.iter().map(|ch| d.push(ch)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
+                }
+                Some("ws") => {
+                    let mut d = FrameDecoder::new(sid);
+                    chunks.iter().map(|ch| d.push(ch)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
+                }
+                _ => {
+                    let mut d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap_or(false), sid.unwrap_or("main"));
+                    chunks.iter().map(|ch| d.push(ch)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).map(|o| json!(o.open)).collect()
+                }
+            };
+            Value::Array(opens)
+        }
         "express" => {
             let mut d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap_or(false), c["surfaceId"].as_str().unwrap_or("main"));
             let mut out = run(Box::new(|s| d.push(s)), strs(&c["chunks"]));

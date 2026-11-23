@@ -58,7 +58,9 @@ fn ask_sealed(title: &str, body: &str) -> bool {
 fn write_cli(dir: &Path, name: &str, document: &Value) -> Result<(), String> {
     let mut child = Command::new(sibling("exponential-ui")).arg("--dir").arg(dir).args(["set", name, "-"]).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().map_err(|e| format!("exponential-ui: {e}"))?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(document.to_string().as_bytes()).map_err(|e| e.to_string())?;
+        // #EDE-216: Express as written; a JSON document `set` writes as Express.
+        let text = document.as_str().map(str::to_string).unwrap_or_else(|| document.to_string());
+        stdin.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     if out.status.success() {
@@ -80,7 +82,7 @@ impl ShellEdit {
 
     /// The line the agent's brief carries.
     pub fn note() -> String {
-        "shell_edit changes one of this desktop's shell documents (the sidebar, the taskbar, the start menu, an applet: genUI JSON like apps/ede/ui); the person is asked before the first write of a run, and a refused document comes back with its issues.".into()
+        "shell_edit changes one of this desktop's shell documents (the sidebar, the taskbar, the start menu, an applet: Express like apps/ede/ui/*.express, #EDE-216); the person is asked before the first write of a run, and a refused document comes back with its issues.".into()
     }
 
     fn answer(applied: bool, issues: Vec<String>) -> Value {
@@ -93,10 +95,14 @@ impl ShellEdit {
         if !ede_ui::valid_name(name) {
             return Self::answer(false, vec![format!("name: {name:?} is not a document name (lowercase letters, digits, - and _)")]);
         }
-        let Some(document) = arguments.get("document").filter(|d| d.is_object()) else {
-            return Self::answer(false, vec!["document: expected the document object {surface, root | components, data}".into()]);
+        let Some(document) = arguments.get("document").filter(|d| d.is_object() || d.is_string()) else {
+            return Self::answer(false, vec!["document: expected the document's Express (or its JSON object {surface, root | components, data})".into()]);
         };
-        if let Err(issues) = ede_ui::validate_document(name, document) {
+        let checked = match document.as_str() {
+            Some(express) => ede_ui::validate_express(name, express).map(|_| ()),
+            None => ede_ui::validate_document(name, document).map(|_| ()),
+        };
+        if let Err(issues) = checked {
             return Self::answer(false, issues.iter().map(|i| i.to_string()).collect());
         }
         let session = caller.session_id.as_str().to_string();
@@ -119,8 +125,8 @@ impl ToolProvider for ShellEdit {
     fn tools(&self) -> Result<Vec<Value>, String> {
         Ok(vec![json!({
             "name": "shell_edit",
-            "description": "Write one shell document of this desktop (`<name>.json` in its ui directory: sidebar, taskbar, start-menu, an applet-*, settings, …) after validation. `applied` = true and it is on screen (committed; Version history undoes it); else `issues` says what was refused and nothing was written. The person is asked once per run.",
-            "inputSchema": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 64}, "document": {"type": "object"}}, "required": ["name", "document"], "additionalProperties": false}
+            "description": "Write one shell document of this desktop (`<name>.express` in its ui directory: sidebar, taskbar, start-menu, an applet-*, settings, …) after validation. `document` is its Express: `surface(\"<name>\", extensions={ede: {…header}})`, `$/path = value` data lines, `root = …` and its components. `applied` = true and it is on screen (committed; Version history undoes it); else `issues` says what was refused and nothing was written. The person is asked once per run.",
+            "inputSchema": {"type": "object", "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 64}, "document": {"type": ["string", "object"]}}, "required": ["name", "document"], "additionalProperties": false}
         })])
     }
 
@@ -191,8 +197,21 @@ mod tests {
         assert!(out["structuredContent"]["issues"][0].as_str().unwrap().starts_with("name:"));
         let out = p.call(&caller("run-1"), "shell_edit", json!({"name": "panel"}));
         assert!(out["structuredContent"]["issues"][0].as_str().unwrap().starts_with("document:"));
+        // #EDE-216: Express, its issues at their lines.
+        let express = "surface(\"panel\", extensions={ede: {size: {width: 10, height: 10}}})\nroot = Box(children=[out])\nout = Button(label=\"Log out\", on={press: ede_logout()})\n";
+        let out = p.call(&caller("run-1"), "shell_edit", json!({"name": "panel", "document": express}));
+        assert_eq!(out["structuredContent"]["issues"], json!(["line 3 #out: function ede_logout is not in surface.functions"]));
         assert!(asked.lock().unwrap().is_empty() && written.lock().unwrap().is_empty());
         assert_eq!(p.call(&caller("run-1"), "nope", json!({}))["isError"], json!(true));
+    }
+
+    #[test]
+    fn express_is_written_as_given() {
+        let (p, _, written) = provider(true);
+        let express = ede_ui::decompile_document("panel", &document()).unwrap();
+        let out = p.call(&caller("run-1"), "shell_edit", json!({"name": "panel", "document": express}));
+        assert_eq!(out["structuredContent"], json!({"applied": true, "issues": []}));
+        assert_eq!(written.lock().unwrap()[0].1, json!(express));
     }
 
     #[test]

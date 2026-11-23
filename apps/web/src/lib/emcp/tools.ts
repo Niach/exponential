@@ -4,6 +4,7 @@ import { insertMcpServer, secretValuesFor } from "@/lib/trpc/mcp-servers"
 import { storeSecret } from "@/lib/emcp/upstream/credentials"
 import { probeMcpServer } from "@/lib/emcp/upstream/mcp-client"
 import { linksIssues } from "@exp/domain-contract/session-kind"
+import { mergeNowQueuedText } from "@exp/domain-contract/merge-train"
 import { classifyAppLink } from "@/lib/app-link"
 import { viaAppOf } from "@/lib/emcp/via-app"
 import { pullRequestChecksBrief } from "@/lib/integrations/pr-checks"
@@ -3311,10 +3312,17 @@ export function registerExponentialTools(
         const train = await import(`@/lib/merge-train/worker`)
         // #EXP-1711 (merge-train.json `merge_now`): force from a team owner
         // or a team agent = Merge now: next, alone, past any session wait.
+        // #FEED-293: past its own red checks, recorded (who, which red); a
+        // draft or a person's Hold is refused with its reason, never queued.
         if (force && (await mayMergeNow(pr.teamId))) {
-          await train.mergeNowPullRequest(pr.id, { keepPersonHolds: true })
+          const now = await train.mergeNowPullRequest(pr.id, { keepPersonHolds: true, by: user.id })
+          if (now.refused) {
+            return ok({ ...prRef(pr), merged: false, queued: false, mergeNow: false, refused: now.refused, mergeQueue: await train.queueReport(pr.id), checks })
+          }
           await train.runRepository(pr.repositoryId)
-          return ok({ ...prRef(pr), merged: false, queued: true, mergeNow: true, mergeQueue: await train.queueReport(pr.id), checks })
+          const mergeQueue = await train.queueReport(pr.id)
+          const note = mergeNowQueuedText(pr.number, now.red, mergeQueue?.behind ?? [])
+          return ok({ ...prRef(pr), merged: false, queued: true, mergeNow: true, note, mergeQueue, checks })
         }
         await train.queuePullRequest(pr.id)
         await train.runRepository(pr.repositoryId)

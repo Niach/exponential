@@ -17,7 +17,7 @@
 // the only merge, for every team and every repository (#EXP-1711).
 import { repoInstallationId } from "@/lib/ecode/provider-config"
 import { and, asc, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm"
-import { trainChecksState } from "@exp/domain-contract/pr-checks"
+import { gatedChecks, isFailingCheck, trainChecksState } from "@exp/domain-contract/pr-checks"
 import type { RepositoryCiConfig } from "@exp/db-schema"
 import { withRepoRequired } from "@/lib/ci/required"
 import {
@@ -29,6 +29,9 @@ import {
   mergeStep,
   mergeWait,
   mergedText,
+  mergedNowText,
+  mergeNowFollowUp,
+  mergeNowRefusal,
   noChecksVerdict,
   trainQueue,
   trainVerdict,
@@ -44,7 +47,7 @@ import {
   type TrainUnit,
 } from "@exp/domain-contract/merge-train"
 import { db, pool } from "@/db/connection"
-import { ciJobs, ciRuns, mergeTrains, pullRequestChecks, pullRequests, repositories, sessions, teams } from "@/db/schema"
+import { ciJobs, ciRuns, mergeTrains, pullRequestChecks, pullRequests, repositories, sessions, teams, users } from "@/db/schema"
 import { forgeFor, type Forge, type ForgeRepo } from "@/lib/ecode/forge"
 import { readCommitChecks } from "@/lib/merge-train/commit-checks"
 import { confirmLanding } from "@/lib/merge-train/confirm"
@@ -109,7 +112,7 @@ export interface StepContext {
   files?: string[]
   failing?: Array<{ name: string; detailsUrl?: string | null }>
   /** Extra columns written with the step (merge_wait, the run id, …). */
-  extra?: Partial<Pick<PrRow, `mergeWait` | `mergeTrainId` | `mergeHeadSha` | `mergePosition`>>
+  extra?: Partial<Pick<PrRow, `mergeWait` | `mergeTrainId` | `mergeHeadSha` | `mergePosition` | `mergeNowBy` | `mergeNowRed`>>
 }
 
 export interface StepOutcome {
@@ -154,9 +157,13 @@ export async function stepPullRequestInTx(
   }
   let assistant: string | null = null
   if (post) {
+    // #FEED-293: a Merge now's merged line names who forced it and what was red.
+    const forcedBy = post === `merged` && before.mergeNow && pr.mergeNowBy ? await userName(tx, pr.mergeNowBy) : null
     const text =
       post === `merged`
-        ? mergedText([pr.number], ctx.base)
+        ? forcedBy
+          ? mergedNowText(pr.number, ctx.base, forcedBy, pr.mergeNowRed ?? [])
+          : mergedText([pr.number], ctx.base)
         : post === `conflict`
           ? conflictText(pr.number, ctx.base, ctx.files ?? [], after.attempts)
           : post === `failing`
@@ -169,6 +176,11 @@ export async function stepPullRequestInTx(
     }
   }
   return { post, assistant, state: after.state }
+}
+
+async function userName(tx: Tx, userId: string): Promise<string> {
+  const [user] = await tx.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, userId)).limit(1)
+  return user?.name || user?.email || `a person`
 }
 
 function stepPullRequest(prId: string, event: MergeEvent, ctx: StepContext): Promise<StepOutcome | null> {
@@ -330,7 +342,8 @@ async function readiness(repo: RepoRow, prs: PrRow[], forge: Forge, now: Date): 
       }
       const wait = hold === `wait` ? `checks` : waitOf(pr, inputs)
       // A queued PR stays queued through its opener's work: no `session` pill.
-      const shown = pr.mergeState === `queued` && wait === `session` ? null : wait
+      // #FEED-293: a Merge now waits for no check (only a draft stops it).
+      const shown = (pr.mergeState === `queued` && wait === `session`) || (pr.mergeNow && wait !== `draft`) ? null : wait
       await stepPullRequest(pr.id, { type: `readiness`, wait, at }, { base, now, extra: { mergeWait: shown } })
     }
     await stepPullRequest(pr.id, { type: `tick`, now: at }, { base, now })
@@ -464,10 +477,35 @@ async function pollRun(repo: RepoRow, run: RunRow, forge: Forge, now: Date): Pro
     ...(state === `error` ? { error: (outcome.error ?? `the run timed out`).slice(0, 2000) } : {}),
   })
   if (decision.next) {
+    // #FEED-293 (merge-train.json `mergeNowRules.followUps`): a queued Merge
+    // now goes before this run's re-run or next bisect half: their units
+    // re-queue (attempts kept) and the pass picks the Merge now.
+    const yields = mergeNowFollowUp({ followUp: true, mergeNowQueued: await mergeNowQueued(repo.id), runIsMergeNow: run.untested })
+    if (yields === `merge_now`) {
+      await requeue([...decision.next.units.flat(), ...decision.next.pending.flat(2)], run.base, now)
+      return false
+    }
     await startRun(repo, forge, decision.next, { base: run.base, bisectOf: decision.next.bisect ? run.id : null, now })
     return true
   }
   return false
+}
+
+/** #FEED-293: a Merge now waits in this repository's queue. */
+async function mergeNowQueued(repositoryId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: pullRequests.id })
+    .from(pullRequests)
+    .where(
+      and(
+        eq(pullRequests.repositoryId, repositoryId),
+        eq(pullRequests.mergeNow, true),
+        eq(pullRequests.mergeState, `queued`),
+        inArray(pullRequests.state, [...LIVE_PR_STATES])
+      )
+    )
+    .limit(1)
+  return row !== undefined
 }
 
 /** Fast-forward the base to the tested commit, then close and apply every
@@ -1142,30 +1180,51 @@ export function holdPullRequest(pullRequestId: string): Promise<StepOutcome | nu
 export function resumePullRequest(pullRequestId: string): Promise<StepOutcome | null> {
   return personEvent(pullRequestId, { type: `resume` })
 }
-/** An owner's Merge now: next, alone, untested (a stack lands whole). */
+export interface MergeNowResult {
+  /** #FEED-293 (`mergeNowRules.refusals`): why the train does not take it
+   *  (a draft, a person's Hold), null = queued next. */
+  refused: string | null
+  /** The PR's gated checks red when it was forced (it lands past them). */
+  red: string[]
+}
+
+/** An owner's Merge now: next, alone, untested (a stack lands whole), past
+ *  its own red checks; `by` = who forced it (#FEED-293: recorded with the
+ *  red checks, named in the merged line). A draft is refused, and so is a
+ *  person's Hold when `keepPersonHolds` (an agent's force, #FEED-283). */
 export async function mergeNowPullRequest(
   pullRequestId: string,
-  opts: { keepPersonHolds?: boolean } = {}
-): Promise<StepOutcome | null> {
+  opts: { keepPersonHolds?: boolean; by?: string | null } = {}
+): Promise<MergeNowResult> {
   const ids = await stackOf(pullRequestId)
-  // #FEED-283: an agent's `pr merge {force}` never lifts a person's Hold
-  // (only that person's Resume does): a held stack stays as it is.
-  if (opts.keepPersonHolds) {
-    const [personHeld] = await db
-      .select({ id: pullRequests.id })
-      .from(pullRequests)
-      .where(and(inArray(pullRequests.id, ids), eq(pullRequests.mergeState, `held`), eq(pullRequests.mergeHold, `person`)))
-      .limit(1)
-    if (personHeld) return null
-  }
-  let outcome: StepOutcome | null = null
+  const rows = await db
+    .select({ id: pullRequests.id, number: pullRequests.number, state: pullRequests.state, mergeState: pullRequests.mergeState, mergeHold: pullRequests.mergeHold })
+    .from(pullRequests)
+    .where(inArray(pullRequests.id, ids))
+  const self = rows.find((row) => row.id === pullRequestId)
+  const refused = mergeNowRefusal({
+    number: self?.number ?? 0,
+    draft: rows.some((row) => row.state === `draft` || row.mergeState === `draft`),
+    // #FEED-283: an agent's `pr merge {force}` never lifts a person's Hold
+    // (only that person's Resume does): a held stack stays as it is.
+    personHold: opts.keepPersonHolds === true && rows.some((row) => row.mergeState === `held` && row.mergeHold === `person`),
+  })
+  const checks = await db
+    .select({ pullRequestId: pullRequestChecks.pullRequestId, name: pullRequestChecks.name, status: pullRequestChecks.status, conclusion: pullRequestChecks.conclusion, required: pullRequestChecks.required })
+    .from(pullRequestChecks)
+    .where(inArray(pullRequestChecks.pullRequestId, ids))
+  const redOf = (id: string) => [...new Set(gatedChecks(checks.filter((c) => c.pullRequestId === id)).filter(isFailingCheck).map((c) => c.name))]
+  if (refused) return { refused, red: redOf(pullRequestId) }
   const now = new Date()
   for (const id of ids) {
-    const step = await stepPullRequest(id, { type: `merge_now`, at: now.toISOString() }, { base: ``, now })
-    if (id === pullRequestId) outcome = step
+    await stepPullRequest(id, { type: `merge_now`, at: now.toISOString() }, {
+      base: ``,
+      now,
+      extra: { mergeWait: null, mergeNowBy: opts.by ?? null, mergeNowRed: redOf(id) },
+    })
   }
   mergeTrainEdge({ pullRequestId })
-  return outcome
+  return { refused: null, red: redOf(pullRequestId) }
 }
 /** #FEED-233 (merge-train.json `merge_now`): an agent's plain `pr merge`
  *  (a person asked for it) re-queues a stack held by the limits (bounces,
@@ -1205,6 +1264,8 @@ export interface QueueReport {
   position: number | null
   /** The other PRs of its testing run. */
   testingWith: number
+  /** #FEED-293: a queued PR waits for the live run of these PRs. */
+  behind: number[]
   holdReason: HoldReason | null
   attempts: number
 }
@@ -1221,11 +1282,22 @@ export async function queueReport(pullRequestId: string): Promise<QueueReport | 
       .where(and(eq(pullRequests.mergeTrainId, pr.mergeTrainId), ne(pullRequests.id, pr.id), eq(pullRequests.mergeState, `testing`)))
     testingWith = row?.count ?? 0
   }
+  const behind =
+    pr.mergeState !== `queued`
+      ? []
+      : (
+          await db
+            .select({ number: pullRequests.number })
+            .from(pullRequests)
+            .where(and(eq(pullRequests.repositoryId, pr.repositoryId), eq(pullRequests.mergeState, `testing`), ne(pullRequests.id, pr.id)))
+            .orderBy(asc(pullRequests.number))
+        ).map((row) => row.number)
   return {
     state: pr.mergeState as PrMergeState,
     wait: pr.mergeWait,
     position: pr.mergePosition,
     testingWith,
+    behind,
     holdReason: (pr.mergeHold as HoldReason | null) ?? null,
     attempts: pr.mergeAttempts,
   }

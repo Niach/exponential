@@ -115,8 +115,14 @@ public final class ExponentialHost {
     @ObservationIgnored public let router: HostRouter
     /// The live surfaces by id.
     public private(set) var surfaces: [String: SurfaceModel] = [:]
+    /// #VAPP-300: the surfaces an open Express block is writing.
+    @ObservationIgnored private var streaming: Set<String> = []
     /// Their ids in creation order.
     public private(set) var surfaceIds: [String] = []
+    /// Each surface's components by id, in first-seen order: an
+    /// `updateComponents` replaces BY ID and keeps the rest (A2UI; the
+    /// Compose host keeps the same map).
+    @ObservationIgnored private var components: [String: (order: [String], byId: [String: JSONValue])] = [:]
     public private(set) var status: TransportStatus = .closed
     public private(set) var statusDetail: String?
     /// The last UNSUPPORTED_CATALOG id seen (the catalog-update banner).
@@ -238,7 +244,17 @@ public final class ExponentialHost {
         t.start(receive: { [weak self] m in self?.receive(m) }, status: { [weak self] status, detail in
             self?.status = status
             self?.statusDetail = detail
-        }, text: { [weak self] piece in self?.options.onText?(piece) })
+        }, text: { [weak self] piece in self?.options.onText?(piece) }, open: { [weak self] ids, settled in self?.setStreaming(ids, settled: settled) })
+    }
+
+    /// #VAPP-300: the surfaces an Express block is still streaming (the
+    /// decoder's `open`): each reduces `streaming` (a child not streamed yet
+    /// renders as nothing). `settled` = the exact set (a surface left out
+    /// closed: it re-reduces, a still-missing child is the Unknown
+    /// placeholder again); else only adds. The TS `setStreaming`.
+    public func setStreaming(_ surfaceIds: [String], settled: Bool = true) {
+        if settled { streaming = Set(surfaceIds) } else { streaming.formUnion(surfaceIds) }
+        for (id, model) in surfaces { model.setStreaming(streaming.contains(id)) }
     }
 
     public func close() {
@@ -464,13 +480,21 @@ public final class ExponentialHost {
             guard let model = try? SurfaceModel(id: surfaceId, options: o, host: bridge) else { return }
             for e in extensions { try? model.register(extension: e.json, painters: e.painters) }
             if op["sendDataModel"]?.bool == true { sendDataModel.insert(surfaceId) } else { sendDataModel.remove(surfaceId) }
+            model.setStreaming(streaming.contains(surfaceId))
             surfaces[surfaceId] = model
             calls.attachSurface(surfaceId: surfaceId, surface: model.surface)
             if !surfaceIds.contains(surfaceId) { surfaceIds.append(surfaceId) }
         case "components":
             forgetPaintErrors(surfaceId, components: (op["components"]?.array ?? []).compactMap { $0["id"]?.string })
             guard let model = surfaces[surfaceId] else { return }
-            _ = try? model.setComponents(json: (op["components"] ?? .array([])).json)
+            var known = components[surfaceId] ?? (order: [], byId: [:])
+            for c in op["components"]?.array ?? [] {
+                guard let id = c["id"]?.string else { continue }
+                if known.byId[id] == nil { known.order.append(id) }
+                known.byId[id] = c
+            }
+            components[surfaceId] = known
+            _ = try? model.setComponents(json: JSONValue.array(known.order.compactMap { known.byId[$0] }).json)
         case "data":
             surfaces[surfaceId]?.setData(path: op["path"]?.string ?? "", value: op["value"])
         case "bind":
@@ -492,6 +516,7 @@ public final class ExponentialHost {
             unbind(surfaceId)
             forgetPaintErrors(surfaceId)
             surfaces[surfaceId] = nil
+            components[surfaceId] = nil
             surfaceIds.removeAll { $0 == surfaceId }
             sendDataModel.remove(surfaceId)
         case "send":

@@ -1076,6 +1076,11 @@ pub struct SessionCtx {
     /// reported consumed — what tells a row id from the engine's own queue
     /// ids (a local composer line), which have no row to consume.
     pub(crate) message_ids: Mutex<std::collections::HashSet<String>>,
+    /// #FEED-273: person rows handed to a turn the agent has not BEGUN yet
+    /// (no answer from it since). Consumed on its first sign of life (a
+    /// notification, the prompt's answer); a start that fails leaves them
+    /// unconsumed, so the next start delivers them again.
+    pub(crate) unstarted: Mutex<Vec<String>>,
     /// EXP-1005: see `EngineStart::rotation_host`.
     pub rotation_host: bool,
     pub publish: bool,
@@ -1571,6 +1576,25 @@ impl SessionCtx {
         }
     }
 
+    /// #FEED-273: these rows went out as (or into) a turn: consumed once the
+    /// agent answers anything ([`Self::agent_began`]), never before. A plan
+    /// answer used to be consumed the moment it was handed to a claude that
+    /// then never started ("answered nothing for 90s at startup"), and the
+    /// next start knew nothing of it.
+    pub fn handed_to_turn(&self, ids: impl IntoIterator<Item = String>) {
+        let mut unstarted = self.unstarted.lock().unwrap_or_else(|err| err.into_inner());
+        unstarted.extend(ids);
+    }
+
+    /// #FEED-273: the agent is up and answering: what was handed to it is
+    /// in its hands now.
+    pub fn agent_began(&self) {
+        let ids = std::mem::take(&mut *self.unstarted.lock().unwrap_or_else(|err| err.into_inner()));
+        if !ids.is_empty() {
+            self.consumed_messages(ids);
+        }
+    }
+
     /// EXP-1292: a handed message row was unqueued (deleted) before the agent
     /// read it — nothing to consume any more.
     pub fn forget_message(&self, message_id: &str) {
@@ -1926,6 +1950,8 @@ where
                         notify_ctx.record_session_ids();
                     }
                 }
+                // #FEED-273: the agent answers: what it was handed is read.
+                notify_ctx.agent_began();
                 let mut out = MapOut::default();
                 notify_ctx.with_mapper(|mapper| mapper.on_update(&notification, &mut out));
                 // #NEW-79: a card the adapter withdrew is dismissed and its
@@ -2217,9 +2243,10 @@ where
                     PromptAuthor::Person,
                 );
                 // EXP-1292: a resume's seed IS the waking message row.
+                // #FEED-273: consumed once the agent begins the turn.
                 if let Some(message_id) = ctx.seed_message_id.clone() {
                     ctx.note_message(&message_id);
-                    ctx.consumed_messages([message_id]);
+                    ctx.handed_to_turn([message_id]);
                 }
             }
             loop {
@@ -2454,6 +2481,8 @@ fn handle_command(
                 .map(|queue| queue.iter().map(|message| message.id.clone()).collect())
                 .unwrap_or_default();
             ctx.consumed_messages(dropped);
+            // #FEED-273: and a turn that never began is dropped with it.
+            ctx.agent_began();
             ctx.clear_prompt_queue();
             // EXP-936: the person said stop; a `/compact` owed from before
             // would read as the run ignoring them.
@@ -2836,7 +2865,8 @@ fn send_prompt(
     };
     start_turn(cx, ctx, session_id, prompt, turns, pending.clone(), author);
     if pending.is_none() {
-        ctx.consumed_messages(message_id);
+        // #FEED-273: consumed once the agent begins the turn.
+        ctx.handed_to_turn(message_id);
     }
 }
 
@@ -2912,7 +2942,8 @@ fn drain_queue(
     for (prompt, pending, author) in starts {
         start_turn(cx, ctx, session_id, prompt, turns, pending, author);
     }
-    ctx.consumed_messages(announced);
+    // #FEED-273: consumed once the agent begins the turn.
+    ctx.handed_to_turn(announced);
 }
 
 /// `session/cancel`, with the EXP-784 queued flag: `cancel_queued` is the
@@ -3189,6 +3220,10 @@ fn start_turn(
         let mut out = MapOut::default();
         // FEED-153: the seed's first answer disarms its retry either way.
         let seed = ctx.seed_retry.swap(false, Ordering::SeqCst);
+        if result.is_ok() {
+            // #FEED-273: an answered prompt was taken in, notification or not.
+            ctx.agent_began();
+        }
         match result {
             Ok(response) => {
                 if remaining == 0 {

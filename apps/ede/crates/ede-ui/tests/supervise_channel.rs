@@ -58,7 +58,7 @@ fn a_shell_started_again_holds_root_and_the_dead_ones_holds_are_released() {
         "surface": {"anchor": ["top", "left", "right"], "size": {"height": 40}, "exclusiveZone": 40},
         "root": {"id": "panel", "component": "Box", "children": [{"id": "clock", "component": "Text", "props": {"text": "factory"}}]}
     });
-    std::fs::write(factory.join("panel.json"), serde_json::to_vec_pretty(&panel).unwrap()).unwrap();
+    std::fs::write(factory.join("panel.express"), ede_ui::decompile_document("panel", &panel).unwrap()).unwrap();
     let out = tmp.path().join("report");
     let spec = Spec {
         name: "test-shell".into(),

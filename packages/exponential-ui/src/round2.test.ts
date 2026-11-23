@@ -131,8 +131,8 @@ describe(`template-items.json (§4)`, () => {
   })
 
   test(`reduce lifts template nodes out of the tree (nested and flat)`, () => {
-    for (const c of itemsFixture.reduce as { name: string; catalogId: string; nested?: NestedNode; components?: FlatComponent[]; expected: unknown }[]) {
-      const got = c.nested ? reduceNested(c.nested, { catalogId: c.catalogId }) : reduceSurface(c.components!, { catalogId: c.catalogId })
+    for (const c of itemsFixture.reduce as { name: string; catalogId: string; streaming?: boolean; nested?: NestedNode; components?: FlatComponent[]; expected: unknown }[]) {
+      const got = c.nested ? reduceNested(c.nested, { catalogId: c.catalogId }) : reduceSurface(c.components!, { catalogId: c.catalogId, streaming: c.streaming === true })
       expect(canon(got), c.name).toBe(canon(c.expected))
       const ids = new Set(preorder(got.root))
       for (const id of Object.keys(got.templates ?? {})) expect(ids.has(id), `${c.name}: ${id} in place`).toBe(false)

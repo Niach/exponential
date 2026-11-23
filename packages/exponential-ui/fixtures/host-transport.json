@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the wire decoders (catalog/host.json transport). Inputs hand-written; `expected` filled by `bun run --filter @exponential_app/eui generate` from the TS reference (src/host/decoders.ts). `mcpAction` cases carry `metadata` (round 9 §1.3) when the surface has sendDataModel. Every renderer's conformance runner replays it: feed `chunks` in order through ONE decoder, then end(). #AXC-12 (catalog/host.json `inference`): `express` = feed `chunks` through ONE ExpressDecoder({wrapped, surfaceId}) then end(); `expressSse` = ONE SseDecoder({surfaceId}) (its `a2ui-express` events are one Express response, JSON events beside them); `expressWs` = ONE FrameDecoder({surfaceId}), one push per frame, then end(); `expressMcp` = messagesFromMcpResult(result, {surfaceId}); `expressContentTypes` = inferenceFormatOf(contentType); `expressCapabilities` = rendererCapabilities(extensionIds, {inferenceFormats}). Messages, issues and `text` (absent = none) equal `expected`; a missing surfaceId = the contract default (`main`). Expected values come from the TS reference over the vendored wasm.",
+  "$comment": "VAPP-91: the wire decoders (catalog/host.json transport). Inputs hand-written; `expected` filled by `bun run --filter @exponential_app/eui generate` from the TS reference (src/host/decoders.ts). `mcpAction` cases carry `metadata` (round 9 §1.3) when the surface has sendDataModel. Every renderer's conformance runner replays it: feed `chunks` in order through ONE decoder, then end(). #AXC-12 (catalog/host.json `inference`): `express` = feed `chunks` through ONE ExpressDecoder({wrapped, surfaceId}) then end(); `expressSse` = ONE SseDecoder({surfaceId}) (its `a2ui-express` events are one Express response, JSON events beside them); `expressWs` = ONE FrameDecoder({surfaceId}), one push per frame, then end(); `expressMcp` = messagesFromMcpResult(result, {surfaceId}); `expressContentTypes` = inferenceFormatOf(contentType); `expressCapabilities` = rendererCapabilities(extensionIds, {inferenceFormats}). Messages, issues and `text` (absent = none) equal `expected`; a missing surfaceId = the contract default (`main`). Expected values come from the TS reference over the vendored wasm. #VAPP-300 `expressOpen`: the same decoders, ONE per case (`decoder`: `express` = ExpressDecoder({wrapped, surfaceId}), `sse` = SseDecoder({surfaceId}), `ws` = FrameDecoder({surfaceId})); `expected` = the `open` of every push in order, then of end() (absent = `[]`): the surfaces the still-open Express block has written to, in order (prose, a closed or rejected block, the end clear it; JSON events and frames between keep it).",
   "jsonl": [
     {
       "name": "one message per line",
@@ -2138,6 +2138,134 @@
           ]
         }
       }
+    }
+  ],
+  "expressOpen": [
+    {
+      "name": "a block is open from its first statement until </a2ui>",
+      "decoder": "express",
+      "wrapped": true,
+      "surfaceId": "main",
+      "chunks": [
+        "Here is the release.\n<a2ui>\nroot = Stack(gap=\"sm\", children=[title, ok])\n",
+        "title = Text(text=\"Release 0.18.84\")\n",
+        "ok = Button(label=\"Promote\", variant=\"default\")\n</a2ui>\n",
+        "Want me to promote it?"
+      ],
+      "expected": [
+        [
+          "main"
+        ],
+        [
+          "main"
+        ],
+        [],
+        [],
+        []
+      ]
+    },
+    {
+      "name": "a second block on another surface opens only that surface",
+      "decoder": "express",
+      "wrapped": true,
+      "surfaceId": "main",
+      "chunks": [
+        "First:\n<a2ui>\nroot = Stack(gap=\"sm\", children=[title, ok])\ntitle = Text(text=\"Release 0.18.84\")\nok = Button(label=\"Promote\", variant=\"default\")\n",
+        "</a2ui>\nAnd a second one:\n<a2ui>\nsurface(\"side\")\nroot = Stack(gap=\"sm\", children=[note])\n",
+        "note = Text(text=\"Second surface\")\n</a2ui>"
+      ],
+      "expected": [
+        [
+          "main"
+        ],
+        [
+          "side"
+        ],
+        [],
+        []
+      ]
+    },
+    {
+      "name": "a bare body stays open until the end",
+      "decoder": "express",
+      "wrapped": false,
+      "surfaceId": "main",
+      "chunks": [
+        "root = Stack(gap=\"sm\", children=[title, ok])\n",
+        "title = Text(text=\"Release 0.18.84\")\n",
+        "ok = Button(label=\"Promote\", variant=\"default\")\n"
+      ],
+      "expected": [
+        [
+          "main"
+        ],
+        [
+          "main"
+        ],
+        [
+          "main"
+        ],
+        []
+      ]
+    },
+    {
+      "name": "a block that does not compile is not open",
+      "decoder": "express",
+      "wrapped": true,
+      "surfaceId": "main",
+      "chunks": [
+        "Bad:\n<a2ui>\nroot = Nope(x=1)\n",
+        "</a2ui>\nthen good\n<a2ui>\nroot = Stack(gap=\"sm\", children=[title, ok])\n",
+        "title = Text(text=\"Release 0.18.84\")\nok = Button(label=\"Promote\", variant=\"default\")\n</a2ui>"
+      ],
+      "expected": [
+        [],
+        [
+          "main"
+        ],
+        [],
+        []
+      ]
+    },
+    {
+      "name": "sse: a JSON event between Express events keeps the block open",
+      "decoder": "sse",
+      "surfaceId": "main",
+      "chunks": [
+        "event: a2ui-express\ndata: Here is the release.\ndata: <a2ui>\ndata: root = Stack(gap=\"sm\", children=[title, ok])\ndata:\n\n",
+        "data: {\"version\": \"1.0\", \"updateDataModel\": {\"surfaceId\": \"main\", \"path\": \"/n\", \"value\": 1}}\n\n",
+        "event: a2ui-express\ndata: title = Text(text=\"Release 0.18.84\")\ndata: ok = Button(label=\"Promote\", variant=\"default\")\ndata: </a2ui>\ndata: Done.\n\n"
+      ],
+      "expected": [
+        [
+          "main"
+        ],
+        [
+          "main"
+        ],
+        [],
+        []
+      ]
+    },
+    {
+      "name": "ws: a JSON frame between {express} frames keeps the block open",
+      "decoder": "ws",
+      "surfaceId": "main",
+      "chunks": [
+        "{\"express\": \"Here is the release.\\n<a2ui>\\nroot = Stack(gap=\\\"sm\\\", children=[title, ok])\\n\"}",
+        "{\"version\": \"1.0\", \"deleteSurface\": {\"surfaceId\": \"old\"}}",
+        "{\"express\": \"title = Text(text=\\\"Release 0.18.84\\\")\\nok = Button(label=\\\"Promote\\\", variant=\\\"default\\\")\\n</a2ui>\\nDone.\"}"
+      ],
+      "expected": [
+        [
+          "main"
+        ],
+        [
+          "main"
+        ],
+        [],
+        []
+      ]
     }
   ]
 }

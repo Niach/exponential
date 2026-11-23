@@ -38,8 +38,9 @@ export const pullRequestsRouter = router({
     const pr = await prTeam(input.pullRequestId)
     await assertTeamOwner(ctx.session.user.id, pr.teamId)
     const { mergeNowPullRequest } = await import(`@/lib/merge-train/worker`)
-    await mergeNowPullRequest(input.pullRequestId)
-    return { ok: true as const }
+    // #FEED-293: the force is recorded (who, which checks were red).
+    const now = await mergeNowPullRequest(input.pullRequestId, { by: ctx.session.user.id })
+    return { ok: true as const, refused: now.refused }
   }),
 
   /** EXP-1709: a member's Hold auto-merge (`hold: true`) or Resume

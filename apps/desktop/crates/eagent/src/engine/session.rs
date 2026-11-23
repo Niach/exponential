@@ -520,6 +520,7 @@ fn build_ctx(spec: SessionSpec) -> Arc<SessionCtx> {
         seed_message_id: spec.seed_message_id,
         backend: OnceLock::new(),
         message_ids: Mutex::new(std::collections::HashSet::new()),
+        unstarted: Mutex::new(Vec::new()),
         rotation_host: spec.rotation_host,
         publish: spec.publish,
         local_sink: spec.local_sink,

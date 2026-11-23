@@ -45,6 +45,9 @@ export class SurfaceStore {
   private seed: Record<string, unknown>
   /** True after `deleteSurface`. */
   deleted = false
+  /** #VAPP-300: an Express block is still streaming this surface: it
+   *  reduces `streaming` (a child not streamed yet renders as nothing). */
+  streaming = false
   /** Round 9 §6.5: the routed reactive calls, by key. */
   routes = new Map<string, ReactiveRoute>()
   /** Round 9 §5.2: what was sent already: (code, path, message). */
@@ -165,7 +168,7 @@ export class SurfaceStore {
 
   private reduce() {
     if (!this.reduced) {
-      const options = { catalogId: this.catalogId, extensions: this.extensions() }
+      const options = { catalogId: this.catalogId, extensions: this.extensions(), streaming: this.streaming }
       this.reduced = this.deleted ? { root: null, issues: [] } : this.nested ? reduceNested(this.nested, options) : this.list.length ? reduceSurface(this.list, options) : { root: null, issues: [] }
     }
     return this.reduced
@@ -197,6 +200,14 @@ export class SurfaceStore {
   stale(): void {
     this.reduced = null
     this.treeVersion += 1
+  }
+
+  /** #VAPP-300: the surface's Express block opened or closed: re-reduce
+   *  with (or without) the `streaming` option. */
+  setStreaming(on: boolean): void {
+    if (this.streaming === on) return
+    this.streaming = on
+    this.invalidate()
   }
 
   /** Re-reduce on the next read (the extension set changed). */

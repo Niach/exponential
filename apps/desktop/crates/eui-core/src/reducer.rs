@@ -136,11 +136,17 @@ pub struct ReduceOptions {
     pub expand: bool,
     /// Record prop validation issues (default true).
     pub validate: bool,
+    /// #VAPP-300: the surface is still STREAMING (an Express block not yet
+    /// closed): a child reference (a child, a slot, a template's component)
+    /// that has not arrived yet renders as nothing, no placeholder and no
+    /// issue. Default false: a missing reference is the Unknown placeholder
+    /// with its issue (the root always is). `src/reducer.ts` `streaming`.
+    pub streaming: bool,
 }
 
 impl ReduceOptions {
     pub fn new(catalog_id: &str) -> Self {
-        ReduceOptions { catalog_id: catalog_id.to_string(), available: None, view: CatalogView::core(), root_id: None, expand: true, validate: true }
+        ReduceOptions { catalog_id: catalog_id.to_string(), available: None, view: CatalogView::core(), root_id: None, expand: true, validate: true, streaming: false }
     }
 
     pub fn with_view(self, view: Arc<CatalogView>) -> Self {
@@ -190,7 +196,7 @@ type BuildMissing<'a> = dyn FnMut(&str) -> (Option<UiNode>, Vec<ReduceIssue>) + 
 /// id`) and stays in place: each round puts the cyclic ones back (which
 /// may give their new ancestors edges) and lifts again, until none is
 /// left. `src/reducer.ts liftTemplates`.
-fn lift_templates(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missing: &mut BuildMissing) -> IndexMap<String, UiNode> {
+fn lift_templates(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missing: &mut BuildMissing, streaming: bool) -> IndexMap<String, UiNode> {
     let original = root.clone();
     // Cyclic ids: kept in the tree (never stripped, never built) or, when
     // built, built again (their subtree still names templates) but dropped.
@@ -200,7 +206,7 @@ fn lift_templates(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missin
     loop {
         *root = original.clone();
         let mut pass_issues = Vec::new();
-        let pass = lift_pass(root, &mut pass_issues, build_missing, &in_place);
+        let pass = lift_pass(root, &mut pass_issues, build_missing, &in_place, streaming);
         let lifted: Vec<&String> = pass.order.iter().filter(|id| pass.found.contains_key(*id) && !in_place.contains(id) && !dropped.contains(id)).collect();
         // Edges: a lifted template → the lifted templates its subtree's owners name.
         fn walk(n: &UiNode, lifted: &[&String], out: &mut Vec<String>) {
@@ -271,7 +277,7 @@ struct LiftPass {
     root_named: bool,
 }
 
-fn lift_pass(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missing: &mut BuildMissing, in_place: &[String]) -> LiftPass {
+fn lift_pass(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missing: &mut BuildMissing, in_place: &[String], streaming: bool) -> LiftPass {
     fn collect(n: &UiNode, root_id: &str, want: &mut Vec<String>, root_named: &mut bool) {
         if let Some(t) = &n.template {
             if t.component == root_id {
@@ -354,7 +360,9 @@ fn lift_pass(root: &mut UiNode, issues: &mut Vec<ReduceIssue>, build_missing: &m
                 }
                 None => {
                     missing.push(id.clone());
-                    issues.push(ReduceIssue::new(id, "template: no component with this id"));
+                    if !streaming {
+                        issues.push(ReduceIssue::new(id, "template: no component with this id"));
+                    }
                 }
             }
         }
@@ -612,6 +620,10 @@ impl Builder<'_> {
                 return None;
             }
         }
+        // #VAPP-300: a child not streamed yet is no node at all (no budget, no issue).
+        if flat.is_none() && self.options.streaming && depth > 1 {
+            return None;
+        }
         if !self.budget.spend(id, &mut self.issues) {
             return None;
         }
@@ -770,7 +782,8 @@ pub fn component_issues(flat: &FlatComponent, options: &ReduceOptions, lookup: &
 /// Reduce a flat component list. Children resolve from the root down, so
 /// components nothing references (a basic Button's consumed Text child) do
 /// not appear. A missing or cyclic reference becomes an `Unknown`
-/// placeholder plus an issue. VAPP-103: an id placed a second time (two
+/// placeholder plus an issue (#VAPP-300: while `streaming`, a missing child
+/// is nothing). VAPP-103: an id placed a second time (two
 /// parents, or one parent twice) renders at its first place only (`id used
 /// twice`), a node deeper than `maxDepth` is an `Unknown` placeholder, and
 /// past `maxComponents` nodes the rest is dropped (`catalog/limits.json`).
@@ -811,7 +824,7 @@ fn reduce_flat(components: &[FlatComponent], options: &ReduceOptions) -> ReduceR
         let out = (node, std::mem::take(&mut builder.issues));
         built.insert(id.to_string(), out.clone());
         out
-    });
+    }, options.streaming);
     if options.validate {
         builder.parents.insert(root.id.clone(), SURFACE_COMPONENT.to_string());
         check_parents(&root, &lifted, &builder.parents, &options.view, &mut issues);
@@ -830,7 +843,7 @@ fn reduce_tree(tree: &NestedNode, options: &ReduceOptions) -> ReduceResult {
     let mut budget = Budget::new();
     let mut parents = HashMap::new();
     let mut root = walk_nested(tree, options, &mut issues, &mut budget, &mut parents, 1).unwrap_or_else(|| unknown(&tree.id, &tree.component, &options.catalog_id));
-    let lifted = lift_templates(&mut root, &mut issues, &mut |_| (None, Vec::new()));
+    let lifted = lift_templates(&mut root, &mut issues, &mut |_| (None, Vec::new()), false);
     if options.validate {
         parents.insert(root.id.clone(), SURFACE_COMPONENT.to_string());
         check_parents(&root, &lifted, &parents, &options.view, &mut issues);
