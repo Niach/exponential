@@ -5889,6 +5889,117 @@ mod tests {
         std::mem::forget(cx);
     }
 
+    /// #EXP-2071 (chat-express.json DRAW): the Chat tab's Express rows drawn
+    /// HEADLESS under the platform's real text system (seeded feed events,
+    /// no server): a block mid-stream, history (prose + 2 blocks), a failed
+    /// block (THE marker), presses (the resulting rows). Run with
+    /// `EXP_EXPRESS_SHOTS=/tmp/express cargo test -p ui -- --ignored express_pictures --nocapture`.
+    #[test]
+    #[ignore]
+    fn express_pictures() {
+        use std::sync::Arc;
+        use steer::{ActivityEvent as A, ViewerEvent as V};
+        use sync::ShapeRow as _;
+        let dir = std::env::var("EXP_EXPRESS_SHOTS").expect("EXP_EXPRESS_SHOTS = the output folder");
+        let mut cx = gpui::HeadlessAppContext::with_platform(
+            crate::test_text_system(),
+            Arc::new(gpui_component_assets::Assets),
+            gpui_platform::current_headless_renderer,
+        );
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            crate::queries::set_own_device_id_for_test("d1", cx);
+            let collections = Store::global(cx).collections().clone();
+            let root: SessionRow = serde_json::from_value(serde_json::json!({
+                "id": "r1", "team_id": "t1", "root_id": "r1", "agent_id": "ag1", "status": "idle", "shared": true,
+                "title": "Release",
+                "created_at": "2026-11-23T09:00:00.000Z", "updated_at": "2026-11-23T09:00:00.000Z",
+            }))
+            .unwrap();
+            collections.sessions.update(cx, |c, cx| {
+                c.seed(root.key(), root);
+                cx.notify();
+            });
+            let agent: domain::rows::AgentDefRow = serde_json::from_value(serde_json::json!({
+                "id": "ag1", "team_id": "t1", "name": "Release", "icon": "rocket", "color": "#22c55e",
+            }))
+            .unwrap();
+            collections.agents.update(cx, |c, cx| {
+                c.seed(agent.key(), agent);
+                cx.notify();
+            });
+        });
+        let tiles = "<a2ui>\nroot = Stack(children=[h, tiles])\nh = Heading(text=\"Cold start, Pixel 6a\", level=3)\ntiles = Stack(direction=\"row\", children=[a, b])\na = StatTile(label=\"Before\", value=\"1.35 s\")\nb = StatTile(label=\"After\", value=\"690 ms\", delta=\"-49%\")\n</a2ui>";
+        let ship = "<a2ui>\nroot = Stack(direction=\"row\", children=[go, hold])\ngo = Button(label=\"Ship to beta\", on={press: Event(\"reply\", userMessage=\"Ship it to beta\")})\nhold = Button(label=\"Not yet\", on={press: Event(\"hold\")})\n</a2ui>";
+        let history = format!("Cold start is down to 690 ms. Here is where it went:\n{tiles}\nThe 2.4 build is green. Ship it to beta?\n{ship}");
+        let press = |name: &str, body: &str| {
+            let card = domain::chat_express::ActionCard {
+                kind: "action".into(),
+                name: name.into(),
+                context: None,
+                surface_id: "e:r1:2#2".into(),
+                block: Some("e:r1:2#2".into()),
+                message_id: None,
+            };
+            domain::chat_express::action_input(&card, body)
+        };
+        let streaming = vec![
+            V::Phase(steer::ViewerPhase::Live),
+            V::Activity(1, A::user_message("Sort today's widget reports.")),
+            V::Activity(2, A::turn(steer::TurnState::Started)),
+            V::Activity(3, A::narration("Sorting the 14 open reports.\n<a2ui>\nroot = Stack(children=[h, p, t])\nh = Heading(text=\"Triage\", level=3)\np = Progress(value=6, max=14, label=\"Sorted\")\nt = Text(text=\"FB-8 is a duplicate of FB-3, merging it into")),
+        ];
+        let history_events = vec![
+            V::Phase(steer::ViewerPhase::Live),
+            V::Activity(1, A::user_message("How is the 2.4 build?")),
+            V::Activity(2, A::narration(&history)),
+        ];
+        let failed = vec![
+            V::Phase(steer::ViewerPhase::Live),
+            V::Activity(1, A::user_message("Show me the board.")),
+            V::Activity(2, A::narration("Here is the board:\n<a2ui>\nroot = Board(columns=3)\n</a2ui>\nThe open ones are FB-3, FB-8 and FB-9.")),
+        ];
+        let pressed = vec![
+            V::Phase(steer::ViewerPhase::Live),
+            V::Activity(1, A::user_message("How is the 2.4 build?")),
+            V::Activity(2, A::narration(&history)),
+            V::Activity(3, A::user_message(&press("reply", "Ship it to beta"))),
+            V::Activity(4, A::narration("Shipping 2.4 to beta now.")),
+            V::Activity(5, A::user_message(&press("hold", ""))),
+        ];
+        for (name, events, height) in [
+            ("express-streaming", streaming, 560.),
+            ("express-history", history_events, 760.),
+            ("express-failed", failed, 520.),
+            ("express-press", pressed, 980.),
+        ] {
+            let window = cx
+                .open_window(gpui::size(gpui::px(1100.), gpui::px(height)), |window, cx| cx.new(|cx| SessionChatScreenView::new("r1".to_string(), window, cx)))
+                .expect("a headless window");
+            let view = window.root(&mut cx).expect("the view");
+            cx.update_window(window.into(), |_, _, cx| {
+                let inner = view.read(cx).root_view.read(cx).inner().clone();
+                inner.update(cx, |inner, cx| inner.apply_events_for_test(events, cx));
+            })
+            .expect("events");
+            for _ in 0..10 {
+                cx.update_window(window.into(), |_, window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                })
+                .expect("a frame draws");
+                cx.run_until_parked();
+            }
+            let shot = cx.capture_screenshot(window.into()).expect("a capture");
+            shot.save(format!("{dir}/{name}.png")).expect("saved");
+            eprintln!("{name}");
+        }
+        std::mem::forget(cx);
+    }
+
     // ── #EDE-65 lane O: THE composer is the chat document's footer ─────────
 
     /// The Chat tab's live root view, its composer document and a draw.

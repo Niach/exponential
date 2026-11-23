@@ -126,6 +126,11 @@ pub(crate) fn chat_row(facts: &RowFacts) -> ChatRowInput {
     let own = match facts.content {
         // #EXP-1772: a system input is THE marker, the IDE's own row.
         RowContent::Prompt(text) if matches!(feed_input(text), Some(FeedInput::Marker { .. })) => return host(),
+        // #EXP-2071 (chat-express.json): a press (its bubble or marker) and
+        // an agent text with Express blocks (its bubbles + block frames) are
+        // the IDE's rows.
+        RowContent::Prompt(text) if domain::chat_express::parse_action_input(text).is_some() => return host(),
+        RowContent::Narration(text) if domain::chat_express::has_express_block(text) => return host(),
         RowContent::Prompt(text) if prompt_is_plain(text) => {
             facts.layout.is_none_or(|layout| layout.side == TranscriptSide::Own)
         }
@@ -1105,6 +1110,17 @@ mod tests {
         // A tagged system input is the IDE's marker row.
         let marker = "[schedule] Schedule `*/30 * * * *` fired.";
         assert!(matches!(chat_row(&facts(RowContent::Prompt(marker), None, 8., false)), ChatRowInput::Host { .. }));
+    }
+
+    /// #EXP-2071: an Express row and a press are the IDE's rows.
+    #[test]
+    fn express_rows_and_presses_are_host_rows() {
+        let first = layout(TranscriptSide::Other, None, true, true);
+        let text = "Here:\n<a2ui>\nroot = Text(text=\"Hi\")\n</a2ui>";
+        assert!(matches!(chat_row(&facts(RowContent::Narration(text), Some(&first), 12., false)), ChatRowInput::Host { .. }));
+        let press = "[action] {\"name\":\"save\",\"surfaceId\":\"m:1#1\",\"block\":\"m:1#1\",\"messageId\":null,\"context\":null}";
+        assert!(matches!(chat_row(&facts(RowContent::Prompt(press), Some(&first), 12., false)), ChatRowInput::Host { .. }));
+        assert!(matches!(chat_row(&facts(RowContent::Narration("Wrap it in `<a2ui>`."), Some(&first), 12., false)), ChatRowInput::Message { .. }));
     }
 
     #[test]
