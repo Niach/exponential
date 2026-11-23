@@ -13,7 +13,9 @@
 //!   A lock client that dies, or shows nothing, keeps the session locked
 //!   and is started again; it ends with the lock and with the compositor.
 //!   One that cannot start is tried again every second, and logged once,
-//!   then every [`STILL_FAILING_EVERY`] with its count (#EDE-210).
+//!   then every [`STILL_FAILING_EVERY`] with its count (#EDE-210); so is
+//!   one that cannot start as the lock begins: the session locks all the
+//!   same, black and deaf until it shows (#EDE-212).
 //! - **Sealed surfaces**: a layer surface from a process whose executable
 //!   is the installed `exponential-sealed` (the polkit prompt, consent) is
 //!   protected: black in captures, never driven by an agent, no input
@@ -58,6 +60,9 @@ pub const NO_SURFACE: Duration = Duration::from_secs(10);
 /// #EDE-210: a lock client that still cannot start is logged again (with
 /// the count of tries) this often, not on every try.
 pub const STILL_FAILING_EVERY: Duration = Duration::from_secs(30);
+/// #EDE-212: [`Sealed::pid`] while no lock client runs (its start failed):
+/// above any pid Linux hands out (`pid_max` ≤ 2^22), so no surface is the lock's.
+pub const NO_CLIENT: u32 = u32::MAX;
 
 /// #EDE-210: the lock client's starts that failed in a row while locked,
 /// and when that was last logged.
@@ -196,27 +201,34 @@ impl Ede {
 
     /// [`Self::begin_sealed_lock`] with `argv` as the lock client.
     pub fn begin_sealed_lock_with(&mut self, argv: Vec<String>) {
-        let started = if self.helpers.on {
-            self.spawn_lock_on_channel(&argv)
+        // The grant a failed start leaves for the next one: with the
+        // channel each start mints its own; on stdin the client's grant
+        // lives as long as the lock, as for a client that dies.
+        let (started, kept) = if self.helpers.on {
+            (self.spawn_lock_on_channel(&argv), crate::ipc::new_token())
         } else {
             let grant = self.ipc.mint_for(SEALED_SESSION, vec![ede_protocol::Capability::System, ede_protocol::Capability::Ui]);
-            let child = self.spawn_lock_client(&argv, &grant.token);
-            if child.is_err() {
-                self.ipc.grants.retain(|g| g.token != grant.token);
-            }
-            child.map(|child| (child, None, grant.token))
+            (self.spawn_lock_client(&argv, &grant.token).map(|child| (child, None, grant.token.clone())), grant.token)
         };
-        match started {
+        let now = Instant::now();
+        let sealed = match started {
             Ok((child, conn, token)) => {
                 let pid = child.id();
                 tracing::info!(pid, channel = conn.is_some(), "sealed lock client started");
-                self.lock = LockState::Sealed(Sealed { child: Some(child), pid, token, conn, respawns: 0, started: Instant::now(), command: argv, seen: Instant::now(), retry_at: Instant::now(), shown_on: Vec::new(), homeless: Vec::new(), failed_starts: FailedStarts::default() });
+                Sealed { child: Some(child), pid, token, conn, respawns: 0, started: now, command: argv, seen: now, retry_at: now, shown_on: Vec::new(), homeless: Vec::new(), failed_starts: FailedStarts::default() }
             }
+            // #EDE-212: a lock that began stays a lock. With no client the
+            // outputs show black, nothing gets input and nothing unlocks;
+            // [`Self::sealed_tick`] starts the client as for one lost while
+            // locked (#EDE-210).
             Err(e) => {
-                tracing::error!("exponential-sealed could not start ({e}): the session stays unlocked");
-                return;
+                tracing::error!("exponential-sealed could not start ({e}): the session is locked (black) and it is tried again every second");
+                let mut failed_starts = FailedStarts::default();
+                failed_starts.failed(now);
+                Sealed { child: None, pid: NO_CLIENT, token: kept, conn: None, respawns: 0, started: now, command: argv, seen: now, retry_at: now, shown_on: Vec::new(), homeless: Vec::new(), failed_starts }
             }
-        }
+        };
+        self.lock = LockState::Sealed(sealed);
         self.enter_lock();
         self.emit(ede_protocol::events::SESSION_LOCKED, serde_json::Value::Null);
     }

@@ -23,4 +23,4 @@ no_battery = Text(text="No battery", variant="muted", visible=not(value=cond(if=
 profile_title = Text(text="Power mode", variant="label")
 profile = ChoiceTiles(name="profile", options=[{label: "Power saver", value: "power-saver"}, {label: "Balanced", value: "balanced"}, {label: "Performance", value: "performance"}], value=$/services/power/profile, columns=3, on={change: ede_service(action="set_profile", args={profile: $/services/power/profile}, domain="power")})
 power_foot = Stack(direction="horizontal", gap="sm", align="center", children=[power_settings])
-power_settings = Link(label="Power settings", on={press: ede_open_document(name="settings")})
+power_settings = Link(label="Power settings", on={press: ede_open_document(name="settings", page="power")})

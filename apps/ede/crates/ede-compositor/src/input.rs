@@ -202,7 +202,9 @@ impl Ede {
         let keyboard = self.desk.seat.get_keyboard().unwrap();
         let locked = self.is_locked();
         let listening = self.shell_listening();
-        let popup_focused = keyboard.current_focus().is_some_and(|f| self.popups.find_popup(&f).is_some());
+        // #EDE-213: Escape also closes a shell popup that never took the
+        // keyboard (the Agent spaces list), as a click outside it does.
+        let popup_focused = keyboard.current_focus().is_some_and(|f| self.popups.find_popup(&f).is_some()) || self.shell_popups_open();
         let action = keyboard.input::<Action, _>(self, keycode, state, serial, smithay::backend::input::InputTime::from_millis(time), |ede, mods, handle| {
             if !bindings {
                 return FilterResult::Forward;

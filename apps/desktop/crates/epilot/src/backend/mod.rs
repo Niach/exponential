@@ -773,6 +773,16 @@ pub(crate) fn space_offer() -> crate::SpaceOffer {
     crate::SpaceOffer::No(crate::SpaceBlock::NotDesktop)
 }
 
+/// #EXP-2065: [`space_offer`] for a launch: a fresh real answer, else the
+/// desktop asked now ([`crate::space_offer_now`]).
+pub(crate) fn space_offer_now() -> crate::SpaceOffer {
+    #[cfg(target_os = "linux")]
+    if let Some(Ok(session)) = ede::session() {
+        return ede::launch_offer(&session);
+    }
+    space_offer()
+}
+
 /// #EXP-1514: [`space_offer`] for a process that asks once and ends
 /// ([`crate::space_offer_settled`]).
 pub(crate) fn space_offer_settled(within: std::time::Duration) -> crate::SpaceOffer {

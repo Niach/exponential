@@ -38,7 +38,8 @@
 //! {id, key}`, `ede_notify_clear` (an inbox entry's id is `inbox:<id>`),
 //! `ede_needs_you_open {id}` (#EDE-65: both hand off to the Exponential app),
 //! `ede_tray {service}`, `ede_tray_menu {service, id}`, `ede_open_document
-//! {name}`, `ede_close_document {name}`, `ede_service {domain, action,
+//! {name, page?}` (#EDE-214: Settings on `page`; open popups close),
+//! `ede_close_document {name}`, `ede_service {domain, action,
 //! args}`, `ede_output {name, mode?, scale?}`, `ede_config {…}`, `ede_settings
 //! {page, key, value}` (#EDE-47: the pages `/pages` feeds), and the
 //! shell model's: `ede_pin {app}` / `ede_unpin {app}`,
@@ -811,13 +812,26 @@ impl HostPlugin for Host {
             "ede_open_document" | "ede_close_document" => {
                 if let Some(doc) = args.get("name").and_then(Value::as_str).map(String::from) {
                     let open_it = name == "ede_open_document";
+                    // #EDE-214: a tray popup's settings link names its page.
+                    let page = args.get("page").and_then(Value::as_str).filter(|p| !p.is_empty()).map(String::from);
                     cx.defer(move |cx| {
                         if open_it {
+                            // #EDE-214: the popup the link sat in goes, as the menus do.
+                            // The borrow ends before the closes (a for loop's head lives through it).
+                            let popups = open_popups(&shell.borrow());
+                            for popup in popups {
+                                close(&shell, &popup, cx);
+                            }
                             close(&shell, "menu", cx);
                             close(&shell, "start-menu", cx);
                             dispatch(&shell, ShellEvent::StartMenuClose, cx);
-                            open_on_demand(&shell, &doc, cx);
-                            refresh(&shell, cx);
+                            match page.as_deref() {
+                                Some(page) if doc == "settings" => settings_open_page(&shell, page, cx),
+                                _ => {
+                                    open_on_demand(&shell, &doc, cx);
+                                    refresh(&shell, cx);
+                                }
+                            }
                         } else {
                             close(&shell, &doc, cx);
                         }
@@ -1268,7 +1282,8 @@ fn overlays_refresh(shell: &SharedShell) {
 /// Opens the Settings window on `page` (the document owns `/settings`
 /// again right after: the feed hands it the page once).
 fn settings_open_page(shell: &SharedShell, page: &str, cx: &mut App) {
-    let state = json!({"page": page, "deviceOpen": false, "personalOpen": false, "codingOpen": false, "team": {"kind": "", "id": "", "name": ""}, "switcherOpen": false});
+    // #EDE-214: with the page's group of the nav open.
+    let state = settings_pages::state_for(page);
     shell.borrow_mut().feed.set("/settings", state);
     close(shell, "start-menu", cx);
     dispatch(shell, ShellEvent::StartMenuClose, cx);
@@ -3266,6 +3281,12 @@ fn open_on_demand(shell: &SharedShell, name: &str, cx: &mut App) {
 /// those open when it was pressed (`pressed_at`, the event's stamp). One the
 /// press itself opened (the start menu from its button) stays: its press
 /// reaches the shell before the event does, or after (#EDE-89).
+/// The popup documents open now (the tray applets, the menus).
+fn open_popups(s: &Shell) -> Vec<String> {
+    let ui = s.ui.lock().unwrap_or_else(|p| p.into_inner());
+    s.surfaces.open_names().filter(|n| ui.document(n).is_some_and(|d| matches!(d.surface, SurfaceHeader::Popup { .. }))).map(String::from).collect()
+}
+
 fn popups_to_dismiss(open: &[(String, Option<i64>)], pressed_at: i64) -> Vec<String> {
     open.iter().filter(|(_, opened)| opened.is_none_or(|at| at < pressed_at)).map(|(name, _)| name.clone()).collect()
 }
@@ -5412,6 +5433,21 @@ mod start_menu_document {
         assert!(!doc.to_string().contains("/shell/ide/"), "the IDE's rows stay in its sidebar");
         let (f, args) = call(node(root, "settings").expect("the Settings button"));
         assert_eq!((f, args["name"].as_str()), ("ede_open_document", Some("settings")));
+    }
+
+    /// #EDE-214: every tray popup's settings link opens Settings on its own
+    /// page (one the nav lists, its group open), never the first one.
+    #[test]
+    fn the_tray_popups_settings_links_name_their_page() {
+        let settings = uicore_docs::doc("settings").expect("settings").source;
+        for (applet, id, page) in [("applet-sound", "sound_settings", "sound"), ("applet-network", "network_settings", "network"), ("applet-battery", "power_settings", "power"), ("applet-bluetooth", "bluetooth_settings", "bluetooth"), ("applet-calendar", "datetime_settings", "datetime")] {
+            let doc: Value = serde_json::from_str(uicore_docs::doc(applet).expect(applet).source).unwrap();
+            let (f, args) = call(node(&doc["root"], id).expect(id));
+            assert_eq!((f, args["name"].as_str(), args["page"].as_str()), ("ede_open_document", Some("settings"), Some(page)), "{applet}");
+            assert!(settings.contains(&format!("\"value\": \"{page}\"")), "{page} is a Settings page");
+            let state = crate::settings_pages::state_for(page);
+            assert_eq!((state["page"].as_str(), state["deviceOpen"].as_bool()), (Some(page), Some(true)), "{page}");
+        }
     }
 
     /// #EDE-65: the search lists Apps, then Issues (each opening in the app).

@@ -927,10 +927,26 @@ fn layers_above_windows(layers: &LayerMap, origin: Point<i32, Logical>, pos: Poi
             l.surface_under(pos - loc.to_f64(), WindowSurfaceType::POPUP | WindowSurfaceType::SUBSURFACE).map(|(s, p)| (s, (p + loc).to_f64()))
         })
     };
-    popup(WlrLayer::Overlay)
+    // #EDE-213: a sealed surface and its popups first, as the scene draws
+    // them above every other layer's popups.
+    sealed_under(layers, origin, pos)
+        .or_else(|| popup(WlrLayer::Overlay))
         .or_else(|| popup(WlrLayer::Top))
         .or_else(|| layer_surface_under(layers, origin, WlrLayer::Overlay, pos))
         .or_else(|| layer_surface_under(layers, origin, WlrLayer::Top, pos))
+}
+
+/// The topmost sealed overlay or top layer (any `exponential-sealed`
+/// surface, prompt or not) under `pos`, or one of its popups.
+fn sealed_under(layers: &LayerMap, origin: Point<i32, Logical>, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
+    let upper = |l: &&smithay::desktop::LayerSurface| matches!(l.layer(), WlrLayer::Overlay | WlrLayer::Top) && crate::sealed::layer_origin(l).sealed;
+    let on = |kinds| {
+        layers.layers().rev().filter(upper).find_map(|l| {
+            let loc = layers.layer_geometry(l)?.loc + origin;
+            l.surface_under(pos - loc.to_f64(), kinds).map(|(s, p)| (s, (p + loc).to_f64()))
+        })
+    };
+    on(WindowSurfaceType::POPUP | WindowSurfaceType::SUBSURFACE).or_else(|| on(WindowSurfaceType::ALL))
 }
 
 const TILE_STATES: [xdg_toplevel::State; 4] =
