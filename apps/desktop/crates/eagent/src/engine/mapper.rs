@@ -1330,7 +1330,7 @@ impl Mapper {
         // filler the model wrote after it ("No text.", measured): it reached
         // the parent as the child's reply and woke it on every quiet turn.
         let quiet = std::mem::take(&mut self.quiet_answered);
-        if self.turn_live && !quiet && !wire::activity::is_blank_text(&reply) {
+        if self.turn_live && !quiet && !is_empty_reply(&reply) {
             out.replies.push(Reply::text(self.clean_marked(
                 reply.trim(),
                 REPLY_BODY_MAX,
@@ -4359,6 +4359,41 @@ fn exp_tool_title(tools: &dyn HostTools, title: &str, raw_input: Option<&Value>)
     }
 }
 
+/// #FEED-294: a reply that says nothing: blank text (#FEED-256), or only
+/// `<br>` line breaks among blanks (measured: a quiet turn's "<br>" reached
+/// the parent as the child's message, seven times in two hours).
+fn is_empty_reply(reply: &str) -> bool {
+    let mut rest = reply;
+    let mut text = String::with_capacity(reply.len());
+    while let Some(at) = rest.find('<') {
+        text.push_str(&rest[..at]);
+        rest = &rest[at..];
+        match br_tag_len(rest) {
+            Some(len) => {
+                text.push(' ');
+                rest = &rest[len..];
+            }
+            None => return false,
+        }
+    }
+    text.push_str(rest);
+    wire::activity::is_blank_text(&text)
+}
+
+/// The byte length of a `<br>` tag (`<br>`, `<br/>`, `<br />`, any case) at
+/// the start of `text`, else None.
+fn br_tag_len(text: &str) -> Option<usize> {
+    let head = text.get(..3)?;
+    if !head.eq_ignore_ascii_case("<br") {
+        return None;
+    }
+    let after = &text[3..];
+    let spaces = after.len() - after.trim_start_matches([' ', '\t']).len();
+    let after = &after[spaces..];
+    let close = if after.starts_with("/>") { 2 } else if after.starts_with('>') { 1 } else { return None };
+    Some(3 + spaces + close)
+}
+
 /// #FEED-277: `exponential_session_self {op: "quiet"}` as either adapter
 /// titles it (claude `mcp__exponential__exponential_session_self`, codex
 /// `mcp.exponential.exponential_session_self`).
@@ -7109,6 +7144,33 @@ mod conversation_tests {
         say(&mut mapper, "PR #12 is open.", "m-4", &mut out);
         mapper.on_stop(StopReason::EndTurn, &mut out);
         assert_eq!(texts(&out.replies), vec!["PR #12 is open.".to_string()]);
+    }
+
+    #[test]
+    fn a_br_only_reply_is_no_reply() {
+        // #FEED-294 (measured, session 764ec9ce): a turn ending on "<br>"
+        // reached the parent as the child's message on every quiet turn.
+        for body in ["<br>", "<br/>", " <BR /> \n<br>", "\u{200B}<br>&nbsp;"] {
+            let mut mapper = live();
+            let mut out = MapOut::default();
+            mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+            say(&mut mapper, body, "m-1", &mut out);
+            mapper.on_stop(StopReason::EndTurn, &mut out);
+            assert!(texts(&out.replies).is_empty(), "{body:?}: {:?}", out.replies);
+        }
+        assert!(is_empty_reply(""));
+        assert!(!is_empty_reply("Done.<br>"));
+        assert!(!is_empty_reply("<b>"));
+        assert!(!is_empty_reply("<brx>"));
+        assert!(!is_empty_reply("a < b"));
+
+        // Real prose around a line break is still the reply.
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.set_turn(wire::frames::TurnState::Started, false, &mut out);
+        say(&mut mapper, "PR open.<br>CI next.", "m-2", &mut out);
+        mapper.on_stop(StopReason::EndTurn, &mut out);
+        assert_eq!(texts(&out.replies).len(), 1, "{:?}", out.replies);
     }
 
     #[test]
