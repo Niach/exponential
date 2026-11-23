@@ -91,6 +91,7 @@ import {
   messages,
   notifications,
   boards,
+  repositories,
   sessions,
   users,
   teamInvites,
@@ -369,6 +370,10 @@ async function getStatusContext(id: string) {
   if (!row) throw new Error(`Status not found`)
   return row
 }
+
+/** #FEED-303: the team event every `repositories.configure_ci` call that
+ *  changed the settings leaves behind. */
+export const REPOSITORY_CI_CONFIGURED_EVENT = `repository.ci_configured`
 
 // Prompt id → its team, for grant checks.
 async function getPromptContext(id: string) {
@@ -3931,6 +3936,59 @@ export function registerExponentialTools(
       try {
         assertFullAccess(access)
         return ok(await caller(user, request).repositories.credentials(input))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // #FEED-303: Exponential's own CI for a repository, switched by an agent.
+  // The SAME mutation as the repository's CI settings screen
+  // (`ci.setRepoConfig`: the member who shared the repository or a team
+  // owner, `assertRepoManager`); a team-registry write, so a full team grant.
+  // The `mcp_calls` audit keeps only the arguments' hash, so every change
+  // also goes to the team's event stream with the repository and the values.
+  server.registerTool(
+    `exponential_repositories_configure_ci`,
+    {
+      description: `Switch Exponential's own CI on or off for a team repository (enabled); actionsRunners = the team's runner devices also serve its GitHub Actions. The member who shared the repository or a team owner. Logged as a repository.ci_configured team event.`,
+      inputSchema: strictInput({
+        repositoryId: uuidString,
+        enabled: z.boolean(),
+        actionsRunners: z.boolean().optional(),
+      }),
+    },
+    async ({ repositoryId, enabled, actionsRunners }) => {
+      try {
+        const [repo] = await db
+          .select({ teamId: repositories.teamId, fullName: repositories.fullName })
+          .from(repositories)
+          .where(eq(repositories.id, repositoryId))
+          .limit(1)
+        if (!repo) throw new Error(`Repository not found`)
+        assertTeamFullyGranted(access, repo.teamId)
+        const { config } = await caller(user, request).ci.setRepoConfig({
+          repositoryId,
+          enabled,
+          ...(actionsRunners !== undefined ? { actionsRunners } : {}),
+        })
+        const own = await loadCallerSession()
+        await db.transaction((tx) =>
+          emitEventInTx(tx, {
+            teamId: repo.teamId,
+            name: REPOSITORY_CI_CONFIGURED_EVENT,
+            payload: {
+              repositoryId,
+              fullName: repo.fullName,
+              enabled,
+              ...(actionsRunners !== undefined ? { actionsRunners } : {}),
+              userId: user.id,
+              sessionId: own?.id ?? null,
+            },
+            emittedBy: own ? { sessionId: own.id } : { userId: user.id },
+          })
+        )
+        return ok({ repositoryId, fullName: repo.fullName, config })
       } catch (e) {
         return err(e)
       }

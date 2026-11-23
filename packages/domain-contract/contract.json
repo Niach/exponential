@@ -1264,6 +1264,17 @@
         "result": "none"
       },
       {
+        "name": "repositories_configure_ci",
+        "title": "Configure repository CI",
+        "blurb": "Switches Exponential's own CI on or off for a repository.",
+        "progressive": "Configuring repository CI",
+        "done": "Configured repository CI",
+        "progressiveMany": "Configuring repository CI {n} times",
+        "doneMany": "Configured repository CI {n} times",
+        "subjectKey": "repositoryId",
+        "result": "none"
+      },
+      {
         "name": "devices_list",
         "title": "List devices",
         "blurb": "Lists the machines that can run coding sessions for you.",
@@ -2175,6 +2186,7 @@
       { "name": "repositories_list", "refs": "list:repository@" },
       { "name": "repositories_create", "refs": "repository@" },
       { "name": "repositories_credentials", "refs": "" },
+      { "name": "repositories_configure_ci", "refs": "" },
       { "name": "devices_list", "refs": "list:device@" },
       { "name": "devices_account_login", "refs": "" },
       { "name": "agents_list", "refs": "list:agent@" },
