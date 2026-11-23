@@ -219,7 +219,7 @@ export function recordKindSchema(pkg: unknown, kind: string): RecordSchema | nul
  *  app (web, desktop, iOS, Android alike): the `exp:` sources, the format's
  *  `records:<kind>` and the functions the package's allowlist may name. */
 export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
-  { source: `exp:devices`, value: `{rows: [{id, label, detail, icon, discTone, tone, status}], count, online}: the team's devices, live` },
+  { source: `exp:devices`, value: `{rows: [{id, deviceId, value, label, detail, icon, discTone, tone, status}], count, online}: the team's devices, live; value + label make a row a Select option; value = deviceId, the id exponential_sessions_send takes (id is the synced row's own)` },
   {
     source: `exp:issues?board=<id|slug>&status=<anchor>&priority=<p>&assignee=<userId|me|none>&search=<text>&touched=me|<userId>&since=<YYYY-MM-DD|ISO instant>&until=<same>&sort=sortOrder|updatedAt|createdAt|touchedAt&order=asc|desc&limit=<n>`,
     value: `{rows: [{id, identifier, title, status, priority, assignee, assigneeName, board, boardSlug, dueDate, updatedAt, value, label, touchedAt?, touches?}], count}: the team's issues (every filter optional), live; value + label make a row a Select option; touched = only the issues that person touched (an event they acted, a comment they wrote, a session they started linked to it) between since and until (a bare date = that whole day in the team time zone), each row with touchedAt (latest touch) + touches (comment | event | session), newest touch first unless sort is given`,

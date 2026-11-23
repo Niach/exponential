@@ -2,7 +2,7 @@
 //! `packages/domain-contract/src/app-actions.ts` (iOS `AppActions.swift`,
 //! Android `AppActions.kt`), byte-locked by `fixtures/app-actions.json`
 //! (`parseCases`, `grantCases`, `declaredCases`, `consentCases`,
-//! `ownerOnlyCases`): which
+//! `ownerOnlyCases`, `failureCases`): which
 //! `exponential_<noun>_<op>` functions exist, what a name resolves to, what a
 //! package declares, what an app's grants allow, and the consent card's
 //! words. Pure: the app host feeds it names, grants and args.
@@ -50,6 +50,17 @@ struct ActionsSpec {
     tools: BTreeMap<String, ToolRow>,
     aliases: BTreeMap<String, String>,
     copy: ActionsCopy,
+    failure: FailureCopy,
+}
+
+/// FEED-301: the fixture's `failure`: a failed call's toast words.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct FailureCopy {
+    /// The verb of `harness_mcp` and a name without a display row.
+    #[serde(rename = "runVerb")]
+    pub run_verb: String,
+    /// The description of a failure without text.
+    pub fallback: String,
 }
 
 static SPEC: LazyLock<ActionsSpec> =
@@ -240,6 +251,65 @@ pub fn action_consent(name: &str, args: &Map<String, Value>) -> Option<ActionCon
     Some(ActionConsent { tool: target.tool, title, destructive, args })
 }
 
+/// FEED-301: a failed call's toast (`Couldn't <verb> <thing>` + the
+/// description).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionFailure {
+    pub verb: String,
+    pub thing: String,
+    pub description: String,
+}
+
+/// FEED-301: the failed-action toast's words for a call: a typed action's
+/// display row title split at its first word (`Send to session` → `send`,
+/// `to session`); `harness_mcp` (its `tool` arg) and anything without a row
+/// = `run` + the tool.
+pub fn action_failed_words(name: &str, args: &Map<String, Value>) -> (String, String) {
+    let target = parse_action_name(name);
+    if let Some((title, _)) = target.as_ref().and_then(display_row) {
+        if let Some((verb, thing)) = title.split_once(' ') {
+            if !verb.is_empty() {
+                return (verb.to_lowercase(), thing.to_string());
+            }
+        }
+    }
+    let tool = if name == "harness_mcp" {
+        match args.get("tool") {
+            Some(Value::String(s)) => s.clone(),
+            Some(Value::Null) | None => String::new(),
+            Some(other) => other.to_string(),
+        }
+    } else {
+        target.map(|t| t.tool).unwrap_or_else(|| name.to_string())
+    };
+    (SPEC.failure.run_verb.clone(), tool)
+}
+
+/// FEED-301: an MCP answer that is a FAILURE (`isError: true`): the toast's
+/// words + the server's sentence (the text items joined by a newline,
+/// trimmed; empty = the fallback). None for any other answer: the value.
+pub fn action_failure(name: &str, args: &Map<String, Value>, result: &Value) -> Option<ActionFailure> {
+    if result.get("isError") != Some(&Value::Bool(true)) {
+        return None;
+    }
+    let text = result
+        .get("content")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|item| item.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    let text = text.trim();
+    let (verb, thing) = action_failed_words(name, args);
+    let description = if text.is_empty() { SPEC.failure.fallback.clone() } else { text.to_string() };
+    Some(ActionFailure { verb, thing, description })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,6 +428,18 @@ mod tests {
             });
             let expected = (!case["expected"].is_null()).then(|| case["expected"].clone());
             assert_eq!(got, expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn failure_cases() {
+        for case in cases("failureCases") {
+            let name = case["name"].as_str().unwrap();
+            let got = action_failure(name, case["args"].as_object().unwrap(), &case["result"]).map(|f| {
+                serde_json::json!({ "verb": f.verb, "thing": f.thing, "description": f.description })
+            });
+            let expected = (!case["expected"].is_null()).then(|| case["expected"].clone());
+            assert_eq!(got, expected, "{name} {}", case["result"]);
         }
     }
 }

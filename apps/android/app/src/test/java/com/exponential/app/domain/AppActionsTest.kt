@@ -133,6 +133,23 @@ class AppActionsTest {
     }
 
     @Test
+    fun failureCases() {
+        val failure = fixture["failure"]!!
+        assertEquals(failure["runVerb"]!!.string, AppActions.FailureCopy.RUN_VERB)
+        assertEquals(failure["fallback"]!!.string, AppActions.FailureCopy.FALLBACK)
+        for (case in cases("failureCases")) {
+            val name = case["name"]!!.string!!
+            val got = AppActions.actionFailure(name, case["args"]!!.obj!!, case["result"])
+            val expected = nullable(case["expected"])
+            if (expected == null) {
+                assertNull(name, got)
+                continue
+            }
+            assertEquals(name, AppActions.ActionFailure(expected["verb"]!!.string!!, expected["thing"]!!.string!!, expected["description"]!!.string!!), got)
+        }
+    }
+
+    @Test
     fun `the name's op wins over a forged op in the args`() {
         // Review of #1222: a granted `exponential_issues_get` can never run a delete.
         val get = AppActions.parseActionName("exponential_issues_get")!!

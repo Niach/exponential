@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/app-actions.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
-import { APP_ACTIONS, actionConsent, actionGrantable, actionOwnerOnly, canGrantActions, declaredActions, flatAction, grantAllows, parseActionName, storedAction } from "./app-actions"
+import { APP_ACTIONS, actionConsent, actionFailure, actionGrantable, actionOwnerOnly, canGrantActions, declaredActions, flatAction, grantAllows, parseActionName, storedAction } from "./app-actions"
 
 describe(`app actions (VAPP-120)`, () => {
   test(`every function is sorted, prefixed and has a display row`, () => {
@@ -47,5 +47,8 @@ describe(`app actions (VAPP-120)`, () => {
   })
   test.each(fixture.consentCases)(`actionConsent $name`, (c) => {
     expect(actionConsent(c.name, c.args)).toEqual(c.expected as never)
+  })
+  test.each(fixture.failureCases)(`actionFailure $name`, (c) => {
+    expect(actionFailure(c.name, c.args as Record<string, unknown>, c.result)).toEqual(c.expected as never)
   })
 })

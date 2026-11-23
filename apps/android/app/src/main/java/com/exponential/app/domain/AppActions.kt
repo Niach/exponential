@@ -5,7 +5,7 @@ import at.exponential.ui.json.JsonValue
 // VAPP-120: typed host ACTIONS, the Android mirror of the pure reference
 // `packages/domain-contract/src/app-actions.ts` (fixtures/app-actions.json is
 // the spec; `AppActionsTest` replays its `parseCases`, `grantCases`,
-// `declaredCases`, `consentCases` and `ownerOnlyCases` and locks [ALL], [TOOLS] and [Copy] to
+// `declaredCases`, `consentCases`, `ownerOnlyCases` and FEED-301 `failureCases` and locks [ALL], [TOOLS] and [Copy] to
 // the fixture): which `exponential_<noun>_<op>` functions exist, what a name
 // resolves to, what a package declares, what an app's grants allow, and the
 // consent card's words. The display titles come from the generated contract
@@ -280,5 +280,49 @@ object AppActions {
             destructive = callDestructive(name, args),
             args = json.takeIf { it != "{}" },
         )
+    }
+
+    /** FEED-301: the fixture's `failure` copy (`AppActionsTest` locks it). */
+    object FailureCopy {
+        const val RUN_VERB = "run"
+        const val FALLBACK = "The operation failed."
+    }
+
+    /** FEED-301: a failed call's toast (`Couldn't <verb> <thing>` + the description). */
+    data class ActionFailure(val verb: String, val thing: String, val description: String)
+
+    /** FEED-301: the failed-action toast's words for a call: a typed
+     *  action's display row title split at its first word (`Send to
+     *  session` → `send`, `to session`); `harness_mcp` (its `tool` arg) and
+     *  anything without a row = `run` + the tool. */
+    fun actionFailedWords(name: String, args: Map<String, JsonValue>): Pair<String, String> {
+        val target = parseActionName(name)
+        val title = target?.let { DomainContract.expToolTitles.getOrNull(rowIndex(it)) }
+        val space = title?.indexOf(' ') ?: -1
+        if (title != null && space > 0) return title.substring(0, space).lowercase() to title.substring(space + 1)
+        val tool = if (name == "harness_mcp") {
+            when (val given = args["tool"]) {
+                null, JsonValue.Null -> ""
+                is JsonValue.Str -> given.v
+                else -> given.json
+            }
+        } else {
+            target?.tool ?: name
+        }
+        return FailureCopy.RUN_VERB to tool
+    }
+
+    /** FEED-301: an MCP answer that is a FAILURE (`isError: true`): the
+     *  toast's words + the server's sentence (the text items joined by a
+     *  newline, trimmed; empty = the fallback). Null for any other answer. */
+    fun actionFailure(name: String, args: Map<String, JsonValue>, result: JsonValue?): ActionFailure? {
+        val obj = result?.obj ?: return null
+        if (obj["isError"] != JsonValue.Bool(true)) return null
+        val text = obj["content"]?.array.orEmpty()
+            .mapNotNull { item -> item.obj?.takeIf { it["type"] == JsonValue.Str("text") }?.get("text")?.string }
+            .joinToString("\n")
+            .trim()
+        val (verb, thing) = actionFailedWords(name, args)
+        return ActionFailure(verb, thing, text.ifEmpty { FailureCopy.FALLBACK })
     }
 }
