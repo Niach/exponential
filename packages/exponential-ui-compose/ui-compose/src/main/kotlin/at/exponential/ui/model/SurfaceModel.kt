@@ -609,6 +609,14 @@ class SurfaceModel(
         return out
     }
 
+    /**
+     * #VAPP-300: an Express block is still streaming this surface (the host sets it from the decoder's `open`): a child not
+     * streamed yet renders as nothing; off again, a child still missing is the Unknown placeholder.
+     */
+    fun setStreaming(on: Boolean) {
+        if (surface.setStreaming(on)) invalidate(true)
+    }
+
     // Hrefs, media, painter failures (catalog/host.json urls / media / paint)
 
     /** The href the host's URL policy allows for `url` (resolved), else null: the link paints as plain text. */

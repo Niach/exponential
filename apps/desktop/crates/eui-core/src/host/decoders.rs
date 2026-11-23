@@ -25,13 +25,22 @@ pub struct Decoded {
     /// none). Always empty for JSONL and SSE.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub text: Vec<String>,
+    /// #VAPP-300: the surfaces whose Express block is still OPEN after this
+    /// read (the ids the open block has written to, in order): the host
+    /// reduces them `streaming` (a child not streamed yet renders as
+    /// nothing). A STATE, not a delta: empty = none open (JSON never is);
+    /// the host replaces its open set with every batch's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub open: Vec<String>,
 }
 
 impl Decoded {
+    /// Appends `other`; `open` is `other`'s (the state after both).
     pub fn extend(&mut self, other: Decoded) {
         self.messages.extend(other.messages);
         self.issues.extend(other.issues);
         self.text.extend(other.text);
+        self.open = other.open;
     }
 
     pub fn to_json(&self) -> Value {
@@ -223,6 +232,8 @@ impl SseDecoder {
                 Line::Oversized => self.drop_data(),
             }
         }
+        // #VAPP-300: the Express response's open block holds across JSON events.
+        out.open = self.express.as_ref().map(Express::open).unwrap_or_default();
         out
     }
 
@@ -402,7 +413,9 @@ impl FrameDecoder {
         let Some(chunk) = express_frame_chunk(frame) else {
             let d = decode_jsonl(frame);
             let issues = if d.issues.is_empty() { vec![] } else { vec![DecodeIssue { at: n, message: format!("frame {n} is not JSON") }] };
-            return Decoded { messages: d.messages, issues, ..Decoded::default() };
+            // #VAPP-300: the Express response's open block holds across JSON frames.
+            let open = self.express.as_ref().map(Express::open).unwrap_or_default();
+            return Decoded { messages: d.messages, issues, open, ..Decoded::default() };
         };
         let surface_id = self.surface_id.clone();
         let d = self.express.get_or_insert_with(|| Express::new(surface_id.as_deref())).push(&chunk);
@@ -424,7 +437,7 @@ impl FrameDecoder {
 /// outer event / frame number.
 fn express_out(d: Decoded, n: u32, what: &str, out: &mut Decoded) {
     let issues = d.issues.into_iter().map(|issue| DecodeIssue { at: n, message: format!("{what} {n}: {}", issue.message) }).collect();
-    out.extend(Decoded { messages: d.messages, issues, text: d.text });
+    out.extend(Decoded { messages: d.messages, issues, text: d.text, open: d.open });
 }
 
 /// The Express reader an outer decoder holds: the real one with the
@@ -442,6 +455,9 @@ impl Express {
     }
     fn end(&mut self) -> Decoded {
         self.0.end()
+    }
+    fn open(&self) -> Vec<String> {
+        self.0.open()
     }
 }
 
@@ -461,6 +477,9 @@ impl Express {
     }
     fn end(&mut self) -> Decoded {
         Decoded::default()
+    }
+    fn open(&self) -> Vec<String> {
+        Vec::new()
     }
 }
 

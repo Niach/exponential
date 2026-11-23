@@ -681,6 +681,27 @@ fn host_suite(id: &str) -> Vec<Case> {
                 let got = { let mut g = got; g.extend(d.end()); g };
                 out.push((format!("express: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
             }
+            // #VAPP-300: the open block after every push, then after end().
+            for c in list(&f, "expressOpen") {
+                let sid = surface(c);
+                let chunks: Vec<String> = list(c, "chunks").iter().map(|v| v.as_str().unwrap().to_string()).collect();
+                let reads: Vec<Decoded> = match c["decoder"].as_str() {
+                    Some("sse") => {
+                        let mut d = SseDecoder::with_surface(sid.as_deref());
+                        chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
+                    }
+                    Some("ws") => {
+                        let mut d = FrameDecoder::new(sid.as_deref());
+                        chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
+                    }
+                    _ => {
+                        let mut d = ExpressDecoder::new(c["wrapped"].as_bool().unwrap_or(true), sid.as_deref().unwrap_or(eui_core::host::contract::EXPRESS_DEFAULT_SURFACE_ID));
+                        chunks.iter().map(|s| d.push(s)).collect::<Vec<_>>().into_iter().chain(std::iter::once(d.end())).collect()
+                    }
+                };
+                let got = Value::Array(reads.into_iter().map(|d| Value::from(d.open)).collect());
+                out.push((format!("expressOpen: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
+            }
             for c in list(&f, "expressSse") {
                 let sid = surface(c);
                 let mut d = SseDecoder::with_surface(sid.as_deref());

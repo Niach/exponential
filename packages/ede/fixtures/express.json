@@ -1,0 +1,647 @@
+{
+  "$comment": "EDE-216 (2026-11-23, #AXC-12): A SHELL DOCUMENT IS EXPRESS. A person's ~/.config/exponential-desktop/ui/<name>.express (the factory copy in /usr/share/exponential-desktop/ui) is ONE Express block (the A2UI inference format, eui-core's `express` feature over the core catalog, #VAPP-294); theme.json stays JSON (a theme, not a surface). WHERE THINGS LIVE, using only what Express already has: (1) the SURFACE HEADER (surface.json) is the `ede` extension of the one surface statement, `surface(\"<name>\", extensions={ede: {layer, anchor, size, exclusiveZone, margin, keyboard, onDemand, popup, functions}})` (A2UI 1.0's createSurface.metadata.extensions.ede), the first statement; its id is the file's name; no other extension, no sendDataModel, no update=true. (2) The DATA MODEL is the `$/path = value` lines (createSurface.dataModel = the document's `data`). (3) The TOP COMPONENT is `root = …` (Express names it root; root's id is `root`); every other component is `<id> = Component(…)` reached from root through children, slots or a template (`children=_template($/rows, row)`: an item no parent names sits inside its owner in the nested form). A component the tree does not reach, or one placed twice, is an issue. (4) NOTES are `#` comments (the compiler drops them; a migrated `$comment` becomes the leading `#` lines, wrapped at 100 chars). Nothing else may stand at the top level (no deleteSurface, no standalone function call). The ONE convention beyond Express: the compiler knows eDE's HOST FUNCTIONS (`hostFunctions`, name → its arguments, all optional) beside the core catalog's, so `ede_lunch(…)` or an unknown argument is a compile error; which of them a document may call is still its surface.functions (Tier C). COMPILE (compileDocument): Express → the document's JSON form {surface: the ede extension, root: the nested tree, data?: the data model}, which surface.json's rules and eui-core's reducer validate exactly as before (validateDocument). ISSUES name the Express line: path `line <l>:<c>` for a syntax error; `line <l> <what>` otherwise, where <what> is `#<id>` (a component's statement: its reducer and Tier C issues, an unknown component, property or function in it), `surface…` (the surface statement: header issues), `data` (the first data line) or `root`; `express` when no statement can be named. An `on` handler written `press=ede_launch(app=\"x\")` compiles to eUI's Action `{functionCall: {@call, args}}`. MIGRATION (one time, #EDE-216): at start the committing runtime turns every `<name>.json` document without a `<name>.express` into Express in ONE commit `Migrate shell documents to Express`: an unedited factory copy (what a `Factory <name>` commit of its .json left, not undone) is dropped and the shipped .express follows as `Factory <name>`; any other is decompiled (decompileDocument: the root's id becomes root, a `style` PROP merges under the node's style, node keys the nested form ignores are dropped, `$schema` is dropped); one that does not convert is set aside as `<name>.json.refused-<version>` with a reset notice. `.json` documents are never read again (the watcher, `exponential-ui set|rm|validate`, git history and the apply machine key on `<name>.express`; `set` still takes a JSON document and writes it as Express). ede-ui (apps/ede/crates/ede-ui, tests/contract.rs) replays every case; the TS reference has no Express compiler and replays none.",
+  "version": 1,
+  "hostFunctions": {
+    "ede_alt_tab_select": [
+      "window"
+    ],
+    "ede_chat": [
+      "action",
+      "agentId",
+      "answer",
+      "insert",
+      "key",
+      "messageId",
+      "prompt",
+      "query",
+      "replyId",
+      "sessionId",
+      "step",
+      "text"
+    ],
+    "ede_close": [
+      "window"
+    ],
+    "ede_close_document": [
+      "name"
+    ],
+    "ede_config": [
+      "diagnostics",
+      "theme"
+    ],
+    "ede_connect": [
+      "action",
+      "instance"
+    ],
+    "ede_focus": [
+      "window"
+    ],
+    "ede_history": [
+      "action"
+    ],
+    "ede_issue": [
+      "identifier",
+      "source",
+      "sourceId"
+    ],
+    "ede_launch": [
+      "app",
+      "command",
+      "new"
+    ],
+    "ede_lock": [],
+    "ede_logout": [],
+    "ede_minimize": [
+      "window"
+    ],
+    "ede_needs_you_open": [
+      "id"
+    ],
+    "ede_notify_action": [
+      "id",
+      "key"
+    ],
+    "ede_notify_clear": [],
+    "ede_notify_close": [
+      "id",
+      "toast"
+    ],
+    "ede_notify_open": [
+      "id"
+    ],
+    "ede_open_document": [
+      "name",
+      "page"
+    ],
+    "ede_output": [
+      "mode",
+      "name",
+      "scale"
+    ],
+    "ede_pin": [
+      "app"
+    ],
+    "ede_power": [
+      "action"
+    ],
+    "ede_rail": [],
+    "ede_select": [
+      "window"
+    ],
+    "ede_service": [
+      "action",
+      "args",
+      "domain"
+    ],
+    "ede_settings": [
+      "key",
+      "page",
+      "value"
+    ],
+    "ede_share": [
+      "account",
+      "action",
+      "name"
+    ],
+    "ede_space": [
+      "session",
+      "size"
+    ],
+    "ede_space_close": [
+      "space"
+    ],
+    "ede_start_menu": [
+      "activate",
+      "category",
+      "toggle"
+    ],
+    "ede_switcher": [
+      "account",
+      "action",
+      "id",
+      "kind"
+    ],
+    "ede_taskbar": [
+      "app"
+    ],
+    "ede_taskbar_menu": [
+      "app",
+      "value"
+    ],
+    "ede_taskbar_scroll": [
+      "app",
+      "direction"
+    ],
+    "ede_tray": [
+      "service"
+    ],
+    "ede_tray_menu": [
+      "id",
+      "service"
+    ],
+    "ede_unpin": [
+      "app"
+    ],
+    "ede_workspace": [
+      "index"
+    ]
+  },
+  "compileCases": [
+    {
+      "name": "header, data and root",
+      "document": "osd",
+      "express": "# The volume overlay.\nsurface(\"osd\", extensions={ede: {layer: \"overlay\", anchor: [\"bottom\"], size: {width: 280, height: 56}, onDemand: true}})\n$/osd/level = 40\n$/osd/label = \"40%\"\nroot = Box(style={display: \"flex\", gap: \"$spacing.md\"}, children=[osd_level, osd_label])\nosd_level = Progress(value=$/osd/level, max=100)\nosd_label = Text(text=$/osd/label)\n",
+      "expected": {
+        "document": {
+          "surface": {
+            "layer": "overlay",
+            "anchor": [
+              "bottom"
+            ],
+            "size": {
+              "width": 280,
+              "height": 56
+            },
+            "onDemand": true
+          },
+          "root": {
+            "id": "root",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "gap": "$spacing.md"
+            },
+            "children": [
+              {
+                "id": "osd_level",
+                "component": "Progress",
+                "props": {
+                  "value": {
+                    "@path": "/osd/level"
+                  },
+                  "max": 100
+                }
+              },
+              {
+                "id": "osd_label",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "/osd/label"
+                  }
+                }
+              }
+            ]
+          },
+          "data": {
+            "osd": {
+              "level": 40,
+              "label": "40%"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a handler's host call is a functionCall and a free template item sits inside its owner",
+      "document": "panel",
+      "express": "surface(\"panel\", extensions={ede: {anchor: [\"top\", \"left\", \"right\"], size: {height: 40}, functions: [\"ede_launch\"]}})\n$/apps = [{id: \"files\", name: \"Files\"}]\nroot = Box(children=[apps])\napps = List(children=_template($/apps, app))\napp = Button(label=$name, on={press: ede_launch(app=$id)})\n",
+      "expected": {
+        "document": {
+          "surface": {
+            "anchor": [
+              "top",
+              "left",
+              "right"
+            ],
+            "size": {
+              "height": 40
+            },
+            "functions": [
+              "ede_launch"
+            ]
+          },
+          "root": {
+            "id": "root",
+            "component": "Box",
+            "children": [
+              {
+                "id": "apps",
+                "component": "List",
+                "template": {
+                  "component": "app",
+                  "path": "/apps"
+                },
+                "children": [
+                  {
+                    "id": "app",
+                    "component": "Button",
+                    "on": {
+                      "press": {
+                        "functionCall": {
+                          "@call": "ede_launch",
+                          "args": {
+                            "app": {
+                              "@path": "id"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "props": {
+                      "label": {
+                        "@path": "name"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "data": {
+            "apps": [
+              {
+                "id": "files",
+                "name": "Files"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a syntax error names its line and column",
+      "document": "panel",
+      "express": "surface(\"panel\", extensions={ede: {size: {width: 10, height: 10}}})\nroot = Box(children=[a]\na = Text(text=\"x\")\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "line 3:0",
+            "message": "mismatched input 'a' expecting {',', ')'}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "no surface statement: the header is required",
+      "document": "panel",
+      "express": "root = Box()\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "surface",
+            "message": "required: surface(\"panel\", extensions={ede: {layer, anchor, size, …}}), how the surface sits on the screen"
+          }
+        ]
+      }
+    },
+    {
+      "name": "the surface is the file's",
+      "document": "panel",
+      "express": "surface(\"dock\", extensions={ede: {size: {width: 10, height: 10}}})\nroot = Box()\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "line 1 surface",
+            "message": "surface(\"dock\") names another document; this file's is surface(\"panel\", …)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "only the ede extension",
+      "document": "panel",
+      "express": "surface(\"panel\", extensions={ede: {size: {width: 10, height: 10}}, other: {}})\nroot = Box()\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "line 1 surface",
+            "message": "unknown extension other; a shell document's surface takes extensions={ede: {…}}"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a header issue names the surface line",
+      "document": "panel",
+      "express": "# notes\nsurface(\"panel\", extensions={ede: {layer: \"middle\", size: {width: 10, height: 10}}})\nroot = Box()\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "line 2 surface.layer",
+            "message": "expected one of background|bottom|top|overlay"
+          }
+        ]
+      }
+    },
+    {
+      "name": "no root",
+      "document": "panel",
+      "express": "surface(\"panel\", extensions={ede: {size: {width: 10, height: 10}}})\ntop = Box()\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "root",
+            "message": "required: a document's top component is `root = …` (Express names it root)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an unknown component names its statement",
+      "document": "panel",
+      "express": "surface(\"panel\", extensions={ede: {size: {width: 10, height: 10}}})\nroot = Box(children=[clock])\nclock = Clock(format=\"HH:mm\")\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "line 3 #clock",
+            "message": "unknown component Clock"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a misspelt host function names its statement",
+      "document": "panel",
+      "express": "surface(\"panel\", extensions={ede: {size: {width: 10, height: 10}, functions: [\"ede_launch\"]}})\nroot = Box(children=[go])\ngo = Button(label=\"Files\", on={press: ede_lunch(app=\"nemo\")})\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "line 3 #go",
+            "message": "Function 'ede_lunch' is not defined in the catalog."
+          }
+        ]
+      }
+    },
+    {
+      "name": "an unknown host function argument names its statement",
+      "document": "panel",
+      "express": "surface(\"panel\", extensions={ede: {size: {width: 10, height: 10}, functions: [\"ede_launch\"]}})\nroot = Box(children=[go])\ngo = Button(label=\"Files\", on={press: ede_launch(application=\"nemo\")})\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "line 3 #go",
+            "message": "Argument 'application' is not a valid parameter of function 'ede_launch'. (Function 'ede_launch' accepts parameters: app, command, new.)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tier C: a call the header does not list names its statement",
+      "document": "panel",
+      "express": "surface(\"panel\", extensions={ede: {size: {width: 10, height: 10}}})\nroot = Box(children=[out])\nout = Button(label=\"Log out\", on={press: ede_logout()})\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "line 3 #out",
+            "message": "function ede_logout is not in surface.functions"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a reducer issue names its statement",
+      "document": "panel",
+      "express": "surface(\"panel\", extensions={ede: {size: {width: 10, height: 10}}})\nroot = Box(children=[gap])\ngap = Box(style={gap: \"$spacing.nope\"})\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "line 3 #gap",
+            "message": "style.gap: gap: expected px, \"N%\", \"auto\" or a numeric token"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a component the tree does not reach",
+      "document": "panel",
+      "express": "surface(\"panel\", extensions={ede: {size: {width: 10, height: 10}}})\nroot = Box()\nlost = Text(text=\"nobody's\")\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "line 3 #lost",
+            "message": "not in the tree: no component's children, slots or template names it"
+          }
+        ]
+      }
+    },
+    {
+      "name": "nothing else at the top level",
+      "document": "panel",
+      "express": "surface(\"panel\", extensions={ede: {size: {width: 10, height: 10}}})\nroot = Box()\ndeleteSurface(\"panel\")\n",
+      "expected": {
+        "issues": [
+          {
+            "path": "line 3",
+            "message": "a shell document holds its surface(…), its data and its components only (no deleteSurface or top-level function calls)"
+          }
+        ]
+      }
+    }
+  ],
+  "migrationCases": [
+    {
+      "name": "a nested JSON document becomes Express: $comment, header, data, root renamed, a style prop merged, a handler",
+      "document": "panel",
+      "json": {
+        "$schema": "https://exponential.at/schemas/ede-document.json",
+        "$comment": "The top panel: the clock and a launcher.",
+        "surface": {
+          "anchor": [
+            "top",
+            "left",
+            "right"
+          ],
+          "size": {
+            "height": 40
+          },
+          "functions": [
+            "ede_launch"
+          ]
+        },
+        "data": {
+          "clock": {
+            "text": "12:00"
+          }
+        },
+        "root": {
+          "id": "panel",
+          "component": "Box",
+          "props": {
+            "style": {
+              "display": "flex",
+              "gap": "$spacing.sm"
+            }
+          },
+          "style": {
+            "gap": "$spacing.md"
+          },
+          "children": [
+            {
+              "id": "clock",
+              "component": "Text",
+              "props": {
+                "text": {
+                  "@path": "/clock/text"
+                }
+              }
+            },
+            {
+              "id": "files",
+              "component": "Button",
+              "props": {
+                "label": "Files"
+              },
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "@call": "ede_launch",
+                    "args": {
+                      "app": "nemo"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "express": "# The top panel: the clock and a launcher.\nsurface(\"panel\", extensions={ede: {anchor: [\"top\", \"left\", \"right\"], size: {height: 40}, functions: [\"ede_launch\"]}})\n$/clock/text = \"12:00\"\nroot = Box(style={display: \"flex\", gap: \"$spacing.md\"}, children=[clock, files])\nclock = Text(text=$/clock/text)\nfiles = Button(label=\"Files\", on={press: ede_launch(app=\"nemo\")})\n",
+        "document": {
+          "surface": {
+            "anchor": [
+              "top",
+              "left",
+              "right"
+            ],
+            "size": {
+              "height": 40
+            },
+            "functions": [
+              "ede_launch"
+            ]
+          },
+          "root": {
+            "id": "root",
+            "component": "Box",
+            "style": {
+              "display": "flex",
+              "gap": "$spacing.md"
+            },
+            "children": [
+              {
+                "id": "clock",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "@path": "/clock/text"
+                  }
+                }
+              },
+              {
+                "id": "files",
+                "component": "Button",
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "@call": "ede_launch",
+                      "args": {
+                        "app": "nemo"
+                      }
+                    }
+                  }
+                },
+                "props": {
+                  "label": "Files"
+                }
+              }
+            ]
+          },
+          "data": {
+            "clock": {
+              "text": "12:00"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a template item inside its owner stays there",
+      "document": "list",
+      "json": {
+        "surface": {
+          "size": {
+            "width": 200,
+            "height": 300
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "id": "a",
+              "title": "A"
+            }
+          ]
+        },
+        "root": {
+          "id": "list",
+          "component": "List",
+          "template": {
+            "component": "row",
+            "path": "/rows"
+          },
+          "children": [
+            {
+              "id": "row",
+              "component": "Row",
+              "props": {
+                "title": {
+                  "@path": "title"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "express": "surface(\"list\", extensions={ede: {size: {width: 200, height: 300}}})\n$/rows = [{id: \"a\", title: \"A\"}]\nroot = List(children=_template($/rows, row))\nrow = Row(title=$title)\n",
+        "document": {
+          "surface": {
+            "size": {
+              "width": 200,
+              "height": 300
+            }
+          },
+          "root": {
+            "id": "root",
+            "component": "List",
+            "template": {
+              "component": "row",
+              "path": "/rows"
+            },
+            "children": [
+              {
+                "id": "row",
+                "component": "Row",
+                "props": {
+                  "title": {
+                    "@path": "title"
+                  }
+                }
+              }
+            ]
+          },
+          "data": {
+            "rows": [
+              {
+                "id": "a",
+                "title": "A"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

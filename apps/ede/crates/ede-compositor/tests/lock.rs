@@ -818,6 +818,60 @@ fn a_lock_client_that_could_not_start_is_tried_again() {
     assert!(is_locked(&h));
 }
 
+/// #EDE-212: a lock whose client cannot start at all is still a lock: the
+/// output is black (in captures too), no key or click reaches the window
+/// behind it, nothing unlocks it but the client that finally starts, and
+/// that one is tried every tick (#EDE-210), not never.
+#[test]
+fn a_lock_whose_client_cannot_start_stays_locked_and_black() {
+    let h = harness(Config::default());
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    app.pointer();
+    let t = app.toplevel("app");
+    app.draw(&t, 300, 200, RED);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_some());
+    let (cx, cy) = window_center(&h);
+    assert_eq!(h.capture(0).at(cx, cy), RED);
+
+    let mut events = h.ipc();
+    events.subscribe().unwrap();
+    events.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    h.with(|ede| ede.begin_sealed_lock_with(vec!["/nonexistent/exponential-sealed".into(), "lock".into()]));
+    assert!(is_locked(&h), "a lock client that cannot start left the session unlocked");
+    assert_eq!(events.next_event().unwrap().kind, ede_protocol::events::SESSION_LOCKED);
+    assert_eq!(lock_child(&h), 0);
+    assert_eq!(sealed(&h, |s| s.failed_starts.tries), 1, "the failed start counts as the first try");
+    assert!(h.capture(0).pixels.iter().all(|p| p & 0x00ff_ffff == 0), "the locked output is black");
+    assert_eq!(h.capture_shared(0).at(cx, cy), BLACK);
+
+    // Nothing reaches the window behind it.
+    app.roundtrip();
+    let entered = app.state.pointer_enters;
+    press(&h, KEY_A);
+    h.with(move |ede| ede.pointer_motion_to((cx as f64, cy as f64).into(), 0));
+    app.roundtrip();
+    assert!(app.state.keys.is_empty(), "a key reached the window behind a lock with no client");
+    assert_eq!(app.state.pointer_enters, entered, "the pointer reached the window behind a lock with no client");
+    // The root grant does not unlock it.
+    assert_eq!(code(h.ipc().unlock().unwrap_err()), ErrorCode::Forbidden);
+
+    // Still failing: tried on every tick, still locked.
+    for _ in 0..3 {
+        h.with(|ede| ede.sealed_tick());
+    }
+    assert!(sealed(&h, |s| s.failed_starts.tries) >= 4);
+    assert!(is_locked(&h));
+
+    // The client can start now: the next tick starts it and only it unlocks.
+    sealed(&h, |s| s.command = vec!["sleep".into(), "30".into()]);
+    tick_until(&h, "the lock client was never started once it could", || lock_child(&h) != 0);
+    assert!(is_locked(&h));
+    let (token, pid) = sealed(&h, |s| (s.token.clone(), s.pid));
+    h.with(move |ede| ede.sealed_unlock(&token, Some(pid), None)).unwrap();
+    assert!(!is_locked(&h));
+}
+
 /// #EDE-79: a lock client that keeps dying is started again after a pause
 /// that grows, not never: the screen does not stay black until the next
 /// login.

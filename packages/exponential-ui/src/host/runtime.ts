@@ -41,7 +41,16 @@ export type MessageMetadata = Record<string, unknown>
 /** Messages in, renderer messages out. Adapters: `transports.ts`. */
 export interface Transport {
   /** Start delivering messages; report the connection state. */
-  start(receive: (message: unknown) => void, status: (status: TransportStatus, detail?: string) => void, text?: (text: string) => void): void
+  start(
+    receive: (message: unknown) => void,
+    status: (status: TransportStatus, detail?: string) => void,
+    text?: (text: string) => void,
+    /** #VAPP-300: the surfaces whose Express block is still open (the
+     *  decoder's `open`), per decoded batch: `settled: false` BEFORE its
+     *  messages (those surfaces stream as they arrive), `true` after (every
+     *  other surface's block closed). */
+    open?: (surfaceIds: readonly string[], settled: boolean) => void
+  ): void
   send(message: ClientMessage, metadata?: MessageMetadata): void | Promise<void>
   close(): void
 }
@@ -180,6 +189,8 @@ export { SurfaceStore }
 export class ExponentialHost {
   readonly router: HostRouter
   private stores = new Map<string, SurfaceStore>()
+  /** #VAPP-300: the surfaces an open Express block is writing. */
+  private streaming = new Set<string>()
   /** Round 9 §6.5: `callAgentFunction`s waiting for their response. */
   private pendingCalls = new Map<string, { settle: (answer: RouteAnswer) => void; timer: ReturnType<typeof setTimeout> }>()
   /** Per surface, one entry per bound path (VAPP-122: a re-bind of a path
@@ -294,8 +305,25 @@ export class ExponentialHost {
         this.statusDetail = detail
         this.notify()
       },
-      (text) => this.options.onText?.(text)
+      (text) => this.options.onText?.(text),
+      (ids, settled) => this.setStreaming(ids, settled)
     )
+  }
+
+  /** #VAPP-300: the surfaces an Express block is still streaming: each
+   *  reduces `streaming` (a child not streamed yet renders as nothing).
+   *  `settled` = the exact set (a surface left out closed: it re-reduces
+   *  without the option, a still-missing child is the Unknown placeholder
+   *  again, and its issues go to the agent); else only adds. */
+  setStreaming(surfaceIds: readonly string[], settled = true): void {
+    if (settled) this.streaming = new Set(surfaceIds)
+    else for (const id of surfaceIds) this.streaming.add(id)
+    for (const [id, store] of this.stores) {
+      const on = this.streaming.has(id)
+      if (store.streaming === on) continue
+      store.setStreaming(on)
+      if (!on && (this.options.transport || this.options.agent)) this.sendIssues(store)
+    }
   }
 
   close(): void {
@@ -387,6 +415,7 @@ export class ExponentialHost {
         this.forgetPaintErrors(op.surfaceId)
         const store = new SurfaceStore(op.surfaceId, op.catalogId, () => this.extensions)
         store.sendDataModel = op.sendDataModel === true
+        store.streaming = this.streaming.has(op.surfaceId)
         store.packageId = this.router.surface(op.surfaceId)?.packageId
         if (op.metadata) store.metadata = op.metadata
         if (op.theme !== undefined && op.theme !== null) {

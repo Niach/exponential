@@ -250,16 +250,12 @@ struct Said {
 /// of it runs now.
 static READINESS: LazyLock<Mutex<HashMap<PathBuf, (Option<Said>, bool)>>> = LazyLock::new(Default::default);
 
-/// #EXP-1514: the compositor sockets whose hello this process has heard say
-/// `space-readiness` ([`ask`]). Until one has, no answer is not `Unknown`
-/// ([`space_offer`]).
-static HEARD: LazyLock<Mutex<std::collections::HashSet<PathBuf>>> = LazyLock::new(Default::default);
-
 /// #EXP-1514: ask the compositor whether it gives a run a space now, all
 /// of it within `within`. A hello without `space-readiness` (eDE 0.2.29)
 /// = [`SpaceBlock::OlderDesktop`]; a root that cannot mint =
 /// [`SpaceBlock::Unavailable`]; then its answer. No socket, a refused
-/// connect, no answer in time = [`SpaceOffer::Unknown`].
+/// connect, no answer in time = [`SpaceOffer::Unknown`], never an older
+/// desktop (#EXP-2065: eDE's consent question holds the hello).
 fn ask(session: &Session, within: Duration) -> Said {
     let at = Instant::now();
     let said = |offer, max| Said { at, offer, max };
@@ -268,7 +264,6 @@ fn ask(session: &Session, within: Duration) -> Said {
     if !root.hello.offers_spaces() || !root.hello.says_space_readiness() {
         return said(SpaceOffer::No(SpaceBlock::OlderDesktop), None);
     }
-    lock(&HEARD).insert(session.socket.clone());
     if !root.hello.capabilities.contains(&Capability::System) {
         return said(SpaceOffer::No(SpaceBlock::Unavailable(NO_MINT.to_string())), None);
     }
@@ -314,18 +309,33 @@ pub(crate) fn no_space(offer: &SpaceOffer) -> String {
 /// #EXP-1514: what the compositor said last, read without waiting (the
 /// heartbeat and the IDE's foreground call it); an answer older than
 /// [`OFFER_REFRESH`], or none, starts a refresh on a thread of its own.
-/// No answer (yet, or in time) = [`SpaceOffer::Unknown`], but only once
-/// this process has heard this compositor say `space-readiness`
-/// ([`HEARD`]): before that it reads as an older desktop, so a launch
-/// right after the host started, a busy compositor or one restarting
-/// gives the person's screen exactly as before spaces. eDE says it from
-/// the flip on (#EXP-2011); 0.2.29 and before never do.
+/// No answer (yet, or in time) = [`SpaceOffer::Unknown`]: never an older
+/// desktop (#EXP-2065), only a hello without `space-readiness` says that.
+/// A launch reads [`launch_offer`] instead.
 pub(crate) fn space_offer(session: &Session) -> SpaceOffer {
-    let offer = cached_offer(session);
-    if offer == SpaceOffer::Unknown && !lock(&HEARD).contains(&session.socket) {
-        return SpaceOffer::No(SpaceBlock::OlderDesktop);
+    cached_offer(session)
+}
+
+/// #EXP-2065: the offer a launch places its run by: the cache's real answer
+/// while it is fresh, else the compositor asked now (within [`GATE_WITHIN`]).
+/// An empty cache or one holding a timeout is never read as an answer: a
+/// launch right after the person allowed eDE's consent question gets the
+/// space, not the screen. A real answer is remembered; no answer is not.
+pub(crate) fn launch_offer(session: &Session) -> SpaceOffer {
+    let fresh = READINESS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&session.socket)
+        .and_then(|(said, _)| said.clone())
+        .filter(|said| said.offer != SpaceOffer::Unknown && said.at.elapsed() < OFFER_REFRESH);
+    if let Some(said) = fresh {
+        return said.offer;
     }
-    offer
+    let said = ask(session, GATE_WITHIN);
+    if said.offer != SpaceOffer::Unknown {
+        remember(&session.socket, said.clone());
+    }
+    said.offer
 }
 
 /// #EXP-1514: [`space_offer`], once this process's cache holds the
@@ -2678,19 +2688,16 @@ mod tests {
     }
 
     /// #EXP-1514: the offer is read from the cache and never waits on the
-    /// desktop: a silent one answers at once, every time (`Unknown` once its
-    /// hello was heard saying `space-readiness`); a ready one's answer
-    /// arrives from the refresh's own thread.
+    /// desktop: a silent one answers at once, every time (`Unknown`); a
+    /// ready one's answer arrives from the refresh's own thread.
     #[test]
     fn the_offer_is_read_from_a_cache_refreshed_on_its_own_thread() {
         let silent = fake_socket_of(Fake { ready: Some(Ready::Silent), ..Fake::READY });
         for _ in 0..3 {
             let started = Instant::now();
-            let offer = space_offer(&silent.session);
-            assert!(matches!(offer, SpaceOffer::Unknown | SpaceOffer::No(SpaceBlock::OlderDesktop)), "{offer:?}");
+            assert_eq!(space_offer(&silent.session), SpaceOffer::Unknown);
             assert!(started.elapsed() < Duration::from_millis(100), "the read waited {:?}", started.elapsed());
         }
-        until("the silent desktop's hello was never heard", || space_offer(&silent.session) == SpaceOffer::Unknown);
         let ready = fake_socket_of(Fake::READY);
         until("the refresh never answered", || space_offer(&ready.session) == SpaceOffer::Offered);
         let older = fake_socket_of(Fake { ready: None, ..Fake::READY });
@@ -2701,42 +2708,76 @@ mod tests {
         }
     }
 
-    /// #EXP-1514: until a compositor says `space-readiness` (eDE 0.2.29
-    /// and every build before the flip, #EXP-2011), every launch reads
-    /// what it read before spaces: an older desktop, so the launcher's
-    /// `computer_place` resolves Auto to the person's screen. That holds for
-    /// the empty cache (the first read after the host started), for a
-    /// desktop that does not answer in time (no socket while eDE restarts, a
-    /// stopped or busy compositor) and for one without the feature. Only a
-    /// compositor heard saying it reads `Unknown` when it falls silent (a
-    /// space run that asks again at its first call, never the screen).
+    /// #EXP-2065: no answer is never an older desktop. The empty cache, no
+    /// socket (eDE restarting), a hello nobody answers (eDE's consent
+    /// question open, a stopped or busy compositor) all read `Unknown`, so
+    /// the doctor says Not responding, never Update Exponential Desktop.
+    /// Only a hello without `space-readiness` (eDE 0.2.29) is older.
     #[test]
-    fn before_the_flip_no_answer_reads_as_before_spaces() {
+    fn no_answer_is_never_an_older_desktop() {
         let older = SpaceOffer::No(SpaceBlock::OlderDesktop);
         let answered = |session: &Session| {
             READINESS.lock().unwrap().get(&session.socket).is_some_and(|(said, asking)| said.is_some() && !*asking)
         };
-        // Today's eDE: the empty cache, then its own answer.
+        // An eDE before the flip: its own answer says older.
         let featureless = fake_socket_of(Fake { ready: None, ..Fake::READY });
-        assert_eq!(space_offer(&featureless.session), older, "the empty cache");
+        assert_eq!(space_offer(&featureless.session), SpaceOffer::Unknown, "the empty cache");
         until("the refresh never answered", || answered(&featureless.session));
         assert_eq!(space_offer(&featureless.session), older);
-        // No socket (eDE restarting) and one nobody answers on (stopped, busy).
+        assert_eq!(launch_offer(&featureless.session), older, "a launch keeps the screen on an older eDE");
+        // No socket and one nobody answers on.
         let dir = std::env::temp_dir().join(format!("epilot-dark-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("token"), "f".repeat(64)).unwrap();
         let _stopped = std::os::unix::net::UnixListener::bind(dir.join("stopped.sock")).unwrap();
         for socket in ["gone.sock", "stopped.sock"] {
             let session = Session { socket: dir.join(socket), token_file: dir.join("token"), token: None };
-            assert_eq!(space_offer(&session), older, "{socket}: the empty cache");
+            assert_eq!(space_offer(&session), SpaceOffer::Unknown, "{socket}: the empty cache");
             until("the refresh never gave up", || answered(&session));
-            assert_eq!(ask(&session, Duration::from_millis(50)).offer, SpaceOffer::Unknown, "{socket}: it did not answer");
-            assert_eq!(space_offer(&session), older, "{socket}: no answer before one was heard is not Unknown");
+            assert_eq!(space_offer(&session), SpaceOffer::Unknown, "{socket}: a timeout is no answer");
         }
-        // A compositor of the flip: heard once, then silent = Unknown.
+        // A compositor of the flip that falls silent.
         let silent = fake_socket_of(Fake { ready: Some(Ready::Silent), ..Fake::READY });
-        until("the hello was never heard", || space_offer(&silent.session) == SpaceOffer::Unknown);
+        assert_eq!(space_offer(&silent.session), SpaceOffer::Unknown);
+        assert_eq!(ask(&silent.session, Duration::from_millis(200)).offer, SpaceOffer::Unknown);
         for dir in [&featureless.dir, &dir, &silent.dir] {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    /// #EXP-2065: a launch never places its run by a cached timeout: it asks
+    /// the desktop now, so the first launch after the person allowed eDE's
+    /// consent question gets its space. A fresh real answer is read without
+    /// asking; a timeout the launch itself hits is not remembered.
+    #[test]
+    fn a_launch_asks_again_over_a_cached_timeout() {
+        let questions = |faked: &Faked| logged(faked).iter().filter(|line| *line == "space_readiness").count();
+        // The consent question was open at the beat: its timeout is cached.
+        let ready = fake_socket_of(Fake::READY);
+        let at = Instant::now();
+        *READINESS.lock().unwrap().entry(ready.session.socket.clone()).or_default() = (Some(Said { at, offer: SpaceOffer::Unknown, max: None }), false);
+        assert_eq!(space_offer(&ready.session), SpaceOffer::Unknown, "the beat reads the timeout");
+        // Allowed: the launch asks now and gets the space.
+        assert_eq!(launch_offer(&ready.session), SpaceOffer::Offered);
+        let asked = questions(&ready);
+        assert!(asked >= 1, "the launch asked");
+        // Its answer is remembered: the next launch reads it.
+        assert_eq!(launch_offer(&ready.session), SpaceOffer::Offered);
+        assert_eq!(questions(&ready), asked, "a fresh real answer is not asked again");
+        assert_eq!(space_offer(&ready.session), SpaceOffer::Offered);
+        // A stale real answer is asked again.
+        *READINESS.lock().unwrap().entry(ready.session.socket.clone()).or_default() = (Some(Said { at: at - OFFER_REFRESH, offer: SpaceOffer::No(SpaceBlock::OlderDesktop), max: None }), true);
+        assert_eq!(launch_offer(&ready.session), SpaceOffer::Offered, "a stale answer is not the launch's");
+        // A desktop that does not answer the launch: Unknown (a space run
+        // that asks again at its first call), and nothing is cached.
+        let dir = std::env::temp_dir().join(format!("epilot-consent-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("token"), "f".repeat(64)).unwrap();
+        let _held = std::os::unix::net::UnixListener::bind(dir.join("held.sock")).unwrap();
+        let held = Session { socket: dir.join("held.sock"), token_file: dir.join("token"), token: None };
+        assert_eq!(launch_offer(&held), SpaceOffer::Unknown);
+        assert!(READINESS.lock().unwrap().get(&held.socket).is_none_or(|(said, _)| said.is_none()), "a timeout is never cached by the launch");
+        for dir in [&ready.dir, &dir] {
             let _ = std::fs::remove_dir_all(dir);
         }
     }

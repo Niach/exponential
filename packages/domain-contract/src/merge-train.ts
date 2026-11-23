@@ -594,6 +594,41 @@ export function heldText(number: number, reason: HoldReason): string {
   return `Auto-merge of #${number} stopped${why}. It waits for a person (Needs you); do not retry.`
 }
 
+/** #FEED-293: the PR's merged line for a Merge now: who forced it and the
+ *  gated checks that were red when they did. */
+export function mergedNowText(number: number, base: string, by: string, red: readonly string[]): string {
+  const past = red.length > 0 ? `, past red checks: ${list(red)}` : ``
+  return `Merged #${number} into ${base} by Merge now (${by})${past}.`
+}
+
+/** #FEED-293: what `pr merge {force}` says it does (the reply's `note`). */
+export function mergeNowQueuedText(number: number, red: readonly string[], behind: readonly number[]): string {
+  const past = red.length > 0 ? `, past red checks: ${list(red)}` : ``
+  const after = behind.length > 0 ? `, once the live run of ${prs(behind)} finishes` : ``
+  return `Merge now: #${number} lands next, untested${past}${after}.`
+}
+
+/** #FEED-293 (merge-train.json `mergeNowRules.refusals`): a force the train
+ *  must not take, as the reply's `refused` text (the stack's first blocker,
+ *  draft first); null = it queues, red checks or not. */
+export function mergeNowRefusal(input: { number: number; draft: boolean; personHold: boolean }): string | null {
+  if (input.draft) return `Can't merge #${input.number} now: it is a draft. Mark it ready for review first.`
+  if (input.personHold) return `Can't merge #${input.number} now: a person put it on hold. Only their Resume lifts it.`
+  return null
+}
+
+/** #FEED-293 (merge-train.json `mergeNowRules.followUps`): what a finished
+ *  run starts next. A queued Merge now goes before the run's re-run or next
+ *  bisect half (their units re-queue); a Merge now run's own re-run goes on. */
+export function mergeNowFollowUp(input: {
+  followUp: boolean
+  mergeNowQueued: boolean
+  runIsMergeNow: boolean
+}): `follow_up` | `merge_now` | `queue` {
+  if (!input.followUp) return `queue`
+  return input.mergeNowQueued && !input.runIsMergeNow ? `merge_now` : `follow_up`
+}
+
 /** The Assistant's held line (person holds never reach it). */
 export function stuckText(number: number, reason: Exclude<HoldReason, `person`>): string {
   const why = {

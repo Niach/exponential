@@ -11,6 +11,10 @@ import {
   heldText,
   landingConfirmed,
   mergedText,
+  mergedNowText,
+  mergeNowFollowUp,
+  mergeNowQueuedText,
+  mergeNowRefusal,
   mergeMenuEntries,
   mergeStep,
   noChecksVerdict,
@@ -82,8 +86,18 @@ describe(`merge-train fixture`, () => {
             ? failingText(i.number, i.failing, i.attempts)
             : kind === `held`
               ? heldText(i.number, i.reason)
-              : stuckText(i.number, i.reason)
+              : kind === `merged_now`
+                ? mergedNowText(i.number, i.base, i.by, i.red)
+                : kind === `merge_now_queued`
+                  ? mergeNowQueuedText(i.number, i.red, i.behind)
+                  : stuckText(i.number, i.reason)
     expect(text).toBe(expected)
+  })
+  it.each(fixture.mergeNowRules.refusals)(`merge now refusal: $name`, ({ input, expected }) => {
+    expect(mergeNowRefusal(input)).toBe(expected)
+  })
+  it.each(fixture.mergeNowRules.followUps)(`merge now follow-up: $name`, ({ input, expected }) => {
+    expect(mergeNowFollowUp(input)).toBe(expected as never)
   })
   it.each(fixture.routing)(`routing: $name`, ({ input, expected }) => {
     expect(prMergeRoute(input as never)).toEqual(expected as never)

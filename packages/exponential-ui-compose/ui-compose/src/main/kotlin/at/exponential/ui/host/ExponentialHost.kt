@@ -124,6 +124,8 @@ class ExponentialHost(
     private val subscriptions = HashMap<String, MutableList<Pair<String, () -> Unit>>>()
     /** Reported paint failures: surfaceId → component ids. */
     private val paintErrors = HashMap<String, MutableSet<String>>()
+    /** #VAPP-300: the surfaces an open Express block is writing. */
+    private val streaming = LinkedHashSet<String>()
     private val bridge = Bridge()
     /** Round 9 §6.5: the routed calls (the core's `CallHub`). */
     private val calls = HostCalls(options.agent)
@@ -264,7 +266,19 @@ class ExponentialHost(
                 }
             },
             options.onText?.let { onText -> { piece: String -> post { onText(piece) } } },
+            { ids, settled -> post { setStreaming(ids, settled) } },
         )
+    }
+
+    /**
+     * #VAPP-300: the surfaces an Express block is still streaming (the decoder's `open`): each reduces `streaming` (a child not
+     * streamed yet renders as nothing). [settled] = the exact set (a surface left out closed: it re-reduces, a still-missing
+     * child is the Unknown placeholder again); else only adds. The TS `setStreaming`.
+     */
+    fun setStreaming(surfaceIds: List<String>, settled: Boolean = true) {
+        if (settled) streaming.clear()
+        streaming.addAll(surfaceIds)
+        for ((id, model) in surfaces) model.setStreaming(id in streaming)
     }
 
     /** Close the transport and drop every surface (and its subscriptions). */
@@ -320,6 +334,7 @@ class ExponentialHost(
                 try {
                     if (metadata != null) t.send(message, metadata) else t.send(message)
                 } catch (e: Exception) {
+                    logTransportError("${t::class.java.simpleName}.send", e)
                     statusDetail = e.message ?: e.toString()
                 }
             }
@@ -519,6 +534,7 @@ class ExponentialHost(
                 val pkgId = router.packageIdOf(sid)
                 if (pkgId != null) packageOf[sid] = pkgId else packageOf.remove(sid)
                 if (op["sendDataModel"]?.bool == true) sendDataModel.add(sid) else sendDataModel.remove(sid)
+                model.setStreaming(sid in streaming)
                 surfaces[sid] = model
                 calls.attachSurface(sid, model.surface)
             }

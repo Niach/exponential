@@ -161,10 +161,46 @@ fun GlyphView(glyph: Glyph, size: Float, color: Color, modifier: Modifier = Modi
 }
 
 /**
+ * #VAPP-301: the built-in glyph of a catalog icon name (`BuiltinGlyphs`,
+ * generated from the same Lucide geometry and names as the SwiftUI
+ * painter's `BuiltinIcons`, the set web's `FALLBACK_ICONS` covers), so a
+ * host with no icon registry draws the glyphs web and iOS draw.
+ */
+internal object BuiltinIcons {
+    private val vectors = HashMap<String, ImageVector>()
+
+    /** The Lucide glyph a name draws (null = the `circle-dashed` placeholder). */
+    fun glyph(name: String): String? = BuiltinGlyphs.names[name]
+
+    /** The vector of a name's glyph, else the placeholder's (Lucide: 2-unit round strokes). */
+    fun vector(name: String): ImageVector {
+        val glyph = glyph(name) ?: "circle-dashed"
+        return vectors.getOrPut(glyph) {
+            val b = ImageVector.Builder(name = glyph, defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
+            for (path in BuiltinGlyphs.paths[glyph].orEmpty()) {
+                // `F ` = filled only, `B ` = filled and stroked, else stroked.
+                val fill = path.startsWith("F ") || path.startsWith("B ")
+                val stroke = !path.startsWith("F ")
+                b.addPath(
+                    pathData = addPathNodes(if (fill) path.substring(2) else path),
+                    fill = if (fill) SolidColor(Color.Black) else null,
+                    stroke = if (stroke) SolidColor(Color.Black) else null,
+                    strokeLineWidth = 2f,
+                    strokeLineCap = StrokeCap.Round,
+                    strokeLineJoin = StrokeJoin.Round,
+                )
+            }
+            b.build()
+        }
+    }
+}
+
+/**
  * A catalog icon by NAME through the host (`HostPlugin.icon`, drawn in
- * [color] as the `LocalContentColor`); the placeholder circle (a 1.5 dp
- * ring at 80 %, half alpha) when the host has none. #EXP-1764: a mark with
- * its OWN colour (`brand-claude`) is drawn in it, never in [color].
+ * [color] as the `LocalContentColor`); without a host icon the built-in
+ * Lucide glyph ([BuiltinIcons]), else the `circle-dashed` placeholder (web's
+ * `IconGlyph` fallback, iOS's `ConceptIcon`). #EXP-1764: a mark with its OWN
+ * colour (`brand-claude`) is drawn in it, never in [color].
  */
 @Composable
 fun IconView(name: String, size: Float, ink: Color, model: SurfaceModel, modifier: Modifier = Modifier, rtl: Boolean = false) {
@@ -177,10 +213,12 @@ fun IconView(name: String, size: Float, ink: Color, model: SurfaceModel, modifie
         if (icon != null) {
             CompositionLocalProvider(LocalContentColor provides color) { icon() }
         } else {
-            Canvas(Modifier.size((s * 0.8f).dp)) {
-                val w = 1.5.dp.toPx()
-                drawCircle(color.copy(alpha = color.alpha * 0.5f), radius = (this.size.minDimension - w) / 2f, style = Stroke(w))
-            }
+            Image(
+                painter = rememberVectorPainter(BuiltinIcons.vector(name)),
+                contentDescription = null,
+                modifier = Modifier.size(s.dp).clearAndSetSemantics {},
+                colorFilter = ColorFilter.tint(color),
+            )
         }
     }
 }

@@ -125,7 +125,7 @@ interface HostPlugin {
     /**
      * The icon registry: a catalog icon NAME (a registry concept such as
      * `nav-inbox`) → a composable drawn at `size` dp in the current content
-     * colour. null = the placeholder circle.
+     * colour. null = the painter's built-in glyph (#VAPP-301), else the placeholder.
      */
     fun icon(name: String, size: Float): (@Composable () -> Unit)? = null
 

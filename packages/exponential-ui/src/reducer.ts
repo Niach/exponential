@@ -84,6 +84,12 @@ export interface ReduceOptions {
   expand?: boolean
   /** Record prop validation issues (default true). */
   validate?: boolean
+  /** #VAPP-300: the surface is still STREAMING (an Express block not yet
+   *  closed): a child reference (a child, a slot, a template's component)
+   *  that has not arrived yet renders as nothing, no placeholder and no
+   *  issue. Default false: a missing reference is the Unknown placeholder
+   *  with its issue (the root always is). */
+  streaming?: boolean
 }
 
 export interface ReduceResult {
@@ -105,7 +111,7 @@ export interface ReduceResult {
  *  root are reported (`template: cycle through this id`) and never lifted:
  *  the node stays where it was and its owner renders no items. Mutates the
  *  freshly built trees. */
-function liftTemplates(root: UiNode, issues: ReduceIssue[], buildMissing?: (id: string) => UiNode | undefined): Map<string, UiNode> {
+function liftTemplates(root: UiNode, issues: ReduceIssue[], buildMissing?: (id: string) => UiNode | undefined, streaming = false): Map<string, UiNode> {
   const order: string[] = []
   const want = new Set<string>()
   const found = new Map<string, UiNode>()
@@ -156,7 +162,7 @@ function liftTemplates(root: UiNode, issues: ReduceIssue[], buildMissing?: (id: 
       if (built) found.set(id, built)
       else {
         missing.add(id)
-        issues.push(reduceIssue(id, `template: no component with this id`))
+        if (!streaming) issues.push(reduceIssue(id, `template: no component with this id`))
       }
     }
     for (const node of [...found.values()]) collect(node)
@@ -383,7 +389,7 @@ export function childTemplate(value: WireChildTemplate): ChildTemplate {
 /** Reduce a flat component list. Children are resolved from the root down, so
  *  components nothing references (a basic Button's consumed Text child) do
  *  not appear. A missing or cyclic reference becomes an Unknown placeholder
- *  plus an issue. VAPP-103: an id placed a second time (two parents, or one
+ *  plus an issue (#VAPP-300: while `streaming`, a missing child is nothing). VAPP-103: an id placed a second time (two parents, or one
  *  parent twice) renders at its first place only (`id used twice`), a node
  *  deeper than `maxDepth` is an Unknown placeholder, and past
  *  `maxComponents` nodes the rest is dropped (catalog/limits.json). */
@@ -433,6 +439,8 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
         return undefined
       }
     }
+    // #VAPP-300: a child not streamed yet is no node at all (no budget, no issue).
+    if (!flat && options.streaming && depth > 1) return undefined
     if (!spend(budget, id, issues)) return undefined
     if (!flat) {
       issues.push(reduceIssue(id, `no component with this id`))
@@ -504,7 +512,7 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
   const rootId = options.rootId ?? `root`
   let root = build(rootId, 1) ?? unknown(rootId, `#${rootId}`, options.catalogId)
   parents.set(root, SURFACE_COMPONENT)
-  const lifted = liftTemplates(root, issues, (id) => (byId.has(id) && !placed.has(id) ? build(id, 1) : undefined))
+  const lifted = liftTemplates(root, issues, (id) => (byId.has(id) && !placed.has(id) ? build(id, 1) : undefined), options.streaming === true)
   if (options.validate !== false) checkParents(root, lifted, parents, extensions, issues)
   return finish(root, lifted, options.expand !== false, extensions, options.catalogId, issues)
 }

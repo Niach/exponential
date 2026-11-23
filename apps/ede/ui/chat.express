@@ -1,0 +1,256 @@
+# Exponential Desktop's agent chat (#EDE-65 lane I): THE chat both hosts draw, the IDE's Agent page
+# and conversation as one genUI document. The chat button next to the start button (or Super+Space)
+# opens it as an on-demand top layer surface filling the panel (the ground's rounded panel: the shell
+# sizes it like a maximised window, inside the sidebar's and the taskbar's exclusive zones plus the
+# panel margin). It binds /chatting, the chat model (packages/uicore/fixtures/chat.express, uicore-model
+# chat): face `home` = the agent row (To {name}, one circle per agent, the picked one ringed) over the
+# composer; face `conversation` = the header (the agent's icon, the title, New chat), the rows
+# (#EDE-65 lane O: every bubble is genUI's MessageBubble under the theme's recipe, the IDE's look:
+# `side` out = the viewer's own right, `in` left with its `author` over it, its `time` inside;
+# #EXP-1772 a RELAY's `relay` line (another session's name + ›, `thref` =caption's size, muted) sits
+# `ABOVE the bubble, outside it, and is the ONLY press (ede_chat open {sessionId: link`}): no bubble
+# is a link, the sender's `avatar` icon in a 32 px column LEFT of the bubble on an `indent`ed row
+# (empty = its spacer; 8 px to the bubble, transcript-grouping `avatarGap`), so the bubble's 62 % cap
+# is of the column right of it (`maxWidth.wide`), not of the row, a queued one at 0.7 with `queued`
+# under it; each row's `gap` (3, 8, 12 or 16 px) is a spacer above it, the list itself has none; a
+# `host` row is an Embed the host claims by its painted id and paints itself (the IDE's tool rows and
+# Work card); the agent's plain prose in a transcript, muted lines, THE inline marker (#EXP-1772 kind
+# `marker`, an event line or a system note: its `text` centred and muted between two hairline
+# Separators), divider pills, cards that open their session (lane Q: a card with a genUI surface draws
+# it in an Embed under its title, in the IDE's surface frame: the title caption over a 12 px card box;
+# a plan keeps its row above the frame), questions whose options answer, pictures; #EXP-1780:
+# `chat_scroll` scrolls them above the composer, the host holding it at the newest row until the
+# reader scrolls up) and the composer. `noCli` (a Local desktop without a usable CLI) shows the empty
+# state over the composer. EXP-1513: by /chatting/setup/state it is `idle` = Set up Claude Code
+# (ede_chat setup: Anthropic's installer when claude is missing, then the CLI's own sign-in, which
+# opens the browser; never a credential), `installing` = Setting up Claude Code… (no action),
+# `signingIn` = Sign in to Claude Code with Open sign-in (ede_chat signIn re-opens the CLI's sign-in
+# link), `failed` = the reason with Try again (an EmptyState's description is literal: the host sets
+# it from /chatting/setup/message by id, `chat_cli_failed`, like the composer's); once signed in the
+# desktop's agent restarts on it. The conversation composer's placeholder and busy are literal props
+# (genUI binds only a Composer's value): the host sets them from /chatting/composer by id
+# (`chat_composer`) and redraws when they change. THE `/` menu (domain::slash_menu, the IDE's rules):
+# while the draft is a bare command token the host lists /chatMenu {open, rows [{name, command,
+# description, hint, insert}]} above the composer (the session's CLI's builtins, then the team's
+# prompts, both prefix-filtered; the home lists the prompts alone); a builtin's press (ede_chat slash
+# {insert}) puts its insertion in the composer, never sends; a prompt's (ede_chat slash {prompt})
+# loads its body into it; every composer change reports the draft (ede_chat draft {text}). KEYS
+# (#EDE-65 lane P, the IDE's composer menus): while /chatMenu is open the composer's menuKeys hands
+# ArrowUp/ArrowDown/Enter/Tab/Escape to the host as the event ede_chat {action: key, key} (an event:
+# its context carries the key); the host highlights one row (`selected`,
+# domain::chat_document::menu_key): the arrows move it, wrapping, Enter and Tab pick it like its
+# press, Escape shuts the menu for that draft; a rebuilt `/` menu keeps its row (clamped), the
+# typeahead starts at its first. /chat/draft is the composer's text, owned by the document.
+# ATTACHMENTS (#EDE-65 lane L, the IDE's composer rules): the composer's attach control (ede_chat
+# attach) opens the desktop's file chooser; the picks stage as /chatFiles {open, items [{key, label,
+# image, icon}]}, a removable Chip each above the composer (the image itself as its picture, else the
+# file's glyph; ede_chat unattach {key}), images up to 4 × 10 MB and files up to 4 × 50 MB, one notice
+# for the rest; the send uploads them (a team's session files, a Local desktop's blob store) and
+# passes their ids with the text, a failed upload is the toast and keeps them for the retry.
+# Everything goes through ede_chat {action}: send {text}, pick {agentId}, open {sessionId}, answer
+# {messageId, answer}, new, stop; no action closes the surface. On a Local desktop the shell runs the
+# desktop's own agent (#EDE-58); on a team it talks to the team's sessions through sessions.send.
+# COMPOSER (#EDE-65 lane O, the IDE draws this same footer): the composer's ONLY tool is the "+" Menu
+# in its `leading` slot (composer-menu.json), shown while /chatting/composer/plus; its items are a
+# literal prop the host sets from /chatting/composer/menu by id (`chat_plus`, `chat_home_plus`), a
+# pick = the EVENT ede_chat {action: plus, value} (an event: its context carries the value) (`<row>`
+# or `<row>:<entry>`, uicore-model chat::plus_pick): `add-file` opens the file chooser (no paperclip
+# any more); a pasted image fires the Composer's attach as the EVENT ede_chat {action: attach, files}
+# (the host already has the files through its upload hook; a bare attach = the chooser). The
+# `trailing` slot holds `chat_ring`, an Embed the host claims (the IDE's context ring and its usage
+# sheet) while /chatting/composer/ring. The quick replies (`chat_replies`, /chatting/composer/replies)
+# sit directly above the card: each a Chip whose press is ede_chat reply {messageId, replyId}, then a
+# dismiss (ede_chat dismissReplies {messageId}). #EDE-65 lane T: the IDE card through genUI: the
+# staged files and team chips are the Composer's `above` slot (a wrapping strip inside the card: a
+# team = a removable pill Chip, a picture = a 48 px tile, a file = a 160 × 48 tile, each tile's remove
+# a 24 px round button in its corner); the `/` and @/#/: menus float in a Popover at the composer's
+# width (`matchAnchorWidth`); a menu row's `hasLeading` leading slot = the @ member's avatar
+# (`avatarName`, `avatarSrc`), the : `emoji`, or the # status glyph (`statusIcon`, `statusTone`),
+# every row carrying those fields, blank when unused. A menu row draws the IDE's typeahead row: its
+# `command` (`/name`, an issue id) in mono, the `description` muted after it (in the foreground when
+# there is no command: a prompt's or a member's name), a member's muted `hint` (the email), the
+# `argHint` (`<level>`) muted mono at the row's end; `hasIcon` shows a prompt's glyph. #EDE-98: the
+# header's marks (`/chatting/header/marks`, chats.json chatMarks) sit right after the title,
+# `shell.markGap` 4 apart and vertically centred, each a 12 px muted Icon in a Tooltip carrying its
+# label, never pressable. #EDE-129 FIND IN CHAT (find-in-chat.express): eDE's header has no `…`, so a
+# ghost Search in chat button (`chat_find_open`, ede_chat findOpen) sits before New chat; the bar
+# (`chat_find`, shown while /chatting/find/open) sits under the header: the search Input bound to
+# /chatFind/query (every change = ede_chat find {query}, Enter = findStep previous), the counter
+# /chatting/find/counter, previous / next (ede_chat findStep {step}), close (ede_chat findClose), the
+# status line /chatting/find/status; the host counts the synced bubbles (their MessageBubble
+# `highlight`, bound per row) with domain::find_in_chat and scrolls the current one to the centre.
+surface("chat", extensions={ede: {layer: "top", anchor: ["top", "bottom", "left", "right"], margin: {top: 10, right: 10, bottom: 10, left: 10}, keyboard: "on-demand", onDemand: true, functions: ["ede_chat"]}})
+$/chat/draft = ""
+$/chatFind/query = ""
+$/chatMenu/open = false
+$/chatMenu/rows = []
+$/chatting/agentRow/agents = []
+$/chatting/agentRow/label = ""
+$/chatting/composer/busy = false
+$/chatting/composer/canSend = false
+$/chatting/composer/menu = []
+$/chatting/composer/placeholder = "What do you want to build?"
+$/chatting/composer/plus = false
+$/chatting/composer/replies = []
+$/chatting/composer/repliesMessageId = ""
+$/chatting/composer/ring = false
+$/chatting/empty = true
+$/chatting/face = "home"
+$/chatting/find/counter = ""
+$/chatting/find/open = false
+$/chatting/find/status = ""
+$/chatting/header/icon = ""
+$/chatting/header/title = ""
+$/chatting/noCli = false
+$/chatting/rows = []
+$/chatting/setup/message = ""
+$/chatting/setup/state = "idle"
+$/chatting/setup/url = ""
+root = Box(style={display: "flex", flexDirection: "column", width: "100%", height: "100%", backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.lg", overflow: "hidden"}, children=[chat_home, chat_conversation])
+chat_home = Box(style={display: "flex", flexDirection: "column", flexGrow: 1, minHeight: 0, alignItems: "center", justifyContent: "center", padding: "$spacing.lg"}, children=[chat_home_column], visible=eq(a=$/chatting/face, b="home"))
+chat_home_column = Box(style={display: "flex", flexDirection: "column", alignItems: "stretch", width: "100%", maxWidth: 640, gap: 12}, children=[chat_agent_row, chat_home_slash, chat_no_cli, chat_cli_installing, chat_cli_signing_in, chat_cli_failed, chat_home_files, chat_home_composer])
+chat_agent_row = Box(style={display: "flex", flexDirection: "column", gap: 8}, children=[chat_agent_label, chat_agents, chat_agent_slot])
+chat_agent_label = Text(text=$/chatting/agentRow/label, variant="muted")
+chat_agents = List(direction="horizontal", gap="sm", children=_template($/chatting/agentRow/agents, chat_agent_slot, key="id"))
+chat_agent_slot = Box(style={display: "flex"}, children=[chat_agent_on, chat_agent_off])
+chat_agent_on = Box(style={padding: 3, borderRadius: "$radius.full", borderWidth: 2, borderColor: "$color.foreground"}, children=[chat_agent_on_circle], visible=cond(if=$selected, then=true, else=false))
+chat_agent_on_circle = Box(style={width: 40, height: 40, borderRadius: "$radius.full", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border"}, pressable=true, children=[chat_agent_on_icon], on={press: ede_chat(action="pick", agentId=$id)})
+chat_agent_on_icon = Icon(name=$icon, size="default")
+chat_agent_off = Box(style={padding: 3, borderRadius: "$radius.full", borderWidth: 2, borderColor: "$color.background"}, children=[chat_agent_off_circle], visible=not(value=cond(if=$selected, then=true, else=false)))
+chat_agent_off_circle = Box(style={width: 40, height: 40, borderRadius: "$radius.full", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border"}, pressable=true, children=[chat_agent_off_icon], on={press: ede_chat(action="pick", agentId=$id)})
+chat_agent_off_icon = Icon(name=$icon, size="default")
+chat_home_slash = Box(style={display: "flex", flexDirection: "column", padding: 4, borderRadius: 12, borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.popover"}, children=[chat_home_slash_rows, chat_home_slash_row], visible=cond(if=$/chatMenu/open, then=true, else=false))
+chat_home_slash_rows = List(gap="none", children=_template($/chatMenu/rows, chat_home_slash_row, key="key"))
+chat_home_slash_row = Row(title=$description, identifier=$command, meta=$hint, icon=$icon, selected=$selected, density="compact", pressable=true, on={press: ede_chat(action="slash", insert=$insert, prompt=$prompt)})
+chat_no_cli = EmptyState(icon="settings-agents", title="No coding CLI on this desktop", description="Claude Code installs with Anthropic's installer and signs in with your Claude account.", actionLabel="Set up Claude Code", size="page", on={press: ede_chat(action="setup")}, visible=and(values=[cond(if=$/chatting/noCli, then=true, else=false), eq(a=$/chatting/setup/state, b="idle")]))
+chat_cli_installing = EmptyState(icon="settings-agents", title="Setting up Claude Code…", size="page", visible=and(values=[cond(if=$/chatting/noCli, then=true, else=false), eq(a=$/chatting/setup/state, b="installing")]))
+chat_cli_signing_in = EmptyState(icon="settings-agents", title="Sign in to Claude Code", description="Finish in your browser.", actionLabel="Open sign-in", size="page", on={press: ede_chat(action="signIn")}, visible=and(values=[cond(if=$/chatting/noCli, then=true, else=false), eq(a=$/chatting/setup/state, b="signingIn")]))
+chat_cli_failed = EmptyState(icon="settings-agents", title="Couldn't set up Claude Code", description="", actionLabel="Try again", size="page", on={press: ede_chat(action="setup")}, visible=and(values=[cond(if=$/chatting/noCli, then=true, else=false), eq(a=$/chatting/setup/state, b="failed")]))
+chat_home_files = List(direction="horizontal", gap="sm", children=_template($/chatFiles/items, chat_home_file, key="key"), visible=cond(if=$/chatFiles/open, then=true, else=false))
+chat_home_file = Chip(label=$label, shape="rect", removable=true, slots={leading: "chat_home_file_lead"}, on={remove: ede_chat(action="unattach", key=$key)})
+chat_home_file_lead = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 20, height: 20}, children=[chat_home_file_picture, chat_home_file_icon])
+chat_home_file_picture = Image(src=$image, alt=$label, fit="cover", width=20, height=20, fallback="image", loading="eager", style={borderRadius: 4}, visible=not(value=eq(a=$image, b="")))
+chat_home_file_icon = Icon(name=$icon, size="sm", visible=eq(a=$image, b=""))
+chat_home_composer = Composer(placeholder="What do you want to build?", value=$/chat/draft, attachments=false, menuKeys=$/chatMenu/open, slots={leading: "chat_home_plus"}, on={submit: ede_chat(action="send", text=$/chat/draft), change: ede_chat(action="draft", text=$/chat/draft), attach: Event("ede_chat", {action: "attach"}), key: Event("ede_chat", {action: "key"})})
+chat_home_plus = Menu(items=[], side="top", align="start", children=[chat_home_plus_button], on={select: Event("ede_chat", {action: "plus"})}, visible=cond(if=$/chatting/composer/plus, then=true, else=false))
+chat_home_plus_button = Button(icon="ui-add", variant="ghost", size="icon")
+chat_conversation = Box(style={display: "flex", flexDirection: "column", flexGrow: 1, minHeight: 0}, children=[chat_header, chat_find, chat_scroll, chat_row, chat_footer], visible=eq(a=$/chatting/face, b="conversation"))
+chat_header = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 12, paddingLeft: 56, paddingRight: 24, paddingTop: 20, paddingBottom: 16, borderBottomWidth: 1, borderColor: "$color.border"}, children=[chat_header_avatar, chat_header_title_box, chat_find_open, chat_new])
+chat_header_avatar = Box(style={width: 36, height: 36, borderRadius: "$radius.full", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "$color.muted"}, children=[chat_header_icon], visible=not(value=eq(a=$/chatting/header/icon, b="")))
+chat_header_icon = Icon(name=$/chatting/header/icon, size="sm")
+chat_header_title_box = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 4, flexGrow: 1, minWidth: 0}, children=[chat_header_title, chat_header_marks])
+chat_header_title = Heading(text=$/chatting/header/title, level="h2")
+chat_header_marks = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0}, children=_template($/chatting/header/marks, chat_header_mark, key="testId"), visible=lt(a=0, b=len(value=$/chatting/header/marks)))
+chat_header_mark = Tooltip(content=$label, children=[chat_header_mark_icon])
+chat_header_mark_icon = Icon(name=$icon, style={width: 12, height: 12, color: "$color.mutedForeground"})
+chat_find_open = Button(label="Search in chat", icon="nav-search", variant="ghost", size="icon", on={press: ede_chat(action="findOpen")})
+chat_new = Button(label="New chat", icon="message-square-plus", variant="ghost", size="icon", on={press: ede_chat(action="new")})
+chat_find = Box(style={display: "flex", flexDirection: "column", borderBottomWidth: 1, borderColor: "$color.border"}, children=[chat_find_bar, chat_find_status], visible=$/chatting/find/open)
+chat_find_bar = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 56, paddingRight: 24, paddingTop: 8, paddingBottom: 8, backgroundColor: "$color.muted"}, children=[chat_find_field, chat_find_counter, chat_find_previous, chat_find_next, chat_find_close])
+chat_find_field = Box(style={width: 384, flexShrink: 0}, children=[chat_find_input])
+chat_find_input = Input(label="Search in chat", name="find", type="search", placeholder="Search in chat", value=$/chatFind/query, variant="box", on={change: ede_chat(action="find", query=$/chatFind/query), submit: ede_chat(action="findStep", step="previous")})
+chat_find_counter = Text(text=$/chatting/find/counter, style={color: "$color.mutedForeground"})
+chat_find_previous = Button(label="Previous match", icon="ui-chevron-up", variant="ghost", size="icon", on={press: ede_chat(action="findStep", step="previous")})
+chat_find_next = Button(label="Next match", icon="ui-chevron-down", variant="ghost", size="icon", on={press: ede_chat(action="findStep", step="next")})
+chat_find_close = Button(label="Close search", icon="ui-close", variant="ghost", size="icon", on={press: ede_chat(action="findClose")})
+chat_find_status = Text(text=$/chatting/find/status, style={color: "$color.mutedForeground", paddingLeft: 56, paddingTop: 8}, visible=not(value=eq(a=$/chatting/find/status, b="")))
+chat_scroll = List(gap="none", style={flexGrow: 1, minHeight: 0, width: "100%", maxWidth: 996, alignSelf: "center", paddingLeft: 20, paddingRight: 20, paddingTop: 16, paddingBottom: 16, overflowY: "auto"}, children=_template($/chatting/rows, chat_row, key="id"))
+chat_row = Box(style={display: "flex", flexDirection: "column"}, children=[chat_gap_3, chat_gap_8, chat_gap_12, chat_gap_16, chat_row_user, chat_row_agent, chat_row_line, chat_row_marker, chat_row_pill, chat_row_card, chat_row_surface, chat_row_question, chat_row_picture, chat_row_host])
+chat_gap_3 = Box(style={height: 3, flexShrink: 0}, visible=eq(a=$gap, b=3))
+chat_gap_8 = Box(style={height: 8, flexShrink: 0}, visible=eq(a=$gap, b=8))
+chat_gap_12 = Box(style={height: 12, flexShrink: 0}, visible=eq(a=$gap, b=12))
+chat_gap_16 = Box(style={height: 16, flexShrink: 0}, visible=eq(a=$gap, b=16))
+chat_row_user = Box(style={display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end"}, children=[chat_user_bubble_out, chat_user_bubble_row_in, chat_user_bubble_queued_out, chat_user_bubble_queued_row_in, chat_user_caption, chat_user_queued], visible=eq(a=$kind, b="user"))
+chat_user_bubble_out = MessageBubble(text=$body, side="out", tail=$tail, time=$time, status=$status, author=$author, highlight=$highlight, visible=and(values=[cond(if=$bubble, then=true, else=false), not(value=cond(if=$queued, then=true, else=false)), eq(a=$side, b="out")]))
+chat_user_bubble_row_in = Box(style={display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 8, width: "100%"}, children=[chat_user_bubble_avatar_in, chat_user_bubble_in_column], visible=and(values=[cond(if=$bubble, then=true, else=false), not(value=cond(if=$queued, then=true, else=false)), eq(a=$side, b="in")]))
+chat_user_bubble_avatar_in = Box(style={width: 32, height: 32, flexShrink: 0}, children=[chat_user_bubble_avatar_icon_in], visible=cond(if=$indent, then=true, else=false))
+chat_user_bubble_avatar_icon_in = Icon(name=$avatar, style={width: 32, height: 32}, visible=not(value=eq(a=$avatar, b="")))
+chat_user_bubble_in_column = Box(style={display: "flex", flexDirection: "column", gap: 4, flexGrow: 1, flexShrink: 1, minWidth: 0}, children=[chat_user_bubble_in_relay, chat_user_bubble_in])
+chat_user_bubble_in_relay = Box(style={display: "flex", flexDirection: "row", alignSelf: "flex-start", maxWidth: "100%", minWidth: 0}, pressable=true, children=[chat_user_bubble_in_relay_text], on={press: ede_chat(action="open", sessionId=$link)}, visible=not(value=eq(a=$relay, b="")))
+chat_user_bubble_in_relay_text = Text(text=$relay, variant="caption", lines=1, style={color: "$color.mutedForeground"})
+chat_user_bubble_in = MessageBubble(text=$body, side="in", tail=$tail, time=$time, author=$author, highlight=$highlight, style={width: "100%"})
+chat_user_bubble_queued_out = MessageBubble(text=$body, side="out", tail=$tail, time=$time, status=$status, author=$author, highlight=$highlight, style={opacity: 0.7}, visible=and(values=[cond(if=$bubble, then=true, else=false), cond(if=$queued, then=true, else=false), eq(a=$side, b="out")]))
+chat_user_bubble_queued_row_in = Box(style={display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 8, width: "100%"}, children=[chat_user_bubble_queued_avatar_in, chat_user_bubble_queued_in_column], visible=and(values=[cond(if=$bubble, then=true, else=false), cond(if=$queued, then=true, else=false), eq(a=$side, b="in")]))
+chat_user_bubble_queued_avatar_in = Box(style={width: 32, height: 32, flexShrink: 0}, children=[chat_user_bubble_queued_avatar_icon_in], visible=cond(if=$indent, then=true, else=false))
+chat_user_bubble_queued_avatar_icon_in = Icon(name=$avatar, style={width: 32, height: 32}, visible=not(value=eq(a=$avatar, b="")))
+chat_user_bubble_queued_in_column = Box(style={display: "flex", flexDirection: "column", gap: 4, flexGrow: 1, flexShrink: 1, minWidth: 0}, children=[chat_user_bubble_queued_in_relay, chat_user_bubble_queued_in])
+chat_user_bubble_queued_in_relay = Box(style={display: "flex", flexDirection: "row", alignSelf: "flex-start", maxWidth: "100%", minWidth: 0}, pressable=true, children=[chat_user_bubble_queued_in_relay_text], on={press: ede_chat(action="open", sessionId=$link)}, visible=not(value=eq(a=$relay, b="")))
+chat_user_bubble_queued_in_relay_text = Text(text=$relay, variant="caption", lines=1, style={color: "$color.mutedForeground"})
+chat_user_bubble_queued_in = MessageBubble(text=$body, side="in", tail=$tail, time=$time, author=$author, highlight=$highlight, style={width: "100%", opacity: 0.7})
+chat_user_caption = Text(text=$caption, variant="caption", style={color: "$color.mutedForeground"}, visible=and(values=[not(value=cond(if=$bubble, then=true, else=false)), not(value=eq(a=$caption, b=""))]))
+chat_user_queued = Text(text="queued", variant="caption", style={color: "$color.mutedForeground"}, visible=cond(if=$queued, then=true, else=false))
+chat_row_agent = Box(style={display: "flex", flexDirection: "column"}, children=[chat_agent_bubble_out, chat_agent_bubble_row_in, chat_agent_prose], visible=eq(a=$kind, b="agent"))
+chat_agent_bubble_out = MessageBubble(text=$body, side="out", tail=$tail, time=$time, status=$status, author=$author, highlight=$highlight, visible=and(values=[cond(if=$bubble, then=true, else=false), not(value=cond(if=$queued, then=true, else=false)), eq(a=$side, b="out")]))
+chat_agent_bubble_row_in = Box(style={display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 8, width: "100%"}, children=[chat_agent_bubble_avatar_in, chat_agent_bubble_in_column], visible=and(values=[cond(if=$bubble, then=true, else=false), not(value=cond(if=$queued, then=true, else=false)), eq(a=$side, b="in")]))
+chat_agent_bubble_avatar_in = Box(style={width: 32, height: 32, flexShrink: 0}, children=[chat_agent_bubble_avatar_icon_in], visible=cond(if=$indent, then=true, else=false))
+chat_agent_bubble_avatar_icon_in = Icon(name=$avatar, style={width: 32, height: 32}, visible=not(value=eq(a=$avatar, b="")))
+chat_agent_bubble_in_column = Box(style={display: "flex", flexDirection: "column", gap: 4, flexGrow: 1, flexShrink: 1, minWidth: 0}, children=[chat_agent_bubble_in_relay, chat_agent_bubble_in])
+chat_agent_bubble_in_relay = Box(style={display: "flex", flexDirection: "row", alignSelf: "flex-start", maxWidth: "100%", minWidth: 0}, pressable=true, children=[chat_agent_bubble_in_relay_text], on={press: ede_chat(action="open", sessionId=$link)}, visible=not(value=eq(a=$relay, b="")))
+chat_agent_bubble_in_relay_text = Text(text=$relay, variant="caption", lines=1, style={color: "$color.mutedForeground"})
+chat_agent_bubble_in = MessageBubble(text=$body, side="in", tail=$tail, time=$time, author=$author, highlight=$highlight, style={width: "100%"})
+chat_agent_prose = Markdown(text=$body, visible=not(value=cond(if=$bubble, then=true, else=false)))
+chat_row_line = Stack(direction="horizontal", gap="sm", align="center", children=[chat_line_icon, chat_line_text], visible=eq(a=$kind, b="line"))
+chat_line_icon = Icon(name=$icon, size="sm", style={color: "$color.mutedForeground"})
+chat_line_text = Text(text=$text, variant="caption", style={color: "$color.mutedForeground"})
+chat_row_marker = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%"}, children=[chat_marker_rule_start, chat_marker_text, chat_marker_rule_end], visible=eq(a=$kind, b="marker"))
+chat_marker_rule_start = Separator(style={flexGrow: 1, flexShrink: 1, minWidth: 0, alignSelf: "center"})
+chat_marker_text = Text(text=$text, variant="caption", lines=1, style={color: "$color.mutedForeground", flexShrink: 1, minWidth: 0})
+chat_marker_rule_end = Separator(style={flexGrow: 1, flexShrink: 1, minWidth: 0, alignSelf: "center"})
+chat_row_pill = Box(style={display: "flex", justifyContent: "center"}, children=[chat_pill], visible=eq(a=$kind, b="pill"))
+chat_pill = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 10, paddingRight: 10, paddingTop: 4, paddingBottom: 4, borderRadius: "$radius.full", borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.card"}, children=[chat_pill_icon, chat_pill_text])
+chat_pill_icon = Icon(name=$icon, size="sm", style={color: "$color.mutedForeground"})
+chat_pill_text = Text(text=$text, variant="caption", style={color: "$color.mutedForeground"})
+chat_row_card = Row(title=$title, meta=$text, icon=$icon, chevron="right", surface="card", pressable=true, on={press: ede_chat(action="open", sessionId=$target)}, visible=and(values=[eq(a=$kind, b="card"), or(values=[not(value=cond(if=$surface, then=true, else=false)), cond(if=$text, then=true, else=false)])]))
+chat_row_surface = Box(style={display: "flex", flexDirection: "column", gap: 6}, children=[chat_surface_title, chat_surface_frame], visible=and(values=[eq(a=$kind, b="card"), cond(if=$surface, then=true, else=false)]))
+chat_surface_title = Text(text=$title, variant="caption", style={color: "$color.mutedForeground", fontWeight: 500}, visible=not(value=cond(if=$text, then=true, else=false)))
+chat_surface_frame = Box(style={padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.card", overflow: "hidden"}, children=[chat_surface_frame_embed], visible=cond(if=$surface, then=true, else=false))
+chat_surface_frame_embed = Embed(surface=$surface, on={action: Event("ede_chat", {action: "card", messageId: $id})})
+chat_row_question = Box(style={display: "flex", flexDirection: "column", gap: 8, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.card"}, children=[chat_question_head, chat_question_surface, chat_question_options, chat_option, chat_question_answer], visible=eq(a=$kind, b="question"))
+chat_question_head = Stack(direction="horizontal", gap="sm", align="start", children=[chat_question_icon, chat_question_title])
+chat_question_icon = Icon(name=$icon, size="sm", tone="warning")
+chat_question_title = Text(text=$title, variant="body", style={flexGrow: 1})
+chat_question_surface = Box(style={padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.card", overflow: "hidden"}, children=[chat_question_surface_embed], visible=cond(if=$surface, then=true, else=false))
+chat_question_surface_embed = Embed(surface=$surface, on={action: Event("ede_chat", {action: "card", messageId: $id})})
+chat_question_options = List(gap="xs", children=_template($options, chat_option, key="label"), visible=cond(if=$waiting, then=true, else=false))
+chat_option = Row(title=$label, subtitle=$description, surface="card", pressable=true, on={press: ede_chat(action="answer", answer=$label, messageId=$messageId)})
+chat_question_answer = Text(text=$answer, variant="muted", visible=and(values=[not(value=cond(if=$waiting, then=true, else=false)), cond(if=$answer, then=true, else=false)]))
+chat_row_picture = Stack(direction="horizontal", gap="sm", align="center", children=[chat_picture_icon, chat_picture_text], visible=eq(a=$kind, b="picture"))
+chat_picture_icon = Icon(name="image", size="sm", style={color: "$color.mutedForeground"})
+chat_picture_text = Text(text=$text, variant="caption", style={color: "$color.mutedForeground"})
+chat_row_host = Embed(surface=$surface, visible=eq(a=$kind, b="host"))
+chat_footer = Box(style={display: "flex", flexDirection: "column", alignItems: "stretch", gap: 7, width: "100%", maxWidth: 996, alignSelf: "center", paddingLeft: 20, paddingRight: 20, paddingBottom: 16}, children=[chat_slash_popover, chat_replies, chat_composer])
+chat_slash_popover = Popover(open=$/chatMenu/open, side="top", align="start", anchor=chat_composer, matchAnchorWidth=true, children=[chat_slash])
+chat_slash = Box(style={display: "flex", flexDirection: "column", gap: 1.75, margin: -12}, children=[chat_slash_rows, chat_slash_row])
+chat_slash_rows = List(gap="none", children=_template($/chatMenu/rows, chat_slash_row, key="key"))
+chat_slash_row = Row(title="", selected=$selected, density="compact", pressable=true, slots={leading: "chat_slash_body", trailing: "chat_slash_arg"}, on={press: ede_chat(action="slash", insert=$insert, prompt=$prompt)})
+chat_slash_body = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 7, minWidth: 0}, children=[chat_slash_lead, chat_slash_icon, chat_slash_command, chat_slash_text, chat_slash_name, chat_slash_detail])
+chat_slash_lead = Box(style={display: "flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, flexShrink: 0}, children=[chat_slash_avatar, chat_slash_emoji, chat_slash_status], visible=$hasLeading)
+chat_slash_avatar = Avatar(name=$avatarName, src=$avatarSrc, size="sm", seed=$avatarName, style={width: 16, height: 16}, visible=not(value=eq(a=$avatarName, b="")))
+chat_slash_emoji = Text(text=$emoji, lines=1, visible=not(value=eq(a=$emoji, b="")))
+chat_slash_status = Icon(name=$statusIcon, size="sm", tone=$statusTone, visible=not(value=eq(a=$statusIcon, b="")))
+chat_slash_icon = Icon(name=$icon, size="sm", style={color: "$color.mutedForeground"}, visible=$hasIcon)
+chat_slash_command = Text(text=$command, lines=1, style={fontFamily: "$type.family.mono", fontSize: 10.5, lineHeight: 14, color: "$color.foreground", flexShrink: 0}, visible=not(value=eq(a=$command, b="")))
+chat_slash_text = Text(text=$description, lines=1, style={fontSize: 12.25, lineHeight: 17.5, color: "$color.mutedForeground", minWidth: 0}, visible=not(value=eq(a=$command, b="")))
+chat_slash_name = Text(text=$description, lines=1, style={fontSize: 12.25, lineHeight: 17.5, color: "$color.foreground", minWidth: 0}, visible=eq(a=$command, b=""))
+chat_slash_detail = Text(text=$hint, lines=1, style={fontSize: 10.5, lineHeight: 14, color: "$color.mutedForeground", minWidth: 0}, visible=not(value=eq(a=$hint, b="")))
+chat_slash_arg = Text(text=$argHint, lines=1, style={fontFamily: "$type.family.mono", fontSize: 10.5, lineHeight: 14, color: "$color.mutedForeground", opacity: 0.7, flexShrink: 0}, visible=not(value=eq(a=$argHint, b="")))
+chat_replies = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 5.25, width: "100%"}, children=[chat_reply_list, chat_replies_dismiss], visible=not(value=eq(a=$/chatting/composer/repliesMessageId, b="")))
+chat_reply_list = Box(style={display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 5.25}, children=_template($/chatting/composer/replies, chat_reply, key="key"))
+chat_reply = Chip(label=$label, pressable=true, on={press: ede_chat(action="reply", messageId=$messageId, replyId=$key)})
+chat_replies_dismiss = Button(icon="ui-close", variant="ghost", size="icon-xs", on={press: ede_chat(action="dismissReplies", messageId=$/chatting/composer/repliesMessageId)})
+chat_composer = Composer(placeholder="Type / for commands", value=$/chat/draft, attachments=false, busy=false, layout="flat", menuKeys=$/chatMenu/open, slots={leading: "chat_plus_tip", trailing: "chat_ring", above: "chat_files"}, on={submit: ede_chat(action="send", text=$/chat/draft), stop: ede_chat(action="stop"), change: ede_chat(action="draft", text=$/chat/draft), attach: Event("ede_chat", {action: "attach"}), key: Event("ede_chat", {action: "key"})})
+chat_plus_tip = Tooltip(content="Add", children=[chat_plus], visible=cond(if=$/chatting/composer/plus, then=true, else=false))
+chat_plus = Menu(items=[], side="top", align="start", children=[chat_plus_button], on={select: Event("ede_chat", {action: "plus"})})
+chat_plus_button = Button(icon="ui-add", variant="ghost", size="icon-xs", tone="muted", disabled=$/chatting/composer/sending, style={marginTop: 5})
+chat_ring = Embed(surface=$/chatRing, style={width: 24, height: 24, marginRight: 2.5}, visible=cond(if=$/chatting/composer/ring, then=true, else=false))
+chat_files = Box(style={display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 5.25, marginTop: -1.5, marginBottom: 1.75, paddingHorizontal: 1.75}, children=_template($/chatFiles/items, chat_file, key="key"), visible=cond(if=$/chatFiles/open, then=true, else=false))
+chat_file = Box(style={display: "flex", position: "relative", flexShrink: 0}, children=[chat_file_team, chat_file_image, chat_file_file])
+chat_file_team = Chip(label=$label, removable=true, slots={leading: "chat_file_team_mark"}, on={remove: ede_chat(action="unattach", key=$key)}, visible=eq(a=$icon, b="ui-team"))
+chat_file_team_mark = Image(src=$image, alt=$label, fit="cover", width=12, height=12, fallback="ui-team", loading="eager", style={borderRadius: "$radius.full"})
+chat_file_image = Box(style={width: 48, height: 48, borderRadius: "$radius.sm", borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.card", overflow: "hidden", position: "relative"}, children=[chat_file_picture, chat_file_image_remove], visible=cond(if=not(value=eq(a=$icon, b="ui-team")), then=not(value=eq(a=$image, b="")), else=false))
+chat_file_picture = Image(src=$image, alt=$label, fit="cover", width=48, height=48, fallback="image", loading="eager")
+chat_file_image_remove = Button(label="Remove", icon="ui-close", variant="ghost", size="icon-xs", on={press: ede_chat(action="unattach", key=$key)}, style={position: "absolute", top: 0, right: 0})
+chat_file_file = Box(style={display: "flex", flexDirection: "row", alignItems: "center", position: "relative", width: 160, height: 48, paddingLeft: 7, paddingRight: 24, gap: 5.25, borderRadius: "$radius.sm", borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.card"}, children=[chat_file_icon, chat_file_name, chat_file_file_remove], visible=cond(if=not(value=eq(a=$icon, b="ui-team")), then=eq(a=$image, b=""), else=false))
+chat_file_icon = Icon(name=$icon, size="sm", style={color: "$color.mutedForeground"})
+chat_file_name = Text(text=$label, variant="caption", lines=1, style={flexGrow: 1, minWidth: 0})
+chat_file_file_remove = Button(label="Remove", icon="ui-close", variant="ghost", size="icon-xs", on={press: ede_chat(action="unattach", key=$key)}, style={position: "absolute", top: 0, right: 0})
