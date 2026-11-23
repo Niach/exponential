@@ -149,7 +149,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins"]
+             "v113_drop_pins", "v114_agent_group_chat"]
         )
     }
 
@@ -220,7 +220,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins"]
+             "v113_drop_pins", "v114_agent_group_chat"]
         )
     }
 
@@ -763,7 +763,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins"]
+             "v113_drop_pins", "v114_agent_group_chat"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -882,7 +882,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v105_composer_drafts", "v106_ci_runs", "v107_message_delivery",
              "v108_sidebar_layout", "v109_agent_voice", "v110_session_watching",
              "v111_session_clear_tree", "v112_session_voice_call",
-             "v113_drop_pins"]
+             "v113_drop_pins", "v114_agent_group_chat"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1928,7 +1928,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "agents"),
             ["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli",
              "account", "model", "owner_id", "sort_order", "created_at", "updated_at",
-             "instructions_updated_at", "role", "skill_ids", "defaults", "mcp_server_ids", "voice"]
+             "instructions_updated_at", "role", "skill_ids", "defaults", "mcp_server_ids", "voice", "group_chat_id"]
         )
         // #EXP-1661: the skills shape allowlist (`body` never).
         XCTAssertEqual(
@@ -4088,6 +4088,54 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         try pool.write { db in try agent.save(db) }
         XCTAssertEqual(try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "ag2")?.voice }, want)
+    }
+
+    // #EXP-1990: v114 adds `agents.group_chat_id` (existing rows = none),
+    // resetting ONLY the agents cursor; a wire row round-trips, null and
+    // absent read as none.
+    func testAgentGroupChatAdded() throws {
+        let pool = try makePool("exp1990-agent-group-chat")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v113_drop_pins")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "agents" ("id", "team_id", "name", "created_at", "updated_at")
+                VALUES ('ag1', 't', 'Release', 'x', 'x')
+                """)
+            for shape in ["agents", "sessions"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "agents").contains("group_chat_id"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v114_agent_group_chat"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["agents"])
+            XCTAssertNil(try AgentDefinitionEntity.fetchOne(db, key: "ag1")?.groupChatId)
+        }
+        let decode = { (json: String) in try JSONDecoder().decode(AgentDefinitionEntity.self, from: Data(json.utf8)) }
+        let agent = try decode("""
+            {"id":"ag2","team_id":"t","name":"Ops","group_chat_id":"g-1","created_at":"x","updated_at":"x"}
+            """)
+        XCTAssertEqual(agent.groupChatId, "g-1")
+        XCTAssertNil(try decode("""
+            {"id":"ag3","team_id":"t","name":"Docs","group_chat_id":null,"created_at":"x","updated_at":"x"}
+            """).groupChatId)
+        XCTAssertNil(try decode("""
+            {"id":"ag4","team_id":"t","name":"Docs","created_at":"x","updated_at":"x"}
+            """).groupChatId)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+        try pool.write { db in try agent.save(db) }
+        XCTAssertEqual(try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "ag2")?.groupChatId }, "g-1")
     }
 
     // #NEW-49: v110 adds `sessions.watching` (jsonb text), resetting ONLY

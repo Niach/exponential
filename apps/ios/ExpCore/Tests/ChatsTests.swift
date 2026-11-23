@@ -131,7 +131,8 @@ final class ChatsTests: XCTestCase {
                 color: try XCTUnwrap(string($0["color"])),
                 busy: try XCTUnwrap($0["busy"] as? Bool),
                 needsYou: try XCTUnwrap($0["needsYou"] as? Bool),
-                assistant: ($0["assistant"] as? Bool) ?? false
+                assistant: ($0["assistant"] as? Bool) ?? false,
+                groupChatId: string($0["groupChatId"])
             )
         }
     }
@@ -174,7 +175,9 @@ final class ChatsTests: XCTestCase {
                 messages: try messages(input["messages"]),
                 needsYou: try XCTUnwrap(input["needsYou"] as? Bool),
                 busy: try XCTUnwrap(input["busy"] as? Bool),
-                visible: (input["visibleSessionIds"] as? [String]).map(Set.init)
+                visible: (input["visibleSessionIds"] as? [String]).map(Set.init),
+                me: string(input["me"]),
+                members: input["members"] as? [String: String]
             )
             assertJSON(json(got), testCase["expected"], name)
         }
@@ -213,7 +216,9 @@ final class ChatsTests: XCTestCase {
                 words: words,
                 view: view,
                 now: try XCTUnwrap(string(input["now"])),
-                utcOffsetMinutes: try XCTUnwrap(input["utcOffsetMinutes"] as? Int)
+                utcOffsetMinutes: try XCTUnwrap(input["utcOffsetMinutes"] as? Int),
+                me: string(input["me"]),
+                members: input["members"] as? [String: String]
             )
             assertJSON(["rows": got.rows.map(json), "archived": got.archived], testCase["expected"], name)
         }
@@ -231,6 +236,7 @@ final class ChatsTests: XCTestCase {
                 messages: try messages(input["messages"]),
                 reads: try reads(input["reads"]),
                 me: string(input["me"]),
+                members: input["members"] as? [String: String],
                 view: view,
                 now: try XCTUnwrap(string(input["now"])),
                 utcOffsetMinutes: try XCTUnwrap(input["utcOffsetMinutes"] as? Int)
@@ -259,6 +265,7 @@ final class ChatsTests: XCTestCase {
                 messages: try messages(input["messages"]),
                 reads: try reads(input["reads"]),
                 me: string(input["me"]),
+                members: input["members"] as? [String: String],
                 view: view,
                 now: try XCTUnwrap(string(input["now"])),
                 utcOffsetMinutes: try XCTUnwrap(input["utcOffsetMinutes"] as? Int)
@@ -584,7 +591,7 @@ final class ChatsTests: XCTestCase {
         XCTAssertEqual(copy["boardMenu"] as? [String: String], ["newBoard": C.BoardMenu.newBoard, "newTeam": C.BoardMenu.newTeam])
         XCTAssertEqual(copy["preview"] as? [String: String], [
             "working": C.Preview.working, "question": C.Preview.question, "plan": C.Preview.plan,
-            "you": C.Preview.you, "picture": C.Preview.picture, "surface": C.Preview.surface,
+            "you": C.Preview.you, "member": C.Preview.member, "picture": C.Preview.picture, "surface": C.Preview.surface,
             "empty": C.Preview.empty, "askQuestionLead": C.Preview.askQuestionLead,
             "askPlanLead": C.Preview.askPlanLead,
             "askPrivateQuestionLead": C.Preview.askPrivateQuestionLead,

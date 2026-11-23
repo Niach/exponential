@@ -669,6 +669,21 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** #EXP-1990 (transcript-grouping.json MEMBER INPUTS): the session's
+     *  team members by id: a teammate's line in a team agent's group chat
+     *  sits under THEIR avatar and name. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val teamMembers: StateFlow<Map<String, UserEntity>> = browseTeamId
+        .flatMapLatest { teamId ->
+            if (teamId == null) {
+                flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(teamId) }
+            }
+        }
+        .map { users -> users.associateBy { it.id } }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     // ── The live connection's state, re-exposed unchanged (EXP-621) ─────────
 
     val phase: StateFlow<AgentPhase> = connection.phase
@@ -1064,6 +1079,8 @@ class AgentSessionViewModel @AssistedInject constructor(
                         stored = true,
                         clientId = null,
                         messageId = row.id,
+                        // #EXP-1990: who sent it (a group chat holds every member's inputs).
+                        authorId = row.authorId,
                     )
                 }
             }
@@ -1109,6 +1126,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                     createdAt = row.createdAt,
                     createdAtMs = com.exponential.app.domain.WireTimestamps.parseEpochMs(row.createdAt),
                     body = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body,
+                    authorId = row.authorId,
                 )
             }
         }.flatMapLatest { (more, messages) ->
@@ -1187,6 +1205,21 @@ class AgentSessionViewModel @AssistedInject constructor(
             kotlinx.coroutines.delay(maxOf(1L, expiry - now + 1))
         }
     }.distinctUntilChanged()
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * #EXP-1990 (a team agent's group chat, any shared chat): the TEAMMATES'
+     * card-less inputs the device has not consumed yet, oldest first, drawn
+     * left under their avatar and name ahead of the viewer's own tail (the
+     * web's queued rows); a consumed one is a sent input / the feed's echo.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val teammateTail: StateFlow<List<com.exponential.app.domain.MessageDelivery.Bubble>> = combine(
+        dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeQueued(codingSessionId) },
+        auth.userId,
+    ) { rows, me -> teammatePending(rows, me) }
+        .distinctUntilChanged()
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -1968,3 +2001,29 @@ internal fun dockActivityOf(state: ActivityFeedState) = AgentSessionViewModel.Do
 
 /** #FEED-237: how many of the viewer's newest own rows the outbox matches against. */
 private const val OWN_ROWS = 100
+
+/** #EXP-1990: [AgentSessionViewModel.teammateTail]'s rule over the session's
+ *  unconsumed person rows (bodies opened): another member's card-less,
+ *  non-blank ones; a row with no author reads as the viewer's (never drawn
+ *  here). */
+internal fun teammatePending(rows: List<MessageEntity>, me: String?): List<com.exponential.app.domain.MessageDelivery.Bubble> {
+    if (me.isNullOrEmpty()) return emptyList()
+    return rows
+        .filter { row ->
+            val author = row.authorId
+            !author.isNullOrEmpty() && author != me && row.consumedAt.isNullOrEmpty() &&
+                (row.card == null || row.card == "null") && row.body.isNotBlank()
+        }
+        .map { row ->
+            com.exponential.app.domain.MessageDelivery.Bubble(
+                key = "member-row-${row.id}",
+                text = row.body,
+                createdAt = row.createdAt,
+                state = com.exponential.app.domain.MessageDelivery.State.Sending,
+                stored = true,
+                clientId = null,
+                messageId = row.id,
+                authorId = row.authorId,
+            )
+        }
+}

@@ -46,6 +46,8 @@ object Chats {
         const val PREVIEW_QUESTION = "Question: {text}"
         const val PREVIEW_PLAN = "Plan: {text}"
         const val PREVIEW_YOU = "You: {text}"
+        /** #EXP-1990: a teammate's text, under their name. */
+        const val PREVIEW_MEMBER = "{name}: {text}"
         const val PREVIEW_PICTURE = "Picture"
         const val PREVIEW_SURFACE = "Preview"
         const val PREVIEW_EMPTY = "No messages yet"
@@ -644,7 +646,9 @@ object Chats {
                 id = id,
                 sessionId = sessionId,
                 authorKind = authorKind,
-                authorId = null,
+                // #EXP-1990: a PERSON's message names its author (absent on
+                // an agent's message and on a digest written before it).
+                authorId = m.optText("authorId")?.takeIf { it.isNotEmpty() },
                 body = m.textOf("body"),
                 card = card,
                 answeredAt = m.optText("answeredAt"),
@@ -786,6 +790,10 @@ object Chats {
         needsYou: Boolean,
         busy: Boolean,
         visible: Set<String>? = null,
+        /** #EXP-1990: the viewer, and the team's members' names by id: a
+         *  person's text by anyone else reads [Copy.PREVIEW_MEMBER]. */
+        me: String? = null,
+        members: Map<String, String>? = null,
     ): ChatPreview {
         val own = messages
             .filter {
@@ -815,6 +823,14 @@ object Chats {
             ChatExpress.ActionCard.of(newest.card)?.let { action ->
                 val body = plainLine(newest.body)
                 return ChatPreview("you", if (body.isNotEmpty()) Copy.PREVIEW_YOU.replace("{text}", body) else ChatExpress.actionMarker(action.name, null))
+            }
+            // #EXP-1990: a teammate's line (a shared chat, a team agent's
+            // group chat) reads under their name; an unknown author (an
+            // older digest) = you.
+            val author = newest.authorId
+            if (!author.isNullOrEmpty() && !me.isNullOrEmpty() && author != me) {
+                val name = members?.get(author) ?: TranscriptGrouping.Copy.FORMER_MEMBER
+                return ChatPreview("member", Copy.PREVIEW_MEMBER.replace("{name}", name).replace("{text}", plainLine(newest.body)))
             }
             return ChatPreview("you", Copy.PREVIEW_YOU.replace("{text}", plainLine(newest.body)))
         }
@@ -899,6 +915,9 @@ object Chats {
         utcOffsetMinutes: Int,
         /** #EXP-1399 review: the viewer's synced session ids ([chatPreview]). */
         visible: Set<String>? = null,
+        /** #EXP-1990: the viewer and the members' names ([chatPreview]). */
+        me: String? = null,
+        members: Map<String, String>? = null,
     ): ChatList {
         val archivedIds = reads.filter { !it.archivedAt.isNullOrEmpty() }.map { it.sessionId }.toSet()
         fun isArchived(row: ChatRow) = !row.needsYou && row.sessionId in archivedIds
@@ -926,7 +945,7 @@ object Chats {
                     deviceId = row.deviceId,
                     group = group,
                     lead = lead,
-                    preview = chatPreview(row.sessionId, messages, row.needsYou, row.busy, visible),
+                    preview = chatPreview(row.sessionId, messages, row.needsYou, row.busy, visible, me, members),
                     activityAt = row.activityAt,
                     time = chatTimeLabel(row.activityAt, now, utcOffsetMinutes),
                     unreadCount = unreadCount(row.sessionId, messages, reads),
@@ -1071,10 +1090,13 @@ object Chats {
         view: ChatListView = ChatListView.List,
         now: String,
         utcOffsetMinutes: Int,
+        /** #EXP-1990: the members' names ([chatPreview]). */
+        members: Map<String, String>? = null,
     ): List<AgentChatRow> {
         if (view == ChatListView.Archived) return emptyList()
         return agents.map { agent ->
-            val conversation = sessions.firstOrNull { it.parentId == null && it.agentId == agent.agentId && it.userId == me }
+            // #EXP-1990: a team agent's GROUP chat, else the viewer's own root.
+            val conversation = SessionTree.agentChat(agent.agentId, agent.groupChatId, sessions, me)
             val id = conversation?.id
             var newest: String? = null
             if (id != null) {
@@ -1092,7 +1114,7 @@ object Chats {
                 icon = agent.icon,
                 color = agent.color,
                 assistant = agent.assistant,
-                preview = if (id != null) chatPreview(id, messages, agent.needsYou, agent.busy) else ChatPreview("empty", Copy.PREVIEW_EMPTY),
+                preview = if (id != null) chatPreview(id, messages, agent.needsYou, agent.busy, me = me, members = members) else ChatPreview("empty", Copy.PREVIEW_EMPTY),
                 time = activityAt?.let { chatTimeLabel(it, now, utcOffsetMinutes) } ?: "",
                 activityAt = activityAt,
                 unreadCount = if (id != null) unreadCount(id, messages, reads) else 0,
@@ -1144,6 +1166,8 @@ object Chats {
         view: ChatListView = ChatListView.List,
         now: String,
         utcOffsetMinutes: Int,
+        /** #EXP-1990: the members' names ([chatPreview]). */
+        members: Map<String, String>? = null,
     ): List<AppChatRow> {
         if (view == ChatListView.Archived) return emptyList()
         return Apps.sortApps(apps).map { app ->
@@ -1171,7 +1195,7 @@ object Chats {
                 name = app.name,
                 icon = app.icon,
                 color = app.color,
-                preview = if (id != null) chatPreview(id, messages, needsYou, busy) else ChatPreview("empty", Copy.PREVIEW_EMPTY),
+                preview = if (id != null) chatPreview(id, messages, needsYou, busy, me = me, members = members) else ChatPreview("empty", Copy.PREVIEW_EMPTY),
                 time = activityAt?.let { chatTimeLabel(it, now, utcOffsetMinutes) } ?: "",
                 activityAt = activityAt,
                 unreadCount = if (id != null) unreadCount(id, messages, reads) else 0,

@@ -612,6 +612,23 @@ object AgentSettings {
             !me.isNullOrEmpty() && starterId == me && !chatTeamId.isNullOrEmpty() &&
                 teamIds.isNotEmpty() && chatTeamId !in teamIds
     }
+
+    /** #EXP-1990 (agent-settings.json `groupChat`): a session as
+     *  [agentChatOf] reads it. */
+    data class ChatSessionLike(val id: String, val parentId: String?, val agentId: String?, val userId: String?)
+
+    /** #EXP-1990 (`groupChat.chatCases`, TS `agentChatOf`): THE chat of an
+     *  agent for the viewer: its group chat ([groupChatId]) when that root is
+     *  synced, none when it names a root the viewer does not sync; with no
+     *  group chat the root with its [agentId] the viewer started (the
+     *  Assistant; a team agent before the switch). */
+    fun <T> agentChatOf(agentId: String, groupChatId: String?, sessions: List<T>, me: String?, row: (T) -> ChatSessionLike): T? {
+        if (!groupChatId.isNullOrEmpty()) {
+            return sessions.firstOrNull { row(it).let { s -> s.id == groupChatId && s.parentId == null } }
+        }
+        if (me.isNullOrEmpty()) return null
+        return sessions.firstOrNull { row(it).let { s -> s.parentId == null && s.agentId == agentId && s.userId == me } }
+    }
 }
 
 /** #EXP-1793 (`mcpValueCases`, TS `agentMcpServersValue`): the MCP servers

@@ -243,15 +243,17 @@ pub fn send_input(chat: &TeamChat, agent_id: Option<&str>, text: &str, attachmen
     Some(input)
 }
 
-/// The tree a send lands in (the open session's root, else the person's
-/// conversation with the agent), when it is synced.
+/// The tree a send lands in (the open session's root, else THE agent's chat
+/// for the person: #EXP-1990 `agent_chat_of`, its group chat, else their own
+/// conversation), when it is synced.
 pub fn target_root<'a>(rows: &'a AccountRows, input: &api::sessions::SendInput) -> Option<&'a SessionRow> {
     if let Some(session) = &input.session_id {
         let row = rows.sessions.iter().find(|s| &s.id == session)?;
         return rows.sessions.iter().find(|s| s.id == row.root_id_or_self());
     }
     let agent = input.agent_id.as_deref()?;
-    rows.sessions.iter().find(|s| s.is_root() && s.agent_id.as_deref() == Some(agent) && s.user_id.as_deref() == Some(rows.user_id.as_str()))
+    let group_chat_id = rows.agents.iter().find(|a| a.id == agent).and_then(|a| a.group_chat_id.as_deref());
+    domain::agent_settings::agent_chat_of(agent, group_chat_id, &rows.sessions, Some(rows.user_id.as_str()))
 }
 
 /// #EDE-97 `noKeyRefusal` (`sealed-content.json`): what a send that cannot

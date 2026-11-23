@@ -49,8 +49,12 @@ object MessageDelivery {
     /** #FEED-239: an echo is the row's when its trimmed text equals the body,
      *  or it is the session's BRIEFED first prompt (`## Request` + the body
      *  without its attachment lines + the brief's other sections). */
-    fun echoMatches(text: String, body: String): Boolean {
-        val echo = text.trim()
+    fun echoMatches(text: String, body: String, viewerId: String? = null): Boolean {
+        // #EXP-1990 (transcript-grouping.json MEMBER INPUTS): in a team
+        // agent's group chat the echo is worded `Message from <name> (member
+        // <id>): <body>`; the viewer's own line matches by that body.
+        val member = TranscriptGrouping.memberInputOf(text)
+        val echo = (if (member != null && member.userId == viewerId) member.body else text).trim()
         if (echo == body) return true
         if (!echo.startsWith(BRIEF_REQUEST_HEADING)) return false
         val prose = body
@@ -146,6 +150,9 @@ object MessageDelivery {
         val stored: Boolean,
         val clientId: String?,
         val messageId: String?,
+        /** #EXP-1990: who sent a SENT INPUT (steer-enet.json; a team agent's
+         *  group chat holds every member's); null = the viewer. */
+        val authorId: String? = null,
     ) {
         val actions: List<Action> get() = bubbleActions(state, stored)
     }
@@ -270,7 +277,7 @@ object MessageDelivery {
             val body = row.body.trim()
             val from = ms(row.createdAt) - MATCH_WINDOW_MS
             val echo = echoes.indices.firstOrNull { i ->
-                !taken[i] && echoMatches(echoes[i].text, body) && (echoes[i].at.let { it == null || it >= from })
+                !taken[i] && echoMatches(echoes[i].text, body, viewerId) && (echoes[i].at.let { it == null || it >= from })
             }
             if (echo != null) taken[echo] = true else kept += row.id
         }

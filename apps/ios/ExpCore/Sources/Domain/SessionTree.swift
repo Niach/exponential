@@ -1468,10 +1468,12 @@ public struct AgentLike: Equatable, Sendable, Identifiable {
     public let role: String?
     /// S-3: who owns it (an Assistant shows to its owner only).
     public let ownerId: String?
+    /// #EXP-1990: `agents.group_chat_id`.
+    public let groupChatId: String?
 
     public init(
         id: String, teamId: String, name: String, icon: String?, color: String?, sortOrder: Double,
-        role: String? = nil, ownerId: String? = nil
+        role: String? = nil, ownerId: String? = nil, groupChatId: String? = nil
     ) {
         self.id = id
         self.teamId = teamId
@@ -1481,13 +1483,14 @@ public struct AgentLike: Equatable, Sendable, Identifiable {
         self.sortOrder = sortOrder
         self.role = role
         self.ownerId = ownerId
+        self.groupChatId = groupChatId
     }
 
     public init(_ agent: AgentDefinitionEntity) {
         self.init(
             id: agent.id, teamId: agent.teamId, name: agent.name,
             icon: agent.icon, color: agent.color, sortOrder: agent.sortOrder,
-            role: agent.role, ownerId: agent.ownerId
+            role: agent.role, ownerId: agent.ownerId, groupChatId: agent.groupChatId
         )
     }
 
@@ -1510,6 +1513,9 @@ public struct AgentRow: Equatable, Sendable, Identifiable {
     /// S-3: the viewer's own Assistant (agents.role assistant): the brand
     /// mark instead of icon/color, always first.
     public let assistant: Bool
+    /// #EXP-1990 (agent-settings.json `groupChat`): a team agent's group chat
+    /// root; nil while it has none.
+    public let groupChatId: String?
 
     public var id: String { agentId }
 
@@ -1521,8 +1527,10 @@ public struct AgentRow: Equatable, Sendable, Identifiable {
         color: String,
         busy: Bool,
         needsYou: Bool,
-        assistant: Bool = false
+        assistant: Bool = false,
+        groupChatId: String? = nil
     ) {
+        self.groupChatId = groupChatId
         self.agentId = agentId
         self.teamId = teamId
         self.name = name
@@ -2698,16 +2706,13 @@ public enum SessionTree {
 
     /// The Agents band: one row per `agents` definition of the team (nil =
     /// every team, NEW-2) by `sortOrder`, then name, then id. The spinner /
-    /// needs-you dot read the VIEWER's own conversation session with the
-    /// agent (a root with `agentId` and `userId == me`); none = a quiet row.
+    /// needs-you dot read the agent's chat for the viewer (`agentChatOf`,
+    /// #EXP-1990: a team agent's group chat, else the root with `agentId`
+    /// and `userId == me`); none = a quiet row.
     public static func listAgents(
         agents: [AgentLike], sessions: [TreeSession], teamId: String?, me: String?
     ) -> [AgentRow] {
-        var mine: [String: TreeSession] = [:]
-        for session in sessions where session.parentId == nil && session.userId == me {
-            guard let agentId = session.agentId, !agentId.isEmpty else { continue }
-            mine[agentId] = session
-        }
+        let roots = sessions.filter { $0.parentId == nil }
         return agents
             .filter { teamId == nil || $0.teamId == teamId }
             // S-3: another member's Assistant is never listed
@@ -2722,7 +2727,9 @@ public enum SessionTree {
                 return a.id < b.id
             }
             .map { agent in
-                let conversation = mine[agent.id]
+                let conversation = AgentSettings.agentChatOf(
+                    agentId: agent.id, groupChatId: agent.groupChatId, sessions: roots, me: me
+                )
                 let live = conversation.map { $0.status != "ended" } ?? false
                 return AgentRow(
                     agentId: agent.id,
@@ -2732,7 +2739,8 @@ public enum SessionTree {
                     color: agent.color ?? ListCopy.agentDefaultColor,
                     busy: live && conversation?.busy == true,
                     needsYou: live && conversation?.needsInput == true,
-                    assistant: agent.isAssistant
+                    assistant: agent.isAssistant,
+                    groupChatId: (agent.groupChatId ?? "").isEmpty ? nil : agent.groupChatId
                 )
             }
     }

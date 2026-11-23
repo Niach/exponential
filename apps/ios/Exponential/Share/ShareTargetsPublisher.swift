@@ -98,15 +98,13 @@ final class ShareTargetsPublisher {
 
     nonisolated private static func read(_ db: Database, userId: String?) throws -> Snapshot {
         let definitions = try AgentDefinitionEntity.fetchAll(db)
-        let conversations: [SessionEntity] = userId == nil ? [] : try SessionEntity.fetchAll(db, sql: """
-            SELECT * FROM "sessions" WHERE "agent_id" IS NOT NULL AND "user_id" = ? AND "parent_id" IS NULL
-            ORDER BY "created_at" ASC
-            """, arguments: [userId])
-        // Later rows win: the newest conversation, as `SessionSealer` reads it.
-        let conversationByAgent = Dictionary(
-            conversations.compactMap { row in row.agentId.map { ($0, row) } },
-            uniquingKeysWith: { _, new in new }
-        )
+        // #EXP-1990 (`agentChatOf`): each agent's chat, as `SessionSealer`
+        // reads it: a team agent's group chat, else my own conversation.
+        var conversationByAgent: [String: SessionEntity] = [:]
+        for agent in definitions {
+            conversationByAgent[agent.id] = try AgentSettings.agentChat(db: db, agentId: agent.id, me: userId)
+        }
+        let conversations = conversationByAgent.values.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
         let agents = definitions.map { agent -> MirroredAgent in
             MirroredAgent(
                 id: agent.id,

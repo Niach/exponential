@@ -353,6 +353,50 @@ pub struct PickupInput<'a> {
     /// EXP-1542: the server's move records ([`move_records`] over the
     /// synced `events`); empty while that shape is not up.
     pub moves: &'a [MoveRecord],
+    /// #EXP-1990: the team agents' group chats and the members' names
+    /// ([`input_text`] words a person's message there).
+    pub member_inputs: &'a MemberInputs,
+}
+
+/// #EXP-1990 (transcript-grouping.json MEMBER INPUTS): what words a
+/// person's message in a team agent's GROUP CHAT: the roots the synced
+/// `agents` rows name as their `group_chat_id`, and the synced `users`'
+/// names. Empty (a device mode without those shapes) = every input as before.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MemberInputs {
+    group_chats: HashSet<String>,
+    names: HashMap<String, String>,
+}
+
+impl MemberInputs {
+    /// `sessions` = the rows this pass plans over; a root counts when its
+    /// own agent's row names it (`domain::agent_settings::is_group_chat_root`).
+    pub fn new<'a>(
+        sessions: &[SessionRow],
+        agents: impl IntoIterator<Item = &'a domain::rows::AgentDefRow>,
+        users: impl IntoIterator<Item = &'a domain::rows::User>,
+    ) -> Self {
+        let named: HashSet<(&str, &str)> = agents
+            .into_iter()
+            .filter_map(|agent| Some((agent.id.as_str(), agent.group_chat_id.as_deref().filter(|id| !id.is_empty())?)))
+            .collect();
+        let group_chats: HashSet<String> = sessions
+            .iter()
+            .filter(|row| row.agent_id.as_deref().is_some_and(|agent| named.contains(&(agent, row.id.as_str()))))
+            .map(|row| row.id.clone())
+            .collect();
+        if group_chats.is_empty() {
+            return Self::default();
+        }
+        let names = users
+            .into_iter()
+            .filter_map(|user| {
+                let name = user.name.as_deref().map(str::trim).filter(|name| !name.is_empty())?;
+                Some((user.id.clone(), name.to_string()))
+            })
+            .collect();
+        Self { group_chats, names }
+    }
 }
 
 /// What the host must do. Ordered: kills first, then launches/resumes, then
@@ -610,7 +654,7 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         .filter(|m| is_pending_input(m) && !awaits_key(m))
         .map(|m| MessageRow {
             body: Some(with_issue_brief(
-                &with_attachment_embeds(&input_text(m, input.sessions), &m.attachment_ids),
+                &with_attachment_embeds(&input_text(m, input.sessions, input.member_inputs), &m.attachment_ids),
                 m.issue_brief.as_deref(),
             )),
             ..m.clone()
@@ -1008,11 +1052,32 @@ fn is_open_own_plan_card(message: &MessageRow) -> bool {
 /// #EXP-1772 (transcript-grouping.json `feedInput`): a system input (a
 /// message carrying an `event` card) is led by `[<key>] ` ([`input_tag`]) so
 /// the raw session feed draws it as THE inline marker, not a bubble.
-pub fn input_text(message: &MessageRow, sessions: &[SessionRow]) -> String {
+///
+/// #EXP-1990 (transcript-grouping.json MEMBER INPUTS): in a team agent's
+/// GROUP CHAT root a person's plain message (no `event`, no `action` card)
+/// reads `Message from <name> (member <userId>): <body>`
+/// (`domain::transcript_grouping::member_input`), `<name>` = the author's
+/// synced name, else `copy.formerMember`. Only this prompt wears it: the
+/// row's body is never rewritten.
+pub fn input_text(message: &MessageRow, sessions: &[SessionRow], members: &MemberInputs) -> String {
     let text = input_body_text(message, sessions);
-    match input_tag(message) {
-        Some(key) => format!("[{key}] {text}"),
-        None => text,
+    if let Some(key) = input_tag(message) {
+        return format!("[{key}] {text}");
+    }
+    let author = message.author_id.as_deref().filter(|id| !id.is_empty());
+    match author {
+        Some(author)
+            if message.is_from_user()
+                && action_card(message).is_none()
+                && members.group_chats.contains(&message.session_id) =>
+        {
+            let name = members
+                .names
+                .get(author)
+                .map_or(domain::transcript_grouping::copy().former_member.as_str(), String::as_str);
+            domain::transcript_grouping::member_input(name, author, &text)
+        }
+        _ => text,
     }
 }
 
@@ -4272,6 +4337,7 @@ mod tests {
                 in_flight: &self.in_flight,
                 revive_held: &self.revive_held,
                 moves: &self.moves,
+                member_inputs: &MemberInputs::default(),
             })
         }
     }
@@ -4951,11 +5017,11 @@ mod tests {
                 ..message("m9", "s1", "2026-10-02T00:00:00Z")
             };
             assert!(is_pending_input(&row), "{}", case["name"]);
-            assert_eq!(input_text(&row, &[]), case["expected"].as_str().unwrap(), "{}", case["name"]);
+            assert_eq!(input_text(&row, &[], &MemberInputs::default()), case["expected"].as_str().unwrap(), "{}", case["name"]);
         }
         // A card that is not an action reads as before.
         let plain = MessageRow { card: Some(serde_json::json!({"kind": "note"})), ..message("m8", "s1", "t") };
-        assert_eq!(input_text(&plain, &[]), "body of m8");
+        assert_eq!(input_text(&plain, &[], &MemberInputs::default()), "body of m8");
     }
 
     #[test]
@@ -4963,14 +5029,14 @@ mod tests {
         let child = SessionRow { title: Some("Fix the cart".to_string()), ..session("c1", "ended", DEV, "t") };
         let sessions = vec![child];
         assert_eq!(
-            input_text(&report("r1", "s1", "c1", "Opened PR #12."), &sessions),
+            input_text(&report("r1", "s1", "c1", "Opened PR #12."), &sessions, &MemberInputs::default()),
             "Report from Fix the cart (session c1, ended): Opened PR #12."
         );
         // An unsynced (or untitled) child is a Session; no summary = the body.
         let mut bare = report("r2", "s1", "c9", "");
         bare.body = Some("Ended without a summary.".to_string());
         assert_eq!(
-            input_text(&bare, &sessions),
+            input_text(&bare, &sessions, &MemberInputs::default()),
             "Report from Session (session c9, ended): Ended without a summary."
         );
         let asked = MessageRow {
@@ -4978,8 +5044,8 @@ mod tests {
             body: Some("Which branch?".to_string()),
             ..report("q2", "s1", "c1", "")
         };
-        assert_eq!(input_text(&asked, &sessions), "Message from Fix the cart (session c1): Which branch?");
-        assert_eq!(input_text(&message("m1", "s1", "t"), &sessions), "body of m1");
+        assert_eq!(input_text(&asked, &sessions, &MemberInputs::default()), "Message from Fix the cart (session c1): Which branch?");
+        assert_eq!(input_text(&message("m1", "s1", "t"), &sessions, &MemberInputs::default()), "body of m1");
     }
 
     #[test]
@@ -4995,7 +5061,7 @@ mod tests {
             serde_json::json!({"kind": "event", "event": "trigger_fired", "triggerId": "t1", "name": null}),
             "Schedule `*/30 * * * *` fired.",
         );
-        assert_eq!(input_text(&fired, &[]), "[schedule] Schedule `*/30 * * * *` fired.");
+        assert_eq!(input_text(&fired, &[], &MemberInputs::default()), "[schedule] Schedule `*/30 * * * *` fired.");
         let blank = event(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": "  "}), "x");
         assert_eq!(input_tag(&blank), Some("schedule"));
         let named = event(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": "pr.merged"}), "x");
@@ -5005,7 +5071,7 @@ mod tests {
             assert_eq!(input_tag(&line), Some(key));
         }
         let other = event(serde_json::json!({"kind": "event", "event": "issue_linked"}), "x");
-        assert_eq!(input_text(&other, &[]), "[event] x");
+        assert_eq!(input_text(&other, &[], &MemberInputs::default()), "[event] x");
         // A session status line keeps its `Message from …` lead after the tag.
         let child = SessionRow { title: Some("Fix the cart".to_string()), ..session("c1", "running", DEV, "t") };
         let status = MessageRow {
@@ -5016,15 +5082,109 @@ mod tests {
             ..message("e2", "s1", "2026-10-02T00:00:02Z")
         };
         assert_eq!(
-            input_text(&status, &[child]),
+            input_text(&status, &[child], &MemberInputs::default()),
             "[session] Message from Fix the cart (session c1): Started working on its device."
         );
-        let tagged = domain::transcript_grouping::feed_input(&input_text(&fired, &[]));
+        let tagged = domain::transcript_grouping::feed_input(&input_text(&fired, &[], &MemberInputs::default()));
         assert!(matches!(tagged, Some(domain::transcript_grouping::FeedInput::Marker { ref key, .. }) if key == "schedule"));
         // Everything else is untouched.
         assert_eq!(input_tag(&message("m1", "s1", "t")), None);
         assert_eq!(input_tag(&report("r1", "s1", "c1", "Done.")), None);
-        assert_eq!(input_text(&message("m1", "s1", "t"), &[]), "body of m1");
+        assert_eq!(input_text(&message("m1", "s1", "t"), &[], &MemberInputs::default()), "body of m1");
+    }
+
+    /// #EXP-1990 (transcript-grouping.json MEMBER INPUTS): in a team agent's
+    /// group chat a person's plain message names its author; every other
+    /// session and every other input stays byte-identical.
+    #[test]
+    fn a_group_chats_person_line_names_its_member() {
+        use domain::transcript_grouping::{feed_input, FeedInput};
+        let agent = |id: &str, group: Option<&str>| -> domain::rows::AgentDefRow {
+            serde_json::from_value(serde_json::json!({"id": id, "group_chat_id": group})).expect("an agents row")
+        };
+        let root = |id: &str, agent: &str| SessionRow { agent_id: Some(agent.to_string()), ..session(id, "idle", DEV, "t") };
+        let user = |id: &str, name: Option<&str>| domain::rows::User {
+            id: id.to_string(),
+            name: name.map(str::to_string),
+            email: None,
+            image: None,
+            created_at: None,
+            updated_at: None,
+        };
+        // g1 = Release's group chat; p1 = a private conversation with an
+        // agent that has no group chat; c1 = a child of the group chat.
+        let child = SessionRow { parent_id: Some("g1".to_string()), ..root("c1", "a1") };
+        let sessions = vec![root("g1", "a1"), root("p1", "a2"), child];
+        let agents = vec![agent("a1", Some("g1")), agent("a2", None)];
+        let users = vec![user("u-mira", Some("Mira Chen")), user("u-blank", Some("  "))];
+        let members = MemberInputs::new(&sessions, &agents, &users);
+        let by = |session: &str, author: &str, body: &str| MessageRow {
+            author_id: Some(author.to_string()),
+            body: Some(body.to_string()),
+            ..message("m1", session, "2026-10-02T00:00:00Z")
+        };
+        let line = input_text(&by("g1", "u-mira", "Ship it\n\nnow"), &sessions, &members);
+        assert_eq!(line, "Message from Mira Chen (member u-mira): Ship it\n\nnow");
+        assert_eq!(
+            feed_input(&line),
+            Some(FeedInput::Member { name: "Mira Chen".into(), user_id: "u-mira".into(), body: "Ship it\n\nnow".into() })
+        );
+        // A member whose row is gone (or nameless) reads the fallback name.
+        for gone in ["u-gone", "u-blank"] {
+            assert_eq!(
+                input_text(&by("g1", gone, "hi"), &sessions, &members),
+                format!("Message from Former member (member {gone}): hi")
+            );
+        }
+        // The same line in a private conversation, in a child of the group
+        // chat, and on a device that syncs no agents = the bare body.
+        assert_eq!(input_text(&by("p1", "u-mira", "Ship it"), &sessions, &members), "Ship it");
+        assert_eq!(input_text(&by("c1", "u-mira", "Ship it"), &sessions, &members), "Ship it");
+        assert_eq!(input_text(&by("g1", "u-mira", "Ship it"), &sessions, &MemberInputs::default()), "Ship it");
+        // A message without an author keeps its body.
+        assert_eq!(input_text(&message("m1", "g1", "t"), &sessions, &members), "body of m1");
+        // A trigger's event card keeps its tag, an action card its form,
+        // another session's message its own lead.
+        let fired = MessageRow {
+            card: Some(serde_json::json!({"kind": "event", "event": "trigger_fired", "name": null})),
+            ..by("g1", "u-mira", "Schedule `*/30 * * * *` fired.")
+        };
+        assert_eq!(input_text(&fired, &sessions, &members), "[schedule] Schedule `*/30 * * * *` fired.");
+        let case = &domain::chat_express::fixture()["inputCases"][0];
+        let pressed = MessageRow { card: Some(case["card"].clone()), ..by("g1", "u-mira", case["body"].as_str().unwrap()) };
+        assert_eq!(input_text(&pressed, &sessions, &members), case["expected"].as_str().unwrap());
+        let relayed = MessageRow {
+            author_kind: Some("agent".to_string()),
+            author_session_id: Some("c1".to_string()),
+            ..by("g1", "u-mira", "Which branch?")
+        };
+        assert_eq!(
+            domain::transcript_grouping::cross_session_input(&input_text(&relayed, &sessions, &members)).map(|input| input.session_id),
+            Some("c1".to_string())
+        );
+        // The plan hands the worded text on; the row it read is untouched.
+        let pending = by("g1", "u-mira", "Ship it");
+        let live: HashMap<String, LiveView> = HashMap::from([("g1".to_string(), LiveView::default())]);
+        let rows = vec![SessionRow { status: Some("idle".to_string()), ..root("g1", "a1") }];
+        let actions = plan(PickupInput {
+            device_id: DEV,
+            sessions: &rows,
+            messages: std::slice::from_ref(&pending),
+            live: &live,
+            in_flight: &HashSet::new(),
+            revive_held: &HashSet::new(),
+            moves: &[],
+            member_inputs: &MemberInputs::new(&rows, &agents, &users),
+        });
+        let delivered: Vec<&str> = actions
+            .iter()
+            .flat_map(|action| match action {
+                PickupAction::Deliver { messages, .. } => messages.iter().filter_map(|m| m.body.as_deref()).collect(),
+                _ => Vec::new(),
+            })
+            .collect();
+        assert_eq!(delivered, ["Message from Mira Chen (member u-mira): Ship it"]);
+        assert_eq!(pending.body.as_deref(), Some("Ship it"));
     }
 
     #[test]
@@ -5038,7 +5198,7 @@ mod tests {
                 .to_string(),
         );
         assert_eq!(
-            input_text(&hidden, &[child]),
+            input_text(&hidden, &[child], &MemberInputs::default()),
             "Report from MA-1418 (session d02b2da4, ended): A private chat finished.\nRead it with exponential_sessions({op: \"get\", id: \"d02b2da4\"}) if your account may see it."
         );
     }
@@ -5717,6 +5877,7 @@ mod tests {
             in_flight: &HashSet::new(),
             revive_held: &held,
             moves: &[],
+            member_inputs: &MemberInputs::default(),
         });
         let actions: Vec<&PickupAction> = actions.iter().filter(|action| action.session_id() == "quiet").collect();
         assert!(
@@ -6937,6 +7098,7 @@ mod tests {
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
                 moves: &[],
+                member_inputs: &MemberInputs::default(),
             })
         };
         assert!(pass(running.clone(), &[]).is_empty());
@@ -7677,6 +7839,7 @@ mod tests {
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
                 moves: &[],
+                member_inputs: &MemberInputs::default(),
             })
         };
         *host.engine.mode.lock().unwrap() = Some(false);
@@ -7787,6 +7950,7 @@ mod tests {
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
                 moves: &[],
+                member_inputs: &MemberInputs::default(),
             })
         };
         let actions = pass(&flipped, std::slice::from_ref(&card));
@@ -8056,6 +8220,7 @@ mod tests {
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
                 moves: &[],
+                member_inputs: &MemberInputs::default(),
             })
         };
         assert!(pass(&launched).is_empty());
@@ -8277,6 +8442,7 @@ mod tests {
                     in_flight: &HashSet::new(),
                     revive_held: &HashSet::new(),
                     moves: &[],
+                    member_inputs: &MemberInputs::default(),
                 })
             };
             assert_eq!(run(&host.deps.live.live_views()), Vec::new(), "nothing while it ends");

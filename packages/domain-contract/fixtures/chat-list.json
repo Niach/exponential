@@ -2133,6 +2133,178 @@
           "assistant": false
         }
       ]
+    },
+    {
+      "name": "#EXP-1990: a team agent's state reads its GROUP chat (groupChatId), whoever started it; the row names it",
+      "input": {
+        "agents": [
+          {
+            "id": "ag1",
+            "teamId": "t-team-1",
+            "name": "Triage",
+            "icon": "bot",
+            "color": "#22c55e",
+            "sortOrder": 2
+          },
+          {
+            "id": "ag2",
+            "teamId": "t-team-1",
+            "name": "Release",
+            "icon": "rocket",
+            "color": "#f97316",
+            "sortOrder": 1,
+            "groupChatId": "c2"
+          },
+          {
+            "id": "ag3",
+            "teamId": "t-team-1",
+            "name": "Docs",
+            "icon": null,
+            "color": null,
+            "sortOrder": 2
+          },
+          {
+            "id": "ag4",
+            "teamId": "t-team-2",
+            "name": "Elsewhere",
+            "icon": null,
+            "color": null,
+            "sortOrder": 0
+          }
+        ],
+        "sessions": [
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "agentId": "ag1",
+            "userId": "u-dana",
+            "status": "idle",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "c1",
+            "id": "c1"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "agentId": "ag2",
+            "userId": "u-owner",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "c2",
+            "id": "c2"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "agentId": "ag3",
+            "userId": "u-dana",
+            "status": "idle",
+            "busy": false,
+            "needsInput": true,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "c3",
+            "id": "c3"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "agentId": "ag3",
+            "userId": "u-bob",
+            "status": "running",
+            "busy": true,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": null,
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "c3b",
+            "id": "c3b"
+          },
+          {
+            "teamId": "t-team-1",
+            "parentId": null,
+            "agentId": null,
+            "userId": "u-dana",
+            "status": "running",
+            "busy": false,
+            "needsInput": false,
+            "blocked": null,
+            "shared": true,
+            "title": "A chat",
+            "guide": null,
+            "startedAt": "2026-10-13T10:00:00.000Z",
+            "endedAt": null,
+            "createdAt": "2026-10-13T10:00:00.000Z",
+            "updatedAt": "2026-10-13T10:00:00.000Z",
+            "rootId": "th",
+            "id": "th"
+          }
+        ],
+        "teamId": "t-team-1",
+        "me": "u-dana"
+      },
+      "expected": [
+        {
+          "agentId": "ag2",
+          "teamId": "t-team-1",
+          "name": "Release",
+          "icon": "rocket",
+          "color": "#f97316",
+          "busy": true,
+          "needsYou": false,
+          "assistant": false,
+          "groupChatId": "c2"
+        },
+        {
+          "agentId": "ag3",
+          "teamId": "t-team-1",
+          "name": "Docs",
+          "icon": "bot",
+          "color": "#6366f1",
+          "busy": false,
+          "needsYou": true,
+          "assistant": false
+        },
+        {
+          "agentId": "ag1",
+          "teamId": "t-team-1",
+          "name": "Triage",
+          "icon": "bot",
+          "color": "#22c55e",
+          "busy": false,
+          "needsYou": false,
+          "assistant": false
+        }
+      ]
     }
   ],
   "markCases": [

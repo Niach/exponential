@@ -151,6 +151,13 @@ final class TranscriptGroupingTests: XCTestCase {
                 case "marker":
                     XCTAssertEqual(Set(row.keys), ["kind", "key", "label"], name)
                     return .marker(key: try XCTUnwrap(string(row["key"])), label: try XCTUnwrap(string(row["label"])))
+                case "member":
+                    XCTAssertEqual(Set(row.keys), ["kind", "name", "userId", "body"], name)
+                    return .member(
+                        name: try XCTUnwrap(string(row["name"])),
+                        userId: try XCTUnwrap(string(row["userId"])),
+                        body: try XCTUnwrap(string(row["body"]))
+                    )
                 default:
                     XCTAssertEqual(Set(row.keys), ["kind", "name", "sessionId", "body", "report"], name)
                     return .relay(
@@ -163,6 +170,88 @@ final class TranscriptGroupingTests: XCTestCase {
             }
             XCTAssertEqual(TranscriptGrouping.feedInput(text), want, name)
         }
+    }
+
+    /// #EXP-1990 `memberInputCases`: the device's wording, read back whole.
+    func testReplaysEveryMemberInputCase() throws {
+        let cases = try XCTUnwrap(try fixture()["memberInputCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? ""
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let member = try XCTUnwrap(string(input["name"]))
+            let userId = try XCTUnwrap(string(input["userId"]))
+            let body = try XCTUnwrap(string(input["body"]))
+            let line = TranscriptGrouping.memberInput(name: member, userId: userId, body: body)
+            XCTAssertEqual(line, string(testCase["expected"]), name)
+            XCTAssertEqual(TranscriptGrouping.feedInput(line), .member(name: member, userId: userId, body: body), name)
+        }
+    }
+
+    /// #EXP-1990: a team agent's group chat's LIVE feed with two authors:
+    /// the viewer's own line is their own bubble (right), a teammate's sits
+    /// left under their name (the synced member's, else the line's), each
+    /// bubble holding the body alone; and the viewer's consumed row hands
+    /// off to its member-worded echo (never a second own bubble).
+    func testGroupChatFeedDrawsEachMembersLine() {
+        let viewer = "u-alex"
+        let feed: [(id: String, text: String?)] = [
+            ("1", TranscriptGrouping.memberInput(name: "Alex Carter", userId: viewer, body: "ship it")),
+            ("2", nil),
+            ("3", TranscriptGrouping.memberInput(name: "Mira C.", userId: "u-mira", body: "Also check the changelog.\nThanks!")),
+            ("4", TranscriptGrouping.memberInput(name: "Sam Okafor", userId: "u-sam", body: "+1")),
+            ("5", TranscriptGrouping.memberInput(name: "Alex Carter", userId: viewer, body: "on it")),
+        ]
+        let synced = ["u-mira": "Mira Chen"]
+        var members: [TranscriptGrouping.Named] = []
+        let items: [TranscriptGrouping.Item] = feed.map { row in
+            guard let text = row.text else {
+                return TranscriptGrouping.Item(id: row.id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent)
+            }
+            let prompt = TranscriptGrouping.feedPrompt(id: row.id, text: text, viewerId: viewer) { synced[$0] }
+            XCTAssertNil(prompt.session)
+            if let member = prompt.member { members.append(member) }
+            return prompt.item
+        }
+        XCTAssertEqual(members, [
+            TranscriptGrouping.Named(id: "u-mira", name: "Mira Chen"),
+            TranscriptGrouping.Named(id: "u-sam", name: "Sam Okafor"),
+        ])
+        let layout = TranscriptGrouping.transcriptLayout(TranscriptGrouping.Input(
+            viewerId: viewer,
+            chat: TranscriptGrouping.Chat(sessionId: "chat", title: "Release agent", agentId: "a1", originSessionId: nil),
+            members: members, agents: [], sessions: [], items: items
+        ))
+        XCTAssertEqual(layout.map(\.side), [.own, .other, .other, .other, .own])
+        XCTAssertNil(layout[0].sender)
+        XCTAssertEqual(layout[2].sender, TranscriptGrouping.Sender(kind: .member, id: "u-mira", name: "Mira Chen", link: nil))
+        XCTAssertEqual(layout[3].sender, TranscriptGrouping.Sender(kind: .member, id: "u-sam", name: "Sam Okafor", link: nil))
+        XCTAssertTrue(layout[2].name && layout[2].avatar && layout[3].name && layout[3].avatar)
+        XCTAssertEqual(feed.compactMap(\.text).map(TranscriptGrouping.feedPromptBody), [
+            "ship it", "Also check the changelog.\nThanks!", "+1", "on it",
+        ])
+        // A plain prompt and a relay keep their rules.
+        XCTAssertEqual(TranscriptGrouping.feedPromptBody("Message from Mira: hello"), "Message from Mira: hello")
+        let relay = TranscriptGrouping.feedPrompt(id: "r", text: "Message from Parent (session s1): go", viewerId: viewer) { _ in nil }
+        XCTAssertEqual(relay.item.authorSessionId, "s1")
+        XCTAssertEqual(relay.session, TranscriptGrouping.KnownSession(id: "s1", title: "Parent", agentId: nil))
+
+        // HANDOFF: the viewer's two consumed rows against the feed's echoes;
+        // a teammate's same words are never the viewer's echo.
+        func row(_ id: String, _ body: String) -> MessageDelivery.HandoffRow {
+            MessageDelivery.HandoffRow(
+                id: id, authorKind: "user", authorId: viewer, body: body,
+                createdAt: "2026-11-13T10:00:00.000Z", consumedAt: "2026-11-13T10:00:05.000Z", hasCard: false
+            )
+        }
+        let echoes = feed.compactMap(\.text).map { MessageDelivery.HandoffEcho(text: $0, at: nil) }
+        XCTAssertEqual(
+            MessageDelivery.ownHandoff(
+                viewerId: viewer, now: "2026-11-13T10:00:10.000Z", feedEmpty: false,
+                rows: [row("m1", "ship it"), row("m2", "on it"), row("m3", "+1")], echoes: echoes
+            ),
+            ["m3"]
+        )
     }
 
     func testReplaysEveryMarkerCase() throws {

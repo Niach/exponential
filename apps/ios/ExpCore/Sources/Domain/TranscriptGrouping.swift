@@ -370,10 +370,23 @@ public enum TranscriptGrouping {
     // or event firing, a PR or session status line) is THE inline marker,
     // drawn only above the agent's reply to it.
 
-    /// A feed input: a marker (`key`, `label`) or another session's relay.
+    /// A feed input: a marker (`key`, `label`), another session's relay or a
+    /// member's message in a team agent's group chat (#EXP-1990).
     public enum FeedInput: Equatable, Sendable {
         case marker(key: String, label: String)
         case relay(name: String, sessionId: String, body: String, report: Bool)
+        case member(name: String, userId: String, body: String)
+    }
+
+    private static let memberPattern = try? NSRegularExpression(
+        pattern: #"^Message from (.+?) \(member ([^,)\s]+)\): ([\s\S]*)$"#
+    )
+
+    /// #EXP-1990 (`memberInputCases`): a person's message as the device words
+    /// it in a team agent's group chat, so the agent and the transcript know
+    /// who wrote it.
+    public static func memberInput(name: String, userId: String, body: String) -> String {
+        "Message from \(name) (member \(userId)): \(body)"
     }
 
     private static let tagPattern = try? NSRegularExpression(pattern: #"^\[([a-z_]+)\] "#)
@@ -385,7 +398,8 @@ public enum TranscriptGrouping {
     }
 
     /// The device's tagged system line = a marker, another session's input =
-    /// a relay, else nil (a person's prompt).
+    /// a relay, a member's line in a group chat = a member (#EXP-1990), else
+    /// nil (a person's prompt).
     public static func feedInput(_ text: String) -> FeedInput? {
         let ns = text as NSString
         let all = NSRange(location: 0, length: ns.length)
@@ -395,8 +409,63 @@ public enum TranscriptGrouping {
         }
         if schedulePattern?.firstMatch(in: text, range: all) != nil { return marker("schedule") }
         if eventPattern?.firstMatch(in: text, range: all) != nil { return marker("event") }
+        if let match = memberPattern?.firstMatch(in: text, range: all), match.range == all {
+            return .member(
+                name: ns.substring(with: match.range(at: 1)),
+                userId: ns.substring(with: match.range(at: 2)),
+                body: ns.substring(with: match.range(at: 3))
+            )
+        }
         guard let cross = crossSessionInput(text) else { return nil }
         return .relay(name: cross.name, sessionId: cross.sessionId, body: cross.body, report: cross.kind == .report)
+    }
+
+    /// A person's line of the raw session feed as a grouping item, with the
+    /// sender it introduces (a relay's session, a member off the line).
+    public struct FeedPrompt: Equatable, Sendable {
+        public let item: Item
+        public let session: KnownSession?
+        public let member: Named?
+    }
+
+    /// The raw feed's prompt mapping (web `feedTranscriptLayout` ×4): another
+    /// session's input = that session's message; #EXP-1990: a member's line
+    /// in a team agent's group chat = a `message` by that member (the
+    /// viewer's own id = their own bubble; anyone else under `memberName`,
+    /// the synced member's name, else the line's `name`); else the viewer's
+    /// own prompt.
+    public static func feedPrompt(
+        id: String, text: String, viewerId: String?, memberName: (String) -> String?
+    ) -> FeedPrompt {
+        let user = DomainContract.messageAuthorKindUser
+        switch feedInput(text) {
+        case let .member(name, userId, _):
+            if userId == viewerId {
+                return FeedPrompt(item: Item(id: id, kind: .message, authorKind: user, authorId: viewerId), session: nil, member: nil)
+            }
+            return FeedPrompt(
+                item: Item(id: id, kind: .message, authorKind: user, authorId: userId),
+                session: nil,
+                member: Named(id: userId, name: memberName(userId) ?? name)
+            )
+        case let .relay(name, sessionId, _, _):
+            return FeedPrompt(
+                item: Item(id: id, kind: .message, authorKind: DomainContract.messageAuthorKindAgent, authorSessionId: sessionId),
+                session: KnownSession(id: sessionId, title: name, agentId: nil),
+                member: nil
+            )
+        default:
+            return FeedPrompt(item: Item(id: id, kind: .message, authorKind: user, authorId: viewerId), session: nil, member: nil)
+        }
+    }
+
+    /// What a person's feed line holds as a bubble: a relay's or a member's
+    /// `body` alone (#EXP-1990), else the text.
+    public static func feedPromptBody(_ text: String) -> String {
+        switch feedInput(text) {
+        case let .relay(_, _, body, _), let .member(_, _, body): return body
+        default: return text
+        }
     }
 
     public enum FeedRowKind: String, Equatable, Sendable {

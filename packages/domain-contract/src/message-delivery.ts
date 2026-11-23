@@ -125,11 +125,17 @@ export interface HandoffEcho {
 const BRIEF_REQUEST_HEADING: string = fixture.briefRequestHeading
 const ATTACHMENT_LINE = /^!?\[[^\]]*\]\(\/api\/attachments\/[^)]*\)$/
 
+const MEMBER_ECHO = /^Message from .+? \(member ([^,)\s]+)\): ([\s\S]*)$/
+
 /** #FEED-239: an echo is the row's when its trimmed text equals the body,
  *  or it is the session's BRIEFED first prompt (`## Request` + the body
  *  without its attachment lines + the brief's other sections). */
-function echoMatches(text: string, body: string): boolean {
-  const echo = text.trim()
+function echoMatches(text: string, body: string, viewerId: string): boolean {
+  // #EXP-1990 (transcript-grouping.json MEMBER INPUTS): in a team agent's
+  // group chat the echo is worded `Message from <name> (member <id>): <body>`;
+  // the viewer's own line matches by that body.
+  const member = MEMBER_ECHO.exec(text)
+  const echo = (member && member[1] === viewerId ? member[2]! : text).trim()
   if (echo === body) return true
   if (!echo.startsWith(BRIEF_REQUEST_HEADING)) return false
   const prose = body
@@ -168,7 +174,7 @@ export function ownHandoff(input: {
     const from = Date.parse(row.createdAt) - MESSAGE_DELIVERY_MATCH_WINDOW_MS
     const echo = input.echoes.findIndex(
       (candidate, index) =>
-        !taken.has(index) && echoMatches(candidate.text, body) && (candidate.at == null || candidate.at >= from)
+        !taken.has(index) && echoMatches(candidate.text, body, input.viewerId) && (candidate.at == null || candidate.at >= from)
     )
     if (echo >= 0) taken.add(echo)
     else kept.push(row.id)

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { isGroupChatRoot } from "@/lib/group-chat"
 import { useNavigate } from "@tanstack/react-router"
 import { AppHighlightText, conceptIcon, type PickerItem } from "@exp/ui"
 import type { ChatHit } from "@exp/domain-contract/chat-store"
@@ -139,7 +140,7 @@ export function useGlobalChatSearch(input: {
       if (!chat) return
       const pick = globalChatPick({ query: answerQuery, hit: chat.hit })
       seedFindInChat(pick.sessionId, { query: pick.find.query, ...pick.find.target })
-      const target = sessionTarget(pick.sessionId, (id) => sessionCollection.get(id) as SessionRow | undefined, viewerId)
+      const target = sessionTarget(pick.sessionId, (id) => sessionCollection.get(id) as SessionRow | undefined, viewerId, isGroupChatRoot)
       // The chat's own team (#EXP-2027: the search spans every member team).
       const teamSlug = slugOf.get((sessionCollection.get(chat.rootId) as SessionRow | undefined)?.teamId ?? ``) ?? teams[0]?.slug
       if (!teamSlug) return

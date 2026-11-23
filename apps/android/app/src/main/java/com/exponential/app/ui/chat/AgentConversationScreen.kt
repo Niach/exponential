@@ -229,11 +229,13 @@ class AgentConversationViewModel @Inject constructor(
         return current.takeIf { it.toSet() != agent.value?.mcpServerIdList.orEmpty().toSet() }
     }
 
-    /** My conversation session with the agent, once it exists. */
+    /** My chat with the agent, once it exists (#EXP-1990: a team agent's
+     *  group chat, whoever started it; agent-settings.json `agentChatOf`). */
     val conversationId: StateFlow<String?> = combine(
         dbFlow.scopedQuery(emptyList()) { it.sessionDao().observeAll() }.map { rows -> rows.map(SessionTree::session) },
         auth.userId,
-    ) { sessions, me -> SessionTree.conversations(sessions, me)[agentId] }
+        agent.map { it?.groupChatId }.distinctUntilChanged(),
+    ) { sessions, me, groupChatId -> SessionTree.agentChat(agentId, groupChatId, sessions, me)?.id }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** #EXP-1434 (composer-menu.json `prompts`, surface `agent`): the "+"

@@ -142,6 +142,7 @@ class TranscriptGroupingTest {
             val expected = e?.let {
                 when (it.str("kind")) {
                     "marker" -> TranscriptGrouping.FeedInput.Marker(it.str("key")!!, it.str("label")!!)
+                    "member" -> TranscriptGrouping.FeedInput.Member(it.str("name")!!, it.str("userId")!!, it.str("body")!!)
                     else -> TranscriptGrouping.FeedInput.Relay(
                         name = it.str("name")!!,
                         sessionId = it.str("sessionId")!!,
@@ -151,6 +152,19 @@ class TranscriptGroupingTest {
                 }
             }
             assertEquals(case.str("name"), expected, TranscriptGrouping.feedInput(case.str("text")!!))
+        }
+    }
+
+    @Test
+    fun `every member input case matches the fixture (EXP-1990)`() {
+        val cases = fixture.getValue("memberInputCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val member = TranscriptGrouping.FeedInput.Member(input.str("name")!!, input.str("userId")!!, input.str("body")!!)
+            val line = TranscriptGrouping.memberInput(member.name, member.userId, member.body)
+            assertEquals(case.str("name"), case.str("expected"), line)
+            assertEquals(case.str("name"), member, TranscriptGrouping.feedInput(line))
         }
     }
 

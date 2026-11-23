@@ -478,4 +478,91 @@ mod agent_unread_tests {
         assert_eq!(counts, model, "after the marks moved");
         drop(dir);
     }
+
+    /// #EXP-1990 (agent-settings.json `groupChat`): every lookup of the
+    /// viewer's chat with an agent reads THE agent's chat (`agent_chat_of`):
+    /// a group chat a teammate started is the viewer's (the agent page, the
+    /// rail and the Chats rows, the unread counts, the send's tree, the
+    /// route), a group chat that does not sync is none (never the viewer's
+    /// old conversation), and an agent without one keeps the viewer's own.
+    #[gpui::test]
+    fn the_agent_lookups_read_the_group_chat(cx: &mut gpui::TestAppContext) {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("accounts.json"),
+            json!({"accounts": [{"id": "acc", "instanceUrl": "https://example.test", "userId": "u1", "email": "me@example.test", "name": "Me"}]}).to_string(),
+        )
+        .unwrap();
+        let db = dir.path().join("local.sqlite");
+        let (_changes, rx) = flume::unbounded::<(String, Vec<String>)>();
+        let data = dir.path().to_path_buf();
+        cx.update(|cx| {
+            cx.set_global(crate::AuthContext { auth: api::AuthStore::load(data.clone()), client: std::sync::Arc::new(api::AuthClient::new()), data_dir: data });
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+            Store::global(cx).clone().connect_local("acc", &db, rx, cx).unwrap();
+        });
+        cx.run_until_parked();
+        let replies = |times: &[&str]| json!({"first": {"id": "p", "authorKind": "user", "body": "Hi", "createdAt": "2026-11-10T09:00:00.000Z"}, "agentAt": times.last(), "agentTimes": times});
+        cx.update(|cx| {
+            let c = Store::global(cx).collections().clone();
+            seed(&c.teams, json!([{"id": "t1", "name": "One", "slug": "one"}]), cx);
+            // a1 = Release: its group chat g1 (its owner u2 started it); a2 =
+            // Triage: a group chat this viewer does not sync; a3 = Docs: none.
+            seed(&c.agents, json!([
+                {"id": "a1", "team_id": "t1", "name": "Release", "owner_id": "u2", "group_chat_id": "g1"},
+                {"id": "a2", "team_id": "t1", "name": "Triage", "owner_id": "u2", "group_chat_id": "g-unsynced"},
+                {"id": "a3", "team_id": "t1", "name": "Docs", "owner_id": "u2"}
+            ]), cx);
+            seed(&c.sessions, json!([
+                {"id": "g1", "team_id": "t1", "root_id": "g1", "agent_id": "a1", "user_id": "u2", "shared": true, "status": "running", "busy": true, "created_at": "2026-11-10T09:00:00.000Z",
+                 "digest": replies(&["2026-11-11T09:00:00.000Z", "2026-11-11T10:00:00.000Z"])},
+                {"id": "v1", "team_id": "t1", "root_id": "v1", "agent_id": "a1", "user_id": "u1", "status": "idle", "created_at": "2026-11-09T09:00:00.000Z",
+                 "digest": replies(&["2026-11-09T10:00:00.000Z"])},
+                {"id": "v2", "team_id": "t1", "root_id": "v2", "agent_id": "a2", "user_id": "u1", "status": "idle", "created_at": "2026-11-09T09:00:00.000Z",
+                 "digest": replies(&["2026-11-09T10:00:00.000Z"])},
+                {"id": "v3", "team_id": "t1", "root_id": "v3", "agent_id": "a3", "user_id": "u1", "status": "idle", "created_at": "2026-11-09T09:00:00.000Z",
+                 "digest": replies(&["2026-11-09T10:00:00.000Z"])}
+            ]), cx);
+        });
+        cx.update(|cx| {
+            let chat = |agent: &str| crate::session_data::my_conversation(agent, cx).map(|row| row.id);
+            assert_eq!(chat("a1").as_deref(), Some("g1"), "the group chat, whoever started it");
+            assert_eq!(chat("a2"), None, "an unsynced group chat is none, never the old conversation");
+            assert_eq!(chat("a3").as_deref(), Some("v3"), "no group chat: the viewer's own");
+            assert_eq!(crate::agent_screen::agent_screen_root("a1", cx), "g1");
+            assert_eq!(crate::session_data::group_chat_ids(cx), vec!["g-unsynced".to_string(), "g1".to_string()]);
+            // The rail's row lights off the group chat.
+            let rail = crate::session_data::agents_in_team("t1", cx);
+            let release = rail.iter().find(|row| row.agent_id == "a1").unwrap();
+            assert!(release.busy);
+            assert_eq!(release.group_chat_id.as_deref(), Some("g1"));
+            // The Chats rows and the rail's unread counts read the same chat.
+            let model = crate::session_data::chats_model("t1", cx);
+            let rows: HashMap<String, Option<String>> =
+                model.agent_rows.iter().map(|row| (row.agent_id.clone(), row.session_id.clone())).collect();
+            assert_eq!(rows["a1"].as_deref(), Some("g1"));
+            assert_eq!(rows["a2"], None);
+            assert_eq!(rows["a3"].as_deref(), Some("v3"));
+            let counts = crate::session_data::agent_unread_counts("t1", cx);
+            let unread: HashMap<String, usize> = model.agent_rows.iter().map(|row| (row.agent_id.clone(), row.unread_count)).collect();
+            assert_eq!(counts, unread);
+            assert_eq!(counts["a1"], 2, "the group chat's two replies");
+            assert_eq!(counts["a2"], 0);
+            // A send to the agent seals for its group chat; an unsynced one
+            // asks the server (`sessions.sendTarget`), never the old root.
+            let plan = |agent: &str| {
+                crate::sealing::plan_send(&crate::chat_launch::agent_send_input("t1", agent, "hi", Vec::new()), cx).target
+            };
+            assert_eq!(plan("a1"), crate::sealing::SealTarget::Root("g1".to_string()));
+            assert_eq!(plan("a2"), crate::sealing::SealTarget::Conversation { device_id: None });
+            assert_eq!(plan("a3"), crate::sealing::SealTarget::Root("v3".to_string()));
+            // The route: the group chat opens the agent's page for this member.
+            assert_eq!(
+                crate::navigation::session_screen_for("g1", cx),
+                crate::navigation::Screen::Agent { agent_id: "a1".to_string() }
+            );
+        });
+        drop(dir);
+    }
 }

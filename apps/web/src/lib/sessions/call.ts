@@ -51,7 +51,7 @@ export async function startCallSession(args: {
   const { userId, callId } = args
   const now = args.now ?? new Date()
   const agent = await loadAgentForUser(userId, args.agentId)
-  const chat = await findConversation(db, agent.id, userId)
+  const chat = await findConversation(db, agent, userId)
   if (!chat) return null
   const language = agent.voice?.language ?? null
   const prev = await newestCallChild(chat.id)

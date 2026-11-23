@@ -1,3 +1,4 @@
+import { feedInput } from "@exp/domain-contract/transcript-grouping"
 // #FEED-260 (steer-enet.json SYNCED TAIL + OFFLINE LINE): what a NOT-live
 // transcript draws after its feed, off the session's synced messages.
 import {
@@ -22,9 +23,13 @@ export function syncedTailFeedRows(feed: readonly FeedItem[]): SteerTailFeedRow[
       case `narration`:
         rows.push({ author: `agent`, text: item.text, at: isoAt(item.at) })
         break
-      case `user_message`:
-        rows.push({ author: `user`, text: item.text, at: isoAt(item.at) })
+      case `user_message`: {
+        // #EXP-1990 (transcript-grouping.json MEMBER INPUTS): a group chat's
+        // input is worded with its member; the synced row holds the body.
+        const input = feedInput(item.text)
+        rows.push({ author: `user`, text: input?.kind === `member` ? input.body : item.text, at: isoAt(item.at) })
         break
+      }
       case `tool`:
         rows.push({ author: null, text: null, at: isoAt(item.settled ? item.settledAt : undefined) })
         break

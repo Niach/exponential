@@ -680,10 +680,12 @@ public enum SteerNoFeed {
         public let createdAtMs: Int?
         /// The OPENED body.
         public let body: String
+        /// #EXP-1990: who wrote a person's message (a group chat holds every member's).
+        public let authorId: String?
 
         public init(
             id: String, authorKind: String, hasCard: Bool, consumedAt: String?, createdAt: String,
-            createdAtMs: Int?, body: String
+            createdAtMs: Int?, body: String, authorId: String? = nil
         ) {
             self.id = id
             self.authorKind = authorKind
@@ -692,7 +694,60 @@ public enum SteerNoFeed {
             self.createdAt = createdAt
             self.createdAtMs = createdAtMs
             self.body = body
+            self.authorId = authorId
         }
+    }
+
+    /// The feed's MAIN-lane row as `syncedTail` reads it; nil = a subagent's
+    /// row (it renders inside its run, never the main lane).
+    public static func tailFeedRow(_ item: AgentFeedItem) -> TailFeedRow? {
+        switch item {
+        case let .narration(_, text, _, subagentId, at):
+            return subagentId == nil ? TailFeedRow(author: "agent", text: text, at: at) : nil
+        case let .userMessage(_, text, subagentId, at):
+            guard subagentId == nil else { return nil }
+            // #EXP-1990 (MEMBER INPUTS): a group chat's input is worded as a
+            // member input; the synced row it echoes holds the body alone.
+            if case let .member(_, _, body) = TranscriptGrouping.feedInput(text) {
+                return TailFeedRow(author: "user", text: body, at: at)
+            }
+            return TailFeedRow(author: "user", text: text, at: at)
+        case let .tool(_, _, _, subagentId, _, _, settled, _, _, _, _, _, settledAt):
+            return subagentId == nil ? TailFeedRow(author: nil, text: nil, at: settled ? settledAt : nil) : nil
+        case let .apiError(_, _, _, subagentId):
+            return subagentId == nil ? TailFeedRow(author: nil, text: nil, at: nil) : nil
+        default:
+            return TailFeedRow(author: nil, text: nil, at: nil)
+        }
+    }
+
+    /// Synthetic row ids of the synced tail: far above any feed id, stable
+    /// per message (FNV-1a of its id).
+    public static func syncedTailId(_ messageId: String) -> Int {
+        var hash: UInt32 = 2_166_136_261
+        for byte in messageId.utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
+        return (1 << 52) + Int(hash)
+    }
+
+    /// A kept synced message as the transcript row it draws: the agent's
+    /// narration, a person's input. #EXP-1990 (transcript-grouping.json
+    /// MEMBER INPUTS): a TEAMMATE's input is worded as the device words it,
+    /// so the feed draws it under their name; the viewer's own stays bare.
+    public static func syncedTailItem(
+        _ m: TailMessage, viewerId: String?, memberName: (String) -> String?
+    ) -> AgentFeedItem {
+        let id = syncedTailId(m.id)
+        let text = m.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if m.authorKind == "agent" {
+            return .narration(id: id, text: text, messageId: "synced:\(m.id)", at: m.createdAtMs)
+        }
+        guard let author = m.authorId, !author.isEmpty, let viewerId, !viewerId.isEmpty, author != viewerId else {
+            return .userMessage(id: id, text: text, at: m.createdAtMs)
+        }
+        let name = memberName(author) ?? TranscriptGrouping.Copy.formerMember
+        return .userMessage(
+            id: id, text: TranscriptGrouping.memberInput(name: name, userId: author, body: text), at: m.createdAtMs
+        )
     }
 
     /// SYNCED TAIL (#FEED-260, TS `steerSyncedTail`, `syncedTailCases`): the

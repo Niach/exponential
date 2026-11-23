@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm"
+import { and, asc, desc, eq, isNotNull, isNull, ne, or, sql } from "drizzle-orm"
 import type { MessageCard } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
 import { messages, sessions, type Session } from "@/db/schema"
@@ -59,7 +59,17 @@ export async function managingConversation(
   const [started] = await tx
     .select()
     .from(sessions)
-    .where(and(conversation, eq(sessions.agentId, root.startedByAgentId), eq(sessions.userId, root.userId)))
+    .where(
+      and(
+        conversation,
+        eq(sessions.agentId, root.startedByAgentId),
+        // #EXP-1990: a team agent's group chat is its one conversation.
+        or(
+          eq(sessions.userId, root.userId),
+          sql`${sessions.id} = (SELECT group_chat_id FROM agents WHERE id = ${root.startedByAgentId})`
+        )
+      )
+    )
     .orderBy(desc(sessions.createdAt), desc(sessions.id))
     .limit(1)
   return started ?? null

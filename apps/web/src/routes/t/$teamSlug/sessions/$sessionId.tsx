@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { isGroupChatRoot } from "@/lib/group-chat"
 import { createFileRoute, Link, Navigate, redirect, useNavigate } from "@tanstack/react-router"
 import { Button, SkeletonRows } from "@exp/ui"
 import { Empty } from "@/components/empty"
@@ -104,7 +105,8 @@ function ChildSession({
     // #EXP-1732: a session under MY conversation with the agent opens in
     // place on the agent's screen (its Sessions tab); anyone else's keeps
     // its own screen.
-    if (root.userId && root.userId === auth?.user?.id) {
+    // #EXP-1990: a team agent's group chat is every member's.
+    if ((root.userId && root.userId === auth?.user?.id) || isGroupChatRoot(root)) {
       return (
         <Navigate
           to="/t/$teamSlug/agents/$agentId"

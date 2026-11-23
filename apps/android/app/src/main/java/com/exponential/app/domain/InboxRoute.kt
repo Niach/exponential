@@ -76,7 +76,9 @@ object InboxRoute {
     /**
      * Where a session opens (S-3). [agentId] and [userId] are the ROOT's (a
      * child carries no agent: it resolves through its root); [rootId]
-     * null/empty = the row is its own root.
+     * null/empty = the row is its own root. #EXP-1990: [groupChat] = the
+     * root is its agent's group chat (`agents.groupChatId`): every member's
+     * chat with the agent, so it opens the agent's page for every member.
      */
     fun sessionTarget(
         id: String,
@@ -84,10 +86,11 @@ object InboxRoute {
         agentId: String?,
         userId: String?,
         viewerId: String?,
+        groupChat: Boolean = false,
     ): SessionTarget {
         val root = rootId?.takeIf { it.isNotEmpty() } ?: id
         if (!agentId.isNullOrEmpty()) {
-            return if (root == id && userId == viewerId) SessionTarget.Agent(agentId) else SessionTarget.Session(id)
+            return if (root == id && (userId == viewerId || groupChat)) SessionTarget.Agent(agentId) else SessionTarget.Session(id)
         }
         return SessionTarget.Chat(root, if (root == id) null else id)
     }
