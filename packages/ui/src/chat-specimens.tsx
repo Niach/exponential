@@ -510,7 +510,7 @@ function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
       viewerId={SPECIMEN_VIEWER}
       member={specimenMember}
       messageTime={(row) => TIMES[row.id] ?? null}
-      onSurfaceReply={() => {}}
+      onSurfaceAction={() => {}}
       arrived={() => false}
     />
     {/* #EXP-1864: a quiet turn's notice, on its own line. */}
@@ -672,7 +672,7 @@ function LockedTranscript({ layout }: { layout: `transcript` | `bubbles` }) {
       viewerId={SPECIMEN_VIEWER}
       member={specimenMember}
       messageTime={(row) => TIMES[row.id.replace(`l-`, ``)] ?? null}
-      onSurfaceReply={() => {}}
+      onSurfaceAction={() => {}}
       arrived={() => false}
     />
   )

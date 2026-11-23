@@ -63,20 +63,21 @@ function sealDeps(): SealDeps {
 export async function sendSessionMessage(
   input: SessionsSendInput,
   options?: TrpcOptions,
-  extra?: { cardItem?: { messageId: string; itemId: string } }
+  extra?: { cardItem?: { messageId: string; itemId: string }; actionCard?: Record<string, unknown> }
 ) {
   const deps = sealDeps()
   let attempts = 0
+  const { actionCard, ...rest } = extra ?? {}
   return sendSealed(input, deps, (sealed) => {
     // `cardStamps`: a tap hands OPENED text to the writer; what it could
     // not seal (a `clearTree` target) never leaves in clear.
     if (extra?.cardItem && (!sealed.text?.startsWith(SEALED_BODY_PREFIX) || sealed.name)) throw new NoKeyError()
     // A stale tree on the first try is retried, not toasted.
     return trpc.sessions.send.mutate(
-      { ...(sealed as SessionsSendInput), ...extra },
+      { ...(sealed as SessionsSendInput), ...rest, ...(sealed.actionCard ? { actionCard: sealed.actionCard as never } : {}) },
       attempts++ === 0 ? { ...options, context: { ...options?.context, resealOnStaleTree: true } } : options
     )
-  })
+  }, actionCard)
 }
 
 /** `sessions.answer`; a sealed card's answer is re-sealed inside it. */

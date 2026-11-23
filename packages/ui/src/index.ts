@@ -215,6 +215,7 @@ export * from "./comment-call-card"
 export * from "./getting-started-list"
 // Chat 58cb32df (chats.json): the surface card, transcript divider and phone chat bubble.
 export * from "./surface-card"
+export * from "./express-message"
 // Chat 58cb32df: the four chat specimens (styleguide entries + the app's ?dev= captures).
 export * from "./chat-specimens"
 // EXP-1558: the mention-pill, schedule-picker and pr-row boards (styleguide entries + the app's ?dev= captures).

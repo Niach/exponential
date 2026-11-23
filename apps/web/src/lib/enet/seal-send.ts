@@ -118,6 +118,9 @@ export type SealedSendInput = SessionsSendInput & {
   sealedName?: string
   mentionUserIds?: string[]
   refIssueIds?: string[]
+  /** #EXP-2067 (chat-express.json ACTIONS): a press's `action` card (tRPC
+   *  only), sealed beside the body like the composer seals the text. */
+  actionCard?: Card
 }
 
 export type SealedSend = {
@@ -225,16 +228,17 @@ export function refIssueIds(
 export async function sealSendInput(
   input: SessionsSendInput,
   deps: SealDeps,
-  options: { fresh?: boolean } = {}
+  options: { fresh?: boolean; actionCard?: Card } = {}
 ): Promise<SealedSend> {
   const hasText = typeof input.text === `string` && input.text.length > 0
-  if (!hasText && !input.name) return { input, after: noop }
+  const actionCard = options.actionCard
+  if (!hasText && !input.name && !actionCard) return { input, after: noop }
   const mentions = mentionUserIds(input.text, deps)
   const root = targetRoot(input, deps)
   const refs = refIssueIds(input.text, root?.teamId ?? input.teamId, deps)
   const clearMeta = { ...(mentions ? { mentionUserIds: mentions } : {}), ...(refs ? { refIssueIds: refs } : {}) }
 
-  const plain = { input: { ...input, ...clearMeta }, after: noop }
+  const plain = { input: { ...input, ...clearMeta, ...(actionCard ? { actionCard } : {}) }, after: noop }
   // #EDE-97: an outside MCP client's tree is the one place for plaintext.
   if (root?.clearTree) return plain
   const waits = deps.waits ?? { holderMs: SEAL_HOLDER_WAIT_MS, keyMs: SEAL_KEY_WAIT_MS, pollMs: 1000 }
@@ -354,6 +358,7 @@ export async function sealSendInput(
       ? { text: sealBody(key.publicKey, key.epoch, withAttachmentEmbeds(input.text!, input.attachmentIds ?? [], (id) => uploads.get(id))) }
       : {}),
     ...(name ? { sealedName: sealBody(key.publicKey, key.epoch, name) } : {}),
+    ...(actionCard ? { actionCard: sealCard(key.publicKey, key.epoch, actionCard) } : {}),
     ...clearMeta,
     ...(seal ? { seal } : {}),
   }
@@ -366,10 +371,11 @@ export async function sealSendInput(
 export async function sendSealed<R extends { sessionId: string }>(
   input: SessionsSendInput,
   deps: SealDeps,
-  send: (input: SealedSendInput) => Promise<R>
+  send: (input: SealedSendInput) => Promise<R>,
+  actionCard?: Card
 ): Promise<R> {
   const attempt = async (fresh: boolean) => {
-    const sealed = await sealSendInput(input, deps, { fresh })
+    const sealed = await sealSendInput(input, deps, { fresh, ...(actionCard ? { actionCard } : {}) })
     const result = await send(sealed.input)
     await sealed.after(result).catch(() => {})
     return result

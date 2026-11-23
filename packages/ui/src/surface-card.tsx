@@ -1,7 +1,8 @@
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react"
 import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
-import { CHATS_COPY, CHATS_TEST_IDS, surfaceReply } from "@exp/domain-contract/chats"
+import { CHATS_COPY, CHATS_TEST_IDS } from "@exp/domain-contract/chats"
+import type { ActionEvent } from "@exp/domain-contract/chat-express"
 import { PLAN_CARD_GEOMETRY, type CardSurface } from "@exp/domain-contract/plan-card"
 import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
@@ -17,9 +18,9 @@ import { userMessageTime } from "./user-message-bubble"
 //   SurfaceCard        an agent's inline Exponential UI preview (message card
 //                      `surface`), painted by THE plan card's renderer
 //                      (theme exponential, dark) in its own rounded glass
-//                      frame; a press whose event is `replyEvent` with a
-//                      `context.text` posts that text as the person's message
-//                      (`surfaceReply`). A LIVE arrival plays `surfaceCard.enter`
+//                      frame; #EXP-2067: EVERY press posts an action card
+//                      (chat-express.json `surfaceAction` over
+//                      `showActionOrigin`). A LIVE arrival plays `surfaceCard.enter`
 //                      once (frame fade + rise + scale, the primary hairline
 //                      settling, the root's children staggered); reduce
 //                      motion = the frame's opacity alone.
@@ -75,8 +76,9 @@ function rootChildren(host: HTMLElement): HTMLElement[] {
   )
 }
 
-/** Plays `surfaceCard.enter` on the frame, its glow and the root's children. */
-function playEnter(frame: HTMLElement, glow: HTMLElement | null, body: HTMLElement): void {
+/** Plays `surfaceCard.enter` on the frame, its glow and (`stagger`) the
+ *  root's children. */
+function playEnter(frame: HTMLElement, glow: HTMLElement | null, body: HTMLElement, stagger = true): void {
   if (typeof frame.animate !== `function`) return
   const reduce = prefersReducedMotion()
   const f = ENTER.frame
@@ -95,8 +97,9 @@ function playEnter(frame: HTMLElement, glow: HTMLElement | null, body: HTMLEleme
     easing: motionEase(ENTER.glow.ease),
     fill: `both`,
   })
+  if (!stagger) return
   const c = ENTER.children
-  const stagger = (targets: HTMLElement[]) =>
+  const staggerIn = (targets: HTMLElement[]) =>
     targets.forEach((el, index) => {
       el.animate(
         [
@@ -112,34 +115,30 @@ function playEnter(frame: HTMLElement, glow: HTMLElement | null, body: HTMLEleme
       )
     })
   const now = rootChildren(body)
-  if (now.length > 0) stagger(now)
-  else requestAnimationFrame(() => stagger(rootChildren(body)))
+  if (now.length > 0) staggerIn(now)
+  else requestAnimationFrame(() => staggerIn(rootChildren(body)))
 }
 
-export function SurfaceCard({
-  surface,
+/** THE surface card frame (chats.json `surfaceCard`): the glass frame with
+ *  plan-card.json `surfaceRadius` / `surfacePadding`, an optional caption
+ *  above it, the enter on a LIVE arrival. Its body is the caller's (a show
+ *  card's painted surface, an Express block's host surface, a skeleton). */
+export function SurfaceCardFrame({
   title = null,
-  testKey,
-  onReply,
   animate = false,
+  stagger = true,
   className,
+  children,
 }: {
-  surface: CardSurface
-  /** The card's title (absent = none). */
   title?: string | null
-  /** A stable id (the message's): the surface's own id. */
-  testKey: string
-  /** A `reply` press's text, sent as the person's next message. */
-  onReply?: (text: string) => void
   /** A LIVE arrival: play the enter once on mount. */
   animate?: boolean
+  /** The enter staggers the root's children (an Express block streams
+   *  them in instead: false). */
+  stagger?: boolean
   className?: string
+  children: ReactNode
 }) {
-  // #FEED-292: a card edited in place (`replace`, a picture landing) paints
-  // its new surface: the body remounts on a changed tree, the frame stays.
-  const paintKey = useMemo(() => JSON.stringify(surface), [surface])
-  const replyRef = useRef(onReply)
-  replyRef.current = onReply
   const frameRef = useRef<HTMLDivElement>(null)
   const glowRef = useRef<HTMLSpanElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -147,8 +146,8 @@ export function SurfaceCard({
   useLayoutEffect(() => {
     if (!animate || played.current || !frameRef.current || !bodyRef.current) return
     played.current = true
-    playEnter(frameRef.current, glowRef.current, bodyRef.current)
-  }, [animate])
+    playEnter(frameRef.current, glowRef.current, bodyRef.current, stagger)
+  }, [animate, stagger])
   return (
     // The title = the plan card's surface caption (plan-card.json `card`:
     // 2xs medium muted, `surfaceLabelGap` ABOVE the frame), entering with it;
@@ -171,21 +170,53 @@ export function SurfaceCard({
           className="pointer-events-none absolute -inset-px rounded-[inherit] border border-primary opacity-0"
         />
         <div ref={bodyRef} className="min-w-0">
-          <SurfaceCardBody key={paintKey} surface={surface} testKey={testKey} replyRef={replyRef} />
+          {children}
         </div>
       </div>
     </div>
   )
 }
 
+export function SurfaceCard({
+  surface,
+  title = null,
+  testKey,
+  onAction,
+  animate = false,
+  className,
+}: {
+  surface: CardSurface
+  /** The card's title (absent = none). */
+  title?: string | null
+  /** A stable id (the message's): the surface's own id. */
+  testKey: string
+  /** #EXP-2067: every action event of the surface (the host posts it as an
+   *  action card, `surfaceAction` + `showActionOrigin`); absent = inert. */
+  onAction?: (event: ActionEvent) => void
+  /** A LIVE arrival: play the enter once on mount. */
+  animate?: boolean
+  className?: string
+}) {
+  // #FEED-292: a card edited in place (`replace`, a picture landing) paints
+  // its new surface: the body remounts on a changed tree, the frame stays.
+  const paintKey = useMemo(() => JSON.stringify(surface), [surface])
+  const actionRef = useRef(onAction)
+  actionRef.current = onAction
+  return (
+    <SurfaceCardFrame title={title} animate={animate} className={className}>
+      <SurfaceCardBody key={paintKey} surface={surface} testKey={testKey} actionRef={actionRef} />
+    </SurfaceCardFrame>
+  )
+}
+
 function SurfaceCardBody({
   surface,
   testKey,
-  replyRef,
+  actionRef,
 }: {
   surface: CardSurface
   testKey: string
-  replyRef: { current: ((text: string) => void) | undefined }
+  actionRef: { current: ((event: ActionEvent) => void) | undefined }
 }) {
   const upgraded = useMemo(() => paintedCard(surface), [surface])
   const state = useSurface({
@@ -195,14 +226,7 @@ function SurfaceCardBody({
     data: { ...((upgraded.data as Record<string, unknown> | null | undefined) ?? {}) },
   })
   const links = useCardLinks()
-  const host = useMemo(
-    () =>
-      planCardHost((event) => {
-        const reply = surfaceReply(event)
-        if (reply) replyRef.current?.(reply.text)
-      }, links),
-    [links, replyRef]
-  )
+  const host = useMemo(() => planCardHost((event) => actionRef.current?.(event), links), [links, actionRef])
   return <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode="dark" />
 }
 

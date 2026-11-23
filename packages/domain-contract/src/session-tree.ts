@@ -814,6 +814,9 @@ export type SessionChatRow =
       authorSessionId: string | null
       /** S-3: posted by ANOTHER (synced) session = its `message` link. */
       xref: SessionXref | null
+      /** #EXP-2067 (chat-express.json): a press on a genUI surface (an
+       *  `action` card): the body when it has one, else THE inline marker. */
+      action?: { name: string }
     }
   | { type: `session`; id: string; card: SessionCard }
   | { type: `report`; id: string; sessionId: string; text: string; summary: string; xref: SessionXref }
@@ -1380,6 +1383,24 @@ export function buildSessionChat(input: {
           sessionId: message.sessionId,
           title: typeof card.title === `string` && card.title.trim() ? card.title.trim() : null,
           surface,
+        })
+        break
+      }
+      case `action`: {
+        // #EXP-2067 (chat-express.json ACTIONS): the author's bubble with
+        // the body, else THE inline marker (`actionMarker`).
+        if (typeof card.name !== `string`) break
+        const author = message.authorKind === `user` || message.authorKind === `agent` ? message.authorKind : `system`
+        rows.push({
+          type: `message`,
+          id: message.id,
+          author,
+          authorId: message.authorId,
+          body: isBlankText(message.body) ? `` : message.body,
+          queued: author === `user` && message.consumedAt === null,
+          authorSessionId: message.authorSessionId ?? null,
+          xref: null,
+          action: { name: card.name },
         })
         break
       }

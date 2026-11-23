@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react"
 import type { CardSurface } from "@exp/domain-contract/plan-card"
+import type { ActionEvent } from "@exp/domain-contract/chat-express"
 import { RESULTS_TAB, RESULTS_TAB_SPECIMEN, type Result, type ResultPicture } from "@exp/domain-contract/results-tab"
 import { cn } from "./cn"
 import { imageMenuProps } from "@exponential_app/eui/web"
@@ -39,8 +40,9 @@ const pictureText = (picture: ResultPicture) => picture.caption ?? picture.label
 export interface ResultBodyRenderers {
   /** The result's surface (its raw card's), null = none. */
   surfaceFor?: (result: Result) => CardSurface | null
-  /** A surface press's reply text (THE chat's `surfaceReply`). */
-  onSurfaceReply?: (result: Result, text: string) => void
+  /** #EXP-2067: every action event of a result's surface (the host posts it,
+   *  `surfaceAction` over `showActionOrigin(result.id)`). */
+  onSurfaceAction?: (result: Result, event: ActionEvent) => void
 }
 
 export function ResultSection({
@@ -49,7 +51,7 @@ export function ResultSection({
   attachmentSrc,
   onOpenPicture,
   surfaceFor,
-  onSurfaceReply,
+  onSurfaceAction,
 }: {
   result: Result
   size: ResultsTabSize
@@ -112,7 +114,7 @@ export function ResultSection({
           <SurfaceCard
             surface={surface}
             testKey={`tab-${result.id}`}
-            onReply={onSurfaceReply ? (reply) => onSurfaceReply(result, reply) : undefined}
+            onAction={onSurfaceAction ? (event) => onSurfaceAction(result, event) : undefined}
           />
         </div>
       )}
@@ -127,7 +129,7 @@ export function ResultsTab({
   lead,
   attachmentSrc = (id) => `/api/attachments/${id}`,
   surfaceFor,
-  onSurfaceReply,
+  onSurfaceAction,
   className,
 }: {
   results: readonly Result[]
@@ -158,7 +160,7 @@ export function ResultsTab({
               attachmentSrc={attachmentSrc}
               onOpenPicture={(index) => setOpen({ resultId: result.id, index })}
               surfaceFor={surfaceFor}
-              onSurfaceReply={onSurfaceReply}
+              onSurfaceAction={onSurfaceAction}
             />
           ))}
         </div>

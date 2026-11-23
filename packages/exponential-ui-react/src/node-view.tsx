@@ -130,6 +130,9 @@ export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: str
   const fn = action.functionCall
   const args = fn ? ((resolveValue(fn.args ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   const context = action.event ? ((resolveValue(action.event.context ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
+  // #EXP-2067: the Action's `event.userMessage`, resolved like its context.
+  const said = action.event?.userMessage === undefined ? undefined : resolveValue(action.event.userMessage, rctx)
+  const userMessage = typeof said === `string` ? said : undefined
   let pending: unknown
   if (fn && args) {
     if (fn[`@call`] === `set`) {
@@ -148,14 +151,14 @@ export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: str
     // Round 9 §6.8: the function, then the event; a failure stops the action.
     return pending.then((outcome) => {
       if (actionFailed(outcome) || !action.event) return undefined
-      return runNodeEvent(ctx, action.event, domId, event, context, payload)
+      return runNodeEvent(ctx, action.event, domId, event, context, payload, userMessage)
     })
   }
-  if (action.event) return runNodeEvent(ctx, action.event, domId, event, context, payload)
+  if (action.event) return runNodeEvent(ctx, action.event, domId, event, context, payload, userMessage)
   return undefined
 }
 
-function runNodeEvent(ctx: SurfaceContextValue, ev: { name: string }, domId: string, event: string, context: Record<string, unknown> | undefined, payload?: Record<string, unknown>): Promise<void> | void {
+function runNodeEvent(ctx: SurfaceContextValue, ev: { name: string }, domId: string, event: string, context: Record<string, unknown> | undefined, payload?: Record<string, unknown>, userMessage?: string): Promise<void> | void {
   const e: SurfaceActionEvent = {
     surfaceId: ctx.surfaceId,
     event,
@@ -164,6 +167,7 @@ function runNodeEvent(ctx: SurfaceContextValue, ev: { name: string }, domId: str
     context: { ...(context ?? {}), ...(payload ?? {}) },
     payload,
     timestamp: new Date().toISOString(),
+    ...(userMessage === undefined ? {} : { userMessage }),
   }
   return ctx.host.onAction?.(e) ?? undefined
 }

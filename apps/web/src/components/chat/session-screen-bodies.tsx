@@ -1,3 +1,5 @@
+import { showActionOrigin } from "@exp/domain-contract/chat-express"
+import { postSurfaceAction } from "@/lib/surface-action"
 import { useMemo } from "react"
 import { SESSION_SCREEN_TEST_IDS } from "@exp/domain-contract/session-screen"
 import {
@@ -13,8 +15,6 @@ import {
 } from "@exp/ui"
 import { ChatResults } from "@/components/chat/chat-results"
 import type { ResultsTabState } from "@/hooks/use-results-tab"
-import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
-import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import {
   sessionCard,
   sessionTabMarkState,
@@ -173,12 +173,9 @@ export function SessionResultsTab({
           review={review}
           file={file}
           onReview={onReview}
-          onSurfaceReply={
+          onSurfaceAction={
             canMerge
-              ? (result, text) =>
-                  void sendSessionMessage({ teamId, sessionId: result.sessionId, text }, SKIP_ERROR_TOAST).catch(
-                    (error) => failedAction(`send`, `the message`, error)
-                  )
+              ? (result, event) => postSurfaceAction({ teamId, sessionId: result.sessionId }, event, showActionOrigin(result.id))
               : undefined
           }
         />

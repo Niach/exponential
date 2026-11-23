@@ -29,6 +29,7 @@ import {
   type PromptActionRole,
 } from "@exp/ui"
 import { actionConsent } from "@exp/domain-contract/app-actions"
+import { showActionOrigin, surfaceAction, type ActionEvent } from "@exp/domain-contract/chat-express"
 import { AppBridge, type DisplayMode, type HostContext } from "../bridge"
 import { createConsentGate, createMcpAppHost, type CallTool, type ConsentGate } from "./mcp-host"
 import { decodeGenuiResult, type GenuiAppRead, type GenuiAppRow, type GenuiScreen } from "./result"
@@ -42,6 +43,14 @@ import { decodeGenuiResult, type GenuiAppRead, type GenuiAppRow, type GenuiScree
 //     screens shell, apps.json), its bindings and writes over tools/call;
 //   - `exponential_apps {op: "list"}`: the apps as rows; one opens in place.
 // Any other apps op draws nothing (zero height: the host shows the call only).
+
+/** #EXP-2067: an outside host takes text only (`ui/message`), so a show
+ *  press sends its action's body (chat-express.json `surfaceAction`: a
+ *  `reply`'s text, any other event's userMessage); no body = nothing. */
+const showMessage = (event: ActionEvent): string => {
+  const action = surfaceAction(event, showActionOrigin(`inline`))
+  return action && action !== `tooLarge` ? action.body : ``
+}
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const PlaceholderIcon = conceptIcon(`ui-icon-placeholder`)
@@ -352,7 +361,7 @@ export function GenuiApp() {
           </div>
         )}
         {screen.kind === `error` && <ListEmpty>{screen.message}</ListEmpty>}
-        {screen.kind === `card` && <div className="p-3"><SurfaceCard surface={screen.card.surface as never} title={screen.card.title ?? null} testKey="inline" onReply={(text) => void bridge.current?.sendMessage(text).catch(() => undefined)} /></div>}
+        {screen.kind === `card` && <div className="p-3"><SurfaceCard surface={screen.card.surface as never} title={screen.card.title ?? null} testKey="inline" onAction={(event) => { const body = showMessage(event); if (body) void bridge.current?.sendMessage(body).catch(() => undefined) }} /></div>}
         {screen.kind === `apps` && <AppsList apps={screen.apps} onOpen={(row) => void openApp(row)} />}
         {screen.kind === `app` && <AppRun key={`${screen.app.id}:${screen.app.version ?? 0}`} app={screen.app} call={call} origin={origin} openLink={openLink} phone={width <= PHONE_MAX} />}
         <Toaster />

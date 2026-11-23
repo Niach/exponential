@@ -1,5 +1,14 @@
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
 import {
+  actionMarker,
+  feedRowKey as expressFeedRowKey,
+  parseActionInput,
+  plainProse,
+  type ActionEvent,
+  type ActionOrigin,
+} from "@exp/domain-contract/chat-express"
+import { postSurfaceAction } from "@/lib/surface-action"
+import {
   FIND_IN_CHAT_TEST_IDS,
   findEventKey,
   findInChatOutputHint,
@@ -14,7 +23,6 @@ import { useTranscriptFind, type TranscriptFindRow } from "@/components/chat/use
 import { DOCK_COPY, DOCK_TEST_IDS } from "@exp/domain-contract/dock"
 import { trpc } from "@/lib/trpc-client"
 import { sessionCollection } from "@/lib/collections"
-import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import {
   AGENT_HINT_BANNER,
   AGENT_MENU_SENDS,
@@ -110,6 +118,8 @@ import {
   STARTING_COPY,
   SkeletonRows,
   MessageBubble,
+  ExpressMessage,
+  type ExpressProsePart,
   userMessageTime,
   SenderAvatar,
   SessionCard,
@@ -459,6 +469,16 @@ export function AgentSessionView({
 
   const live = phase.kind === `live`
   const sessionEnded = session.status === `ended`
+  /** #EXP-2067 (chat-express.json): a feed row is FINAL once its turn ended. */
+  const turnLive = live && !sessionEnded && turnState === `started`
+  /** #EXP-2067: every genUI action (a block's, a show card's) posts ONE
+   *  person message into this session; an ended session's surfaces are inert. */
+  const surfaceActionTarget = useMemo(() => ({ teamId: session.teamId, sessionId: session.id }), [session.teamId, session.id])
+  const onSurfaceAction = useCallback(
+    (event: ActionEvent, origin: ActionOrigin) => postSurfaceAction(surfaceActionTarget, event, origin),
+    [surfaceActionTarget]
+  )
+  const surfaceAction = sessionEnded ? undefined : onSurfaceAction
 
   /** Identity-scoped questions stay answerable until they resolve. */
   const questionIds = useSameSet(useMemo(() => activeQuestionIds(feed), [feed]))
@@ -663,10 +683,6 @@ export function AgentSessionView({
     [feed, sessionMessages]
   )
   const surfaceArrived = useLiveArrivals(surfaceCards.map((row) => row.id))
-  const replyFromSurface = (text: string) => {
-    sendSessionMessage({ teamId: session.teamId, sessionId: session.id, text }, SKIP_ERROR_TOAST)
-      .catch((error) => failedAction(`send`, `the message`, error))
-  }
   const openPlan = useOpenPlan()
   // FEED-140: a waiting tool-posted card STAYS inline (the dock holds it too).
   const renderToolCards = (ids: readonly string[], keyPrefix: string): ReactNode =>
@@ -690,7 +706,7 @@ export function AgentSessionView({
               onDismiss={canAnswerCards ? (rowId) => void answerCard(rowId, { dismissed: true }) : undefined}
               onOpenPlan={(plan) => openPlan(plan.sessionId, plan.id)}
               pending={cardsPending}
-              onSurfaceReply={sessionEnded ? undefined : replyFromSurface}
+              onSurfaceAction={surfaceAction}
               arrived={surfaceArrived}
             />
           </div>
@@ -1026,7 +1042,22 @@ export function AgentSessionView({
     switch (item.kind) {
       case `narration`:
         // EXP-1676: the run view's row on every form factor.
-        return wrap(<NarrationBubble text={item.text} author={bubbleName} tail={layout?.tail ?? false} time={item.at ? userMessageTime(item.at) : null} />, findKeys.get(item.id) ?? null)
+        // #EXP-2067: its Express blocks drawn in place; FINAL once a row of
+        // its lane follows or the turn ended.
+        return wrap(
+          <NarrationBubble
+            text={item.text}
+            author={bubbleName}
+            tail={layout?.tail ?? false}
+            time={item.at ? userMessageTime(item.at) : null}
+            express={{
+              rowKey: expressFeedRowKey(session.id, item.messageId, item.seq),
+              final: index < list.length - 1 || !turnLive,
+              onAction: surfaceAction,
+            }}
+          />,
+          findKeys.get(item.id) ?? null
+        )
       case `thought`:
         // EXP-1324: the reasoning line; still open only while the run lives.
         return wrap(
@@ -1095,6 +1126,12 @@ export function AgentSessionView({
         }
         const input = feedInput(item.text)
         if (input?.kind === `marker`) return wrap(<TranscriptMarker label={input.label} />)
+        // #EXP-2067 (chat-express.json TO THE AGENT): an action input draws
+        // like its synced row: the bubble with its body, else THE marker.
+        const action = parseActionInput(item.text)
+        if (action && !action.body) {
+          return wrap(<TranscriptMarker label={actionMarker(action.card.name, layout?.side === `other` ? (sender?.name ?? null) : null)} />)
+        }
         // #EXP-1736: another session's input = that session's bubble.
         // (ONE origin rule: the first prompt may be the origin's.)
         // #EXP-1772: a relay's name sits above it, the one link; #FEED-238:
@@ -1102,7 +1139,7 @@ export function AgentSessionView({
         const link = layout?.side === `other` ? (sender?.link ?? null) : null
         return wrap(
           <UserMessageBubble
-            text={input?.kind === `relay` ? input.body : item.text}
+            text={action ? action.body : input?.kind === `relay` ? input.body : item.text}
             side={layout?.side === `other` ? `in` : `out`}
             author={link ? null : bubbleName}
             tail={layout?.tail ?? false}
@@ -1168,7 +1205,7 @@ export function AgentSessionView({
   const rowGlobals = [
     live, sessionEnded, workflows, stableWorkflowDuplicates, workflowAgents, questionIds, canAnswer,
     answerStates, pendingCard?.id ?? null, agentCommands, xrefAgent, sendMessage, answerQuestion, onOpenSession !== undefined,
-    viewerAvatar,
+    viewerAvatar, turnLive, surfaceAction,
   ]
   const nextRowCache = new Map<string, { deps: readonly unknown[]; node: ReactNode }>()
   const memoTranscriptRow = (row: (typeof rows)[number], index: number, list: readonly (typeof rows)[number][]): ReactNode => {
@@ -1621,6 +1658,7 @@ export function AgentSessionView({
                   items={agentItems}
                   live={live && !sessionEnded}
                   viewer={viewerAvatar}
+                  express={{ sessionId: session.id, onAction: surfaceAction }}
                 />
               </div>
             ) : (
@@ -1671,6 +1709,7 @@ export function AgentSessionView({
                       rows={syncedTailRows}
                       renderText={renderChatText}
                       wrapRow={wrapFindRow}
+                      onSurfaceAction={surfaceAction}
                       attachmentSrc={attachmentUrl}
                       chat={{ sessionId: session.id, title: sessionCardModel?.name ?? session.title ?? ``, agentId: session.agentId ?? null }}
                       viewerId={viewerId}
@@ -1824,7 +1863,9 @@ export function chatFindRows(rows: readonly SessionChatRow[], query: string): Tr
   for (const row of rows) {
     const key = chatRowFindKey(row)
     if (!key) continue
-    const text = row.type === `report` ? row.summary || row.text : row.type === `message` ? row.body : ``
+    // #EXP-2067: an agent's text (a report included) counts its pure prose.
+    const text =
+      row.type === `report` ? plainProse(row.summary || row.text) : row.type === `message` ? (row.author === `agent` ? plainProse(row.body) : row.body) : ``
     out.push({ key, count: text ? markdownHighlightCount(text, query) : 0, itemId: null, outputCount: 0 })
   }
   return out
@@ -2061,12 +2102,14 @@ export function transcriptFindRows(
     const item = row.item
     const key = keys.get(item.id)!
     if (item.kind === `narration`) {
-      out.push({ key, count: markdownHighlightCount(item.text, query), itemId: item.id, outputCount: 0 })
+      // #EXP-2067: find reads the pure prose (a block's raw is never a hit).
+      out.push({ key, count: markdownHighlightCount(plainProse(item.text), query), itemId: item.id, outputCount: 0 })
     } else if (item.kind === `user_message`) {
       if (commandDivider(item.text) || isCommand(item.text) || item.checkIns) continue
       const input = feedInput(item.text)
       if (input?.kind === `marker`) continue
-      const shown = userBubbleText(input?.kind === `relay` ? input.body : item.text)
+      const action = parseActionInput(item.text)
+      const shown = action ? action.body : userBubbleText(input?.kind === `relay` ? input.body : item.text)
       out.push({ key, count: shown ? markdownHighlightCount(shown, query) : 0, itemId: item.id, outputCount: 0 })
     } else if (item.kind === `tool` && !item.workflowId && !traceNotice(item.name) && !item.diff) {
       out.push(findToolRow(item, key, query, null, item.id))
@@ -2393,6 +2436,7 @@ export const LaneRows = memo(function LaneRows({
   live = false,
   lane = null,
   viewer = null,
+  express,
 }: {
   items: FeedItem[]
   gaps?: boolean
@@ -2402,6 +2446,9 @@ export const LaneRows = memo(function LaneRows({
    *  (transcript-grouping.json): the subagent = its own sender. */
   lane?: { id: string; name: string } | null
   viewer?: UserAvatarUser | null
+  /** #EXP-2067: the lane's narration draws its Express blocks (the
+   *  session's id for the row keys, the action poster). */
+  express?: { sessionId: string; onAction?: (event: ActionEvent, origin: ActionOrigin) => void }
 }) {
   // #FEED-256: a blank narration (a lone U+200B) draws no bubble.
   const rows = useMemo(
@@ -2421,7 +2468,7 @@ export const LaneRows = memo(function LaneRows({
           : `py-0.5`
         const layout = layouts?.get(feedRowKey(row)) ?? null
         const grouped = Boolean(layout && layout.side !== `full`)
-        const content = laneRowContent(row, grouped ? `` : ladder, liveRowId, live, layout)
+        const content = laneRowContent(row, grouped ? `` : ladder, liveRowId, live, layout, express ? { ...express, final: index < rows.length - 1 || !live } : null)
         if (!grouped || !layout || !layouts || content === null) return content
         // Two bubbles in a row take the grouping's gap, everything else keeps
         // the ladder (the main transcript's rule).
@@ -2489,7 +2536,8 @@ function laneRowContent(
   gap: string,
   liveRowId: number | undefined,
   live: boolean,
-  layout: TranscriptRowLayout | null
+  layout: TranscriptRowLayout | null,
+  express: { sessionId: string; final: boolean; onAction?: (event: ActionEvent, origin: ActionOrigin) => void } | null = null
 ): ReactNode {
         const author = layout?.name ? transcriptSenderName(layout.sender) : null
         const tail = layout?.tail ?? false
@@ -2539,7 +2587,17 @@ function laneRowContent(
         if (item.kind === `narration`) {
           return (
             <div key={item.id} className={gap}>
-              <NarrationBubble text={item.text} author={author} tail={tail} time={item.at ? userMessageTime(item.at) : null} />
+              <NarrationBubble
+                text={item.text}
+                author={author}
+                tail={tail}
+                time={item.at ? userMessageTime(item.at) : null}
+                express={
+                  express
+                    ? { rowKey: expressFeedRowKey(express.sessionId, item.messageId, item.seq), final: express.final, onAction: express.onAction }
+                    : undefined
+                }
+              />
             </div>
           )
         }
@@ -2567,6 +2625,7 @@ export const NarrationBubble = memo(function NarrationBubble({
   author = null,
   time = null,
   tail = false,
+  express,
 }: {
   text: string
   /** #EXP-1736: the sender's name (the group's first bubble). */
@@ -2575,18 +2634,34 @@ export const NarrationBubble = memo(function NarrationBubble({
   tail?: boolean
   /** #EXP-1864: every bubble's `HH:mm` (its first fragment's). */
   time?: string | null
+  /** #EXP-2067 (chat-express.json): the row's Express blocks, drawn in place
+   *  (`feedRowKey`; FINAL = a row of its lane follows or the turn ended). */
+  express?: { rowKey: string; final: boolean; onAction?: (event: ActionEvent, origin: ActionOrigin) => void }
 }) {
   // #VAPP-258: a live turn's prose paints as a growing prefix.
   const streaming = useContext(TranscriptStreamingContext)
-  return (
+  const bubble = (body: string, part: ExpressProsePart) => (
     // #EXP-1736: THE message bubble on every client (was a bare paragraph
     // here, a bubble on iOS).
     // #EXP-1888: the whole message, never folded.
-    <MessageBubble side="in" author={author} time={time} tail={tail}>
+    <MessageBubble key={part.key} side="in" author={part.first ? author : null} time={part.last ? time : null} tail={part.first && tail}>
       <div className={cn(`min-w-0 text-foreground/90`, TRANSCRIPT_BODY_TEXT)}>
-        <FeedText text={text} ariaLabel="Agent message" hardBreaks streaming={streaming} />
+        <FeedText text={body} ariaLabel="Agent message" hardBreaks streaming={streaming} />
       </div>
     </MessageBubble>
+  )
+  const whole = bubble(text, { first: true, last: true })
+  if (!express) return whole
+  return (
+    <ExpressMessage
+      rowKey={express.rowKey}
+      text={text}
+      final={express.final}
+      messageId={null}
+      renderProse={bubble}
+      fallback={whole}
+      onAction={express.onAction}
+    />
   )
 })
 
@@ -3860,10 +3935,13 @@ function AgentConversation({
   items,
   live,
   viewer = null,
+  express,
 }: {
   summary?: SubagentSummary
   items: FeedItem[]
   live: boolean
+  /** #EXP-2067: the subagent's narration draws its Express blocks. */
+  express?: { sessionId: string; onAction?: (event: ActionEvent, origin: ActionOrigin) => void }
   /** #FEED-239: the viewer's own avatar beside the turns to the subagent. */
   viewer?: UserAvatarUser | null
 }) {
@@ -3926,6 +4004,7 @@ function AgentConversation({
           // each group's first bubble wearing THE tail.
           lane={{ id: `subagent:${summary?.subagentId ?? ``}`, name: summary ? subagentLabel(summary) : `` }}
           viewer={viewer}
+          express={express}
         />
       )}
     </>

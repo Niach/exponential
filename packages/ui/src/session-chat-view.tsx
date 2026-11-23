@@ -78,6 +78,14 @@ import {
 } from "@exp/domain-contract/message-delivery"
 import { MessageBubble, SenderAvatar, TranscriptRow, transcriptSenderName } from "./user-message-bubble"
 import { CHAT_BUBBLE_ENTER_CLASS, SurfaceCard, TranscriptDivider, TranscriptMarker, useLiveArrivals } from "./surface-card"
+import { ExpressMessage } from "./express-message"
+import {
+  actionMarker,
+  showActionOrigin,
+  syncedRowKey,
+  type ActionEvent,
+  type ActionOrigin,
+} from "@exp/domain-contract/chat-express"
 import {
   transcriptLayout,
   type TranscriptItem,
@@ -300,9 +308,10 @@ export interface ChatConversationProps {
   /** A row's `HH:mm` (the bubbles' time). */
   /** #EXP-1864: a child's report wears its time too. */
   messageTime?: (row: Extract<SessionChatRow, { type: `message` | `report` }>) => string | null
-  /** A surface card's `reply` press: send the text as the person's message
-   *  (absent = the presses do nothing). */
-  onSurfaceReply?: (text: string) => void
+  /** #EXP-2067 (chat-express.json ACTIONS): every action event of a show
+   *  surface card or an agent text's Express block, with its origin; the
+   *  host posts it (`surfaceAction`). Absent = the presses do nothing. */
+  onSurfaceAction?: (event: ActionEvent, origin: ActionOrigin) => void
   /** The rows that arrived live (the surface enter, the bubbles' rise);
    *  absent = computed here off the first painted rows. */
   arrived?: (rowId: string) => boolean
@@ -355,7 +364,10 @@ export function chatTranscriptLayout(
   const items: TranscriptItem[] = []
   for (const row of rows) {
     if (options.docked?.has(row.id) && row.type !== `plan` && row.type !== `question`) continue
-    if (row.type === `message`) {
+    if (row.type === `message` && row.action && !row.body) {
+      // #EXP-2067: a press without a body = THE inline marker.
+      items.push({ id: row.id, kind: `full` })
+    } else if (row.type === `message`) {
       addXref(row.xref)
       if (row.author === `user` && row.authorId && !members.has(row.authorId)) {
         const name = options.member?.(row.authorId)?.name
@@ -446,7 +458,7 @@ export function ChatConversation(props: ChatConversationProps) {
     wrapRow,
     layout = `transcript`,
     messageTime,
-    onSurfaceReply,
+    onSurfaceAction,
     arrived,
     className,
   } = props
@@ -527,6 +539,16 @@ export function ChatConversation(props: ChatConversationProps) {
     switch (row.type) {
       case `message`: {
         const layout = layouts.get(row.id)
+        if (row.action && !row.body) {
+          // #EXP-2067: a press without a body: `{author} pressed {name}`.
+          const mine = Boolean(viewerId && row.authorId === viewerId)
+          const name = mine || !row.authorId ? null : (latest.current.member?.(row.authorId)?.name ?? null)
+          return (
+            <div key={row.id} data-slot="chat-action">
+              <TranscriptMarker label={actionMarker(row.action.name, mine ? null : name)} className={enter} />
+            </div>
+          )
+        }
         if (layout?.side === `full`) {
           // #EXP-1772: a system note is THE inline marker, never a bubble.
           return (
@@ -571,17 +593,32 @@ export function ChatConversation(props: ChatConversationProps) {
           link && layout?.name && layout.sender
             ? { name: layout.sender.name, onPress: canOpenXref ? () => openXref(link) : undefined }
             : null
-        return (
+        const inBubble = (text: string, part: { first: boolean; last: boolean; key?: string }) => (
           <MessageBubble
-            key={row.id}
+            key={part.key ?? row.id}
             side="in"
-            text={row.body}
+            text={text}
             renderText={renderText}
-            author={layout?.name ? transcriptSenderName(layout.sender) : null}
-            relay={relay}
-            tail={layout?.tail ?? false}
-            time={time}
+            author={part.first && layout?.name ? transcriptSenderName(layout.sender) : null}
+            relay={part.first ? relay : null}
+            tail={part.first ? (layout?.tail ?? false) : false}
+            time={part.last ? time : null}
             className={enter}
+          />
+        )
+        // #EXP-2067: only an AGENT's text is read for Express blocks.
+        if (row.author !== `agent` || row.action) return inBubble(row.body, { first: true, last: true })
+        return (
+          <ExpressMessage
+            key={row.id}
+            rowKey={syncedRowKey(row.id)}
+            text={row.body}
+            final
+            messageId={row.id}
+            live={isLive(row.id)}
+            renderProse={inBubble}
+            fallback={inBubble(row.body, { first: true, last: true })}
+            onAction={onSurfaceAction ? (event, origin) => latest.current.onSurfaceAction?.(event, origin) : undefined}
           />
         )
       }
@@ -590,17 +627,32 @@ export function ChatConversation(props: ChatConversationProps) {
         // `<child> ›`, opening it.
         const layout = layouts.get(row.id)
         const open = actionOf(row).action !== `none`
-        return (
+        const reportBubble = (text: string, part: { first: boolean; last: boolean; key?: string }) => (
           <MessageBubble
-            key={row.id}
+            key={part.key ?? row.id}
             side="in"
-            text={row.summary || row.text}
+            text={text}
             renderText={renderText}
             author={null}
-            relay={layout?.name && layout.sender ? { name: layout.sender.name, onPress: open ? () => openXref(row.sessionId) : undefined } : null}
-            tail={layout?.tail ?? false}
-            time={messageTime?.(row) ?? null}
+            relay={part.first && layout?.name && layout.sender ? { name: layout.sender.name, onPress: open ? () => openXref(row.sessionId) : undefined } : null}
+            tail={part.first ? (layout?.tail ?? false) : false}
+            time={part.last ? (messageTime?.(row) ?? null) : null}
             className={enter}
+          />
+        )
+        const text = row.summary || row.text
+        // #EXP-2067: a child's report is the child agent's text.
+        return (
+          <ExpressMessage
+            key={row.id}
+            rowKey={syncedRowKey(row.id)}
+            text={text}
+            final
+            messageId={row.id}
+            live={isLive(row.id)}
+            renderProse={reportBubble}
+            fallback={reportBubble(text, { first: true, last: true })}
+            onAction={onSurfaceAction ? (event, origin) => latest.current.onSurfaceAction?.(event, origin) : undefined}
           />
         )
       }
@@ -615,7 +667,7 @@ export function ChatConversation(props: ChatConversationProps) {
             surface={row.surface}
             title={row.title}
             testKey={row.id}
-            onReply={onSurfaceReply ? (text) => latest.current.onSurfaceReply?.(text) : undefined}
+            onAction={onSurfaceAction ? (event) => latest.current.onSurfaceAction?.(event, showActionOrigin(row.id)) : undefined}
             animate={isLive(row.id)}
             className={bubbles ? `max-w-[94%]` : undefined}
           />
@@ -822,7 +874,7 @@ export function ChatConversation(props: ChatConversationProps) {
             row.type === `message` || row.type === `report` ? xrefAgent : null,
             member ?? null,
             viewer ?? null,
-            !onSurfaceReply,
+            !onSurfaceAction,
             renderText,
             attachmentSrc,
             row.type === `suggestions` ? suggestions : null,
