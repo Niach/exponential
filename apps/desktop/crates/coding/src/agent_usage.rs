@@ -66,10 +66,10 @@ pub const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 pub const USAGE_SCOPE: &str = "user:profile";
 
 /// EXP-1626 — the longest `retry-after` a usage 429 is honoured for. Past
-/// this the header is more likely wrong than meant, and a login nobody
-/// re-reads for a day shows numbers nobody should trust (the same ceiling as
-/// [`usage_cache::MAX_PIN_SECS`]).
-pub const MAX_RETRY_AFTER_SECS: u64 = usage_cache::MAX_PIN_SECS;
+/// six hours the header is more likely wrong than meant, and a login nobody
+/// re-reads for a day shows numbers nobody should trust. (The held numbers
+/// ship `stale` meanwhile: a 429 dims them.)
+pub const MAX_RETRY_AFTER_SECS: u64 = 6 * 3600;
 
 /// Whole-request budget for the usage GET.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -767,7 +767,13 @@ fn collect_inner(
         // EXP-808: the top-level `agentUsage` map is the ACTIVE login's;
         // every login also carries its own numbers in its profile row, so a
         // beat that polled nobody still reports what the cache holds.
-        if let Some(snapshot) = &entry.usage {
+        // #FEED-304: the wire copy says so when it has aged out or a window
+        // of it has reset; the cache keeps its own meaning of `stale`.
+        let wire = entry.usage.as_ref().map(|usage| AgentUsage {
+            stale: usage_cache::wire_stale(usage, now),
+            ..usage.clone()
+        });
+        if let Some(snapshot) = &wire {
             if target.active {
                 usage.insert(id.to_string(), snapshot.clone());
             }
@@ -3909,8 +3915,9 @@ mod tests {
     /// The two floors a force must NOT wash away.
     ///
     /// EXP-817: while EVERY window sits at 100 % the schedule is pinned to just
-    /// past the earliest reset — the numbers physically cannot move before it,
-    /// so a forced read there spends a request to re-read 100 %.
+    /// past the earliest reset, so a forced read there does not spend a
+    /// request to re-read 100 %. #FEED-304: never further out than
+    /// `MAX_PIN_SECS` after the read.
     ///
     /// The keychain refusal is kept because `agent_usage_refresh` arrives both
     /// from a person pressing Refresh and from a page's periodic one, and the
@@ -3926,9 +3933,10 @@ mod tests {
             UsageWindow { key: "weekly".into(), percent: 100, resets_at: Some(stamp.to_string()), ..Default::default() },
         ];
         let mut entry = AgentCacheEntry::default();
-        usage_cache::apply_outcome(&mut entry, PollOutcome::Changed, Some(maxed), now, "s");
+        let read = iso_from_unix_secs(now as i64).unwrap();
+        usage_cache::apply_outcome(&mut entry, PollOutcome::Changed, Some(maxed), now, &read);
         assert_eq!(entry.earliest_reset_secs, Some(reset), "every window maxed");
-        let pinned = reset + usage_cache::RESET_MARGIN_SECS;
+        let pinned = now + usage_cache::MAX_PIN_SECS;
         assert_eq!(entry.next_poll_at_secs, pinned);
 
         assert_eq!(usage_cache::force_due(&mut entry, now + 60), Ok(()));
@@ -3936,7 +3944,7 @@ mod tests {
         assert_eq!(entry.endpoint_due_at_secs, Some(pinned));
         assert!(!usage_cache::poll_due(&entry, now + 60), "nothing can have moved yet");
         assert!(!usage_cache::live_endpoint_due(&entry, now + 60));
-        // Past the reset the same force opens everything.
+        // Past the pin the same force opens everything.
         assert_eq!(usage_cache::force_due(&mut entry, pinned), Ok(()));
         assert_eq!(entry.next_poll_at_secs, 0);
         assert_eq!(entry.endpoint_due_at_secs, None);
@@ -4494,6 +4502,123 @@ mod tests {
         );
 
         drop(session);
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #FEED-304 — the MacBook's yourev login: a secondary read at 100 % on
+    /// every window, two days before its reset, then forced once (an open
+    /// Devices page). The force re-pinned it to the reset and no beat ever
+    /// read it again. Now the beat past the pin's ceiling spends its
+    /// secondary slot on it.
+    #[test]
+    fn a_maxed_secondary_login_is_read_again_after_a_force() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("feed-304-maxed");
+        let settings = Settings {
+            codex_path: "/usr/bin/true".to_string(),
+            ..Settings::default()
+        };
+        let report = codex_named_report();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
+        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
+        crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
+
+        let read_at = 1_795_384_828; // 2026-11-22T22:00:28Z
+        let reset = iso_from_unix_secs(1_795_546_800); // 2026-11-24T19:00:00Z
+        let maxed = |key: &str| UsageWindow {
+            key: key.to_string(),
+            label: key.to_string(),
+            percent: 100,
+            resets_at: reset.clone(),
+        };
+        let key = usage_cache::entry_key("codex", &home.id);
+        let mut entry = AgentCacheEntry::default();
+        usage_cache::apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![maxed("weekly"), maxed("model:fable")]),
+            read_at,
+            &iso_from_unix_secs(read_at as i64).unwrap(),
+        );
+        entry.endpoint_fetched_at_secs = Some(read_at);
+        usage_cache::store_entry(&dir, &key, &entry);
+
+        // The Devices page asks: the pin holds, nothing is spent.
+        let payload = force_collect(&dir, &settings, &report, CodingAgent::Codex, &home.id, read_at + 120)
+            .expect("no 429 floor");
+        let row = |payload: &AgentStatusPayload| {
+            payload.accounts["codex"]
+                .profiles
+                .iter()
+                .find(|row| row.id == home.id)
+                .and_then(|row| row.usage.clone())
+                .expect("the login reports its numbers")
+        };
+        assert!(!row(&payload).stale);
+        let held = usage_cache::load(&dir).get(&key).cloned().unwrap();
+        assert_eq!(held.usage, entry.usage, "the pinned login was not read");
+
+        // Half an hour on, a beat reads it (the stand-in codex answers
+        // nothing, so the attempt shows as the claimed slot).
+        let later = read_at + usage_cache::MAX_PIN_SECS + 300;
+        collect_if_due(&dir, &settings, &report, later);
+        let after = usage_cache::load(&dir).get(&key).cloned().unwrap();
+        assert_eq!(after.fetched_at_secs, later, "the maxed login was read again");
+
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #FEED-304 — numbers a pass could not refresh ship `stale` once they
+    /// are an hour old or a window of theirs has reset; the cache's own flag
+    /// (a failed attempt's backoff) is not touched.
+    #[test]
+    fn a_pass_ships_aged_numbers_stale() {
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("feed-304-stale");
+        let settings = Settings {
+            codex_path: "/usr/bin/true".to_string(),
+            ..Settings::default()
+        };
+        let report = codex_named_report();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
+        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
+        crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
+
+        let now = 1_800_000_000;
+        let key = usage_cache::entry_key("codex", &home.id);
+        let mut entry = AgentCacheEntry::default();
+        usage_cache::apply_outcome(
+            &mut entry,
+            PollOutcome::Changed,
+            Some(vec![UsageWindow {
+                key: "weekly".into(),
+                label: "Week".into(),
+                percent: 40,
+                resets_at: iso_from_unix_secs(now as i64 + 86_400),
+            }]),
+            now - 2 * 3_600,
+            &iso_from_unix_secs(now as i64 - 2 * 3_600).unwrap(),
+        );
+        // A sibling process tried a moment ago: nothing is due on this pass.
+        entry.fetched_at_secs = now - 10;
+        usage_cache::store_entry(&dir, &key, &entry);
+
+        let payload = collect_if_due(&dir, &settings, &report, now);
+        let row = payload.accounts["codex"]
+            .profiles
+            .iter()
+            .find(|row| row.id == home.id)
+            .and_then(|row| row.usage.clone())
+            .expect("the login reports its numbers");
+        assert_eq!(row.windows[0].percent, 40);
+        assert!(row.stale, "two-hour-old numbers are not current");
+        let held = usage_cache::load(&dir).get(&key).cloned().unwrap();
+        assert!(!held.usage.unwrap().stale, "the cache flag means a failed attempt");
+
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
     }
