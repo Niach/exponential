@@ -258,6 +258,8 @@ describe.skipIf(!ready.ok)(`migration 0293 through drizzle's migrator (#EXP-1989
       const mine = await db.select().from(agents).where(and(eq(agents.ownerId, me), eq(agents.role, `assistant`)))
       expect(mine).toHaveLength(1)
       expect(mine[0]).toMatchObject({ id: asA.id, teamId: home!.id, skillIds: [skA, skB, skB2], mcpServerIds: [mcpA, mcpB] })
+      // The prompt stamp stays: the move puts no Instructions changed card on the moved chat.
+      expect(mine[0]!.instructionsUpdatedAt).toEqual(asA.instructionsUpdatedAt)
       // The keyed conversation moved with its ids, private, still readable by
       // its member's own wrap; the teammate's wrap is gone.
       const [kept] = await db.select().from(sessions).where(eq(sessions.id, rA))

@@ -19,7 +19,9 @@
 --     readable in its team as before;
 --   * every reference to their other Assistants points to the kept one; their
 --     skill and MCP picks carry into it (#EXP-1988); those rows go; the kept
---     one moves and re-stamps its prompt (`prompt.version`).
+--     one moves. Its prompt is NOT re-stamped (`instructions_updated_at`):
+--     a conversation takes the current prompt with its brief on every launch,
+--     and a stamp only puts the Instructions changed card on every moved chat.
 -- Idempotent: a member whose Assistants all live in their personal team is
 -- untouched, so on a database that already moved (the switch was on) or an
 -- empty one only the index changes. Its real-DB tests
@@ -197,8 +199,8 @@ WHERE r."keep" AND s."id" = r."id" AND r."agent_id" IN (SELECT "keep_id" FROM "e
 DELETE FROM "agents" WHERE "id" IN (SELECT "old_id" FROM "exp1986_assistants" WHERE "old_id" <> "keep_id");
 --> statement-breakpoint
 -- The kept Assistant moves; its skill / MCP picks stay (ids of their teams'
--- rows, read per team: #EXP-1988) and its prompt re-stamps.
-UPDATE "agents" a SET "team_id" = m."personal_id", "instructions_updated_at" = now(), "updated_at" = now()
+-- rows, read per team: #EXP-1988); its prompt stamp stays.
+UPDATE "agents" a SET "team_id" = m."personal_id", "updated_at" = now()
 FROM "exp1986_assistants" m
 WHERE a."id" = m."keep_id" AND m."old_id" = m."keep_id";
 --> statement-breakpoint
