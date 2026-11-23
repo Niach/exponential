@@ -165,10 +165,10 @@ function seedCliAccountPin(
  * synced `devices` shape, ticking against the online window). null while the
  * first snapshot loads.
  */
-export function useAgentDevices(teamId: string | undefined): SteerDevice[] | null {
+export function useAgentDevices(teamId: string | undefined, own = false): SteerDevice[] | null {
   const { data: session } = useSession()
   const currentUserId = session?.user?.id
-  const enabled = Boolean(teamId && currentUserId)
+  const enabled = Boolean((teamId || own) && currentUserId)
   const { data: deviceRows } = useLiveQuery(
     (query) => (enabled ? query.from({ d: deviceCollection }) : undefined),
     [enabled]
@@ -188,9 +188,9 @@ export function useAgentDevices(teamId: string | undefined): SteerDevice[] | nul
       usersById,
       now,
       currentUserId,
-      teamId
+      own ? undefined : teamId
     )
-  }, [enabled, currentUserId, deviceRows, userRows, now, teamId])
+  }, [enabled, currentUserId, deviceRows, userRows, now, teamId, own])
 }
 
 /** The Device row's entries: online machines are pickable, an offline one
@@ -253,7 +253,11 @@ export function AgentSettingsPage({
   // (the server answers NOT_FOUND to anyone else), so it is never read-only.
   const assistant = agent?.role === `assistant`
   const readOnly = assistant ? false : !isOwner
-  const devices = useAgentDevices(team.id)
+  // The Assistant lives in its member's personal team and runs on ANY machine
+  // of theirs, whatever teams it is shared with (the server's
+  // `resolveSessionDevice`, #EXP-1720): its list is their own machines, never
+  // `deviceUsableInTeam(row, <the personal team>)`, which hides a shared one.
+  const devices = useAgentDevices(team.id, assistant)
   // #EXP-1847: the member's voice settings, every agent's voice fallback
   // (`agentVoiceOf`), read once per page.
   const memberVoice = useMemberVoice(!creating)

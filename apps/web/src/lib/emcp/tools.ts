@@ -177,6 +177,7 @@ import { TokenBucketLimiter } from "@/lib/widget/rate-limit"
 import { loadRepositoryForTeam } from "@/lib/trpc/repositories"
 import { MAX_PROMPT_BODY, MAX_PROMPT_NAME } from "@/lib/trpc/prompts"
 import { visibleDeviceRows } from "@/lib/trpc/devices"
+import { reconcileDeviceUsage } from "@/lib/usage-reconcile"
 // EXP-1291: the session tree's core (lib/sessions/**) and the PR model
 // (lib/pull-requests.ts). These tools only add grants and resolve the caller.
 import { sendSession } from "@/lib/sessions/send"
@@ -3472,7 +3473,7 @@ export function registerExponentialTools(
     `exponential_devices_list`,
     {
       annotations: READ_ONLY,
-      description: `List the machines teamId (default: your session's team) may use: your own personal ones or those shared with it, plus servers teammates shared with it; a machine shared only with other teams is never listed. Pick an online device whose agents includes the agent you want. agentUsage.<agent> = its last used login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence. doctor = its readiness report: items[] {key, state ok|action|missing|off|error, detail, action} (null = not reported yet). Its computer_use item ok or action = the Computer use switch is on: exponential_sessions_send {computerUse: true} starts a session with it on your person's own device.`,
+      description: `List the machines teamId (default: your session's team) may use: your own personal ones or those shared with it, plus servers teammates shared with it; a machine shared only with other teams is never listed. Pick an online device whose agents includes the agent you want. agentUsage.<agent> = its last used login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = not current (over 1 h old, past a resetsAt or the refresh failed): never read it as a full account; agentUsageAt = when the device last reported. Each account's own row: agentAccounts.<agent>.profiles[].usage; one email reads its newest fetch on every device. A live session refreshes only the account it runs on, per turn; else it is polled, at least every 30 min. doctor = its readiness report: items[] {key, state ok|action|missing|off|error, detail, action} (null = not reported yet). Its computer_use item ok or action = the Computer use switch is on: exponential_sessions_send {computerUse: true} starts a session with it on your person's own device.`,
       // EXP-1183: the MCP Apps devices view (lib/emcp/apps.ts).
       _meta: appMeta(`devices`),
       inputSchema: strictInput({
@@ -3499,10 +3500,21 @@ export function registerExponentialTools(
 
         // Own rows plus the team's shared servers — the ONE encoding of
         // that query lives in the devices router (visibleDeviceRows).
-        const { rows, ownerNames } = await visibleDeviceRows(
-          db,
-          user.id,
-          teamId
+        const visible = await visibleDeviceRows(db, user.id, teamId)
+        const { ownerNames } = visible
+        // #FEED-304: usage as it reads NOW, owner by owner: a row nobody
+        // has written for an hour is stale, and an account reads its
+        // newest fetch on every device.
+        const now = new Date()
+        const rows = [...new Set(visible.rows.map((row) => row.userId))].flatMap((owner) =>
+          reconcileDeviceUsage(
+            visible.rows.filter((row) => row.userId === owner),
+            now
+          ).map((next) => ({
+            ...next.row,
+            agentAccounts: next.agentAccounts,
+            agentUsage: next.agentUsage,
+          }))
         )
         // `online` is last_seen_at freshness (contract onlineWindowSeconds),
         // not relay presence — the same rule every synced client applies.

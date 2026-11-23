@@ -12,7 +12,7 @@ import { z } from "zod"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
-import { devices, installs, sessionKeys, sessions, teamMembers } from "@/db/schema"
+import { devices, installs, sessionKeys, sessions, teamMembers, teams } from "@/db/schema"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import { loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
@@ -237,6 +237,19 @@ export const installsRouter = router({
     .input(z.object({ sessionId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId, ctx.db)
+      // #EXP-1989 follow-up: a session in a PERSONAL team (the Assistant's
+      // conversation after the move) names NO endpoint. Every released
+      // desktop and daemon answers a viewer's eNet join from the registry
+      // list of the SESSION's team (`steer` `user_in_team`), which it reads
+      // per SYNCED team: the personal team is never one, so it refuses every
+      // viewer (`unauthorized`), and a refused join opens no relay leg
+      // (steer-enet.json `enetRefused`): no feed at all. With no endpoint the
+      // viewer has no eNet feed and takes the SEALED RELAY TUNNEL at once,
+      // where the device applies the access rule to the ticket's user (the
+      // starter). Lift this once the devices that know the personal team are
+      // the minimum.
+      const [team] = await ctx.db.select({ kind: teams.kind }).from(teams).where(eq(teams.id, session.teamId)).limit(1)
+      if (team?.kind === `personal`) return []
       const owner = await sessionDeviceOwner(session, ctx.db)
       const machines = await ctx.db
         .select({ id: devices.id })

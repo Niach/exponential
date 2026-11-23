@@ -169,12 +169,30 @@ describe(`users — scoped API keys (FEED-76)`, () => {
   it(`#EXP-1720: an agent key for the caller's personal team is the Assistant's: every team they belong to`, async () => {
     h.personalTeamId = T2
     try {
-      await callerFor().mintPersonalApiKey({ purpose: `agent`, teamId: T2, name: `Agent` })
+      const created = await callerFor().mintPersonalApiKey({ purpose: `agent`, teamId: T2, name: `Agent` })
       expect(h.createApiKey).toHaveBeenCalledWith({
         body: expect.objectContaining({
           metadata: { kind: `agent`, scope: { allTeams: false, teamIds: [], boardIds: [], assistant: true } },
         }),
       })
+      // THE RELEASED DEVICE'S CHECK (apps/desktop/crates/api/src/users.rs
+      // `scoped_to_team`): the answer names exactly the asked team and no
+      // board, else the device revokes the key and the Assistant's
+      // conversation never launches after the move.
+      const scopedToTeam = (scope: typeof created.scope, teamId: string) =>
+        !!scope && scope.boards.length === 0 && scope.teams.length === 1 && scope.teams[0]!.id === teamId
+      expect(scopedToTeam(created.scope, T2)).toBe(true)
+      expect(created.scope).toEqual({ teams: [{ id: T2, name: `Lab` }], boards: [] })
+      // The key list still reads the STORED scope: no team is named there.
+      db.rows(`apikeys`).push({
+        id: `key-assistant`,
+        referenceId: `actor`,
+        name: `Agent`,
+        createdAt: new Date(2),
+        metadata: JSON.stringify((h.createApiKey.mock.calls.at(-1) as unknown as [{ body: { metadata: unknown } }])[0].body.metadata),
+      })
+      const { keys } = await callerFor().listPersonalApiKeys()
+      expect(keys.find((row) => row.id === `key-assistant`)!.scope).toEqual({ teams: [], boards: [] })
     } finally {
       h.personalTeamId = null
     }

@@ -224,7 +224,8 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
       expect(personal).toMatchObject({ slug: personalTeamSlug(me) })
       const mine = await tx.select().from(agents).where(and(eq(agents.ownerId, me), eq(agents.role, `assistant`)))
       expect(mine.map((a) => [a.id, a.teamId])).toEqual([[asA.id, personal!.id]])
-      expect(mine[0]!.instructionsUpdatedAt!.getTime()).toBeGreaterThan(asA.instructionsUpdatedAt!.getTime())
+      // The move never re-stamps the prompt: no Instructions changed card on the moved chat.
+      expect(mine[0]!.instructionsUpdatedAt!.getTime()).toBe(asA.instructionsUpdatedAt!.getTime())
 
       // The kept conversation: same id, personal team, private, same key.
       const [kept] = await tx.select().from(sessions).where(eq(sessions.id, rA))

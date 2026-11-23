@@ -43,6 +43,7 @@ import registerFixture from "@exp/domain-contract/fixtures/install-register.json
 
 const TEAM_A = `00000000-0000-4000-8000-00000000000a`
 const TEAM_B = `00000000-0000-4000-8000-00000000000b`
+const PERSONAL = `00000000-0000-4000-8000-00000000000c`
 
 function caller(userId: string) {
   return installsRouter.createCaller({
@@ -87,6 +88,11 @@ function registration(
 
 beforeEach(() => {
   db = createFakeDb({
+    teams: [
+      { id: TEAM_A, kind: `team` },
+      { id: TEAM_B, kind: `team` },
+      { id: PERSONAL, kind: `personal`, ownerId: `u1` },
+    ],
     team_members: [
       { teamId: TEAM_A, userId: `u1` },
       { teamId: TEAM_A, userId: `u2` },
@@ -299,6 +305,20 @@ describe(`installs.forSession (VAPP-33 discovery)`, () => {
     await caller(`u1`).register(registration(`u1`, identity(), { kind: `desktop`, deviceId: `mac-1` }))
     expect(await caller(`u2`).forSession({ sessionId: S2 })).toHaveLength(1)
     await expect(caller(`u2`).forSession({ sessionId: S1 })).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  // The released desktop / daemon refuse every eNet viewer of a session whose
+  // team is not one of their SYNCED teams (crates/steer `user_in_team`: no
+  // registry list for it), and a refused join opens no relay leg. The
+  // personal team is never synced, so its sessions name no endpoint: the
+  // viewer has no eNet feed and takes the sealed relay tunnel.
+  it(`names no endpoint for a session in a personal team (the Assistant's conversation), so viewers take the relay`, async () => {
+    const S3 = `55555555-5555-4555-8555-555555555555`
+    SESSIONS[S3] = { id: S3, userId: `u1`, shared: false, teamId: PERSONAL, deviceId: `mac-1` }
+    await caller(`u1`).register(registration(`u1`, identity(), { kind: `desktop`, deviceId: `mac-1` }))
+    expect(await caller(`u1`).forSession({ sessionId: S1 })).toHaveLength(1)
+    expect(await caller(`u1`).forSession({ sessionId: S3 })).toEqual([])
+    await expect(caller(`u2`).forSession({ sessionId: S3 })).rejects.toMatchObject({ code: `NOT_FOUND` })
   })
 })
 
