@@ -74,17 +74,17 @@ func resultPictureSet(_ result: ResultsTab.Result, start index: Int) -> PictureV
 }
 
 /// One result's surface, inline: THE surface card, no title over it, presses
-/// reply as in the chat.
+/// forwarded as in the chat (#EXP-2067 `surfaceAction`).
 private struct ResultSurface: View {
     let surface: CardSurface
-    let onReply: ((String) -> Void)?
+    let onAction: ((ChatExpress.ActionEvent) -> Void)?
 
     @State private var handle = PlanCardSurfaceHandle()
 
     var body: some View {
         SurfaceCardFrame(title: nil, animate: false) {
             PlanCardSurfaceView(
-                surface: surface, handle: handle, editable: onReply != nil, onReply: onReply, bare: true
+                surface: surface, handle: handle, editable: onAction != nil, onAction: onAction, bare: true
             )
         }
     }
@@ -152,7 +152,7 @@ struct ChatResultsPage: View {
                             if let surface = fold.cards[result.id]?.surface {
                                 ResultSurface(
                                     surface: surface,
-                                    onReply: canEdit ? { text in reply(text, to: result) } : nil
+                                    onAction: canEdit ? { event in act(event, on: result) } : nil
                                 )
                             }
                         }
@@ -358,20 +358,12 @@ struct ChatResultsPage: View {
 
     /// An inline surface's reply press: THE chat's, sent to the result's
     /// session (`sessions.send`); a refusal toasts.
-    private func reply(_ text: String, to result: ResultsTab.Result) {
-        let api = deps.sessionsApi
-        let accountId = accountId
-        let toaster = toaster
-        Task {
-            do {
-                _ = try await api.send(accountId: accountId, .message(sessionId: result.sessionId, text: text))
-            } catch {
-                toaster.error(
-                    FeedbackStates.Errors.title(verb: "send", thing: "the message"),
-                    description: error.userFacingMessage
-                )
-            }
-        }
+    /// #EXP-2067: a result surface's press = THE action card into its session.
+    private func act(_ event: ChatExpress.ActionEvent, on result: ResultsTab.Result) {
+        ExpressActions.post(
+            event, origin: ChatExpress.showActionOrigin(result.id), sessionId: result.sessionId, accountId: accountId,
+            api: deps.sessionsApi, toaster: toaster
+        )
     }
 }
 
