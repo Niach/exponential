@@ -95,6 +95,22 @@ pub const A2UI_MIME_TYPE: &str = "application/a2ui+json";
 pub const AGENT_FUNCTION_TIMEOUT_MS: u64 = 30_000;
 pub const MCP_ACTION_TOOL: &str = "a2ui_event";
 pub const SSE_EVENTS: &[&str] = &["message", "a2ui"];
+/// #AXC-12: the inference formats (`inference`): what an agent may write,
+/// `json` (the default) or `express`, and the marker's keys on every wire.
+pub const INFERENCE_FORMATS: &[&str] = &["json", "express"];
+pub const DEFAULT_INFERENCE_FORMAT: &str = "json";
+/// The `rendererCapabilities["1.0"]` key a renderer that compiles Express sets.
+pub const INFERENCE_FORMATS_KEY: &str = "inferenceFormats";
+/// The HTTP Content-Type and MCP resource mimeType of an Express body.
+pub const EXPRESS_MIME_TYPE: &str = "application/a2ui+express";
+/// `structuredContent[EXPRESS_STRUCTURED_KEY]`: a bare Express body in an MCP result.
+pub const EXPRESS_STRUCTURED_KEY: &str = "a2uiExpress";
+/// The SSE event whose data is the next chunk of the stream's Express response.
+pub const EXPRESS_SSE_EVENT: &str = "a2ui-express";
+/// A WebSocket frame `{"express": "…"}` = the next Express chunk.
+pub const EXPRESS_WS_KEY: &str = "express";
+/// The surface Express statements before any `surface("…")` line target by default.
+pub const EXPRESS_DEFAULT_SURFACE_ID: &str = "main";
 pub const PACKAGE_REQUIRED: &[&str] = &["id", "name", "version", "catalogId", "templates"];
 /// Round 2: what a host hands each surface besides messages — the
 /// `SurfaceSettings` keys, the host formatter's methods, the commands.
@@ -146,6 +162,12 @@ pub fn host_contract() -> Value {
         "sources": {"pattern": SOURCE_PATTERN, "paramsEncoding": SOURCE_PARAMS_ENCODING},
         "transport": {"mcpMimeTypes": MCP_MIME_TYPES, "mcpActionTool": MCP_ACTION_TOOL, "sseEvents": SSE_EVENTS},
         "negotiation": {"a2aCapabilitiesKey": A2A_CAPABILITIES_KEY, "a2aDataModelKey": A2A_DATA_MODEL_KEY, "a2aExtensionUri": A2A_EXTENSION_URI, "mimeType": A2UI_MIME_TYPE},
+        "inference": {
+            "formats": INFERENCE_FORMATS,
+            "default": DEFAULT_INFERENCE_FORMAT,
+            "capabilitiesKey": INFERENCE_FORMATS_KEY,
+            "express": {"mimeType": EXPRESS_MIME_TYPE, "structuredContentKey": EXPRESS_STRUCTURED_KEY, "sseEvent": EXPRESS_SSE_EVENT, "wsFrameKey": EXPRESS_WS_KEY, "defaultSurfaceId": EXPRESS_DEFAULT_SURFACE_ID},
+        },
         "package": {
             "required": PACKAGE_REQUIRED,
             "formatVersion": super::package::PACKAGE_FORMAT_VERSION,

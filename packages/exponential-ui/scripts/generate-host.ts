@@ -86,14 +86,13 @@ export function renderHost(): Record<string, string> {
   transport.mcp = transport.mcp.map((c: Case) => ({ ...c, expected: messagesFromMcpResult(c.result) }))
   // #AXC-12: the Express cases, over the vendored compiler (wasm/express).
   initExpress(readFileSync(join(pkgRoot, `wasm/express/a2ui_express_bg.wasm`)))
-  const ex = transport.express
   const at = (c: Case) => (c.surfaceId ? { surfaceId: c.surfaceId as string } : {})
-  ex.streams = ex.streams.map((c: Case) => ({ ...c, expected: feed(new ExpressDecoder({ wrapped: c.wrapped as boolean, ...at(c) }), c.chunks as string[]) }))
-  ex.sse = ex.sse.map((c: Case) => ({ ...c, expected: feed(new SseDecoder(at(c)), c.chunks as string[]) }))
-  ex.ws = ex.ws.map((c: Case) => ({ ...c, expected: feed(new FrameDecoder(at(c)), c.frames as string[]) }))
-  ex.mcp = ex.mcp.map((c: Case) => ({ ...c, expected: messagesFromMcpResult(c.result, at(c)) }))
-  ex.contentTypes = ex.contentTypes.map((c: Case) => ({ ...c, expected: inferenceFormatOf(c.contentType as string) }))
-  ex.capabilities = ex.capabilities.map((c: Case) => ({ ...c, expected: rendererCapabilities(c.extensionIds as string[], c.inferenceFormats ? { inferenceFormats: c.inferenceFormats as string[] } : {}) }))
+  transport.express = transport.express.map((c: Case) => ({ ...c, expected: feed(new ExpressDecoder({ wrapped: c.wrapped as boolean, ...at(c) }), c.chunks as string[]) }))
+  transport.expressSse = transport.expressSse.map((c: Case) => ({ ...c, expected: feed(new SseDecoder(at(c)), c.chunks as string[]) }))
+  transport.expressWs = transport.expressWs.map((c: Case) => ({ ...c, expected: feed(new FrameDecoder(at(c)), c.frames as string[]) }))
+  transport.expressMcp = transport.expressMcp.map((c: Case) => ({ ...c, expected: messagesFromMcpResult(c.result, at(c)) }))
+  transport.expressContentTypes = transport.expressContentTypes.map((c: Case) => ({ ...c, expected: inferenceFormatOf(c.contentType as string) }))
+  transport.expressCapabilities = transport.expressCapabilities.map((c: Case) => ({ ...c, expected: rendererCapabilities(c.extensionIds as string[], c.inferenceFormats ? { inferenceFormats: c.inferenceFormats as string[] } : {}) }))
   transport.mcpAction = transport.mcpAction.map((c: Case) => ({ ...c, expected: mcpActionCall(c.message as ClientMessage, c.tool as string | undefined, c.metadata as Record<string, unknown> | undefined) }))
 
   const policy = read(`fixtures/host-policy.json`)

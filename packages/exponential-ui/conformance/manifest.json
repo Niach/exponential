@@ -128,7 +128,7 @@
       ],
       "unit": "case",
       "cases": 34,
-      "check": "`express`: feed the chunks through ONE ExpressDecoder / SseDecoder / FrameDecoder, decode the MCP result, sniff the Content-Type, build the renderer capabilities: messages, issues and text equal `expected`."
+      "check": "`express*`: feed the chunks through ONE ExpressDecoder / SseDecoder / FrameDecoder, decode the MCP result, sniff the Content-Type, build the renderer capabilities: messages, issues and text equal `expected`."
     },
     {
       "id": "host-policy",
