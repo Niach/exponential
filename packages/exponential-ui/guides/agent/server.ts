@@ -14,7 +14,6 @@
 import { readFileSync } from "node:fs"
 import { createServer } from "node:http"
 import type { ServerResponse } from "node:http"
-import { createRequire } from "node:module"
 import { A2UI_VERSION, CORE_CATALOG_ID, ICON_NAMES, reduceSurface } from "@exponential_app/eui"
 import type { FlatComponent } from "@exponential_app/eui"
 import { compileExpress, expressPrompt, initExpress } from "@exponential_app/eui/express"
@@ -22,9 +21,8 @@ import { catalogPrompt } from "@exponential_app/eui/prompt"
 import { coreSchema } from "@exponential_app/eui/schema"
 import demo from "@exponential_app/eui/fixtures/express-demo.json" with { type: "json" }
 
-// The Express compiler (WASM), instantiated once from the package's bytes.
-const require = createRequire(import.meta.url)
-initExpress(readFileSync(require.resolve(`@exponential_app/eui/wasm/express/a2ui_express_bg.wasm`)))
+// The Express compiler (WASM, shipped beside the module), instantiated once.
+initExpress(readFileSync(new URL(`a2ui_express_bg.wasm`, import.meta.resolve(`@exponential_app/eui/express`))))
 
 const tools = [
   {

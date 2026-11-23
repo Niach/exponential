@@ -93,7 +93,9 @@ fn main() {
             (cx.new(|cx| ExponentialHost::new(options, cx)), &["main"])
         };
         host.update(cx, |host, cx| host.connect(cx));
-        let window = WindowOptions { window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, size(px(540.0), px(640.0)), cx))), ..Default::default() };
+        // The Express answer's dashboard wants a wider window.
+        let bounds = if express { size(px(900.0), px(960.0)) } else { size(px(540.0), px(640.0)) };
+        let window = WindowOptions { window_bounds: Some(WindowBounds::Windowed(Bounds::centered(None, bounds, cx))), ..Default::default() };
         cx.open_window(window, |_, cx| cx.new(|cx| {
             cx.observe(&host, |_, _, cx| cx.notify()).detach();
             Main { host: host.clone(), surfaces }
