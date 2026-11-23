@@ -2979,35 +2979,25 @@ impl SseDecoder {
 /// never fatal.
 #[derive(uniffi::Object)]
 pub struct ExpressDecoder {
-    inner: Mutex<OwnedExpress>,
+    inner: Mutex<h::ExpressDecoder>,
 }
-
-/// The core decoder is `!Send` only because the compiler's per-stream scope
-/// session (`a2ui_express::compile::session::ScopeSession`) holds `Rc`s.
-/// SAFETY: every one of those `Rc`s is created by this stream and reachable
-/// only through it (the shared parts, the compiler and the catalogs, are
-/// `Arc` and `Send`), so moving the whole decoder to another thread cannot
-/// leave a clone behind; the `Mutex` serializes every use.
-struct OwnedExpress(h::ExpressDecoder);
-
-unsafe impl Send for OwnedExpress {}
 
 #[uniffi::export]
 impl ExpressDecoder {
     #[uniffi::constructor]
     pub fn new(wrapped: bool, surface_id: String) -> Arc<Self> {
-        Arc::new(ExpressDecoder { inner: Mutex::new(OwnedExpress(h::ExpressDecoder::new(wrapped, &surface_id))) })
+        Arc::new(ExpressDecoder { inner: Mutex::new(h::ExpressDecoder::new(wrapped, &surface_id)) })
     }
 
     pub fn push(&self, chunk: String) -> String {
         shield("push", || panic_decoded_json("push"), || {
-            self.inner.lock().unwrap_or_else(|e| e.into_inner()).0.push(&chunk).to_json().to_string()
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).push(&chunk).to_json().to_string()
         })
     }
 
     pub fn end(&self) -> String {
         shield("end", || panic_decoded_json("end"), || {
-            self.inner.lock().unwrap_or_else(|e| e.into_inner()).0.end().to_json().to_string()
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).end().to_json().to_string()
         })
     }
 }
