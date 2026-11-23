@@ -8,7 +8,7 @@ const AGENT = `http://localhost:4300`
 /** The prose is yours: the SDK hands it to `onText` and draws none of it.
  *  Here it goes into two surfaces the app owns (a Markdown each): the run
  *  before the block above the agent's surface, the run after it below. */
-function proseSurfaces(host: ExponentialHost) {
+function proseSurfaces(host: ExponentialHost): (piece: string) => void {
   for (const surfaceId of [`intro`, `outro`])
     host.receive({
       version: A2UI_VERSION,
@@ -16,7 +16,7 @@ function proseSurfaces(host: ExponentialHost) {
     })
   let target = `intro`
   let run = ``
-  return (piece: string) => {
+  return (piece) => {
     // A "\n\n" piece = a block passed: the next run starts.
     if (piece === `\n\n`) return void ((target = `outro`), (run = ``))
     run += piece
@@ -25,15 +25,15 @@ function proseSurfaces(host: ExponentialHost) {
 }
 
 export function ExpressStream() {
+  // One host per stream; `onText` gets the prose a piece at a time.
   const host = useMemo(() => {
-    let onText = (_: string) => {}
-    const host = new ExponentialHost({
+    let prose: ((piece: string) => void) | undefined // the prose surfaces, from the first piece on
+    const host: ExponentialHost = new ExponentialHost({
       // `format: "express"`: the agent writes Express (prose around
       // `<a2ui>` blocks); the compiler loads before the first byte.
       transport: new SseTransport({ url: `${AGENT}/express${location.search}`, postUrl: `${AGENT}/action`, format: `express` }),
-      onText: (piece) => onText(piece),
+      onText: (piece) => (prose ??= proseSurfaces(host))(piece),
     })
-    onText = proseSurfaces(host)
     return host
   }, [])
   useEffect(() => {
@@ -42,7 +42,7 @@ export function ExpressStream() {
   }, [host])
 
   return (
-    <div style={{ display: `flex`, flexDirection: `column`, gap: 16 }}>
+    <div style={{ display: `flex`, flexDirection: `column`, gap: 16, padding: 16 }}>
       <HostSurface host={host} surfaceId="intro" theme="exponential" mode="dark" />
       <HostSurface host={host} surfaceId="main" theme="exponential" mode="dark" />
       <HostSurface host={host} surfaceId="outro" theme="exponential" mode="dark" />
