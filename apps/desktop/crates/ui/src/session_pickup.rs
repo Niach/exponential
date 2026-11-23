@@ -517,6 +517,13 @@ fn run_pass(cx: &mut App) {
             .cloned()
             .collect::<Vec<_>>(),
     );
+    // #EXP-1990: a team agent's group chat words each person's message
+    // with its author (the synced `agents` + `users` rows).
+    let member_inputs = pickup::MemberInputs::new(
+        &sessions,
+        collections.agents.read(cx).iter(),
+        collections.users.read(cx).iter(),
+    );
     let mut actions: Vec<PickupAction> = pickup::plan(PickupInput {
         device_id: &device_id,
         sessions: &sessions,
@@ -525,6 +532,7 @@ fn run_pass(cx: &mut App) {
         in_flight: &in_flight,
         revive_held: &revive_held,
         moves: &moves,
+        member_inputs: &member_inputs,
     });
     // Rows this host claimed whose launch failed transiently read `running`
     // — the plan only launches `queued` ones.

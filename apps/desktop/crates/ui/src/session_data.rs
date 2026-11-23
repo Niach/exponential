@@ -1578,7 +1578,7 @@ pub(crate) struct ChatsModel {
 #[derive(Clone, PartialEq, Eq)]
 struct ChatsKey {
     team_id: String,
-    revisions: [u64; 8],
+    revisions: [u64; 9],
     /// The time labels move with the local hour (today → Yesterday).
     hour: i64,
 }
@@ -1644,6 +1644,8 @@ pub(crate) fn chats_model(team_id: &str, cx: &mut App) -> Rc<ChatsModel> {
             collections.teams.read(cx).revision(),
             // #EXP-1733: the app rows.
             collections.apps.read(cx).revision(),
+            // #EXP-1990: a teammate's name leads their preview line.
+            collections.users.read(cx).revision(),
         ],
         hour: now_ms() / 3_600_000,
     };
@@ -1735,6 +1737,14 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
     let offset = chrono::Local::now().offset().local_minus_utc() / 60;
     // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
     let visible: HashSet<&str> = sessions.iter().map(|session| session.id.as_str()).collect();
+    // #EXP-1990: a teammate's line reads under their name (chats.json
+    // `copy.preview.member`).
+    let members: HashMap<String, String> = collections
+        .users
+        .read(cx)
+        .iter()
+        .filter_map(|user| Some((user.id.clone(), user.name.clone().filter(|name| !name.is_empty())?)))
+        .collect();
     let list_of = |view| {
         domain::chats::chat_list(domain::chats::ChatListInput {
             groups,
@@ -1746,6 +1756,8 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
             now: &now,
             utc_offset_minutes: offset,
             visible_session_ids: Some(&visible),
+            me: me.as_deref(),
+            members: Some(&members),
         })
     };
     let list = list_of(domain::chats::ChatListView::List);
@@ -1756,6 +1768,7 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
         messages: &messages,
         reads: &reads,
         me: me.as_deref(),
+        members: Some(&members),
         view: domain::chats::ChatListView::List,
         now: &now,
         utc_offset_minutes: offset,
@@ -1772,6 +1785,7 @@ fn derive_chats_model(team_id: &str, groups: &[ChatsListGroup], cx: &App) -> Cha
         messages: &messages,
         reads: &reads,
         me: me.as_deref(),
+        members: Some(&members),
         view: domain::chats::ChatListView::List,
         now: &now,
         utc_offset_minutes: offset,

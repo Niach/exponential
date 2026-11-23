@@ -124,6 +124,8 @@ pub struct ChatsPreviewCopy {
     pub question: String,
     pub plan: String,
     pub you: String,
+    /// #EXP-1990: `{name}: {text}`, a teammate's line.
+    pub member: String,
     pub picture: String,
     pub surface: String,
     pub empty: String,
@@ -637,6 +639,8 @@ pub enum ChatPreviewKind {
     Question,
     Plan,
     You,
+    /// #EXP-1990: a teammate's text, under their name; drawn as `You`.
+    Member,
     Agent,
     Picture,
     Surface,
@@ -775,6 +779,8 @@ pub fn ask_preview(message: &MessageRow, visible: Option<&HashSet<&str>>) -> Cha
 /// The root conversation's preview line (`previewCases`). `messages` may
 /// hold other sessions' rows: only `root_id`'s own count. `visible` = the
 /// viewer's synced session ids (`None` = no check, #EXP-1399 review).
+/// #EXP-1990: `me` = the viewer, `members` = the team's members by id: a
+/// person's text by anyone else reads `copy.preview.member` with their name.
 /// EXP-1459: a sealed message that does not open here
 /// (sealed-content.json `placeholder`).
 fn locked_preview(reason: crate::sealed::LockedReason) -> ChatPreview {
@@ -787,6 +793,8 @@ pub fn chat_preview(
     needs_you: bool,
     busy: bool,
     visible: Option<&HashSet<&str>>,
+    me: Option<&str>,
+    members: Option<&HashMap<String, String>>,
 ) -> ChatPreview {
     let copy = &CHATS.copy.preview;
     let mut own: Vec<&MessageRow> = messages
@@ -836,7 +844,18 @@ pub fn chat_preview(
                 },
                 text: divider.label().to_string(),
             },
-            None => ChatPreview { kind: ChatPreviewKind::You, text: fill(&copy.you, body) },
+            // #EXP-1990: a teammate's line (a shared chat, a team agent's
+            // group chat) reads under their name; an unnamed author (an
+            // older digest) = you.
+            None => match (newest.author_id.as_deref().filter(|id| !id.is_empty()), me.filter(|me| !me.is_empty())) {
+                (Some(author), Some(me)) if author != me => {
+                    let name = members
+                        .and_then(|members| members.get(author))
+                        .map_or(crate::transcript_grouping::copy().former_member.as_str(), String::as_str);
+                    ChatPreview { kind: ChatPreviewKind::Member, text: fill(&copy.member.replace("{name}", name), body) }
+                }
+                _ => ChatPreview { kind: ChatPreviewKind::You, text: fill(&copy.you, body) },
+            },
         };
     }
     match card_kind(newest) {
@@ -951,6 +970,9 @@ pub struct ChatListInput<'a> {
     pub utc_offset_minutes: i32,
     /// #EXP-1399 review: the viewer's synced session ids (`chat_preview`).
     pub visible_session_ids: Option<&'a HashSet<&'a str>>,
+    /// #EXP-1990: the viewer and the members' names (`chat_preview`).
+    pub me: Option<&'a str>,
+    pub members: Option<&'a HashMap<String, String>>,
 }
 
 /// The Chats list (`listCases`): the ROOT rows of `partition_chats`
@@ -993,7 +1015,7 @@ pub fn chat_list(input: ChatListInput<'_>) -> ChatList {
                 device_id: row.device_id.clone(),
                 group,
                 lead,
-                preview: chat_preview(&row.session_id, own, row.needs_you, row.busy, input.visible_session_ids),
+                preview: chat_preview(&row.session_id, own, row.needs_you, row.busy, input.visible_session_ids, input.me, input.members),
                 activity_at: row.activity_at.clone(),
                 time: chat_time_label(&row.activity_at, input.now, input.utc_offset_minutes),
                 unread_count: unread_count(&row.session_id, own, input.reads),
@@ -1048,6 +1070,8 @@ pub struct AgentChatRowsInput<'a> {
     pub messages: &'a [&'a MessageRow],
     pub reads: &'a [&'a SessionReadRow],
     pub me: Option<&'a str>,
+    /// #EXP-1990: the members' names (`chat_preview`).
+    pub members: Option<&'a HashMap<String, String>>,
     pub view: ChatListView,
     pub now: &'a str,
     pub utc_offset_minutes: i32,
@@ -1086,7 +1110,7 @@ pub fn agent_chat_rows(input: AgentChatRowsInput<'_>) -> Vec<AgentChatRow> {
             });
             let activity_at = newest.or_else(|| conversation.and_then(|session| session.created_at.clone()));
             let preview = match id.as_deref() {
-                Some(id) => chat_preview(id, input.messages, agent.needs_you, agent.busy, None),
+                Some(id) => chat_preview(id, input.messages, agent.needs_you, agent.busy, None, input.me, input.members),
                 None => ChatPreview { kind: ChatPreviewKind::Empty, text: CHATS.copy.preview.empty.clone() },
             };
             AgentChatRow {
@@ -1144,6 +1168,8 @@ pub struct AppChatRowsInput<'a> {
     pub messages: &'a [&'a MessageRow],
     pub reads: &'a [&'a SessionReadRow],
     pub me: Option<&'a str>,
+    /// #EXP-1990: the members' names (`chat_preview`).
+    pub members: Option<&'a HashMap<String, String>>,
     pub view: ChatListView,
     pub now: &'a str,
     pub utc_offset_minutes: i32,
@@ -1186,7 +1212,7 @@ pub fn app_chat_rows(input: AppChatRowsInput<'_>) -> Vec<AppChatRow> {
             });
             let activity_at = newest.or_else(|| session.and_then(|session| session.created_at.clone()));
             let preview = match id.as_deref() {
-                Some(id) => chat_preview(id, input.messages, needs_you, busy, None),
+                Some(id) => chat_preview(id, input.messages, needs_you, busy, None, input.me, input.members),
                 None => ChatPreview { kind: ChatPreviewKind::Empty, text: CHATS.copy.preview.empty.clone() },
             };
             AppChatRow {
@@ -1513,6 +1539,10 @@ pub struct DigestMessage {
     pub author_kind: String,
     #[serde(default)]
     pub author_session_id: Option<String>,
+    /// #EXP-1990: a PERSON's message names its author (`chat_preview`);
+    /// absent on an agent's message and on an older digest.
+    #[serde(default)]
+    pub author_id: Option<String>,
     #[serde(default)]
     pub body: String,
     #[serde(default)]
@@ -1588,6 +1618,7 @@ pub fn digest_messages(session_id: &str, digest: Option<&ConversationDigest>) ->
             id: message.id.clone(),
             session_id: session_id.to_string(),
             author_kind: Some(message.author_kind.clone()),
+            author_id: message.author_id.clone(),
             author_session_id: message.author_session_id.clone(),
             body: Some(message.body.clone()),
             card: message.card.clone(),
@@ -1674,7 +1705,7 @@ mod tests {
                 })
                 .collect();
             let refs: Vec<&MessageRow> = rows.iter().collect();
-            let preview = chat_preview("r", &refs, case["needsYou"].as_bool().unwrap(), case["busy"].as_bool().unwrap(), None);
+            let preview = chat_preview("r", &refs, case["needsYou"].as_bool().unwrap(), case["busy"].as_bool().unwrap(), None, None, None);
             assert_eq!(serde_json::to_value(&preview).unwrap(), case["expected"], "{}", case["name"]);
         }
     }
@@ -1875,12 +1906,15 @@ mod tests {
             let visible: Option<HashSet<&str>> = input["visibleSessionIds"]
                 .as_array()
                 .map(|ids| ids.iter().filter_map(Value::as_str).collect());
+            let members: Option<HashMap<String, String>> = serde_json::from_value(input["members"].clone()).ok();
             let got = chat_preview(
                 input["rootId"].as_str().unwrap(),
                 &refs,
                 input["needsYou"].as_bool().unwrap(),
                 input["busy"].as_bool().unwrap(),
                 visible.as_ref(),
+                input["me"].as_str(),
+                members.as_ref(),
             );
             assert_eq!(serde_json::to_value(got).unwrap(), case["expected"], "{}", case["name"]);
         }
@@ -1931,6 +1965,8 @@ mod tests {
                 now: input["now"].as_str().unwrap(),
                 utc_offset_minutes: input["utcOffsetMinutes"].as_i64().unwrap() as i32,
                 visible_session_ids: None,
+                me: input["me"].as_str(),
+                members: None,
             });
             assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
         }
@@ -2143,6 +2179,7 @@ mod tests {
                 messages: &refs,
                 reads: &read_refs,
                 me: input["me"].as_str(),
+                members: None,
                 view: match input["view"].as_str() {
                     Some("archived") => ChatListView::Archived,
                     _ => ChatListView::List,
@@ -2189,6 +2226,7 @@ mod tests {
                 messages: &refs,
                 reads: &read_refs,
                 me: input["me"].as_str(),
+                members: None,
                 view: match input["view"].as_str() {
                     Some("archived") => ChatListView::Archived,
                     _ => ChatListView::List,

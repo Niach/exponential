@@ -101,6 +101,13 @@ pub(crate) fn chat_lead_disc(lead: ChatLead, agent: Option<coding::CodingAgent>,
 /// full emphasis before the muted rest (web `previewParts`).
 fn preview_parts(row: &ChatRow) -> (Option<String>, String) {
     let copy = &CHATS.copy.preview;
+    // #EXP-1990: a teammate's line leads with their name, as `You: ` does.
+    if row.preview.kind == ChatPreviewKind::Member {
+        return match row.preview.text.find(": ").filter(|at| *at > 0) {
+            Some(at) => (Some(row.preview.text[..at + 2].to_string()), row.preview.text[at + 2..].to_string()),
+            None => (None, row.preview.text.clone()),
+        };
+    }
     let template = match row.preview.kind {
         ChatPreviewKind::Question => Some(&copy.question),
         ChatPreviewKind::Plan => Some(&copy.plan),
