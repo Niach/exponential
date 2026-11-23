@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.domain.ChatExpress
 import android.os.SystemClock
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.interaction.DragInteraction
@@ -237,14 +238,21 @@ internal fun transcriptFindRows(
             }
             is AgentFeedRow.Single -> when (val item = row.item) {
                 is AgentFeedItem.Narration -> if (!TranscriptGrouping.isBlankText(item.text)) {
-                    out += TranscriptFindRow(FindInChat.Row(keys.getValue(item.id), countMarkdown(item.text)), item.id, 0)
+                    // #EXP-2067: find reads the PURE prose (a block's raw is never a hit).
+                    out += TranscriptFindRow(FindInChat.Row(keys.getValue(item.id), countMarkdown(ChatExpress.plainProse(item.text))), item.id, 0)
                 }
                 is AgentFeedItem.UserMessage -> {
                     val skip = shown.checkIns.containsKey(row.id) ||
                         Chats.commandDivider(item.text) != null ||
                         SlashCommands.commandFor(item.text, agent) != null
                     val input = if (skip) null else TranscriptGrouping.feedInput(item.text)
-                    if (!skip && input !is TranscriptGrouping.FeedInput.Marker) {
+                    // #EXP-2067: an action input = its body (a marker without one).
+                    val action = ChatExpress.parseActionInput(item.text)
+                    if (action != null) {
+                        if (action.body.isNotBlank()) {
+                            out += TranscriptFindRow(FindInChat.Row(keys.getValue(item.id), countMarkdown(action.body)), item.id, 0)
+                        }
+                    } else if (!skip && input !is TranscriptGrouping.FeedInput.Marker) {
                         val text = (input as? TranscriptGrouping.FeedInput.Relay)?.body ?: item.text
                         out += TranscriptFindRow(FindInChat.Row(keys.getValue(item.id), countMarkdown(findUserMessageProse(text))), item.id, 0)
                     }

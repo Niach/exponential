@@ -710,7 +710,7 @@ fun ChatScreen(
                         rootId = viewModel.rootId,
                         results = results,
                         cards = resultCards,
-                        onReply = viewModel::sendTo,
+                        onAction = viewModel::sendAction,
                         pullRequests = pullRequests,
                         teamPullRequests = teamPullRequests,
                         pullRequestIssues = pullRequestIssues,

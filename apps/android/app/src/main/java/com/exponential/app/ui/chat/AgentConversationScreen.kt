@@ -559,7 +559,7 @@ fun AgentConversationScreen(
                         rootId = "",
                         results = emptyList(),
                         cards = emptyList(),
-                        onReply = { _, _ -> },
+                        onAction = { _, _ -> },
                         pullRequests = emptyList(),
                         teamPullRequests = emptyList(),
                         pullRequestIssues = emptyList(),

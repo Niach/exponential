@@ -98,8 +98,8 @@ fun ChatResultsPage(
     /** The tree's result cards ([ChatViewModel.resultCards]): a result's
      *  inline surface. */
     cards: List<SessionTree.Message>,
-    /** An inline surface's reply press (session id, text). */
-    onReply: (String, String) -> Unit,
+    /** #EXP-2067: an inline surface's press (the session that posted it, the post). */
+    onAction: (String, com.exponential.app.domain.ChatExpress.ActionResult.Post) -> Unit,
     pullRequests: List<PullRequestEntity>,
     teamPullRequests: List<PullRequestEntity>,
     pullRequestIssues: List<PullRequestIssueEntity>,
@@ -164,7 +164,7 @@ fun ChatResultsPage(
                     SurfaceCard(
                         row = row,
                         animate = false,
-                        onReply = { reply -> onReply(result.sessionId, reply) },
+                        onAction = rememberExpressActionSink { post -> onAction(result.sessionId, post) },
                         showTitle = false,
                     )
                 }

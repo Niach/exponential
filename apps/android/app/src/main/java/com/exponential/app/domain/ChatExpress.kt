@@ -48,7 +48,7 @@ object ChatExpress {
     const val REPLY_EVENT = "reply"
 
     /** THE `action` message card's kind (db-schema `ActionMessageCard`). */
-    const val ACTION_CARD_KIND = "action"
+    const val ACTION_CARD_KIND = DomainContract.messageCardKindAction
 
     /** `gate`. */
     const val GATE = "^[ \\t]*<a2ui(?:[ \\t][^>\\n]*)?>"

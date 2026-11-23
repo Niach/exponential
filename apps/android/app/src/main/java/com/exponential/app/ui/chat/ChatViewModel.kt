@@ -511,6 +511,11 @@ class ChatViewModel @Inject constructor(
     fun sendTo(sessionId: String, text: String) =
         run("send", "the message") { sender.send(SessionsSendInput.message(sessionId, text)) }
 
+    /** #EXP-2067 (chat-express.json ACTIONS): a surface press into [sessionId]
+     *  (the session whose transcript or result draws it): body + action card. */
+    fun sendAction(sessionId: String, post: com.exponential.app.domain.ChatExpress.ActionResult.Post) =
+        run("send", "the message") { sender.send(SessionsSendInput.action(sessionId, post.body, post.card.toJson())) }
+
     /** #EXP-1561 (waiting-cards.json DISMISS): dismiss a waiting question or
      *  plan card through THE answer path (`dismissed: true` alone). */
     fun dismissCard(messageId: String, settled: (Boolean) -> Unit = {}) =

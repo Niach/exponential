@@ -350,6 +350,11 @@ class SessionTreeTest {
             put("title", nullable(row.title))
             put("surface", encode(row.surface))
         }
+        is SessionTree.SessionChatRow.ActionMarker -> buildJsonObject {
+            put("type", "actionMarker")
+            put("id", row.id)
+            put("name", row.name)
+        }
     }
 
     private fun encode(option: SessionTree.SessionChatRow.QuestionChoice): JsonObject = buildJsonObject {
