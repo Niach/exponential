@@ -186,31 +186,11 @@ pub struct SseDecoder {
     event: String,
     count: u32,
     retry_ms: Option<u64>,
-    /// #AXC-12: event names whose data passes through undecoded
-    /// ([`SseItem::Raw`], read with [`SseDecoder::push_items`]): the
-    /// Express event, whose data is a chunk of an Express stream.
-    raw: Vec<String>,
-}
-
-/// #AXC-12: one dispatched piece of an SSE stream, in stream order.
-#[derive(Debug, Clone, PartialEq)]
-pub enum SseItem {
-    /// What an A2UI event decoded to (messages, issues).
-    Decoded(Decoded),
-    /// The data of an event named in [`SseDecoder::with_raw_events`].
-    Raw { event: String, data: String },
 }
 
 impl SseDecoder {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// #AXC-12: a decoder that hands the data of `events` through as
-    /// [`SseItem::Raw`] (outside SSE_EVENTS, never JSON-decoded); `push`
-    /// and `end` drop them, `push_items` and `end_items` keep them in order.
-    pub fn with_raw_events<S: AsRef<str>>(events: &[S]) -> Self {
-        SseDecoder { raw: events.iter().map(|e| e.as_ref().to_string()).collect(), ..Self::default() }
     }
 
     /// The last `retry:` field (ms): the server resumes the stream after it
@@ -220,16 +200,7 @@ impl SseDecoder {
     }
 
     pub fn push(&mut self, chunk: &str) -> Decoded {
-        decoded_only(self.push_items(chunk))
-    }
-
-    pub fn end(&mut self) -> Decoded {
-        decoded_only(self.end_items())
-    }
-
-    /// [`Self::push`] with the raw events kept, in stream order.
-    pub fn push_items(&mut self, chunk: &str) -> Vec<SseItem> {
-        let mut out = Vec::new();
+        let mut out = Decoded::default();
         for line in self.lines.push(chunk) {
             match line {
                 Line::Text(mut line) => {
@@ -244,9 +215,8 @@ impl SseDecoder {
         out
     }
 
-    /// [`Self::end`] with the raw events kept.
-    pub fn end_items(&mut self) -> Vec<SseItem> {
-        let mut out = Vec::new();
+    pub fn end(&mut self) -> Decoded {
+        let mut out = Decoded::default();
         match self.lines.end() {
             Some(line) if !line.is_empty() => self.line(&line, &mut out),
             Some(_) => {}
@@ -264,7 +234,7 @@ impl SseDecoder {
         self.oversized = true;
     }
 
-    fn line(&mut self, line: &str, out: &mut Vec<SseItem>) {
+    fn line(&mut self, line: &str, out: &mut Decoded) {
         if line.is_empty() {
             return self.dispatch(out);
         }
@@ -294,13 +264,13 @@ impl SseDecoder {
         }
     }
 
-    fn dispatch(&mut self, items: &mut Vec<SseItem>) {
+    fn dispatch(&mut self, out: &mut Decoded) {
         self.data_bytes = 0;
         if std::mem::take(&mut self.oversized) {
             self.count += 1;
             self.data.clear();
             self.event.clear();
-            items.push(SseItem::Decoded(Decoded { issues: vec![oversized(self.count, "event")], ..Decoded::default() }));
+            out.issues.push(oversized(self.count, "event"));
             return;
         }
         if self.data.is_empty() {
@@ -311,30 +281,15 @@ impl SseDecoder {
         let name = if self.event.is_empty() { "message".to_string() } else { std::mem::take(&mut self.event) };
         let data = std::mem::take(&mut self.data).join("\n");
         self.event.clear();
-        if self.raw.contains(&name) {
-            items.push(SseItem::Raw { event: name, data });
-            return;
-        }
         if !SSE_EVENTS.contains(&name.as_str()) {
             return;
         }
         let d = decode_jsonl(&data);
-        let mut out = Decoded { messages: d.messages, ..Decoded::default() };
+        out.messages.extend(d.messages);
         if !d.issues.is_empty() {
             out.issues.push(DecodeIssue { at: self.count, message: format!("event {} is not JSON", self.count) });
         }
-        items.push(SseItem::Decoded(out));
     }
-}
-
-fn decoded_only(items: Vec<SseItem>) -> Decoded {
-    let mut out = Decoded::default();
-    for item in items {
-        if let SseItem::Decoded(d) = item {
-            out.extend(d);
-        }
-    }
-    out
 }
 
 /// The A2UI-over-MCP carrier: the messages inside an MCP tool result
