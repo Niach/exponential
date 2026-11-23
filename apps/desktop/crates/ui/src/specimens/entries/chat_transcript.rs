@@ -358,9 +358,7 @@ fn call_rows(images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> Vec<
         let mut messages = fixture_messages(&input["messages"]);
         // #EXP-2076: one spoken agent turn holds an Express block (drawn in
         // place, read-only), the same sample on every platform.
-        if let Some(turn) = call_express_turn(&messages) {
-            messages.push(turn);
-        }
+        with_express_turn(&mut messages);
         let refs: Vec<&domain::rows::MessageRow> = messages.iter().collect();
         let view = domain::session_tree::call_view(
             &session,
@@ -385,17 +383,20 @@ fn call_rows(images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> Vec<
 /// between two prose runs), the same on every platform's specimen.
 pub(crate) const EXPRESS_SAMPLE: &str = "Checked the three lanes.\n<a2ui>\nroot = Stack(children=[title, ship])\ntitle = Text(text=\"Build 1482 is green\")\nship = Button(label=\"Ship it\", on={press: Event(\"reply\", userMessage=\"Ship it\")})\n</a2ui>\nAll green.";
 
-/// The call specimen's extra agent turn: the call's `v5` (its agent's
-/// second turn) again as `v5x`, ten seconds later, speaking [`EXPRESS_SAMPLE`].
-fn call_express_turn(messages: &[domain::rows::MessageRow]) -> Option<domain::rows::MessageRow> {
-    let turn = messages.iter().find(|message| message.id == "v5")?;
-    Some(domain::rows::MessageRow {
-        id: "v5x".into(),
+/// The call specimen's extra agent turn (web `CALL_EXPRESS_ROW`, the same id
+/// and time ×4): the call's `v5` (an agent turn) again as `v-express` at
+/// 09:10, speaking [`EXPRESS_SAMPLE`], before the ended prompt `v9`.
+fn with_express_turn(messages: &mut Vec<domain::rows::MessageRow>) {
+    let Some(turn) = messages.iter().find(|message| message.id == "v5").cloned() else { return };
+    let at = messages.iter().position(|message| message.id == "v9").unwrap_or(messages.len());
+    let turn = domain::rows::MessageRow {
+        id: "v-express".into(),
         body: Some(EXPRESS_SAMPLE.into()),
-        created_at: Some("2026-11-18T09:08:50.000Z".into()),
-        consumed_at: Some("2026-11-18T09:08:50.000Z".into()),
-        ..turn.clone()
-    })
+        created_at: Some("2026-11-18T09:10:00.000Z".into()),
+        consumed_at: Some("2026-11-18T09:10:00.000Z".into()),
+        ..turn
+    };
+    messages.insert(at, turn);
 }
 
 fn rows_list() -> Vec<(SessionChatRow, &'static str)> {
@@ -432,7 +433,7 @@ mod tests {
     use super::*;
 
     /// #EXP-2076: the call view specimen holds one agent turn with ONE
-    /// Express block (row key `m:v5x`, final): prose, an `ok` block of one
+    /// Express block (row key `m:v-express`, final): prose, an `ok` block of one
     /// surface, prose; what is only read of it is its pure prose.
     #[test]
     fn the_call_view_specimen_holds_an_express_turn() {
@@ -441,19 +442,19 @@ mod tests {
         let input = &card["callViewCases"][0]["input"];
         let session = fixture_row::<domain::rows::SessionRow>(&input["session"]).unwrap();
         let mut messages = fixture_messages(&input["messages"]);
-        messages.push(call_express_turn(&messages).expect("the fixture's v5"));
+        with_express_turn(&mut messages);
         let refs: Vec<&domain::rows::MessageRow> = messages.iter().collect();
         let view = domain::session_tree::call_view(&session, &refs, "Assistant", instant(&input["now"]), 0);
         let body = view
             .rows
             .iter()
             .find_map(|row| match row {
-                SessionChatRow::Message { id, author, body, .. } if id == "v5x" && author == "agent" => Some(body.clone()),
+                SessionChatRow::Message { id, author, body, .. } if id == "v-express" && author == "agent" => Some(body.clone()),
                 _ => None,
             })
             .expect("the turn is a spoken row");
         assert_eq!(domain::chat_express::plain_prose(&body), "Checked the three lanes.\n\nAll green.");
-        let key = domain::chat_express::synced_row_key("v5x");
+        let key = domain::chat_express::synced_row_key("v-express");
         let segments = ExpressRow::new(&key).update(&body, true).expect("a row with a block");
         assert_eq!(segments.len(), 3);
         assert!(matches!(&segments[0], RowSegment::Prose(text) if text == "Checked the three lanes."));
