@@ -1,4 +1,5 @@
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
+import { isGroupChat } from "@/lib/agents/group-chat"
 import { titleLine } from "@exp/domain-contract/session-title"
 import { isBlankText } from "@exp/domain-contract/transcript-grouping"
 import { isAssistantConversation, turnHasMemberInput } from "@/lib/agents/assistant-chat"
@@ -798,7 +799,9 @@ export const sessionsRouter = router({
         // #EXP-1452 the starting agent's): it is delivered by the claim, so
         // the device never feeds it twice. Only a
         // FIRST start: a moved session re-queues with its messages pending.
-        if (session.status === `queued` && !session.startedAt) {
+        // #EXP-1990: a team agent's group chat has no Request (its first
+        // message is delivered as an input, worded with its member).
+        if (session.status === `queued` && !session.startedAt && !(await isGroupChat(tx, session))) {
           await tx.execute(sql`
             UPDATE ${messages} SET consumed_at = ${now}, delivered_at = COALESCE(delivered_at, ${now}), updated_at = ${now}
             WHERE id = (

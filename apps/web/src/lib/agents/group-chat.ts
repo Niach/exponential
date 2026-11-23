@@ -27,6 +27,21 @@ export function groupChatAgent(agent: Pick<Agent, `role`>): boolean {
   return agentGroupChatsOn() && agent.role !== `assistant`
 }
 
+/** `session` is a team agent's group chat: the ROOT its agent's
+ *  `group_chat_id` names. */
+export async function isGroupChat(
+  database: Pick<typeof db, `select`>,
+  session: { id: string; parentId: string | null; agentId: string | null }
+): Promise<boolean> {
+  if (session.parentId !== null || !session.agentId) return false
+  const [agent] = await database
+    .select({ groupChatId: agents.groupChatId })
+    .from(agents)
+    .where(eq(agents.id, session.agentId))
+    .limit(1)
+  return agent?.groupChatId === session.id
+}
+
 /**
  * Re-stamps whole trees' visibility (`shared` and its mirrors on messages,
  * conversations and issue links). A tree turning shared: what a private

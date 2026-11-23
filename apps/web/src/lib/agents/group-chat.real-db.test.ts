@@ -54,6 +54,8 @@ const { inSession } = await import(`@/lib/sessions/messages`)
 const { postAgentInputInTx } = await import(`@/lib/agents/triggers`)
 const { endPrivateConversationsInTx, groupAskRecipients, runGroupChatMove } = await import(`@/lib/agents/group-chat`)
 const { sessionKeysRouter } = await import(`@/lib/trpc/session-keys`)
+const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
+const { composeSessionBrief } = await import(`@/lib/sessions/brief`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -102,6 +104,8 @@ const agentRow = async (id: string) => (await db.select().from(agents).where(eq(
 const sessionRow = async (id: string) => (await db.select().from(sessions).where(eq(sessions.id, id)).limit(1))[0]!
 const linesOf = (sessionId: string) =>
   db.select().from(messages).where(inSession(sessionId)).orderBy(asc(messages.createdAt), asc(messages.id))
+const sessions_ = (userId: string) =>
+  sessionsRouter.createCaller({ session: { user: { id: userId } }, db, request: new Request(`http://x.test`) } as never)
 const keys = (userId: string) =>
   sessionKeysRouter.createCaller({ session: { user: { id: userId }, session: { id: `s` } }, db, request: new Request(`http://x.test`) } as never)
 
@@ -128,6 +132,10 @@ describe.skipIf(!ready.ok)(`team agents as group chats (#EXP-1990)`, () => {
     const mine = await sendSession({ userId: owner, input: { agentId: a.id, text: `hi` } })
     const theirs = await sendSession({ userId: mate, input: { agentId: a.id, text: `hello` } })
     expect(theirs.sessionId).not.toBe(mine.sessionId)
+    // A private conversation's first message is its brief's Request, consumed by the claim.
+    expect((await composeSessionBrief(mine.sessionId)).brief).toContain(`## Request\n\nhi`)
+    await sessions_(owner).claim({ sessionId: mine.sessionId, deviceId: box.deviceId })
+    expect((await linesOf(mine.sessionId)).map((line) => line.consumedAt !== null)).toEqual([true])
     expect((await sessionRow(theirs.sessionId)).userId).toBe(mate)
     expect((await agentRow(a.id)).groupChatId).toBeNull()
     expect(await runGroupChatMove()).toEqual([])
@@ -219,11 +227,18 @@ describe.skipIf(!ready.ok)(`team agents as group chats (#EXP-1990)`, () => {
     expect((await agentRow(a.id)).groupChatId).toBeNull()
     const mine = await sendSession({ userId: owner, input: { agentId: a.id, text: `just us` } })
     expect(await sessionRow(mine.sessionId)).toMatchObject({ userId: owner, shared: false })
+    // A group chat has NO Request: its first message stays pending and is
+    // delivered as an input (the device words it with its member).
+    expect((await composeSessionBrief(mine.sessionId)).brief).not.toContain(`just us`)
+    expect((await composeSessionBrief(mine.sessionId)).sealedText).toBeNull()
+    await sessions_(owner).claim({ sessionId: mine.sessionId, deviceId: box.deviceId })
+    expect(await sessionRow(mine.sessionId)).toMatchObject({ status: `running` })
+    expect((await linesOf(mine.sessionId)).filter((line) => line.authorKind === `user`).map((line) => line.consumedAt)).toEqual([null])
     expect((await agentRow(a.id)).groupChatId).toBe(mine.sessionId)
     // Still private: the teammate neither finds nor writes it.
     expect(await sendTarget(mate, { agentId: a.id })).toMatchObject({ rootId: null })
     await expect(sendSession({ userId: mate, input: { agentId: a.id, text: `me too` } })).rejects.toThrow(/not yours and not shared/)
-    expect((await linesOf(mine.sessionId)).map((line) => line.body)).toEqual([`just us`])
+    expect((await linesOf(mine.sessionId)).filter((line) => line.authorKind === `user`).map((line) => line.body)).toEqual([`just us`])
     // The owner shares the machine: the next use re-stamps the same root.
     await db.update(devices).set({ sharedTeamIds: [teamId] }).where(eq(devices.id, box.rowId))
     const theirs = await sendSession({ userId: mate, input: { agentId: a.id, text: `me too` } })
