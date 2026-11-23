@@ -56,7 +56,8 @@ fun expressHost(): ExponentialHost {
     val host = ExponentialHost(
         HostOptions(
             // `InferenceFormat.Express`: the agent writes Express (prose around `<a2ui>` blocks).
-            transport = SseTransport(url = "http://10.0.2.2:4300/express", postUrl = "http://10.0.2.2:4300/action", format = InferenceFormat.Express),
+            // `reconnectMs = 0`: the answer ends, nothing to resume.
+            transport = SseTransport(url = "http://10.0.2.2:4300/express", postUrl = "http://10.0.2.2:4300/action", reconnectMs = 0, format = InferenceFormat.Express),
             theme = ThemeHandle.builtin("exponential"),
             mode = Mode.Dark,
             onText = prose::piece,
