@@ -28,7 +28,7 @@ use serde_json::Value;
 use crate::activity_fold::parse_instant;
 use crate::contract::{
     MESSAGE_AUTHOR_KIND_AGENT, MESSAGE_AUTHOR_KIND_USER, MESSAGE_CARD_KIND_ASK, MESSAGE_CARD_KIND_EVENT,
-    MESSAGE_CARD_KIND_PICTURE, MESSAGE_CARD_KIND_PLAN, MESSAGE_CARD_KIND_QUESTION,
+    MESSAGE_CARD_KIND_ACTION, MESSAGE_CARD_KIND_PICTURE, MESSAGE_CARD_KIND_PLAN, MESSAGE_CARD_KIND_QUESTION,
     MESSAGE_CARD_KIND_REPLIES, MESSAGE_CARD_KIND_REPORT, MESSAGE_CARD_KIND_SESSION,
     MESSAGE_CARD_KIND_SUBAGENT, MESSAGE_CARD_KIND_SURFACE,
     MESSAGE_CARD_KIND_SUGGESTIONS, MESSAGE_CARD_KIND_THREAD_STARTED,
@@ -450,6 +450,7 @@ pub fn plain_message_row(message: &MessageRow, xref: Option<SessionXref>) -> Opt
         queued: author == MESSAGE_AUTHOR_KIND_USER && message.consumed_at.as_deref().is_none_or(str::is_empty),
         author_session_id: message.author_session_id.clone(),
         xref,
+        action: None,
     })
 }
 
@@ -1088,6 +1089,7 @@ pub fn call_view(
             queued: false,
             author_session_id: message.author_session_id.clone(),
             xref: None,
+            action: None,
         });
     }
     CallView {
@@ -1526,6 +1528,40 @@ pub struct SessionXref {
     pub agent_id: Option<String>,
 }
 
+/// #EXP-2067: the event a pressed surface fired (an action row's `name`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SessionChatAction {
+    pub name: String,
+}
+
+/// #EXP-2067 (chat-express.json ACTIONS, the TS `case 'action'`): an
+/// `action` message as its Conversation row: the author's message, its
+/// body kept (blank = none: the renderer draws THE inline marker); a card
+/// without a name = no row.
+pub fn action_row(message: &MessageRow) -> Option<SessionChatRow> {
+    let card = message.card.as_ref()?;
+    if card_str(card, "kind") != Some(MESSAGE_CARD_KIND_ACTION) {
+        return None;
+    }
+    let name = card_str(card, "name")?;
+    let author = match message.author_kind.as_deref() {
+        Some(MESSAGE_AUTHOR_KIND_USER) => MESSAGE_AUTHOR_KIND_USER,
+        Some(MESSAGE_AUTHOR_KIND_AGENT) => MESSAGE_AUTHOR_KIND_AGENT,
+        _ => crate::contract::MESSAGE_AUTHOR_KIND_SYSTEM,
+    };
+    let body = message.body_text();
+    Some(SessionChatRow::Message {
+        id: message.id.clone(),
+        author: author.to_string(),
+        author_id: message.author_id.clone(),
+        body: if crate::transcript_grouping::is_blank_text(body) { String::new() } else { body.to_string() },
+        queued: author == MESSAGE_AUTHOR_KIND_USER && message.consumed_at.as_deref().is_none_or(str::is_empty),
+        author_session_id: message.author_session_id.clone(),
+        xref: None,
+        action: Some(SessionChatAction { name: name.to_string() }),
+    })
+}
+
 /// One row of the chat's Conversation (the TS `ChatRow`).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", rename_all_fields = "camelCase")]
@@ -1542,6 +1578,11 @@ pub enum SessionChatRow {
         author_session_id: Option<String>,
         /// S-3: posted by ANOTHER (synced) session = its `message` link.
         xref: Option<SessionXref>,
+        /// #EXP-2067 (chat-express.json ACTIONS): a press on a genUI
+        /// surface (an `action` card): the body when it has one, else THE
+        /// inline marker (`chat_express::action_marker`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        action: Option<SessionChatAction>,
     },
     /// A session's card (`id` = the message id of the `session` /
     /// `thread_started` card that announced it; EXP-1334: the dispatcher
@@ -2390,6 +2431,7 @@ pub fn build_session_chat(input: SessionChatInput<'_>, focus: Option<&str>) -> S
                 rows.push(origin_row);
             }
             Some(MESSAGE_CARD_KIND_SURFACE) => rows.extend(surface_card_row(message)),
+            Some(MESSAGE_CARD_KIND_ACTION) => rows.extend(action_row(message)),
             _ => {}
         }
     }
@@ -3541,6 +3583,31 @@ mod tests {
             let row: SessionRow = serde_json::from_value(json!({"id": "s", "voice_call": cell})).unwrap();
             assert!(!is_call_session(&row));
         }
+    }
+
+    /// #EXP-2067 (chat-express.json ACTIONS, the TS `case 'action'`): an
+    /// `action` message is its author's row carrying the event's name, its
+    /// body kept (blank = none); a card without a name draws nothing.
+    #[test]
+    fn an_action_message_is_its_author_s_row_with_the_event_s_name() {
+        let message = |id: &str, body: &str, card: Value| -> MessageRow {
+            serde_json::from_value(json!({"id": id, "session_id": "s1", "root_id": "s1", "author_kind": "user", "author_id": "u1", "body": body, "card": card, "created_at": "2026-11-23T09:00:00Z"})).unwrap()
+        };
+        let card = json!({"kind": "action", "name": "save_deal", "context": null, "surfaceId": "m:m1#1", "block": "m:m1#1", "messageId": "m1"});
+        let Some(SessionChatRow::Message { id, author, author_id, body, queued, action, xref, .. }) = action_row(&message("a1", "Ship it", card.clone())) else { panic!() };
+        assert_eq!((id.as_str(), author.as_str(), author_id.as_deref(), body.as_str(), queued, xref), ("a1", "user", Some("u1"), "Ship it", true, None));
+        assert_eq!(action, Some(SessionChatAction { name: "save_deal".into() }));
+        assert!(matches!(action_row(&message("a2", "\u{200b}", card.clone())), Some(SessionChatRow::Message { body, .. }) if body.is_empty()), "a blank body is none");
+        assert_eq!(action_row(&message("a3", "x", json!({"kind": "action"}))), None, "no name, no row");
+        assert_eq!(action_row(&message("a4", "x", json!({"kind": "surface", "name": "n"}))), None);
+        // In the Conversation, in its place; serialised like the TS row.
+        let root: SessionRow = serde_json::from_value(json!({"id": "s1", "status": "idle"})).unwrap();
+        let rows = [message("a1", "Ship it", card)];
+        let refs: Vec<&MessageRow> = rows.iter().collect();
+        let view = build_session_chat(SessionChatInput { root: &root, sessions: &[&root], session_issues: &[], issues: &[], messages: &refs, pull_requests: &[], now_ms: 0 }, None);
+        assert_eq!(serde_json::to_value(&view.rows).unwrap()[0]["action"], json!({"name": "save_deal"}));
+        let plain = plain_message_row(&serde_json::from_value(json!({"id": "p", "session_id": "s1", "author_kind": "agent", "body": "hi"})).unwrap(), None).unwrap();
+        assert!(serde_json::to_value(&plain).unwrap().get("action").is_none(), "a plain row carries none");
     }
 
     /// `session-chat.json` `cases`, whole objects.

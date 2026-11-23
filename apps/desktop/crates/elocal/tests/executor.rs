@@ -146,6 +146,33 @@ fn a_send_with_attachments_appends_their_lines() {
     assert_eq!(message["attachment_ids"], serde_json::json!([id]));
 }
 
+/// #EXP-2077 (chat-express.json ACTIONS, `inputCases`): a pressed surface's
+/// send stores THE `action` card on its message (also without text), and
+/// the row reaches the agent as its `[action]` line, then the body.
+#[test]
+fn a_send_with_an_action_card_stores_it_and_reads_as_its_action_input() {
+    let (_dir, desktop) = desktop();
+    let client = desktop.client();
+    let team_id = desktop.team().unwrap()["id"].as_str().unwrap().to_string();
+    let start = api::sessions::send(&client, &api::sessions::SendInput { team_id: Some(team_id), text: Some("Show me the build".into()), ..Default::default() }).unwrap();
+    let card = serde_json::json!({"kind": "action", "name": "save_deal", "context": {"rep": "Ana"}, "surfaceId": "m:m1#1", "block": "m:m1#1", "messageId": "m1"});
+    let stored = |message_id: &str| desktop.store.row("messages", message_id).unwrap().unwrap();
+
+    let press = api::sessions::SendInput { session_id: Some(start.session_id.clone()), action_card: Some(card.clone()), ..Default::default() };
+    let pressed = stored(&api::sessions::send(&client, &press).unwrap().message_id.unwrap());
+    assert_eq!((&pressed["card"], &pressed["body"]), (&card, &serde_json::json!("")));
+    assert_eq!(elocal::parity::input_text(&pressed), "[action] {\"name\":\"save_deal\",\"surfaceId\":\"m:m1#1\",\"block\":\"m:m1#1\",\"messageId\":\"m1\",\"context\":{\"rep\":\"Ana\"}}");
+
+    let reply = api::sessions::SendInput { session_id: Some(start.session_id.clone()), text: Some("Ship it".into()), action_card: Some(card.clone()), ..Default::default() };
+    let replied = stored(&api::sessions::send(&client, &reply).unwrap().message_id.unwrap());
+    assert!(elocal::parity::input_text(&replied).ends_with("}\nShip it"));
+
+    // A plain send has no card and reads as its body; a card of another kind is dropped.
+    let plain = api::sessions::SendInput { session_id: Some(start.session_id.clone()), text: Some("And the logout".into()), action_card: Some(serde_json::json!({"kind": "surface"})), ..Default::default() };
+    let plain = stored(&api::sessions::send(&client, &plain).unwrap().message_id.unwrap());
+    assert_eq!((&plain["card"], elocal::parity::input_text(&plain).as_str()), (&serde_json::Value::Null, "And the logout"));
+}
+
 /// #EXP-1727: a git working copy linked as the board's repository.
 /// F21: a send whose `clientMessageId` this desktop already stored (an
 /// outbox retry, also after a restart) answers that message again and

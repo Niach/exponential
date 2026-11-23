@@ -80,6 +80,7 @@
 
 mod accounts;
 mod chat;
+mod chat_express;
 mod chat_files;
 mod chat_rows;
 mod captures;
@@ -2797,21 +2798,28 @@ fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App)
     .detach();
 }
 
-/// Lane Q: an Embed's inner event on chat card `message_id`, answered the
-/// way the IDE does (`domain::chat_document::card_reply`): a show card's
-/// `reply` = the person's next message into its session.
+/// Lane Q, #EXP-2077: an Embed's inner event on chat row `message_id` (a
+/// show card, an Express block's surface), answered the way the IDE does
+/// (`domain::chat_document::card_reply`, chat-express.json ACTIONS): EVERY
+/// event posts ONE person message with THE `action` card (a reply's text
+/// as its body); a too-large one posts nothing, THE failed-action toast.
 fn chat_card(shell: &SharedShell, message_id: &str, name: &str, context: &Value, cx: &mut App) {
     if chat_local(shell) {
         let replied = shell.borrow_mut().chat_local.as_mut().map(|c| c.card(message_id, name, context));
-        if let Some(Err(e)) = replied {
-            failed_action(shell, "send", "the message", &e, cx);
+        match replied {
+            Some(Err(local_runs::CardError::TooLarge)) => action_too_large(shell, cx),
+            Some(Err(local_runs::CardError::Send(e))) => failed_action(shell, "send", "the message", &e, cx),
+            _ => {}
         }
         chatting_changed(shell, cx);
         return;
     }
     let Some((chat, rows)) = team_chat(shell) else { return };
     let Some(reply) = team_chat::card_reply(&rows, &chat, message_id, name, context, now_ms()) else { return };
-    let mut input = team_chat::reply_input(&chat, &reply);
+    let Some((mut input, card)) = team_chat::reply_input(&chat, &reply) else {
+        action_too_large(shell, cx);
+        return;
+    };
     let tree = team_chat::send_tree(&rows.account, &input);
     let Some(account) = shell.borrow().workspaces.account(&chat.account_id) else { return };
     let trpc = shell.borrow().workspaces.trpc(&account);
@@ -2820,14 +2828,20 @@ fn chat_card(shell: &SharedShell, message_id: &str, name: &str, context: &Value,
         let sent = cx
             .background_executor()
             .spawn(async move {
-                // #EDE-131: sealed, plaintext only into a clear tree.
+                // #EDE-131: sealed (the body AND the card), plaintext only
+                // into a clear tree.
+                let wire = team_chat::wire_for(&team_chat::Server(&trpc), &tree).map_err(|why| {
+                    tracing::warn!("team chat: not sent, it could not be encrypted: {why}");
+                    no_key()
+                })?;
+                let sealed = |why: String| {
+                    tracing::warn!("team chat: not sent, it could not be encrypted: {why}");
+                    no_key()
+                };
                 if let Some(text) = input.text.take() {
-                    let wire = team_chat::wire_text(&team_chat::Server(&trpc), &tree, &text).map_err(|why| {
-                        tracing::warn!("team chat: not sent, it could not be encrypted: {why}");
-                        no_key()
-                    })?;
-                    input.text = Some(wire);
+                    input.text = Some(wire.text(&text, &[]).map_err(sealed)?);
                 }
+                input.action_card = Some(wire.action_card(&card).map_err(sealed)?);
                 api::sessions::send(&trpc, &input)
             })
             .await;
@@ -2836,6 +2850,14 @@ fn chat_card(shell: &SharedShell, message_id: &str, name: &str, context: &Value,
         }
     })
     .detach();
+}
+
+/// chat-express.json `copy.actionTooLarge` (feedback-states.json): the
+/// failed-action toast of a press that carries too much, nothing posted.
+fn action_too_large(shell: &SharedShell, cx: &mut App) {
+    let title = domain::chat_express::CHAT_EXPRESS.copy.action_too_large.clone();
+    tracing::warn!("chat card: {title}");
+    notification_push(shell, own_toast(title, String::new(), now_ms()), cx);
 }
 
 /// #EDE-97: a send that could not be sealed (`noKeyRefusal`, the toast's
