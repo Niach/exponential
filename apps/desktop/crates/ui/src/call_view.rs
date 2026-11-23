@@ -4,7 +4,9 @@
 //! turns as the chat's bubbles (the agent's under its avatar). Existing parts
 //! only: the glass section band, `message_bubble`, the locked pill.
 //! #EXP-2076: an agent turn with Express blocks draws them in place like the
-//! chat's synced agent rows ([`crate::express_view`], read-only as on web).
+//! chat's synced agent rows ([`crate::express_view`]); their actions post into
+//! the CALL session (`actions`; an ended call's are inert, as on web). The
+//! summary band only reads its text: the pure prose, no band when empty.
 
 use domain::session_tree::{CallView, SessionChatRow};
 use gpui::{div, prelude::FluentBuilder as _, px, AnyElement, App, Entity, InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Styled as _, Window};
@@ -27,6 +29,7 @@ pub(crate) fn call_view_body(
     agent: &CallAgent,
     time: &dyn Fn(&str) -> String,
     images: &Entity<ImageCache>,
+    actions: bool,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -66,8 +69,8 @@ pub(crate) fn call_view_body(
                 // `message` row: its Express blocks drawn in place (row key
                 // `m:<id>`, final), its prose THE bubbles, ONE sender group
                 // (the tail on the first segment, the `HH:mm` on the last
-                // prose). Web's CallViewBody passes no surface action: the
-                // blocks are read-only here too.
+                // prose). Its actions post into the call session (web
+                // `CallSessionBody`), inert once it ended.
                 let segments = (!own)
                     .then(|| crate::express_view::split(&domain::chat_express::synced_row_key(id), body, true, cx))
                     .flatten();
@@ -78,7 +81,7 @@ pub(crate) fn call_view_body(
                             session_id: view.session_id.clone(),
                             message_id: Some(id.clone()),
                             row_key: domain::chat_express::synced_row_key(id),
-                            actions: false,
+                            actions,
                         };
                         let at = time(id);
                         let mut prose = |index: usize, text: &str, head: bool, last_prose: bool, cx: &mut App| {
@@ -135,7 +138,9 @@ pub(crate) fn call_view_body(
                     .child(div().truncate().text_xs().text_color(muted).child(SharedString::from(view.subtitle.clone()))),
             )
         })
-        .when_some(view.summary.clone(), |this, summary| {
+        // #EXP-2076 (chat-express.json PROSE): the band only READS the
+        // summary: its pure prose, no band when that is empty.
+        .when_some(view.summary.as_deref().map(domain::chat_express::plain_prose).filter(|summary| !summary.trim().is_empty()), |this, summary| {
             let markdown = message_markdown(SharedString::from(format!("call-view-summary-{}", view.session_id)), &summary, &text, images);
             this.child(
                 v_flex()

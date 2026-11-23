@@ -10849,7 +10849,7 @@ impl SteerSessionView {
             icon: agent.as_ref().and_then(|agent| agent.icon.clone()),
             color: agent.as_ref().and_then(|agent| agent.color.clone()),
         };
-        let body = crate::call_view::call_view_body(&view, true, &call_agent, &time, &self.images, window, cx);
+        let body = crate::call_view::call_view_body(&view, true, &call_agent, &time, &self.images, !row.is_ended(), window, cx);
         Some(
             v_flex().size_full().min_h_0().min_w_0().child(
                 div()

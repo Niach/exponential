@@ -375,7 +375,7 @@ fn call_rows(images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> Vec<
             .collect();
         let time = move |id: &str| times.get(id).cloned().unwrap_or_default();
         let agent = crate::call_view::CallAgent { icon: None, color: None };
-        out.push(div().pt_4().child(crate::call_view::call_view_body(&view, true, &agent, &time, images, window, cx)).into_any_element());
+        out.push(div().pt_4().child(crate::call_view::call_view_body(&view, true, &agent, &time, images, false, window, cx)).into_any_element());
     }
     out
 }

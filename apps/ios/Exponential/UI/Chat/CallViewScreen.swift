@@ -14,6 +14,7 @@ struct CallViewScreen: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.toaster) private var toaster
     @State private var data: CallViewData?
 
     var body: some View {
@@ -50,7 +51,8 @@ struct CallViewScreen: View {
         )
         return CallViewBody(
             view: view, messages: data.messages, context: markdownContext(data),
-            agentAvatar: .agent(UserAvatarAgent(icon: data.agentIcon, color: data.agentColor))
+            agentAvatar: .agent(UserAvatarAgent(icon: data.agentIcon, color: data.agentColor)),
+            onAction: actionHandler(data)
         )
             .workHeaderBand {
                 ChatHeader {
@@ -65,6 +67,20 @@ struct CallViewScreen: View {
                     EmptyView()
                 }
             }
+    }
+
+    /// #EXP-2076 (chat-express.json ACTIONS, web `CallSessionBody`): a
+    /// block's action posts into the CALL session (the session this view
+    /// draws); an ended one's surfaces are inert.
+    private func actionHandler(_ data: CallViewData) -> ((ChatExpress.ActionEvent, ChatExpress.ActionOrigin) -> Void)? {
+        guard data.session.status != "ended" else { return nil }
+        let api = deps.sessionsApi
+        let accountId = accountId
+        let sessionId = sessionId
+        let toaster = toaster
+        return { event, origin in
+            ExpressActions.post(event, origin: origin, sessionId: sessionId, accountId: accountId, api: api, toaster: toaster)
+        }
     }
 
     private func markdownContext(_ data: CallViewData) -> AgentMarkdownContext {
@@ -118,6 +134,9 @@ struct CallViewBody: View {
     var agentAvatar: SenderAvatarModel? = nil
     /// A bubble's `HH:mm` by message id (nil = the phone's own clock).
     var timeLabel: ((String) -> String?)? = nil
+    /// #EXP-2076: where the turns' block presses go (the call session);
+    /// nil = inert.
+    var onAction: ((ChatExpress.ActionEvent, ChatExpress.ActionOrigin) -> Void)? = nil
 
     private func time(_ id: String) -> String? {
         if let timeLabel { return timeLabel(id) }
@@ -138,7 +157,9 @@ struct CallViewBody: View {
     /// The summary band + the turns (the specimen draws it unscrolled).
     var content: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let summary = view.summary {
+            // #EXP-2076 (chat-express.json PROSE): the band only READS the
+            // summary: its pure prose, no band when that is empty.
+            if let summary = view.summary.map(ChatExpress.plainProse), !summary.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     GlassSectionBand(view.summaryLabel)
                     AgentMarkdownText(text: summary, context: context)
@@ -175,12 +196,12 @@ struct CallViewBody: View {
     /// text: a synced row with Express blocks = its segments in ONE sender
     /// group (row key `m:<messages.id>`, final; the tail on the first
     /// segment, the time on the last prose bubble), the chat's own path.
-    /// Read-only like web's call view (no press is forwarded).
+    /// Its presses post into the call session (`onAction`; nil = inert).
     @ViewBuilder
     private func agentTurn(id: String, body: String, first: Bool) -> some View {
         let key = ChatExpress.syncedRowKey(id)
         if let segments = ExpressRowStore.shared.segments(key: key, text: body, final: true) {
-            ExpressSegmentsView(rowKey: key, segments: segments, messageId: id, onAction: nil) { prose, firstSegment, last in
+            ExpressSegmentsView(rowKey: key, segments: segments, messageId: id, onAction: onAction) { prose, firstSegment, last in
                 agentBubble(prose, time: last ? time(id) : nil, tail: first && firstSegment)
             }
         } else {

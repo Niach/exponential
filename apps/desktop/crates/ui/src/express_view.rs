@@ -168,8 +168,8 @@ pub(crate) struct ExpressTarget {
     pub session_id: String,
     pub message_id: Option<String>,
     pub row_key: String,
-    /// Every press posts into `session_id` (`false` = read-only surfaces:
-    /// the call view, whose web twin passes no surface action, #EXP-2076).
+    /// Every press posts into `session_id` (`false` = inert surfaces: an
+    /// ended call's view and the specimens, #EXP-2076).
     pub actions: bool,
 }
 
