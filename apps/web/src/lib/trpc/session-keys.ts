@@ -32,7 +32,7 @@ import {
   WRAPPED_RE,
   type Reader,
 } from "@/lib/sessions/tree-keys"
-import { signedPendingWraps, vouchesFor, wrapSignatureInput, type Vouch } from "@/lib/sessions/wrap-signatures"
+import { checkWrapSignatures, vouchesFor, wrapSignatureInput, type Vouch } from "@/lib/sessions/wrap-signatures"
 
 export { createTreeKeyInTx, treeReaders, type TreeKeyInput, type TreeReader } from "@/lib/sessions/tree-keys"
 
@@ -235,21 +235,6 @@ export async function requestTreeKey(
 }
 
 const notFoundError = () => new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
-
-/** #EXP-1950: `sessionKeys.wrap`'s signed wraps, verified against the
- *  caller's own install before anything is written (a bad one refuses the
- *  batch); their columns by `root\nepoch\ntarget`. */
-async function checkWrapSignatures(
-  database: Reader,
-  userId: string,
-  input: { installId: string; wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string; signature?: string | null }> }
-) {
-  if (!input.wraps.some((wrap) => wrap.signature != null)) return new Map()
-  const signer = await ownInstall(database, userId, input.installId)
-  const rootIds = [...new Set(input.wraps.map((wrap) => wrap.rootId))]
-  const roots = (await database.select().from(sessions).where(inArray(sessions.id, rootIds))).filter((root) => rootIds.includes(root.id))
-  return signedPendingWraps(database, signer, input.wraps, roots)
-}
 
 export const sessionKeysRouter = router({
   /** A tree's first key (epoch 1) or a rotation (`seal_epoch + 1`, by the

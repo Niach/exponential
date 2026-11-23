@@ -10,8 +10,8 @@ import { verifyWrapSignature } from "@exp/domain-contract/wrap-signature"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm"
 import { z } from "zod"
-import { installs, sessionKeys } from "@/db/schema"
-import type { Reader } from "@/lib/sessions/tree-keys"
+import { installs, sessionKeys, sessions } from "@/db/schema"
+import { ownInstall, type Reader } from "@/lib/sessions/tree-keys"
 
 export const WRAP_SIGNATURE_REFUSAL = `A wrap's signature is not your install's over this key`
 
@@ -69,6 +69,21 @@ export async function signedPendingWraps(
     out.set(`${wrap.rootId}\n${wrap.epoch}\n${wrap.targetInstallId}`, columns!)
   }
   return out
+}
+
+/** `sessionKeys.wrap`'s signed wraps, verified against the caller's own
+ *  install before anything is written (a bad one refuses the batch); their
+ *  columns by `root\nepoch\ntarget`. */
+export async function checkWrapSignatures(
+  database: Reader,
+  userId: string,
+  input: { installId: string; wraps: ReadonlyArray<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string; signature?: string | null }> }
+): Promise<Map<string, SignedColumns>> {
+  if (!input.wraps.some((wrap) => wrap.signature != null)) return new Map()
+  const signer = await ownInstall(database, userId, input.installId)
+  const rootIds = [...new Set(input.wraps.map((wrap) => wrap.rootId))]
+  const roots = (await database.select().from(sessions).where(inArray(sessions.id, rootIds))).filter((root) => rootIds.includes(root.id))
+  return signedPendingWraps(database, signer, input.wraps, roots)
 }
 
 /** A signed wrap of a root's current epoch made for some install: a client
