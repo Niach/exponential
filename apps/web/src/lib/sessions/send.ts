@@ -31,7 +31,12 @@ import {
   type Session,
 } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
-import { assertComputerUsePick, computerUseAtStart, gatedComputerUse } from "@/lib/sessions/computer-use"
+import {
+  assertComputerUsePick,
+  computerUseStartLog,
+  gatedComputerUse,
+  resolveComputerUseAtStart,
+} from "@/lib/sessions/computer-use"
 import { assertSkillsInTeam } from "@/lib/skills-guard"
 import { uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import { startDiskWarning } from "@/lib/device-disk"
@@ -1888,6 +1893,16 @@ async function continueSession(
   }
 }
 
+/** #FEED-302 (composer-menu.json `computerUse.agentStart`): every start a
+ *  session makes with computer use is logged: a server line in the new
+ *  session (never the agent's input) and one server log line. */
+async function logComputerUseStart(tx: Tx, started: Session, caller: Session): Promise<void> {
+  await postMovedMessage(tx, started, computerUseStartLog(caller.id))
+  console.info(
+    `[computer-use] session ${caller.id} started ${started.id} with computer use on device ${started.deviceId} (user ${started.userId}, team ${started.teamId})`
+  )
+}
+
 async function startChild(
   userId: string,
   uploaderIds: string[],
@@ -1903,14 +1918,6 @@ async function startChild(
   const teamId = await childTeam(input, parent)
   await assertTeamMember(userId, teamId)
   const deviceId = input.deviceId ?? parent.deviceId
-  // #EXP-1899: the parent's value unless the child opts out (a person may
-  // also opt it back in).
-  const computerUse = computerUseAtStart({
-    pick: input.computerUse,
-    viaMcp,
-    caller: caller?.computerUse ?? null,
-    from: parent.computerUse,
-  })
   // #FEED-182: profile ids are device-local — a child on ANOTHER device gets
   // a login of THAT device (the named one, or the parent's by email).
   const crossDevice = deviceId !== parent.deviceId
@@ -1926,6 +1933,17 @@ async function startChild(
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     const device = await resolveSessionDeviceInTx(tx, userId, teamId, deviceId)
+    // #EXP-1899: the parent's value unless the child opts out (a person may
+    // also opt it back in; #FEED-302: over MCP the device owner's own tree).
+    const { computerUse, raised } = await resolveComputerUseAtStart(tx, {
+      pick: input.computerUse,
+      viaMcp,
+      caller,
+      from: parent.computerUse,
+      starterId: userId,
+      deviceId,
+      ownerId: device.ownerId,
+    })
     await assertTreeRoom(tx, parent.rootId, parent.depth + 1)
     const [root] = await tx.select().from(sessions).where(eq(sessions.id, parent.rootId)).limit(1)
     if (!root) throw new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
@@ -1988,6 +2006,7 @@ async function startChild(
       // #EXP-1452: an agent's start is ITS message (its avatar on the brief).
       caller ? { sessionId: caller.id, asSession: viaMcp } : null
     )
+    if (raised) await logComputerUseStart(tx, child, caller!)
     await postSystemCard(tx, parent, { kind: `session`, sessionId: child.id })
     await applyWakeOn(tx, caller, input)
     await extras.within?.(tx, { sessionId: child.id, messageId, rootId: root.id })
@@ -2029,15 +2048,6 @@ async function startRoot(
     throw new TRPCError({ code: `BAD_REQUEST`, message: `teamId is required for a new session` })
   }
   await assertTeamMember(userId, teamId)
-  // #EXP-1899: a person's start follows the device's switch; over MCP the
-  // starting session's own value, never raised.
-  const computerUse = computerUseAtStart({
-    pick: input.computerUse,
-    viaMcp,
-    caller: caller?.computerUse ?? null,
-    from: null,
-  })
-
   // An agent's spawn runs on the agent's own device unless it names one:
   // the caller's root is a conversation session (its device = the agent's).
   // #EXP-1720: also across teams (the Assistant starts chats in its scope teams).
@@ -2057,6 +2067,17 @@ async function startRoot(
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     const device = await resolveSessionDeviceInTx(tx, userId, teamId, deviceId)
+    // #EXP-1899: a person's start follows the device's switch; over MCP the
+    // starting session's own value, raised only by #FEED-302's rule.
+    const { computerUse, raised } = await resolveComputerUseAtStart(tx, {
+      pick: input.computerUse,
+      viaMcp,
+      caller,
+      from: null,
+      starterId: userId,
+      deviceId,
+      ownerId: device.ownerId,
+    })
     if (input.issueIds) await assertIssuesInTeam(tx, teamId, input.issueIds)
     if (input.repositoryId) await assertRepositoryInTeam(tx, teamId, input.repositoryId)
     // #EXP-1793: a root an agent's tree starts without a pick takes the agent's.
@@ -2133,6 +2154,7 @@ async function startRoot(
       uploaderIds,
       caller && caller.teamId === teamId ? { sessionId: caller.id, asSession: viaMcp } : null
     )
+    if (raised) await logComputerUseStart(tx, root, caller!)
     if (caller && caller.teamId === teamId) {
       // NEW-1: a root started from inside a session is WATCHED by its
       // starter: the bus delivers its transitions there (an agent's spawned

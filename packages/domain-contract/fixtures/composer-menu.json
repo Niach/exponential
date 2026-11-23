@@ -207,7 +207,7 @@
     "many": "Implement {n} issues"
   },
   "computerUse": {
-    "$comment": "Per-run computer use (#EXP-1899: the DEVICE's Computer use switch is the gate). The start payload key sits next to `mcpServerIds` in steer.startSession, codingSessions.start and the relay's start frame; false = this run opts out; true, absent or null = it follows the device's launch_defaults.computerUse; never on while that switch is off. sessions.computer_use stores exactly that (true = follows, false = opted out): a person's start without the key stores true; over MCP nothing is raised (an omitted key = the starting session's own value, a child its parent's, none = false; an explicit true is refused when the caller or the session is opted out, false always works). A device advertising `switchCap` applies the gate itself (grant = switch on AND the session follows; switching off ends every running grant at once); for a build without it the server stores the effective value (the pick AND its copy of the switch) and switching off clears its live sessions. The toggle rides out only to a device advertising `cap` (older builds would ignore it). The toggle (×4) starts ON every time the row appears (a device change resets the pick) and can only opt out: a start carries the key ONLY as `false`; untouched or switched back on, the key is omitted.",
+    "$comment": "Per-run computer use (#EXP-1899: the DEVICE's Computer use switch is the gate). The start payload key sits next to `mcpServerIds` in steer.startSession, codingSessions.start and the relay's start frame; false = this run opts out; true, absent or null = it follows the device's launch_defaults.computerUse; never on while that switch is off. sessions.computer_use stores exactly that (true = follows, false = opted out): a person's start without the key stores true; over MCP an omitted key raises nothing (= the starting session's own value, a child its parent's, none = false), false always works, and an explicit true on a session that would not follow anyway is decided by `agentStart` (#FEED-302): only a NEW session, only from the device owner's own tree. A device advertising `switchCap` applies the gate itself (grant = switch on AND the session follows; switching off ends every running grant at once); for a build without it the server stores the effective value (the pick AND its copy of the switch) and switching off clears its live sessions. The toggle rides out only to a device advertising `cap` (older builds would ignore it). The toggle (×4) starts ON every time the row appears (a device change resets the pick) and can only opt out: a start carries the key ONLY as `false`; untouched or switched back on, the key is omitted.",
     "payloadKey": "computerUse",
     "cap": "computer-use-run",
     "switchCap": "computer-use-switch",
@@ -220,7 +220,27 @@
       { "name": "no doctor, switch on", "caps": ["computer-use-run"], "doctorState": null, "launchDefault": true, "offered": true },
       { "name": "no doctor, switch off", "caps": ["computer-use-run"], "doctorState": null, "launchDefault": false, "offered": false },
       { "name": "#EXP-1514: switch on, the Work screen is Agent space only and no space is offered", "caps": ["computer-use-run"], "doctorState": "missing", "launchDefault": true, "offered": false }
-    ]
+    ],
+    "agentStart": {
+      "$comment": "#FEED-302: a session may START another with computer use over MCP (`sessions_send {computerUse: true}`, a root or a child) when all three hold: a session makes the call (`caller`; a connection outside a session never does), the person that session works for owns both its tree and the target device (`ownTree`, `ownDevice`: their Assistant and every session of a tree they own; never another member's session, never another member's device, shared or not), and that device's Computer use switch is on (`switchOn`, launch_defaults.computerUse). The switch stays the gate: the launcher still grants only while it is on. First failing rule = the refusal, in that order. A RUNNING session is never raised over MCP (`refusals.running`: a message's or configure's true on a session that is off), only turned off. Every start this rule allows is logged: `log` as a server line in the new session ({session} = the calling session's id) and a `[computer-use]` server log line.",
+      "refusals": {
+        "running": "Computer use cannot be turned on for a running session over MCP, only off. Start a new session with computerUse: true instead.",
+        "caller": "Only a session can start another with computer use: this connection is not a session.",
+        "owner": "Computer use starts only on a device of the person this session works for, from a tree that person owns.",
+        "switch": "Computer use is off on this device: its owner turns on the Computer use switch in the device's settings."
+      },
+      "log": "Computer use is on: session {session} started this one with it.",
+      "cases": [
+        { "name": "the owner's Assistant or own session, their device, switch on", "caller": true, "ownTree": true, "ownDevice": true, "switchOn": true, "expected": "allowed" },
+        { "name": "the switch is off", "caller": true, "ownTree": true, "ownDevice": true, "switchOn": false, "expected": "switch" },
+        { "name": "another member's device, shared with the team, switch on", "caller": true, "ownTree": true, "ownDevice": false, "switchOn": true, "expected": "owner" },
+        { "name": "another member's session on the owner's shared device", "caller": true, "ownTree": true, "ownDevice": false, "switchOn": true, "expected": "owner" },
+        { "name": "the owner's session inside a tree another member owns", "caller": true, "ownTree": false, "ownDevice": true, "switchOn": true, "expected": "owner" },
+        { "name": "a connection outside a session (an outside MCP client)", "caller": false, "ownTree": false, "ownDevice": true, "switchOn": true, "expected": "caller" },
+        { "name": "nothing holds: the first failing rule answers", "caller": false, "ownTree": false, "ownDevice": false, "switchOn": false, "expected": "caller" },
+        { "name": "not the owner and the switch off: the owner rule answers (the switch of another member's device is never told)", "caller": true, "ownTree": true, "ownDevice": false, "switchOn": false, "expected": "owner" }
+      ]
+    }
   },
   "cases": [
     {"name": "#FEED-204: an app editor's composer reads its device", "surface": "session", "conditions": {"device": true}, "expected": ["add-file", "implement-issue", "-", "device"]},
