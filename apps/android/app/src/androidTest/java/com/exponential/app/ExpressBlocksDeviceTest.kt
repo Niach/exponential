@@ -154,9 +154,9 @@ class ExpressBlocksDeviceTest {
                 posted = post
                 // The server's row for the press: the body's bubble, else THE marker.
                 rows = rows + if (post.body.isEmpty()) {
-                    SessionTree.SessionChatRow.ActionMarker("p1", VIEWER, post.card.name)
+                    SessionTree.SessionChatRow.ActionMarker("p${rows.size}", VIEWER, post.card.name)
                 } else {
-                    user("p1", post.body)
+                    user("p${rows.size}", post.body)
                 }
             }
         }
@@ -175,7 +175,7 @@ class ExpressBlocksDeviceTest {
 
     private companion object {
         const val VIEWER = "viewer"
-        val TIMES = mapOf("u1" to "09:40", "a1" to "09:41", "a2" to "09:41", "a3" to "09:41", "p1" to "09:42")
+        val TIMES = mapOf("u1" to "09:40", "a1" to "09:41", "a2" to "09:41", "a3" to "09:41", "p2" to "09:42", "p3" to "09:42")
 
         val HISTORY = """
             Here is where the release stands:
