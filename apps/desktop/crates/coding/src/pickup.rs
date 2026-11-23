@@ -1209,8 +1209,19 @@ fn awaits_key(message: &MessageRow) -> bool {
 /// The agent-facing copy of a sealed row ([`crate::sealing::open_message`]:
 /// locked content reads [`crate::sealing::LOCKED_TEXT`]); an opened
 /// question/plan card is remembered for its write-back.
+///
+/// #EXP-2086: a part that stayed shut for want of its key (`noKey`: a pass
+/// right after a daemon start runs before its key holder is up, a new
+/// tree's wrap lands moments later) marks the copy [`SealState::Locked`],
+/// so it waits like a row the desktop's store opened in place
+/// ([`awaits_key`]) and the placeholder is never handed on as the person's
+/// text. Each later pass opens it again (and, with a holder, pulls the
+/// tree's wraps).
 fn open_for_agent(message: &MessageRow) -> MessageRow {
-    let opened = crate::sealing::open_message(message);
+    let (mut opened, no_key) = crate::sealing::open_message_keyed(message);
+    if no_key {
+        opened.seal = Some(SealState::Locked);
+    }
     let was_sealed = message.card.as_ref().is_some_and(|card| card.get("sealed").is_some());
     if let (true, Some(card)) = (was_sealed, opened.card.as_ref()) {
         if card.get("sealed").is_none() && matches!(opened.card_kind(), Some("plan" | "question")) {
@@ -1407,6 +1418,14 @@ fn fetch_brief_waiting(
 ) -> Result<session_device::SessionBrief, ApiError> {
     let mut brief = session_device::brief(trpc, session_id)?;
     let root = || crate::sealing::root_of(session_id).unwrap_or_else(|| session_id.to_string());
+    // #EXP-2086: a pass right after a daemon start runs before its key
+    // holder is up; a COMING holder is waited for (bounded,
+    // `sealing::SERVICE_WAIT`) before anything sealed is opened, so the
+    // request never reads the placeholder for that reason.
+    let sealed_request = brief.sealed_text.as_deref().is_some_and(|t| t.starts_with(crate::sealing::SEALED_BODY_PREFIX));
+    if (sealed_request || brief.brief.contains(crate::sealing::SEALED_BODY_PREFIX)) && crate::sealing::service().is_none() {
+        let _ = crate::sealing::sealer();
+    }
     if brief.brief.contains(crate::sealing::SEALED_BODY_PREFIX) {
         brief.brief = open_embedded_bodies(&root(), &brief.brief);
     }
@@ -4752,6 +4771,69 @@ mod tests {
         let woke = Pass::new(vec![row], vec![unreadable]).run();
         let [PickupAction::Resume { messages, .. }] = woke.as_slice() else { panic!("{woke:?}") };
         assert_eq!(messages[0].body.as_deref(), Some(crate::sealing::LOCKED_TEXT));
+    }
+
+    /// #EXP-2086: the daemon plans over RAW sealed rows. A pass ~90 ms after
+    /// a daemon start ran before its key holder was up, opened nothing, and
+    /// handed the engine the locked placeholder as the member's message
+    /// (consumed with it). A row that stays shut for want of its KEY waits
+    /// instead, on a wake and on a live delivery alike, and the pass after
+    /// the holder registered hands on the real text.
+    #[test]
+    fn a_raw_sealed_message_waits_for_the_key_holder_never_the_placeholder() {
+        use crate::sealing::{self, test_support};
+        let _serial = test_support::serial();
+        let fake = test_support::install_fake();
+        let row = SessionRow { root_id: Some("sr".to_string()), ..session("sr", "idle", DEV, "2026-10-01T00:00:00Z") };
+        fake.keyring.note_sessions(std::slice::from_ref(&row));
+        let sealed = MessageRow {
+            body: Some(sealing::seal_body("sr", "Ship the fix").unwrap()),
+            ..message("mr", "sr", "2026-10-02T00:00:01Z")
+        };
+        // The daemon just started: no key holder yet.
+        sealing::uninstall();
+        let early = Pass::new(vec![row.clone()], vec![sealed.clone()]).run();
+        let early_live = Pass::new(vec![row.clone()], vec![sealed.clone()]).live("sr", LiveView::default()).run();
+        // The holder registers (it brings the install's keys).
+        sealing::install(fake.clone());
+        let woke = Pass::new(vec![row], vec![sealed]).run();
+        sealing::uninstall();
+        assert!(early.is_empty(), "held until the key holder is up: {early:?}");
+        assert!(early_live.is_empty(), "never delivered locked to a live engine either: {early_live:?}");
+        let [PickupAction::Resume { messages, .. }] = woke.as_slice() else { panic!("{woke:?}") };
+        assert_eq!(messages.iter().map(|m| m.body.as_deref()).collect::<Vec<_>>(), vec![Some("Ship the fix")]);
+    }
+
+    /// #EXP-2086: a wake that fetches its brief before the daemon's key
+    /// holder is up waits for the COMING holder (bounded), so a sealed
+    /// request opens instead of reading the locked placeholder.
+    #[test]
+    fn a_brief_fetched_before_the_key_holder_is_up_waits_for_it() {
+        use crate::sealing::{self, test_support};
+        let _serial = test_support::serial();
+        let fake = test_support::install_fake();
+        let row = SessionRow { root_id: Some("sb".to_string()), ..session("sb", "idle", DEV, "2026-10-01T00:00:00Z") };
+        fake.keyring.note_sessions(std::slice::from_ref(&row));
+        let envelope = sealing::seal_body("sb", "Align the sidebar").unwrap();
+        sealing::uninstall();
+        sealing::note_sessions(std::slice::from_ref(&row));
+        sealing::expect_service(true);
+        sealing::set_service_wait(std::time::Duration::from_secs(10));
+        let (base, _requests) = canned_server_recording(vec![(
+            200,
+            format!(r#"{{"result":{{"data":{{"brief":"Wait for the next message.","sealedText":"{envelope}","teamPrompt":null,"agentInstructions":null,"parentBranch":null}}}}}}"#),
+        )]);
+        let trpc = api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            sealing::install(fake);
+        });
+        let brief = fetch_brief(&trpc, "sb");
+        holder.join().unwrap();
+        sealing::uninstall();
+        sealing::expect_service(false);
+        sealing::set_service_wait(sealing::SERVICE_WAIT);
+        assert_eq!(brief.unwrap().brief, "## Request\n\nAlign the sidebar");
     }
 
     /// FEED-180: a SEALED message's attachments (clear `attachment_ids`, the
