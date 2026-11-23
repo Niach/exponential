@@ -1,0 +1,26 @@
+# Exponential Desktop's factory battery applet (#EDE-43): the taskbar's battery button opens it as a
+# popup surface. The battery (/services/power/battery: the percent as a progress bar, the state and
+# the time left or until full), the power profile tiles (set_profile), and the Power settings link;
+# without a battery the profile still shows. Every action is ede_service on the power domain.
+surface("applet-battery", extensions={ede: {popup: {parent: "taskbar", anchor: "applet_battery", placement: "top-end", size: {width: 380, height: 180}}, functions: ["ede_service", "ede_open_document"]}})
+$/applets/battery/icon = "ede-battery"
+$/applets/battery/show = false
+$/services/power/available = false
+$/services/power/battery/percent = 0
+$/services/power/battery/present = false
+$/services/power/battery/state = "unknown"
+$/services/power/battery/timeText = ""
+$/services/power/profile = "balanced"
+root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.sm", padding: "$spacing.sm", height: 180, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.md"}, children=[battery_head, battery_bar, no_battery, profile_title, profile, power_foot])
+battery_head = Stack(direction="horizontal", gap="sm", align="center", children=[battery_icon, battery_texts, battery_time], visible=cond(if=$/services/power/battery/present, then=true, else=false))
+battery_icon = Icon(name=$/applets/battery/icon, size="lg", label="Battery")
+battery_texts = Stack(direction="vertical", gap="none", style={flexGrow: 1, minWidth: 0}, children=[battery_percent, battery_state])
+battery_percent = Text(text=concat(values=[$/services/power/battery/percent, "%"]), variant="title")
+battery_state = Text(text=map(value=$/services/power/battery/state, cases={charging: "Charging", discharging: "Discharging", full: "Fully charged", empty: "Empty", "pending-charge": "Pending charge", "pending-discharge": "Pending discharge"}, default=""), variant="muted")
+battery_time = Text(text=$/services/power/battery/timeText, variant="muted")
+battery_bar = Progress(value=$/services/power/battery/percent, max=100, visible=cond(if=$/services/power/battery/present, then=true, else=false))
+no_battery = Text(text="No battery", variant="muted", visible=not(value=cond(if=$/services/power/battery/present, then=true, else=false)))
+profile_title = Text(text="Power mode", variant="label")
+profile = ChoiceTiles(name="profile", options=[{label: "Power saver", value: "power-saver"}, {label: "Balanced", value: "balanced"}, {label: "Performance", value: "performance"}], value=$/services/power/profile, columns=3, on={change: ede_service(action="set_profile", args={profile: $/services/power/profile}, domain="power")})
+power_foot = Stack(direction="horizontal", gap="sm", align="center", children=[power_settings])
+power_settings = Link(label="Power settings", on={press: ede_open_document(name="settings")})

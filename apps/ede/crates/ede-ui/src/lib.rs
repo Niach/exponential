@@ -1,7 +1,8 @@
 //! `exponential-ui`: eDE's eUI-on-disk runtime (#NEW-107).
 //!
 //! The shell (#NEW-108) draws documents from `$XDG_CONFIG_HOME/exponential-desktop/ui`:
-//! one eUI surface per `<name>.json`, the look in `theme.json`. Agents
+//! one eUI surface per `<name>.express` (Express, #EDE-216), the look in
+//! `theme.json`. Agents
 //! (ede-tools, #NEW-115) and people edit those files; this crate makes
 //! that safe:
 //!
@@ -21,6 +22,7 @@
 
 pub mod apply;
 pub mod doc;
+pub mod express;
 pub mod git;
 pub mod supervise;
 pub mod surface;
@@ -34,6 +36,7 @@ use std::{
 };
 
 pub use doc::{validate_document, validate_theme, Body, Document, Issue};
+pub use express::{compile_document, decompile_document, validate_express};
 pub use surface::{normalize_surface, SurfaceHeader};
 pub use eui_core::theme::ResolvedTheme;
 pub use git::Commit;
@@ -41,7 +44,8 @@ pub use watch::{watch, Watcher};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// The theme's file; every other `*.json` is a document.
+/// The theme's file (JSON: a theme, not a surface); every `*.express` is a
+/// document (#EDE-216).
 pub const THEME_FILE: &str = "theme.json";
 /// The theme's name in [`Change`]s.
 pub const THEME: &str = "theme";
@@ -192,11 +196,12 @@ pub struct Runtime {
     seen: BTreeMap<String, Seen>,
 }
 
-fn file_of(name: &str) -> String {
+/// The file of document `name` (`<name>.express`), or the theme's.
+pub fn file_of(name: &str) -> String {
     if name == THEME {
         THEME_FILE.to_string()
     } else {
-        format!("{name}.json")
+        format!("{name}{}", express::SUFFIX)
     }
 }
 
@@ -205,6 +210,10 @@ fn file_of(name: &str) -> String {
 pub fn refused_file(name: &str) -> String {
     format!(".{}.refused", file_of(name))
 }
+
+/// #EDE-216: the commit of the one-time migration of `<name>.json`
+/// documents to `<name>.express`.
+pub const MIGRATION_MESSAGE: &str = "Migrate shell documents to Express";
 
 /// The eDE release this runtime is (a set-aside file's suffix).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -218,7 +227,9 @@ pub const NOTICES_FILE: &str = ".reset-notices.json";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResetNotice {
     pub name: String,
-    /// The person's file, next to the document: `<name>.json.refused-<version>`.
+    /// The person's file, next to the document: `<name>.express.refused-<version>`
+    /// (`<name>.json.refused-<version>` for a JSON document the Express
+    /// migration could not read).
     pub backup: String,
 }
 
@@ -226,7 +237,7 @@ impl ResetNotice {
     /// The toast's title and description.
     pub fn toast(&self) -> (String, String) {
         (
-            format!("Your {} was reset", file_of(&self.name)),
+            format!("Your {} was reset", self.backup.split(".refused-").next().filter(|f| !f.is_empty()).map(str::to_string).unwrap_or_else(|| file_of(&self.name))),
             format!("This version of Exponential Desktop refuses it. Your copy is kept as {}.", self.backup),
         )
     }
@@ -261,8 +272,9 @@ pub fn take_notices(dir: &Path) -> Vec<ResetNotice> {
     serde_json::from_slice(&bytes).unwrap_or_default()
 }
 
-/// The names of the top-level `*.json` files (hidden files, editor
-/// leftovers and anything that is not a document name are skipped).
+/// The names of the top-level `*.express` documents and the theme (hidden
+/// files, editor leftovers and anything that is not a document name are
+/// skipped; a `<name>.json` document is no longer read, #EDE-216).
 fn names_on_disk(dir: &Path) -> io::Result<Vec<String>> {
     let mut out = Vec::new();
     for entry in fs::read_dir(dir)? {
@@ -274,7 +286,7 @@ fn names_on_disk(dir: &Path) -> io::Result<Vec<String>> {
         let Some(file) = file.to_str() else { continue };
         if file == THEME_FILE {
             out.push(THEME.to_string());
-        } else if let Some(stem) = file.strip_suffix(".json").filter(|s| valid_name(s)) {
+        } else if let Some(stem) = file.strip_suffix(express::SUFFIX).filter(|s| valid_name(s)) {
             out.push(stem.to_string());
         }
     }
@@ -306,7 +318,7 @@ impl Runtime {
     }
 
     /// Open with the factory documents in `factory` (#EDE-9): every
-    /// `<name>.json` there that the ui directory never had is copied in and
+    /// `<name>.express` there that the ui directory never had is copied in and
     /// committed as `Factory <name>`, so a fresh account starts with the
     /// shell and a revert always has somewhere to go. One the person never
     /// changed follows a newer factory copy (a package update) the same way.
@@ -335,6 +347,9 @@ impl Runtime {
             theme_rejected: None,
             seen: BTreeMap::new(),
         };
+        if ui.commits {
+            ui.migrate_json()?;
+        }
         let mut changes = Vec::new();
         for name in ui.factory_names()? {
             let file = file_of(&name);
@@ -365,7 +380,12 @@ impl Runtime {
     /// factory document for ever), unless the person undid a factory update
     /// (`Undo: Factory <name>` is their choice).
     fn unedited_factory_copy(&self, name: &str, current: &[u8]) -> io::Result<bool> {
-        let file = file_of(name);
+        self.unedited_copy_of(&file_of(name), name, current)
+    }
+
+    /// [`Self::unedited_factory_copy`] of `file` (the document's `.express`,
+    /// or the `.json` it was before #EDE-216).
+    fn unedited_copy_of(&self, file: &str, name: &str, current: &[u8]) -> io::Result<bool> {
         let subject = format!("Factory {name}");
         if self.repo.newest_of(&file)?.is_some_and(|c| c.summary == format!("Undo: {subject}")) {
             return Ok(false);
@@ -373,10 +393,58 @@ impl Runtime {
         Ok(self.repo.show_all_at(&file, &subject)?.iter().any(|b| b.as_slice() == current))
     }
 
+    /// #EDE-216: the one-time migration to Express. Every `<name>.json`
+    /// document without a `<name>.express` beside it goes, in ONE commit
+    /// ([`MIGRATION_MESSAGE`]): a factory copy the person never changed is
+    /// dropped (the shipped `.express` takes its place right after, as
+    /// `Factory <name>`, so it keeps following factory updates); any other
+    /// is decompiled to `<name>.express` ([`express::decompile_document`]);
+    /// one that does not convert is set aside as `<name>.json.refused-<version>`
+    /// with a [`ResetNotice`]. A `.json` document is never read again.
+    fn migrate_json(&mut self) -> io::Result<()> {
+        let mut files = Vec::new();
+        let mut entries: Vec<String> = fs::read_dir(&self.dir)?
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .collect();
+        entries.sort();
+        for json_file in entries {
+            let Some(name) = json_file.strip_suffix(".json").filter(|s| valid_name(s)).map(str::to_string) else { continue };
+            if json_file == THEME_FILE || self.dir.join(file_of(&name)).exists() {
+                continue;
+            }
+            let path = self.dir.join(&json_file);
+            let bytes = fs::read(&path)?;
+            let shipped = self.factory.as_ref().is_some_and(|f| f.join(file_of(&name)).is_file());
+            if shipped && self.unedited_copy_of(&json_file, &name, &bytes)? {
+                fs::remove_file(&path)?;
+                files.push(json_file);
+                continue;
+            }
+            match doc::parse(&bytes).and_then(|v| express::decompile_document(&name, &v)) {
+                Ok(text) => {
+                    write_atomic(&self.dir.join(file_of(&name)), text.as_bytes())?;
+                    fs::remove_file(&path)?;
+                    files.push(json_file);
+                    files.push(file_of(&name));
+                }
+                Err(_) => {
+                    let backup = backup_name(&self.dir, &json_file);
+                    fs::rename(&path, self.dir.join(&backup))?;
+                    files.push(json_file);
+                    add_notice(&self.dir, ResetNotice { name, backup })?;
+                }
+            }
+        }
+        self.commit_tracked(&files, MIGRATION_MESSAGE)?;
+        Ok(())
+    }
+
     /// #EDE-202: a document refused at start whose file is what git holds
     /// (it validated when it was committed: an older release's checks, or
     /// one the person edited then) is refused at every start from now on.
-    /// It is set aside as `<name>.json.refused-<version>` next to it, the
+    /// It is set aside as `<name>.express.refused-<version>` next to it, the
     /// factory copy takes its place (one the factory no longer ships is
     /// removed), each a commit, and a [`ResetNotice`] waits for the shell's
     /// toast. A broken edit nobody committed stays the person's to fix.
@@ -453,7 +521,7 @@ impl Runtime {
     /// edit of its own, committed and supervised as one). What the file
     /// holds is taken in first ([`Self::take_in`]): a valid edit stays in
     /// the history; a broken one (never committed) is kept aside as
-    /// `.<name>.json.refused`, never lost. The commit; `None` when git held
+    /// `.<name>.express.refused`, never lost. The commit; `None` when git held
     /// `bytes` already.
     pub fn put_back(&mut self, name: &str, bytes: &[u8], message: &str) -> io::Result<Option<String>> {
         self.take_in(name)?;
@@ -640,9 +708,9 @@ impl Runtime {
 
     /// HEAD's version of `file` if it still validates (the last good one
     /// across restarts).
-    fn from_head<T>(&self, file: &str, validate: impl Fn(&Value) -> Result<T, Vec<Issue>>) -> io::Result<Option<T>> {
+    fn from_head<T>(&self, file: &str, validate: impl Fn(&[u8]) -> Result<T, Vec<Issue>>) -> io::Result<Option<T>> {
         let Some(bytes) = self.repo.show_head(file)? else { return Ok(None) };
-        Ok(doc::parse(&bytes).ok().and_then(|v| validate(&v).ok()))
+        Ok(validate(&bytes).ok())
     }
 
     fn load_document(&mut self, name: &str, now: &Seen) -> io::Result<Option<Change>> {
@@ -650,7 +718,7 @@ impl Runtime {
             self.rejected.remove(name);
             return Ok(self.documents.remove(name).map(|_| Change::Removed { name: name.to_string(), commit: None }));
         };
-        match doc::parse(bytes).and_then(|v| validate_document(name, &v)) {
+        match doc::validate_bytes(name, bytes) {
             Ok(mut document) => {
                 document.digest = digest(bytes);
                 self.rejected.remove(name);
@@ -659,7 +727,7 @@ impl Runtime {
             }
             Err(issues) => {
                 if !self.documents.contains_key(name) {
-                    if let Some(good) = self.from_head(&file_of(name), |v| validate_document(name, v))? {
+                    if let Some(good) = self.from_head(&file_of(name), |b| doc::validate_bytes(name, b))? {
                         self.documents.insert(name.to_string(), good);
                     }
                 }
@@ -687,7 +755,7 @@ impl Runtime {
             }
             Err(issues) => {
                 if self.theme_builtin {
-                    if let Some(good) = self.from_head(THEME_FILE, validate_theme)? {
+                    if let Some(good) = self.from_head(THEME_FILE, |b| doc::parse(b).and_then(|v| validate_theme(&v)))? {
                         self.theme = good;
                         self.theme_builtin = false;
                     }
@@ -698,33 +766,50 @@ impl Runtime {
         }
     }
 
-    /// Validate `source` and, if eui-core accepts it, write `<name>.json`
-    /// and commit it with `message`. A refused document writes nothing.
+    /// Validate the Express `source` and, if eui-core accepts it, write
+    /// `<name>.express` and commit it with `message`. A refused document
+    /// writes nothing.
+    pub fn write_express(&mut self, name: &str, source: &str, message: &str) -> Result<Vec<Change>, EditError> {
+        if !valid_name(name) {
+            return Err(EditError::Name(name.to_string()));
+        }
+        validate_express(name, source).map_err(EditError::Invalid)?;
+        let mut bytes = source.as_bytes().to_vec();
+        if !bytes.ends_with(b"\n") {
+            bytes.push(b'\n');
+        }
+        self.write_file(&file_of(name), &bytes, message)
+    }
+
+    /// A document in its JSON form (`{surface, root | components, data}`):
+    /// validated, written as Express ([`express::decompile_document`]) and
+    /// committed like [`Self::write_express`].
     pub fn write(&mut self, name: &str, source: &Value, message: &str) -> Result<Vec<Change>, EditError> {
         if !valid_name(name) {
             return Err(EditError::Name(name.to_string()));
         }
         validate_document(name, source).map_err(EditError::Invalid)?;
-        self.write_file(&file_of(name), source, message)
+        let express = express::decompile_document(name, source).map_err(EditError::Invalid)?;
+        self.write_express(name, &express, message)
     }
 
     /// The same for `theme.json`.
     pub fn write_theme(&mut self, source: &Value, message: &str) -> Result<Vec<Change>, EditError> {
         validate_theme(source).map_err(EditError::Invalid)?;
-        self.write_file(THEME_FILE, source, message)
+        let mut bytes = serde_json::to_vec_pretty(source).map_err(io::Error::other)?;
+        bytes.push(b'\n');
+        self.write_file(THEME_FILE, &bytes, message)
     }
 
-    fn write_file(&mut self, file: &str, source: &Value, message: &str) -> Result<Vec<Change>, EditError> {
+    fn write_file(&mut self, file: &str, bytes: &[u8], message: &str) -> Result<Vec<Change>, EditError> {
         if !self.commits {
             return Err(EditError::Io(io::Error::other("a read-only runtime never writes (the supervisor owns the history)")));
         }
-        let mut bytes = serde_json::to_vec_pretty(source).map_err(io::Error::other)?;
-        bytes.push(b'\n');
-        write_atomic(&self.dir.join(file), &bytes)?;
+        write_atomic(&self.dir.join(file), bytes)?;
         Ok(self.reload_with(Some(message))?)
     }
 
-    /// Delete `<name>.json` (or the theme: back to the default) as a commit.
+    /// Delete `<name>.express` (or the theme: back to the default) as a commit.
     pub fn remove(&mut self, name: &str, message: &str) -> Result<Vec<Change>, EditError> {
         if name != THEME && !valid_name(name) {
             return Err(EditError::Name(name.to_string()));

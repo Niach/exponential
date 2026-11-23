@@ -1,5 +1,5 @@
 //! #EDE-65 lane O: THE session composer IS the shared chat document's
-//! footer (`apps/ede/ui/chat.json` `chat_footer`, `uicore_model::chat`), the
+//! footer (`apps/ede/ui/chat.express` `chat_footer`, `uicore_model::chat`), the
 //! one eDE draws: the `/` and `@`/`#`/`:` menus (`/chatMenu`), the strip of
 //! the Assistant's team chips and the staged files (`/chatFiles`), the
 //! quick replies, and genUI's Composer with the "+" options Menu in its

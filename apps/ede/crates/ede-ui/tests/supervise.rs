@@ -36,9 +36,9 @@ fn fake_shell(dir: &Path) -> String {
 cd "$EDE_UI_DIR" || exit 2
 declare -A seen
 while true; do
-  for f in *.json; do
+  for f in *.express; do
     [ -e "$f" ] || continue
-    name="${{f%.json}}"
+    name="${{f%.express}}"
     d=$("{ede_ui}" digest "$f")
     if grep -q '"crash"' "$f"; then exit 1; fi
     if [ "${{seen[$name]}}" != "$d" ]; then
@@ -116,7 +116,7 @@ fn setup() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
     let tmp = tempfile::tempdir().unwrap();
     let factory = tmp.path().join("factory");
     fs::create_dir_all(&factory).unwrap();
-    fs::write(factory.join("panel.json"), serde_json::to_vec_pretty(&panel("factory")).unwrap()).unwrap();
+    fs::write(factory.join("panel.express"), ede_ui::decompile_document("panel", &panel("factory")).unwrap()).unwrap();
     let dir = tmp.path().join("ui");
     (tmp, dir, factory)
 }
@@ -127,7 +127,7 @@ fn log(dir: &Path) -> Vec<String> {
 }
 
 fn text(dir: &Path) -> String {
-    let v: Value = serde_json::from_slice(&fs::read(dir.join("panel.json")).unwrap()).unwrap();
+    let v = ede_ui::compile_document("panel", &fs::read_to_string(dir.join("panel.express")).unwrap()).unwrap();
     v["root"]["children"][0]["props"]["text"].as_str().unwrap().to_string()
 }
 
@@ -150,17 +150,17 @@ fn an_update_reaches_untouched_documents_and_spares_edited_ones() {
     let (_tmp, dir, factory) = setup();
     Runtime::open_with_factory(&dir, &factory).unwrap();
     // The package ships a new panel: the untouched copy follows it.
-    fs::write(factory.join("panel.json"), serde_json::to_vec_pretty(&panel("factory 2")).unwrap()).unwrap();
+    fs::write(factory.join("panel.express"), ede_ui::decompile_document("panel", &panel("factory 2")).unwrap()).unwrap();
     Runtime::open_with_factory(&dir, &factory).unwrap();
     assert_eq!(text(&dir), "factory 2");
     assert_eq!(log(&dir), ["Factory panel", "Factory panel", "exponential-ui: history starts"]);
     // The person edits it; the next update leaves their copy alone.
     let (mut ui, _) = Runtime::open_with_factory(&dir, &factory).unwrap();
-    ui.write("panel", &panel("mine"), "Edit panel.json").unwrap();
-    fs::write(factory.join("panel.json"), serde_json::to_vec_pretty(&panel("factory 3")).unwrap()).unwrap();
+    ui.write("panel", &panel("mine"), "Edit panel.express").unwrap();
+    fs::write(factory.join("panel.express"), ede_ui::decompile_document("panel", &panel("factory 3")).unwrap()).unwrap();
     Runtime::open_with_factory(&dir, &factory).unwrap();
     assert_eq!(text(&dir), "mine");
-    assert_eq!(log(&dir)[0], "Edit panel.json");
+    assert_eq!(log(&dir)[0], "Edit panel.express");
 }
 
 #[test]
@@ -168,12 +168,12 @@ fn a_drawn_edit_stays() {
     let (_tmp, dir, factory) = setup();
     let run = Run::start(&dir, &factory);
     run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
-    fs::write(dir.join("panel.json"), serde_json::to_vec_pretty(&panel("edited")).unwrap()).unwrap();
+    fs::write(dir.join("panel.express"), ede_ui::decompile_document("panel", &panel("edited")).unwrap()).unwrap();
     let seen = run.wait(Duration::from_secs(5), |r| matches!(r, Report::Drawn { name, .. } if name == "panel"));
     assert!(seen.iter().any(|r| matches!(r, Report::Edit { name, .. } if name == "panel")), "{seen:?}");
     std::thread::sleep(Duration::from_millis(2600));
     assert_eq!(text(&dir), "edited");
-    assert_eq!(log(&dir)[0], "Edit panel.json");
+    assert_eq!(log(&dir)[0], "Edit panel.express");
 }
 
 #[test]
@@ -181,13 +181,13 @@ fn an_edit_nobody_draws_in_two_seconds_rolls_back() {
     let (_tmp, dir, factory) = setup();
     let run = Run::start(&dir, &factory);
     run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
-    fs::write(dir.join("panel.json"), serde_json::to_vec_pretty(&panel("silent")).unwrap()).unwrap();
+    fs::write(dir.join("panel.express"), ede_ui::decompile_document("panel", &panel("silent")).unwrap()).unwrap();
     let started = Instant::now();
     run.wait(Duration::from_secs(6), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
     assert!(started.elapsed() >= Duration::from_millis(1900), "rolled back too early: {:?}", started.elapsed());
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(text(&dir), "factory");
-    assert_eq!(log(&dir)[0], "Undo: Edit panel.json, rolled back");
+    assert_eq!(log(&dir)[0], "Undo: Edit panel.express, rolled back");
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn three_crashes_after_an_edit_revert_it() {
     let (_tmp, dir, factory) = setup();
     let run = Run::start(&dir, &factory);
     run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
-    fs::write(dir.join("panel.json"), serde_json::to_vec_pretty(&panel("crash")).unwrap()).unwrap();
+    fs::write(dir.join("panel.express"), ede_ui::decompile_document("panel", &panel("crash")).unwrap()).unwrap();
     let seen = run.wait(Duration::from_secs(10), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
     // Crashes before the edit was committed do not count (the panel was still the factory's).
     let after_edit = seen.iter().position(|r| matches!(r, Report::Edit { .. })).expect("the edit");
@@ -218,7 +218,7 @@ fn a_broken_edit_is_refused_and_never_committed() {
     let (_tmp, dir, factory) = setup();
     let run = Run::start(&dir, &factory);
     run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
-    fs::write(dir.join("panel.json"), br#"{"surface": {"size": {"width": 1, "height": 1}}, "root": {"id": "panel", "component": "Nope"}}"#).unwrap();
+    fs::write(dir.join("panel.express"), "surface(\"panel\", extensions={ede: {size: {width: 1, height: 1}}})\nroot = Nope()\n").unwrap();
     run.wait(Duration::from_secs(5), |r| matches!(r, Report::Refused { name } if name == "panel"));
     assert_eq!(log(&dir), ["Factory panel", "exponential-ui: history starts"]);
 }
@@ -248,7 +248,7 @@ fn an_edit_through_the_cli_is_supervised() {
     assert!(seen.iter().any(|r| matches!(r, Report::Edit { name, .. } if name == "panel")), "{seen:?}");
     run.wait(Duration::from_secs(5), |r| matches!(r, Report::Started { .. }));
     assert_eq!(text(&dir), "factory");
-    assert_eq!(log(&dir)[0], "Undo: Edit panel.json, rolled back");
+    assert_eq!(log(&dir)[0], "Undo: Edit panel.express, rolled back");
 }
 
 #[test]
@@ -267,7 +267,7 @@ fn an_edit_from_an_earlier_run_is_still_a_suspect() {
     let (_tmp, dir, factory) = setup();
     {
         let (mut ui, _) = Runtime::open_with_factory(&dir, &factory).unwrap();
-        ui.write("panel", &panel("crash"), "Edit panel.json").unwrap();
+        ui.write("panel", &panel("crash"), "Edit panel.express").unwrap();
     }
     let run = Run::start(&dir, &factory);
     let seen = run.wait(Duration::from_secs(10), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
@@ -324,12 +324,12 @@ fn an_edit_undone_before_its_frame_is_no_rollback() {
     assert!(!log(&dir).iter().any(|s| s.ends_with("rolled back")), "{:?}", log(&dir));
     // Another silent edit: still supervised, so rolled back.
     let mut again = panel("silent");
-    again["root"]["children"][0]["id"] = json!("clock-2");
+    again["root"]["children"][0]["id"] = json!("clock_2");
     cli_set(&dir, &factory, &again);
     run.wait(Duration::from_secs(8), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
     std::thread::sleep(Duration::from_millis(300));
     assert_eq!(text(&dir), "factory");
-    assert_eq!(log(&dir)[0], "Undo: Edit panel.json, rolled back");
+    assert_eq!(log(&dir)[0], "Undo: Edit panel.express, rolled back");
 }
 
 /// #EDE-150: the apps a shell launched inherit its stdout. A shell that
@@ -357,7 +357,7 @@ fn a_shell_that_dies_while_its_apps_run_is_started_again() {
         }
     }
     // And the supervisor is not stuck waiting on it: an edit is committed.
-    fs::write(dir.join("panel.json"), serde_json::to_vec_pretty(&panel("edited")).unwrap()).unwrap();
+    fs::write(dir.join("panel.express"), ede_ui::decompile_document("panel", &panel("edited")).unwrap()).unwrap();
     run.wait(Duration::from_secs(10), |r| matches!(r, Report::Edit { name, .. } if name == "panel"));
 }
 
@@ -429,7 +429,7 @@ fn a_failed_rollback_does_not_end_the_supervisor() {
     }
     // Another silent edit: still supervised, so rolled back.
     let mut again = panel("silent");
-    again["root"]["children"][0]["id"] = json!("clock-2");
+    again["root"]["children"][0]["id"] = json!("clock_2");
     cli_set(&dir, &factory, &again);
     run.wait(Duration::from_secs(10), |r| matches!(r, Report::Reverted { name, .. } if name == "panel"));
     std::thread::sleep(Duration::from_millis(300));

@@ -1,5 +1,5 @@
 //! #EDE-65 lane T: THE session composer as the shared chat document draws it
-//! (`apps/ede/ui/chat.json`'s `chat_replies` + `chat_composer`, genUI's flat
+//! (`apps/ede/ui/chat.express`'s `chat_replies` + `chat_composer`, genUI's flat
 //! Composer under the exponential theme) against the IDE's own
 //! (`composer::session_composer_card`, the "+" tool, a context ring's box,
 //! Send, the quick replies over it), drawn HEADLESS with the real text
@@ -96,8 +96,8 @@ fn chat_node(id: &str) -> Value {
             _ => None,
         }
     }
-    let doc: Value = serde_json::from_str(include_str!("../../../../ede/ui/chat.json")).expect("chat.json");
-    find(&doc, id).unwrap_or_else(|| panic!("chat.json has no {id}"))
+    let doc: Value = uicore_docs::doc("chat").expect("the factory chat").json();
+    find(&doc, id).unwrap_or_else(|| panic!("chat.express has no {id}"))
 }
 
 /// The document's footer pieces the IDE draws: the replies and the

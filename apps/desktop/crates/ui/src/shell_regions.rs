@@ -1,5 +1,5 @@
 //! #EXP-1725: the IDE's regions on uicore. The sidebar's rows are the shared
-//! document (`uicore_docs`, `apps/ede/ui/sidebar.json`) mounted in place: this
+//! document (`uicore_docs`, `apps/ede/ui/sidebar.express`) mounted in place: this
 //! file gathers what the rows show (`uicore_model::ide`, fixture-locked),
 //! feeds it to `/shell/ide` and answers the document's events on the IDE's
 //! navigation. A row's glyph stays the IDE's to paint: the data names it
@@ -549,9 +549,9 @@ impl SidebarRegion {
             let mut corner = source;
             uicore_gpui::inline::without(&mut corner, FOOTER_PRUNED);
             uicore_gpui::inline::set_prop(&mut corner, "sidebar", "collapsed", json!(false));
-            uicore_gpui::inline::set_style(&mut corner, "sidebar_root", "paddingTop", json!(0));
-            uicore_gpui::inline::set_style(&mut corner, "sidebar_root", "paddingBottom", json!(0));
-            uicore_gpui::inline::set_style(&mut corner, "sidebar_root", "height", Value::Null);
+            uicore_gpui::inline::set_style(&mut corner, "root", "paddingTop", json!(0));
+            uicore_gpui::inline::set_style(&mut corner, "root", "paddingBottom", json!(0));
+            uicore_gpui::inline::set_style(&mut corner, "root", "height", Value::Null);
             // #EXP-2052: the account menu is taller than the 36px row it
             // hangs from: it is placed against the window (above the row,
             // `side: top`), not the row's own box, where "below" had more
@@ -870,7 +870,7 @@ pub(crate) fn cancel_chat_drag(cx: &mut App) {
     let _ = target.update(cx, |region, cx| region.chat_drag_end(Default::default(), false, cx));
 }
 
-/// The sidebar document's tree List (teams + Active, apps/ede/ui/sidebar.json).
+/// The sidebar document's tree List (teams + Active, apps/ede/ui/sidebar.express).
 const TREE_LIST: &str = "ide_tree_list";
 
 impl Render for SidebarRegion {
@@ -1881,7 +1881,7 @@ mod tests {
     fn the_document_prunes_only_nodes_it_has() {
         let doc = uicore_docs::doc("sidebar").expect("the sidebar");
         for id in PRUNED.iter().chain(HEADER_PRUNED).chain(FOOTER_PRUNED).chain([&CORNER]) {
-            assert!(doc.source.contains(&format!("\"id\": \"{id}\"")), "{id}");
+            assert!(doc.source.lines().any(|l| l.starts_with(&format!("{id} = "))), "{id}");
         }
     }
 }

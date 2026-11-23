@@ -1,13 +1,17 @@
 //! `uicore-docs` (#EDE-50): the shell's factory genUI documents, the files
-//! in `apps/ede/ui` compiled in. Exponential Desktop installs that directory
+//! in `apps/ede/ui` (Express, #EDE-216) compiled in. Exponential Desktop installs that directory
 //! as the factory copy `exponential-ui` serves (people and agents edit their
 //! own copies, #EDE-9); the IDE embeds the same documents when it hosts the
 //! shell. One source, two hosts: a document that only one host can draw is
 //! a bug here, not a fork there.
 
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+
 use serde_json::Value;
 
-/// One factory document: its name (the file stem) and its JSON source.
+/// One factory document: its name (the file stem) and its source: Express
+/// (`<name>.express`, #EDE-216), or JSON for the IDE's own tab bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Doc {
     pub name: &'static str,
@@ -17,7 +21,7 @@ pub struct Doc {
 macro_rules! docs {
     ($($name:literal),* $(,)?) => {
         /// Every factory document, in file-name order.
-        pub const DOCS: &[Doc] = &[$(Doc { name: $name, source: include_str!(concat!("../../../../ede/ui/", $name, ".json")) }),*];
+        pub const DOCS: &[Doc] = &[$(Doc { name: $name, source: include_str!(concat!("../../../../ede/ui/", $name, ".express")) }),*];
     };
 }
 
@@ -27,10 +31,23 @@ docs!["applet-battery", "applet-bluetooth", "applet-calendar", "applet-network",
 pub const TABBAR: Doc = Doc { name: "tabbar", source: include_str!("../../../../../packages/uicore/docs/tabbar.json") };
 
 impl Doc {
-    /// The parsed document (the sources are checked by the tests).
+    /// The document's JSON form (`{surface, root, data}`): an Express
+    /// source compiled by ede-ui (once per process), a JSON one parsed.
+    /// The sources are checked by the tests.
     pub fn json(&self) -> Value {
-        let _span = tracing::debug_span!("uicore_docs.parse", doc = self.name).entered();
-        serde_json::from_str(self.source).expect("a factory document parses")
+        static COMPILED: OnceLock<Mutex<HashMap<&'static str, Value>>> = OnceLock::new();
+        if self.source.trim_start().starts_with('{') {
+            let _span = tracing::debug_span!("uicore_docs.parse", doc = self.name).entered();
+            return serde_json::from_str(self.source).expect("a factory document parses");
+        }
+        let mut compiled = COMPILED.get_or_init(Default::default).lock().unwrap_or_else(|p| p.into_inner());
+        compiled
+            .entry(self.name)
+            .or_insert_with(|| {
+                let _span = tracing::debug_span!("uicore_docs.parse", doc = self.name).entered();
+                ede_ui::compile_document(self.name, self.source).unwrap_or_else(|issues| panic!("{}: {issues:?}", self.name))
+            })
+            .clone()
     }
 }
 
@@ -50,7 +67,7 @@ mod tests {
             .unwrap()
             .filter_map(Result::ok)
             .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == "json") && p.file_name().is_some_and(|n| n != "theme.json"))
+            .filter(|p| p.extension().is_some_and(|e| e == "express"))
             .map(|p| p.file_stem().unwrap().to_string_lossy().into_owned())
             .collect();
         on_disk.sort();
