@@ -9,8 +9,9 @@ extension WaitingCards {
     public struct DeepLink: Equatable, Sendable {
         /// The message the link names.
         public let target: String
-        /// When the link was taken (ms, the caller's clock).
-        public let takenAtMs: Double
+        /// When the link was taken (ms, the caller's clock); #FEED-298: or
+        /// when the last older page landed.
+        public private(set) var takenAtMs: Double
         /// An older page is in flight (`page` until `pageLanded`).
         public private(set) var paging = false
         /// It rang or went missing: nothing more to do.
@@ -20,6 +21,9 @@ extension WaitingCards {
         /// Scrolls issued, and the row's distance from the centre at the last one.
         private var scrolls = 0
         private var lastDistance: Double?
+        /// #FEED-298: the loaded mark the last page was asked at; once it
+        /// moved a page LANDED and the link's clock restarts.
+        private var askedMark: String?
 
         /// Within this many points of the viewport's centre = centred.
         public static let centreSlack: Double = 2
@@ -43,12 +47,16 @@ extension WaitingCards {
             public var atEdge: Bool
             /// Older rows can still page in.
             public var more: Bool
+            /// #FEED-298: a mark of the loaded rows that moves when an older
+            /// page lands (the host's arrival key, the loaded count).
+            public var loaded: String
 
-            public init(found: Bool, distance: Double? = nil, atEdge: Bool = false, more: Bool) {
+            public init(found: Bool, distance: Double? = nil, atEdge: Bool = false, more: Bool, loaded: String = "") {
                 self.found = found
                 self.distance = distance
                 self.atEdge = atEdge
                 self.more = more
+                self.loaded = loaded
             }
         }
 
@@ -70,6 +78,13 @@ extension WaitingCards {
 
         public mutating func step(_ frame: Frame, nowMs: Double) -> Action {
             guard !settled else { return .none }
+            // #FEED-298 (waiting-cards.json DEEP LINKS): a page that landed
+            // restarts the clock: `deepLinkMs` bounds a link that stopped
+            // making progress, so a card far above keeps paging in.
+            if let asked = askedMark, asked != frame.loaded {
+                askedMark = nil
+                takenAtMs = nowMs
+            }
             let distance = frame.distance
             let stalled = scrolls >= Self.stallScrolls
                 && distance != nil && lastDistance != nil
@@ -92,6 +107,7 @@ extension WaitingCards {
                 return .scroll
             case .page:
                 paging = true
+                askedMark = frame.loaded
                 return .page
             case .wait:
                 guard frame.found, distance == nil, !revealed else { return .none }
