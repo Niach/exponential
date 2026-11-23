@@ -1,4 +1,5 @@
 import { isTeamMemberSql } from "@/lib/auth/membership"
+import { plainProse } from "@exp/domain-contract/chat-express"
 import { resolveSessionHost } from "@/lib/sessions/host"
 import {
   QUESTION_PUSH_COPY,
@@ -1408,7 +1409,8 @@ export async function notifySessionMessage(messageId: string): Promise<void> {
     rootId: row.rootId,
     title: row.title,
   })
-  const source = row.body.trim()
+  // #EXP-2067 (chat-express.json PROSE): an agent text's Express blocks never reach a push.
+  const source = plainProse(row.body).trim()
   await deliverToTeam({
     teamId: row.teamId,
     recipientIds: recipients,

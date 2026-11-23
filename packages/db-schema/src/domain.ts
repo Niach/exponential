@@ -1171,6 +1171,8 @@ export const messageCardKindValues = [
   `ask`,
   // Chat 58cb32df (chats.json): an agent's inline Exponential UI preview.
   `surface`,
+  // #EXP-2067 (chat-express.json): a person's press on a genUI surface.
+  `action`,
 ] as const
 export type MessageCardKind = (typeof messageCardKindValues)[number]
 
@@ -1480,6 +1482,44 @@ export type MessageCard =
       /** #EXP-1432: a result's one line under its title. */
       description?: string | null
     }
+  /** #EXP-2067 (chat-express.json ACTIONS): a person's press on an Express
+   *  block's surface or an exponential_show surface; the body carries the
+   *  press's text (a reply's), the device hands it to the agent as one
+   *  `[action]` input. */
+  | ActionMessageCard
+
+/** #EXP-2067: THE `action` card (chat-express.json `actionCases`). */
+export interface ActionMessageCard {
+  kind: `action`
+  name: string
+  context: Record<string, unknown> | null
+  surfaceId: string
+  block: string | null
+  messageId: string | null
+}
+
+export const ACTION_CARD_NAME_MAX = 64
+export const ACTION_CARD_CONTEXT_MAX_BYTES = 4096
+
+/** #EXP-2067: what `sessions.send` takes as a press (tRPC only): the card
+ *  in clear, or (a keyed tree) its envelope `{kind: "action", sealed}`. */
+export const actionCardInputSchema = z.union([
+  z
+    .object({
+      kind: z.literal(`action`),
+      name: z.string().min(1).refine((v) => [...v].length <= ACTION_CARD_NAME_MAX, `name is too long`),
+      context: z
+        .record(z.string(), z.unknown())
+        .nullable()
+        .refine((v) => v === null || new TextEncoder().encode(JSON.stringify(v)).length <= ACTION_CARD_CONTEXT_MAX_BYTES, `context is too large`),
+      surfaceId: z.string().min(1).max(256),
+      block: z.string().min(1).max(256).nullable(),
+      messageId: z.string().uuid().nullable(),
+    })
+    .strict(),
+  z.object({ kind: z.literal(`action`), sealed: z.string().min(1).max(16384) }).strict(),
+])
+export type ActionCardInput = z.infer<typeof actionCardInputSchema>
 
 /** EXP-1323: one item of a `suggestions` card (`sessions_suggest`). Start =
  *  a child (`sessionId` stamped), Do it here = a message to the posting

@@ -26,6 +26,7 @@ import {
   sessionStatusSchema,
   type CodingSessionBlocked,
   type MessageCard,
+  actionCardInputSchema,
   type SessionsSendResult,
 } from "@exp/db-schema/domain"
 import {
@@ -182,6 +183,9 @@ const sessionsSendTrpcInputSchema = z.intersection(
     meeting: z.literal(true).optional(),
     clientMessageId: sessionsSendClientMessageIdSchema.optional(),
     cardItem: z.object({ messageId: uuid, itemId: z.string().min(1).max(64) }).optional(),
+    // #EXP-2067 (chat-express.json ACTIONS): a press on a genUI surface;
+    // the row is the person's message carrying this card (tRPC only).
+    actionCard: actionCardInputSchema.optional(),
   })
 )
 
@@ -226,8 +230,9 @@ export const sessionsRouter = router({
   /** THE entrypoint. → { sessionId, messageId, txid }. */
   send: authedProcedure
     .input(sessionsSendTrpcInputSchema)
-    .mutation(async ({ ctx, input: { meeting, clientMessageId, cardItem, ...input } }): Promise<SessionsSendResult & { txid: number }> =>
+    .mutation(async ({ ctx, input: { meeting, clientMessageId, cardItem, actionCard, ...input } }): Promise<SessionsSendResult & { txid: number }> =>
       sendSession({
+        ...(actionCard ? { actionCard: actionCard as unknown as MessageCard } : {}),
         userId: ctx.session.user.id,
         input,
         clientMessageId,

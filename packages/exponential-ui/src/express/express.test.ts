@@ -31,7 +31,7 @@ import {
   rendererCapabilities,
 } from "../host"
 import type { Decoded } from "../host"
-import { compileExpress, decompileExpress, expressPrompt, initExpress } from "."
+import { compileExpress, decompileExpress, expressPrompt, initExpress, unwrapExpress } from "."
 
 const wasmUrl = new URL(`../../wasm/express/a2ui_express_bg.wasm`, import.meta.url)
 initExpress(readFileSync(wasmUrl))
@@ -172,5 +172,25 @@ describe(`transports read Express (onText = the prose)`, () => {
   test(`the host advertises both formats unless told otherwise`, () => {
     expect(new ExponentialHost().rendererCapabilities()[`1.0`].inferenceFormats).toEqual([`json`, `express`])
     expect(new ExponentialHost({ inferenceFormats: [`json`] }).rendererCapabilities()[`1.0`].inferenceFormats).toEqual([`json`])
+  })
+})
+
+// #EXP-2067: the same split eui-core's `express::unwrap` asserts
+// (tests/express_unwrap.rs), over the wasm.
+describe(`unwrapExpress`, () => {
+  test(`prose and blocks in order`, () => {
+    expect(unwrapExpress(`Here is the build:\n<a2ui>\nroot = Text(text="Green")\n</a2ui>\nShip it?`)).toEqual([
+      { text: `Here is the build:` },
+      { a2ui_raw: `root = Text(text="Green")` },
+      { text: `Ship it?` },
+    ])
+  })
+
+  test(`a fence around a block is dropped`, () => {
+    expect(unwrapExpress("Look:\n```\n<a2ui>\nroot = Text(\"hi\")\n</a2ui>\n```\nafter")).toEqual([{ text: `Look:` }, { a2ui_raw: `root = Text("hi")` }, { text: `after` }])
+  })
+
+  test(`an open block is not final`, () => {
+    expect(unwrapExpress(`end <a2ui>\nroot = Text("open`)).toEqual([{ text: `end` }, { a2ui_raw: `root = Text("open`, is_final: false }])
   })
 })

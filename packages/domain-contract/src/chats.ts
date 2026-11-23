@@ -18,6 +18,7 @@ import {
 import { SEALED_BODY_PREFIX, SEALED_PLACEHOLDER, type LockedReason } from "./sealed-content"
 import { titleLine, usableTitleLine } from "./session-title"
 import { isBlankText } from "./transcript-grouping"
+import { actionMarker, EXPRESS_COPY, hasExpressBlock, plainProse } from "./chat-express"
 
 export const CHATS_COPY = fixture.copy
 
@@ -141,7 +142,7 @@ const ms = (iso: string | null | undefined): number | null => {
   return Number.isNaN(t) ? null : t
 }
 
-const PREVIEW_CARDS = new Set([`question`, `plan`, `ask`, `picture`, `surface`])
+const PREVIEW_CARDS = new Set([`question`, `plan`, `ask`, `picture`, `surface`, `action`])
 
 /** A builtin command line a person sent (`/new`, `/compact …`): the
  *  transcript paints it as a divider, never a bubble. */
@@ -250,6 +251,12 @@ export function chatPreview(input: {
   if (newest.authorKind === `user`) {
     const divider = commandDivider(newest.body)
     if (divider) return { kind: divider, text: fixture.copy.dividers[divider] }
+    // #EXP-2067 (chat-express.json `previewCases`): an action row reads as
+    // its body, else as its marker.
+    if (newest.card?.kind === `action`) {
+      const body = plainLine(newest.body)
+      return { kind: `you`, text: body ? copy.you.replace(`{text}`, body) : actionMarker(String(newest.card.name ?? ``), null) }
+    }
     return { kind: `you`, text: copy.you.replace(`{text}`, plainLine(newest.body)) }
   }
   switch (newest.card?.kind) {
@@ -267,7 +274,11 @@ export function chatPreview(input: {
     default:
       // #EXP-1408: the bus's neutral relay of a private chat: its lead only.
       if (newest.body.startsWith(PRIVATE_REPLY_LEAD)) return { kind: `agent`, text: PRIVATE_REPLY_LEAD }
-      return { kind: `agent`, text: plainLine(newest.body) }
+      // #EXP-2067: an agent text reads its PURE prose (Express blocks out).
+      {
+        const text = plainLine(plainProse(newest.body))
+        return { kind: `agent`, text: text || !hasExpressBlock(newest.body) ? text : EXPRESS_COPY.blockOnly }
+      }
   }
 }
 

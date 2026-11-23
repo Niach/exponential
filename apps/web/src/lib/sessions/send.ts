@@ -6,6 +6,7 @@ import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm"
 import {
   SESSION_TREE_MAX_DEPTH,
   SESSION_TREE_MAX_SESSIONS,
+  type MessageCard,
   type SessionsSendInput,
   type SessionsSendResult,
 } from "@exp/db-schema/domain"
@@ -97,7 +98,7 @@ import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 import { attachmentLine } from "@/lib/sessions/attachment-lines"
 import { parseBodyEnvelope } from "@exp/domain-contract/sealed-content"
 import { composeIssueBrief } from "@exp/domain-contract/session-brief"
-import { isSealedBody, startsClearTree, validSealedBody } from "@/lib/sessions/sealed"
+import { isSealedBody, isSealedCard, startsClearTree, validSealedBody, validSealedCard } from "@/lib/sessions/sealed"
 import { forwardMessageFiles, retargetBody } from "@/lib/sessions/forward-attachments"
 import { parseVersionTuple } from "@/lib/client-version"
 import { createTreeKeyInTx, dropNonReaderKeysInTx } from "@/lib/sessions/tree-keys"
@@ -554,14 +555,24 @@ async function postSendMessage(
   if (forwardLine) text = issueBrief.line ?? ``
   // #EXP-1957: text the server composed itself is a server line too.
   const serverLine = forwardLine || (sendServerComposed.getStore() === true && !isSealedBody(text))
+  // #EXP-2067: a press's action card (a person's row only).
+  const actionCard = from?.asSession ? null : sendActionCard.getStore() ?? null
   // #FEED-254: a blank text (a lone U+200B) is no message.
-  if (isBlankText(text) && !input.attachmentIds?.length) return null
+  if (isBlankText(text) && !input.attachmentIds?.length && !actionCard) return null
   if (isSealedBody(text)) await assertSealedForTree(tx, session.rootId, text)
   else if (text.trim() && !serverLine) await assertNotPlainInSealedTree(tx, session.rootId, from?.sessionId)
+  if (actionCard) {
+    // A keyed tree takes the card sealed only (its envelope checked like a body's).
+    if (!isSealedCard(actionCard)) await assertNotPlainInSealedTree(tx, session.rootId, from?.sessionId)
+    else if (!validSealedCard(actionCard as unknown as Record<string, unknown>)) {
+      throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid encrypted card` })
+    }
+  }
   if (input.refIssueIds?.length) await assertIssuesInTeam(tx, session.teamId, input.refIssueIds)
   const messageId = from?.asSession
     ? await postSessionInput(tx, session, from.sessionId, text)
     : await postPersonMessage(tx, session, authorId, text, from?.sessionId ?? null)
+  if (actionCard) await tx.update(messages).set({ card: actionCard }).where(eq(messages.id, messageId))
   if (input.mentionUserIds?.length || input.refIssueIds?.length || scope !== undefined) {
     await tx
       .update(messages)
@@ -835,6 +846,11 @@ const sendViaApp = new AsyncLocalStorage<string | undefined>()
  *  Set only from `SendExtras.serverComposed`, never from any wire input. */
 const sendServerComposed = new AsyncLocalStorage<boolean>()
 
+/** #EXP-2067 (chat-express.json ACTIONS): this send is a press on a genUI
+ *  surface: its person row carries this `action` card (blank text allowed).
+ *  Set only from the tRPC `actionCard` input (validated there). */
+const sendActionCard = new AsyncLocalStorage<MessageCard | null>()
+
 async function insertSession(tx: Tx, values: SessionInsert & { id: string }): Promise<Session> {
   const viaAppId = sendViaApp.getStore()
   const [row] = await tx.insert(sessions).values(viaAppId ? { ...values, viaAppId } : values).returning()
@@ -934,9 +950,13 @@ export async function sendSession(args: {
   /** VAPP-229: an app's exposed tool drives this call (tRPC ctx.viaAppId,
    *  never input): the sessions it starts read "via <app>". */
   viaAppId?: string
+  /** #EXP-2067: a press's `action` card (tRPC only). */
+  actionCard?: MessageCard
 }): Promise<SessionsSendResult & { txid: number }> {
   return sendViaApp.run(args.viaAppId, () =>
-    sendServerComposed.run(args.extras?.serverComposed === true, () => sendSessionInner(args))
+    sendServerComposed.run(args.extras?.serverComposed === true, () =>
+      sendActionCard.run(args.actionCard ?? null, () => sendSessionInner(args))
+    )
   )
 }
 
@@ -1352,7 +1372,7 @@ async function messageSession(
     picks.computerUse = await gatedComputerUse(db, true, target.deviceId, await sessionDeviceOwner(target))
   }
 
-  const hasMessage = !!input.text?.trim() || !!input.attachmentIds?.length
+  const hasMessage = !!input.text?.trim() || !!input.attachmentIds?.length || !!sendActionCard.getStore()
   const move = await planMove(target, input, userId)
   // EXP-1323: another session's message over its MCP key is ITS input
   // (agent-authored, pending like a person's: the target wakes and reads

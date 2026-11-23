@@ -6,7 +6,8 @@
 // it up front (`loadExpress()`). Loading registers the compiler with the
 // host decoders (`ExpressDecoder`, the SSE / WebSocket / MCP Express paths).
 import * as bindings from "../../wasm/express/a2ui_express.js"
-import type { Catalogs, ExpressError as WasmExpressError } from "../../wasm/express/a2ui_express.js"
+import type { Catalogs, ExpressError as WasmExpressError, RawPart } from "../../wasm/express/a2ui_express.js"
+export type { RawPart } from "../../wasm/express/a2ui_express.js"
 import coreSchema from "../../catalog/core.schema.json" with { type: "json" }
 import { EXPRESS_DEFAULT_SURFACE_ID } from "../host/contract"
 import { registerExpressEngine, type ExpressEngine, type ExpressStream } from "../host/decoders"
@@ -57,6 +58,14 @@ function loaded(): Catalogs {
  *  ExpressError. */
 export function compileExpress(source: string, surfaceId: string = EXPRESS_DEFAULT_SURFACE_ID): unknown[] {
   return loaded().compile(source, { surfaceId })
+}
+
+/** #EXP-2067: a whole response split into prose runs and raw blocks, in
+ *  order (`{text}` | `{a2ui_raw, is_final?}`), by the compiler's own lexer
+ *  (eui-core `express::unwrap`); no compile. */
+export function unwrapExpress(text: string): RawPart[] {
+  loaded()
+  return bindings.unwrap(text)
 }
 
 /** A2UI messages → one Express block (without the `<a2ui>` tags), keyword

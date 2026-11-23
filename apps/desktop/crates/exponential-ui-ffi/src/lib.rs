@@ -3070,6 +3070,14 @@ pub fn compile_express_json(source: String, surface_id: String) -> Result<String
     })
 }
 
+/// #EXP-2067: a whole response split into prose runs and raw blocks, in
+/// order (JSON array of `{"text"}` | `{"a2ui_raw", "is_final"?}`, the
+/// wasm `unwrap`'s shape); no compile.
+#[uniffi::export]
+pub fn express_unwrap_json(text: String) -> String {
+    shield("express_unwrap_json", || "[]".to_string(), || serde_json::to_string(&eui_core::express::unwrap(&text)).unwrap_or_else(|_| "[]".to_string()))
+}
+
 /// #AXC-12: A2UI messages (JSON array) → one Express block (without the
 /// `<a2ui>` tags).
 #[uniffi::export]

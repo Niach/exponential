@@ -65,6 +65,47 @@ pub fn decompile(messages: &[Value]) -> Result<String, ExpressError> {
     })
 }
 
+/// #EXP-2067: one part of a whole response split by [`unwrap`]: prose or
+/// one block's raw Express. Serialized exactly like the wasm `unwrap`
+/// (`{"text"}` | `{"a2ui_raw", "is_final"?}`), so every SDK hands a host the
+/// same JSON.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum RawPart {
+    /// A prose run between blocks (its edges trimmed; blank runs dropped).
+    Text { text: String },
+    /// One block without its tags; `is_final` = false while its `</a2ui>`
+    /// has not arrived (absent = true).
+    Block {
+        a2ui_raw: String,
+        #[serde(default = "yes", skip_serializing_if = "is_true")]
+        is_final: bool,
+    },
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn is_true(v: &bool) -> bool {
+    *v
+}
+
+/// #EXP-2067: a whole response (prose with `<a2ui>` blocks) split into its
+/// prose runs and raw blocks in order, by the compiler's own lexer (fences
+/// and inline-code backticks around a tag dropped as the stream drops
+/// them). No compile: a host compiles each block itself.
+pub fn unwrap(text: &str) -> Vec<RawPart> {
+    use a2ui_express::response::RawPart as Up;
+    a2ui_express::response::unwrap(text)
+        .into_iter()
+        .map(|part| match part {
+            Up::Text(text) => RawPart::Text { text },
+            Up::A2ui { raw, is_final } => RawPart::Block { a2ui_raw: raw, is_final },
+        })
+        .collect()
+}
+
 /// The core catalog WITH its prose (descriptions, the catalog rules) for the
 /// prompt; behind `descriptions` like the rest of the model-facing text.
 #[cfg(feature = "descriptions")]
