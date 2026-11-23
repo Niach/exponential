@@ -691,7 +691,7 @@ dependencies = [
 
 [[package]]
 name = "crash-monitor"
-version = "0.14.175"
+version = "0.14.176"
 dependencies = [
  "crash-handler",
  "futures-executor",
@@ -975,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "ede-protocol"
-version = "0.14.175"
+version = "0.14.176"
 dependencies = [
  "ecore",
  "libc",
