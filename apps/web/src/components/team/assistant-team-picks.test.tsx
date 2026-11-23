@@ -91,7 +91,7 @@ describe(`AssistantTeamPicks (#EXP-1988)`, () => {
     )
   })
 
-  it(`switch off: each team's section reads and edits that team's own Assistant`, async () => {
+  it(`old data in the store (an app kept open across the move): each team's section reads and edits that team's own Assistant`, async () => {
     const asA = assistant(`as-a`, `t-a`, [`s-a1`], [])
     const asB = assistant(`as-b`, `t-b`, [`s-b1`], [`m-b`])
     state.agents = [asA, asB]

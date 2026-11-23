@@ -8,7 +8,6 @@
 // env var must never brick the whole install base.
 
 import { ASSISTANT_CLIENT_FLOOR } from "@exp/domain-contract/agent-settings"
-import { assistantMoveOn } from "@/lib/agents/assistant-move-switch"
 
 export const CLIENT_VERSION_HEADER = `x-client-version`
 
@@ -54,15 +53,13 @@ function envVersion(kind: `MIN` | `LATEST`, platform: ClientPlatform) {
 export const DEVICE_SEALING_FLOOR = `0.14.96`
 
 /** The floors a CONFIGURED minimum is raised to, per platform: the sealing
- *  floor (desktop, CLI) and, only once the Assistant move is switched on
- *  (#EXP-1986 `ASSISTANT_MOVE`), #EXP-1984's Assistant floor
- *  (agent-settings.json `assistant.move.clientFloor`: older builds look for
- *  the Assistant inside the current team only, so they lose it once it lives
- *  in the personal team). The highest applies. */
+ *  floor (desktop, CLI) and #EXP-1984's Assistant floor (agent-settings.json
+ *  `assistant.move.clientFloor`: older builds look for the Assistant inside
+ *  the current team only, and it lives in the personal team since #EXP-1989's
+ *  migration). The highest applies. */
 export function clientFloors(platform: ClientPlatform): readonly string[] {
   const sealing = platform === `desktop` || platform === `cli` ? [DEVICE_SEALING_FLOOR] : []
-  const assistant =
-    assistantMoveOn() && platform !== `cli` ? [ASSISTANT_CLIENT_FLOOR[platform]] : []
+  const assistant = platform !== `cli` ? [ASSISTANT_CLIENT_FLOOR[platform]] : []
   return [...sealing, ...assistant]
 }
 

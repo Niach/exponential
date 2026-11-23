@@ -223,29 +223,35 @@ describe.skipIf(!ready.ok)(`#EXP-1935 the voice Assistant follows team membershi
     await teamMembersRouter.createCaller(ctx(actor)).remove({ memberId: membership!.id })
   }
 
-  it(`after leaving its team, voice moves to the Assistant of a team the member is still in`, async () => {
+  // #EXP-1989: a member has ONE Assistant, in their personal team (the index
+  // refuses a second row), so leaving a team never moves their voice.
+  it(`after leaving a team, voice stays on the member's ONE Assistant in their personal team`, async () => {
     const me = await user()
     const boss = await user()
     const first = await team({ [me]: `member`, [boss]: `owner` })
-    const second = await team({ [me]: `member`, [boss]: `owner` })
+    await team({ [me]: `member`, [boss]: `owner` })
+    const [home] = await db
+      .insert(teams)
+      .values({ name: `Personal`, slug: `personal-${id8()}${id8()}`, kind: `personal`, ownerId: me } as never)
+      .returning({ id: teams.id })
+    made.teams.push(home!.id)
     const desktop = await device(me, `desktop`)
-    const laptop = await device(me, `desktop`)
-    const a1 = await agent(first, me, desktop, `assistant`, minutesBefore(60))
-    const a2 = await agent(second, me, laptop, `assistant`, minutesBefore(30))
+    const a1 = await agent(home!.id, me, desktop, `assistant`, minutesBefore(60))
     await db.insert(userVoiceSettings).values({ userId: me, agentId: a1, voiceDeviceId: desktop, meetingStartedAt: NOW })
     expect(await voice(me).get()).toMatchObject({ agentId: a1, voiceDeviceId: desktop })
 
     await remove(me, first, me)
 
-    expect(await voice(me).get()).toMatchObject({ agentId: a2, voiceDeviceId: laptop, meetingStartedAt: null })
-    // The mirror (the heartbeat, old clients) moved with it; the meeting on
-    // the old device stopped.
+    expect(await voice(me).get()).toMatchObject({ agentId: a1, voiceDeviceId: desktop })
     const [mirror] = await db.select().from(userVoiceSettings).where(eq(userVoiceSettings.userId, me))
-    expect(mirror).toMatchObject({ agentId: a2, voiceDeviceId: laptop, meetingStartedAt: null })
-    // The Assistant they left is no longer theirs to pick.
-    await expect(voice(me).update({ agentId: a1 })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(mirror).toMatchObject({ agentId: a1, voiceDeviceId: desktop, meetingStartedAt: NOW })
+    // A second Assistant row of theirs is refused, in any team.
+    await expect(agent(first, me, desktop, `assistant`)).rejects.toMatchObject({
+      cause: { code: `23505`, constraint: `uniq_agents_assistant` },
+    })
   })
 
+  // Old data (a per-team row an install held before migration 0293).
   it(`leaving the only team with an Assistant clears voice`, async () => {
     const me = await user()
     const boss = await user()

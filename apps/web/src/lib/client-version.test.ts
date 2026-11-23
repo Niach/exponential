@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, onTestFinished } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import {
   CLIENT_VERSION_HEADER,
   DEVICE_SEALING_FLOOR,
@@ -125,25 +125,15 @@ describe(`checkClientVersion`, () => {
     expect(res?.status).toBe(426)
     expect(await res?.json()).toMatchObject({ platform: `cli`, min: `0.14.96` })
     expect(checkClientVersion(req(`cli/0.14.96`))).toBeNull()
-    expect(checkClientVersion(req(`desktop/0.14.96`))).toBeNull()
+    // Desktop: the Assistant floor is the higher one (#EXP-1989).
+    expect(checkClientVersion(req(`desktop/0.14.96`))?.status).toBe(426)
+    expect(checkClientVersion(req(`desktop/${ASSISTANT_CLIENT_FLOOR.desktop}`))).toBeNull()
     // An unset minimum still fails open.
     delete process.env.CLIENT_MIN_VERSION_DESKTOP
     expect(checkClientVersion(req(`desktop/0.1.0`))).toBeNull()
   })
 
-  it(`the Assistant floor waits for the move's switch (#EXP-1986)`, () => {
-    process.env.CLIENT_MIN_VERSION_ANDROID = `0.14.0`
-    process.env.CLIENT_MIN_VERSION_DESKTOP = `0.14.100`
-    expect(checkClientVersion(req(`android/0.14.1`))).toBeNull()
-    expect(checkClientVersion(req(`desktop/0.14.100`))).toBeNull()
-    expect(versionPayload().android.min).toBe(`0.14.0`)
-  })
-
-  it(`raises a configured minimum below the Assistant floor on desktop and the phones once the move is on (#EXP-1984)`, async () => {
-    process.env.ASSISTANT_MOVE = `on`
-    onTestFinished(() => {
-      delete process.env.ASSISTANT_MOVE
-    })
+  it(`raises a configured minimum below the Assistant floor on desktop and the phones with no switch (#EXP-1984, #EXP-1989)`, async () => {
     expect(ASSISTANT_CLIENT_FLOOR).toEqual({ desktop: `0.14.137`, android: `0.14.122`, ios: `0.14.116` })
     process.env.CLIENT_MIN_VERSION_DESKTOP = `0.14.100`
     process.env.CLIENT_MIN_VERSION_ANDROID = `0.14.0`

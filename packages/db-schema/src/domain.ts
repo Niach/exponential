@@ -1150,8 +1150,8 @@ export const conversationKindValues = [`dm`, `channel`, `session`] as const
 export type ConversationKind = (typeof conversationKindValues)[number]
 export const conversationKindSchema = z.enum(conversationKindValues)
 
-/** S-3: agents.role (contract `agentRole`): a member's ONE personal
- *  Assistant per team, or a team agent. */
+/** S-3: agents.role (contract `agentRole`): a member's ONE Assistant
+ *  (#EXP-1989: one per owner), or a team agent. */
 // #EXP-1717: `coordinator` = the team agent its owners made the team's coordinator.
 export const agentRoleValues = [`assistant`, `agent`, `coordinator`] as const
 export type AgentRole = (typeof agentRoleValues)[number]

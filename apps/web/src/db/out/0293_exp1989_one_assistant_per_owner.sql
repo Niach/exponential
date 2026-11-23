@@ -1,6 +1,11 @@
--- #EXP-1986 (agent-settings.json `assistant.move`, #EXP-1984): ONE Assistant
--- per member, in their hidden personal team. For every member with an
--- Assistant row in a regular team:
+-- #EXP-1989 (agent-settings.json `assistant.move`, #EXP-1984 phase 5): ONE
+-- Assistant per member, held by the database. THE MOVE runs HERE, first, on
+-- every database (it was a boot step behind `ASSISTANT_MOVE=on`, #EXP-1986;
+-- an install that never set the switch still holds one Assistant per (team,
+-- member), on which the new index could not be built), then the unique index
+-- goes from (team, owner) to owner. drizzle applies the file in one
+-- transaction; this is the ONLY copy of the move and nothing else runs it.
+-- For every member with an Assistant row in a regular team:
 --   * their personal team is created (slug = `personal-` + sha256(owner)[:24],
 --     lib/agents/assistant.ts personalTeamSlug);
 --   * THE KEPT CONVERSATION = the most recently active conversation root of
@@ -15,11 +20,12 @@
 --   * every reference to their other Assistants points to the kept one; their
 --     skill and MCP picks carry into it (#EXP-1988); those rows go; the kept
 --     one moves and re-stamps its prompt (`prompt.version`).
--- NOT a migration: the release shepherd switches it on (`ASSISTANT_MOVE=on`,
--- lib/agents/assistant-move.ts) once the clients that work across it are
--- released; every boot then runs it in one transaction under a lock.
 -- Idempotent: a member whose Assistants all live in their personal team is
--- untouched, so a pass with nobody left to move changes nothing.
+-- untouched, so on a database that already moved (the switch was on) or an
+-- empty one only the index changes. Its real-DB tests
+-- (lib/agents/assistant-move.real-db.test.ts) replay this file.
+SELECT pg_advisory_xact_lock(hashtext('exp1986-assistant-move'));
+--> statement-breakpoint
 CREATE TABLE "exp1986_movers" AS
 SELECT DISTINCT a."owner_id"
 FROM "agents" a JOIN "teams" t ON t."id" = a."team_id"
@@ -196,10 +202,17 @@ UPDATE "agents" a SET "team_id" = m."personal_id", "instructions_updated_at" = n
 FROM "exp1986_assistants" m
 WHERE a."id" = m."keep_id" AND m."old_id" = m."keep_id";
 --> statement-breakpoint
+-- migration-safety: allow a scratch table of this migration, created above
 DROP TABLE "exp1988_picks";
 --> statement-breakpoint
+-- migration-safety: allow a scratch table of this migration, created above
 DROP TABLE "exp1986_assistants";
 --> statement-breakpoint
+-- migration-safety: allow a scratch table of this migration, created above
 DROP TABLE "exp1986_roots";
 --> statement-breakpoint
+-- migration-safety: allow a scratch table of this migration, created above
 DROP TABLE "exp1986_movers";
+--> statement-breakpoint
+DROP INDEX IF EXISTS "uniq_agents_assistant";--> statement-breakpoint
+CREATE UNIQUE INDEX "uniq_agents_assistant" ON "agents" USING btree ("owner_id") WHERE role = 'assistant';

@@ -12,16 +12,15 @@ import type { AgentTrigger } from "@exp/db-schema/domain"
 import { createHash } from "node:crypto"
 import { db } from "@/db/connection"
 import { agents, devices, teamMembers, teams, userVoiceSettings, type Agent } from "@/db/schema"
-import { getMemberTeamIds, getTeamMember } from "@/lib/auth/membership"
-import { assistantMoveOn } from "@/lib/agents/assistant-move"
-import { inheritedAssistantPicks } from "@/lib/agents/team-picks"
+import { getTeamMember } from "@/lib/auth/membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 
 // S-3 / #EXP-1984 (agent-settings.json `assistant`, `assistant.move`):
 // every member's ONE Assistant across their teams (`agents.role =
 // assistant`), stored in their hidden personal team (`teams.kind =
-// personal`, created with it). Created on first use on the member's own
+// personal`, created with it; #EXP-1989: `uniq_agents_assistant` holds one
+// per owner, and migration 0293 moved every per-team one). Created on first use on the member's own
 // newest desktop (else their newest device); owned and edited by that member
 // only; never deleted. Its device is the member's VOICE device:
 // `user_voice_settings.voice_device_id` / `agent_id` stay as a server-kept
@@ -59,18 +58,14 @@ export async function ensurePersonalTeam(exec: Exec, userId: string): Promise<st
   return created.id
 }
 
-/** The member's Assistant. With the move on (#EXP-1986): the ONE, wherever
- *  it lives (the personal team's wins over a per-team row a race left).
- *  Off: the one in `teamId` when given, else their oldest. */
-export async function findAssistant(exec: Exec, ownerId: string, teamId?: string | null): Promise<Agent | null> {
-  const rows = await exec
-    .select({ agent: agents, kind: teams.kind })
+/** The member's ONE Assistant (#EXP-1989: the index holds one per owner). */
+export async function findAssistant(exec: Exec, ownerId: string): Promise<Agent | null> {
+  const [row] = await exec
+    .select()
     .from(agents)
-    .innerJoin(teams, eq(teams.id, agents.teamId))
     .where(and(eq(agents.ownerId, ownerId), eq(agents.role, `assistant`)))
-    .orderBy(asc(agents.createdAt), asc(agents.id))
-  if (!assistantMoveOn() && teamId) return rows.find((row) => row.agent.teamId === teamId)?.agent ?? null
-  return (rows.find((row) => row.kind === `personal`) ?? rows[0])?.agent ?? null
+    .limit(1)
+  return row ?? null
 }
 
 /** Where a new Assistant runs: the member's own newest desktop, else their
@@ -85,29 +80,20 @@ async function assistantDevice(exec: Exec, userId: string): Promise<string | nul
 }
 
 /** The member's Assistant, created on first use. Null while they have no
- *  device to run it on. With the move on (#EXP-1986): their ONE Assistant in
- *  their personal team; `teamId` (old clients send it) is a membership check
- *  only. Off (until the release shepherd switches it on): one per (team,
- *  member) as before; no `teamId` = their oldest, else one in their first
- *  team. */
+ *  device to run it on. Their ONE Assistant in their personal team; `teamId`
+ *  (clients with a current team send it) is a membership check only. */
 export async function ensureAssistant(userId: string, teamId?: string | null, exec: Exec = db): Promise<Agent | null> {
   if (teamId && !(await getTeamMember(userId, teamId))) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Not a member of this team` })
   }
-  const moved = assistantMoveOn()
-  const existing = await findAssistant(exec, userId, teamId)
+  const existing = await findAssistant(exec, userId)
   if (existing) return existing
   const deviceId = await assistantDevice(exec, userId)
   if (!deviceId) return null
-  const home = moved ? await ensurePersonalTeam(exec, userId) : (teamId ?? (await getMemberTeamIds(userId))[0])
-  if (!home) return null
-  // #EXP-1988 (`assistant.teamPicks`): switch off, a new per-team Assistant
-  // starts with the picks of its team its member's other Assistants hold.
-  const picks = moved ? {} : await inheritedAssistantPicks(exec, userId, home)
+  const home = await ensurePersonalTeam(exec, userId)
   const [created] = await exec
     .insert(agents)
     .values({
-      ...picks,
       teamId: home,
       name: ASSISTANT_COPY.name,
       icon: null,
@@ -126,7 +112,7 @@ export async function ensureAssistant(userId: string, teamId?: string | null, ex
     .onConflictDoNothing()
     .returning()
   // Two first uses raced: the other one's row is the Assistant.
-  const assistant = created ?? (await findAssistant(exec, userId, moved ? null : home))
+  const assistant = created ?? (await findAssistant(exec, userId))
   if (assistant) await syncVoiceMirror(exec, userId)
   return assistant
 }

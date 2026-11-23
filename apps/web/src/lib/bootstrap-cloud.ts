@@ -103,8 +103,6 @@ export async function runBootstrapPass(): Promise<void> {
   await reconcileBuiltinSkills()
   // #EXP-1829: package automations move onto their app agents' triggers.
   await import(`@/lib/apps/automations-migrate`).then((m) => m.migrateAppAutomations())
-  // #EXP-1986: the Assistant move, only once its switch is on (idempotent).
-  await import(`@/lib/agents/assistant-move`).then((m) => m.runAssistantMove())
 }
 
 const RETRY_BASE_DELAY_MS = 5 * 1000
