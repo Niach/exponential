@@ -1,13 +1,16 @@
 package at.exponential.guide
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.ExponentialUICatalog
 import at.exponential.ui.host.A2UI_VERSION
@@ -69,7 +72,8 @@ fun expressHost(): ExponentialHost {
 
 @Composable
 fun ExpressStream(host: ExponentialHost) {
-    Column(Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    // The page behind the dark surfaces: the theme's dark `color.background` (as on the web guides).
+    Column(Modifier.fillMaxSize().background(Color(0xFF0A0A0A)).safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         HostSurface(host, "intro")
         HostSurface(host, "main")
         HostSurface(host, "outro")
