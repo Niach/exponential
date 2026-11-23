@@ -161,7 +161,13 @@ struct FlatView {
 impl FlatView {
     fn new(flat: &FlatComponent) -> FlatView {
         match serde_json::to_value(flat) {
-            Ok(Value::Object(obj)) => FlatView { obj },
+            Ok(Value::Object(mut obj)) => {
+                // #AXC-19: `@checks` (A2UI 1.0) reads as `checks`.
+                if let Some(checks) = obj.remove(crate::reducer::WIRE_CHECKS) {
+                    obj.insert("checks".into(), checks);
+                }
+                FlatView { obj }
+            }
             _ => FlatView { obj: Map::new() },
         }
     }

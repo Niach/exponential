@@ -14,10 +14,12 @@ const pkgRoot = join(import.meta.dir, `..`)
 describe(`generated outputs (VAPP-85)`, () => {
   const files = render()
 
-  test(`renders the fifty-five outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format, VAPP-162 the QR matrix, EXP-1586 the zoom maths, VAPP-189 the records query, VAPP-160 the comment-free style, VAPP-222 the record transitions, VAPP-233 the record migrations, the host runtime slice)`, () => {
+  test(`renders the fifty-eight outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format, VAPP-162 the QR matrix, EXP-1586 the zoom maths, VAPP-189 the records query, VAPP-160 the comment-free style, VAPP-222 the record transitions, VAPP-233 the record migrations, the host runtime slice, #AXC-12 the Express catalog + round trip)`, () => {
     expect(Object.keys(files).sort()).toEqual([
       `../../apps/desktop/crates/eui-core/src/generated/catalog.rs`,
       `../../apps/desktop/crates/eui-core/src/generated/descriptions.rs`,
+      `../../apps/desktop/crates/eui-core/src/generated/express.catalog.described.json`,
+      `../../apps/desktop/crates/eui-core/src/generated/express.catalog.json`,
       `../../apps/desktop/crates/eui-core/src/generated/themes.rs`,
       `../../apps/desktop/crates/eui-core/src/generated/xid.rs`,
       `catalog/core-lite.schema.json`,
@@ -38,6 +40,7 @@ describe(`generated outputs (VAPP-85)`, () => {
       `fixtures/catalog-macros.json`,
       `fixtures/code-tokens.json`,
       `fixtures/control-geometry.json`,
+      `fixtures/express-roundtrip.json`,
       `fixtures/format.json`,
       `fixtures/host-package.json`,
       `fixtures/host-policy.json`,
