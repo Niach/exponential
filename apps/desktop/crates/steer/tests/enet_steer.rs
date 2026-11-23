@@ -945,3 +945,118 @@ async fn a_feed_whose_enet_link_dies_mid_stream_is_dropped_at_once_and_comes_bac
     publisher.shutdown(Some("exit:0".into()));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// #EXP-2079 (steer-enet.json `access`, A TEAM WITHOUT A LIST): the
+/// Assistant's conversation sits in its starter's personal team, which the
+/// device never syncs (no registry list). Its starter's install joins the
+/// live feed and is answered a catch-up page; a teammate (in the device's
+/// other list) is refused both, `shared` or not.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_team_without_a_registry_list_admits_only_the_starter() {
+    use chat_store::catchup::Ask;
+    let dir = std::env::temp_dir().join(format!("enet-steer-personal-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let registry = Arc::new(Registry::default());
+    // Every install syncs `team-1` only: nobody holds a list for the
+    // personal team.
+    let device = start(&registry, &dir, "alice", InstallKind::Daemon);
+    let viewer = start(&registry, &dir, "alice", InstallKind::Desktop);
+    let teammate = start(&registry, &dir, "bob", InstallKind::Desktop);
+    for install in [&device, &viewer, &teammate] {
+        tokio::time::timeout(WAIT, install.passes_at_least(1)).await.unwrap();
+    }
+    for install in [&device, &viewer, &teammate] {
+        install.refresh();
+        tokio::time::timeout(WAIT, install.passes_at_least(2)).await.unwrap();
+    }
+    let d = device.node().unwrap();
+    let v = viewer.node().unwrap();
+    let t = teammate.node().unwrap();
+    for (a, b) in [(&d, &v), (&d, &t)] {
+        a.add_ticket(&b.ticket());
+        b.add_ticket(&a.ticket());
+    }
+    assert_eq!(device.user_in_team("personal-alice", &v.endpoint_id()), None, "no list for the personal team");
+
+    let personal = |shared| coding::SteerAudience {
+        team_id: "personal-alice".into(),
+        starter_user_id: "alice".into(),
+        shared,
+    };
+    let join = vec![r#"{"t":"join","channel":"activity"}"#.to_string()];
+    // Leaked: a runtime may not drop inside the test's async context.
+    let runtime: &SteerRuntime = Box::leak(Box::new(SteerRuntime::new().unwrap()));
+
+    // THE LIVE FEED, private: the starter joins, the teammate is refused.
+    let session_id = format!("sess-personal-{}", std::process::id());
+    let recorded = Arc::new(Recorded::default());
+    let handle = steer::publish(
+        runtime,
+        PublishSpec { session_id: session_id.clone(), audience: Some(personal(false)), ..Default::default() },
+        hooks(&recorded),
+    );
+    handle.activity_sender().send(ActivityEvent::narration("the Assistant's answer"));
+    wait_until(|| enet_steer::has_room(&session_id)).await;
+    let sub = enet_steer::subscribe(&session_id, d.endpoint_id());
+    enet_steer::send_envelope(&v, d.endpoint_id(), &session_id, &join).await.expect("join acked");
+    assert_eq!(next_real(&sub.frames).await["t"], "activity_reset");
+    assert_eq!(next_real(&sub.frames).await["event"]["text"], "the Assistant's answer");
+    assert_eq!(next_real(&sub.frames).await["t"], "activity_synced");
+    let steer = vec![r#"{"t":"input","data":"n"}"#.to_string()];
+    enet_steer::send_envelope(&t, d.endpoint_id(), &session_id, &[join.clone(), steer].concat()).await.expect("acked");
+    assert_eq!(next_real(&sub.frames).await, serde_json::json!({"t": "error", "code": "unauthorized"}));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(recorded.inputs.lock().unwrap().is_empty(), "a refused envelope steers nothing");
+    drop(sub);
+    handle.shutdown(None);
+    wait_until(|| !enet_steer::has_room(&session_id)).await;
+
+    // `shared` never opens a team without a list to anyone else.
+    let shared_id = format!("sess-personal-shared-{}", std::process::id());
+    let shared = steer::publish(
+        runtime,
+        PublishSpec { session_id: shared_id.clone(), audience: Some(personal(true)), ..Default::default() },
+        hooks(&recorded),
+    );
+    wait_until(|| enet_steer::has_room(&shared_id)).await;
+    let sub = enet_steer::subscribe(&shared_id, d.endpoint_id());
+    enet_steer::send_envelope(&t, d.endpoint_id(), &shared_id, &join).await.expect("acked");
+    assert_eq!(next_real(&sub.frames).await, serde_json::json!({"t": "error", "code": "unauthorized"}));
+    drop(sub);
+    shared.shutdown(None);
+
+    // BACKGROUND CATCH-UP off the device's journal: the same rule.
+    let stored_id = format!("sess-personal-stored-{}", std::process::id());
+    let journals = dir.join("data");
+    let mut writer = steer::JournalWriter::open(&journals, &stored_id).unwrap();
+    for i in 0..3 {
+        writer.append(&ActivityEvent::narration(format!("row {i}")));
+    }
+    drop(writer);
+    let id = stored_id.clone();
+    device.serve_stored(enet_steer::StoredJournals {
+        data_dir: journals.clone(),
+        session: Arc::new(move |session_id| {
+            (session_id == id).then(|| enet_steer::StoredSession { audience: personal(false), ended: true })
+        }),
+        device_id: Some("device-alice".into()),
+        chat_store: None,
+    });
+    let ask = Ask { after_seq: None, limit: 10, have: Vec::new(), min_at: None };
+    let page = steer::enet_catchup::ask_page(&v, d.endpoint_id(), &stored_id, "device-alice", &ask).await.expect("the starter's page");
+    assert_eq!(page.events.iter().map(|event| event.0).collect::<Vec<_>>(), [0, 1, 2]);
+    let refused = steer::enet_catchup::ask_page(&t, d.endpoint_id(), &stored_id, "device-alice", &ask).await;
+    assert_eq!(refused.unwrap_err(), "unauthorized");
+    // STORED REPLAY of the same journal: the starter, never the teammate.
+    let sub = enet_steer::subscribe(&stored_id, d.endpoint_id());
+    enet_steer::send_envelope(&t, d.endpoint_id(), &stored_id, &join).await.expect("acked");
+    assert_eq!(next_real(&sub.frames).await, serde_json::json!({"t": "error", "code": "unauthorized"}));
+    enet_steer::send_envelope(&v, d.endpoint_id(), &stored_id, &join).await.expect("join acked");
+    assert_eq!(next_real(&sub.frames).await["t"], "activity_reset");
+
+    device.stop();
+    viewer.stop();
+    teammate.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}

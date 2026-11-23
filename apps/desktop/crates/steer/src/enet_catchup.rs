@@ -53,13 +53,13 @@ fn now_ms() -> i64 {
 
 /// THE HOLDER: answers `frames` (catch-up pages of `session_id` from `peer`).
 /// `audience` = the live room's, else the synced row's (`stored`); `user_of`
-/// resolves the asker's user in a team. Only eNet peers are served.
+/// resolves who the asker is for a session of a team (`Sender`). Only eNet peers are served.
 pub(crate) fn serve(
     peer: &FeedPeer,
     session_id: &str,
     frames: Vec<Value>,
     audience: Option<coding::SteerAudience>,
-    user_of: &dyn Fn(&str) -> Option<String>,
+    user_of: &dyn Fn(&str) -> crate::enet_steer::Sender,
     stored: Option<&StoredJournals>,
 ) {
     if !matches!(peer, FeedPeer::Enet(_)) {
@@ -72,8 +72,8 @@ pub(crate) fn serve(
         let refusal = match &audience {
             None => Some(crate::enet_steer::ERROR_NO_SUCH_SESSION),
             Some(audience) => {
-                let user = user_of(&audience.team_id);
-                (!crate::enet_steer::viewer_allowed(user.as_deref(), &audience.starter_user_id, audience.shared))
+                let sender = user_of(&audience.team_id);
+                (!crate::enet_steer::viewer_allowed(&sender, &audience.starter_user_id, audience.shared))
                     .then_some(crate::enet_steer::ERROR_UNAUTHORIZED)
             }
         };
