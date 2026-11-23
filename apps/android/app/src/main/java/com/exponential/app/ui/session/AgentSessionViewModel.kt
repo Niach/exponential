@@ -669,6 +669,21 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** #EXP-1990 (transcript-grouping.json MEMBER INPUTS): the session's
+     *  team members by id: a teammate's line in a team agent's group chat
+     *  sits under THEIR avatar and name. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val teamMembers: StateFlow<Map<String, UserEntity>> = browseTeamId
+        .flatMapLatest { teamId ->
+            if (teamId == null) {
+                flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(teamId) }
+            }
+        }
+        .map { users -> users.associateBy { it.id } }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     // ── The live connection's state, re-exposed unchanged (EXP-621) ─────────
 
     val phase: StateFlow<AgentPhase> = connection.phase
@@ -1064,6 +1079,8 @@ class AgentSessionViewModel @AssistedInject constructor(
                         stored = true,
                         clientId = null,
                         messageId = row.id,
+                        // #EXP-1990: who sent it (a group chat holds every member's inputs).
+                        authorId = row.authorId,
                     )
                 }
             }
@@ -1109,6 +1126,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                     createdAt = row.createdAt,
                     createdAtMs = com.exponential.app.domain.WireTimestamps.parseEpochMs(row.createdAt),
                     body = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body,
+                    authorId = row.authorId,
                 )
             }
         }.flatMapLatest { (more, messages) ->

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,18 +50,94 @@ fun OwnTailBubbles(
      *  above them), so the first wears THE tail, as on iOS and the web;
      *  #EXP-1854: and the viewer's avatar (no transcript row carries it). */
     startsGroup: Boolean = true,
+    /** #EXP-1990: the viewer, and the team's members by id: a TEAMMATE's
+     *  sent input ([MessageDelivery.Bubble.authorId], a team agent's group
+     *  chat) sits left under their avatar and name, through THE grouping. */
+    viewerId: String? = null,
+    members: Map<String, com.exponential.app.data.db.UserEntity> = emptyMap(),
 ) {
     if (bubbles.isEmpty()) return
+    val layouts = remember(bubbles, viewerId, members) {
+        sentInputLayouts(bubbles, viewerId) { id -> members[id]?.name?.takeIf { it.isNotBlank() } }
+    }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         bubbles.forEachIndexed { index, bubble ->
             androidx.compose.runtime.key(bubble.key) {
-                OwnTailBubble(bubble, onAction, clock, tail = startsGroup && index == 0, findKey = ownBubbleFindKey(bubble))
+                val layout = layouts?.get(bubble.key)
+                if (layout == null) {
+                    OwnTailBubble(bubble, onAction, clock, tail = startsGroup && index == 0, findKey = ownBubbleFindKey(bubble))
+                } else if (layout.side == TranscriptGrouping.Side.Other) {
+                    // A teammate's: THE bubble under their avatar and name.
+                    val sender = layout.sender
+                    TranscriptBubbleRow(
+                        layout = layout.copy(gap = groupGap(layout, index)),
+                        avatar = { if (sender != null) SenderAvatar(sender, user = members[sender.id]) },
+                    ) {
+                        MessageBubble(
+                            own = false,
+                            time = clock(bubble.createdAt),
+                            author = layout.authorLine(),
+                            testTag = "chat-member-sent",
+                            tail = layout.hasTail(),
+                        ) {
+                            if (bubble.text.isNotBlank()) {
+                                MarkdownView(
+                                    markdown = bubble.text,
+                                    softBreaksAsNewlines = true,
+                                    highlight = LocalFindPaint.current?.highlight(ownBubbleFindKey(bubble)),
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Box(Modifier.padding(top = groupGap(layout, index).dp)) {
+                        OwnTailBubble(bubble, onAction, clock, tail = layout.tail, findKey = ownBubbleFindKey(bubble))
+                    }
+                }
             }
         }
     }
+}
+
+/** The extra space above a row that opens a new sender group (the column
+ *  already spaces every row by the in-group gap). */
+private fun groupGap(layout: TranscriptGrouping.RowLayout, index: Int): Int =
+    if (index == 0) 0 else (layout.gap - TranscriptGrouping.Layout.GAP_IN_GROUP).coerceAtLeast(0)
+
+/**
+ * #EXP-1990 (transcript-grouping.json): the sent inputs through THE grouping
+ * by their synced author: the viewer's own group right, a teammate's (a team
+ * agent's group chat) left under their avatar and name; by bubble key. Null
+ * = every bubble is the viewer's (the own tail as before).
+ */
+internal fun sentInputLayouts(
+    bubbles: List<MessageDelivery.Bubble>,
+    viewerId: String?,
+    memberName: (userId: String) -> String?,
+): Map<String, TranscriptGrouping.RowLayout>? {
+    if (viewerId.isNullOrEmpty() || bubbles.none { !it.authorId.isNullOrEmpty() && it.authorId != viewerId }) return null
+    val items = bubbles.map {
+        TranscriptGrouping.Item(
+            it.key,
+            TranscriptGrouping.ItemKind.Message,
+            authorKind = com.exponential.app.domain.DomainContract.messageAuthorKindUser,
+            authorId = it.authorId?.takeIf { id -> id.isNotEmpty() } ?: viewerId,
+        )
+    }
+    val members = items.mapNotNull { it.authorId }.distinct().filter { it != viewerId }
+        .mapNotNull { id -> memberName(id)?.let { TranscriptGrouping.Named(id, it) } }
+    val layouts = TranscriptGrouping.transcriptLayout(
+        TranscriptGrouping.Input(
+            viewerId = viewerId,
+            chat = TranscriptGrouping.Chat(sessionId = "", title = "", agentId = null, originSessionId = null, fromStart = false),
+            members = members,
+            items = items,
+        ),
+    )
+    return layouts.associateBy { it.id }
 }
 
 @Composable

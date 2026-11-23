@@ -1,6 +1,7 @@
 package com.exponential.app.data.steer
 
 import com.exponential.app.domain.AgentFeedItem
+import com.exponential.app.domain.TranscriptGrouping
 
 /** #FEED-260: one synced message (body OPENED) a not-live transcript may append. */
 data class SyncedTailMessage(
@@ -10,6 +11,8 @@ data class SyncedTailMessage(
     val createdAt: String,
     val createdAtMs: Long?,
     val body: String,
+    /** #EXP-1990: who wrote a person's message (a group chat holds every member's). */
+    val authorId: String? = null,
 )
 
 /** Synthetic row ids of the synced tail: far above any feed id, stable per message. */
@@ -19,7 +22,10 @@ private const val SYNCED_TAIL_ID_BASE = 1L shl 52
  *  subagent's row (it renders inside its run, never the main lane). */
 fun AgentFeedItem.tailFeedRow(): SteerTailFeedRow? = when (this) {
     is AgentFeedItem.Narration -> if (subagentId == null) SteerTailFeedRow("agent", text, at) else null
-    is AgentFeedItem.UserMessage -> if (subagentId == null) SteerTailFeedRow("user", text, at) else null
+    // #EXP-1990 (MEMBER INPUTS): a group chat's input is worded as a member
+    // input; the synced row it echoes holds the body alone.
+    is AgentFeedItem.UserMessage ->
+        if (subagentId == null) SteerTailFeedRow("user", TranscriptGrouping.memberInputOf(text)?.body ?: text, at) else null
     is AgentFeedItem.Tool -> if (subagentId == null) SteerTailFeedRow(null, null, settledAt.takeIf { settled }) else null
     is AgentFeedItem.ApiError -> if (subagentId == null) SteerTailFeedRow(null, null, null) else null
     else -> SteerTailFeedRow(null, null, null)
@@ -41,6 +47,11 @@ fun syncedTailItems(
     /** #EXP-1998: the cap (`Int.MAX_VALUE` = every drawable one; the caller
      *  cuts the shown stretch). */
     max: Int = STEER_SYNCED_TAIL_MAX,
+    /** #EXP-1990 (transcript-grouping.json MEMBER INPUTS): the viewer, and a
+     *  member's name by id: a TEAMMATE's synced input is worded as the
+     *  device words it, so the feed draws it under their avatar and name. */
+    viewerId: String? = null,
+    memberName: (userId: String) -> String? = { null },
 ): List<AgentFeedItem> {
     if (live || messages.isEmpty()) return emptyList()
     val picked = steerSyncedTail(
@@ -65,7 +76,13 @@ fun syncedTailItems(
         if (m.authorKind == "agent") {
             AgentFeedItem.Narration(id = id, text = m.body.trim(), messageId = "synced:${m.id}", at = m.createdAtMs)
         } else {
-            AgentFeedItem.UserMessage(id = id, text = m.body.trim(), at = m.createdAtMs, messageId = "synced:${m.id}")
+            val author = m.authorId?.takeIf { it.isNotEmpty() && !viewerId.isNullOrEmpty() && it != viewerId }
+            val text = if (author != null) {
+                TranscriptGrouping.memberInput(memberName(author) ?: TranscriptGrouping.Copy.FORMER_MEMBER, author, m.body.trim())
+            } else {
+                m.body.trim()
+            }
+            AgentFeedItem.UserMessage(id = id, text = text, at = m.createdAtMs, messageId = "synced:${m.id}")
         }
     }
 }

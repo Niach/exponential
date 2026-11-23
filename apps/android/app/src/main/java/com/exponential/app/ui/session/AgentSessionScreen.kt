@@ -738,7 +738,10 @@ private fun RunFaceContent(
     // no cap (find in chat counts them); it shows the newest `syncedTailMax`,
     // or every one from the message find in chat landed on ([findWiden],
     // until the chat closes).
-    val syncedTailAll = remember(activity.feed, feedLive, tailMessages, ownTail, tailUnreachable) {
+    // #EXP-1990: a teammate's synced input reads as theirs (MEMBER INPUTS).
+    val tailViewerId by viewModel.currentUserId.collectAsStateWithLifecycle()
+    val tailMembers by viewModel.teamMembers.collectAsStateWithLifecycle()
+    val syncedTailAll = remember(activity.feed, feedLive, tailMessages, ownTail, tailUnreachable, tailViewerId, tailMembers) {
         com.exponential.app.data.steer.syncedTailItems(
             activity.feed,
             feedLive,
@@ -746,6 +749,8 @@ private fun RunFaceContent(
             ownTail.mapNotNullTo(HashSet()) { it.messageId },
             unreachable = tailUnreachable,
             max = Int.MAX_VALUE,
+            viewerId = tailViewerId,
+            memberName = { id -> tailMembers[id]?.name?.takeIf { it.isNotBlank() } },
         )
     }
     val syncedTailAllIds = remember(syncedTailAll) { syncedTailAll.mapNotNull(::syncedMessageId) }
@@ -783,7 +788,8 @@ private fun RunFaceContent(
     // rows off the account DB (the viewer id scopes notifications).
     val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
     // #EXP-1736 (transcript-grouping.json): the raw feed's senders.
-    val feedSenders = remember(session?.id, session?.title, session?.agentId, sessionHeader?.sessionName, origin, onOpenOrigin) {
+    val teamMembers by viewModel.teamMembers.collectAsStateWithLifecycle()
+    val feedSenders = remember(session?.id, session?.title, session?.agentId, sessionHeader?.sessionName, origin, onOpenOrigin, currentUserId, teamMembers) {
         session?.let { row ->
             val link = origin
             FeedSenders(
@@ -797,6 +803,8 @@ private fun RunFaceContent(
                 onOpen = onOpenOrigin?.let { open ->
                     { id: String -> open(id, link?.takeIf { it.xref.sessionId == id }?.root ?: false) }
                 },
+                viewerId = currentUserId,
+                members = teamMembers,
             )
         }
     }
@@ -1379,6 +1387,10 @@ private fun RunFaceContent(
                             placeholderInputs,
                             viewModel::ownBubbleAction,
                             modifier = Modifier.padding(top = 8.dp).testTag("transcript-sent-inputs"),
+                            // #EXP-1990: a teammate's sent input (a group
+                            // chat) sits left under their avatar and name.
+                            viewerId = tailViewerId,
+                            members = tailMembers,
                         )
                     }
                     if (ownTail.isNotEmpty()) {
@@ -1386,8 +1398,10 @@ private fun RunFaceContent(
                             ownTail,
                             viewModel::ownBubbleAction,
                             modifier = Modifier.padding(top = 8.dp),
-                            // #EXP-1876: below the sent inputs = the same own group.
-                            startsGroup = sessionEnded || noFeedInputs.isEmpty(),
+                            // #EXP-1876: below the sent inputs = the same own group
+                            // (#EXP-1990: unless a teammate's input ends them).
+                            startsGroup = sessionEnded || noFeedInputs.isEmpty() ||
+                                noFeedInputs.last().authorId.let { it != null && tailViewerId != null && it != tailViewerId },
                         )
                     }
                     }
@@ -2529,7 +2543,7 @@ private fun ActivityFeed(
                 ) {
                     TranscriptBubbleRow(
                         layout = layout?.copy(gap = 0),
-                        avatar = { layout?.sender?.let { SenderAvatar(it) } },
+                        avatar = { layout?.sender?.let { SenderAvatar(it, user = senders?.memberOf(it)) } },
                     ) {
                     when (row) {
                         is AgentFeedRow.ToolRun -> ToolGroupRow(
@@ -2640,6 +2654,18 @@ private fun ActivityFeed(
                                     divider != null -> TranscriptDivider(divider, time)
                                     command != null -> CommandRow(command, item.text)
                                     input is TranscriptGrouping.FeedInput.Marker -> FeedMarkerRow(input.label)
+                                    // #EXP-1990 (MEMBER INPUTS): a teammate's
+                                    // line in a team agent's group chat: THE
+                                    // bubble left under their avatar and name,
+                                    // holding the body alone.
+                                    layout?.side == TranscriptGrouping.Side.Other &&
+                                        layout.sender?.kind == TranscriptGrouping.SenderKind.Member &&
+                                        input is TranscriptGrouping.FeedInput.Member -> MessageBubble(
+                                        own = false,
+                                        time = time,
+                                        author = layout.authorLine(),
+                                        tail = layout.hasTail(),
+                                    ) { UserMessageBody(input.body, LocalFindPaint.current?.highlightOf(item.id)) }
                                     layout?.side == TranscriptGrouping.Side.Other -> {
                                         // #EXP-1736: a parent's / child's message
                                         // = that session's bubble (its body);
@@ -2664,7 +2690,13 @@ private fun ActivityFeed(
                                         time = time,
                                         status = com.exponential.app.domain.MessageDelivery.State.Read,
                                         tail = layout.hasTail(),
-                                    ) { UserMessageBody(item.text, LocalFindPaint.current?.highlightOf(item.id)) }
+                                    ) {
+                                        // #EXP-1990: the viewer's own member input = its body.
+                                        UserMessageBody(
+                                            (input as? TranscriptGrouping.FeedInput.Member)?.body ?: item.text,
+                                            LocalFindPaint.current?.highlightOf(item.id),
+                                        )
+                                    }
                                 }
                             }
                             is AgentFeedItem.Compaction -> CompactionMarkerRow()
@@ -2828,7 +2860,15 @@ internal data class FeedSenders(
     val chat: TranscriptGrouping.Chat,
     val origin: SessionTree.SessionXref?,
     val onOpen: ((sessionId: String) -> Unit)?,
-)
+    /** #EXP-1990 (MEMBER INPUTS): the viewer, and the team's members by id:
+     *  a member's line in a team agent's group chat is theirs. */
+    val viewerId: String? = null,
+    val members: Map<String, com.exponential.app.data.db.UserEntity> = emptyMap(),
+) {
+    /** The member a row's sender is (their avatar); null = not a member. */
+    fun memberOf(sender: TranscriptGrouping.Sender): com.exponential.app.data.db.UserEntity? =
+        if (sender.kind == TranscriptGrouping.SenderKind.Member) members[sender.id] else null
+}
 
 /** #EXP-1943: the tree's call sessions a feed draws as cards; [onOpen]
  *  opens one (its call view), null = inert. */
@@ -2955,6 +2995,7 @@ internal fun feedTranscriptLayout(
 ): Map<Long, FeedRowLayout> {
     val sessions = LinkedHashMap<String, TranscriptGrouping.SessionRef>()
     senders.origin?.let { sessions[it.sessionId] = TranscriptGrouping.SessionRef(it.sessionId, it.name, it.agentId) }
+    val members = LinkedHashMap<String, String>()
     val items = ArrayList<TranscriptGrouping.Item>()
     val bubbleIds = HashSet<String>()
     cards.head.forEach { items += TranscriptGrouping.Item("card:${it.id}", TranscriptGrouping.ItemKind.Full) }
@@ -2983,17 +3024,24 @@ internal fun feedTranscriptLayout(
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
                 } else {
                     bubbleIds += id
-                    val cross = TranscriptGrouping.feedInput(feedItem.text) as? TranscriptGrouping.FeedInput.Relay
+                    val input = TranscriptGrouping.feedInput(feedItem.text)
+                    val cross = input as? TranscriptGrouping.FeedInput.Relay
                     if (cross != null) {
                         sessions.getOrPut(cross.sessionId) {
                             TranscriptGrouping.SessionRef(cross.sessionId, cross.name, null)
                         }
                     }
+                    // #EXP-1990: a member's line in a team agent's group
+                    // chat: theirs (the viewer's own = their own bubble).
+                    val member = (input as? TranscriptGrouping.FeedInput.Member)?.takeIf { it.userId != senders.viewerId }
+                    if (member != null) {
+                        members.getOrPut(member.userId) { senders.members[member.userId]?.name?.takeIf { it.isNotBlank() } ?: member.name }
+                    }
                     TranscriptGrouping.Item(
                         id,
                         TranscriptGrouping.ItemKind.Message,
                         authorKind = "user",
-                        authorId = FEED_VIEWER,
+                        authorId = member?.userId ?: FEED_VIEWER,
                         authorSessionId = cross?.sessionId,
                     )
                 }
@@ -3019,6 +3067,7 @@ internal fun feedTranscriptLayout(
         TranscriptGrouping.Input(
             viewerId = FEED_VIEWER,
             chat = senders.chat.copy(originSessionId = senders.origin?.sessionId, fromStart = fromStart),
+            members = members.map { TranscriptGrouping.Named(it.key, it.value) },
             sessions = sessions.values.toList(),
             items = items,
         ),
