@@ -230,7 +230,7 @@ export async function createTreeKeyInTx(
     }
     // #EXP-1951 (`rotation.rotatorCases`): a root that is DUE (a reader
     // was dropped) is rotated by the next reader that is online.
-    if (root.userId !== userId && !caller.executing && root.sealRotateEpoch === null) {
+    if (root.userId !== userId && !caller.executing && root.sealRotateEpoch == null) {
       throw new TRPCError({
         code: `FORBIDDEN`,
         message: `Only the session's starter or its device rotates the key`,
@@ -346,26 +346,40 @@ export async function dropNonReaderKeysInTx(
 export type KeyHolders = { installIds: readonly string[] } | { userId: string } | { deviceRowIds: readonly string[] }
 
 /** The roots in which `who` holds a wrap (an install without one never had
- *  the tree's secret), in one query; `teamIds` = only the trees with a
+ *  the tree's secret), in a fixed number of queries; `teamIds` = only the trees with a
  *  session in one of these teams. */
 export async function rootsHeldBy(tx: Tx, who: KeyHolders, teamIds?: readonly string[]): Promise<string[]> {
-  const holder =
-    `installIds` in who
-      ? who.installIds.length > 0 && inArray(sessionKeys.installId, [...who.installIds])
-      : `userId` in who
-        ? inArray(sessionKeys.installId, tx.select({ id: installs.id }).from(installs).where(eq(installs.userId, who.userId)))
-        : who.deviceRowIds.length > 0 &&
-          inArray(sessionKeys.installId, tx.select({ id: installs.id }).from(installs).where(inArray(installs.deviceId, [...who.deviceRowIds])))
-  if (!holder || teamIds?.length === 0) return []
-  const rows = await tx
-    .selectDistinct({ rootId: sessionKeys.rootId })
+  if (teamIds?.length === 0) return []
+  let installIds: string[]
+  if (`installIds` in who) installIds = [...who.installIds]
+  else if (`userId` in who) {
+    const rows = await tx.select({ id: installs.id, userId: installs.userId }).from(installs).where(eq(installs.userId, who.userId))
+    installIds = rows.filter((row) => row.userId === who.userId).map((row) => row.id)
+  } else {
+    if (who.deviceRowIds.length === 0) return []
+    const rows = await tx
+      .select({ id: installs.id, deviceId: installs.deviceId })
+      .from(installs)
+      .where(inArray(installs.deviceId, [...who.deviceRowIds]))
+    installIds = rows.filter((row) => row.deviceId !== null && who.deviceRowIds.includes(row.deviceId)).map((row) => row.id)
+  }
+  if (installIds.length === 0) return []
+  const held = await tx
+    .select({ rootId: sessionKeys.rootId, installId: sessionKeys.installId })
     .from(sessionKeys)
-    .where(
-      teamIds
-        ? and(holder, inArray(sessionKeys.rootId, tx.select({ id: sessions.rootId }).from(sessions).where(inArray(sessions.teamId, [...teamIds]))))
-        : holder
-    )
-  return rows.map((row) => row.rootId)
+    .where(inArray(sessionKeys.installId, installIds))
+  const rootIds = [...new Set(held.filter((row) => installIds.includes(row.installId)).map((row) => row.rootId))]
+  if (!teamIds) return rootIds
+  const inTeams = new Set<string>()
+  for (let at = 0; at < rootIds.length; at += DELETE_CHUNK) {
+    const chunk = rootIds.slice(at, at + DELETE_CHUNK)
+    const rows = await tx
+      .select({ rootId: sessions.rootId, teamId: sessions.teamId })
+      .from(sessions)
+      .where(and(inArray(sessions.rootId, chunk), inArray(sessions.teamId, [...teamIds])))
+    for (const row of rows) if (row.rootId && chunk.includes(row.rootId) && teamIds.includes(row.teamId)) inTeams.add(row.rootId)
+  }
+  return [...inTeams]
 }
 
 /** #EXP-1951: `who` stopped reading (the write that dropped them ran in

@@ -7,10 +7,11 @@
 // every `session_keys` row of the tree, whoever it was wrapped for. What the
 // next message is sealed to must still not open.
 import { afterAll, describe, expect, it, vi } from "vitest"
-import { eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
+import fixture from "@exp/domain-contract/fixtures/sealed-content.json"
 import { db } from "@/db/connection"
 import { devices, installs, sessionKeys, sessions, teamMembers, teams } from "@/db/schema"
-import { probeRealDb } from "@/test/real-db"
+import { inRollback, probeRealDb } from "@/test/real-db"
 import { generateTreeKey, openBody, sealBody, unwrapTreeKey, wrapTreeKey } from "@exp/domain-contract/sealed-content"
 
 process.env.BETTER_AUTH_SECRET ||= `reader-drop-test-secret-0123456789`
@@ -24,6 +25,7 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
   fireAndForgetPrNotify: () => {},
   notifySessionBlocked: async () => {},
   notifySessionAsk: async () => {},
+  notifyDeviceShareRemoved: async () => {},
 }))
 
 const ready = await probeRealDb(`
@@ -34,6 +36,9 @@ if (!ready.ok) console.info(`[reader-drop.real-db] skipped: ${ready.reason}`)
 const { sessionKeysRouter } = await import(`@/lib/trpc/session-keys`)
 const { installsRouter } = await import(`@/lib/trpc/installs`)
 const { teamMembersRouter } = await import(`@/lib/trpc/team-members`)
+const { devicesRouter } = await import(`@/lib/trpc/devices`)
+const { usersRouter } = await import(`@/lib/trpc/users`)
+const { dropNonReaderKeysInTx, dropReaderKeysInTx, DROP_CHUNK } = await import(`@/lib/sessions/tree-keys`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -193,4 +198,195 @@ describe.skipIf(!ready.ok)(`#EXP-1951 a dropped reader opens nothing sealed afte
     await pull(w.phone)
     expect(openBody(body, w.phone.kept.get(w.rootId)!).status).toBe(`opened`)
   })
+})
+
+// ── sealed-content.json `rotation.dropCases`: every drop, through its router ──
+
+/** The fixture's world: the starter's chat on the host's shared machine. */
+async function dropWorld(tree: string) {
+  const [starter, mate, host] = [await user(), await user(), await user()]
+  const teamId = await team({ [starter]: `owner`, [mate]: `member`, [host]: `member` })
+  const machine = `box-${id8()}`
+  const [box] = await db
+    .insert(devices)
+    .values({ userId: host, deviceId: machine, label: machine, kind: `server`, sharedTeamIds: [teamId] })
+    .returning({ id: devices.id })
+  const installsOf = {
+    starterPhone: await install(starter, `ios`),
+    mateBrowser: await install(mate, `web`),
+    hostDaemon: await install(host, `daemon`, box!.id),
+    hostPhone: await install(host, `ios`),
+  }
+  const rootId = crypto.randomUUID()
+  await db.insert(sessions).values({ id: rootId, rootId, teamId, userId: starter, deviceId: machine, shared: tree === `shared` } as never)
+  const key = generateTreeKey()
+  const readers = tree === `shared` ? Object.values(installsOf) : [installsOf.starterPhone, installsOf.hostDaemon]
+  await keys(starter).create({
+    rootId,
+    installId: installsOf.starterPhone.id,
+    epoch: 1,
+    publicKey: key.publicKey,
+    wraps: readers.map((to) => ({ installId: to.id, wrapped: wrapTreeKey(to.publicKey, key.secret) })),
+  })
+  const memberId = async (userId: string) =>
+    (await db.select().from(teamMembers).where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId))))[0]!.id
+  return { starter, mate, host, teamId, machine, boxId: box!.id, installsOf, rootId, readers, memberId }
+}
+
+type DropWorld = Awaited<ReturnType<typeof dropWorld>>
+const EVENTS: Record<string, (w: DropWorld) => Promise<unknown>> = {
+  installRevoked: (w) => installsRouter.createCaller(ctx(w.starter)).revoke({ installId: w.installsOf.starterPhone.id }),
+  memberRemoved: async (w) => teamMembersRouter.createCaller(ctx(w.starter)).remove({ memberId: await w.memberId(w.mate) }),
+  memberLeft: async (w) => teamMembersRouter.createCaller(ctx(w.mate)).remove({ memberId: await w.memberId(w.mate) }),
+  accountDeleted: (w) => usersRouter.createCaller(ctx(w.mate)).deleteAccount({ confirm: true }),
+  hostRemoved: async (w) => teamMembersRouter.createCaller(ctx(w.starter)).remove({ memberId: await w.memberId(w.host) }),
+  deviceUnshared: (w) => devicesRouter.createCaller(ctx(w.host)).setShared({ deviceId: w.machine, teamId: w.teamId, shared: false }),
+  shareDropped: (w) => devicesRouter.createCaller(ctx(w.starter)).dropShare({ id: w.boxId, teamId: w.teamId }),
+  deviceRemoved: (w) => devicesRouter.createCaller(ctx(w.host)).remove({ deviceId: w.machine }),
+  treePrivate: (w) =>
+    db.transaction(async (tx) => {
+      await tx.update(sessions).set({ shared: false }).where(eq(sessions.id, w.rootId))
+      await dropNonReaderKeysInTx(tx, [w.rootId])
+    }),
+}
+
+describe.skipIf(!ready.ok)(`#EXP-1951 rotation.dropCases: each drop deletes the dropped wraps and flags the root, in its transaction`, () => {
+  for (const c of fixture.rotation.dropCases) {
+    it(`${c.event}, ${c.tree}: ${c.name}`, async () => {
+      const w = await dropWorld(c.tree)
+      const nameOf = (installId: string) => Object.entries(w.installsOf).find(([, row]) => row.id === installId)![0]
+      const before = w.readers.map((row) => nameOf(row.id)).sort()
+      await EVENTS[c.event]!(w)
+      const kept = (await wrapRows(w.rootId)).map((row) => nameOf(row.installId)).sort()
+      expect(kept).toEqual(before.filter((name) => !c.drops.includes(name)))
+      expect((await rootRow(w.rootId)).sealRotateEpoch).toBe(c.due ? 1 : null)
+      // What stays is what `pending` would wrap for: no dropped install is a reader.
+      if (c.event !== `accountDeleted`) {
+        const holder = w.installsOf.starterPhone
+        if (kept.includes(`starterPhone`)) {
+          const due = await keys(w.starter).due({ installId: holder.id })
+          expect(due).toEqual(c.due ? [{ rootId: w.rootId, epoch: 1 }] : [])
+        }
+      }
+    })
+  }
+})
+
+describe.skipIf(!ready.ok)(`#EXP-1951 rotation.rotatorCases: who may create the next epoch`, () => {
+  for (const c of fixture.rotation.rotatorCases) {
+    it(c.name, async () => {
+      const w = await dropWorld(`shared`)
+      // `dropped` = the starter's revoked phone; `removed` = the mate after their removal.
+      if (c.due) {
+        await installsRouter.createCaller(ctx(w.starter)).revoke({ installId: w.installsOf.starterPhone.id })
+        if (c.caller === `removed`) await teamMembersRouter.createCaller(ctx(w.starter)).remove({ memberId: await w.memberId(w.mate) })
+      }
+      expect((await rootRow(w.rootId)).sealRotateEpoch).toBe(c.due ? 1 : null)
+      const second = c.due ? await install(w.starter, `web`) : w.installsOf.starterPhone
+      const who = {
+        starter: second,
+        executing: w.installsOf.hostDaemon,
+        reader: w.installsOf.hostPhone,
+        dropped: w.installsOf.starterPhone,
+        removed: w.installsOf.mateBrowser,
+      }[c.caller]!
+      const next = generateTreeKey()
+      const create = keys(who.userId).create({ rootId: w.rootId, installId: who.id, epoch: 2, publicKey: next.publicKey, wraps: [{ installId: who.id, wrapped: wrapTreeKey(who.publicKey, next.secret) }] })
+      if (c.allowed) {
+        await create
+        expect(await rootRow(w.rootId)).toMatchObject({ sealEpoch: 2, sealRotateEpoch: null })
+      } else {
+        await expect(create).rejects.toMatchObject({ code: (c as { code?: string }).code })
+        expect((await rootRow(w.rootId)).sealEpoch).toBe(1)
+      }
+    })
+  }
+})
+
+describe.skipIf(!ready.ok)(`#EXP-1951 the server has nothing of the new epoch for a dropped reader`, () => {
+  it(`a rotation never wraps for the dropped: create refuses them as a wrap target, pending never names them, wrap refuses the pair, due and mine answer nothing`, async () => {
+    const w = await dropWorld(`shared`)
+    const { starterPhone, mateBrowser, hostDaemon, hostPhone } = w.installsOf
+    await teamMembersRouter.createCaller(ctx(w.starter)).remove({ memberId: await w.memberId(w.mate) })
+    await installsRouter.createCaller(ctx(w.host)).revoke({ installId: hostPhone.id })
+    const next = generateTreeKey()
+    const wrapFor = (to: Install) => ({ installId: to.id, wrapped: wrapTreeKey(to.publicKey, next.secret) })
+    // A holder that still thinks they read (a stale list, or a lying client) is refused whole.
+    for (const dropped of [mateBrowser, hostPhone]) {
+      await expect(
+        keys(w.starter).create({ rootId: w.rootId, installId: starterPhone.id, epoch: 2, publicKey: next.publicKey, wraps: [wrapFor(starterPhone), wrapFor(dropped)] })
+      ).rejects.toMatchObject({ code: `BAD_REQUEST`, message: fixture.clearTree.wrapRefusal })
+    }
+    await keys(w.starter).create({ rootId: w.rootId, installId: starterPhone.id, epoch: 2, publicKey: next.publicKey, wraps: [wrapFor(starterPhone)] })
+    const pending = await keys(w.starter).pending({ installId: starterPhone.id })
+    expect(pending.map((pair) => pair.targetInstallId)).toEqual([hostDaemon.id])
+    for (const dropped of [mateBrowser, hostPhone]) {
+      await expect(
+        keys(w.starter).wrap({ installId: starterPhone.id, wraps: [{ rootId: w.rootId, epoch: 2, targetInstallId: dropped.id, wrapped: wrapFor(dropped).wrapped }] })
+      ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    }
+    // The dropped ask: the removed member's live install gets nothing, the revoked one is refused.
+    expect(await keys(w.mate).mine({ installId: mateBrowser.id })).toEqual([])
+    expect(await keys(w.mate).pending({ installId: mateBrowser.id })).toEqual([])
+    expect(await keys(w.mate).due({ installId: mateBrowser.id })).toEqual([])
+    await expect(keys(w.host).mine({ installId: hostPhone.id })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await expect(keys(w.host).pending({ installId: hostPhone.id })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // And a server that skips those checks has no row to hand out: none of epoch 2 is theirs.
+    const rows = await wrapRows(w.rootId)
+    expect(rows.filter((row) => row.epoch === 2).map((row) => row.installId)).toEqual([starterPhone.id])
+    expect(rows.some((row) => row.installId === mateBrowser.id || row.installId === hostPhone.id)).toBe(false)
+  })
+
+  it(`a member re-invited after the rotation reads on from the new epoch (through pending), like any new reader`, async () => {
+    const w = await world()
+    await teamMembersRouter.createCaller(ctx(w.starter)).remove({ memberId: w.mateMemberId })
+    await holderPass(w.desktop, w.rootId)
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: w.mate, role: `member` })
+    expect(await holderPass(w.desktop, w.rootId)).toEqual([w.browser.id])
+    await pull(w.browser)
+    expect([...w.browser.kept.get(w.rootId)!.keys()].sort()).toEqual([1, 2])
+  })
+})
+
+describe.skipIf(!ready.ok)(`#EXP-1951 the cost of a drop`, () => {
+  it(`a member with thousands of trees: a fixed number of queries per ${DROP_CHUNK} roots, never some per root`, async () => {
+    const ROOTS = Number(process.env.EXP1951_ROOTS ?? 1200)
+    await inRollback(async (tx) => {
+      const ids = [`cost-${id8()}`, `cost-${id8()}`]
+      for (const userId of ids) {
+        await tx.execute(sql`INSERT INTO users (id, name, email, email_verified, is_admin, created_at, updated_at) VALUES (${userId}, 'Tester', ${`${userId}@drop.test`}, true, false, now(), now())`)
+      }
+      const [teamRow] = await tx.insert(teams).values({ name: `Cost`, slug: `cost-${id8()}` }).returning({ id: teams.id })
+      await tx.insert(teamMembers).values(ids.map((userId, n) => ({ teamId: teamRow!.id, userId, role: n === 0 ? (`owner` as const) : (`member` as const) })))
+      const made = await tx
+        .insert(installs)
+        .values(ids.map((userId) => ({ userId, kind: `web`, endpointId: `ep-${crypto.randomUUID()}`, x25519Public: generateTreeKey().publicKey })))
+        .returning({ id: installs.id })
+      const roots = Array.from({ length: ROOTS }, () => crypto.randomUUID())
+      const wrap = Buffer.alloc(81, 7).toString(`base64url`)
+      for (let at = 0; at < roots.length; at += 500) {
+        const chunk = roots.slice(at, at + 500)
+        await tx.insert(sessions).values(chunk.map((id) => ({ id, rootId: id, teamId: teamRow!.id, userId: ids[0]!, deviceId: `cost-box`, shared: true, sealPublicKey: generateTreeKey().publicKey, sealEpoch: 1 })) as never)
+        await tx.insert(sessionKeys).values(chunk.flatMap((rootId) => made.map((row) => ({ rootId, epoch: 1, installId: row.id, wrapped: wrap, createdByInstallId: made[0]!.id }))))
+      }
+      await tx.delete(teamMembers).where(and(eq(teamMembers.teamId, teamRow!.id), eq(teamMembers.userId, ids[1]!)))
+      let queries = 0
+      const counting = new Proxy(tx, {
+        get(target, prop, receiver) {
+          if (prop === `select` || prop === `update` || prop === `delete` || prop === `execute`) queries++
+          const value = Reflect.get(target, prop, receiver)
+          return typeof value === `function` ? value.bind(target) : value
+        },
+      })
+      const started = performance.now()
+      const flagged = await dropReaderKeysInTx(counting as never, { userId: ids[1]! }, [teamRow!.id])
+      const took = performance.now() - started
+      process.stderr.write(`[EXP-1951] dropping a reader of ${ROOTS} trees: ${took.toFixed(0)} ms, ${queries} queries\n`)
+      expect(flagged).toHaveLength(ROOTS)
+      expect(queries).toBeLessThanOrEqual(4 + 12 * Math.ceil(ROOTS / DROP_CHUNK))
+      const left = await tx.select({ installId: sessionKeys.installId }).from(sessionKeys).where(inArray(sessionKeys.installId, made.map((row) => row.id)))
+      expect(left.filter((row) => row.installId === made[1]!.id)).toHaveLength(0)
+      expect(left.filter((row) => row.installId === made[0]!.id)).toHaveLength(ROOTS)
+    })
+  }, 120_000)
 })
