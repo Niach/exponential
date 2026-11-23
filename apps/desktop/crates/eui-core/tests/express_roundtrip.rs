@@ -205,3 +205,10 @@ fn the_prompt_is_compact() {
     assert!(prompt.len() < 60_000, "{} chars", prompt.len());
     assert!(prompt.contains("Input"));
 }
+
+/// Hosts own decoders on transport threads and behind UniFFI objects.
+#[test]
+fn the_decoder_is_send_and_sync() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<eui_core::host::ExpressDecoder>();
+}
