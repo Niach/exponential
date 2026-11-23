@@ -2631,6 +2631,8 @@ function renderFiles(): Record<string, string> {
     // #AXC-12: the Express compiler's catalog (prose stripped) in eui-core,
     // and the round trip every Express suite replays.
     "../../apps/desktop/crates/eui-core/src/generated/express.catalog.json": JSON.stringify(expressCatalog(coreSchema(icons))),
+    // The same WITH the prose, for express_prompt() (eui-core `descriptions`).
+    "../../apps/desktop/crates/eui-core/src/generated/express.catalog.described.json": JSON.stringify(coreSchema(icons)),
     "fixtures/express-roundtrip.json": json(expressRoundtrip()),
     // VAPP-106: the runtime catalog and its text, split (src/catalog.described.ts).
     "generated/core.runtime.json": json(catalogSplit.runtime),

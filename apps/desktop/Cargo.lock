@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "a2ui-express"
 version = "0.1.0"
-source = "git+https://github.com/Niach/a2ui-express-compiler-rust?rev=2378a4fef49b990c44c049af79363b4e2b1ceab0#2378a4fef49b990c44c049af79363b4e2b1ceab0"
+source = "git+https://github.com/Niach/a2ui-express-compiler-rust?rev=7221b53439e220cfaee2aca456d1cf28c187f88b#7221b53439e220cfaee2aca456d1cf28c187f88b"
 dependencies = [
  "serde",
  "serde_json",

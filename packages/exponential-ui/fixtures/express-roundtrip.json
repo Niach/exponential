@@ -685,7 +685,7 @@
                 "value": {
                   "@path": "/invite/email"
                 },
-                "checks": [
+                "@checks": [
                   {
                     "condition": {
                       "@call": "email",
@@ -1694,7 +1694,8 @@
                 "value": {
                   "@path": "/draft/title"
                 },
-                "checks": [
+                "validateOn": "blur",
+                "@checks": [
                   {
                     "condition": {
                       "@call": "required",
@@ -1706,8 +1707,7 @@
                     },
                     "message": "A title is required"
                   }
-                ],
-                "validateOn": "blur"
+                ]
               },
               {
                 "id": "form_body",
@@ -3801,7 +3801,7 @@
                 "min": 1,
                 "max": 50,
                 "unit": "seats",
-                "checks": [
+                "@checks": [
                   {
                     "condition": {
                       "@call": "numeric",

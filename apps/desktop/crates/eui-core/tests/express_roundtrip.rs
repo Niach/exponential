@@ -106,3 +106,102 @@ fn an_unknown_component_is_an_error() {
     let err = compile("root = Sparkle(text=\"hi\")", "main").unwrap_err();
     assert!(err.message.contains("Sparkle"), "{err}");
 }
+
+/// The surface a message list leaves: components by id (a later definition
+/// replaces an earlier one), the data model, per surface.
+fn settle(messages: &[Value]) -> std::collections::BTreeMap<String, (std::collections::BTreeMap<String, Value>, Value)> {
+    let mut out: std::collections::BTreeMap<String, (std::collections::BTreeMap<String, Value>, Value)> = Default::default();
+    for m in messages {
+        let (kind, body) = m.as_object().unwrap().iter().find(|(k, _)| *k != "version").unwrap();
+        let sid = body["surfaceId"].as_str().unwrap_or_default().to_string();
+        let entry = out.entry(sid).or_insert_with(|| (Default::default(), Value::Null));
+        if let Some(components) = body.get("components").and_then(Value::as_array) {
+            for c in components {
+                entry.0.insert(c["id"].as_str().unwrap().to_string(), c.clone());
+            }
+        }
+        match kind.as_str() {
+            "createSurface" => {
+                if let Some(model) = body.get("dataModel") {
+                    entry.1 = model.clone();
+                }
+            }
+            "updateDataModel" => {
+                let path = body.get("path").and_then(Value::as_str).unwrap_or("/");
+                let value = body.get("value").cloned().unwrap_or(Value::Null);
+                if path == "/" || path.is_empty() {
+                    entry.1 = value;
+                } else {
+                    if !entry.1.is_object() {
+                        entry.1 = Value::Object(Default::default());
+                    }
+                    let mut at = &mut entry.1;
+                    let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+                    for (i, p) in parts.iter().enumerate() {
+                        if i + 1 == parts.len() {
+                            at.as_object_mut().unwrap().insert(p.to_string(), value.clone());
+                        } else {
+                            at = at.as_object_mut().unwrap().entry(p.to_string()).or_insert_with(|| Value::Object(Default::default()));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn stream(express: &str, wrapped: bool, size: usize) -> eui_core::host::decoders::Decoded {
+    let mut d = eui_core::host::ExpressDecoder::new(wrapped, "main");
+    let mut out = eui_core::host::decoders::Decoded::default();
+    let chars: Vec<char> = express.chars().collect();
+    for chunk in chars.chunks(size) {
+        out.extend(d.push(&chunk.iter().collect::<String>()));
+    }
+    out.extend(d.end());
+    out
+}
+
+/// Streamed in 1-, 7- and 64-character chunks, bare and wrapped in prose,
+/// every fixture leaves the same surface as the batch compile.
+#[test]
+fn streaming_settles_to_the_batch_surface() {
+    for name in ["dashboard", "demo-surface", "kitchen-sink"] {
+        let (messages, _) = case(name);
+        let express = decompile(&messages).unwrap();
+        let want = settle(&compile(&express, "main").unwrap());
+        for size in [1, 7, 64] {
+            let bare = stream(&express, false, size);
+            assert!(bare.issues.is_empty(), "{name}/{size} bare: {:?}", bare.issues);
+            assert!(bare.text.is_empty());
+            assert_eq!(settle(&bare.messages), want, "{name}/{size} bare");
+            let wrapped = stream(&format!("Here is the surface.\n<a2ui>\n{express}\n</a2ui>\nAnything else?"), true, size);
+            assert!(wrapped.issues.is_empty(), "{name}/{size} wrapped: {:?}", wrapped.issues);
+            assert_eq!(settle(&wrapped.messages), want, "{name}/{size} wrapped");
+            assert_eq!(wrapped.text.concat(), "Here is the surface.\n\nAnything else?", "{name}/{size} prose");
+        }
+    }
+}
+
+/// A block that does not compile is an issue; the prose and later blocks
+/// still come through.
+#[test]
+fn a_bad_block_is_an_issue_and_the_stream_reads_on() {
+    let text = "One.\n<a2ui>\nroot = Sparkle(text=\"x\")\n</a2ui>\nTwo.\n<a2ui>\nroot = Text(text=\"ok\")\n</a2ui>\n";
+    let out = stream(text, true, 5);
+    assert_eq!(out.issues.len(), 1, "{:?}", out.issues);
+    assert!(out.issues[0].message.contains("Sparkle"), "{:?}", out.issues);
+    let surfaces = settle(&out.messages);
+    assert_eq!(surfaces["main"].0["root"]["text"], "ok");
+    assert!(out.text.concat().contains("Two."));
+}
+
+#[cfg(feature = "descriptions")]
+#[test]
+fn the_prompt_is_compact() {
+    let prompt = eui_core::express::express_prompt().unwrap();
+    // ~10k tokens at chars / 4 (the upstream style is ~114k on this catalog).
+    assert!(prompt.len() < 60_000, "{} chars", prompt.len());
+    assert!(prompt.contains("Input"));
+}
