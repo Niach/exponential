@@ -20,6 +20,8 @@ import { deviceCommands, devices, deviceTransfers, installs, sessions, type Devi
 import { contract } from "@exp/domain-contract"
 import { insertMessage } from "@/lib/sessions/messages"
 import type { Db } from "@/lib/sessions/tx"
+import { DEVICE_OTHER_TEAM_MESSAGE, deviceUsableInTeam } from "@/lib/session-device-move"
+import { getPersonalTeamId } from "@/lib/auth/membership"
 
 export const FILE_TRANSFER_CAP = `file-transfer`
 export const FILE_SEND_KIND = `file_send`
@@ -95,7 +97,14 @@ export function transferView(row: DeviceTransfer) {
   }
 }
 
-type DeviceRow = { id: string; deviceId: string; label: string; caps: string[] | null; lastSeenAt: Date | null }
+type DeviceRow = {
+  id: string
+  deviceId: string
+  label: string
+  caps: string[] | null
+  lastSeenAt: Date | null
+  sharedTeamIds: string[] | null
+}
 
 /** The newest live eNet install (desktop app or daemon) of each device row. */
 async function liveEndpoints(db: Db, userId: string, rowIds: string[]): Promise<Map<string, string>> {
@@ -125,6 +134,9 @@ export async function startTransfer(
   args: {
     userId: string
     sessionId?: string | null
+    /** #EXP-1440: the asking session's team; a machine shared only with
+     *  OTHER teams is theirs (unset = the person themselves, no session). */
+    teamId?: string | null
     fromDeviceId: string
     toDeviceId: string
     srcPath: string
@@ -140,12 +152,26 @@ export async function startTransfer(
   }
   // The same-owner rule: both rows are the CALLER's own machines.
   const rows: DeviceRow[] = await db
-    .select({ id: devices.id, deviceId: devices.deviceId, label: devices.label, caps: devices.caps, lastSeenAt: devices.lastSeenAt })
+    .select({
+      id: devices.id,
+      deviceId: devices.deviceId,
+      label: devices.label,
+      caps: devices.caps,
+      lastSeenAt: devices.lastSeenAt,
+      sharedTeamIds: devices.sharedTeamIds,
+    })
     .from(devices)
     .where(and(eq(devices.userId, args.userId), inArray(devices.deviceId, [args.fromDeviceId, args.toDeviceId])))
   const from = rows.find((row) => row.deviceId === args.fromDeviceId)
   const to = rows.find((row) => row.deviceId === args.toDeviceId)
   if (!from || !to) throw new TRPCError({ code: `NOT_FOUND`, message: TRANSFER_COPY.notYours })
+  const teamId = args.teamId
+  if (teamId && ![from, to].every((row) => deviceUsableInTeam(row, teamId))) {
+    // #EXP-1720: the owner's personal team (their Assistant) reaches any machine of theirs.
+    if (teamId !== (await getPersonalTeamId(args.userId))) {
+      throw new TRPCError({ code: `FORBIDDEN`, message: DEVICE_OTHER_TEAM_MESSAGE })
+    }
+  }
   for (const row of [from, to]) {
     if (!(row.caps ?? []).includes(FILE_TRANSFER_CAP)) {
       throw new TRPCError({ code: `PRECONDITION_FAILED`, message: TRANSFER_COPY.noCap(row.label) })

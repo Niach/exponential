@@ -1710,6 +1710,7 @@ export const devicesRouter = router({
         srcPath: z.string().min(1).max(TRANSFER_PATH_MAX),
         destPath: z.string().min(1).max(TRANSFER_PATH_MAX),
         sessionId: z.string().uuid().nullish(),
+        teamId: z.string().uuid().nullish(),
       })
     )
     .mutation(({ ctx, input }) =>

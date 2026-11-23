@@ -3606,6 +3606,7 @@ export function registerExponentialTools(
             srcPath,
             destPath,
             sessionId: own?.id ?? null,
+            teamId: own?.teamId ?? null,
           })
         )
       } catch (e) {

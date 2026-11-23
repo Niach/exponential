@@ -30,10 +30,11 @@ async function world(tx: RealDbTx) {
   const [owner, mate] = users as [string, string]
   const [team] = await tx.insert(teams).values({ name: `T`, slug: `t-${id8()}` }).returning({ id: teams.id })
   await tx.insert(teamMembers).values(users.map((userId, n) => ({ teamId: team!.id, userId, role: n === 0 ? (`owner` as const) : (`member` as const) })))
-  const box = async (userId: string, name: string, caps: string[] = [FILE_TRANSFER_CAP], install = true) => {
+  const [other] = await tx.insert(teams).values({ name: `O`, slug: `o-${id8()}` }).returning({ id: teams.id })
+  const box = async (userId: string, name: string, caps: string[] = [FILE_TRANSFER_CAP], install = true, sharedTeamIds: string[] = []) => {
     const [row] = await tx
       .insert(devices)
-      .values({ userId, deviceId: `${name}-${id8()}`, label: name, kind: `server`, caps, lastSeenAt: new Date() })
+      .values({ userId, deviceId: `${name}-${id8()}`, label: name, kind: `server`, caps, lastSeenAt: new Date(), sharedTeamIds })
       .returning({ id: devices.id, deviceId: devices.deviceId })
     if (install) {
       await tx.insert(installs).values({
@@ -51,6 +52,7 @@ async function world(tx: RealDbTx) {
   const old = await box(owner, `old`, [])
   const bare = await box(owner, `bare`, [FILE_TRANSFER_CAP], false)
   const theirs = await box(mate, `theirs`)
+  const otherBox = await box(owner, `other-box`, [FILE_TRANSFER_CAP], true, [other!.id])
   const sessionId = crypto.randomUUID()
   await tx.insert(sessions).values({ id: sessionId, rootId: sessionId, teamId: team!.id, userId: owner, deviceId: mint } as never)
   const callerOf = (userId: string) =>
@@ -59,7 +61,7 @@ async function world(tx: RealDbTx) {
       db: tx,
       request: new Request(`http://x.test`),
     } as never)
-  return { owner, mate, mint, deck, old, bare, theirs, sessionId, callerOf }
+  return { owner, mate, mint, deck, old, bare, theirs, otherBox, teamId: team!.id, otherTeamId: other!.id, sessionId, callerOf }
 }
 
 describe.skipIf(!ready.ok)(`device transfers (#FEED-295)`, () => {
@@ -75,6 +77,9 @@ describe.skipIf(!ready.ok)(`device transfers (#FEED-295)`, () => {
       await expect(me.startTransfer({ ...base, fromDeviceId: w.bare, toDeviceId: w.deck })).rejects.toThrow(/eNet node/)
       await expect(me.startTransfer({ ...base, destPath: `/a/../b`, fromDeviceId: w.mint, toDeviceId: w.deck })).rejects.toThrow(/\.\./)
       await expect(me.startTransfer({ ...base, srcPath: `relative/x`, fromDeviceId: w.mint, toDeviceId: w.deck })).rejects.toThrow(/absolute/)
+      // #EXP-1440: an own machine shared only with ANOTHER team is that team's for a session of this one.
+      await expect(me.startTransfer({ ...base, fromDeviceId: w.otherBox, toDeviceId: w.deck, teamId: w.teamId })).rejects.toThrow(/another team/)
+      await expect(me.startTransfer({ ...base, fromDeviceId: w.deck, toDeviceId: w.otherBox, teamId: w.otherTeamId })).resolves.toMatchObject({ status: `queued` })
 
       const started = await me.startTransfer({ ...base, fromDeviceId: w.mint, toDeviceId: w.deck, sessionId: w.sessionId })
       expect(started).toMatchObject({ status: `queued`, fromDeviceId: w.mint, toDeviceId: w.deck, fromOnline: true, toOnline: true })

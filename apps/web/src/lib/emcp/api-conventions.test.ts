@@ -136,6 +136,8 @@ const READ_ONLY_EXTRA = new Set([
   `exponential_issues_trash`,
   `exponential_pr_files`,
   `exponential_issues_show`,
+  // #FEED-295: the transfer log is a read.
+  `exponential_devices_transfers`,
 ])
 function isRead(name: string): boolean {
   return /_(get|list)$/.test(name) || READ_ONLY_EXTRA.has(name)

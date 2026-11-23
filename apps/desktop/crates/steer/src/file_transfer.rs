@@ -72,10 +72,11 @@ const PROTECTED_HOME: &[&str] = &[
 ];
 /// Never read (kernel and device files).
 const PROTECTED_READ: &[&str] = &["/proc", "/sys", "/dev"];
-/// Never written (the system).
+/// Never written (the system). macOS resolves `/etc` and `/var` into
+/// `/private`; its `/private/tmp` stays writable like Linux's `/tmp`.
 const PROTECTED_WRITE: &[&str] = &[
     "/proc", "/sys", "/dev", "/etc", "/boot", "/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/var", "/System", "/Library",
-    "/private",
+    "/private/etc", "/private/var",
 ];
 
 /// Where protected paths are anchored.
@@ -492,12 +493,14 @@ mod tests {
             ("/home/u/.claude/.credentials.json", false),
             ("/proc/self/environ", false),
             ("/etc/x", true),
+            ("/private/etc/hosts", true),
+            ("/private/var/db/x", true),
             ("/home/u", true),
             ("/", true),
         ] {
             assert!(p.refusal(Path::new(path), write).is_some(), "{path} ({write}) must be refused");
         }
-        for (path, write) in [("/home/u/Music", false), ("/home/u/Music/new", true), ("/home/u", false), ("/run/media/sd/wow", true), ("/etc/hostname", false)] {
+        for (path, write) in [("/home/u/Music", false), ("/home/u/Music/new", true), ("/home/u", false), ("/run/media/sd/wow", true), ("/etc/hostname", false), ("/private/tmp/x", true)] {
             assert!(p.refusal(Path::new(path), write).is_none(), "{path} ({write}) is allowed");
         }
         // Prefix by component, not by string.
@@ -518,7 +521,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_symlink_into_a_protected_dir_is_refused_on_both_sides() {
-        let dir = std::env::temp_dir().join(format!("steer-ft-{}", std::process::id()));
+        // Under /tmp: macOS's per-user temp dir resolves into /private/var.
+        let dir = PathBuf::from("/tmp").join(format!("steer-ft-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let home = dir.join("home");
         std::fs::create_dir_all(home.join(".ssh")).unwrap();

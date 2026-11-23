@@ -124,6 +124,10 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_comments_update: [`comment`, `issue`],
   exponential_devices_account_login: [],
   exponential_devices_list: [`list`, `device`],
+  // #FEED-295
+  exponential_devices_transfer: [],
+  exponential_devices_transfers: [],
+  exponential_devices_transfer_cancel: [],
   exponential_people_invites_create: [`invite`],
   exponential_people_invites_list: [`list`, `invite`],
   exponential_people_invites_revoke: [],
