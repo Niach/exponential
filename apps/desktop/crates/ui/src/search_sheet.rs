@@ -366,7 +366,8 @@ impl SearchSheetView {
                 }
             },
         );
-        let doctor = cx.observe(&crate::coding_flow::CodingHub::global(cx), |this: &mut Self, _, cx| {
+        let hub = crate::coding_flow::CodingHub::global(cx);
+        let doctor = cx.observe(&hub, |this: &mut Self, _, cx| {
             if this.translating.is_some() {
                 return;
             }

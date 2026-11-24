@@ -59,10 +59,11 @@ enum UITestingSession {
     /// `Translate to a search` row, so a capture does not depend on Apple
     /// Intelligence being on in the simulator. `EXP_UITEST_SEARCH_TRANSLATION`
     /// (launch environment) = the answer the model gives; the value `hang`
-    /// never answers (the deadline's path).
+    /// never answers (the deadline's path) and `unavailable` is a device
+    /// without the model (no row).
     struct FixedSearchTranslator: IssueSearchTranslating {
         let fixed: String
-        let isAvailable = true
+        var isAvailable: Bool { fixed != "unavailable" }
 
         func answer(prompt: String, instructions: String) async throws -> String {
             if fixed == "hang" {
