@@ -311,6 +311,14 @@ pub trait TalkHost: 'static {
         let _ = (agent_id, settings, cx);
         None
     }
+    /// EXP-1859 (agent-settings.json `voice.wake` `wakeListeners`): every
+    /// agent the voice device listens for under the member's `settings`,
+    /// the voice agent first (empty = a host without them: only the voice
+    /// agent's phrase is heard, as before).
+    fn wake_listeners(&self, settings: &VoiceSettings, cx: &App) -> Vec<etalk::WakeListener> {
+        let _ = (settings, cx);
+        Vec::new()
+    }
     /// The member's conversation with the agent (None = none yet).
     fn conversation(&self, agent_id: &str, cx: &App) -> Option<String>;
     /// Visit every message row the host holds; answers whether they have
@@ -441,6 +449,11 @@ pub(crate) fn agent_voice(agent_id: Option<&str>, settings: &VoiceSettings, cx: 
 pub(crate) fn wake_phrase_of(agent_id: Option<&str>, stored: &str, cx: &App) -> String {
     let member = VoiceSettings { wake_phrase: stored.to_string(), ..Default::default() };
     agent_voice(agent_id, &member, cx).wake_phrase
+}
+
+/// EXP-1859: see [`TalkHost::wake_listeners`].
+pub(crate) fn wake_listeners(settings: &VoiceSettings, cx: &App) -> Vec<etalk::WakeListener> {
+    host(cx).map(|host| host.wake_listeners(settings, cx)).unwrap_or_default()
 }
 
 /// #EXP-1847: the language `agent_id` is heard (and speaks) in, from the

@@ -704,6 +704,9 @@ impl VoiceTray {
         };
         let pausable = device_is_voice_device && (meeting_on || self.screen.on);
         crate::meeting::sync_pause_hotkey(pausable, cx);
+        // EXP-1859: the Wake word item names every phrase listened for.
+        let listeners = if settings.wake_word { crate::host::wake_listeners(&settings, cx) } else { Vec::new() };
+        let wake_phrases: Vec<&str> = listeners.iter().skip(1).map(|listener| listener.phrase.as_str()).collect();
         let context = TrayContext {
             agent: agent.as_deref(),
             muted: self.muted,
@@ -722,6 +725,7 @@ impl VoiceTray {
             pause: pausable.then_some(meeting_state.paused),
             // S-3: while a call runs here Call reads End call.
             in_call: crate::voice_call::active(cx),
+            wake_phrases: &wake_phrases,
         };
         let menu = tray_menu(&settings, &context);
         // #NEW-97: no answer yet = no button.

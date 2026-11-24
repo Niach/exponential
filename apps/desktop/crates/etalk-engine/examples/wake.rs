@@ -2,7 +2,7 @@
 //! microphone.
 //!
 //!   cargo run --release -p voice --example wake -- <data-dir> [--cpu]
-//!       [--phrase "Hey Studio"]... [--language en] [--minutes N] [--silence N] [--checks-out F] <clip.wav | dir>...
+//!       [--phrase "Hey Studio"]... [--language en] [--together] [--minutes N] [--silence N] [--checks-out F] <clip.wav | dir>...
 //!
 //! Every clip runs through the worker's own path (`etalk_engine::wake::scan`, then
 //! `etalk_engine::wake::turn` on a match, Silero and Parakeet through CrispASR) in
@@ -23,6 +23,10 @@
 //!   to replay other phrases or tolerances offline.
 //! - `--phrase` repeats: every phrase is its own run over the same clips
 //!   (its own window and turns), one JSON line each.
+//! - `--together` (EXP-1859): the phrases are ONE set of listeners instead,
+//!   heard at once like the voice device hears its agents (one run, one
+//!   JSON line; a wake names its `phrase`). A positive clip counts as heard
+//!   whichever phrase woke: check `heard[].phrase` against the clip.
 //!
 //! Every wake names its clip and second (`wakes`), so a false accept can be
 //! listened back; `nearMisses` are the checks one edit past the phrase's
@@ -41,7 +45,7 @@ use std::path::{Path, PathBuf};
 
 use etalk_engine::listen::{Transcriber, RATE};
 use etalk_engine::listener::Engines;
-use etalk_engine::wake::{scan, turn, turn_ended, wake_allowed, wake_distance, window_ms, TranscriptMatcher, WakeScanner};
+use etalk_engine::wake::{multi_window_ms, scan, turn, turn_ended, wake_allowed, wake_distance, Listener, TranscriptMatcher, WakeScanner};
 
 /// User + system CPU seconds of this process, every thread (Linux).
 fn cpu_seconds() -> f64 {
@@ -84,7 +88,7 @@ struct Tally {
 
 /// One stream through the scan (and a turn per match), counting checks.
 /// `clip` names the stream in `wakes` and `nearMisses`.
-fn run(engines: &mut Engines, audio: &[f32], phrase: &str, language: &str, clip: &str, tally: &mut Tally) {
+fn run(engines: &mut Engines, audio: &[f32], listeners: &[Listener], clip: &str, tally: &mut Tally) {
     /// Counts transcriptions and keeps the texts of the scan's checks.
     struct Counting<'a>(&'a mut Engines, usize, Vec<String>);
     impl Transcriber for Counting<'_> {
@@ -100,15 +104,16 @@ fn run(engines: &mut Engines, audio: &[f32], phrase: &str, language: &str, clip:
     }
     let mut vad = engines.vad().expect("vad");
     let mut counting = Counting(engines, 0, Vec::new());
-    let mut scanner = WakeScanner::new(window_ms(phrase));
+    let window = multi_window_ms(listeners.iter().map(|listener| listener.phrase.as_str()));
+    let mut scanner = WakeScanner::new(window);
     let mut active: Option<(f64, String, etalk_engine::listen::Utterance)> = None;
-    let near = wake_allowed(phrase) + 1;
-    let wake = |at: f64, check: String, event: etalk::Event, wakes: &mut Vec<serde_json::Value>| {
+    let mut woken = String::new();
+    let wake = |at: f64, check: String, phrase: &str, event: etalk::Event, wakes: &mut Vec<serde_json::Value>| {
         let heard = match event {
             etalk::Event::Heard { text, .. } => text,
             _ => String::new(),
         };
-        wakes.push(serde_json::json!({ "clip": clip, "at": (at * 10.0).round() / 10.0, "check": check, "heard": heard }));
+        wakes.push(serde_json::json!({ "clip": clip, "at": (at * 10.0).round() / 10.0, "phrase": phrase, "check": check, "heard": heard }));
     };
     let chunk_samples = RATE / 50;
     for (index, chunk) in audio.chunks(chunk_samples).enumerate() {
@@ -117,34 +122,36 @@ fn run(engines: &mut Engines, audio: &[f32], phrase: &str, language: &str, clip:
             utterance.feed(chunk, &mut vad, &mut counting, &mut |_| {}).expect("feed");
             if turn_ended(utterance) {
                 let (woke, check, utterance) = active.take().expect("active");
-                utterance.finish(&mut counting, &mut |event| wake(woke, check.clone(), event, &mut tally.wakes)).expect("finish");
-                scanner = WakeScanner::new(window_ms(phrase));
+                utterance.finish(&mut counting, &mut |event| wake(woke, check.clone(), &woken, event, &mut tally.wakes)).expect("finish");
+                scanner = WakeScanner::new(window);
             }
             continue;
         }
         let checks = counting.1;
         counting.2.clear();
-        let matched = scan(&mut scanner, &mut TranscriptMatcher, &mut vad, &mut counting, chunk, phrase, language, false).expect("scan");
+        let matched = scan(&mut scanner, &mut TranscriptMatcher, &mut vad, &mut counting, chunk, listeners, false).expect("scan");
         tally.checks += counting.1 - checks;
         if let Some(checks_heard) = tally.checks_heard.as_mut() {
             checks_heard.extend(counting.2.iter().cloned());
         }
         if let Some(out) = tally.checks_out.as_mut() {
-            let window = window_ms(phrase);
             out.extend(counting.2.iter().map(|heard| serde_json::json!({ "clip": clip, "at": (at * 10.0).round() / 10.0, "windowMs": window, "heard": heard })));
         }
         for heard in &counting.2 {
-            if wake_distance(phrase, heard).is_some_and(|(_, distance)| distance == near) {
-                tally.near_misses.push(serde_json::json!({ "clip": clip, "at": (at * 10.0).round() / 10.0, "check": heard }));
+            for listener in listeners {
+                if wake_distance(&listener.phrase, heard).is_some_and(|(_, distance)| distance == wake_allowed(&listener.phrase) + 1) {
+                    tally.near_misses.push(serde_json::json!({ "clip": clip, "at": (at * 10.0).round() / 10.0, "phrase": listener.phrase, "check": heard }));
+                }
             }
         }
         if let Some(matched) = matched {
             let check = counting.2.last().cloned().unwrap_or_default();
-            active = Some((at, check, turn("bench", language, phrase, &scanner, matched, &mut counting).expect("turn")));
+            woken = listeners[matched.2].phrase.clone();
+            active = Some((at, check, turn("bench", listeners, &scanner, matched, &mut counting).expect("turn")));
         }
     }
     if let Some((woke, check, utterance)) = active {
-        utterance.finish(&mut counting, &mut |event| wake(woke, check.clone(), event, &mut tally.wakes)).expect("finish");
+        utterance.finish(&mut counting, &mut |event| wake(woke, check.clone(), &woken, event, &mut tally.wakes)).expect("finish");
     }
     tally.audio_seconds += audio.len() as f64 / RATE as f64;
 }
@@ -184,6 +191,13 @@ fn main() {
     let minutes: Option<f64> = flag("--minutes").and_then(|value| value.parse().ok());
     let silence: Option<f64> = flag("--silence").and_then(|value| value.parse().ok());
     let checks_out = flag("--checks-out").map(PathBuf::from);
+    let together = match args.iter().position(|arg| arg == "--together") {
+        Some(index) => {
+            args.remove(index);
+            true
+        }
+        None => false,
+    };
     let cpu = args.iter().any(|arg| arg == "--cpu");
     args.retain(|arg| arg != "--cpu");
     let [data_dir, inputs @ ..] = args.as_slice() else {
@@ -198,13 +212,26 @@ fn main() {
     for input in inputs {
         wavs(Path::new(input), &mut clips);
     }
+    if together {
+        // EXP-1859: every phrase listened for at once, as one set.
+        let listeners: Vec<Listener> = phrases.iter().map(|phrase| Listener::new(phrase.as_str(), phrase.as_str(), &language)).collect();
+        measure(&mut engines, &listeners, minutes, silence, &clips, checks_out.as_deref());
+        return;
+    }
     for phrase in &phrases {
-        measure(&mut engines, phrase, &language, minutes, silence, &clips, checks_out.as_deref());
+        measure(&mut engines, &[Listener::new(phrase.as_str(), phrase.as_str(), &language)], minutes, silence, &clips, checks_out.as_deref());
     }
 }
 
-fn measure(engines: &mut Engines, phrase: &str, language: &str, minutes: Option<f64>, silence: Option<f64>, clips: &[PathBuf], checks_out: Option<&Path>) {
-    let base = serde_json::json!({ "phrase": phrase, "language": language, "allowedEdits": wake_allowed(phrase), "windowMs": window_ms(phrase) });
+fn measure(engines: &mut Engines, listeners: &[Listener], minutes: Option<f64>, silence: Option<f64>, clips: &[PathBuf], checks_out: Option<&Path>) {
+    let phrases: Vec<&str> = listeners.iter().map(|listener| listener.phrase.as_str()).collect();
+    let base = serde_json::json!({
+        "phrase": phrases.join(" | "),
+        "phrases": phrases.len(),
+        "language": listeners[0].language,
+        "allowedEdits": listeners.iter().map(|listener| wake_allowed(&listener.phrase)).collect::<Vec<_>>(),
+        "windowMs": multi_window_ms(phrases.iter().copied()),
+    });
     let with = |extra: serde_json::Value| {
         let mut out = base.clone();
         if let (Some(out), Some(extra)) = (out.as_object_mut(), extra.as_object()) {
@@ -215,7 +242,7 @@ fn measure(engines: &mut Engines, phrase: &str, language: &str, minutes: Option<
     if let Some(minutes) = silence {
         let mut tally = Tally::default();
         let before = cpu_seconds();
-        run(engines, &vec![0.0; (minutes * 60.0 * RATE as f64) as usize], phrase, language, "silence", &mut tally);
+        run(engines, &vec![0.0; (minutes * 60.0 * RATE as f64) as usize], listeners, "silence", &mut tally);
         report("silence", &tally, cpu_seconds() - before, with(serde_json::json!({})));
     }
     if clips.is_empty() {
@@ -248,7 +275,7 @@ fn measure(engines: &mut Engines, phrase: &str, language: &str, minutes: Option<
         }
         let mut tally = Tally::default();
         let before = cpu_seconds();
-        run(engines, &stream, phrase, language, "continuous", &mut tally);
+        run(engines, &stream, listeners, "continuous", &mut tally);
         let cpu = cpu_seconds() - before;
         let extra = if clips.iter().any(|clip| positive(clip)) {
             serde_json::json!({ "heard": tally.wakes })
@@ -269,13 +296,13 @@ fn measure(engines: &mut Engines, phrase: &str, language: &str, minutes: Option<
         if positive(clip) {
             let wakes = positives.wakes.len();
             positives.checks_heard = Some(Vec::new());
-            run(engines, &audio, phrase, language, &name, &mut positives);
+            run(engines, &audio, listeners, &name, &mut positives);
             positive_cpu += cpu_seconds() - before;
             if positives.wakes.len() == wakes {
                 misses.push(serde_json::json!({ "clip": name, "checks": positives.checks_heard.take().unwrap_or_default() }));
             }
         } else {
-            run(engines, &audio, phrase, language, &name, &mut negatives);
+            run(engines, &audio, listeners, &name, &mut negatives);
             negative_cpu += cpu_seconds() - before;
         }
     }

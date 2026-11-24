@@ -21,7 +21,7 @@
 //!
 //! EXP-1424 MODEL DETECTOR: a phrase with a published model
 //! (`etalk_wakeword::models`, e.g. spezl's `Hey spezl`) whose files are
-//! ready is heard by [`ModelDetector`] instead: every 80 ms frame scored by
+//! ready is heard by its model ([`SetDetector`]) instead: every 80 ms frame scored by
 //! the openWakeWord pipeline, no Parakeet pass while scanning. Both sit
 //! behind [`WakeDetector`]; every other phrase keeps [`TranscriptMatcher`]
 //! (all of the above).
@@ -177,11 +177,13 @@ pub fn wake_distance(phrase: &str, heard: &str) -> Option<(usize, usize)> {
 /// command. The closest opening ([`wake_distance`]) matches within
 /// [`wake_allowed`] edits. A phrase without a letter or digit never matches.
 pub fn wake_match(phrase: &str, heard: &str) -> Option<String> {
+    wake_match_edits(phrase, heard).map(|(_, rest)| rest)
+}
+
+/// [`wake_match`] with the edits its opening took.
+fn wake_match_edits(phrase: &str, heard: &str) -> Option<(usize, String)> {
     let (count, distance) = wake_distance(phrase, heard)?;
-    if distance > wake_allowed(phrase) {
-        return None;
-    }
-    Some(rest_after(heard, count))
+    (distance <= wake_allowed(phrase)).then(|| (distance, rest_after(heard, count)))
 }
 
 /// The text after `heard`'s first `words` words, leading punctuation
@@ -209,6 +211,11 @@ pub fn slide_allowed(phrase: &str) -> usize {
 /// wins, the earliest on a tie) and matches within [`slide_allowed`] edits.
 /// `Some(rest)` = what follows it, as [`wake_match`].
 pub fn slide_match(phrase: &str, heard: &str) -> Option<String> {
+    slide_match_edits(phrase, heard).map(|(_, rest)| rest)
+}
+
+/// [`slide_match`] with the edits its opening took.
+fn slide_match_edits(phrase: &str, heard: &str) -> Option<(usize, String)> {
     let words = wake_words(heard);
     let mut best: Option<(usize, usize)> = None;
     for skip in 0..=SLIDE_SKIP_WORDS.min(words.len()) {
@@ -219,7 +226,75 @@ pub fn slide_match(phrase: &str, heard: &str) -> Option<String> {
         }
     }
     let (count, distance) = best?;
-    (distance <= slide_allowed(phrase)).then(|| rest_after(heard, count))
+    (distance <= slide_allowed(phrase)).then(|| (distance, rest_after(heard, count)))
+}
+
+/// EXP-1859 (talk-listen.json `wake.multi`): the most agents the wake word
+/// listens for at once.
+pub const MAX_LISTENERS: usize = 5;
+
+/// EXP-1859: one agent the wake word listens for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listener {
+    /// Empty = the one phrase of a Wake without listeners.
+    pub agent_id: String,
+    pub phrase: String,
+    pub language: &'static str,
+}
+
+impl Listener {
+    pub fn new(agent_id: impl Into<String>, phrase: impl Into<String>, language: &str) -> Self {
+        Listener { agent_id: agent_id.into(), phrase: phrase.into(), language: wake_language(language) }
+    }
+}
+
+/// The language a phrase is heard in: `de`, else `en`.
+pub fn wake_language(language: &str) -> &'static str {
+    if language == "de" { "de" } else { "en" }
+}
+
+/// EXP-1859 (`multiWindow`): the scan's window for several phrases: the
+/// longest of their [`window_ms`].
+pub fn multi_window_ms<'a>(phrases: impl IntoIterator<Item = &'a str>) -> usize {
+    phrases.into_iter().map(window_ms).max().unwrap_or(WINDOW_MIN_MS)
+}
+
+/// EXP-1859 (`passes`): the languages a check transcribes its window in:
+/// the listeners' distinct ones ([`wake_language`]), in listener order.
+pub fn passes<'a>(languages: impl IntoIterator<Item = &'a str>) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for language in languages {
+        let language = wake_language(language);
+        if !out.contains(&language) {
+            out.push(language);
+        }
+    }
+    out
+}
+
+/// EXP-1859 (`multiMatch`): which of `listeners` (each its phrase and its
+/// language's transcript) a check heard: every one is matched by the
+/// check's rule (`first` = [`wake_match`], else [`slide_match`]); the fewest
+/// edits win, then the phrase with the most letters; a tie on both wakes
+/// nobody. `Some((index, rest))` = the winner and what follows its phrase.
+pub fn multi_match(listeners: &[(&str, &str)], first: bool) -> Option<(usize, String)> {
+    let letters = |phrase: &str| wake_words(phrase).iter().map(|word| word.folded.chars().count()).sum::<usize>();
+    let mut best: Option<(usize, usize, usize, String)> = None;
+    let mut tied = false;
+    for (index, (phrase, heard)) in listeners.iter().enumerate() {
+        let matched = if first { wake_match_edits(phrase, heard) } else { slide_match_edits(phrase, heard) };
+        let Some((edits, rest)) = matched else { continue };
+        let size = letters(phrase);
+        match best.as_ref() {
+            Some((_, best_edits, best_size, _)) if (*best_edits, std::cmp::Reverse(*best_size)) < (edits, std::cmp::Reverse(size)) => {}
+            Some((_, best_edits, best_size, _)) if (*best_edits, *best_size) == (edits, size) => tied = true,
+            _ => {
+                best = Some((index, edits, size, rest));
+                tied = false;
+            }
+        }
+    }
+    best.filter(|_| !tied).map(|(index, _, _, rest)| (index, rest))
 }
 
 /// EXP-1424: a MODEL's turn (talk-listen.json `wake.detector.modelMatch`):
@@ -339,10 +414,17 @@ impl WakeScanner {
         }
     }
 
-    /// EXP-1424: a scanner for [`ModelDetector`]: it also keeps the last
+    /// EXP-1424: a scanner for a model ([`SetDetector`]): it also keeps the last
     /// [`MODEL_HISTORY_MS`].
     pub fn for_model() -> Self {
         WakeScanner { history: frames(MODEL_HISTORY_MS), ..WakeScanner::new(WINDOW_MIN_MS) }
+    }
+
+    /// EXP-1859: this scanner also keeps a model's history (a listener of
+    /// the set is heard by one).
+    pub fn with_model_history(mut self) -> Self {
+        self.history = self.history.max(frames(MODEL_HISTORY_MS));
+        self
     }
 
     /// Captured samples, before their scores.
@@ -428,26 +510,27 @@ impl WakeScanner {
     }
 }
 
-/// EXP-1424: how the scan hears the phrase: [`TranscriptMatcher`] (the
-/// rules above) or [`ModelDetector`] (a model of its own), picked per
-/// phrase ([`detector_kind`]).
+/// A wake: the check that matched, the scores of the capture's frames after
+/// it (the turn's utterance takes them), and the listener that won.
+pub type Woken = (Check, Vec<f32>, usize);
+
+/// EXP-1424: how the scan hears the phrases: [`TranscriptMatcher`] (the
+/// rules above) or a model of its own ([`SetDetector`]), picked per phrase
+/// ([`detector_kind`]).
 pub trait WakeDetector {
     /// One capture, already in `scanner` and scored (`probabilities`, one
-    /// per frame): a match comes back with the scores of the capture's
-    /// frames after it (the turn's utterance takes them). `playing` = the
-    /// capture is the voice's own (or the cooldown's): a segment that starts
-    /// in it never wakes.
-    #[allow(clippy::too_many_arguments)]
+    /// per frame): a match comes back as [`Woken`]. `playing` = the capture
+    /// is the voice's own (or the cooldown's): a segment that starts in it
+    /// never wakes. EXP-1859: `listeners` = every agent listened for.
     fn hear(
         &mut self,
         scanner: &mut WakeScanner,
         samples: &[f32],
         probabilities: &[f32],
         transcriber: &mut dyn Transcriber,
-        phrase: &str,
-        language: &str,
+        listeners: &[Listener],
         playing: bool,
-    ) -> Result<Option<(Check, Vec<f32>)>, String>;
+    ) -> Result<Option<Woken>, String>;
 
     fn kind(&self) -> DetectorKind;
 }
@@ -469,7 +552,55 @@ pub fn detector_kind(models: &[etalk_wakeword::models::Model], phrase: &str) -> 
     }
 }
 
-/// #NEW-56: transcribe the checks the scanner makes due and match each.
+/// EXP-1859 (`wake.multi`): `check`'s window through the matcher for the
+/// listeners `heard_here` picks: ONE transcript per language among them
+/// ([`passes`]), then [`multi_match`]. `Some(index)` = the listener that won.
+fn check_winner(
+    pcm: &[f32],
+    opening: Opening,
+    listeners: &[Listener],
+    heard_here: &dyn Fn(usize) -> bool,
+    transcriber: &mut dyn Transcriber,
+) -> Result<Option<usize>, String> {
+    let picked: Vec<usize> = (0..listeners.len()).filter(|index| heard_here(*index)).collect();
+    let mut heard: Vec<(&'static str, String)> = Vec::new();
+    for language in passes(picked.iter().map(|index| listeners[*index].language)) {
+        heard.push((language, transcriber.transcribe(pcm, language)?));
+    }
+    let transcript = |language: &str| heard.iter().find(|(spoken, _)| *spoken == language).map_or("", |(_, text)| text.as_str());
+    let pairs: Vec<(&str, &str)> = picked.iter().map(|index| (listeners[*index].phrase.as_str(), transcript(listeners[*index].language))).collect();
+    Ok(multi_match(&pairs, opening == Opening::First).map(|(winner, _)| picked[winner]))
+}
+
+/// The scanner's due checks over one capture, matched for the listeners
+/// `heard_here` picks (none = the scanner is only fed).
+fn hear_transcripts(
+    scanner: &mut WakeScanner,
+    probabilities: &[f32],
+    transcriber: &mut dyn Transcriber,
+    listeners: &[Listener],
+    heard_here: &dyn Fn(usize) -> bool,
+    playing: bool,
+) -> Result<Option<Woken>, String> {
+    let any = (0..listeners.len()).any(heard_here);
+    for (index, probability) in probabilities.iter().enumerate() {
+        let check = scanner.push(*probability);
+        if playing {
+            scanner.played = scanner.frames();
+        }
+        let Some(check) = check else { continue };
+        if !any || check.segment < scanner.played {
+            continue;
+        }
+        if let Some(winner) = check_winner(scanner.pcm(check), check.opening, listeners, heard_here, transcriber)? {
+            return Ok(Some((check, probabilities[index + 1..].to_vec(), winner)));
+        }
+    }
+    Ok(None)
+}
+
+/// #NEW-56: transcribe the checks the scanner makes due and match each
+/// (EXP-1859: against every listener).
 pub struct TranscriptMatcher;
 
 impl WakeDetector for TranscriptMatcher {
@@ -479,25 +610,10 @@ impl WakeDetector for TranscriptMatcher {
         _samples: &[f32],
         probabilities: &[f32],
         transcriber: &mut dyn Transcriber,
-        phrase: &str,
-        language: &str,
+        listeners: &[Listener],
         playing: bool,
-    ) -> Result<Option<(Check, Vec<f32>)>, String> {
-        for (index, probability) in probabilities.iter().enumerate() {
-            let check = scanner.push(*probability);
-            if playing {
-                scanner.played = scanner.frames();
-            }
-            let Some(check) = check else { continue };
-            if check.segment < scanner.played {
-                continue;
-            }
-            let heard = transcriber.transcribe(scanner.pcm(check), language)?;
-            if check.matches(phrase, &heard) {
-                return Ok(Some((check, probabilities[index + 1..].to_vec())));
-            }
-        }
-        Ok(None)
+    ) -> Result<Option<Woken>, String> {
+        hear_transcripts(scanner, probabilities, transcriber, listeners, &|_| true, playing)
     }
 
     fn kind(&self) -> DetectorKind {
@@ -506,32 +622,48 @@ impl WakeDetector for TranscriptMatcher {
 }
 
 /// EXP-1424: a phrase's model scores every frame; Silero still segments
-/// (the turn needs its scores), nothing is transcribed while scanning. A
-/// detection is a [`Check`] from up to [`MODEL_HISTORY_MS`] before it (never
-/// before its segment's padded start) to the detection; its segment is the
-/// open one (else the check's start), so the echo and cooldown rules hold.
-pub struct ModelDetector(pub etalk_wakeword::Detector);
+/// (the turn needs its scores), nothing is transcribed for it while
+/// scanning. A detection is a [`Check`] from up to [`MODEL_HISTORY_MS`]
+/// before it (never before its segment's padded start) to the detection;
+/// its segment is the open one (else the check's start), so the echo and
+/// cooldown rules hold. EXP-1859: `models` = each listener (its index) that
+/// has a model ready; the other listeners keep the matcher, in the same scan.
+#[derive(Default)]
+pub struct SetDetector {
+    pub models: Vec<(usize, etalk_wakeword::Detector)>,
+}
 
-impl WakeDetector for ModelDetector {
+impl SetDetector {
+    /// Listener `index` is heard by `model`.
+    pub fn model(index: usize, model: etalk_wakeword::Detector) -> Self {
+        SetDetector { models: vec![(index, model)] }
+    }
+}
+
+impl WakeDetector for SetDetector {
     fn hear(
         &mut self,
         scanner: &mut WakeScanner,
         samples: &[f32],
         probabilities: &[f32],
-        _transcriber: &mut dyn Transcriber,
-        _phrase: &str,
-        _language: &str,
+        transcriber: &mut dyn Transcriber,
+        listeners: &[Listener],
         playing: bool,
-    ) -> Result<Option<(Check, Vec<f32>)>, String> {
-        for probability in probabilities {
-            scanner.push(*probability);
-            if playing {
-                scanner.played = scanner.frames();
+    ) -> Result<Option<Woken>, String> {
+        let modelled: Vec<usize> = self.models.iter().map(|(index, _)| *index).collect();
+        let matched = hear_transcripts(scanner, probabilities, transcriber, listeners, &|index| !modelled.contains(&index), playing)?;
+        // Always fed (their history stays whole); a detection while playing
+        // is dropped below.
+        let mut detected: Option<(usize, usize)> = None;
+        for (index, model) in &mut self.models {
+            if let Some(end) = model.detect(samples).map_err(|err| err.to_string())? {
+                detected.get_or_insert((*index, end));
             }
         }
-        // Always fed (its history stays whole); a detection while playing
-        // is dropped below.
-        let Some(end) = self.0.detect(samples).map_err(|err| err.to_string())? else { return Ok(None) };
+        if matched.is_some() {
+            return Ok(matched);
+        }
+        let Some((winner, end)) = detected else { return Ok(None) };
         let end = (end / FRAME).min(scanner.frames());
         let open = scanner.segmenter.open_start();
         let start = end.saturating_sub(frames(MODEL_HISTORY_MS)).max(open.unwrap_or(0)).max(scanner.base);
@@ -539,11 +671,11 @@ impl WakeDetector for ModelDetector {
         if playing || segment < scanner.played {
             return Ok(None);
         }
-        Ok(Some((Check { start, end, segment, opening: Opening::Model }, Vec::new())))
+        Ok(Some((Check { start, end, segment, opening: Opening::Model }, Vec::new(), winner)))
     }
 
     fn kind(&self) -> DetectorKind {
-        DetectorKind::Model
+        if self.models.is_empty() { DetectorKind::Transcript } else { DetectorKind::Model }
     }
 }
 
@@ -560,27 +692,54 @@ pub fn scan(
     vad: &mut dyn Vad,
     transcriber: &mut dyn Transcriber,
     samples: &[f32],
-    phrase: &str,
-    language: &str,
+    listeners: &[Listener],
     playing: bool,
-) -> Result<Option<(Check, Vec<f32>)>, String> {
+) -> Result<Option<Woken>, String> {
     scanner.samples(samples);
     let probabilities = vad.push(samples)?;
-    detector.hear(scanner, samples, &probabilities, transcriber, phrase, language, playing)
+    detector.hear(scanner, samples, &probabilities, transcriber, listeners, playing)
+}
+
+/// A wake's own sound (talk-listen.json `wake.multi` `tone`; owner
+/// 2026-11-16: a short tone on every wake).
+pub const TONE_NOTES_HZ: [f32; 2] = [660.0, 990.0];
+pub const TONE_NOTE_MS: usize = 70;
+pub const TONE_GAP_MS: usize = 30;
+pub const TONE_FADE_MS: usize = 8;
+pub const TONE_GAIN: f32 = 0.25;
+
+/// EXP-1859: the wake tone at `rate`: the notes in order, each
+/// [`TONE_NOTE_MS`] with [`TONE_FADE_MS`] ramps, [`TONE_GAP_MS`] apart.
+pub fn wake_tone(rate: u32) -> Vec<f32> {
+    let at = |ms: usize| rate as usize * ms / 1000;
+    let (note, gap, fade) = (at(TONE_NOTE_MS), at(TONE_GAP_MS), at(TONE_FADE_MS).max(1));
+    let mut out = Vec::with_capacity(TONE_NOTES_HZ.len() * (note + gap));
+    for (index, hz) in TONE_NOTES_HZ.iter().enumerate() {
+        if index > 0 {
+            out.extend(std::iter::repeat_n(0.0, gap));
+        }
+        out.extend((0..note).map(|sample| {
+            let envelope = (sample.min(note - 1 - sample) as f32 / fade as f32).min(1.0);
+            TONE_GAIN * envelope * (std::f32::consts::TAU * hz * sample as f32 / rate as f32).sin()
+        }));
+    }
+    out
 }
 
 /// A match's turn: the segment from the check's start seeds it, the
 /// capture's later scores follow.
 pub fn turn(
     id: &str,
-    language: &str,
-    phrase: &str,
+    listeners: &[Listener],
     scanner: &WakeScanner,
-    (check, rest): (Check, Vec<f32>),
+    (check, rest, winner): Woken,
     transcriber: &mut dyn Transcriber,
 ) -> Result<Utterance, (etalk::ListenFailure, String)> {
     let (audio, scores) = scanner.seed(check);
-    let mut utterance = Utterance::woken(id, language, phrase, check.opening, &audio, &scores, transcriber)?;
+    // EXP-1859: the turn is the winner's: its phrase is dropped, its
+    // language heard.
+    let listener = &listeners[winner];
+    let mut utterance = Utterance::woken(id, listener.language, listener.phrase.as_str(), check.opening, &audio, &scores, transcriber)?;
     utterance.feed_scored(&[], &rest, transcriber, &mut |_| {})?;
     Ok(utterance)
 }
@@ -672,6 +831,90 @@ mod tests {
             let expected = case["rest"].as_str().map(str::to_string);
             assert_eq!(got, expected, "{}", case["name"]);
         }
+    }
+
+    /// EXP-1859: `wake.multi`.
+    #[test]
+    fn several_listeners_follow_the_fixture() {
+        let multi = &wake()["multi"];
+        assert_eq!(multi["constants"]["maxListeners"], MAX_LISTENERS);
+        for case in multi["multiWindow"].as_array().unwrap() {
+            let phrases: Vec<&str> = case["phrases"].as_array().unwrap().iter().map(|phrase| phrase.as_str().unwrap()).collect();
+            assert_eq!(multi_window_ms(phrases), case["windowMs"].as_u64().unwrap() as usize, "{case}");
+        }
+        for case in multi["passes"].as_array().unwrap() {
+            let languages: Vec<&str> = case["languages"].as_array().unwrap().iter().map(|language| language.as_str().unwrap()).collect();
+            let expected: Vec<String> = serde_json::from_value(case["passes"].clone()).unwrap();
+            assert_eq!(passes(languages), expected, "{case}");
+        }
+        let cases = multi["multiMatch"].as_array().unwrap();
+        assert!(cases.len() >= 9);
+        for case in cases {
+            let heard = case["heard"].as_str().unwrap();
+            let listeners = case["listeners"].as_array().unwrap();
+            let pairs: Vec<(&str, &str)> = listeners.iter().map(|listener| (listener["phrase"].as_str().unwrap(), heard)).collect();
+            let got = multi_match(&pairs, case["first"].as_bool().unwrap()).map(|(index, rest)| (listeners[index]["agent"].as_str().unwrap().to_string(), rest));
+            let expected = case["expected"].as_object().map(|expected| (expected["agent"].as_str().unwrap().to_string(), expected["rest"].as_str().unwrap().to_string()));
+            assert_eq!(got, expected, "{}", case["name"]);
+        }
+    }
+
+    /// EXP-1859: the wake tone is the fixture's, short and soft.
+    #[test]
+    fn the_wake_tone_follows_the_fixture() {
+        let tone = &wake()["multi"]["tone"];
+        let notes: Vec<f32> = serde_json::from_value(tone["notesHz"].clone()).unwrap();
+        assert_eq!(notes, TONE_NOTES_HZ);
+        assert_eq!(tone["noteMs"], TONE_NOTE_MS);
+        assert_eq!(tone["gapMs"], TONE_GAP_MS);
+        assert_eq!(tone["fadeMs"], TONE_FADE_MS);
+        assert_eq!(tone["gain"].as_f64().unwrap() as f32, TONE_GAIN);
+        let pcm = wake_tone(24_000);
+        assert_eq!(pcm.len(), 24 * (2 * TONE_NOTE_MS + TONE_GAP_MS));
+        assert!(pcm.iter().all(|sample| sample.abs() <= TONE_GAIN));
+        assert!(pcm.iter().any(|sample| sample.abs() > TONE_GAIN * 0.9));
+        // Ramps: every note starts and ends at silence, the gap is silent.
+        let note = 24 * TONE_NOTE_MS;
+        assert_eq!((pcm[0], pcm[note - 1].abs() < 0.01, pcm[note + 10]), (0.0, true, 0.0));
+    }
+
+    /// EXP-1859: one capture, several listeners: ONE transcript per
+    /// language, the winner's turn loses ITS phrase.
+    #[test]
+    fn several_listeners_share_one_transcript_and_the_winner_takes_the_turn() {
+        let listeners = [Listener::new("a-bro", "Hey Assistant", "en"), Listener::new("a-tri", "Hey Triage", "en"), Listener::new("a-ops", "Hey Ops", "en")];
+        let audio = [tone(0.3, 0.0), tone(3.0, 0.5), tone(1.5, 0.0)].concat();
+        let mut vad = Loud(Vec::new());
+        let mut engines = Says("Hey Triage, what's new?", 0);
+        let mut scanner = WakeScanner::new(multi_window_ms(listeners.iter().map(|listener| listener.phrase.as_str())));
+        let (mut turn, mut answer, mut woke, mut scanned) = (None::<Utterance>, None, None, 0);
+        for chunk in audio.chunks(320) {
+            if let Some(utterance) = turn.as_mut() {
+                utterance.feed(chunk, &mut vad, &mut engines, &mut |_| {}).unwrap();
+                if turn_ended(utterance) {
+                    turn.take().unwrap().finish(&mut engines, &mut |event| answer = Some(event)).unwrap();
+                    break;
+                }
+                continue;
+            }
+            if let Some(matched) = scan(&mut scanner, &mut TranscriptMatcher, &mut vad, &mut engines, chunk, &listeners, false).unwrap() {
+                scanned = engines.1;
+                woke = Some(listeners[matched.2].agent_id.clone());
+                turn = Some(super::turn("wake-1", &listeners, &scanner, matched, &mut engines).unwrap());
+            }
+        }
+        assert_eq!(woke.as_deref(), Some("a-tri"));
+        assert_eq!(scanned, 1, "three phrases of one language cost one transcript");
+        assert_eq!(answer, Some(etalk::Event::Heard { id: "wake-1".into(), text: "What's new?".into() }));
+    }
+
+    /// EXP-1859: a second language costs one more transcript per check.
+    #[test]
+    fn a_second_language_is_one_more_pass() {
+        let listeners = [Listener::new("a-bro", "Hey Assistant", "en"), Listener::new("a-stu", "Hey Studio", "de"), Listener::new("a-ops", "Hey Ops", "fr")];
+        let mut engines = Says("Something else entirely.", 0);
+        let winner = check_winner(&[0.0; FRAME], Opening::First, &listeners, &|_| true, &mut engines).unwrap();
+        assert_eq!((winner, engines.1), (None, 2));
     }
 
     #[test]
@@ -840,8 +1083,9 @@ mod tests {
                 }
                 continue;
             }
-            if let Some(matched) = scan(&mut scanner, &mut TranscriptMatcher, &mut vad, &mut engines, chunk, "Hey Studio", "en", playing).unwrap() {
-                turn = Some(super::turn("wake-1", "en", "Hey Studio", &scanner, matched, &mut engines).unwrap());
+            let listeners = [Listener::new("", "Hey Studio", "en")];
+            if let Some(matched) = scan(&mut scanner, &mut TranscriptMatcher, &mut vad, &mut engines, chunk, &listeners, playing).unwrap() {
+                turn = Some(super::turn("wake-1", &listeners, &scanner, matched, &mut engines).unwrap());
             }
         }
         (answer, engines.1)
@@ -906,9 +1150,10 @@ mod tests {
                 }
                 continue;
             }
-            if let Some(matched) = scan(&mut scanner, &mut TranscriptMatcher, &mut vad, &mut engines, chunk, "Hey Studio", "en", false).unwrap() {
+            let listeners = [Listener::new("", "Hey Studio", "en")];
+            if let Some(matched) = scan(&mut scanner, &mut TranscriptMatcher, &mut vad, &mut engines, chunk, &listeners, false).unwrap() {
                 woke_at = Some(matched.0);
-                turn = Some(super::turn("wake-1", "en", "Hey Studio", &scanner, matched, &mut engines).unwrap());
+                turn = Some(super::turn("wake-1", &listeners, &scanner, matched, &mut engines).unwrap());
             }
         }
         let check = woke_at.expect("a later check woke it");
@@ -965,7 +1210,8 @@ mod tests {
             etalk_wakeword::Trigger::new(etalk_wakeword::models::THRESHOLD, etalk_wakeword::models::PATIENCE, etalk_wakeword::models::DEBOUNCE),
             1.0,
         );
-        let mut detector = ModelDetector(model);
+        let mut detector = SetDetector::model(0, model);
+        let listeners = [Listener::new("", "Hey LiveKit", "en")];
         let mut vad = Energy(Vec::new());
         let mut engines = Says("Hey LiveKit, move it.", 0);
         let mut scanner = WakeScanner::for_model();
@@ -981,10 +1227,10 @@ mod tests {
                 continue;
             }
             let playing = index * 320 < played;
-            if let Some(matched) = scan(&mut scanner, &mut detector, &mut vad, &mut engines, chunk, "Hey LiveKit", "en", playing).unwrap() {
+            if let Some(matched) = scan(&mut scanner, &mut detector, &mut vad, &mut engines, chunk, &listeners, playing).unwrap() {
                 scanned = Some(engines.1);
                 woke = Some(matched.0);
-                turn = Some(super::turn("wake-1", "en", "Hey LiveKit", &scanner, matched, &mut engines).unwrap());
+                turn = Some(super::turn("wake-1", &listeners, &scanner, matched, &mut engines).unwrap());
             }
         }
         (answer, scanned.unwrap_or(engines.1), woke)
