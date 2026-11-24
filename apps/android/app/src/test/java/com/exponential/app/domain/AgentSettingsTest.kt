@@ -322,6 +322,29 @@ class AgentSettingsTest {
     }
 
     @Test
+    fun `assistant runsOnRowCases`() {
+        val cases = assistant.getValue("runsOnRowCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val devices = case.getValue("devices").jsonArray.map { it.jsonObject }
+            val online = devices.associate { it.str("deviceId")!! to it.getValue("online").jsonPrimitive.boolean }
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map {
+                    val row = it.jsonObject
+                    AgentSettings.RunsOnRow(row.str("id")!!, row.str("description"), row.getValue("disabled").jsonPrimitive.boolean)
+                },
+                AgentSettings.runsOnRows(
+                    devices.map { AgentSettings.RunsOnDevice(it.str("deviceId")!!, it.str("kind")) },
+                    { online.getValue(it) },
+                    case.str("boundId"),
+                    case.getValue("assistant").jsonPrimitive.boolean,
+                ),
+            )
+        }
+    }
+
+    @Test
     fun `assistant modelValueCases`() {
         val cases = assistant.getValue("modelValueCases").jsonArray.map { it.jsonObject }
         assertTrue(cases.isNotEmpty())

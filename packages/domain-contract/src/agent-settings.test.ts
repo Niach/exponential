@@ -37,6 +37,7 @@ import {
   issueActor,
   orderedAgents,
   runsOnDeviceIds,
+  runsOnRows,
   triggerSummary,
   validateAgentForm,
   visibleAgent,
@@ -97,6 +98,11 @@ describe(`agent-settings.json assistant`, () => {
   for (const c of fixture.assistant.runsOnCases) {
     it(`runsOnCases: ${c.name}`, () => {
       expect(runsOnDeviceIds(c.devices, c.boundId, c.assistant)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.runsOnRowCases) {
+    it(`runsOnRowCases: ${c.name}`, () => {
+      expect(runsOnRows(c.devices, c.boundId, c.assistant)).toEqual(c.expected)
     })
   }
   for (const c of fixture.assistant.visibleCases) {

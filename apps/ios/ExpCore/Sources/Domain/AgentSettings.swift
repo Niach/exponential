@@ -454,6 +454,45 @@ public enum AgentSettings {
             .map(\.deviceId)
     }
 
+    /// A Runs on picker row (`runsOnRowCases`): `description` = the secondary
+    /// line (devices-list `copy.offline` while offline), `disabled` its state.
+    public struct RunsOnRow: Equatable, Sendable {
+        public let id: String
+        public let description: String?
+        public let disabled: Bool
+
+        public init(id: String, description: String?, disabled: Bool) {
+            self.id = id
+            self.description = description
+            self.disabled = disabled
+        }
+    }
+
+    /// THE Runs on rows ×4 (`runsOnRowCases`, TS `runsOnRows`, web
+    /// `deviceRows`): the devices of `runsOnDeviceIds`, online ones pickable,
+    /// an offline one listed with `Offline` and disabled unless bound; a bound
+    /// id no device matches leads by its raw id.
+    public static func runsOnRows(
+        _ devices: [(deviceId: String, kind: String?, online: Bool)],
+        boundId: String?,
+        assistant: Bool
+    ) -> [RunsOnRow] {
+        let kept = Set(runsOnDeviceIds(devices.map { (deviceId: $0.deviceId, kind: $0.kind) }, boundId: boundId, assistant: assistant))
+        var rows = devices
+            .filter { kept.contains($0.deviceId) }
+            .map { device in
+                RunsOnRow(
+                    id: device.deviceId,
+                    description: device.online ? nil : DevicesList.Copy.offline,
+                    disabled: !device.online && device.deviceId != boundId
+                )
+            }
+        if let boundId, !boundId.isEmpty, !devices.contains(where: { $0.deviceId == boundId }) {
+            rows.insert(RunsOnRow(id: boundId, description: nil, disabled: false), at: 0)
+        }
+        return rows
+    }
+
     /// `assistant.scheduleCases`: the preset stored triggers stand for; nil
     /// = not an Assistant's (an event, a custom cron, more than one) and
     /// `agents.update` refuses it. A paused preset reads `off`.
