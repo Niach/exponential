@@ -62,18 +62,27 @@ import {
 
 // ── The ranking knobs (one line each) ───────────────────────────────────────
 
-/** Cosine distance above which a neighbour of a QUERY is not appended. The
- *  bands overlap (#NEW-134: the issue a query means 0.09 to 0.19, unrelated
- *  ones 0.16 to 0.28), so this only drops the clearly unrelated tail. */
-export const ISSUE_SEARCH_SEMANTIC_MAX_DISTANCE = 0.2
+/** Cosine distance above which a neighbour of a QUERY is not appended.
+ *  Measured on a 32-issue German/English tracker (#NEW-135's report): the
+ *  issue a query means sits at 0.09 to 0.17, the nearest unrelated one at
+ *  0.16 to 0.20 (a one-word or nonsense query: everything at 0.175 to 0.19).
+ *  The bands touch, so no value is clean; 0.16 keeps nearly every real match
+ *  and nearly no noise, where the store's 0.2 default appended unrelated
+ *  issues to almost every query. */
+export const ISSUE_SEARCH_SEMANTIC_MAX_DISTANCE = 0.16
 /** How many semantic hits at most follow the lexical ones. Small on purpose:
- *  with a soft cutoff the cap is what keeps noise out of the list. */
-export const ISSUE_SEARCH_SEMANTIC_MAX_HITS = 5
-/** Cosine distance above which an issue is not `similar:` to another one
- *  (issue to issue, a different band than query to issue). */
+ *  the first neighbour is the issue meant in nearly every measured query,
+ *  the ones after it are often unrelated yet inside the cutoff, so the cap
+ *  is what keeps noise out of the list. */
+export const ISSUE_SEARCH_SEMANTIC_MAX_HITS = 3
+/** Cosine distance above which an issue is not `similar:` to another one.
+ *  Issue to issue the bands overlap completely (a German/English twin at
+ *  0.11 to 0.12, two unrelated short issues as near as 0.10), so this is
+ *  only the far tail; the ORDER is what `similar:` offers, and the cap
+ *  below keeps the list short. */
 export const ISSUE_SEARCH_SIMILAR_MAX_DISTANCE = 0.2
-/** How many neighbours a `similar:` filter of a listing admits (MCP list). */
-export const ISSUE_SEARCH_SIMILAR_LIST_MAX = 50
+/** How many neighbours `similar:` lists at most (the search and MCP's list). */
+export const ISSUE_SEARCH_SIMILAR_MAX_HITS = 10
 /** How long a search waits for its query's embedding, from its start. */
 export const ISSUE_SEARCH_EMBED_BUDGET_MS = 150
 /** Query words shorter than this in total never reach the model. */
@@ -319,7 +328,7 @@ function logFailure(what: string, error: unknown): void {
 
 /**
  * `similar:<ID>`: the ids nearest to that issue, nearest first, at most
- * `limit`. `narrow` = the query's other tokens as a predicate over `i`.
+ * `limit` and `ISSUE_SEARCH_SIMILAR_MAX_HITS`. `narrow` = the query's other tokens as a predicate over `i`.
  */
 async function similarIds(
   backend: IssueSearchBackend,
@@ -334,7 +343,7 @@ async function similarIds(
     if (!source) return []
     const self = sql`i.id <> ${source.issueId}::uuid`
     const hits = await backend.nearest(source.vector, scope, {
-      k: limit,
+      k: Math.min(limit, ISSUE_SEARCH_SIMILAR_MAX_HITS),
       maxDistance: ISSUE_SEARCH_SIMILAR_MAX_DISTANCE,
       filter: narrow ? sql`${self} and ${narrow}` : self,
     })
@@ -447,7 +456,7 @@ export async function issueSearchIdsSql(
   const parsed = parseIssueSearchQuery(query)
   if (parsed.similar.length > 0) {
     return idListSql(
-      await similarIds(backend, parsed.similar[0]!, scope, similarNarrowSql(query, scope), ISSUE_SEARCH_SIMILAR_LIST_MAX)
+      await similarIds(backend, parsed.similar[0]!, scope, similarNarrowSql(query, scope), ISSUE_SEARCH_SIMILAR_MAX_HITS)
     )
   }
   const lexical = issueSearchMatchIds(query, scope, { limit: options.limit })

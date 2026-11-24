@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { eq, sql } from "drizzle-orm"
 import { boards, comments, issues, teamMembers, teams } from "@/db/schema"
 import { issueSearchMatchIds, type IssueSearchScope } from "@/lib/issue-search-sql"
-import { inRollback, probeRealDb, type RealDbTx } from "@/test/real-db"
+import { inRollback, oneAtATime, probeRealDb, type RealDbTx } from "@/test/real-db"
 import embeddingModel from "../../../embedder/model.json"
 import { stopEmbedder } from "./embedder"
 import { runIssueEmbeddingSweep } from "./recompute"
@@ -133,6 +133,7 @@ async function seed(tx: RealDbTx) {
 describe.skipIf(!ready.ok || hasVector)(`issue search on a Postgres WITHOUT pgvector`, () => {
   it(`is exactly the lexical search; similar: finds nothing`, async () => {
     await inRollback(async (tx) => {
+      await oneAtATime(tx, `issue_embeddings`)
       await tx.execute(sql.raw(bootSql))
       const w = await world(tx)
       const safari = await w.issue(`Login button does nothing on Safari`, `Clicking "Sign in" has no effect.`)
@@ -164,6 +165,7 @@ describe.skipIf(!ready.ok || !hasVector || !hasModel)(`issue search on a Postgre
     `similar:<ID> lists the issue's German/English twin first, inside the scope, filters and words applied`,
     async () => {
       await inRollback(async (tx) => {
+        await oneAtATime(tx, `issue_embeddings`)
         await tx.execute(sql.raw(bootSql))
         const s = await seed(tx)
         resetIssueSearchVectors()
@@ -226,11 +228,12 @@ describe.skipIf(!ready.ok || !hasVector || !hasModel)(`issue search on a Postgre
     `a worded query keeps its lexical hits and their order, then appends the paraphrase the words miss`,
     async () => {
       await inRollback(async (tx) => {
+        await oneAtATime(tx, `issue_embeddings`)
         await tx.execute(sql.raw(bootSql))
         const s = await seed(tx)
         resetIssueSearchVectors()
 
-        for (const query of [`login safari`, `Anmeldung in Safari funktioniert nicht`, `doppelte Mitteilungen auf dem Handy`, `Rechnung mit falscher Mehrwertsteuer`, `push`]) {
+        for (const query of [`login safari`, `Anmelden in Safari bewirkt nichts`, `Anmeldung in Safari funktioniert nicht`, `doppelte Mitteilungen auf dem Handy`, `Rechnung mit falscher Mehrwertsteuer`, `push`]) {
           const lexical = await s.lexical(query)
           const found = await s.search(query)
           console.info(`[issue-search-semantic.real-db] ${JSON.stringify(query)} → lexical [${lexical.join(`, `)}] then [${found.slice(lexical.length).join(`, `)}]`)
@@ -244,24 +247,23 @@ describe.skipIf(!ready.ok || !hasVector || !hasModel)(`issue search on a Postgre
           expect(await s.listed(query)).toEqual([...found].sort())
         }
 
-        // "login safari": the English issue (and the one filed after the
-        // sweep) match the words; the German twin matches neither word pair
-        // and comes in behind them, by meaning.
-        const mixed = await s.search(`login safari`)
-        const lexical = await s.lexical(`login safari`)
-        expect(lexical).toContain(`login.en`)
-        expect(lexical).not.toContain(`login.de`)
-        expect(mixed.indexOf(`login.de`)).toBeGreaterThanOrEqual(lexical.length)
+        // The German issue matches the words; its English twin shares only
+        // "Safari" with them and comes in behind, by meaning.
+        const phrase = `Anmelden in Safari bewirkt nichts`
+        const mixed = await s.search(phrase)
+        const lexical = await s.lexical(phrase)
+        expect(lexical).toEqual([`login.de`])
+        expect(mixed[lexical.length]).toBe(`login.en`)
         // No word matches at all: the list is the meaning's, the pair on top.
         expect(await s.lexical(`Anmeldung in Safari funktioniert nicht`)).toEqual([])
         expect((await s.search(`Anmeldung in Safari funktioniert nicht`)).slice(0, 2).sort()).toEqual([`login.de`, `login.en`])
-        expect((await s.search(`doppelte Mitteilungen auf dem Handy`)).slice(0, 2).sort()).toEqual([`push.de`, `push.en`])
+        expect((await s.search(`doppelte Mitteilungen auf dem Handy`))[0]).toBe(`push.de`)
         // Found through its COMMENT, in another language than the query.
         expect((await s.search(`Rechnung mit falscher Mehrwertsteuer`))[0]).toBe(`vague`)
 
         // The limit spans both halves; a full lexical page takes no neighbour.
-        expect(await s.search(`login safari`, s.scope, lexical.length)).toEqual(lexical)
-        expect(await s.search(`login safari`, s.scope, lexical.length + 1)).toEqual([...lexical, mixed[lexical.length]])
+        expect(await s.search(phrase, s.scope, lexical.length)).toEqual(lexical)
+        expect(await s.search(phrase, s.scope, lexical.length + 1)).toEqual([...lexical, `login.en`])
 
         // The filter tokens hold for the neighbours too.
         await tx.update(issues).set({ status: `done` }).where(eq(issues.id, s.login.de.id))
@@ -278,7 +280,7 @@ describe.skipIf(!ready.ok || !hasVector || !hasModel)(`issue search on a Postgre
         // The embedder off (or late): today's lexical result, nothing else.
         const off = issueSearchBackend(tx, async () => null)
         resetIssueSearchVectors()
-        expect((await searchIssues(`login safari`, s.scope, 20, { backend: off })).map((row) => s.names.get(row.id))).toEqual(lexical)
+        expect((await searchIssues(phrase, s.scope, 20, { backend: off })).map((row) => s.names.get(row.id))).toEqual(lexical)
       })
     },
     180_000

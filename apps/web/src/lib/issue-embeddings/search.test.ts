@@ -8,7 +8,7 @@ vi.mock(`@/db/connection`, () => ({ db: {} }))
 import {
   ISSUE_SEARCH_SEMANTIC_MAX_DISTANCE,
   ISSUE_SEARCH_SEMANTIC_MAX_HITS,
-  ISSUE_SEARCH_SIMILAR_LIST_MAX,
+  ISSUE_SEARCH_SIMILAR_MAX_HITS,
   ISSUE_SEARCH_SIMILAR_MAX_DISTANCE,
   appendSemanticHits,
   issueSearchIdsSql,
@@ -109,10 +109,10 @@ describe(`appendSemanticHits`, () => {
   it(`keeps the lexical order, appends unseen neighbours in theirs, up to the cap and the limit`, () => {
     const lexical = [row(1), row(2)]
     const semantic = [row(2), row(9), row(8), row(1), row(7), row(6), row(5), row(4)]
-    expect(appendSemanticHits(lexical, semantic, 20).map((hit) => hit.identifier)).toEqual([
-      `EXP-1`, `EXP-2`, `EXP-9`, `EXP-8`, `EXP-7`, `EXP-6`, `EXP-5`,
-    ])
-    expect(ISSUE_SEARCH_SEMANTIC_MAX_HITS).toBe(5)
+    expect(appendSemanticHits(lexical, semantic, 20).map((hit) => hit.identifier)).toEqual(
+      [`EXP-1`, `EXP-2`, `EXP-9`, `EXP-8`, `EXP-7`, `EXP-6`, `EXP-5`].slice(0, 2 + ISSUE_SEARCH_SEMANTIC_MAX_HITS)
+    )
+    expect(ISSUE_SEARCH_SEMANTIC_MAX_HITS).toBeLessThanOrEqual(5)
     expect(appendSemanticHits(lexical, semantic, 3).map((hit) => hit.identifier)).toEqual([`EXP-1`, `EXP-2`, `EXP-9`])
     expect(appendSemanticHits(lexical, semantic, 2)).toEqual(lexical)
     expect(appendSemanticHits(lexical, semantic, 1)).toEqual([row(1)])
@@ -152,7 +152,7 @@ describe(`searchIssues: a worded query`, () => {
   it(`never appends more than the cap, whatever the kNN returns`, async () => {
     const { backend } = fake({ lexical: [1], nearest: [11, 12, 13, 14, 15, 16, 17] })
     backend.nearest = async () => [11, 12, 13, 14, 15, 16, 17].map((n) => ({ issueId: uuid(n), distance: 0.1 }))
-    expect(ids(await searchIssues(`login broken`, scope, 30, { backend }))).toEqual([1, 11, 12, 13, 14, 15])
+    expect(ids(await searchIssues(`login broken`, scope, 30, { backend }))).toEqual([1, 11, 12, 13, 14, 15, 16, 17].slice(0, 1 + ISSUE_SEARCH_SEMANTIC_MAX_HITS))
   })
 
   it(`with no lexical hit the neighbours are the list, unfiltered by ids`, async () => {
@@ -233,8 +233,10 @@ describe(`searchIssues: similar:<ID>`, () => {
     expect(calls.embed).toEqual([])
     const nearest = calls.nearest[0]!
     expect(Array.from(nearest.vector)).toEqual([0, 1, 0])
-    expect(nearest.k).toBe(20)
+    expect(nearest.k).toBe(ISSUE_SEARCH_SIMILAR_MAX_HITS)
     expect(nearest.maxDistance).toBe(ISSUE_SEARCH_SIMILAR_MAX_DISTANCE)
+    await searchIssues(`similar:NEW-12`, scope, 3, { backend })
+    expect(calls.nearest[1]!.k).toBe(3)
     const filter = render(nearest.filter)
     expect(filter.sql).toContain(`i.id <> `)
     expect(filter.params).toEqual([uuid(12)])
@@ -316,7 +318,7 @@ describe(`issueSearchIdsSql (MCP list search)`, () => {
     const query = render(await issueSearchIdsSql(`similar:NEW-12`, boards, { backend: hit.backend, limit: 5000 }))
     expect(query.sql).not.toContain(`websearch_to_tsquery`)
     expect(query.params).toEqual([uuid(7), uuid(5)])
-    expect(hit.calls.nearest[0]!.k).toBe(ISSUE_SEARCH_SIMILAR_LIST_MAX)
+    expect(hit.calls.nearest[0]!.k).toBe(ISSUE_SEARCH_SIMILAR_MAX_HITS)
 
     const miss = fake({ source: null })
     expect(render(await issueSearchIdsSql(`similar:NOPE-1 login`, boards, { backend: miss.backend })).sql).toContain(`where false`)

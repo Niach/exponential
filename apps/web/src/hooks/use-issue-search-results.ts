@@ -54,6 +54,10 @@ export function useIssueSearchResults<T extends IssueSearchRow>({
   // behind the keystroke and abandons when the next one lands.
   const deferredQuery = useDeferredValue(query)
   const normalized = normalizeIssueSearchQuery(deferredQuery)
+  // #NEW-135: the server reads the words as TYPED (it normalizes for the
+  // lexical branches itself): the embedding model tells `Handy` from `handy`,
+  // and the native clients send the person's spelling too.
+  const spelled = deferredQuery.trim()
   const [hits, setHits] = useState<{
     query: string
     rows: IssueSearchServerHit[]
@@ -67,7 +71,7 @@ export function useIssueSearchResults<T extends IssueSearchRow>({
     const timer = setTimeout(() => {
       const scope = teamKey!.includes(`,`) ? { teamIds: teamKey!.split(`,`) } : { teamId: teamKey! }
       trpc.issues.search
-        .query({ ...scope, query: normalized, limit: Math.min(limit, 50) })
+        .query({ ...scope, query: spelled, limit: Math.min(limit, 50) })
         .then((rows) => {
           if (!cancelled) setHits({ query: normalized, rows })
         })
@@ -83,7 +87,7 @@ export function useIssueSearchResults<T extends IssueSearchRow>({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [wantServer, teamKey, normalized, limit])
+  }, [wantServer, teamKey, normalized, spelled, limit])
 
   // `resolveHit` is a fresh closure per render; read it through a ref so the
   // merge memo keys on data alone.

@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import { eq, sql } from "drizzle-orm"
 import { boards, comments, issues, teamMembers, teams } from "@/db/schema"
-import { inRollback, probeRealDb, type RealDbTx } from "@/test/real-db"
+import { inRollback, oneAtATime, probeRealDb, type RealDbTx } from "@/test/real-db"
 import embeddingModel from "../../../embedder/model.json"
 import { embedQuery, embedText, stopEmbedder } from "./embedder"
 import { ISSUE_EMBEDDING_MODEL } from "./input"
@@ -103,6 +103,7 @@ const makeStale = (tx: RealDbTx, issueId: string) =>
 describe.skipIf(!ready.ok || hasVector)(`issue embeddings on a Postgres WITHOUT pgvector`, () => {
   it(`the boot SQL is a no-op and every entry point answers "nothing"`, async () => {
     await inRollback(async (tx) => {
+      await oneAtATime(tx, `issue_embeddings`)
       await tx.execute(sql.raw(bootSql))
       await tx.execute(sql.raw(bootSql))
       expect(await issueEmbeddingsTableExists(tx)).toBe(false)
@@ -127,6 +128,7 @@ describe.skipIf(!ready.ok || !hasVector)(`issue embeddings on a Postgres WITH pg
 
   it(`the boot SQL creates the extension, the table and the HNSW index, idempotently`, async () => {
     await inRollback(async (tx) => {
+      await oneAtATime(tx, `issue_embeddings`)
       await tx.execute(sql.raw(bootSql))
       await tx.execute(sql.raw(bootSql))
       expect(await issueEmbeddingsTableExists(tx)).toBe(true)
@@ -148,6 +150,7 @@ describe.skipIf(!ready.ok || !hasVector)(`issue embeddings on a Postgres WITH pg
 
   it(`recompute embeds once, skips an unchanged hash, follows title, description and comments`, async () => {
     await inRollback(async (tx) => {
+      await oneAtATime(tx, `issue_embeddings`)
       await tx.execute(sql.raw(bootSql))
       const { teamId, issue, comment } = await world(tx)
       const id = await issue(`Login button does nothing`, `Clicking **Sign in** has no effect.`)
@@ -198,6 +201,7 @@ describe.skipIf(!ready.ok || !hasVector)(`issue embeddings on a Postgres WITH pg
 
   it(`a trashed or missing issue is skipped; a hard delete takes the row along`, async () => {
     await inRollback(async (tx) => {
+      await oneAtATime(tx, `issue_embeddings`)
       await tx.execute(sql.raw(bootSql))
       const { issue } = await world(tx)
       const fake = fakeEmbedder()
@@ -218,6 +222,7 @@ describe.skipIf(!ready.ok || !hasVector)(`issue embeddings on a Postgres WITH pg
 
   it(`the sweep (and the backfill on top of it) finds what is missing or stale, in batches, and resumes`, async () => {
     await inRollback(async (tx) => {
+      await oneAtATime(tx, `issue_embeddings`)
       await tx.execute(sql.raw(bootSql))
       const { teamId, issue, comment, team } = await world(tx)
       const ids = [await issue(`One`), await issue(`Two`), await issue(`Three`), await issue(`Four`), await issue(`Five`)]
@@ -263,6 +268,7 @@ describe.skipIf(!ready.ok || !hasVector)(`issue embeddings on a Postgres WITH pg
     `kNN with the real model: German and English issues about the same bug are neighbours, inside the scope only`,
     async () => {
       await inRollback(async (tx) => {
+        await oneAtATime(tx, `issue_embeddings`)
         await tx.execute(sql.raw(bootSql))
         const { teamId, boardId, issue, comment, team } = await world(tx)
         const login = {
