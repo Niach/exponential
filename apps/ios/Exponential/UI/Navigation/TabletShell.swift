@@ -284,7 +284,9 @@ struct TabletSidebar: View {
     // MARK: - Entries
 
     private var needsYouCount: Int {
+        // #EXP-1950: installs waiting for approval count as Needs you rows.
         lists.needsYou(teamId: teamState.activeTeamId, me: deps.auth.userId, now: now).count
+            + deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").rows.count
     }
 
     @ViewBuilder

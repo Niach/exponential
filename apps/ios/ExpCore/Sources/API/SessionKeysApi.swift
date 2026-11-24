@@ -124,12 +124,17 @@ public struct TreePublicKey: Decodable, Equatable, Sendable {
     public let rootId: String
     public let epoch: UInt32
     public let publicKey: String
+    /// #EXP-1950: a signed wrap of that epoch vouching for the key (R3); none on an older server.
+    public let vouch: InstallTrust.Vouch?
 
-    public init(rootId: String, epoch: UInt32, publicKey: String) {
+    public init(rootId: String, epoch: UInt32, publicKey: String, vouch: InstallTrust.Vouch? = nil) {
         self.rootId = rootId
         self.epoch = epoch
         self.publicKey = publicKey
+        self.vouch = vouch
     }
+
+    public var key: TreeSealKey { TreeSealKey(publicKey: publicKey, epoch: epoch, vouch: vouch) }
 }
 
 /// #FEED-250 (sealed-content.json `staleTree`): the server's word on the
@@ -145,19 +150,22 @@ public struct ServerSendTarget: Decodable, Equatable, Sendable {
     public let clearTree: Bool?
     /// #EXP-1941: the root's rotation is due (a call refuses to start on it).
     public let rotationDue: Bool?
+    /// #EXP-1950: a signed wrap of that epoch vouching for `publicKey` (R3).
+    public let vouch: InstallTrust.Vouch?
 
-    public init(rootId: String?, epoch: UInt32?, publicKey: String?, clearTree: Bool? = nil, rotationDue: Bool? = nil) {
+    public init(rootId: String?, epoch: UInt32?, publicKey: String?, clearTree: Bool? = nil, rotationDue: Bool? = nil, vouch: InstallTrust.Vouch? = nil) {
         self.rootId = rootId
         self.epoch = epoch
         self.publicKey = publicKey
         self.clearTree = clearTree
         self.rotationDue = rotationDue
+        self.vouch = vouch
     }
 
     /// The root's current key, when the server names one.
     public var key: TreeSealKey? {
         guard let epoch, epoch > 0, let publicKey, !publicKey.isEmpty else { return nil }
-        return TreeSealKey(publicKey: publicKey, epoch: epoch)
+        return TreeSealKey(publicKey: publicKey, epoch: epoch, vouch: vouch)
     }
 }
 
