@@ -248,7 +248,8 @@ fun AgentsScreen(
                 ) {
                     // #EXP-1950: phones also list the installs waiting for approval here.
                     if (maxWidth < COMPACT_MAX_WIDTH) {
-                        item(key = "__pending_installs__") { LivePendingInstalls() }
+                        // Web's `mb-6`: 18 + the list's 6 = 24 under the band.
+                        item(key = "__pending_installs__") { LivePendingInstalls(Modifier.padding(bottom = 18.dp)) }
                     }
                     item(key = "__machines_header__") {
                         SectionHeader(DevicesList.Copy.MINE) {
