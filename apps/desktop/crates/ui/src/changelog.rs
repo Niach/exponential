@@ -50,7 +50,7 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     date: "2026-11-24",
     title: "Views in your phone's chats",
     summary: "Android 0.14.156 and iOS 0.14.144: an agent's views draw in the chat, in subagent tabs and in calls, calls from Android are end-to-end encrypted, and iOS asks you to approve a new install.",
-    body: r##"- **Views in chat**: when an agent writes a view into its message, the chat shows it in place and its buttons work; subagent tabs and a call's transcript show views too.
+    body: r##"- **Views in chat**: when an agent writes a view into its message, the chat shows it in place; subagent tabs and a call's transcript show views too.
 - **Encrypted calls from Android**: calls are end-to-end encrypted between up-to-date apps.
 - **Approve a new install on iOS**: when a new install joins your account, Needs you shows it with its whole code, and you approve or remove it there.
 - **Your Assistant across teams**: in your Assistant's chat, issues, people, MCP servers and prompts come from all your teams, and its notifications and inbox rows open its chat.
