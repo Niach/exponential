@@ -2882,12 +2882,13 @@
     }
   ],
   "row": {
-    "$comment": "THE ROW of an install waiting for approval, the same tree ×4 (genUI core parts only, no new component, no new text style). One per row inside ONE Section: a Stack (vertical, gap sm) holding (1) a Row: title = the label (a team-mate's: their name · the label; no label = the code), subtitle = the code, trailing = ONE Badge (`copy.newInstall` / `copy.reset`, variant secondary); (2) a Stack (horizontal, gap sm) of two Buttons: `copy.approve` (size sm) then `copy.remove` (size sm, variant ghost). The buttons never share the Row's line: with three trailing parts a 320 pt row left the code about 70 px and cut it (iOS #3413, web before). THE CODE IS NEVER TRUNCATED: down to 320 pt width it shows all 10 characters and the space; only the title may truncate. The waiting state: THE page EmptyState, icon `icon`, title `copy.waiting`, description = the code.",
+    "$comment": "THE ROW of an install waiting for approval, the same tree ×4 (genUI core parts only, no new component, no new text style). One per row inside ONE Section: a Stack (vertical, gap sm) holding (1) a Row: title = the label (a team-mate's: their name · the label; no label = the code), subtitle = the code, trailing = ONE Badge (`copy.newInstall` / `copy.reset`, variant secondary); (2) a Stack (horizontal, gap sm) of two Buttons: `copy.approve` (size sm) then `copy.remove` (size sm, variant ghost). The buttons never share the Row's line: with three trailing parts a 320 pt row left the code about 70 px and cut it (iOS #3413, web before). Node ids (`<id>` = the install id): `install-<id>` the Stack, `install-<id>-row`, `-badge`, `-actions`, `-approve`, `-remove`. THE CODE IS NEVER TRUNCATED: down to 320 pt width it shows all 10 characters and the space; only the title may truncate. The waiting state: THE page EmptyState, icon `icon`, title `copy.waiting`, description = the code.",
     "minWidthPt": 320,
     "tree": {
       "component": "Section",
       "children": [
         {
+          "id": "install-<id>",
           "component": "Stack",
           "props": {
             "direction": "vertical",
@@ -2895,6 +2896,7 @@
           },
           "children": [
             {
+              "id": "install-<id>-row",
               "component": "Row",
               "props": {
                 "title": "label",
@@ -2902,6 +2904,7 @@
               },
               "slots": {
                 "trailing": {
+                  "id": "install-<id>-badge",
                   "component": "Badge",
                   "props": {
                     "text": "kind",
@@ -2911,6 +2914,7 @@
               }
             },
             {
+              "id": "install-<id>-actions",
               "component": "Stack",
               "props": {
                 "direction": "horizontal",
@@ -2918,6 +2922,7 @@
               },
               "children": [
                 {
+                  "id": "install-<id>-approve",
                   "component": "Button",
                   "props": {
                     "label": "approve",
@@ -2925,6 +2930,7 @@
                   }
                 },
                 {
+                  "id": "install-<id>-remove",
                   "component": "Button",
                   "props": {
                     "label": "remove",

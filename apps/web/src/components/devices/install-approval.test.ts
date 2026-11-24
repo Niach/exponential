@@ -10,6 +10,7 @@ type Node = { component: string; props?: Record<string, unknown>; children?: Nod
 function shape(node: Node, names: Map<unknown, string>): unknown {
   const props = node.props ? Object.fromEntries(Object.entries(node.props).map(([k, v]) => [k, names.get(v) ?? v])) : undefined
   return {
+    ...(node.id ? { id: node.id.replace(/^install-i(?=$|-)/, `install-<id>`) } : {}),
     component: node.component,
     ...(props ? { props } : {}),
     ...(node.children ? { children: node.children.map((child) => shape(child, names)) } : {}),
