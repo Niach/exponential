@@ -174,6 +174,9 @@ pub struct SyncedTailRow<'a> {
     pub consumed_at: Option<&'a str>,
     pub created_at: &'a str,
     pub body: &'a str,
+    /// #EXP-2084: the session that posted it (a child's reply), when not
+    /// the chat's own.
+    pub author_session_id: Option<&'a str>,
 }
 
 /// #FEED-260 (steer-enet.json SYNCED TAIL, TS `steerSyncedTail`): the synced
@@ -182,7 +185,8 @@ pub struct SyncedTailRow<'a> {
 /// body, the agent's or a person's CONSUMED input, later than the feed's
 /// newest known row time, and not already held by the feed (an agent line
 /// equal to, a prefix of or prefixed by a narration; an input equal to a feed
-/// input). An empty feed takes the tail only while its live transcript
+/// input; #EXP-2084 another session's line the feed holds as that session's
+/// input, whatever its time). An empty feed takes the tail only while its live transcript
 /// cannot be loaded (`unreachable`, the OFFLINE LINE's condition) and only
 /// when it holds an agent line (else SENT INPUTS keeps the placeholder). A
 /// live feed = none.
@@ -213,6 +217,13 @@ pub fn synced_tail<'r, T>(
         .filter_map(|r| r.text.filter(|t| !t.is_empty()))
         .map(str::trim)
         .collect();
+    // #EXP-2084: the inputs the device worded as another session's
+    // (`Message from <name> (session <id>): <body>`), by session and body.
+    let relays: Vec<domain::transcript_grouping::CrossSessionInput> = feed
+        .iter()
+        .filter(|r| r.author == Some("user"))
+        .filter_map(|r| r.text.and_then(domain::transcript_grouping::cross_session_input))
+        .collect();
     let mut tail: Vec<(SyncedTailRow<'r>, &'r T)> = rows
         .iter()
         .map(|item| (row(item), item))
@@ -226,6 +237,9 @@ pub fn synced_tail<'r, T>(
             }
             match m.author_kind {
                 "agent" => {
+                    if m.author_session_id.is_some_and(|from| relays.iter().any(|relay| relay.session_id == from && relay.body.trim() == body)) {
+                        return false;
+                    }
                     if narrations.iter().any(|text| !text.is_empty() && (text.starts_with(body) || body.starts_with(text))) {
                         return false;
                     }
@@ -1386,6 +1400,7 @@ mod tests {
                 consumed_at: m["consumedAt"].as_str(),
                 created_at: m["createdAt"].as_str().unwrap(),
                 body: m["body"].as_str().unwrap(),
+                author_session_id: m["authorSessionId"].as_str(),
             });
             let ids: Vec<&str> = picked.iter().map(|m| m["id"].as_str().unwrap()).collect();
             let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();

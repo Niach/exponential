@@ -63,8 +63,14 @@ pub enum ChatRowInput {
     Pill { id: String, icon: String, label: String },
     Line { id: String, icon: String, text: String },
     /// #EXP-1772: THE inline marker (an event line, a system note): a
-    /// centred muted label between two hairlines.
-    Marker { id: String, label: String },
+    /// centred muted label between two hairlines. #EXP-2077: `group` = it
+    /// sits in a sender's column (an Express block's failed marker).
+    Marker {
+        id: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<ChatGroup>,
+    },
     /// `surface` = the genUI card the document draws in an Embed (Round 9
     /// §19 `{root, data, version?}`), absent = none.
     Card {
@@ -75,6 +81,11 @@ pub enum ChatRowInput {
         target: Option<String>,
         #[serde(default)]
         surface: Option<Value>,
+        /// #EXP-2077 (chat-express.json DRAW): a segment of a sender's
+        /// row (an Express block's frame): its `avatar`, `indent` and
+        /// `gap`; absent = a full-width card 16 below the row before it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<ChatGroup>,
     },
     Question {
         id: String,
@@ -506,14 +517,14 @@ fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
         ChatRowInput::Host { id } => blank(id, ChatRowKind::Host),
         ChatRowInput::Pill { id, icon, label } => ChatRow { icon: icon.clone(), text: label.clone(), ..blank(id, ChatRowKind::Pill) },
         ChatRowInput::Line { id, icon, text } => ChatRow { icon: icon.clone(), text: text.clone(), ..blank(id, ChatRowKind::Line) },
-        ChatRowInput::Marker { id, label } => ChatRow { text: label.clone(), ..blank(id, ChatRowKind::Marker) },
-        ChatRowInput::Card { id, icon, title, text, target, surface } => ChatRow {
+        ChatRowInput::Marker { id, label, group } => ChatRow { text: label.clone(), ..segment(group.as_ref(), blank(id, ChatRowKind::Marker)) },
+        ChatRowInput::Card { id, icon, title, text, target, surface, group } => ChatRow {
             icon: icon.clone(),
             title: title.clone(),
             text: text.clone(),
             target: target.clone(),
             surface: surface.clone(),
-            ..blank(id, ChatRowKind::Card)
+            ..segment(group.as_ref(), blank(id, ChatRowKind::Card))
         },
         ChatRowInput::Question { id, question, options, custom, multi, waiting, answer, surface } => ChatRow {
             icon: copy("questionIcon"),
@@ -534,11 +545,22 @@ fn row(input: &ChatRowInput, bubbles: bool) -> ChatRow {
     }
 }
 
-/// The space above row `index`: a grouped message's own, a host row none
-/// (it paints its own), else 16 below the row before it.
+/// #EXP-2077: a card or marker that is a segment of a sender's row sits in
+/// that sender's column: the group's avatar and indent.
+fn segment(group: Option<&ChatGroup>, row: ChatRow) -> ChatRow {
+    match group {
+        Some(group) => ChatRow { avatar: group.avatar.clone().unwrap_or_default(), indent: group.indent, ..row },
+        None => row,
+    }
+}
+
+/// The space above row `index`: a grouped message's own (a grouped card's
+/// or marker's too, #EXP-2077), a host row none (it paints its own), else
+/// 16 below the row before it.
 fn gap(input: &ChatRowInput, index: usize) -> u32 {
     match input {
         ChatRowInput::Message { group: Some(group), author, .. } if author == "user" || author == "agent" => group.gap,
+        ChatRowInput::Card { group: Some(group), .. } | ChatRowInput::Marker { group: Some(group), .. } => group.gap,
         ChatRowInput::Host { .. } => 0,
         _ if index == 0 => 0,
         _ => DEFAULT_GAP,

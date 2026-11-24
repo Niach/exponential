@@ -262,6 +262,17 @@ impl EngineSession {
         self.0.ctx.background()
     }
 
+    /// #EXP-2085: the background tasks the agent lists right now.
+    pub fn background_tasks(&self) -> Vec<wire::BackgroundTask> {
+        self.0.ctx.background_tasks()
+    }
+
+    /// #EXP-2085: the background tasks this run's end took down (empty
+    /// while it lives).
+    pub fn ended_background_tasks(&self) -> Vec<wire::BackgroundTask> {
+        self.0.ctx.ended_background_tasks()
+    }
+
     /// EXP-1005: the agent's usage wall as the engine last saw it (`None` =
     /// not blocked) — what a host's account-rotation beat reads, together
     /// with the turn slot, to decide whether this run may move to another
@@ -423,6 +434,10 @@ pub struct SessionSpec {
     pub replay: bool,
     pub resume: Option<ResumeHandle>,
     pub prompt: Option<String>,
+    /// #EXP-2085: one line the host says as this run starts (a relaunch
+    /// that ended background tasks): a notice in the feed, and the lead of
+    /// the agent's first input.
+    pub start_note: Option<String>,
     /// EXP-1330: a `/btw` aside run.
     pub aside: bool,
     /// The link the ADAPTER records its child's exit into — the same one, so
@@ -462,6 +477,7 @@ impl SessionSpec {
             replay: launch.replay,
             resume: launch.resume.clone(),
             prompt: launch.prompt.clone(),
+            start_note: None,
             aside: launch.aside,
             child_exit: launch.exit.clone(),
             attachments: None,
@@ -555,6 +571,10 @@ fn build_ctx(spec: SessionSpec) -> Arc<SessionCtx> {
         busy_at_shutdown: std::sync::atomic::AtomicBool::new(false),
         api_retry: Mutex::new(super::api_retry::ApiRetry::new()),
         turn_note: Mutex::new(None),
+        start_note: Mutex::new(spec.start_note),
+        background_list: Mutex::new(Vec::new()),
+        ended_background: Mutex::new(Vec::new()),
+        device_interrupt: Mutex::new(Default::default()),
         failure: Mutex::new(None),
         stalled: std::sync::atomic::AtomicBool::new(false),
         exit: ExitState::default(),
@@ -587,9 +607,11 @@ where
     let _ = ctx.backend.set(Arc::clone(&backend));
     backend.attach(&ctx, &commands)?;
     let thread_ctx = Arc::clone(&ctx);
-    let spawned = std::thread::Builder::new()
-        .name(thread_name(&ctx.session_id))
-        .spawn(move || {
+    let end_backend = Arc::clone(&backend);
+    let spawned = backend.spawn_thread(
+        std::thread::Builder::new().name(thread_name(&ctx.session_id)),
+        Box::new(move || {
+            let backend = end_backend;
             // The exit slot is flipped by the backend's `end` alone, so a
             // PANIC under `run_session` would leave `is_done()` false forever
             // — the daemon's `LiveSession` never leaves its map and a
@@ -617,14 +639,20 @@ where
             let child = thread_ctx.child_exit.get();
             backend.end(&thread_ctx, &outcome, child, error);
             guard.disarm();
-        });
+        }),
+    );
     match spawned {
-        Ok(_) => Ok(EngineSession(Arc::new(Inner {
+        Ok(()) => Ok(EngineSession(Arc::new(Inner {
             ctx,
             agent,
             commands,
         }))),
-        Err(err) => Err(EngineError::Spawn(err)),
+        Err(err) => {
+            // #EXP-2058: no thread, so no `end`: the side-car `attach`
+            // brought up stops here, or it outlives a run that never was.
+            backend.detach(&ctx);
+            Err(EngineError::Spawn(err))
+        }
     }
 }
 

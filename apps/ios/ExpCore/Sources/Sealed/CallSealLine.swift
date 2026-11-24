@@ -51,10 +51,9 @@ public struct HolderCallKeys: CallKeySource {
         await holder.sendTarget(accountId: accountId, agentId: agentId, appId: nil)
     }
 
+    /// #EXP-1950 (install-trust.json `callCases`): the keyring's key by the rule.
     public func secret(rootId: String, epoch: UInt32) async -> Data? {
-        if let held = holder.held(rootId: rootId)[epoch] { return held }
-        await holder.pull(accountId: accountId, rootId: rootId)
-        return holder.held(rootId: rootId)[epoch]
+        await holder.callSecret(accountId: accountId, rootId: rootId, epoch: epoch)
     }
 
     public func highestEpoch(rootId: String) -> UInt32? {

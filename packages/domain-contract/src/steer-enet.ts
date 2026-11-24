@@ -6,6 +6,7 @@
 // steer store, iOS and Android.
 
 import fixture from "../fixtures/steer-enet.json" with { type: "json" }
+import { crossSessionInput } from "./transcript-grouping"
 
 export const STEER_ENET_TAG = fixture.tag
 export const STEER_ENET_VERSION = fixture.version
@@ -196,7 +197,11 @@ export const STEER_SYNCED_TAIL_MAX = fixture.syncedTailMax
 export type SteerTailFeedRow = { author: `agent` | `user` | null; text: string | null; at: string | null }
 
 /** One synced message of the session, as `steerSyncedTail` reads it. */
-export type SteerSyncedMessage = SteerNoFeedInputRow & { body: string }
+export type SteerSyncedMessage = SteerNoFeedInputRow & {
+  body: string
+  /** #EXP-2084: the session that posted it (a child's reply), when not the chat's own. */
+  authorSessionId?: string | null
+}
 
 function epochMs(iso: string | null): number | null {
   if (iso === null) return null
@@ -210,8 +215,9 @@ function epochMs(iso: string | null): number | null {
  * newest [max]: card-less with a non-blank body, the agent's or a person's
  * CONSUMED input, later than the feed's newest known row time, and not
  * already held by the feed (an agent line equal to, a prefix of or prefixed
- * by a narration; an input equal to a feed input). An empty feed takes the
- * tail only while its live transcript cannot be loaded (`unreachable`, the
+ * by a narration; an input equal to a feed input; #EXP-2084 another
+ * session's line the feed holds as that session's input, whatever its time).
+ * An empty feed takes the tail only while its live transcript cannot be loaded (`unreachable`, the
  * OFFLINE LINE's condition) and only when it holds an agent line (else
  * SENT INPUTS keeps the placeholder). A live feed = none.
  */
@@ -234,12 +240,20 @@ export function steerSyncedTail<T extends SteerSyncedMessage>(input: {
   if (input.feed.length > 0 && feedAt === null) return []
   const narrations = input.feed.filter((row) => row.author === `agent` && row.text).map((row) => (row.text ?? ``).trim())
   const inputs = new Set(input.feed.filter((row) => row.author === `user` && row.text).map((row) => (row.text ?? ``).trim()))
+  // #EXP-2084: the inputs the device worded as another session's
+  // (`Message from <name> (session <id>): <body>`), by session and body.
+  const relays = new Set<string>()
+  for (const row of input.feed) {
+    const relay = row.author === `user` && row.text ? crossSessionInput(row.text) : null
+    if (relay) relays.add(`${relay.sessionId}\n${relay.body.trim()}`)
+  }
   const tail = input.messages
     .filter((m) => {
       if (m.card !== null && m.card !== undefined) return false
       const body = m.body.trim()
       if (body === ``) return false
       if (m.authorKind === `agent`) {
+        if (m.authorSessionId && relays.has(`${m.authorSessionId}\n${body}`)) return false
         if (narrations.some((text) => text !== `` && (text.startsWith(body) || body.startsWith(text)))) return false
       } else if (m.authorKind === `user`) {
         if (m.consumedAt === null || inputs.has(body)) return false

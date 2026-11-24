@@ -697,6 +697,17 @@ mod tests {
         assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
         // A reader that never reads: the pipe fills, then every write blocks.
         let _reader = OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&path).unwrap();
+        // #EXP-2063: the pipe is full BEFORE the burst, so the writer's first
+        // line already blocks. Left to fill it itself, a writer thread that
+        // was not scheduled during the burst wrote its few queued lines into
+        // an empty pipe and `flush` read "not stuck".
+        {
+            use std::io::Write as _;
+            let mut filler = OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(&path).unwrap();
+            for chunk in [4096, 1] {
+                while filler.write(&vec![b'.'; chunk]).is_ok() {}
+            }
+        }
         let sink = FileSink::with_capacity(RotatingFile::open(path.clone(), MAX_LOG_BYTES, 0), 8);
         assert!(sink.is_open());
         let started = std::time::Instant::now();

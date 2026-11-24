@@ -1,0 +1,601 @@
+{
+  "$comment": "#EXP-1950: SIGNED TREE KEY WRAPS, the one byte format every platform signs and checks. Replayed by the TS reference packages/domain-contract/src/wrap-signature.ts and by Rust enet-core wrap_sig.rs (the crate every platform's crypto goes through; Swift, Kotlin and the browser follow through its bindings). CONTRACT ONLY: no platform signs or checks a wrap yet, and how an install comes to be PINNED is not decided here. WHY: a wrap (`session_keys.wrapped`, fixtures/sealed-content.json `wrap`) is a sealed box to an install's public key, which the server stores; an install that keeps any wrap that opens can be handed a key the server made itself. SIGNER: the install that made the wrap signs it with its eNet identity, the ed25519 key whose public half is `installs.endpoint_id` (fixtures/install-register.json; `signer.identity` here is that fixture's identity). MESSAGE (186 bytes, `layout`): `label` = the ASCII of `label` and one 0x00; `rootId` = the root UUID's 16 bytes (so its casing never matters); `epoch` = u32 big endian; `treePublic` = the 32 bytes of that epoch's X25519 public key; `recipient` = the recipient install's ed25519 public key (its endpoint id, never the row id: the server assigns row ids); `wrapped` = the 81 bytes of the wrap. SIGNATURE = ed25519 (RFC 8032, deterministic, so `vector` is byte-exact) over the message, 64 bytes; it travels as base64url WITHOUT padding (86 chars), endpoint ids as lowercase hex, secrets here as lowercase hex. VERIFICATION IS STRICT (iroh `verify_strict`): canonical S, a low-order signer key or R is refused. ACCEPTING A WRAP (`accepted`, `refused`; `acceptWrap`): the recipient (`recipient`: its identity and the X25519 secret derived from it, fixtures/push-seal.json `derive`) builds the message ITSELF from the root and epoch it asked for, the public key of the secret it just unwrapped, its own endpoint id and the wrapped bytes. Checks in this order, first failure wins: `malformed` (a field the wire does not allow; a signature without its signer or the reverse) > `unsigned` (no signature and `required`) > `unpinned` (the signer is not in `pins`) > `unopened` (the wrap does not open with the install secret) > `signature` (not the signer's signature over this message). A wrap that CARRIES a signature must pass with it also where `required` is false: `unsigned` is only ever the status of a wrap with no signature at all. So a wrong signer, recipient, root, epoch or tree public key and a re-sealed wrap all read `signature`. VOUCH (`vouchCases`; `acceptVouch`): an install that holds no secret of (root, epoch) may seal to a tree public key only when a pinned install's signed wrap of that epoch, made for ANOTHER install, names that key; it verifies the same message without opening the wrap (never `unopened`). Each case carries every input, so a replay needs no state. RE-SIGNING (`resign`, decision c): holders sign the current epoch again through `sessionKeys.resign`; its own `$comment` is the rule.",
+  "label": "exp/enet/tree-wrap/1",
+  "messageBytes": 186,
+  "signatureBytes": 64,
+  "layout": {
+    "label": 21,
+    "rootId": 16,
+    "epoch": 4,
+    "treePublic": 32,
+    "recipient": 32,
+    "wrapped": 81
+  },
+  "refusals": [
+    "malformed",
+    "unsigned",
+    "unpinned",
+    "unopened",
+    "signature"
+  ],
+  "signer": {
+    "identity": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "endpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+  },
+  "recipient": {
+    "identity": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+    "endpointId": "2543b92ff1095511476adc8369db6ddc933665a11978dda1404ee1066ca9559d",
+    "installSecret": "f35913970e90c2c413e67e2fa02aeb434558159516a55b0ddd788e59f3f3214b",
+    "x25519Public": "6HVlRn5f2Oegno6pTCnREPJDCIRnqjAfGohTa7r_lQ8"
+  },
+  "other": {
+    "identity": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+    "endpointId": "174553b456dddfc6908ecab1c101fe6ab21e2baa0617795b7d43a63482993fd5"
+  },
+  "tree": {
+    "epoch": 1,
+    "secret": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+    "publicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ"
+  },
+  "otherTree": {
+    "secret": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+    "publicKey": "Z13VdO13iTELPS52gfN5C0ZsdzsVIf7PNld5WDcepS8"
+  },
+  "vector": {
+    "rootId": "01234567-89ab-4def-8123-456789abcdef",
+    "epoch": 1,
+    "treePublicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+    "recipientEndpointId": "2543b92ff1095511476adc8369db6ddc933665a11978dda1404ee1066ca9559d",
+    "ephemeralSecret": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
+    "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+    "message": "6578702f656e65742f747265652d777261702f31000123456789ab4def8123456789abcdef00000001358072d6365880d1aeea329adf9121383851ed21a28e3b75e965d0d2cd1662542543b92ff1095511476adc8369db6ddc933665a11978dda1404ee1066ca9559d01dc2cca31e8e43bbd91dff7e475cca3347eb478107d5bd765aba4ae4a30c35d44477b459a429477d1c6149a7e6deaaabb4b1d34d059e0605028694d3f1fc49d7ae56a298ad059c8156639dd55ad725505",
+    "signatureHex": "f793f6485a393d27ab0357e363bd5db09b60a7bc49eca6ace54bc7e908bb2ef5865d58830c5d9023d499741dbb4817fbffb1a0a3e632dcd36ec2b7a21b4c8e09",
+    "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ"
+  },
+  "accepted": [
+    {
+      "name": "signed by a pinned install",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "status": "verified"
+    },
+    {
+      "name": "signed, where no signature is required",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": false,
+      "status": "verified"
+    },
+    {
+      "name": "the root id in upper case",
+      "rootId": "01234567-89AB-4DEF-8123-456789ABCDEF",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "status": "verified"
+    },
+    {
+      "name": "several pins",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "174553b456dddfc6908ecab1c101fe6ab21e2baa0617795b7d43a63482993fd5",
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "status": "verified"
+    },
+    {
+      "name": "unsigned, where no signature is required",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": null,
+      "signerEndpointId": null,
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": false,
+      "status": "unsigned"
+    }
+  ],
+  "refused": [
+    {
+      "name": "tampered signature",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo4PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "signature"
+    },
+    {
+      "name": "tampered signature, where no signature is required",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9WZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": false,
+      "reason": "signature"
+    },
+    {
+      "name": "wrong signer: another install signed, a pinned one is named",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "QmhR9nEYm6rQi_3B8YrLak0r2DV6zJEpysJCUdWyK4VHgkFERTnGSGBu6KPne6qRTpqhHoIgHfWoDWw9pLIHDA",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "signature"
+    },
+    {
+      "name": "the signer is not pinned",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "QmhR9nEYm6rQi_3B8YrLak0r2DV6zJEpysJCUdWyK4VHgkFERTnGSGBu6KPne6qRTpqhHoIgHfWoDWw9pLIHDA",
+      "signerEndpointId": "174553b456dddfc6908ecab1c101fe6ab21e2baa0617795b7d43a63482993fd5",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "unpinned"
+    },
+    {
+      "name": "no pins at all",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [],
+      "required": true,
+      "reason": "unpinned"
+    },
+    {
+      "name": "wrong recipient: signed for another install",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "MBAJUHyMFq0fW2CcBRf7yCC5UaT1kzrFfxHL3mODIpzmQQGnwXeG3ejqHryl4mjNHl2LUcM2BVsLNA8HbeYPDg",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "signature"
+    },
+    {
+      "name": "wrong root: signed for another root",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "NHUu6L6fx-y_YpTEIEP7BsHOO-cCe7yXNmV2ja89G1_6UqIY7iQsG-37hGlKEfnWbIMDIDmBY63jN7zXayOGAw",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "signature"
+    },
+    {
+      "name": "wrong epoch: signed for epoch 2",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "CkpapHxqcapHfr-yfzzkouEWv2rliz2_qGWGG46RWOLqSTCFfFND9DBGiLpK_IVu6QmTlubCc5P5dW9r5n2tAg",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "signature"
+    },
+    {
+      "name": "wrong tree public key: signed for another key",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "uthfOpdcYF9YXaDu5YfTUG1iwXcpdNR3wBfbS1jTJq000Sl5PJ9Kl6qqV5BMfCE2r8rbGyJTjS60CcCA5QPGAA",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "signature"
+    },
+    {
+      "name": "the wrapped bytes sealed again under the old signature",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AXNoRdVOh94J1rsRSqcELFCkoBW9mQHRoAJvWVZTOhUZ5zeDNJXgv0sLGxbzmr2WoI3SZqzTy6GEwOlSIe5q4U-NF5k0y8yw9y-T4hZB10B6",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "signature"
+    },
+    {
+      "name": "unsigned, where a signature is required",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": null,
+      "signerEndpointId": null,
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "unsigned"
+    },
+    {
+      "name": "a signature without its signer",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": null,
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": false,
+      "reason": "malformed"
+    },
+    {
+      "name": "a signer without a signature",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": null,
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": false,
+      "reason": "malformed"
+    },
+    {
+      "name": "a padded signature",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ==",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "malformed"
+    },
+    {
+      "name": "a signer id in upper case",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03A107BFF3CE10BE1D70DD18E74BC09967E4D6309BA50D5F1DDC8664125531B8",
+      "pins": [
+        "03A107BFF3CE10BE1D70DD18E74BC09967E4D6309BA50D5F1DDC8664125531B8"
+      ],
+      "required": true,
+      "reason": "malformed"
+    },
+    {
+      "name": "epoch 0",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 0,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "malformed"
+    },
+    {
+      "name": "a wrap that does not open",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUE",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "unopened"
+    },
+    {
+      "name": "an unsigned wrap that does not open",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUE",
+      "signature": null,
+      "signerEndpointId": null,
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": false,
+      "reason": "unopened"
+    },
+    {
+      "name": "a low-order signer key",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "signerEndpointId": "0100000000000000000000000000000000000000000000000000000000000000",
+      "pins": [
+        "0100000000000000000000000000000000000000000000000000000000000000"
+      ],
+      "required": true,
+      "reason": "signature"
+    },
+    {
+      "name": "a non-canonical S (S + L)",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvVzMU7gJsCie6o2bMCZQvYPALKgo-Yy3NNuwreiG0yOGQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "required": true,
+      "reason": "signature"
+    }
+  ],
+  "vouchCases": [
+    {
+      "name": "a pinned install's wrap for another install",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "treePublicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+      "recipientEndpointId": "2543b92ff1095511476adc8369db6ddc933665a11978dda1404ee1066ca9559d",
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "result": "verified"
+    },
+    {
+      "name": "another public key than the signed one",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "treePublicKey": "Z13VdO13iTELPS52gfN5C0ZsdzsVIf7PNld5WDcepS8",
+      "recipientEndpointId": "2543b92ff1095511476adc8369db6ddc933665a11978dda1404ee1066ca9559d",
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "result": "signature"
+    },
+    {
+      "name": "another epoch than the signed one",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 2,
+      "treePublicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+      "recipientEndpointId": "2543b92ff1095511476adc8369db6ddc933665a11978dda1404ee1066ca9559d",
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "result": "signature"
+    },
+    {
+      "name": "the signer is not pinned",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "treePublicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+      "recipientEndpointId": "2543b92ff1095511476adc8369db6ddc933665a11978dda1404ee1066ca9559d",
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "174553b456dddfc6908ecab1c101fe6ab21e2baa0617795b7d43a63482993fd5"
+      ],
+      "result": "unpinned"
+    },
+    {
+      "name": "no signature",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "treePublicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+      "recipientEndpointId": "2543b92ff1095511476adc8369db6ddc933665a11978dda1404ee1066ca9559d",
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": null,
+      "signerEndpointId": null,
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "result": "unsigned"
+    },
+    {
+      "name": "a public key that is not 32 bytes",
+      "rootId": "01234567-89ab-4def-8123-456789abcdef",
+      "epoch": 1,
+      "treePublicKey": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0W",
+      "recipientEndpointId": "2543b92ff1095511476adc8369db6ddc933665a11978dda1404ee1066ca9559d",
+      "wrapped": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11ER3tFmkKUd9HGFJp-beqqu0sdNNBZ4GBQKGlNPx_EnXrlaimK0FnIFWY53VWtclUF",
+      "signature": "95P2SFo5PSerA1fjY71dsJtgp7xJ7Kas5UvH6Qi7LvWGXViDDF2QI9SZdB27SBf7_7Ggo-Yy3NNuwreiG0yOCQ",
+      "signerEndpointId": "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "pins": [
+        "03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+      ],
+      "result": "malformed"
+    }
+  ],
+  "resign": {
+    "$comment": "#EXP-1950 decision (c), 2026-11-24: keys an install already holds stay trusted (`legacy`), and HOLDERS SIGN THE CURRENT EPOCH AGAIN: a holder that holds a root's current epoch makes a fresh wrap of it for each reader whose stored wrap of that epoch is UNSIGNED and replaces that row with its signed wrap. Also the way a seal whose root the same send creates gets its signature (the root id is unknown while sealing, so the inline `seal` goes unsigned and its maker signs it on its next holder pass). WIRE `sessionKeys.resign` (mutation, one for every platform): input `{installId, wraps: [{rootId, epoch, installId, wrapped, signature}]}` (1..`maxWraps` wraps; `wraps[].installId` = the TARGET install, `wrapped` 108 base64url chars, `signature` REQUIRED), answer `{replaced, skipped}`. SERVER, under each tree's key lock in ONE transaction (`resignOutcome` per wrap, `order` = the checks in order, first one that applies wins; `cases` replay it): the caller's `installId` is its own non-revoked install (else FORBIDDEN, the whole call) and a CURRENT reader of every root it names (`callerNotReader`: FORBIDDEN, the whole call); a wrap whose `epoch` is not the root's current `seal_epoch` is `skipped` (`staleEpoch`; its signature is not checked: the server keeps no public key of an old epoch); a target that is not a current reader REFUSES the whole call (`targetNotReader`: FORBIDDEN, as `wrap` refuses a pair `pending` does not list; a dropped reader gets nothing); the signature is checked exactly like `create`'s (signer = the caller's install; over root, epoch, the root's STORED tree public key, the target's endpoint id and the wrapped bytes) and a bad one REFUSES the whole call (`badSignature`: BAD_REQUEST `A wrap's signature is not your install's over this key`, nothing written); a pair without a row is `skipped` (`noRow`: that is `wrap`'s job via `pending`); a row already signed is never touched, `skipped` (`signedRow`); a row whose `signature` is null is `replaced` (`unsignedRow`: wrapped, signature, signer_endpoint_id, created_by_install_id). One pair twice in a call = BAD_REQUEST. HOLDER (`failureCases`, `resignAfter`): an older server answers NOT_FOUND for the unknown procedure: `notYet`, tried again quietly on a later pass; a refusal (FORBIDDEN, BAD_REQUEST) = `refused`, the pass goes on without it; anything else = `retry` on the next pass. Never an error the person sees.",
+    "procedure": "sessionKeys.resign",
+    "maxWraps": 200,
+    "order": [
+      "callerNotReader",
+      "staleEpoch",
+      "targetNotReader",
+      "badSignature",
+      "noRow",
+      "signedRow",
+      "unsignedRow"
+    ],
+    "outcomes": {
+      "callerNotReader": "refused",
+      "staleEpoch": "skipped",
+      "targetNotReader": "refused",
+      "badSignature": "refused",
+      "noRow": "skipped",
+      "signedRow": "skipped",
+      "unsignedRow": "replaced"
+    },
+    "cases": [
+      {
+        "name": "an unsigned row of the current epoch is replaced",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": true,
+        "row": "unsigned",
+        "outcome": "replaced",
+        "rule": "unsignedRow"
+      },
+      {
+        "name": "a signed row is never touched",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": true,
+        "row": "signed",
+        "outcome": "skipped",
+        "rule": "signedRow"
+      },
+      {
+        "name": "no row: wrap's job, skipped",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": true,
+        "row": "none",
+        "outcome": "skipped",
+        "rule": "noRow"
+      },
+      {
+        "name": "an older epoch is skipped, its signature unchecked",
+        "callerReader": true,
+        "currentEpoch": false,
+        "targetReader": true,
+        "signatureValid": false,
+        "row": "unsigned",
+        "outcome": "skipped",
+        "rule": "staleEpoch"
+      },
+      {
+        "name": "a target that is no reader (a dropped reader) refuses the call",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": false,
+        "signatureValid": true,
+        "row": "unsigned",
+        "outcome": "refused",
+        "rule": "targetNotReader"
+      },
+      {
+        "name": "a bad signature refuses the call",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": false,
+        "row": "unsigned",
+        "outcome": "refused",
+        "rule": "badSignature"
+      },
+      {
+        "name": "a bad signature refuses even where the row is signed",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": false,
+        "row": "signed",
+        "outcome": "refused",
+        "rule": "badSignature"
+      },
+      {
+        "name": "a caller that no longer reads the root refuses the call",
+        "callerReader": false,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": true,
+        "row": "unsigned",
+        "outcome": "refused",
+        "rule": "callerNotReader"
+      }
+    ],
+    "failureCases": [
+      {
+        "name": "an older server: no such procedure",
+        "code": "NOT_FOUND",
+        "after": "notYet"
+      },
+      {
+        "name": "a refused batch",
+        "code": "BAD_REQUEST",
+        "after": "refused"
+      },
+      {
+        "name": "no longer a reader or not this account's install",
+        "code": "FORBIDDEN",
+        "after": "refused"
+      },
+      {
+        "name": "a blip",
+        "code": "INTERNAL_SERVER_ERROR",
+        "after": "retry"
+      },
+      {
+        "name": "no answer at all",
+        "code": null,
+        "after": "retry"
+      }
+    ]
+  }
+}

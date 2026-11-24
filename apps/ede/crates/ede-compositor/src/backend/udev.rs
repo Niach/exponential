@@ -41,7 +41,7 @@ use smithay::{
         },
         egl::{EGLDevice, EGLDisplay},
         input::InputEvent,
-        libinput::{LibinputInputBackend, LibinputSessionInterface},
+        libinput::LibinputInputBackend,
         renderer::{
             element::memory::MemoryRenderBuffer,
             gles::GlesRenderer,
@@ -197,9 +197,16 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
     }));
 
     // Input.
-    let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());
+    let mut libinput = Libinput::new_with_udev::<super::seat::SeatInterface<LibSeatSession>>(session.clone().into());
     crate::libinput_log::route(&libinput);
     libinput.udev_assign_seat(&seat_name).map_err(|()| "libinput could not take the seat")?;
+    // #EDE-218: started while another session has the displays. logind
+    // handed every input device over revoked; as after a VT switch away,
+    // libinput lets go of them and finds them again at the resume below.
+    let started_inactive = !session.is_active();
+    if started_inactive {
+        libinput.suspend();
+    }
     event_loop.handle().insert_source(LibinputInputBackend::new(libinput.clone()), move |event, _, state| {
         if !matches!(event, InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. }) {
             state.process_input_event(event);
@@ -254,6 +261,16 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
             }
         }
     })?;
+
+    if started_inactive {
+        // #EDE-218: no GPU is opened before the seat is ours. An inactive
+        // session's DRM device comes without DRM master, and the start
+        // ended as "no GPU could be driven" and at the login screen.
+        tracing::warn!("the seat is not active (another session has the displays: the login screen after logind restarted, or another VT); waiting for it before a GPU is opened");
+        let since = std::time::Instant::now();
+        super::wait_until_active(|| session.is_active(), || event_loop.dispatch(Some(Duration::from_secs(1)), &mut state))?;
+        tracing::info!("the seat is active after {:.1?}", since.elapsed());
+    }
 
     // GPUs: the primary first, so outputs on other cards can render through it.
     let udev_backend = UdevBackend::new(&seat_name)?;

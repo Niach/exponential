@@ -120,7 +120,8 @@ afterAll(async () => {
   for (const folder of scratch) rmSync(folder, { recursive: true, force: true })
   if (!ready.ok) return
   for (const database of Object.values(names)) await admin(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`)
-})
+  // Dropping two whole databases outlasts the default 10 s hook on a busy host.
+}, 120_000)
 
 describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzle's migrator (#EXP-1989)`, () => {
   it(`moves an install that never set the switch, leaves who already moved, then holds one Assistant per owner`, async () => {

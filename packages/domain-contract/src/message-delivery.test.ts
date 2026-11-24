@@ -6,12 +6,14 @@ import {
   deliveryState,
   outboxMerge,
   ownHandoff,
+  pendingRows,
   type DeliveryState,
   type DeliveryStateInput,
   type HandoffEcho,
   type HandoffRow,
   type OutboxEntry,
   type OutboxRow,
+  type PendingRow,
 } from "./message-delivery"
 
 describe(`deliveryState`, () => {
@@ -44,6 +46,14 @@ describe(`ownHandoff`, () => {
     test(entry.name, () => {
       const input = entry.input as { viewerId: string; now: string; feedEmpty: boolean; rows: HandoffRow[]; echoes: HandoffEcho[] }
       expect(ownHandoff(input)).toEqual(entry.expected)
+    })
+  }
+})
+
+describe(`pendingRows`, () => {
+  for (const entry of fixture.pendingCases) {
+    test(entry.name, () => {
+      expect(pendingRows(entry.input as { viewerId: string; rows: PendingRow[] })).toEqual(entry.expected)
     })
   }
 })

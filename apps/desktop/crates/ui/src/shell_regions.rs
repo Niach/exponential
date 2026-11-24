@@ -518,6 +518,8 @@ pub(crate) struct SidebarRegion {
     focus_pending: bool,
     /// The dev team-menu capture opened its menu ([`Self::dev_open_team_menu`]).
     dev_team_menu_done: bool,
+    /// The dev sidebar-scroll capture wheeled its rows ([`Self::dev_scroll_rows`]).
+    dev_scroll_done: bool,
     /// #EXP-2027: the Chats row whose drag the tree's List shows.
     chat_drag: Option<String>,
     window: AnyWindowHandle,
@@ -574,6 +576,7 @@ impl SidebarRegion {
                 editing,
                 focus_pending: false,
                 dev_team_menu_done: false,
+                dev_scroll_done: false,
                 chat_drag: None,
                 window: window.window_handle(),
                 #[cfg(test)]
@@ -714,8 +717,35 @@ impl SidebarRegion {
         .detach();
     }
 
+    /// DEV-ONLY (`EXP_DEV_SIDEBAR_SCROLL=1`, the sidebar-scroll pictures):
+    /// a wheel over the rows past their end, through the window's own hit
+    /// test as a pointer resting on a row would, every half second for ten
+    /// seconds (the synced rows keep growing the list while they land).
+    fn dev_scroll_rows(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.dev_scroll_done || std::env::var("EXP_DEV_SIDEBAR_SCROLL").map_or(true, |v| v.trim().is_empty() || v == "0") {
+            return;
+        }
+        self.dev_scroll_done = true;
+        let (view, handle) = (self.view.clone(), self.window);
+        cx.spawn(async move |_, cx| {
+            for _ in 0..20 {
+                cx.background_executor().timer(std::time::Duration::from_millis(500)).await;
+                let _ = handle.update(cx, |_, window, cx| {
+                    let Some((origin, frame)) = view.read_with(cx, |view, _| Some((view.origin(), view.frame(view.index_of("scroll")?)?))) else { return };
+                    let at = gpui::point(origin.x + gpui::px(frame.x + frame.w / 2.0), origin.y + gpui::px(frame.y + frame.h / 2.0));
+                    window.dispatch_event(gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent { position: at, pressed_button: None, modifiers: Default::default() }), cx);
+                    let wheel = gpui::ScrollWheelEvent { position: at, delta: gpui::ScrollDelta::Lines(gpui::point(0., -1000.)), ..Default::default() };
+                    #[allow(deprecated)]
+                    window.dispatch_event(gpui::InputEvent::to_platform_input(wheel), cx);
+                });
+            }
+        })
+        .detach();
+    }
+
     fn push(&mut self, cx: &mut gpui::Context<Self>) {
         self.dev_open_team_menu(cx);
+        self.dev_scroll_rows(cx);
         self.input.editing_folder = self.editing.borrow().clone();
         let value = shaped(&self.input, &self.glyphs.borrow(), self.hover.borrow().as_deref());
         if self.focus_pending {

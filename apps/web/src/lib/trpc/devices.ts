@@ -72,6 +72,7 @@ import { assertTeamMember, assertTeamOwner, getTeamMember } from "@/lib/team-mem
 import { stopMeetingUnlessPrivate, voiceSettingsOf } from "@/lib/trpc/voice"
 import { parseVersionTuple, versionPayload } from "@/lib/client-version"
 import { endHostedSessions, foreignHostedSessionIds, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
+import { dropNonReaderKeysInTx, dropReaderKeysInTx, rootsHeldBy } from "@/lib/sessions/tree-keys"
 import { firstSharerTeams, lockDeviceShares, otherShareRows } from "@/lib/sessions/host"
 import { COMPUTER_USE_SWITCH_CAP, dropComputerUseOnDevice } from "@/lib/sessions/computer-use"
 import { checkDeviceKeyProof, deviceKeyRejectionLog, pinDeviceKeyInTx, shareKeyRefusal, type SquatRow } from "@/lib/device-keys"
@@ -1994,6 +1995,9 @@ export const devicesRouter = router({
           .update(devices)
           .set({ sharedTeamIds: next, updatedAt: new Date() })
           .where(eq(devices.id, row.id))
+        // #EXP-1951: its installs no longer read the revoked teams' trees
+        // as the device: their wraps go, the trees are due for rotation.
+        await dropReaderKeysInTx(tx, { deviceRowIds: [row.id] }, revoked)
         if (pause.length > 0) {
           await pauseDeviceAgents(tx, pause, input.deviceId)
         }
@@ -2160,7 +2164,11 @@ export const devicesRouter = router({
         if (pause.length > 0) {
           await pauseDeviceAgents(tx, pause, input.deviceId)
         }
+        // #EXP-1951: the trees its installs read as the device (the row's
+        // delete unbinds them), flagged once the row is gone.
+        const read = await rootsHeldBy(tx, { deviceRowIds: [row.id] })
         await tx.delete(devices).where(eq(devices.id, row.id))
+        await dropNonReaderKeysInTx(tx, read)
         await tx
           .insert(deviceRemovals)
           .values({ userId, deviceId: input.deviceId, removedAt: new Date() })

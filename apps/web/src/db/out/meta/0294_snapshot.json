@@ -1,5 +1,5 @@
 {
-  "id": "2abaa0cc-bed0-454f-be8f-52b7ae0ef903",
+  "id": "b9fc9c6b-f5e6-4dcb-8226-782b7c0e3fdc",
   "prevId": "7285241f-6059-4e34-8ee4-4a7f159e6e46",
   "version": "7",
   "dialect": "postgresql",
@@ -194,6 +194,12 @@
         "uniq_agents_assistant": {
           "name": "uniq_agents_assistant",
           "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "owner_id",
               "isExpression": false,
@@ -6277,6 +6283,18 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "registration_signature": {
+          "name": "registration_signature",
+          "type": "varchar(86)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registration_signed_at": {
+          "name": "registration_signed_at",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -12077,6 +12095,18 @@
         "created_by_install_id": {
           "name": "created_by_install_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "signature": {
+          "name": "signature",
+          "type": "varchar(86)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "signer_endpoint_id": {
+          "name": "signer_endpoint_id",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": false
         },

@@ -84,6 +84,7 @@ pub(crate) fn rows() -> Vec<SessionChatRow> {
             queued: false,
             xref: None,
             author_session_id: None,
+            action: None,
         });
     }
     rows.push(SessionChatRow::Plan {
@@ -107,6 +108,7 @@ pub(crate) fn rows() -> Vec<SessionChatRow> {
             queued: false,
             xref: None,
             author_session_id: None,
+            action: None,
         });
     }
     rows
