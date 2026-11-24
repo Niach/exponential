@@ -529,7 +529,12 @@ pub(crate) fn dispatch(event: etalk::Event, cx: &mut App) {
     // S-3: what the windows draw of it (the Speaking banner,
     // the download detail) repaints in `on_event`, only when it
     // changed: never every window for every worker event.
+    // EXP-1859: whether this desktop speaks decides where a turn runs.
+    let speech = matches!(event, etalk::Event::Voices { .. } | etalk::Event::ModelReady | etalk::Event::DownloadFailed { .. });
     entity.update(cx, |this, cx| this.on_event(event, cx));
+    if speech {
+        crate::push_to_talk::sync(cx);
+    }
 }
 
 fn global(cx: &App) -> Option<Entity<SpeakReplies>> {

@@ -745,6 +745,10 @@ impl CallHost {
     /// session too).
     fn pick_up(&mut self, now: u64, out: &mut Vec<HostEffect>) {
         self.answered_at = Some(now);
+        // EXP-1859: a turn call has no ring, no opening and nothing to finish.
+        if self.is_turn() {
+            return;
+        }
         let opening = self.opening.is_some() && self.session.is_some();
         log::info!(
             "[voice] call {}: answered {} ms after the ring started ({})",
@@ -752,10 +756,6 @@ impl CallHost {
             now.saturating_sub(self.started.unwrap_or(now)),
             if opening { "the opening line is said" } else { "picked up listening" }
         );
-        // EXP-1859: a turn call has no opening and nothing to finish.
-        if self.is_turn() {
-            return;
-        }
         match self.opening.clone().filter(|_| self.session.is_some()) {
             Some((_, id, text)) => {
                 self.opening_said = Some(id.clone());

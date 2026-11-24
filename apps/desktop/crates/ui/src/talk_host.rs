@@ -142,7 +142,7 @@ pub fn install(cx: &mut App) {
     let Some(store) = Store::try_global(cx) else { return };
     let Some(data_dir) = cx.try_global::<crate::session::AuthContext>().map(|auth| auth.data_dir.clone()) else { return };
     let collections = store.collections();
-    let (messages, agents, state) = (collections.messages.clone(), collections.agents.clone(), store.state());
+    let (messages, agents, devices, state) = (collections.messages.clone(), collections.agents.clone(), collections.devices.clone(), store.state());
     let (landed, clips_rx) = flume::unbounded::<String>();
     let clips = Rc::new(ClipCache { dir: data_dir.join("voice-clips"), state: RefCell::default(), landed });
     etalk_gpui::init(cx, Box::new(ExponentialHost { data_dir, clips: clips.clone() }));
@@ -159,6 +159,8 @@ pub fn install(cx: &mut App) {
     cx.observe(&state, |_, cx| etalk_gpui::session_changed(cx)).detach();
     // The agents' names label the tray's Call and the wake phrase.
     cx.observe(&agents, |_, cx| etalk_gpui::agents_changed(cx)).detach();
+    // EXP-1859: where a woken agent's turn runs follows the devices.
+    cx.observe(&devices, |_, cx| etalk_gpui::devices_changed(cx)).detach();
 }
 
 /// NEW-67: new voice settings arrived (a heartbeat, or this device's own

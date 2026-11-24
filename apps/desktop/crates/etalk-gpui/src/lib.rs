@@ -54,6 +54,12 @@ pub fn session_changed(cx: &mut App) {
     meeting::on_session(cx);
 }
 
+/// EXP-1859: the member's devices changed (one came online, or speaks now):
+/// where a woken agent's turn runs is asked again.
+pub fn devices_changed(cx: &mut App) {
+    push_to_talk::sync(cx);
+}
+
 /// The host's agents changed (their names label the tray and the wake phrase;
 /// #EXP-1847 their own voices speak, a downloaded clip included).
 pub fn agents_changed(cx: &mut App) {

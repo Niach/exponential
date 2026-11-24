@@ -57,6 +57,9 @@ struct State {
     sent: Vec<(Option<String>, String)>,
     /// #EXP-1981: what `voice.callSession` was asked: (agent id, call id).
     session_asks: Vec<(String, Option<String>)>,
+    /// EXP-1859: the agent's Runs on device, and whether it is online (its
+    /// agent is then listened for by name).
+    runs_on: Option<(&'static str, bool)>,
     /// #EXP-1982: every send fails with this.
     send_fails: Option<crate::host::SendError>,
 }
@@ -99,7 +102,18 @@ impl TalkHost for TestHost {
         SignedIn { active: Some("me".into()), all: vec!["me".into()] }
     }
     fn agent(&self, agent_id: &str, _: &App) -> Option<TalkAgent> {
-        (agent_id == AGENT).then(|| TalkAgent { name: "Studio".into(), title: "Studio".into(), team_id: "t1".into(), ..TalkAgent::default() })
+        let device_id = self.state.borrow().runs_on.map(|(device, _)| device.to_string());
+        (agent_id == AGENT).then(|| TalkAgent { name: "Studio".into(), title: "Studio".into(), team_id: "t1".into(), device_id, ..TalkAgent::default() })
+    }
+    fn desktops(&self, _: &App) -> Vec<crate::host::TalkDesktop> {
+        let runs_on = self.state.borrow().runs_on;
+        runs_on.map(|(id, online)| crate::host::TalkDesktop { id: id.into(), name: id.into(), online, speech: Some("ok".into()) }).into_iter().collect()
+    }
+    fn wake_listeners(&self, _: &VoiceSettings, cx: &App) -> Vec<etalk::WakeListener> {
+        if self.state.borrow().runs_on.is_none() {
+            return Vec::new();
+        }
+        vec![etalk::WakeListener { agent_id: AGENT.into(), phrase: "Hey Studio".into(), language: "en".into(), dial: crate::voice_call::dials(AGENT, cx) }]
     }
     fn agent_voice(&self, agent_id: &str, _: &VoiceSettings, _: &App) -> Option<AgentVoice> {
         (agent_id == AGENT).then(|| self.state.borrow().voice.clone()).flatten()
@@ -245,6 +259,12 @@ impl Rig {
     pub(crate) fn call_message(&self, id: &str, body: &str, second: u32, cx: &mut gpui::TestAppContext) {
         let session_id = self.state.borrow().call_session;
         self.row(Row { id: id.into(), author_kind: "agent", body: body.into(), has_card: false, created_at: format!("2026-11-17T10:00:{second:02}.000Z"), session_id }, cx);
+    }
+
+    /// EXP-1859: the agent runs on `device` (`online`), and the devices changed.
+    pub(crate) fn runs_on(&self, device: &'static str, online: bool, cx: &mut gpui::TestAppContext) {
+        self.state.borrow_mut().runs_on = Some((device, online));
+        cx.update(crate::devices_changed);
     }
 
     /// #EXP-1982: every send from now on fails with `err`.
