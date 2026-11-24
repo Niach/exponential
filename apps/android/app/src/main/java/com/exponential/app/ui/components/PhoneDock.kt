@@ -202,8 +202,8 @@ private fun AssistantDisc(selected: Boolean, onClick: () -> Unit, modifier: Modi
                     val glow = ring + dock.GLOW.dp.toPx()
                     drawCircle(
                         Brush.radialGradient(
-                            0f to foreground.copy(alpha = 0.18f),
-                            ring / glow to foreground.copy(alpha = 0.18f),
+                            0f to foreground.copy(alpha = 0.12f),
+                            ring / glow to foreground.copy(alpha = 0.12f),
                             1f to Color.Transparent,
                             center = center,
                             radius = glow,

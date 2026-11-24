@@ -564,7 +564,7 @@ class StyleguideScreenshotsTest {
             openTeamsRoot()
             flow.screenshot("sg_teams")
             openTeamPage()
-            flow.waitFor(hasText(TEAM_BOARD_NAME), SYNC_TIMEOUT)
+            flow.waitFor(hasText(EMPTY_BOARD_NAME), SYNC_TIMEOUT)
             flow.settle()
             flow.screenshot("sg_team")
         }
@@ -2141,7 +2141,8 @@ class StyleguideScreenshotsTest {
     private fun openTeamItem(name: String) {
         openTeamPage()
         val row = hasText(name) and hasAnyAncestor(hasTestTag(TeamsTestIds.TEAM))
-        if (!flow.waitForOptional(row, NETWORK_TIMEOUT)) {
+        flow.waitFor(hasText(EMPTY_BOARD_NAME) and hasAnyAncestor(hasTestTag(TeamsTestIds.TEAM)), SYNC_TIMEOUT)
+        if (!flow.waitForOptional(row, 2_000L)) {
             val folders = composeRule.onAllNodes(hasTestTag(TeamsTestIds.FOLDER_ROW))
             for (index in 0 until folders.fetchSemanticsNodes().size) {
                 composeRule.onAllNodes(hasTestTag(TeamsTestIds.FOLDER_ROW))[index].performClick()
