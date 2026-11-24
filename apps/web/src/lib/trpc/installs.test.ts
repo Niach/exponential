@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto"
+import { createPublicKey, generateKeyPairSync, randomBytes, sign, verify, type KeyObject } from "node:crypto"
 
 // installs (EXP-1457 / VAPP-37): the eNet install registry. Registration
 // needs a fresh ed25519 signature by the install identity over the caller's
@@ -243,6 +243,24 @@ describe(`installs.register`, () => {
   })
 })
 
+describe(`the stored registration (#EXP-1950)`, () => {
+  it(`keeps the newest registration's signature and signedAt byte for byte, and serves them in list and mine`, async () => {
+    const a1 = identity()
+    const first = registration(`u1`, a1)
+    await caller(`u1`).register(first)
+    const again = registration(`u1`, a1, { x: first.x25519Public, signedAt: new Date(Date.now() + 1000).toISOString() })
+    await caller(`u1`).register(again)
+    const [mine] = await caller(`u1`).mine()
+    expect(mine).toMatchObject({ registrationSignature: again.signature, registrationSignedAt: again.signedAt })
+    const [listed] = await caller(`u2`).list({ teamId: TEAM_A })
+    expect(listed).toMatchObject({ registrationSignature: again.signature, registrationSignedAt: again.signedAt })
+    // A client re-checks the binding from what is served.
+    const message = installMessage(`u1`, listed!.endpointId, listed!.x25519Public, listed!.registrationSignedAt!)
+    const key = createPublicKey({ key: Buffer.concat([Buffer.from(`302a300506032b6570032100`, `hex`), Buffer.from(listed!.endpointId, `hex`)]), format: `der`, type: `spki` })
+    expect(verify(null, Buffer.from(message, `utf8`), key, Buffer.from(listed!.registrationSignature!, `base64url`))).toBe(true)
+  })
+})
+
 describe(`installs.list`, () => {
   it(`returns the team members' live installs, never another team's`, async () => {
     const a1 = identity()
@@ -263,7 +281,7 @@ describe(`installs.list`, () => {
       platform: `iOS 27`,
     })
     expect(Object.keys(listed[0]!).sort()).toEqual(
-      [`installId`, `userId`, `deviceId`, `kind`, `label`, `platform`, `endpointId`, `x25519Public`, `lastSeenAt`].sort()
+      [`installId`, `userId`, `deviceId`, `kind`, `label`, `platform`, `endpointId`, `x25519Public`, `lastSeenAt`, `registrationSignature`, `registrationSignedAt`].sort()
     )
 
     expect((await caller(`u3`).list({ teamId: TEAM_B })).map((row) => row.endpointId)).toEqual([b3.endpointId])
