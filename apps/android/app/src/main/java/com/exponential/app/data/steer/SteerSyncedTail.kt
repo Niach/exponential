@@ -13,6 +13,8 @@ data class SyncedTailMessage(
     val body: String,
     /** #EXP-1990: who wrote a person's message (a group chat holds every member's). */
     val authorId: String? = null,
+    /** #EXP-2084: the session that posted it (a child's reply), when not the chat's own. */
+    val authorSessionId: String? = null,
 )
 
 /** Synthetic row ids of the synced tail: far above any feed id, stable per message. */
@@ -69,6 +71,7 @@ fun syncedTailItems(
             createdAt = m.createdAt,
             createdAtMs = m.createdAtMs,
             body = m.body,
+            authorSessionId = m.authorSessionId,
         )
     }
     return picked.map { m ->
