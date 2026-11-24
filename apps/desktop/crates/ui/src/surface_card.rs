@@ -507,13 +507,15 @@ pub(crate) fn surface_frame(
 // The single-session feed: the conversation's cards beside the relay rows
 // ---------------------------------------------------------------------------
 
-/// A session card row's kind (`None` for any other row).
-fn card_kind(row: &SessionChatRow) -> Option<domain::ask_dock::SessionCardKind> {
+/// A session card row's kind and whether it still waits (ask-dock.json
+/// `sessionCards`: a plan with no decision, an unanswered question);
+/// `None` for any other row.
+fn card_kind(row: &SessionChatRow) -> Option<(domain::ask_dock::SessionCardKind, bool)> {
     use domain::ask_dock::SessionCardKind;
     match row {
-        SessionChatRow::Plan { .. } => Some(SessionCardKind::Plan),
-        SessionChatRow::Question { .. } => Some(SessionCardKind::Question),
-        SessionChatRow::Surface { .. } => Some(SessionCardKind::Surface),
+        SessionChatRow::Plan { decision, .. } => Some((SessionCardKind::Plan, decision.is_none())),
+        SessionChatRow::Question { answered, .. } => Some((SessionCardKind::Question, !answered)),
+        SessionChatRow::Surface { .. } => Some((SessionCardKind::Surface, false)),
         _ => None,
     }
 }
@@ -523,21 +525,23 @@ fn card_kind(row: &SessionChatRow) -> Option<domain::ask_dock::SessionCardKind> 
 /// each card right after the SETTLED call that posted it (#FEED-231: the
 /// call naming it, else paired newest back per call kind); a card with no
 /// such call in the feed is `unanchored` (card order), painted at the
-/// transcript's HEAD before its first row. `calls` = the feed's settled,
+/// transcript's HEAD before its first row, a WAITING one at its TAIL after
+/// the last row (#EXP-2087). `calls` = the feed's settled,
 /// unfailed Exponential calls in feed order: (feed item id, display row,
-/// the card id its preview names). Returns card INDICES into `cards`.
+/// the card id its preview names). Returns card INDICES into `cards`:
+/// (anchors, head, tail).
 pub(crate) fn anchor_cards(
     calls: &[(u64, &str, Option<&str>)],
     cards: &[SessionChatRow],
-) -> (HashMap<u64, Vec<usize>>, Vec<usize>) {
+) -> (HashMap<u64, Vec<usize>>, Vec<usize>, Vec<usize>) {
     let (indices, kinds): (Vec<usize>, Vec<_>) = cards
         .iter()
         .enumerate()
-        .filter_map(|(index, card)| card_kind(card).map(|kind| (index, (card.id(), kind))))
+        .filter_map(|(index, card)| card_kind(card).map(|(kind, waiting)| (index, (card.id(), kind, waiting))))
         .unzip();
-    let (anchors, unanchored) = domain::ask_dock::anchor_session_cards(calls, &kinds);
+    let (anchors, unanchored, tail) = domain::ask_dock::anchor_session_cards(calls, &kinds);
     let back = |list: Vec<usize>| list.into_iter().map(|i| indices[i]).collect::<Vec<_>>();
-    (anchors.into_iter().map(|(call, list)| (call, back(list))).collect(), back(unanchored))
+    (anchors.into_iter().map(|(call, list)| (call, back(list))).collect(), back(unanchored), back(tail))
 }
 
 #[cfg(test)]
@@ -574,14 +578,17 @@ mod tests {
     fn cards_anchor_to_their_calls_newest_back() {
         let calls = [(4, "session_self_show", None), (7, "session_self_plan", None), (9, "session_self_show", None)];
         let cards = [surface("a"), surface("b"), surface("c"), plan("p")];
-        let (anchors, unanchored) = anchor_cards(&calls, &cards);
+        let (anchors, unanchored, tail) = anchor_cards(&calls, &cards);
         assert_eq!(anchors.get(&9), Some(&vec![2]));
         assert_eq!(anchors.get(&4), Some(&vec![1]));
         assert_eq!(anchors.get(&7), Some(&vec![3]));
         assert_eq!(unanchored, vec![0]);
-        let (anchors, unanchored) = anchor_cards(&[], &cards);
+        assert!(tail.is_empty());
+        // #EXP-2087: with no call left the waiting plan is the tail's.
+        let (anchors, unanchored, tail) = anchor_cards(&[], &cards);
         assert!(anchors.is_empty());
-        assert_eq!(unanchored, vec![0, 1, 2, 3]);
+        assert_eq!(unanchored, vec![0, 1, 2]);
+        assert_eq!(tail, vec![3]);
     }
 
     /// #FEED-231: a show call naming its card anchors exactly it; edits of
@@ -590,7 +597,7 @@ mod tests {
     fn a_named_call_anchors_its_own_card() {
         let calls = [(1, "show", Some("a")), (2, "show", Some("p")), (3, "show", Some("b")), (4, "show", Some("p"))];
         let cards = [surface("a"), plan("p"), surface("b")];
-        let (anchors, unanchored) = anchor_cards(&calls, &cards);
+        let (anchors, unanchored, _) = anchor_cards(&calls, &cards);
         assert_eq!(anchors.get(&1), Some(&vec![0]));
         assert_eq!(anchors.get(&3), Some(&vec![2]));
         assert_eq!(anchors.get(&4), Some(&vec![1]));
