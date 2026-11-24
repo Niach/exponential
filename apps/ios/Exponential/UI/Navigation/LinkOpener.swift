@@ -7,22 +7,18 @@ import Foundation
 import GRDB
 
 /// #EXP-1674: where a link resolved to; `MainNavigator.openLinkLanding` lands
-/// it (switching account and team first).
+/// it (switching account first).
 struct LinkLanding: Equatable {
     enum Destination: Equatable {
         /// The screen the app lands on (no access).
         case home
         /// A bar destination's root.
         case tab(MainTab)
-        /// The Board tab on this board.
-        case board(String)
         /// A page pushed over the current stack, or `over` a tab's root.
         case push(AppRoute, over: MainTab?)
     }
 
     let accountId: String
-    /// The team to make active first; nil = stay.
-    let teamId: String?
     let destination: Destination
 }
 
@@ -37,7 +33,7 @@ enum LinkOpener {
     // MARK: - Entries
 
     /// A read-only markdown render's link tap. `accountId` nil = the active
-    /// account at tap time; `teamId` nil = its active team.
+    /// account at tap time; `teamId` nil = its first team.
     static func surfaceHandler(
         accountId: String?, baseURL: URL?, teamId: String?, deps: AppDependencies
     ) -> MarkdownLinkHandler {
@@ -51,7 +47,7 @@ enum LinkOpener {
     }
 
     /// What a tapped link runs; nil = keep the system's own open (`mailto:`).
-    /// `teamId` = the surface's team (nil = the active team), for `~/`.
+    /// `teamId` = the surface's team (nil = the account's first team), for `~/`.
     static func tapAction(
         _ tapped: URL, origin: String, accountId: String, teamId: String?, deps: AppDependencies
     ) -> (() -> Void)? {
@@ -115,7 +111,7 @@ enum LinkOpener {
     }
 
     /// #EXP-1674 (plan-card.json): a chat card's link, in-app and https only,
-    /// with the card's team for `~/` (nil = the active team).
+    /// with the card's team for `~/` (nil = the account's first team).
     static func openCardLink(_ url: String, origin: String, accountId: String, teamId: String?, deps: AppDependencies) {
         Task { @MainActor in
             let team = await loadTeamSlug(teamId: teamId, accountId: accountId, deps: deps)
@@ -138,7 +134,7 @@ enum LinkOpener {
     ) -> [TextLinkSegment]? {
         let matches = IssueRefs.matches(in: text)
         guard !matches.isEmpty, let team = teamSlug(teamId: teamId, accountId: accountId, deps: deps),
-              let id = teamId ?? SharedBoardMirror.readActiveTeam(accountId: accountId)
+              let id = teamId ?? teamIds.first
         else { return nil }
         let scope: IssueRefLookup.Scope = teamIds.count > 1 ? .teams(ids: teamIds) : .team(id: id)
         let ns = text as NSString
@@ -162,7 +158,7 @@ enum LinkOpener {
     }
     #endif
 
-    /// The slug of `teamId`, else of the account's active team.
+    /// The slug of `teamId`, else of the account's first team.
     /// #EXP-1674: `~/x`'s base in a surface's URL policy (`/t/<team>/`).
     static func linkBase(teamId: String?, accountId: String, deps: AppDependencies) -> String? {
         AppLink.expandTeamLink("~/", team: teamSlug(teamId: teamId, accountId: accountId, deps: deps))
@@ -172,10 +168,9 @@ enum LinkOpener {
     /// miss is nil and loads off main (`StoreMemoLoads` re-renders). A tap
     /// awaits `loadTeamSlug`.
     static func teamSlug(teamId: String?, accountId: String, deps: AppDependencies) -> String? {
-        let id = teamId ?? SharedBoardMirror.readActiveTeam(accountId: accountId)
         let db = deps.db
-        return slugs.peek(SlugKey(accountId: accountId, teamId: id)) {
-            await fetchTeamSlug(id, accountId: accountId, db: db)
+        return slugs.peek(SlugKey(accountId: accountId, teamId: teamId)) {
+            await fetchTeamSlug(teamId, accountId: accountId, db: db)
         }
     }
 
@@ -188,7 +183,7 @@ enum LinkOpener {
     private static let slugs = StoreMemo<SlugKey, String>(ttl: 60)
 
     static func loadTeamSlug(teamId: String?, accountId: String, deps: AppDependencies) async -> String? {
-        await fetchTeamSlug(teamId ?? SharedBoardMirror.readActiveTeam(accountId: accountId), accountId: accountId, db: deps.db)
+        await fetchTeamSlug(teamId, accountId: accountId, db: deps.db)
     }
 
     private nonisolated static func fetchTeamSlug(_ id: String?, accountId: String, db: DatabaseManager) async -> String? {
@@ -199,7 +194,7 @@ enum LinkOpener {
             ) {
                 return slug
             }
-            return try String.fetchOne(db, sql: #"SELECT "slug" FROM "teams" LIMIT 1"#)
+            return TeamGroups.ordered(try TeamEntity.fetchAll(db)).first?.slug
         }) ?? nil
     }
 
@@ -276,7 +271,7 @@ enum LinkOpener {
             Toaster.shared.error(AppLink.noAccessCopy)
             // Home where the viewer is: a refused link never switches account.
             bus.navigateToLink(LinkLanding(
-                accountId: deps.auth.activeAccountId ?? "", teamId: nil, destination: .home
+                accountId: deps.auth.activeAccountId ?? "", destination: .home
             ))
         }
     }
@@ -307,7 +302,7 @@ enum LinkOpener {
         }) ?? nil
         // #EXP-2079: a link under a team not synced here that names the
         // viewer's own Assistant chat (its member's personal team) opens
-        // through the current / last team.
+        // through the first team.
         var ownTeam: String?
         if linkTeam == nil, let pool {
             ownTeam = await ownChatTeam(of: link, accountId: accountId, pool: pool, deps: deps)
@@ -321,12 +316,13 @@ enum LinkOpener {
         )
         let outcome = AppLink.linkOpenOutcome(
             member: true,
-            activeTeam: resolved.teamId == SharedBoardMirror.readActiveTeam(accountId: accountId),
+            // #EXP-2109: no active team on a phone, nothing to switch.
+            activeTeam: true,
             found: resolved.found,
             webOnly: resolved.webOnly
         )
         let landing = resolved.destination.map {
-            LinkLanding(accountId: accountId, teamId: resolved.teamId, destination: $0)
+            LinkLanding(accountId: accountId, destination: $0)
         }
         return Resolution(outcome: outcome, landing: landing)
     }
@@ -349,7 +345,7 @@ enum LinkOpener {
                 #"SELECT "id" FROM "boards" WHERE "team_id" = ? AND "slug" = ? LIMIT 1"#, teamId, boardSlug, pool: pool
             )
             guard let id else { return Target(found: false, teamId: teamId) }
-            return Target(teamId: teamId, destination: .board(id))
+            return Target(teamId: teamId, destination: .push(.board(accountId: accountId, id: id), over: .teams))
         case let .session(_, sessionId):
             // EXP-1291: a root (or an id not synced here: the chat screen
             // resolves or says not found) opens its chat, a child its session.
@@ -387,20 +383,23 @@ enum LinkOpener {
                 destination: .push(.agentChannel(accountId: accountId, agentId: agentId), over: nil)
             )
         case .agentHome:
-            return Target(teamId: teamId, destination: .tab(.agent))
+            return Target(teamId: teamId, destination: .push(.agent(accountId: accountId, seed: .empty), over: .chats))
         case .inbox:
             // EXP-1373: the Inbox is a page pushed over the Chats tab.
             return Target(teamId: teamId, destination: .push(.myWork, over: .chats))
         case .devices:
-            return Target(teamId: teamId, destination: .push(
-                .teamSettingsSection(accountId: accountId, teamId: teamId, section: .devices), over: .team
-            ))
+            return Target(teamId: teamId, destination: .push(.devices(accountId: accountId), over: .settings))
         case let .settings(_, section):
-            if section.isEmpty { return Target(teamId: teamId, destination: .tab(.team)) }
+            if section.isEmpty {
+                return Target(teamId: teamId, destination: .push(.teamSettings(accountId: accountId, teamId: teamId), over: .teams))
+            }
             // #EXP-1987: Settings › Assistant is the account's page (the
             // viewer's ONE Assistant), whichever team the link names.
             if section == "assistant" {
-                return Target(teamId: teamId, destination: .push(.assistantSettings(accountId: accountId), over: .team))
+                return Target(teamId: teamId, destination: .push(.assistantSettings(accountId: accountId), over: .settings))
+            }
+            if section == "devices" {
+                return Target(teamId: teamId, destination: .push(.devices(accountId: accountId), over: .settings))
             }
             // A category with no phone page (billing, statuses…) is web-only.
             guard let page = TeamSettingsSection(rawValue: section) else {
@@ -419,7 +418,7 @@ enum LinkOpener {
                 if (owner ?? 0) == 0 { return Target(found: false, teamId: teamId) }
             }
             return Target(teamId: teamId, destination: .push(
-                .teamSettingsSection(accountId: accountId, teamId: teamId, section: page), over: .team
+                .teamSettingsSection(accountId: accountId, teamId: teamId, section: page), over: .teams
             ))
         case let .appHome(_, appSlug):
             return await appTarget(appSlug, screen: nil, teamId: teamId, accountId: accountId, pool: pool)
@@ -444,7 +443,7 @@ enum LinkOpener {
         }
     }
 
-    /// VAPP-242 (apps.json `screens`): THE RUN VIEW over the Apps tab.
+    /// VAPP-242 (apps.json `screens`): THE RUN VIEW over the Teams tab.
     private static func appTarget(
         _ appSlug: String, screen: Apps.ScreenRequest?, teamId: String, accountId: String, pool: DatabasePool
     ) async -> Target {
@@ -454,7 +453,7 @@ enum LinkOpener {
         )
         guard let id else { return Target(found: false, teamId: teamId) }
         return Target(teamId: teamId, destination: .push(
-            .appRun(accountId: accountId, appId: id, screen: screen), over: .apps
+            .appRun(accountId: accountId, appId: id, screen: screen), over: .teams
         ))
     }
 
@@ -484,13 +483,12 @@ enum LinkOpener {
     /// #EXP-2079 (the #EXP-1987 rule for a link with no synced team): the
     /// team a link lands in when its own is not synced here and it names
     /// the viewer's OWN session, plan or Assistant in a team not synced
-    /// either (the Assistant's chat in the personal team): the current team,
-    /// else the first synced one. nil = any other link: no access, as ever.
+    /// either (the Assistant's chat in the personal team): the
+    /// first synced one. nil = any other link: no access, as ever.
     private static func ownChatTeam(
         of link: AppLink, accountId: String, pool: DatabasePool, deps: AppDependencies
     ) async -> String? {
         guard let me = deps.auth.accounts.first(where: { $0.id == accountId })?.userId else { return nil }
-        let current = SharedBoardMirror.readActiveTeam(accountId: accountId)
         return (try? await pool.read { db -> String? in
             let rowTeam: String?
             switch link {
@@ -504,8 +502,7 @@ enum LinkOpener {
                 rowTeam = nil
             }
             guard let rowTeam, try TeamEntity.fetchOne(db, key: rowTeam) == nil else { return nil }
-            let teams = TeamGroups.ordered(try TeamEntity.fetchAll(db))
-            return (teams.first { $0.id == current } ?? teams.first)?.id
+            return TeamGroups.ordered(try TeamEntity.fetchAll(db)).first?.id
         }) ?? nil
     }
 

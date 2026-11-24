@@ -71,9 +71,10 @@ struct ServerDetailView: View {
                     }
                     // S-3: Voice left Personal: its block is the Assistant
                     // page's Voice section (Team → Agents → Assistant).
-                    // EXP-1126: how this account signs in — only while it
+                    // EXP-1126: how another server's account signs in (the
+                    // active one's is Settings › Security) — only while it
                     // holds a session (every call is bearer-authenticated).
-                    if account?.token != nil {
+                    if account?.token != nil, accountId != deps.auth.activeAccountId {
                         SignInMethodsSection(accountId: accountId)
                     }
                     privacySection
@@ -87,11 +88,7 @@ struct ServerDetailView: View {
                 .padding(.bottom, 96)
             }
         }
-        .navigationTitle("Account")
-        // Inline like every settings page: a large title pushed the bare
-        // back arrow to the trailing edge.
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .pageHeader("Account", pushed: true)
         .onAppear { startObservingUser() }
         .task(id: accountId) { await loadTimezone() }
         .onDisappear { userObservationTask?.cancel() }

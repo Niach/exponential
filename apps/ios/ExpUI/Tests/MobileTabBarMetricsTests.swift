@@ -3,29 +3,43 @@ import SwiftUI
 import XCTest
 import ExpUI
 
-/// #EXP-1384 (chats.json `shell.bar`): Board · Chats · Apps · Team on a
-/// capsule that takes the width beside the launcher, label-sized tabs that
-/// share the rest, truncating only when the labels alone do not fit.
+/// #EXP-2109 (chats.json `shell.dock`, `shell.newMenu`): the docked bar; and
+/// `shell.bar`, a running app's screens capsule: label-sized tabs that share
+/// the rest, truncating only when the labels alone do not fit.
 final class MobileTabBarMetricsTests: XCTestCase {
+
+    func testTheDockReadsTheFixture() {
+        XCTAssertEqual(PhoneDockMetrics.height, 60)
+        XCTAssertEqual(PhoneDockMetrics.icon, 22)
+        XCTAssertEqual(PhoneDockMetrics.label, 11)
+        XCTAssertEqual(PhoneDockMetrics.gap, 4)
+        XCTAssertEqual(PhoneDockMetrics.disc, 60)
+        XCTAssertEqual(PhoneDockMetrics.mark, 40)
+        XCTAssertEqual(PhoneDockMetrics.raise, 16)
+        XCTAssertEqual(PhoneDockMetrics.ring, 6)
+        XCTAssertEqual(PhoneDockMetrics.glow, 26)
+        XCTAssertEqual(PhoneDockMetrics.clearance, 82)
+        XCTAssertEqual(PhoneDockMetrics.menuWidth, 160)
+        XCTAssertEqual(PhoneDockMetrics.menuRowHeight, 48)
+        XCTAssertEqual(PhoneDockMetrics.menuRadius, 20)
+        XCTAssertEqual(PhoneDockMetrics.menuGap, 26)
+    }
+
+    /// Five equal cells stay over the 44pt target on the narrowest phone.
+    func testADockCellPassesTheHigMinimum() {
+        XCTAssertGreaterThanOrEqual(320 / CGFloat(5), 44)
+        XCTAssertGreaterThanOrEqual(PhoneDockMetrics.height, 44)
+        XCTAssertGreaterThanOrEqual(PhoneDockMetrics.menuRowHeight, 44)
+    }
 
     func testTheBarReadsTheFixture() {
         XCTAssertEqual(MobileTabBarMetrics.barHeight, 52)
         XCTAssertEqual(MobileTabBarMetrics.pillPadding, 4)
         XCTAssertEqual(MobileTabBarMetrics.tabHeight, 44)
-        XCTAssertEqual(MobileTabBarMetrics.launcherGap, 12)
         XCTAssertEqual(MobileTabBarMetrics.tabMinWidth, 44)
         XCTAssertEqual(MobileTabBarMetrics.tabPaddingX, 8)
         XCTAssertEqual(MobileTabBarMetrics.lensScale, 1.12, accuracy: 0.0001)
         XCTAssertEqual(MobileTabBarMetrics.cancelDistance, 56)
-        XCTAssertEqual(MobileTabBarMetrics.caretSize, 10)
-        XCTAssertEqual(MobileTabBarMetrics.caretGap, 2)
-        XCTAssertEqual(MobileTabBarMetrics.caretOffset, 12)
-    }
-
-    func testTheTouchTargetsPassTheHigMinimum() {
-        XCTAssertGreaterThanOrEqual(MobileTabBarMetrics.tabHeight, 44)
-        XCTAssertGreaterThanOrEqual(MobileTabBarMetrics.tabMinWidth, 44)
-        XCTAssertEqual(MobileTabBarMetrics.launcherArm, FloatingBarTokens.slot)
     }
 
     func testANaturalWidthIsTheLabelPlusPaddingAtLeastTheMinimum() {
@@ -34,14 +48,8 @@ final class MobileTabBarMetricsTests: XCTestCase {
     }
 
     func testTheTabsShareTheRestEvenly() {
-        // 375 − 2×16 − 12 − 104.5 = 226.5, less the capsule padding = 218.5.
-        let capsule = MobileTabBarMetrics.capsuleTabsWidth(screenWidth: 375)
-        XCTAssertEqual(capsule, 226.5)
-        let available = capsule - 2 * MobileTabBarMetrics.pillPadding
-        let widths = MobileTabBarMetrics.tabWidths(natural: [76, 44, 44, 50], available: available)
-        XCTAssertEqual(widths.reduce(0, +), available, accuracy: 0.001)
-        let extra = (available - 214) / 4
-        XCTAssertEqual(widths, [76 + extra, 44 + extra, 44 + extra, 50 + extra])
+        let widths = MobileTabBarMetrics.tabWidths(natural: [76, 44, 44, 50], available: 234)
+        XCTAssertEqual(widths, [81, 49, 49, 55])
     }
 
     func testTheWidestGivesWayFirstWhenTheLabelsDoNotFit() {
@@ -54,11 +62,5 @@ final class MobileTabBarMetricsTests: XCTestCase {
     func testATabNeverShrinksBelowTheMinimum() {
         let widths = MobileTabBarMetrics.tabWidths(natural: [120, 120, 120, 120], available: 100)
         XCTAssertEqual(widths, [44, 44, 44, 44])
-    }
-
-    func testTheBoardMenuHeightCapsAtTheVisibleRows() {
-        XCTAssertEqual(MobileTabBarMetrics.menuHeight(rows: 4), 4 * 48 + 8)
-        XCTAssertEqual(MobileTabBarMetrics.menuHeight(rows: 20), 8 * 48 + 8)
-        XCTAssertEqual(MobileTabBarMetrics.menuRadius, 28)
     }
 }

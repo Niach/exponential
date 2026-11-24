@@ -67,7 +67,7 @@ use crate::capture::{self, Capture};
 use crate::echo::{Echo, FarEnd};
 use crate::listen::{Call, Transcriber, Utterance, Vad, RATE};
 use crate::meeting::Meeting;
-use crate::wake::{turn_ended, DetectorKind, WINDOW_MIN_MS, ModelDetector, TranscriptMatcher, WakeDetector, WakeScanner};
+use crate::wake::{turn_ended, DetectorKind, Listener, SetDetector, WakeScanner, WINDOW_MIN_MS};
 use crate::{emit, retry_after, runtime};
 
 /// The CrispASR backend of the transcriber.
@@ -213,7 +213,9 @@ pub enum Job {
     Mute { id: String, muted: bool },
     Hangup { id: String },
     /// #NEW-56: listen for `phrase` between Listens (empty = off).
-    Wake { phrase: String, language: String },
+    /// EXP-1859: `listeners` = every agent listened for (empty = only
+    /// `phrase`).
+    Wake { phrase: String, language: String, listeners: Vec<etalk::WakeListener> },
     /// NEW-57: hold meeting `id` (replaces a running one); `selection` =
     /// the desktop audio (None = the microphone only).
     Meeting { id: String, language: String, phrase: String, you_label: String, selection: Option<etalk::apps::Selection> },
@@ -654,51 +656,85 @@ struct Scan<H: Hearing> {
     scanner: WakeScanner,
     /// EXP-1424: the phrase's model once its files are ready, else the
     /// transcript matcher.
-    detector: Box<dyn WakeDetector>,
+    detector: SetDetector,
     /// EXP-1424: when the matcher next asks whether the phrase's model is
     /// ready (None = it has none).
     upgrade_at: Option<Instant>,
 }
 
 impl<H: Hearing> Scan<H> {
-    /// EXP-1424: hear `phrase` (a new one) with its model when one is
-    /// ready, else with the transcript matcher.
-    fn hear(&mut self, hearing: &mut H, phrase: &str) {
-        let (scanner, detector) = wake_detector(hearing, phrase);
-        let waiting = detector.kind() == DetectorKind::Transcript
-            && crate::wake::detector_kind(etalk_wakeword::models::MODELS, phrase) == DetectorKind::Model;
-        self.upgrade_at = waiting.then(|| Instant::now() + WAKE_RETRY);
+    /// EXP-1424: hear `listeners` (a new set): each phrase with its model
+    /// when one is ready, else with the transcript matcher.
+    fn hear(&mut self, hearing: &mut H, listeners: &[Listener]) {
+        let (scanner, detector) = wake_detector(hearing, listeners);
+        self.upgrade_at = Self::waiting(&detector, listeners).then(|| Instant::now() + WAKE_RETRY);
         self.scanner = scanner;
         self.detector = detector;
     }
 
+    /// A listener's phrase has a published model that is not ready yet.
+    fn waiting(detector: &SetDetector, listeners: &[Listener]) -> bool {
+        listeners.iter().enumerate().any(|(index, listener)| {
+            !detector.models.iter().any(|(modelled, _)| *modelled == index)
+                && crate::wake::detector_kind(etalk_wakeword::models::MODELS, &listener.phrase) == DetectorKind::Model
+        })
+    }
+
     /// EXP-1424: the matcher hears a phrase that has a model: switch to it
     /// once it is ready (the scan goes on untouched until then).
-    fn upgrade(&mut self, hearing: &mut H, phrase: &str) {
-        match hearing.wake_model(phrase) {
-            Some(model) => {
-                self.scanner = WakeScanner::for_model();
-                self.detector = Box::new(ModelDetector(model));
-                self.upgrade_at = None;
-            }
-            None => self.upgrade_at = Some(Instant::now() + WAKE_RETRY),
+    fn upgrade(&mut self, hearing: &mut H, listeners: &[Listener]) {
+        let (scanner, detector) = wake_detector(hearing, listeners);
+        if detector.models.len() > self.detector.models.len() {
+            self.upgrade_at = Self::waiting(&detector, listeners).then(|| Instant::now() + WAKE_RETRY);
+            self.scanner = scanner;
+            self.detector = detector;
+        } else {
+            self.upgrade_at = Some(Instant::now() + WAKE_RETRY);
         }
     }
 }
 
-/// EXP-1424: the scanner and detector for `phrase`.
-fn wake_detector<H: Hearing>(hearing: &mut H, phrase: &str) -> (WakeScanner, Box<dyn WakeDetector>) {
-    match hearing.wake_model(phrase) {
-        Some(model) => (WakeScanner::for_model(), Box::new(ModelDetector(model))),
-        None => (WakeScanner::new(crate::wake::window_ms(phrase)), Box::new(TranscriptMatcher)),
+/// EXP-1424: the scanner and detector for `listeners`: the window of the
+/// phrases the matcher hears (EXP-1859: the longest), a model's history
+/// when one of them has a model ready.
+fn wake_detector<H: Hearing>(hearing: &mut H, listeners: &[Listener]) -> (WakeScanner, SetDetector) {
+    let mut detector = SetDetector::default();
+    for (index, listener) in listeners.iter().enumerate() {
+        if let Some(model) = hearing.wake_model(&listener.phrase) {
+            detector.models.push((index, model));
+        }
     }
+    let matched = listeners.iter().enumerate().filter(|(index, _)| !detector.models.iter().any(|(modelled, _)| modelled == index));
+    let window = crate::wake::multi_window_ms(matched.map(|(_, listener)| listener.phrase.as_str()));
+    let scanner = if detector.models.is_empty() { WakeScanner::new(window) } else { WakeScanner::new(window).with_model_history() };
+    (scanner, detector)
 }
 
-/// #NEW-56: the wake word as the host asked for it.
+/// #NEW-56: the wake word as the host asked for it (EXP-1859: every agent
+/// listened for, the voice agent first).
 #[derive(Clone, PartialEq, Eq)]
 struct WakeWord {
-    phrase: String,
-    language: &'static str,
+    listeners: Vec<Listener>,
+}
+
+impl WakeWord {
+    /// The Wake job's set: its listeners (at most [`crate::wake::MAX_LISTENERS`],
+    /// a blank phrase skipped), else its one phrase; None = off.
+    fn of(phrase: String, language: &str, listeners: Vec<etalk::WakeListener>) -> Option<Self> {
+        if phrase.trim().is_empty() {
+            return None;
+        }
+        let mut set: Vec<Listener> = listeners
+            .into_iter()
+            .filter(|listener| !listener.phrase.trim().is_empty())
+            .take(crate::wake::MAX_LISTENERS)
+            .map(|listener| Listener::new(listener.agent_id, listener.phrase, &listener.language))
+            .collect();
+        if set.is_empty() {
+            set.push(Listener::new("", phrase, language));
+        }
+        Some(WakeWord { listeners: set })
+    }
 }
 
 /// #NEW-56: what the host was last told about the wake word's microphone.
@@ -868,6 +904,9 @@ pub struct Links {
     /// S-3: the voice is settled (loaded, or known unavailable): a call
     /// says `CallListening` only then, so its greeting can be spoken.
     pub voice_ready: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// EXP-1859 (talk-listen.json `wake.multi` `tone`): play the wake's
+    /// short tone on this machine's output.
+    pub tone: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl Links {
@@ -881,6 +920,7 @@ impl Links {
             speaking: Arc::new(|| false),
             spoken: Arc::new(Vec::new),
             voice_ready: Arc::new(|| true),
+            tone: Arc::new(|| {}),
         }
     }
 }
@@ -1156,7 +1196,7 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
         woken = woken_now;
         let due = wake_retry.is_none_or(|at| Instant::now() >= at);
         if let (Some(word), None, None, true, None) = (wake.as_ref(), active.as_ref(), scan.as_ref(), due, meeting_wanted.as_ref()) {
-            match open_scan(hearing, &word.phrase) {
+            match open_scan(hearing, &word.listeners) {
                 Ok(opened) => {
                     scan = Some(opened);
                     wake_retry = None;
@@ -1193,8 +1233,8 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
             }
         };
         match job {
-            Some(Job::Wake { phrase, language }) => {
-                let wanted = (!phrase.trim().is_empty()).then(|| WakeWord { phrase, language: language_of(&language) });
+            Some(Job::Wake { phrase, language, listeners }) => {
+                let wanted = WakeWord::of(phrase, &language, listeners);
                 if wanted.is_none() {
                     scan = None;
                     // #1263 review: a wake turn in flight ends with it,
@@ -1211,7 +1251,7 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                     // (through a window sized to the new phrase).
                     wake_retry = None;
                     if let (Some(scanning), Some(word)) = (scan.as_mut(), wanted.as_ref()) {
-                        scanning.hear(hearing, &word.phrase);
+                        scanning.hear(hearing, &word.listeners);
                     }
                 }
                 wake = wanted;
@@ -1390,17 +1430,16 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
         let (Some(scanning), Some(word)) = (scan.as_mut(), wake.as_ref()) else { continue };
         // EXP-1424: the phrase's model became ready: hear it with that.
         if scanning.upgrade_at.is_some_and(|at| Instant::now() >= at) {
-            scanning.upgrade(hearing, &word.phrase);
+            scanning.upgrade(hearing, &word.listeners);
         }
         match scanning.mic.recv_timeout(Duration::from_millis(20)) {
             Ok(samples) => match crate::wake::scan(
                 &mut scanning.scanner,
-                scanning.detector.as_mut(),
+                &mut scanning.detector,
                 &mut scanning.vad,
                 hearing.engines(),
                 &samples,
-                &word.phrase,
-                word.language,
+                &word.listeners,
                 {
                     // #1263 review: the voice (and its echo tail) never wakes itself.
                     if (links.speaking)() {
@@ -1416,7 +1455,10 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                     let Scan { mic, vad, scanner, .. } = scan.take().expect("scanning");
                     turns += 1;
                     let id = format!("wake-{turns}");
-                    let utterance = match crate::wake::turn(&id, word.language, &word.phrase, &scanner, matched, hearing.engines()) {
+                    // EXP-1859: whose phrase it was (none = the one phrase of
+                    // a Wake without listeners).
+                    let agent_id = Some(word.listeners[matched.2].agent_id.clone()).filter(|agent| !agent.is_empty());
+                    let utterance = match crate::wake::turn(&id, &word.listeners, &scanner, matched, hearing.engines()) {
                         Ok(utterance) => utterance,
                         Err((reason, detail)) => {
                             eprintln!("wake word: the turn failed to start ({reason:?}): {detail}");
@@ -1431,7 +1473,9 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
                     }
                     // Like a Listen: the voice stops for the person.
                     (links.barge)();
-                    emit(Event::Woke { id });
+                    // EXP-1859: every wake plays its short tone.
+                    (links.tone)();
+                    emit(Event::Woke { id, agent_id });
                     active = Some(Active::Listen(Held { utterance, mic, vad, started: Instant::now(), woken: true }));
                 }
                 Err(detail) => {
@@ -1456,12 +1500,12 @@ fn listen_loop<H: Hearing>(rx: &Receiver<Job>, hearing: &mut H, links: &Links) {
 }
 
 /// #NEW-56: the engines, then the wake word's own VAD and microphone.
-fn open_scan<H: Hearing>(hearing: &mut H, phrase: &str) -> Result<Scan<H>, (ListenFailure, String)> {
+fn open_scan<H: Hearing>(hearing: &mut H, listeners: &[Listener]) -> Result<Scan<H>, (ListenFailure, String)> {
     hearing.prepare(true)?;
     let vad = hearing.vad()?;
     let mic = open_mic(hearing)?;
-    let mut scan = Scan { mic, vad, scanner: WakeScanner::new(WINDOW_MIN_MS), detector: Box::new(TranscriptMatcher), upgrade_at: None };
-    scan.hear(hearing, phrase);
+    let mut scan = Scan { mic, vad, scanner: WakeScanner::new(WINDOW_MIN_MS), detector: SetDetector::default(), upgrade_at: None };
+    scan.hear(hearing, listeners);
     Ok(scan)
 }
 
@@ -1948,7 +1992,7 @@ mod tests {
         // The loop: the phrase matches after the reader set the gate and
         // before its Start is read: no turn, the Listen runs.
         let harness = Harness::new();
-        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into(), listeners: Vec::new() });
         harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
         assert!(harness.listening.begin("u1"));
         say_the_phrase(&harness);
@@ -1993,13 +2037,13 @@ mod tests {
         let listening = Arc::new(Listening::default());
         let hearing = probe.hearing();
         let (tx, thread) = spawn(move || hearing, Links::new(listening.clone()));
-        tx.send(Job::Wake { phrase: "Hey Studio".into(), language: "en".into() }).unwrap();
+        tx.send(Job::Wake { phrase: "Hey Studio".into(), language: "en".into(), listeners: Vec::new() }).unwrap();
         opened.recv_timeout(Duration::from_secs(5)).expect("the wake word opens the microphone");
         assert!(listening.begin("u1"));
         tx.send(Job::Start { id: "u1".into(), language: "en".into() }).unwrap();
         // Let the Listen start before anything that would end it is queued.
         std::thread::sleep(Duration::from_millis(200));
-        tx.send(Job::Wake { phrase: String::new(), language: "en".into() }).unwrap();
+        tx.send(Job::Wake { phrase: String::new(), language: "en".into(), listeners: Vec::new() }).unwrap();
         tx.send(Job::End { id: "u1".into() }).unwrap();
         drop(tx);
         thread.join().unwrap();
@@ -2014,9 +2058,9 @@ mod tests {
         let (probe, opened, _) = Probe::new(false);
         let hearing = probe.hearing();
         let (tx, thread) = spawn(move || hearing, Links::new(Arc::new(Listening::default())));
-        tx.send(Job::Wake { phrase: "Hey Studio".into(), language: "en".into() }).unwrap();
+        tx.send(Job::Wake { phrase: "Hey Studio".into(), language: "en".into(), listeners: Vec::new() }).unwrap();
         opened.recv_timeout(Duration::from_secs(5)).expect("opened");
-        tx.send(Job::Wake { phrase: " ".into(), language: "en".into() }).unwrap();
+        tx.send(Job::Wake { phrase: " ".into(), language: "en".into(), listeners: Vec::new() }).unwrap();
         let closed = probe.opened.lock().unwrap()[0].clone();
         let deadline = Instant::now() + Duration::from_secs(5);
         while !closed.load(Ordering::SeqCst) {
@@ -2068,6 +2112,8 @@ mod tests {
         spoken: Arc<Mutex<Vec<String>>>,
         /// S-3: the voice is settled (CallListening waits for it).
         voice: Arc<std::sync::atomic::AtomicBool>,
+        /// EXP-1859: the wake tones played.
+        tones: Arc<std::sync::atomic::AtomicUsize>,
         tx: Option<Sender<Job>>,
         thread: Option<std::thread::JoinHandle<()>>,
     }
@@ -2092,6 +2138,8 @@ mod tests {
             let replying = spoken.clone();
             let voice = Arc::new(std::sync::atomic::AtomicBool::new(true));
             let settled = voice.clone();
+            let tones: Arc<std::sync::atomic::AtomicUsize> = Arc::default();
+            let toned = tones.clone();
             let links = Links {
                 listening: listening.clone(),
                 barge: Arc::new(move || barged.lock().unwrap().push(Event::Finished { id: BARGE.into(), stopped: true })),
@@ -2100,10 +2148,13 @@ mod tests {
                 speaking: Arc::new(move || plays.load(Ordering::SeqCst)),
                 spoken: Arc::new(move || replying.lock().unwrap().clone()),
                 voice_ready: Arc::new(move || settled.load(Ordering::SeqCst)),
+                tone: Arc::new(move || {
+                    toned.fetch_add(1, Ordering::SeqCst);
+                }),
             };
             let hearing = probe.hearing();
             let (tx, thread) = spawn(move || hearing, links);
-            Harness { probe, opened, listening, events, speaking, spoken, voice, tx: Some(tx), thread: Some(thread) }
+            Harness { probe, opened, listening, events, speaking, spoken, voice, tones, tx: Some(tx), thread: Some(thread) }
         }
 
         fn send(&self, job: Job) {
@@ -2153,7 +2204,7 @@ mod tests {
     }
 
     fn woke(events: &[Event]) -> Vec<String> {
-        events.iter().filter_map(|event| if let Event::Woke { id } = event { Some(id.clone()) } else { None }).collect()
+        events.iter().filter_map(|event| if let Event::Woke { id, .. } = event { Some(id.clone()) } else { None }).collect()
     }
 
     /// The fake transcriber's first clip is `clip1`: the phrase that wakes.
@@ -2170,7 +2221,7 @@ mod tests {
     fn the_voice_never_wakes_itself() {
         let harness = Harness::new();
         harness.speaking.store(true, Ordering::SeqCst);
-        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into(), listeners: Vec::new() });
         harness.opened.recv_timeout(Duration::from_secs(10)).expect("the wake word opened the microphone");
         say_the_phrase(&harness);
         say_the_phrase(&harness);
@@ -2184,13 +2235,44 @@ mod tests {
         harness.close();
     }
 
+    /// EXP-1859: with several listeners the wake names the agent whose
+    /// phrase was heard, and every wake plays its tone once.
+    #[test]
+    fn a_wake_names_the_agent_whose_phrase_was_heard() {
+        let harness = Harness::new();
+        let listeners = vec![
+            etalk::WakeListener { agent_id: "a-one".into(), phrase: "Hey Other".into(), language: "en".into() },
+            etalk::WakeListener { agent_id: "a-two".into(), phrase: "Clip1".into(), language: "en".into() },
+        ];
+        harness.send(Job::Wake { phrase: "Hey Other".into(), language: "en".into(), listeners });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
+        say_the_phrase(&harness);
+        let events = harness.until(|events| !woke(events).is_empty());
+        let agents: Vec<Option<String>> = events.iter().filter_map(|event| if let Event::Woke { agent_id, .. } = event { Some(agent_id.clone()) } else { None }).collect();
+        assert_eq!(agents, [Some("a-two".to_string())]);
+        assert_eq!(harness.tones.load(Ordering::SeqCst), 1, "one tone per wake");
+        harness.close();
+    }
+
+    /// EXP-1859: a Wake without listeners is its one phrase, and names no agent.
+    #[test]
+    fn a_wake_without_listeners_names_no_agent() {
+        let harness = Harness::new();
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into(), listeners: Vec::new() });
+        harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
+        say_the_phrase(&harness);
+        let events = harness.until(|events| !woke(events).is_empty());
+        assert!(events.iter().any(|event| matches!(event, Event::Woke { agent_id: None, .. })), "{:?}", without_levels(&events));
+        harness.close();
+    }
+
     /// #NEW-86: for the cooldown after a wake turn ends the scan checks
     /// nothing it hears (the phrase said again at once is not transcribed);
     /// after it the phrase wakes again.
     #[test]
     fn a_wake_turn_cools_down_before_the_next() {
         let harness = Harness::new();
-        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into(), listeners: Vec::new() });
         harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
         say_the_phrase(&harness);
         harness.until(|events| !woke(events).is_empty());
@@ -2207,7 +2289,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         // The next transcription would be clip3: listen for that.
-        harness.send(Job::Wake { phrase: "Clip3".into(), language: "en".into() });
+        harness.send(Job::Wake { phrase: "Clip3".into(), language: "en".into(), listeners: Vec::new() });
         say_the_phrase(&harness);
         std::thread::sleep(Duration::from_millis(600));
         assert_eq!(woke(&harness.events.lock().unwrap()), ["wake-1"], "inside the cooldown: never transcribed");
@@ -2223,13 +2305,13 @@ mod tests {
     #[test]
     fn wake_word_off_ends_a_wake_turn_unanswered() {
         let harness = Harness::new();
-        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into(), listeners: Vec::new() });
         harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
         say_the_phrase(&harness);
         let events = harness.until(|events| !woke(events).is_empty());
         assert_eq!(woke(&events), ["wake-1"]);
         assert!(harness.listening.active(), "the turn runs");
-        harness.send(Job::Wake { phrase: String::new(), language: "en".into() });
+        harness.send(Job::Wake { phrase: String::new(), language: "en".into(), listeners: Vec::new() });
         let deadline = Instant::now() + Duration::from_secs(5);
         while harness.listening.active() {
             assert!(Instant::now() < deadline, "the turn ended");
@@ -2528,7 +2610,7 @@ mod tests {
                 let before = harness.events.lock().unwrap().len();
                 let answer = step["answer"].as_str();
                 match step["do"].as_str().unwrap() {
-                    "wake" => harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() }),
+                    "wake" => harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into(), listeners: Vec::new() }),
                     "call" => harness.call("c1", false),
                     "remoteCall" => harness.call("c1", true),
                     "hangup" => {
@@ -2632,7 +2714,7 @@ mod tests {
     #[test]
     fn a_meeting_owns_the_microphone_and_hears_each_channel_apart() {
         let harness = Harness::new();
-        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into(), listeners: Vec::new() });
         harness.opened.recv_timeout(Duration::from_secs(10)).expect("the wake word opens the microphone");
         meeting(&harness, "m1", Some(etalk::apps::Selection::All));
         harness.opened.recv_timeout(Duration::from_secs(10)).expect("the meeting opens the microphone");
@@ -2853,7 +2935,7 @@ mod tests {
     #[test]
     fn the_wake_word_reports_a_lost_microphone_and_reopens() {
         let harness = Harness::with(Limits { wake_retry: Duration::from_millis(100), ..Limits::default() });
-        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into(), listeners: Vec::new() });
         harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
         *harness.probe.refuse.lock().unwrap() = Some(ListenFailure::NoMicrophone);
         harness.probe.unplug();
@@ -2900,7 +2982,7 @@ mod tests {
         let events = harness.until(|events| failed(events, "c1").is_some());
         assert_eq!(failed(&events, "c1"), Some(ListenFailure::NoMicrophone), "{:?}", without_levels(&events));
         wait("the gate is free", || !harness.listening.active() && open_mics(&harness) == 0);
-        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into(), listeners: Vec::new() });
         let events = harness.until(|events| wake_reports(events).len() >= 3);
         assert_eq!(wake_reports(&events)[..3], [(true, None), (false, Some(ListenFailure::NoMicrophone)), (true, None)]);
         harness.close();
@@ -2913,14 +2995,14 @@ mod tests {
     fn a_turn_and_a_hold_end_on_the_clock_without_audio() {
         let limits = Limits { max_turn: Duration::from_millis(400), max_hold: Duration::from_millis(400), ..Limits::default() };
         let harness = Harness::with(limits);
-        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into() });
+        harness.send(Job::Wake { phrase: "Clip1".into(), language: "en".into(), listeners: Vec::new() });
         harness.opened.recv_timeout(Duration::from_secs(10)).expect("opened");
         say_the_phrase(&harness);
         let ended = |events: &[Event], of: &str| events.iter().any(|event| matches!(event, Event::Heard { id, .. } | Event::Empty { id } if id == of));
         let events = harness.until(|events| ended(events, "wake-1"));
         assert!(ended(&events, "wake-1"), "{:?}", without_levels(&events));
         wait("the gate is free", || !harness.listening.active());
-        harness.send(Job::Wake { phrase: String::new(), language: "en".into() });
+        harness.send(Job::Wake { phrase: String::new(), language: "en".into(), listeners: Vec::new() });
         listen(&harness, "u1");
         let events = harness.until(|events| ended(events, "u1"));
         assert!(ended(&events, "u1"), "{:?}", without_levels(&events));

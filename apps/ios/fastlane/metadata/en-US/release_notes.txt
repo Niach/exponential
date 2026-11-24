@@ -1,5 +1,8 @@
+- New devices need your OK: a new install shows a short code and waits until you approve it on a device you already use. Devices you already have are trusted automatically.
+- Issue search takes filters such as is:open, status:, created:7d or updated:today
+- Type a sentence in English or German into the search and pick the Search: row to turn it into filters
+- The @ list orders people the same way as on your other devices
 - An agent's views draw in the chat, in subagent tabs and in calls
-- A new install of your account asks for approval in Needs you, with its whole code
 - An open question or plan card sits after the chat's last message
 - A subagent's reply no longer shows twice after reopening the app
 - A teammate's message the agent has not picked up yet shows as waiting
@@ -47,8 +50,3 @@
 - A Voice section on every agent's settings page
 - An Events tab on every app: its agent's triggers, webhooks and recent runs
 - Sending into a chat whose keys changed re-seals and sends again, once
-- One … menu in every chat, no settings gear, your own picture on your messages
-- Your sidebar folders show in the board pickers and the Apps list
-- My issues tabs on a board; [Image #1] placeholders when you attach an image
-- Home screen widgets: Board, My issues and Needs you
-- Ask Siri or Shortcuts to open an agent's chat; agent chat links open from a cold start

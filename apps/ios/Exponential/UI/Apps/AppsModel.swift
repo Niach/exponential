@@ -81,58 +81,6 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
     }
 }
 
-/// The team's apps (trashed rows hidden, sorted by name)
-/// and whether I own the team, live off GRDB.
-@MainActor
-@Observable
-final class AppsListModel {
-    private(set) var apps: [AppListEntry] = []
-    private(set) var isOwner = false
-    private(set) var loaded = false
-
-    @ObservationIgnored private var task: Task<Void, Never>?
-
-    nonisolated init() {}
-
-    func bind(accountId: String, teamId: String?, userId: String?, db: DatabaseManager) {
-        stop()
-        guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let observation = ValueObservation.tracking { db -> ([AppEntity], Bool) in
-            guard let teamId else { return ([], false) }
-            let rows = try AppEntity
-                .filter(Column("team_id") == teamId)
-                .filter(Column("deleted_at") == nil)
-                .fetchAll(db)
-            let role = try String.fetchOne(
-                db,
-                sql: #"SELECT "role" FROM "team_members" WHERE "team_id" = ? AND "user_id" = ? LIMIT 1"#,
-                arguments: [teamId, userId ?? ""]
-            )
-            return (rows, role == "owner")
-        }
-        task = Task { [weak self] in
-            do {
-                for try await (rows, owner) in observation.values(in: pool) {
-                    guard let self else { return }
-                    self.apps = Apps.sortApps(rows.map(AppListEntry.init(row:)), name: \.name)
-                    self.isOwner = owner
-                    self.loaded = true
-                }
-            } catch {}
-        }
-    }
-
-    func stop() {
-        task?.cancel()
-        task = nil
-    }
-
-    /// Members rename and delete only their own apps, owners every app.
-    func canManage(_ app: AppListEntry, userId: String?) -> Bool {
-        isOwner || (userId != nil && app.createdBy == userId)
-    }
-}
-
 /// One app's editor state, live off GRDB: the app, its
 /// versions newest first, the people who wrote them, my editor session root
 /// and the device a first send runs on (my default, else my first online

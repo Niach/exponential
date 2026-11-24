@@ -148,7 +148,7 @@ extension SessionsSendInput {
     /// The message text this form carries (nil for the no-text forms).
     public var text: String? {
         switch self {
-        case let .newChat(_, _, _, text, _, _, _, _): text
+        case let .newChat(_, _, _, text, _, _, _, _, _): text
         case let .agent(_, text, _, _, _, _): text
         case let .app(_, _, text, _, _, _, _): text
         case let .child(_, _, _, text, _, _): text
@@ -160,7 +160,7 @@ extension SessionsSendInput {
     /// The claimed uploads of this send.
     public var attachmentIds: [String] {
         switch self {
-        case let .newChat(_, _, _, _, ids, _, _, _): ids ?? []
+        case let .newChat(_, _, _, _, ids, _, _, _, _): ids ?? []
         case let .agent(_, _, ids, _, _, _): ids ?? []
         case let .app(_, _, _, ids, _, _, _): ids ?? []
         case let .message(_, _, ids, _): ids ?? []
@@ -183,8 +183,8 @@ extension SessionsSendInput {
     /// The same form with `text` replaced.
     public func with(text: String?) -> SessionsSendInput {
         switch self {
-        case let .newChat(teamId, deviceId, options, _, attachmentIds, issueIds, promptId, repositoryId):
-            .newChat(teamId: teamId, deviceId: deviceId, options: options, text: text, attachmentIds: attachmentIds, issueIds: issueIds, promptId: promptId, repositoryId: repositoryId)
+        case let .newChat(teamId, deviceId, options, _, attachmentIds, issueIds, promptId, repositoryId, scopeTeamIds):
+            .newChat(teamId: teamId, deviceId: deviceId, options: options, text: text, attachmentIds: attachmentIds, issueIds: issueIds, promptId: promptId, repositoryId: repositoryId, scopeTeamIds: scopeTeamIds)
         case let .agent(agentId, _, attachmentIds, issueIds, scope, mcpServerIds):
             .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, issueIds: issueIds, scope: scope, mcpServerIds: mcpServerIds)
         case let .app(appId, deviceId, _, attachmentIds, cli, account, model):
@@ -275,7 +275,7 @@ public struct SendSealing: Sendable {
         switch input {
         case .switchAccount, .moveDevice:
             return PreparedSend(input: SealedSendInput(input: input), newKey: nil)
-        case let .newChat(team, device, _, _, _, _, _, _):
+        case let .newChat(team, device, _, _, _, _, _, _, _):
             teamId = team
             steerDevice = device
         case let .agent(agentId, _, _, _, _, _):

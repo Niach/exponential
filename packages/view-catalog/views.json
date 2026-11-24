@@ -215,6 +215,38 @@
     {
       "route": "/t/$teamSlug/drafts",
       "reason": "#EXP-2027: md+ forwards it to the team-less /drafts (the `drafts` view); phones list drafts on the board's Drafts chip."
+    },
+    {
+      "route": "/t/$teamSlug/chats",
+      "reason": "An old team-scoped link: redirects to its team-less page (#EXP-2109)."
+    },
+    {
+      "route": "/t/$teamSlug/inbox",
+      "reason": "An old team-scoped link: redirects to its team-less page (#EXP-2109)."
+    },
+    {
+      "route": "/t/$teamSlug/settings/account",
+      "reason": "An old team-scoped link: redirects to its team-less page (#EXP-2109)."
+    },
+    {
+      "route": "/t/$teamSlug/settings/assistant",
+      "reason": "An old team-scoped link: redirects to its team-less page (#EXP-2109)."
+    },
+    {
+      "route": "/t/$teamSlug/settings/notifications",
+      "reason": "An old team-scoped link: redirects to its team-less page (#EXP-2109)."
+    },
+    {
+      "route": "/t/$teamSlug/settings/security",
+      "reason": "An old team-scoped link: redirects to its team-less page (#EXP-2109)."
+    },
+    {
+      "route": "/devices",
+      "reason": "The phones' device list, drawn from presence: a pushed Settings page; `device` pictures the detail."
+    },
+    {
+      "route": "/t/$teamSlug",
+      "reason": "Redirects to the team's page (phones) or Home (md+): the `team` and `agent-home` views."
     }
   ],
   "views": [
@@ -866,7 +898,7 @@
       "blurb": "The notification stream: assignments, mentions, comments and PR events, grouped and unread-first. Wide: a popover off the sidebar header; phones: a pushed page.",
       "order": 1,
       "web": {
-        "route": "/t/$teamSlug/inbox",
+        "route": "/inbox",
         "anchor": {
           "text": "Push notification deep links",
           "timeoutMs": 30000
@@ -895,7 +927,7 @@
       "notes": {
         "web": "#FEED-191: the sidebar header's Inbox icon opens a menu-surface popover; `/inbox` redirects home with the popover open.",
         "desktop": "#FEED-191: the rail header's Inbox icon opens a menu-surface popover under it: `EXP_DEV_TOOL=inbox` lands on Home with it open.",
-        "web-mobile": "Session 58cb32df (chats.json): pushed from the Chats header's inbox circle: a back header with Mark all read and the active team's stream, no segments and no tab bar (My issues and Drafts are board chips)."
+        "web-mobile": "Pushed from the header's inbox circle: a back header with Mark all read and every team's stream, no bar."
       }
     },
     {
@@ -991,7 +1023,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=needs-you",
+        "route": "/home?dev=needs-you",
         "anchor": {
           "testId": "needs-you-specimen",
           "timeoutMs": 20000
@@ -1117,7 +1149,7 @@
       "blurb": "Where every client lands (EXP-1253, composer-home.json): the dawn (EXP-1293: the big Exponential mark's top half, no greeting line), the agent row, “What do you want to build?” in the composer, and nothing under the options line: recent sessions live behind the history button and the Agent › Recent sidebar.",
       "order": 3,
       "web": {
-        "route": "/t/$teamSlug",
+        "route": "/home",
         "anchor": {
           "testId": "agent-composer",
           "timeoutMs": 30000
@@ -1140,7 +1172,7 @@
         }
       },
       "notes": {
-        "web": "The team index redirects to the Agent page (a replace), so this is the landing a team URL gets; the anchor waits for the composer.",
+        "web": "Home, the team-less composer page; the anchor waits for the composer.",
         "desktop": "Same drive as `chat` (`EXP_DEV_SCREEN=chat`): the IDE starts on Agent (EXP-1192) and that page IS the home column (the dawn, the agent row and the composer), so the two desktop shots are one surface filed under both names, like issue-detail and issue-comments.",
         "android": "EXP-1309: the live landing (with the bottom bar), like iOS."
       }
@@ -1849,7 +1881,7 @@
         "settleMs": 600
       },
       "webMobile": {
-        "route": "/t/$teamSlug/settings/account",
+        "route": "/settings/account",
         "anchor": {
           "text": "Account",
           "timeoutMs": 20000
@@ -1886,7 +1918,7 @@
         "settleMs": 600
       },
       "webMobile": {
-        "route": "/t/$teamSlug/settings/notifications",
+        "route": "/settings/notifications",
         "anchor": {
           "text": "Notifications",
           "timeoutMs": 20000
@@ -1919,7 +1951,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/settings/assistant",
+        "route": "/settings/assistant",
         "anchor": {
           "text": "Push to talk",
           "timeoutMs": 20000
@@ -1960,7 +1992,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/settings/assistant",
+        "route": "/settings/assistant",
         "anchor": {
           "text": "Stop after",
           "timeoutMs": 20000
@@ -2006,7 +2038,7 @@
         "settleMs": 600
       },
       "webMobile": {
-        "route": "/t/$teamSlug/settings/security",
+        "route": "/settings/security",
         "anchor": {
           "text": "API keys",
           "timeoutMs": 20000
@@ -2047,8 +2079,8 @@
     {
       "id": "settings-root",
       "group": "settings",
-      "title": "Team tab · Settings root (mobile)",
-      "blurb": "The native settings root: the signed-in servers, the teams under them, and the way into everything else.",
+      "title": "Settings root (phone)",
+      "blurb": "The phones' Settings tab (settings-nav.json nav.phone): the viewer's card, the personal pages, Devices, then the rest.",
       "order": 14,
       "ios": {
         "shot": "sg_settings-root",
@@ -2060,13 +2092,13 @@
       },
       "notes": {
         "web": "Web has no settings root on md+: the sidebar links straight into a section, and bare /settings redirects to the first one the viewer may see.",
-        "web-mobile": "Session 58cb32df (chats.json): the phone's Team tab (`/t/$teamSlug/team`): the team avatar, name and meta, the viewer's teams (a tap switches), the settings rows, then the account row and the old avatar menu's entries.",
+        "web-mobile": "#EXP-2109: the Settings tab; nothing team related.",
         "desktop": "Desktop follows the web split, one nav item per section."
       },
       "webMobile": {
-        "route": "/t/$teamSlug/team",
+        "route": "/settings",
         "anchor": {
-          "testId": "team-tab",
+          "testId": "phone-settings",
           "timeoutMs": 30000
         },
         "settleMs": 1200
@@ -2605,7 +2637,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/team",
+        "route": "/settings",
         "anchor": {
           "testId": "getting-started",
           "timeoutMs": 20000
@@ -2674,31 +2706,31 @@
       }
     },
     {
-      "id": "apps",
+      "id": "teams",
       "group": "coding",
-      "title": "Apps",
-      "blurb": "VAPP-110 + VAPP-176 + VAPP-242: the phones' Apps tab (fixtures/apps.json THE LIST): the band whose New app pill opens THE NEW MENU (New app / Import…), one row per app (glyph, name, the version pill or the Draft badge, the … menu with Edit app, Export and Delete); a tap RUNS the app. Web ≥ md and the IDE have no Apps page (the sidebar's Apps group lists the apps).",
+      "title": "Teams (phone)",
+      "blurb": "#EXP-2109 (sidebar-tree.json phone): the phones' Teams tab: one row per team (mark, name, the needs-you count), the header's + holding New team and Join team.",
       "order": 30,
       "webMobile": {
-        "route": "/t/$teamSlug/apps",
+        "route": "/teams",
         "anchor": {
-          "testId": "apps-list",
+          "testId": "teams-row",
           "timeoutMs": 30000
         },
         "settleMs": 800
       },
       "ios": {
-        "shot": "sg_apps",
+        "shot": "sg_teams",
         "lane": "styleguide"
       },
       "notes": {
-        "ios": "VAPP-112: the LIVE walk: the Chats tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row.",
-        "android": "VAPP-116: the LIVE walk (signed in, the seeded demo apps): Chats → the header's Apps entry. The phone reaches Apps from the Chats tab (no sidebar).",
-        "desktop": "VAPP-242: no Apps page in the IDE; the sidebar's Apps group lists the apps.",
-        "web": "VAPP-242: no Apps page on web ≥ md (the route forwards to the team); the sidebar's Apps group lists the apps."
+        "web": "Phones only: md+ has the sidebar tree (sidebar-tree).",
+        "desktop": "Phones only: the IDE has the sidebar tree (sidebar-tree).",
+        "ios": "The LIVE walk: the Teams tab.",
+        "android": "The LIVE walk: the Teams tab."
       },
       "android": {
-        "shot": "sg_apps",
+        "shot": "sg_teams",
         "lane": "styleguide"
       }
     },
@@ -6376,7 +6408,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=pr-row",
+        "route": "/home?dev=pr-row",
         "anchor": {
           "testId": "pr-row-specimen",
           "timeoutMs": 20000
@@ -6419,7 +6451,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=pr-checks",
+        "route": "/home?dev=pr-checks",
         "anchor": {
           "testId": "pr-checks-specimen",
           "timeoutMs": 20000
@@ -6464,7 +6496,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=ci-run",
+        "route": "/home?dev=ci-run",
         "anchor": {
           "testId": "ci-run",
           "timeoutMs": 20000
@@ -6509,7 +6541,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=runner-settings",
+        "route": "/home?dev=runner-settings",
         "anchor": {
           "testId": "runner-settings",
           "timeoutMs": 20000
@@ -7518,7 +7550,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=trace",
+        "route": "/home?dev=trace",
         "anchor": {
           "testId": "trace-specimen",
           "timeoutMs": 20000
@@ -7563,7 +7595,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=ask-dock",
+        "route": "/home?dev=ask-dock",
         "anchor": {
           "testId": "ask-dock-specimen",
           "timeoutMs": 20000
@@ -7608,7 +7640,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=dock-card",
+        "route": "/home?dev=dock-card",
         "anchor": {
           "testId": "dock-card-specimen",
           "timeoutMs": 20000
@@ -7653,7 +7685,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=plan-card",
+        "route": "/home?dev=plan-card",
         "anchor": {
           "testId": "plan-card-specimen",
           "timeoutMs": 20000
@@ -7698,7 +7730,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=plan-page",
+        "route": "/home?dev=plan-page",
         "anchor": {
           "testId": "plan-page-specimen",
           "timeoutMs": 20000
@@ -7743,7 +7775,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=code-block",
+        "route": "/home?dev=code-block",
         "anchor": {
           "testId": "code-block-specimen",
           "timeoutMs": 20000
@@ -7788,7 +7820,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=feedback-states",
+        "route": "/home?dev=feedback-states",
         "anchor": {
           "testId": "feedback-states-specimen",
           "timeoutMs": 20000
@@ -7820,7 +7852,7 @@
       "id": "chats",
       "group": "coding",
       "title": "Chats",
-      "blurb": "Every chat of the team (chats.json, EXP-1373): the agents, then the chats under their section headers: one row per root chat with its lead disc, title, time, two-line preview, ONE quiet right word (question, ready to merge, stack) and the unread badge.",
+      "blurb": "Every chat of your teams (chats.json, EXP-1373): the agents, then the chats under their section headers: one row per root chat with its lead disc, title, time, two-line preview, ONE quiet right word (question, ready to merge, stack) and the unread badge.",
       "order": 18,
       "web": {
         "route": "/chats",
@@ -7831,7 +7863,7 @@
         "settleMs": 1200
       },
       "webMobile": {
-        "route": "/t/$teamSlug/chats",
+        "route": "/chats",
         "anchor": {
           "testId": "chat-list",
           "timeoutMs": 30000
@@ -7856,7 +7888,7 @@
         "web": "Seeded rows only (seedSessionTree in apps/web/scripts/seed-screenshots.ts): six roots, one per list state, plus the three team agents phones band on top.",
         "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: the Chats tab, gated on the seeded rows' quiet words (`question`, `stack`).",
         "android": "See ios.",
-        "web-mobile": "Session 58cb32df (chats.json): the phone Chats screen, not the bands: the large Chats headline with the search and inbox circles, the agents, then the chats under their section headers: one row per root chat of the ACTIVE team (52 lead disc, title + time, two-line preview, word, unread badge)."
+        "web-mobile": "Session 58cb32df (chats.json): the phone Chats screen, not the bands: the large Chats headline with the search and inbox circles, the agents, then the chats under their section headers: one row per root chat of every team (its team's mark before the time) (52 lead disc, title + time, two-line preview, word, unread badge)."
       }
     },
     {
@@ -7957,7 +7989,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=chat-list",
+        "route": "/home?dev=chat-list",
         "anchor": {
           "testId": "chat-list-specimen",
           "timeoutMs": 20000
@@ -7991,7 +8023,7 @@
       "id": "phone-tab-bar",
       "group": "coding",
       "title": "Phone tab bar",
-      "blurb": "The phone bottom bar (chats.json shell): Board (the active board's glyph + name, the caret on the board view) · Chats · Apps · Team (the team avatar + name), label-sized tabs on the glass capsule with the drag lens, beside the new chat / new issue capsule.",
+      "blurb": "The phone bottom bar (chats.json shell.dock): docked, Chats · Teams · the Assistant (the white Exponential mark on a raised disc) · New · Settings, and New's popup.",
       "order": 33,
       "web": {
         "route": "/home?dev=phone-tab-bar",
@@ -8002,7 +8034,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=phone-tab-bar",
+        "route": "/home?dev=phone-tab-bar",
         "anchor": {
           "testId": "phone-tab-bar-specimen",
           "timeoutMs": 20000
@@ -8025,56 +8057,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The DEV-ONLY `?dev=phone-tab-bar` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `PhoneTabBarSpecimen`, the tab capsule (Board · Chats · Apps · Team) beside the new chat / new issue capsule in four states: Board selected on the board view (the caret), Chats and Team selected, the drag lens mid-drag between Chats and Apps; the amber dot on Chats.",
+        "web": "The DEV-ONLY `?dev=phone-tab-bar` on Home (never parsed in a production build): `@exp/ui` `PhoneTabBarSpecimen` in four states: Chats, Teams and the Assistant selected, New with its popup open.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_phone-tab-bar.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:phone-tab-bar`: the IDE styleguide entry drawn full-window.",
         "web-mobile": "Inherits web: the same four bars at the phone's width."
-      }
-    },
-    {
-      "id": "phone-board-menu",
-      "group": "coding",
-      "title": "Phone board menu",
-      "blurb": "The phone's only board switch (chats.json shell.boardMenu): on the board view the Board tab morphs the bottom strip into one glass menu, the team's boards (the active one lit with the check) then New board.",
-      "order": 38,
-      "web": {
-        "route": "/home?dev=phone-board-menu",
-        "anchor": {
-          "testId": "phone-board-menu-specimen",
-          "timeoutMs": 20000
-        },
-        "settleMs": 800
-      },
-      "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=phone-board-menu",
-        "anchor": {
-          "testId": "phone-board-menu-specimen",
-          "timeoutMs": 20000
-        },
-        "settleMs": 800
-      },
-      "ios": {
-        "shot": "sg_phone-board-menu",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_phone-board-menu",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "specimen:phone-board-menu"
-        },
-        "anchorDelayMs": 1500
-      },
-      "notes": {
-        "web": "The DEV-ONLY `?dev=phone-board-menu` on the Agent route (never parsed in a production build, like `plan-card`): `@exp/ui` `PhoneBoardMenuSpecimen`, the board menu OPEN over the strip it grew from (Mobile App active, Launch Marketing, Product Feedback, New board), 390px wide.",
-        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_phone-board-menu.",
-        "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
-        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:phone-board-menu`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "Inherits web: the phone frame draws the same 390px specimen."
       }
     },
     {
@@ -8092,7 +8079,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=phone-page-header",
+        "route": "/home?dev=phone-page-header",
         "anchor": {
           "testId": "phone-page-header-specimen",
           "timeoutMs": 20000
@@ -8137,7 +8124,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=chat-header",
+        "route": "/home?dev=chat-header",
         "anchor": {
           "testId": "chat-header-specimen",
           "timeoutMs": 20000
@@ -8182,7 +8169,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=chat-transcript",
+        "route": "/home?dev=chat-transcript",
         "anchor": {
           "testId": "chat-transcript-specimen",
           "timeoutMs": 20000
@@ -8227,7 +8214,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=chat-menus",
+        "route": "/home?dev=chat-menus",
         "anchor": {
           "testId": "chat-menus-specimen",
           "timeoutMs": 20000
@@ -8272,7 +8259,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=chat-selection",
+        "route": "/home?dev=chat-selection",
         "anchor": {
           "testId": "chat-selection-specimen",
           "timeoutMs": 20000
@@ -8317,7 +8304,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=sealed-locked",
+        "route": "/home?dev=sealed-locked",
         "anchor": {
           "testId": "sealed-locked-specimen",
           "timeoutMs": 20000
@@ -8452,7 +8439,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=schedule-picker",
+        "route": "/home?dev=schedule-picker",
         "anchor": {
           "testId": "schedule-picker-specimen",
           "timeoutMs": 20000
@@ -8497,7 +8484,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=mention-pill",
+        "route": "/home?dev=mention-pill",
         "anchor": {
           "testId": "mention-pill-specimen",
           "timeoutMs": 20000
@@ -8633,7 +8620,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=voice-call",
+        "route": "/home?dev=voice-call",
         "anchor": {
           "testId": "voice-call-specimen",
           "timeoutMs": 20000
@@ -8678,7 +8665,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=call-controls",
+        "route": "/home?dev=call-controls",
         "anchor": {
           "testId": "call-controls-specimen",
           "timeoutMs": 20000
@@ -8723,7 +8710,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=call-pill",
+        "route": "/home?dev=call-pill",
         "anchor": {
           "testId": "voice-call-pill-specimen",
           "timeoutMs": 20000
@@ -8768,7 +8755,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=voice-call-overlay",
+        "route": "/home?dev=voice-call-overlay",
         "anchor": {
           "testId": "voice-call-pill-specimen",
           "timeoutMs": 20000
@@ -8805,7 +8792,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=device-readiness",
+        "route": "/home?dev=device-readiness",
         "anchor": {
           "testId": "device-readiness-specimen",
           "timeoutMs": 20000
@@ -8931,7 +8918,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/agent?dev=results-tab",
+        "route": "/home?dev=results-tab",
         "anchor": {
           "testId": "results-tab-specimen",
           "timeoutMs": 20000
@@ -9671,11 +9658,11 @@
         "settleMs": 1200
       },
       "notes": {
-        "web": "md+ only: phones keep their tab bar until their own redesign.",
-        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "web": "md+ only: phones have the Teams tab (#EXP-2109).",
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) have their own Teams tab and Settings (#EXP-2109).",
         "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
-        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
-        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+        "ios": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109).",
+        "android": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109)."
       },
       "desktop": {
         "drive": {
@@ -9701,10 +9688,10 @@
         "settleMs": 800
       },
       "notes": {
-        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) have their own Teams tab and Settings (#EXP-2109).",
         "desktop": "#EXP-2027: `EXP_DEV_TEAM_MENU` hovers the first team row and presses its `…`, the menu the right-click opens too.",
-        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
-        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+        "ios": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109).",
+        "android": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109)."
       },
       "desktop": {
         "drive": {
@@ -9732,10 +9719,10 @@
         "settleMs": 1200
       },
       "notes": {
-        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) have their own Teams tab and Settings (#EXP-2109).",
         "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
-        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
-        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+        "ios": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109).",
+        "android": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109)."
       },
       "desktop": {
         "drive": {
@@ -9760,10 +9747,10 @@
         "settleMs": 600
       },
       "notes": {
-        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) have their own Teams tab and Settings (#EXP-2109).",
         "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
-        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
-        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+        "ios": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109).",
+        "android": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109)."
       },
       "desktop": {
         "drive": {
@@ -9788,10 +9775,10 @@
         "settleMs": 800
       },
       "notes": {
-        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) have their own Teams tab and Settings (#EXP-2109).",
         "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
-        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
-        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+        "ios": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109).",
+        "android": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109)."
       },
       "desktop": {
         "drive": {
@@ -9816,10 +9803,10 @@
         "settleMs": 600
       },
       "notes": {
-        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
+        "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) have their own Teams tab and Settings (#EXP-2109).",
         "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
-        "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
-        "android": "#EXP-2027: phones keep today's navigation until their own redesign."
+        "ios": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109).",
+        "android": "#EXP-2027: phones have their own Teams tab and Settings (#EXP-2109)."
       },
       "desktop": {
         "drive": {
@@ -9827,6 +9814,64 @@
           "value": "new-app:$team"
         },
         "anchorDelayMs": 800
+      }
+    },
+    {
+      "id": "team",
+      "group": "coding",
+      "title": "Team (phone)",
+      "blurb": "#EXP-2109: a team's page of the Teams tab: its one mixed list (folders, boards, agents, apps, placed sessions) in the member's order; a folder pushes its items.",
+      "order": 99,
+      "webMobile": {
+        "route": "/t/$teamSlug/team",
+        "anchor": {
+          "testId": "team-items",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "ios": {
+        "shot": "sg_team",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_team",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "Phones only: wide has the sidebar tree.",
+        "desktop": "Phones only: wide has the sidebar tree.",
+        "ios": "The LIVE walk.",
+        "android": "The LIVE walk."
+      }
+    },
+    {
+      "id": "assistant-tab",
+      "group": "coding",
+      "title": "Assistant (phone)",
+      "blurb": "#EXP-2109: the bar's middle tab: the viewer's Assistant conversation, the composer above the docked bar.",
+      "order": 100,
+      "webMobile": {
+        "route": "/assistant",
+        "anchor": {
+          "testId": "chat-page",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1000
+      },
+      "ios": {
+        "shot": "sg_assistant-tab",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_assistant-tab",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "Phones only: wide opens the Assistant from its floating button.",
+        "desktop": "Phones only: wide opens the Assistant from its floating button.",
+        "ios": "The LIVE walk.",
+        "android": "The LIVE walk."
       }
     }
   ]

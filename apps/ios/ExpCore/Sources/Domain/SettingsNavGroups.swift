@@ -82,6 +82,19 @@ public extension SettingsNav {
         "about": Page(label: "About", icon: "settings-about", visible: .all, platforms: [.desktop, .ios, .android]),
     ]
 
+    /// #EXP-2109 (`nav.phone.settings`): the phone's Settings tab.
+    static let phoneSettings = ["account", "assistant", "notifications", "security", "devices", "about"]
+
+    /// #EXP-2109 (`nav.phone.team`): a team's settings page on a phone.
+    static let phoneTeam: [Id] = [
+        .general, .members, .labels, .repositories, .prompts, .boards, .agents, .mcp, .skills,
+    ]
+
+    /// The team settings page's rows for a viewer, in `phone.team` order.
+    static func visiblePhoneTeam(isOwner: Bool, cloud: Bool = false) -> [Id] {
+        phoneTeam.filter { isVisible(row($0), isOwner: isOwner, cloud: cloud) }
+    }
+
     /// `rows` rows that exist on some platforms only.
     static let rowPlatforms: [String: [Platform]] = [
         "billing": [.web],

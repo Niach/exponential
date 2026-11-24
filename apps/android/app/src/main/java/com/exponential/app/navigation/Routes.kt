@@ -5,15 +5,14 @@ import com.exponential.app.domain.NeedsYou
 /**
  * EXP-1291: the route strings every screen lane navigates by.
  *
- * - [HOME] = the composer page (the Agent tab, the app's landing root);
- *   seeded pushes ride `agentRoute(seed)` (`domain/AgentComposerSeed.kt`).
+ * - the composer page = a pushed page (New › Chat);
+ *   its seeds ride `agentRoute(seed)` (`domain/AgentComposerSeed.kt`).
  * - [CHATS] = the Chats tab (it replaced Reviews).
  * - [chat] = ONE conversation screen for a chat root OR an agent root.
  * - [session] = the raw session view (the live transcript; was `steer/{id}`).
  * - [AGENTS_SETTINGS] / [agentSettings] / [AGENT_NEW] = Settings → Agents.
  */
 object Routes {
-    const val HOME = MainTabs.AGENT
     const val CHATS = MainTabs.CHATS
 
     /** #EXP-1388: the Chats tab's Archived page (pushed from its entry row). */
@@ -63,24 +62,43 @@ object Routes {
         NeedsYou.Opens.Chat -> chat(rootId)
     }
 
-    /** #EXP-1381 (settings-nav.json): ONE team settings category's own page,
-     *  `section` = a `SettingsNav` row id (General, Members, Labels, Boards,
-     *  Agents, Repositories, Prompts, Devices). */
-    const val TEAM_SETTINGS_PATTERN = "team-settings/{section}?device={device}"
-    fun teamSettings(section: String): String = "team-settings/$section"
+    /** #EXP-2109 (sidebar-tree.json `phone`): the Teams tab's pages. */
+    const val TEAM_PATTERN = "team/{teamId}"
+    fun team(teamId: String): String = "team/$teamId"
+    const val FOLDER_PATTERN = "team/{teamId}/folder/{folderId}"
+    fun folder(teamId: String, folderId: String): String = "team/$teamId/folder/$folderId"
 
-    /** #EXP-1534: the Devices page with one device's settings sheet open
-     *  (`deviceRowId` = the `devices` row id an `agent_signed_out` row names). */
-    fun deviceSettings(deviceRowId: String): String =
-        "team-settings/${com.exponential.app.domain.SettingsNav.DEVICES}?device=$deviceRowId"
+    const val BOARD_PATTERN = "board/{boardId}"
+    fun board(boardId: String): String = "board/$boardId"
+
+    /** #EXP-2109 (settings-nav.json `phone.team`): a team's settings page (its
+     *  `…` menu), and #EXP-1381 ONE category's own page, `section` = a
+     *  `SettingsNav` row id. */
+    const val TEAM_SETTINGS_ROOT_PATTERN = "team/{teamId}/settings"
+    fun teamSettingsRoot(teamId: String): String = "team/$teamId/settings"
+    const val TEAM_SETTINGS_PATTERN = "team/{teamId}/settings/{section}"
+    fun teamSettings(teamId: String, section: String): String = "team/$teamId/settings/$section"
+
+    /** Devices, a Settings row; #EXP-1534: `device` = the `devices` row id
+     *  whose settings sheet opens on top (an `agent_signed_out` row names it). */
+    const val DEVICES_PATTERN = "devices?device={device}"
+    const val DEVICES = "devices"
+    fun deviceSettings(deviceRowId: String): String = "devices?device=$deviceRowId"
+
+    const val SERVER_PATTERN = "server/{accountId}"
+    const val SERVER_VOICE_PATTERN = "server/{accountId}/voice"
+    const val ABOUT = "about"
+    const val SECURITY = "settings/security"
+    const val SYNC_DIAGNOSTICS = "sync-diagnostics"
+    const val LICENSES = "third-party-licenses"
 
     /** #EXP-1815: Settings › Notifications (notification-delivery.json SETTINGS). */
     const val NOTIFICATION_SETTINGS = "settings/notifications"
 
     /** #VAPP-185: Settings › MCP › Activity (settings-mcp.json `activityPage`). */
-    const val MCP_ACTIVITY = "settings/mcp/activity"
+    const val MCP_ACTIVITY_PATTERN = "team/{teamId}/mcp-activity"
+    fun mcpActivity(teamId: String): String = "team/$teamId/mcp-activity"
 
-    const val AGENTS_SETTINGS = "settings/agents"
     /** #EXP-1987 (settings-nav.json): Settings › Assistant, the ACCOUNT page
      *  (Personal, after Account): the viewer's ONE Assistant whichever team
      *  is current; `~/settings/assistant` opens it. */
@@ -88,7 +106,8 @@ object Routes {
     // NEW-2: an agent = a definition row (`agents.id`).
     const val AGENT_SETTINGS_PATTERN = "settings/agent/{agentId}"
     fun agentSettings(agentId: String): String = "settings/agent/$agentId"
-    const val AGENT_NEW = "settings/agent-new"
+    const val AGENT_NEW_PATTERN = "team/{teamId}/agent-new"
+    fun agentNew(teamId: String): String = "team/$teamId/agent-new"
 
     /** NEW-7: an agent's conversation = the CALLER's DM with it (the root
      *  session with that `agent_id` and `user_id` = me); none yet = the same
@@ -103,20 +122,18 @@ object Routes {
         if (rootSessionId != null) chat(rootSessionId, "settings") else agentDm(agentId, "settings")
 
     /** NEW-7: Settings → Prompts (prompts replaced actions). */
-    const val PROMPTS_SETTINGS = "settings/prompts"
     const val PROMPT_SETTINGS_PATTERN = "settings/prompt/{promptId}"
     fun promptSettings(promptId: String): String = "settings/prompt/$promptId"
-    const val PROMPT_NEW = "settings/prompt-new"
+    const val PROMPT_NEW_PATTERN = "team/{teamId}/prompt-new"
+    fun promptNew(teamId: String): String = "team/$teamId/prompt-new"
     /** #EXP-1661: one skill's read-only page (Settings › Skills). */
     const val SKILL_SETTINGS_PATTERN = "settings/skill/{skillId}"
     fun skillSettings(skillId: String): String = "settings/skill/$skillId"
     /** #EXP-1616 (repo-page.json): one repository's page; `tab` = repoTab. */
-    const val REPO_PATTERN = "repo/{repositoryId}?tab={tab}"
-    fun repo(repositoryId: String, tab: String? = null): String =
-        "repo/$repositoryId" + (tab?.let { "?tab=$it" } ?: "")
+    const val REPO_PATTERN = "team/{teamId}/repo/{repositoryId}?tab={tab}"
+    fun repo(teamId: String, repositoryId: String, tab: String? = null): String =
+        "team/$teamId/repo/$repositoryId" + (tab?.let { "?tab=$it" } ?: "")
 
-    /** VAPP-110: the selected team's Apps (reached from the Chats tab). */
-    const val APPS = "apps"
     /** VAPP-110: one app's EDITOR (VAPP-242: only from a `…` › Edit app). */
     /** VAPP-218: `tab` = the editor tab to open on, `screen` + `params` are
      *  kept for the preview's screen request. */

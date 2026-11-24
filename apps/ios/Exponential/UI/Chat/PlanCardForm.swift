@@ -9,7 +9,7 @@ internal import ExponentialUIPrimitives
 #endif
 
 /// #EXP-1674: the team of the chat holding a card, for its `~/` and `#IDENT`
-/// links; nil = the active team.
+/// links; nil = the account's first team.
 private struct CardTeamIdKey: EnvironmentKey {
     static let defaultValue: String? = nil
 }
@@ -37,7 +37,7 @@ extension View {
     /// #EXP-2079: a chat whose own team is not synced (the Assistant's
     /// conversation in its member's personal team) hands its cards the
     /// chat's teams: `~/` resolves against the first, `#IDENT` in them all.
-    /// Any other chat keeps the defaults (the active team).
+    /// Any other chat keeps the defaults (the first team).
     func cardChatTeams(_ teamIds: [String], ownTeamSynced: Bool) -> some View {
         environment(\.cardTeamId, ownTeamSynced ? nil : teamIds.first)
             .environment(\.cardTeamIds, ownTeamSynced ? [] : teamIds)

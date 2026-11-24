@@ -2,44 +2,42 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-825/EXP-1291: HOME — the ONE launcher on every client. Top to bottom:
-/// the DAWN (FEED-100: the big brand mark rising behind the composer) while
-/// nothing is picked, else the subject headline (EXP-1038,
+/// EXP-825/EXP-1291: THE COMPOSER PAGE — the ONE launcher on every client.
+/// Top to bottom: the DAWN (FEED-100: the big brand mark rising behind the
+/// composer) while nothing is picked, else the subject headline (EXP-1038,
 /// `AgentComposerHeadline`: the contract verb plus the issue chips, or the
-/// prompt / agent chip); the composer card (`AgentComposerCard`, placeholder "What do you
-/// want to build?", the starting row after Start); the `@`/`:` candidate
-/// menu under it (S-3: no options line, the "+" holds the runner). EXP-1316
-/// (composer-home.json `phone`): the column is pinned to the BOTTOM (above
-/// the tab bar, riding the keyboard), the dawn standing on the card; Getting
-/// started (no board yet) sits above the dawn; no Running list — the Chats
-/// tab lists every chat.
+/// prompt / agent chip); the composer card (`AgentComposerCard`, placeholder
+/// "What do you want to build?", the starting row after Start); the `@`/`:`
+/// candidate menu under it (S-3: no options line, the "+" holds the runner).
+/// EXP-1316 (composer-home.json `phone`): the column is pinned to the BOTTOM
+/// (riding the keyboard), the dawn standing on the card; Getting started (no
+/// board yet) sits above the dawn; no Running list — the Chats tab lists
+/// every chat.
 ///
-/// Two shapes: the Home ROOT (`isTabRoot`, an empty seed as the stack's
-/// root — EXP-1210: a tab root like its siblings, no back — the app's
-/// landing screen, under the floating tab bar, its chat arm selected), and a
-/// PUSHED detail (no tab bar, native back) from every play button with a
+/// Always a PUSHED detail (native back, no bar): #EXP-2109 the New popup's
+/// Chat (an empty seed: no active team, so the Assistant sees every team, a
+/// team agent's chat is its agent's team, and a plain chat's "+" menu picks
+/// its teams, the first by default), and every play button with a
 /// preselection (`AgentComposerSeed`): the issue's Start, the bulk bar, an
-/// action's Run, a machine's play glyph. A send is ONE `sessions.send` in
-/// the ACTIVE team; the page opens the new chat at once.
+/// action's Run, a machine's play glyph. A send is ONE `sessions.send`; the
+/// page opens the new chat at once.
 struct AgentPageView: View {
     let seed: AgentComposerSeed
-    /// The Home tab root: the floating tab bar sits over it, so the scroller
-    /// reserves its clearance (`.tabBarBottomInset()`) — dropped while the
-    /// keyboard is up, when the navigator hides the bar.
-    var isTabRoot: Bool = false
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
+    @Environment(SessionListsModel.self) private var lists
     /// The composer's machine pool (the Devices tab's model).
     @State private var devicesModel: AgentsViewModel?
     @State private var composer: AgentComposerModel?
     /// On screen (appear → disappear): only a visible page opens a landing.
     @State private var visible = false
-    /// EXP-1270: Getting started's signals for the active team (the block
+    /// EXP-1270: Getting started's signals for the composer's team (the block
     /// follows the composer while the team has no board).
     @State private var gettingStarted = GettingStartedProgress()
-    @State private var keyboardVisible = false
+    /// #EXP-2109: a plain chat's Teams pick (nil = the first team).
+    @State private var plainPick: [String]?
     /// EXP-1196: the not-ready row's Sign in pill → the remote sign-in.
     @State private var loginTarget: AgentLoginTarget?
     /// EXP-1196: the not-ready row's Update while `agent_update` is out.
@@ -52,20 +50,31 @@ struct AgentPageView: View {
     /// session: it is a launch.
     @State private var agentPick: String?
 
-    /// EXP-1676: only the composer's OWN keyboard gives the bar's room up. A
-    /// keyboard in a sheet over the page (the + menu's issue search) must not
-    /// reflow the column: that leaves the scroller off its top, and the large
-    /// title collapses into the small centred one.
-    private var reservesTabBar: Bool {
-        isTabRoot && !(keyboardVisible && composer?.draftEditor.isEditing == true)
+    /// The New chat page (no subject): it spans every team.
+    private var crossTeam: Bool { seed == .empty }
+
+    /// The plain chat's teams in team order, at least one.
+    private var plainTeamIds: [String] {
+        let ids = teamState.orderedTeams.map(\.id)
+        let kept = ids.filter { plainPick?.contains($0) == true }
+        return kept.isEmpty ? Array(ids.prefix(1)) : kept
     }
 
-    /// The team the composer starts in: a play button's subject team (an
-    /// issue opened from the Inbox or Search may sit in another team) for
-    /// THIS pushed page only, else the active team (the current board's).
-    /// The app's active team never moves from here — the board and team
-    /// switch together in the board switcher.
-    private var composerTeamId: String? { seed.teamId ?? teamState.activeTeam?.id }
+    /// The team the composer starts in: a play button's subject team, a
+    /// picked team agent's own, else a plain chat's first picked one (the
+    /// Assistant's pools read it too).
+    private var composerTeamId: String? {
+        if let teamId = seed.teamId { return teamId }
+        if crossTeam, let agentPick,
+           let agent = lists.agents.first(where: { $0.agentId == agentPick && !$0.assistant }),
+           teamState.team(agent.teamId) != nil {
+            return agent.teamId
+        }
+        return plainTeamIds.first
+    }
+
+    /// The New chat draft's key: stable whichever agent or teams are picked.
+    private var draftTeamId: String? { crossTeam ? teamState.orderedTeams.first?.id : composer?.teamId }
 
     var body: some View {
         ZStack {
@@ -107,8 +116,8 @@ struct AgentPageView: View {
                                 }
                                 // #FEED-219: the team's New chat draft.
                                 .composerDraft(
-                                    composer.teamId.map { .newChat($0) },
-                                    teamId: composer.teamId,
+                                    draftTeamId.map { .newChat($0) },
+                                    teamId: draftTeamId,
                                     revision: composer.draftText,
                                     read: { composer.draftText },
                                     apply: { composer.draftText = $0 }
@@ -135,11 +144,9 @@ struct AgentPageView: View {
                     }
                     .padding()
                     .frame(
-                        // EXP-1316: pinned to the bottom — the bar's
-                        // clearance comes out of the height, else the column
-                        // overflows by it; the keyboard shrinks the scroller
-                        // and the column rides up with it.
-                        minHeight: proxy.size.height - (reservesTabBar ? tabBarBottomClearance : 0),
+                        // EXP-1316: pinned to the bottom; the keyboard
+                        // shrinks the scroller and the column rides up.
+                        minHeight: proxy.size.height,
                         alignment: .bottom
                     )
                     // EXP-1276: tap-outside keyboard dismissal — BEHIND the
@@ -152,9 +159,6 @@ struct AgentPageView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(HomeScrollAnchor())
-                // On the SCROLLER itself (EXP-36), so the composer clears
-                // the floating bar.
-                .tabBarBottomInset(reservesTabBar)
                 }
             } else {
                 // EXP-1275: the first load is a placeholder, not a spinner.
@@ -164,19 +168,11 @@ struct AgentPageView: View {
             }
         }
         // #EXP-1384: the page header (`copy.headers.agent`).
-        // Pushed (an issue's Implement): the bare back arrow LEADS, the large
-        // title right after it (EXP-1554), never the arrow on the trailing side.
-        .pageHeader(Chats.Copy.Headers.agent, pushed: !isTabRoot)
+        .pageHeader(Chats.Copy.Headers.agent, pushed: true)
         .sheet(item: $loginTarget) { target in
             if let devicesModel {
                 AgentLoginSheet(viewModel: devicesModel, target: target)
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            keyboardVisible = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardVisible = false
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-page")
@@ -196,21 +192,22 @@ struct AgentPageView: View {
             // A composer kept through a team change (its draft or send)
             // follows the team once there is nothing left to lose.
             rebindComposer(to: composerTeamId)
-            devicesModel?.activeTeamId = composerTeamId
+            devicesModel?.teamId = composerTeamId
             // Re-arm on every appear: a push stops the observation
             // (onDisappear), popping back must resume it.
             devicesModel?.startObserving()
         }
-        // EXP-1270: Getting started's signals follow the active team.
-        .task(id: "\(accountId)/\(teamState.activeTeam?.id ?? "")") {
-            if let teamId = teamState.activeTeam?.id {
+        // EXP-1270: Getting started's signals follow the composer's team.
+        .task(id: "\(accountId)/\(composerTeamId ?? "")") {
+            if let teamId = composerTeamId {
                 gettingStarted.bind(accountId: accountId, teamId: teamId, deps: deps)
             } else {
                 gettingStarted.stop()
             }
         }
+        .onChange(of: plainTeamIds) { _, ids in composer?.plainPicked = ids }
         .onChange(of: composerTeamId) { _, teamId in
-            devicesModel?.activeTeamId = teamId
+            devicesModel?.teamId = teamId
             rebindComposer(to: teamId)
         }
         // A send that was in flight through a team change no longer holds
@@ -233,9 +230,7 @@ struct AgentPageView: View {
         // S-3: the viewer's Assistant exists once the page mounts (once per
         // account + team per app run).
         .task(id: "\(accountId)/\(composerTeamId ?? "")") {
-            if let teamId = composerTeamId {
-                await AssistantEnsure.run(deps, accountId: accountId, teamId: teamId)
-            }
+            await AssistantEnsure.run(deps, accountId: accountId, teamId: crossTeam ? nil : composerTeamId)
         }
         // S-3: the agent row's pick drives the composer's agent; the agents
         // pool arriving (the Assistant created) re-resolves the default.
@@ -401,18 +396,21 @@ struct AgentPageView: View {
         // EXP-1277: seed the options off the machine the pool has ALREADY
         // resolved — a composer rebuilt for the same machine would otherwise
         // never seed (`onChange(of: deviceId)` only fires on a change).
+        model.crossTeam = crossTeam
+        model.plainPicked = plainTeamIds
+        model.onPlainPick = { plainPick = $0 }
         model.reconcileDevice()
         Task { await model.load() }
         return model
     }
 
-    /// #EXP-1638: the Home root focuses its composer when a shortcut asked.
+    /// #EXP-1638: the New chat page focuses its composer when a shortcut asked.
     /// #EXP-2004: only a composer bound to the page's team spends it (a cold
     /// start rebuilds the first one once the team resolves).
     private func focusComposerIfAsked() {
         guard let composer, ComposerFocusRequest.shouldSpend(
             pending: deps.deepLinkBus.pendingComposerFocus,
-            isTabRoot: isTabRoot,
+            newChat: crossTeam,
             composerTeamId: composer.teamId,
             pageTeamId: composerTeamId
         ) else { return }
@@ -428,7 +426,7 @@ struct AgentPageView: View {
     /// ABOVE the dawn ("Start a run" focuses this page's composer).
     @ViewBuilder
     private var homeGettingStarted: some View {
-        if let teamId = teamState.activeTeam?.id,
+        if let teamId = composerTeamId,
            gettingStarted.entries.contains(where: { $0.key == .board && !$0.done }) {
             GettingStartedList(
                 progress: gettingStarted,

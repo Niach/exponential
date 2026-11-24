@@ -9,6 +9,7 @@ import { Separator, useIsMobile } from "@exp/ui"
 import { SETTINGS_NAV_TEST_IDS } from "@exp/domain-contract/settings-nav"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
+import { PushedTitle } from "@/components/team/mobile-page-header"
 import { NEW_PROMPT_LABEL } from "@/components/team/prompts-section"
 import { NEW_SKILL_LABEL } from "@/components/team/skills-section"
 import { useTeamBoards, useTeamBySlug } from "@/hooks/use-team-data"
@@ -59,7 +60,7 @@ function WideSettingsLayout() {
 }
 
 // #EXP-1381 (settings-nav.json): on a phone every settings page is its OWN
-// page, opened from a Team-page row: the phone detail header (back + the
+// page, opened from the team's settings list (#EXP-2109): the phone detail header (back + the
 // section's label) over only that section — never the h1 + the strip of
 // every category. A list's sub-page (one board, agent, app, prompt) goes
 // back to its list and wears the row's name.
@@ -80,7 +81,7 @@ function PhoneSettingsLayout() {
       void navigate({ to: `/t/$teamSlug/settings/${section}` as `/t/$teamSlug/settings/boards`, params: { teamSlug } })
       return
     }
-    void navigate({ to: `/t/$teamSlug/team`, params: { teamSlug } })
+    void (section ? navigate({ to: `/t/$teamSlug/settings`, params: { teamSlug } }) : navigate({ to: `/t/$teamSlug/team`, params: { teamSlug } }))
   }
 
   return (
@@ -88,9 +89,11 @@ function PhoneSettingsLayout() {
       <MobileDetailHeader
         title={
           isListSub && section && sub ? (
-            <SubPageTitle teamSlug={teamSlug} section={section} sub={sub} fallback={label ?? ``} />
+            <PushedTitle>
+              <SubPageTitle teamSlug={teamSlug} section={section} sub={sub} fallback={label ?? ``} />
+            </PushedTitle>
           ) : (
-            label ?? `Settings`
+            <PushedTitle>{label ?? `Settings`}</PushedTitle>
           )
         }
         onBack={back}

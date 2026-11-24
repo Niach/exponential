@@ -46,6 +46,13 @@
 // end). Impossible dates (`2026-13`, `2026-02-30`) are ignored. A query of
 // filters alone lists the matching rows in the empty-query order.
 //
+// #NEW-135: `similar:<ID>` (`similar:NEW-12`, one leading `#` dropped, an
+// empty value ignored) asks for the issues that MEAN the same as that one:
+// its duplicates. Similarity lives in the server's embeddings, which no
+// client holds, so a query with a `similar:` token ranks NO local rows: the
+// list is the server's hits in the server's order (`mergeIssueSearchHits`),
+// nearest first, narrowed there by the query's other tokens.
+//
 // EXP-922: the ordering is THREE keys above the score, in this order:
 //
 //   1. an EXACT identifier hit (some token scored 100) — typing `EXP-42`
@@ -107,6 +114,8 @@ export const ISSUE_SEARCH_STATE_PREFIX = `is:`
 export const ISSUE_SEARCH_STATUS_PREFIX = `status:`
 export const ISSUE_SEARCH_CREATED_PREFIX = `created:`
 export const ISSUE_SEARCH_UPDATED_PREFIX = `updated:`
+/** #NEW-135: the token that asks the server for an issue's nearest issues. */
+export const ISSUE_SEARCH_SIMILAR_PREFIX = `similar:`
 
 /** The `limit` every consumer gets without asking — and, since EXP-922, the
  *  one every SEARCH SURFACE uses on all four clients, so the same query
@@ -135,7 +144,7 @@ export const ISSUE_SEARCH_CLOSED_STATUSES = [
  * exact strings.
  */
 export const ISSUE_SEARCH_PLACEHOLDER = `Search issues`
-export const ISSUE_SEARCH_EMPTY_HINT = `Search issues across this team's boards.`
+export const ISSUE_SEARCH_EMPTY_HINT = `Search issues across all your boards.`
 export const ISSUE_SEARCH_EMPTY_DETAIL = `Matches identifiers, titles and full text. Filter with by:, is:, status:, created: and updated:.`
 export const ISSUE_SEARCH_NO_RESULTS = `No issues match`
 
@@ -181,6 +190,9 @@ export interface IssueSearchQuery {
   statuses: string[]
   created: IssueSearchRange[]
   updated: IssueSearchRange[]
+  /** #NEW-135: `similar:` identifiers (lowercase, one leading `#` dropped).
+   *  Not a filter: any entry hands the whole list to the server. */
+  similar: string[]
 }
 
 /** Whether a parsed query filters at all (a filter-only query lists the
@@ -281,6 +293,7 @@ export function parseIssueSearchQuery(
     statuses: [],
     created: [],
     updated: [],
+    similar: [],
   }
   for (const token of issueSearchTokens(query)) {
     if (token.startsWith(ISSUE_SEARCH_CREATOR_PREFIX)) {
@@ -300,6 +313,10 @@ export function parseIssueSearchQuery(
     } else if (token.startsWith(ISSUE_SEARCH_UPDATED_PREFIX)) {
       const range = parseIssueSearchRange(token.slice(ISSUE_SEARCH_UPDATED_PREFIX.length), nowMs)
       if (range) parsed.updated.push(range)
+    } else if (token.startsWith(ISSUE_SEARCH_SIMILAR_PREFIX)) {
+      let identifier = token.slice(ISSUE_SEARCH_SIMILAR_PREFIX.length)
+      if (identifier.startsWith(`#`)) identifier = identifier.slice(1)
+      if (identifier.length > 0) parsed.similar.push(identifier)
     } else {
       parsed.words.push(token)
     }
@@ -526,6 +543,8 @@ export function rankIssueSearch<T extends IssueSearchRow>(
   const limit = options?.limit ?? ISSUE_SEARCH_DEFAULT_LIMIT
   const exclude = new Set(options?.exclude ?? [])
   const parsed = parseIssueSearchQuery(query, options?.now ?? Date.now())
+  // #NEW-135: similarity is the server's to answer.
+  if (parsed.similar.length > 0) return []
   const tokens = parsed.words
   const filtered = issueSearchHasFilters(parsed)
   const pool = rows.filter(

@@ -37,10 +37,14 @@ fun SessionArgsStore(sessionId: String, content: @Composable () -> Unit) =
  * `settings/agent/{agentId}`). Cleared when it leaves composition.
  */
 @Composable
-fun ArgsStore(key: String, value: String, content: @Composable () -> Unit) {
+fun ArgsStore(key: String, value: String, content: @Composable () -> Unit) = ArgsStore(mapOf(key to value), content)
+
+/** [ArgsStore] over several arguments; a null one is dropped. */
+@Composable
+fun ArgsStore(values: Map<String, String?>, content: @Composable () -> Unit) {
     val parent = checkNotNull(LocalViewModelStoreOwner.current) { "ArgsStore needs a ViewModelStoreOwner" }
     val context = LocalContext.current
-    val owner = remember(parent, key, value) {
+    val owner = remember(parent, values) {
         val factory: ViewModelProvider.Factory = when (parent) {
             is NavBackStackEntry -> HiltViewModelFactory(context, parent.defaultViewModelProviderFactory)
             is HasDefaultViewModelProviderFactory -> parent.defaultViewModelProviderFactory
@@ -49,14 +53,14 @@ fun ArgsStore(key: String, value: String, content: @Composable () -> Unit) {
         val base = (parent as? HasDefaultViewModelProviderFactory)?.defaultViewModelCreationExtras ?: CreationExtras.Empty
         val extras = MutableCreationExtras(base).apply {
             val args = Bundle(base[DEFAULT_ARGS_KEY] ?: Bundle())
-            args.putString(key, value)
+            values.forEach { (key, value) -> if (value == null) args.remove(key) else args.putString(key, value) }
             set(DEFAULT_ARGS_KEY, args)
         }
         ArgsOwner(factory, extras).also { owner ->
             // Release train 2026-10-23 (VAPP-110): `createSavedStateHandle`
             // caches each view model's handle in the VIEW_MODEL_STORE_OWNER's
             // store under the view model's key; left on the editor screen's
-            // entry, a new [value] would get the old handle (old value). Keyed to this owner, the handle dies with it.
+            // entry, new [values] would get the old handle (old values). Keyed to this owner, the handle dies with it.
             extras[VIEW_MODEL_STORE_OWNER_KEY] = owner
         }
     }

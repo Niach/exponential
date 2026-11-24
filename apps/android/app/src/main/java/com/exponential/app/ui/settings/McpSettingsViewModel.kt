@@ -2,7 +2,8 @@ package com.exponential.app.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.ARG_TEAM
+import com.exponential.app.data.screenTeamFlow
 import com.exponential.app.data.api.AppAccessList
 import com.exponential.app.data.api.McpActivityList
 import com.exponential.app.data.api.McpClientRow
@@ -49,16 +50,21 @@ sealed interface McpToolsLoad {
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class McpSettingsViewModel @Inject constructor(
+    savedStateHandle: androidx.lifecycle.SavedStateHandle,
     private val auth: AuthRepository,
     holder: DatabaseHolder,
-    private val selection: TeamSelection,
     private val servers: McpServersApi,
     private val api: McpSettingsApi,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    val isOwner: StateFlow<Boolean> = combine(dbFlow, selection.selectedId) { db, team -> db to team }
+    /** #EXP-2109: the team this screen shows ([screenTeamFlow]; no active team). */
+    private val screenTeam: StateFlow<String?> =
+        screenTeamFlow(dbFlow, savedStateHandle)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, savedStateHandle.get<String>(ARG_TEAM))
+
+    val isOwner: StateFlow<Boolean> = combine(dbFlow, screenTeam) { db, team -> db to team }
         .flatMapLatest { (db, team) ->
             if (db == null || team == null) flowOf(emptyList()) else db.teamMemberDao().observeByTeam(team)
         }
@@ -67,8 +73,8 @@ class McpSettingsViewModel @Inject constructor(
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    /** The selected team's slug (the web connect URL's path). */
-    private val teamSlug: StateFlow<String?> = combine(dbFlow, selection.selectedId) { db, team -> db to team }
+    /** The team's slug (the web connect URL's path). */
+    private val teamSlug: StateFlow<String?> = combine(dbFlow, screenTeam) { db, team -> db to team }
         .flatMapLatest { (db, team) ->
             if (db == null || team == null) flowOf(null) else db.teamDao().observeById(team).map { it?.slug }
         }
@@ -109,7 +115,7 @@ class McpSettingsViewModel @Inject constructor(
 
     private fun ids(): Pair<String, String>? {
         val account = auth.activeAccountId.value ?: return null
-        val team = selection.selectedId.value ?: return null
+        val team = screenTeam.value ?: return null
         return account to team
     }
 

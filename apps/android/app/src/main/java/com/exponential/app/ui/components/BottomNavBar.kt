@@ -13,29 +13,21 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -66,53 +58,29 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
-import com.exponential.app.data.db.BoardEntity
-import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.domain.Chats
-import com.exponential.app.domain.NavBadges
-import com.exponential.app.domain.SidebarFolders
-import com.exponential.app.domain.TreeGuide
-import com.exponential.app.domain.TreeGuides
-import com.exponential.app.ui.components.picker.PickerFolder
-import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.motionDurationMs
-import com.exponential.app.ui.theme.motionEasing
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-// Session 58cb32df → #EXP-1379/#EXP-1384 (chats.json `shell`): the phone's
-// bottom STRIP = the glass tab capsule — the look-alike of iOS's Liquid Glass
-// tab bar on the FAB chrome recipe (the shared OPAQUE glass fill + the strong
-// hairline, EXP-698) — with `shell.tabs` in order, Board · Chats · Apps ·
-// Team, each an icon over its label, the selected one on the glass-active
-// pill; beside it, unchanged, the two-armed new chat / new issue capsule.
-// `shell.bar`: the capsule TAKES THE WIDTH beside the launcher; each tab
-// starts at its label's width and the tabs share the rest evenly (a label is
-// cut only when the labels alone do not fit, [Chats.Shell.Bar.tabWidths]).
-// The Board tab = the active board's glyph + name (`tabIcons.board` + "Board"
-// while none); on the board view it carries the caret and its tap opens the
-// BOARD MENU: the whole strip MORPHS into one glass panel (`shell.boardMenu`).
+// #EXP-2109 (chats.json `shell.bar`): the floating glass tab CAPSULE with the
+// drag lens, only a running app's own screens bar (apps.json); the phone's
+// bottom bar is [PhoneDock].
 // DRAG (`shell.bar.drag`): a press lifts the selection LENS under the finger,
 // a drag moves it along the bar, the lift selects the tab under it (a lift
-// far above / below cancels). The Team tab = the active team's mark + name; on
-// the Team page it carries the caret and its tap opens the SAME panel over the
-// member's teams (#EXP-1645, `shell.teamTab`). A dot on Chats. Overlaid above the NavHost; AppNavHost shows it only on the
-// top-level routes.
+// far above / below cancels).
 
-// Bottom contentPadding for scrollable content on screens the floating bar
-// overlays (the bar stack is ~68dp above the system nav inset — 42dp tab +
-// 5dp pill padding ×2 + 8dp vertical padding ×2 — plus breathing room). Every
-// LazyColumn under the bar must use this so its last row scrolls clear of the
-// pill; keep them in sync here instead of hardcoding 96.dp per screen (EXP-36).
+// Bottom contentPadding for scrollable content on screens the docked bar
+// overlays (`shell.dock`: its height + the Assistant disc's raise + breathing
+// room, above the system nav inset). Every LazyColumn under the bar must use
+// this so its last row scrolls clear (EXP-36).
 val BottomBarInset = 96.dp
 
 /**
@@ -131,252 +99,13 @@ class BottomBarSuppression {
 /** Null outside the nav shell (previews, tests) — every read is optional. */
 val LocalBottomBarSuppression = staticCompositionLocalOf<BottomBarSuppression?> { null }
 
-/** One row of the strip's menu: its glyph (at the tab's glyph size), its name,
- *  and whether it is the active one (lit, with the check). */
-data class PhoneBoardMenuRow(
-    val id: String,
-    val label: String,
-    val active: Boolean,
-    /** #FEED-232: another team's needs-you rows (attention); 0 = none. */
-    val badge: Int = 0,
-    /** #EXP-1832: 1 = a board inside one of the member's folders. */
-    val depth: Int = 0,
-    /** #EXP-1832: set = a read-only FOLDER row (a press folds it). */
-    val folder: PickerFolder? = null,
-    val glyph: @Composable () -> Unit,
-)
-
-/** The strip's menu (`shell.boardMenu`): the rows, then the muted create row
- *  ([newLabel]; null [onNew] = no row). [boards] = the Board tab's, [teams] =
- *  the Team tab's (`shell.teamTab`, #EXP-1645). */
-data class PhoneBoardMenu(
-    val rows: List<PhoneBoardMenuRow>,
-    val onSelect: (String) -> Unit,
-    val onNew: (() -> Unit)?,
-    val newLabel: String,
-    /** #EXP-1832: a folder row's press. */
-    val onToggleFolder: (String) -> Unit = {},
-) {
-    companion object {
-        /** The active team's boards in sidebar order, New board for a viewer
-         *  who may create boards. */
-        fun boards(
-            boards: List<BoardEntity>,
-            activeBoardId: String?,
-            onSelect: (BoardEntity) -> Unit,
-            onNewBoard: (() -> Unit)?,
-            /** #EXP-1832: the member's read-only folders (`SidebarFolders.rows`
-             *  over [boards]); null = flat. */
-            folders: SidebarFolderLayout? = null,
-        ): PhoneBoardMenu {
-            val byId = boards.associateBy { it.id }
-            val layout = folders?.rows ?: boards.map {
-                SidebarFolders.Row(SidebarFolders.KIND_ITEM, it.id, 0, group = false, name = null, open = false, count = 0)
-            }
-            return PhoneBoardMenu(
-                rows = layout.mapNotNull { row ->
-                    if (row.group) {
-                        PhoneBoardMenuRow(
-                            row.id,
-                            row.name ?: SidebarFolders.DEFAULT_FOLDER_NAME,
-                            active = false,
-                            folder = PickerFolder(count = row.count, open = row.open),
-                        ) { SidebarFolderGlyph(size = TabGlyphSize) }
-                    } else {
-                        val board = byId[row.id] ?: return@mapNotNull null
-                        PhoneBoardMenuRow(board.id, board.name, board.id == activeBoardId, depth = row.depth) {
-                            BoardIcon(board, size = TabGlyphSize)
-                        }
-                    }
-                },
-                onSelect = { id -> boards.firstOrNull { it.id == id }?.let(onSelect) },
-                onNew = onNewBoard,
-                newLabel = Chats.Copy.BOARD_MENU_NEW_BOARD,
-                onToggleFolder = { id -> folders?.toggle?.invoke(id) },
-            )
-        }
-
-        /** The member's teams, then New team. */
-        fun teams(
-            teams: List<TeamEntity>,
-            activeTeamId: String?,
-            onSelect: (TeamEntity) -> Unit,
-            onNewTeam: () -> Unit,
-            /** #FEED-232: team id → its needs-you rows (the active team's never shows). */
-            needsYou: Map<String, Int> = emptyMap(),
-        ) = PhoneBoardMenu(
-            rows = teams.map { team ->
-                val active = team.id == activeTeamId
-                PhoneBoardMenuRow(team.id, team.name, active, badge = if (active) 0 else needsYou[team.id] ?: 0) {
-                    TeamAvatar(team.iconUrl, size = TabGlyphSize)
-                }
-            },
-            onSelect = { id -> teams.firstOrNull { it.id == id }?.let(onSelect) },
-            onNew = onNewTeam,
-            newLabel = Chats.Copy.BOARD_MENU_NEW_TEAM,
-        )
-    }
-}
-
 /** One tab of the capsule, as the bar draws it. */
 private class PhoneTab(
     val key: String,
     val label: String,
     val testTag: String,
     val glyph: @Composable () -> Unit,
-    val caret: Boolean = false,
-    /** #FEED-232: THE count badge on the glyph's corner (count 0 = none). */
-    val badge: NavBadges.Badge = NavBadges.NONE,
 )
-
-@Composable
-fun BottomNavBar(
-    /** The lit tab (`shell.tabs` key), null while none is (the Agent page). */
-    selected: String?,
-    /**
-     * Lit while the plain Agent page (the `agent-tab` start destination) is
-     * up: the chat arm wears the tab's active fill, and no pill tab is lit.
-     */
-    agentActive: Boolean,
-    /** The ACTIVE board: the Board tab's glyph + label (null = `tabIcons.board`
-     *  + `copy.tabs.board`). */
-    board: BoardEntity?,
-    /** The board view is up: the Board tab wears the caret and its tap opens
-     *  the board menu (the caller's [onSelectTab] decides). */
-    onBoardView: Boolean,
-    /** The ACTIVE team: the Team tab's mark + label (null = `copy.tabs.team`). */
-    team: TeamEntity?,
-    /** The Team page is up: the Team tab wears the caret and its tap opens the
-     *  team menu (the caller's [onSelectTab] decides). */
-    onTeamPage: Boolean = false,
-    /** #FEED-232: the Chats tab's count badge (`chatsBadge`). */
-    chatsBadge: NavBadges.Badge = NavBadges.NONE,
-    /** #FEED-232: the Team tab's corner = the OTHER teams' needs-you rows. */
-    teamBadge: Int = 0,
-    /** EXP-973: whether New issue has a board to file onto (it always shows). */
-    composeEnabled: Boolean,
-    /** A tab was tapped or a drag lifted on it (the same thing). */
-    onSelectTab: (String) -> Unit,
-    onCompose: () -> Unit,
-    onChat: () -> Unit,
-    modifier: Modifier = Modifier,
-    /** The open menu's rows (the board's or the team's); [menuOpen] morphs the
-     *  strip into it. */
-    boardMenu: PhoneBoardMenu? = null,
-    menuOpen: Boolean = false,
-    onMenuOpenChange: (Boolean) -> Unit = {},
-    /** STATIC drag state for the styleguide specimen (never set by the app):
-     *  the lens over this tab, the finger [lensPreviewOffset] off its centre. */
-    lensPreview: String? = null,
-    lensPreviewOffset: Dp = 0.dp,
-) {
-    val tabs = Chats.Shell.TABS.map { key ->
-        when (key) {
-            "board" -> PhoneTab(
-                key = key,
-                label = board?.name?.takeIf { it.isNotBlank() } ?: Chats.Copy.TABS.getValue(key),
-                testTag = Chats.TestIds.TAB_BOARD,
-                glyph = {
-                    if (board != null) BoardIcon(board, size = TabGlyphSize)
-                    else TabIcon(ExpIcons.navIssues)
-                },
-                caret = onBoardView && board != null,
-            )
-            "chats" -> PhoneTab(
-                key = key,
-                label = Chats.Copy.TABS.getValue(key),
-                testTag = "tab-chats",
-                glyph = { TabIcon(ExpIcons.navChats) },
-                badge = chatsBadge,
-            )
-            "apps" -> PhoneTab(
-                key = key,
-                label = Chats.Copy.TABS.getValue(key),
-                testTag = "tab-apps",
-                glyph = { TabIcon(ExpIcons.navApps) },
-            )
-            else -> PhoneTab(
-                key = key,
-                label = team?.name?.takeIf { it.isNotBlank() } ?: Chats.Copy.TABS.getValue(key),
-                testTag = Chats.TestIds.TAB_TEAM,
-                glyph = { TeamAvatar(team?.iconUrl, size = TabGlyphSize) },
-                caret = onTeamPage,
-                badge = NavBadges.Badge(teamBadge, NavBadges.Tone.Attention),
-            )
-        }
-    }
-
-    val reduce = LocalReduceMotion.current
-    // The morph (`shell.boardMenu.motion`): 0 = the strip's frame, 1 = the
-    // menu's. `mounted` keeps the panel through its collapse.
-    val morph = remember { Animatable(if (menuOpen) 1f else 0f) }
-    var mounted by remember { mutableStateOf(menuOpen) }
-    LaunchedEffect(menuOpen) {
-        if (menuOpen) {
-            mounted = true
-            morph.animateTo(
-                1f,
-                tween(
-                    motionDurationMs(Chats.Shell.BoardMenu.OPEN),
-                    easing = motionEasing(Chats.Shell.BoardMenu.OPEN_EASE),
-                ),
-            )
-        } else {
-            morph.animateTo(
-                0f,
-                tween(
-                    motionDurationMs(Chats.Shell.BoardMenu.CLOSE),
-                    easing = motionEasing(Chats.Shell.BoardMenu.CLOSE_EASE),
-                ),
-            )
-            mounted = false
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = BottomNavDefaults.HorizontalInsetCompact, vertical = 8.dp),
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer { alpha = 1f - morph.value },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TabCapsule(
-                tabs = tabs,
-                selected = selected,
-                onSelectTab = onSelectTab,
-                lensPreview = lensPreview,
-                lensPreviewOffset = lensPreviewOffset,
-                modifier = Modifier.weight(1f),
-            )
-
-            Spacer(Modifier.width(Chats.Shell.Bar.GAP.dp))
-
-            // The detached launcher beside the pill (EXP-827/973, unchanged): the
-            // Chat arm opens the Agent page from every top-level surface, New
-            // issue files onto the current board (dimmed with no board).
-            LauncherCapsule(
-                onChat = onChat,
-                onCompose = onCompose,
-                chatSelected = agentActive,
-                composeEnabled = composeEnabled,
-            )
-        }
-        if (mounted && boardMenu != null) {
-            BoardMenuPanel(
-                menu = boardMenu,
-                progress = { morph.value },
-                reduce = reduce,
-                onClose = { onMenuOpenChange(false) },
-            )
-        }
-    }
-}
 
 private val TabGlyphSize = 20.dp
 
@@ -384,10 +113,8 @@ private val TabGlyphSize = 20.dp
 data class PhoneTabItem(val key: String, val label: String, val icon: ImageVector, val testTag: String)
 
 /**
- * VAPP-218: THE phone tab bar's capsule (the styleguide `phone-tab-bar`, the
- * same tabs, pill, lens and drag as [BottomNavBar]) over the caller's tabs:
- * an app's screens under the surface inside the preview frame. No launcher,
- * no board menu, no inset.
+ * VAPP-218: the floating capsule over the caller's tabs: an app's screens
+ * under the surface inside the preview frame. No inset.
  */
 @Composable
 fun PhoneTabCapsule(
@@ -400,8 +127,6 @@ fun PhoneTabCapsule(
         tabs = items.map { item -> PhoneTab(key = item.key, label = item.label, testTag = item.testTag, glyph = { TabIcon(item.icon) }) },
         selected = selected,
         onSelectTab = onSelect,
-        lensPreview = null,
-        lensPreviewOffset = 0.dp,
         modifier = modifier,
     )
 }
@@ -450,8 +175,6 @@ private fun TabCapsule(
     tabs: List<PhoneTab>,
     selected: String?,
     onSelectTab: (String) -> Unit,
-    lensPreview: String?,
-    lensPreviewOffset: Dp,
     modifier: Modifier = Modifier,
 ) {
     val reduce = LocalReduceMotion.current
@@ -468,9 +191,6 @@ private fun TabCapsule(
     val selectedIndex = keys.indexOf(selected)
     val latestSelect by rememberUpdatedState(onSelectTab)
     val latestSelectedIndex by rememberUpdatedState(selectedIndex)
-    val previewIndex = lensPreview?.let { keys.indexOf(it) }?.takeIf { it >= 0 }
-    val showLifted = lifted || previewIndex != null
-    val litIndex = if (previewIndex != null) previewIndex else candidate
 
     fun settleOn(index: Int) {
         settleJob?.cancel()
@@ -596,10 +316,8 @@ private fun TabCapsule(
                     TabItem(
                         tab = tab,
                         active = index == selectedIndex,
-                        lifted = showLifted,
-                        candidate = index == litIndex,
-                        lens = previewIndex == index,
-                        lensOffset = lensPreviewOffset,
+                        lifted = lifted,
+                        candidate = index == candidate,
                         onSelect = { onSelectTab(tab.key) },
                     )
                 }
@@ -629,17 +347,14 @@ private fun TabCapsule(
     }
 }
 
-/** One tab: its glyph (+ the caret beside it) over its label, the selected one on the
- *  glass-active pill (cross-faded, EXP-523) unless a press lifted it, a dot
- *  on its glyph. */
+/** One tab: its glyph over its label, the selected one on the
+ *  glass-active pill (cross-faded, EXP-523) unless a press lifted it. */
 @Composable
 private fun TabItem(
     tab: PhoneTab,
     active: Boolean,
     lifted: Boolean,
     candidate: Boolean,
-    lens: Boolean,
-    lensOffset: Dp,
     onSelect: () -> Unit,
 ) {
     // The lens settles ON the active tab and vanishes the moment the lift
@@ -672,19 +387,6 @@ private fun TabItem(
             },
         contentAlignment = Alignment.Center,
     ) {
-        if (lens) {
-            // The specimen's static lens (the app's is the capsule's own).
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .offset(x = lensOffset)
-                    .graphicsLayer {
-                        scaleX = Chats.Shell.Bar.Drag.LENS_SCALE
-                        scaleY = Chats.Shell.Bar.Drag.LENS_SCALE
-                    }
-                    .background(GlassTokens.RowFillActive, RoundedCornerShape(percent = 50)),
-            )
-        }
         Column(
             modifier = Modifier
                 .fillMaxHeight()
@@ -696,28 +398,7 @@ private fun TabItem(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Box {
-                CompositionLocalProvider(LocalContentColor provides tint) { tab.glyph() }
-                if (tab.caret) {
-                    // #EXP-1645 (`shell.boardTab`): beside the glyph, out of
-                    // flow (a layout offset): the tab's width never changes
-                    // and the label keeps all its room.
-                    Icon(
-                        ExpIcons.navTeamSwitcher,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .offset(x = (Chats.Shell.BoardTab.CARET_SIZE + Chats.Shell.BoardTab.CARET_GAP).dp)
-                            .size(Chats.Shell.BoardTab.CARET_SIZE.dp),
-                        tint = tint,
-                    )
-                }
-                CountBadge(
-                    tab.badge,
-                    modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-4).dp),
-                    testTag = "${tab.testTag}-badge",
-                )
-            }
+            CompositionLocalProvider(LocalContentColor provides tint) { tab.glyph() }
             Spacer(Modifier.height(4.dp))
             Text(
                 tab.label,
@@ -727,236 +408,6 @@ private fun TabItem(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-    }
-}
-
-/**
- * THE BOARD MENU (`shell.boardMenu`): the strip's frame grown into one glass
- * panel — the same left, right and bottom edges, the height from the strip's
- * to the rows' (up to `maxVisibleRows`, then they scroll), the corner radius
- * from the strip's to `radius` — while the rows fade in. Reduce motion = the
- * panel at its open frame, cross-faded. The surface is the glass menu's
- * ([GlassMenuDefaults]: the opaque fill, the menu text colours).
- */
-@Composable
-private fun BoardMenuPanel(
-    menu: PhoneBoardMenu,
-    progress: () -> Float,
-    reduce: Boolean,
-    onClose: () -> Unit,
-) {
-    val rowCount = menu.rows.size + if (menu.onNew != null) 1 else 0
-    val stripHeight = BottomNavDefaults.BarHeight
-    val openHeight = (
-        minOf(rowCount, Chats.Shell.BoardMenu.MAX_VISIBLE_ROWS) * Chats.Shell.BoardMenu.ROW_HEIGHT +
-            Chats.Shell.Bar.PADDING * 2
-        ).dp
-    val p = progress()
-    val height = if (reduce) openHeight else lerp(stripHeight, openHeight, p)
-    val radius = if (reduce) Chats.Shell.BoardMenu.RADIUS.dp else lerp(stripHeight / 2, Chats.Shell.BoardMenu.RADIUS.dp, p)
-    val shape = RoundedCornerShape(radius)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(height)
-            .graphicsLayer { alpha = if (reduce) progress() else 1f }
-            .clip(shape)
-            .background(GlassMenuDefaults.ContainerColor, shape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
-            // The panel is one surface: a press on it never reaches the strip
-            // under it.
-            .pointerInput(Unit) { awaitEachGesture { awaitFirstDown(requireUnconsumed = false) } }
-            .testTag(Chats.TestIds.BOARD_MENU),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .requiredHeight(openHeight)
-                .align(Alignment.TopCenter)
-                .graphicsLayer { alpha = progress() }
-                .verticalScroll(rememberScrollState())
-                .padding(Chats.Shell.Bar.PADDING.dp),
-        ) {
-            val guides = remember(menu.rows) {
-                if (menu.rows.any { it.depth > 0 }) TreeGuides.compute(menu.rows.map { it.depth }) else null
-            }
-            menu.rows.forEachIndexed { index, row ->
-                BoardMenuRow(
-                    label = row.label,
-                    active = row.active,
-                    muted = false,
-                    badge = row.badge,
-                    glyph = row.glyph,
-                    depth = row.depth,
-                    guide = guides?.get(index),
-                    folder = row.folder,
-                    onClick = {
-                        // #EXP-1832: a folder folds; it is never a destination.
-                        if (row.folder != null) {
-                            menu.onToggleFolder(row.id)
-                        } else {
-                            menu.onSelect(row.id)
-                            onClose()
-                        }
-                    },
-                )
-            }
-            menu.onNew?.let { onNew ->
-                BoardMenuRow(
-                    label = menu.newLabel,
-                    active = false,
-                    muted = true,
-                    glyph = {
-                        Icon(
-                            ExpIcons.uiAdd,
-                            contentDescription = null,
-                            modifier = Modifier.size(GlassMenuDefaults.IconSize),
-                            tint = Color.White.copy(alpha = TextEmphasis.Tertiary),
-                        )
-                    },
-                    onClick = {
-                        onClose()
-                        onNew()
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BoardMenuRow(
-    label: String,
-    active: Boolean,
-    muted: Boolean,
-    glyph: @Composable () -> Unit,
-    onClick: () -> Unit,
-    badge: Int = 0,
-    depth: Int = 0,
-    guide: TreeGuide? = null,
-    folder: PickerFolder? = null,
-) {
-    val pill = RoundedCornerShape(percent = 50)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(Chats.Shell.BoardMenu.ROW_HEIGHT.dp)
-            .treeGuides(guide, base = 16.dp)
-            .clip(pill)
-            .then(if (active) Modifier.background(GlassTokens.RowFillActive, pill) else Modifier)
-            .clickable(onClick = onClick)
-            .testTag(if (folder != null) "board-menu-folder" else Chats.TestIds.BOARD_MENU_ROW)
-            .padding(start = 16.dp + (TreeGuides.INDENT_DP * depth).dp, end = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Box(Modifier.size(TabGlyphSize), contentAlignment = Alignment.Center) {
-            CompositionLocalProvider(LocalContentColor provides GlassMenuDefaults.TextColor) { glyph() }
-        }
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
-            color = if (muted) Color.White.copy(alpha = TextEmphasis.Tertiary) else GlassMenuDefaults.TextColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        CountBadge(badge, NavBadges.Tone.Attention, testTag = "board-menu-row-badge")
-        if (folder != null) SidebarFolderTrailing(open = folder.open, count = folder.count)
-        if (active) {
-            Icon(
-                ExpIcons.uiCheck,
-                contentDescription = "Selected",
-                modifier = Modifier.size(GlassMenuDefaults.IconSize),
-                tint = GlassMenuDefaults.TextColor,
-            )
-        }
-    }
-}
-
-/**
- * EXP-827: the merged launcher on a board — the circle's 52dp height, two
- * 52dp arms split by a hairline, each its own button with the labels and
- * tags the single circles carry.
- */
-@Composable
-private fun LauncherCapsule(
-    onChat: () -> Unit,
-    onCompose: () -> Unit,
-    /** The Agent page is the current destination: the arm reads selected. */
-    chatSelected: Boolean,
-    /** EXP-973: false with no board to file onto — the arm dims and no-ops. */
-    composeEnabled: Boolean,
-) {
-    Row(
-        modifier = Modifier
-            .height(BottomNavDefaults.BarHeight)
-            .clip(RoundedCornerShape(percent = 50))
-            .background(GlassTokens.OpaqueCardFill)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, RoundedCornerShape(percent = 50)),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        LauncherArm(
-            icon = ExpIcons.actionChat,
-            contentDescription = "Start chat",
-            testTag = "chat-button",
-            onClick = onChat,
-            selected = chatSelected,
-        )
-        Box(
-            Modifier
-                .width(GlassTokens.Hairline)
-                .height(28.dp)
-                .background(GlassTokens.StrokeStrong),
-        )
-        LauncherArm(
-            icon = ExpIcons.navCreateIssue,
-            contentDescription = if (composeEnabled) "New issue" else "New issue (no board)",
-            testTag = "compose-button",
-            onClick = onCompose,
-            enabled = composeEnabled,
-        )
-    }
-}
-
-/** One arm of [LauncherCapsule]: a 52dp square hit area, no chrome of its own. */
-@Composable
-private fun LauncherArm(
-    icon: ImageVector,
-    contentDescription: String,
-    testTag: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-    /**
-     * The chat arm's selected state: the tab pill's active fill as a 44dp
-     * circle behind the glyph, cross-faded like a tab (EXP-523).
-     */
-    selected: Boolean = false,
-) {
-    val selectedFill by animateColorAsState(
-        targetValue = if (selected) GlassTokens.RowFillActive else Color.Transparent,
-        animationSpec = Motion.standard(),
-        label = "launcher-arm-pill",
-    )
-    Box(
-        modifier = Modifier
-            .size(52.dp)
-            .testTag(testTag)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            Modifier
-                .size(BottomNavDefaults.ItemSize)
-                .clip(CircleShape)
-                .background(selectedFill, CircleShape),
-        )
-        Icon(
-            icon,
-            contentDescription = contentDescription,
-            modifier = Modifier.size(20.dp),
-            tint = if (enabled) Color.White else Color.White.copy(alpha = TextEmphasis.Quaternary),
-        )
     }
 }
 
@@ -983,11 +434,4 @@ object BottomNavDefaults {
      * pill it replaces — a hand-typed 16 sat it 4dp off.
      */
     val HorizontalInset: Dp = 20.dp
-
-    /** Six tabs plus the compose circle need the tighter gutter to fit 360dp. */
-    val HorizontalInsetCompact: Dp = 12.dp
-
-    /** The gutter for a bar showing [tabCount] tabs (4..6, EXP-1105). */
-    fun horizontalInset(tabCount: Int): Dp =
-        if (tabCount >= 6) HorizontalInsetCompact else HorizontalInset
 }
