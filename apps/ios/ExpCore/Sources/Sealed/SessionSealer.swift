@@ -335,41 +335,6 @@ public enum SealedAnswer {
 
 /// Where `SessionsApi` finds the sealer (set once at launch, after the key
 /// holder exists).
-/// #EXP-2093: the `#IDENT` issue refs a sealed text carries as
-/// `refIssueIds` (web `refIssueIds`, Android `SealedWrite.issueRefs`).
-public enum SealedIssueRefs {
-    /// ExpUI `IssueRefs.pattern`'s `#` form (web `issue-refs.ts`).
-    private static let regex = try! NSRegularExpression(pattern: "(?<![A-Za-z0-9_#])#([A-Za-z][A-Za-z0-9]*-[0-9]+)(?![A-Za-z0-9_-])")
-
-    /// The identifiers of a text, uppercased, in order, once each.
-    public static func identifiers(in text: String) -> [String] {
-        var seen = Set<String>()
-        var out: [String] = []
-        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
-            guard let r = Range(match.range(at: 1), in: text) else { continue }
-            let identifier = text[r].uppercased()
-            if seen.insert(identifier).inserted { out.append(identifier) }
-        }
-        return out
-    }
-
-    /// The ids of `issues` (each with its team) the `identifiers` name inside
-    /// `teamIds`; an identifier in several teams = the first team's in order.
-    public static func resolve(
-        identifiers: [String], issues: [(id: String, identifier: String, teamId: String)], teamIds: [String]
-    ) -> [String] {
-        let rank = Dictionary(teamIds.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
-        var best: [String: (rank: Int, id: String)] = [:]
-        for issue in issues {
-            guard let at = rank[issue.teamId] else { continue }
-            let key = issue.identifier.uppercased()
-            if let held = best[key], held.rank <= at { continue }
-            best[key] = (at, issue.id)
-        }
-        return identifiers.compactMap { best[$0]?.id }
-    }
-}
-
 public final class SessionSealerSlot: @unchecked Sendable {
     private let lock = NSLock()
     private var value: SessionSealer?

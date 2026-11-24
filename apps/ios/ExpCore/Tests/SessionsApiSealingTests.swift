@@ -210,7 +210,7 @@ final class SessionsApiSealingTests: XCTestCase {
                     arguments: [id, name, id]
                 )
                 try conn.execute(
-                    sql: #"INSERT INTO "boards" ("id", "team_id", "name", "slug", "prefix") VALUES (?, ?, 'B', 'b', 'B')"#,
+                    sql: #"INSERT INTO "boards" ("id", "team_id", "name", "slug", "prefix", "created_at", "updated_at") VALUES (?, ?, 'B', 'b', 'B', 'x', 'x')"#,
                     arguments: ["board-\(id)", id]
                 )
             }
@@ -219,7 +219,7 @@ final class SessionsApiSealingTests: XCTestCase {
                 ("dup-a", "board-t-a", "DUP-1"), ("dup-b", "board-t-b", "DUP-1"),
             ] {
                 try conn.execute(
-                    sql: #"INSERT INTO "issues" ("id", "board_id", "identifier", "title") VALUES (?, ?, ?, 'x')"#,
+                    sql: #"INSERT INTO "issues" ("id", "board_id", "identifier", "title", "created_at", "updated_at") VALUES (?, ?, ?, 'x', 'x', 'x')"#,
                     arguments: [id, board, identifier]
                 )
             }
