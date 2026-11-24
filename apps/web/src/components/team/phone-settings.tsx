@@ -241,23 +241,21 @@ export function PhoneSettingsRoot({ teamSlug }: { teamSlug: string }) {
         className={`mx-auto flex w-full max-w-xl flex-col gap-4 px-4 pt-[max(1rem,env(safe-area-inset-top))] ${PAGE_END_CLEARANCE}`}
       >
         <MobilePageHeader title={CHATS_COPY.headers.settings} />
-        <GlassGroup data-testid="settings-account">
           <a
             href={personalSettingsPath(`account`)}
-            className={PHONE_ROW_CLASS}
+            data-testid="settings-account"
+            className="flex items-center gap-3.5 rounded-xl px-1 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
             onClick={(event) => {
               event.preventDefault()
               void navigate({ href: personalSettingsPath(`account`) })
             }}
           >
-            <UserAvatar user={user} size={40} />
+            <UserAvatar user={user} size={56} />
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate">{user?.name || user?.email}</span>
-              {user?.email && <span className="truncate text-xs text-muted-foreground">{user.email}</span>}
+              <span className="truncate text-[17px] font-semibold">{user?.name || user?.email}</span>
+              {user?.email && <span className="truncate text-[13px] text-muted-foreground">{user.email}</span>}
             </span>
-            <ChevronRightIcon className="size-4 shrink-0 text-foreground/50" />
           </a>
-        </GlassGroup>
         <GlassGroup>
           {personal.map((item) => {
             const Icon = item.icon
@@ -276,6 +274,9 @@ export function PhoneSettingsRoot({ teamSlug }: { teamSlug: string }) {
           <TeamlessRow href="/devices" icon={<DevicesIcon className="size-5" />} label={CHATS_COPY.headers.devices} />
         </GlassGroup>
         <GlassGroup>
+          <TeamlessRow href="/about" icon={<AboutIcon className="size-5" />} label="About" />
+        </GlassGroup>
+        <GlassGroup>
           {gettingStartedVisible && (
             <PhoneRowButton
               icon={<GettingStartedIcon className="size-5" />}
@@ -288,7 +289,6 @@ export function PhoneSettingsRoot({ teamSlug }: { teamSlug: string }) {
             <PhoneRowButton icon={<AdminIcon className="size-5" />} label="Admin" onClick={() => void navigate({ to: `/admin` })} />
           )}
           <PhoneRowButton icon={<ChangelogIcon className="size-5" />} label="What's new" onClick={() => setWhatsNewOpen(true)} />
-          <PhoneRowButton icon={<AboutIcon className="size-5" />} label="About" onClick={() => void navigate({ to: `/about` })} />
           {feedbackAvailable && (
             <PhoneRowButton icon={<ReportBugIcon className="size-5" />} label="Report bug" onClick={() => openFeedbackWidget()} />
           )}

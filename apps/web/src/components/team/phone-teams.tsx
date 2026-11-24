@@ -3,6 +3,7 @@ import { Link, useNavigate, useRouter } from "@tanstack/react-router"
 import { eq, and, useLiveQuery } from "@tanstack/react-db"
 import { CHATS_COPY, railAgents } from "@exp/domain-contract/chats"
 import { NEEDS_YOU_COPY } from "@exp/domain-contract/needs-you"
+import { rowBadge } from "@exp/domain-contract/nav-badges"
 import type { SidebarEntry } from "@exp/domain-contract/sidebar-folders"
 import {
   phoneTeamMenu,
@@ -28,6 +29,9 @@ import {
   type MenuEntry,
 } from "@exp/ui"
 import type { Team } from "@/db/schema"
+import { useCrossTeamChatList } from "@/components/chat/cross-team-chat-list"
+import { Empty } from "@/components/empty"
+import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { JoinTeamDialog } from "@/components/join-team-dialog"
 import { useMemberTeams } from "@/components/home/use-member-teams"
@@ -45,6 +49,7 @@ import { sidebarTeamSlice, useSidebarTeamsData } from "@/hooks/use-sidebar-teams
 import { useTeamBoardsWithReady, useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { newPagePath, type NewPageKind } from "@/lib/app-paths"
+import { emptyStateCopy } from "@/lib/empty-states"
 import { sidebarLayoutCollection } from "@/lib/collections"
 import type { ChatsListRow } from "@/lib/session-tree"
 
@@ -184,6 +189,7 @@ export function PhoneTeam({ teamSlug, folderId }: { teamSlug: string; folderId: 
 }
 
 function TeamPage({ team, folderId, onBack }: { team: Team; folderId: string | null; onBack: () => void }) {
+  const navigate = useNavigate()
   const { data: session } = useSession()
   const me = session?.user?.id
   const ids = useMemo(() => [team.id], [team.id])
@@ -195,6 +201,10 @@ function TeamPage({ team, folderId, onBack }: { team: Team; folderId: string | n
     for (const group of groups) for (const row of group.rows) map.set(row.sessionId, row)
     return map
   }, [groups])
+  // A placed session's count badge = its Chats row's.
+  const { list } = useCrossTeamChatList(ids, me)
+  const unread = useMemo(() => new Map(list.rows.map((row) => [row.sessionId, rowBadge(row)])), [list.rows])
+  const permissions = useTeamPermissions(team)
   const data = sidebarTeamSlice(useSidebarTeamsData(ids, me, chatRows), team.id)
   const { entries, isReady } = useTeamEntries(team.id)
   const agents = useMemo(
@@ -261,11 +271,13 @@ function TeamPage({ team, folderId, onBack }: { team: Team; folderId: string | n
       }
       default: {
         const chat = data.chatRows.get(row.id)
+        const badge = unread.get(row.id)
         return (
           <Link key={row.id} to="/t/$teamSlug/sessions/$sessionId" params={{ ...params, sessionId: row.id }} className={PHONE_ROW_CLASS} data-testid="team-session-row">
             <RowBody
               glyph={<ChatRunMark row={{ sessionId: row.id, needsYou: chat?.needsYou ?? false, busy: chat?.busy ?? false }} ringClassName="ring-background" />}
               label={data.titles.get(row.id) ?? chat?.title ?? ``}
+              trailing={badge && <Badge count={badge.count} tone={badge.tone} />}
             />
           </Link>
         )
@@ -298,6 +310,18 @@ function TeamPage({ team, folderId, onBack }: { team: Team; folderId: string | n
           <SkeletonRows rowHeight={52} />
         ) : rows && rows.length > 0 ? (
           <GlassGroup data-testid="team-items">{rows.map(rowOf)}</GlassGroup>
+        ) : folderId === null ? (
+          // Nothing yet: a board is the first step; the member's progress.
+          <>
+            <Empty id="boards">
+              {permissions.isOwner && (
+                <Button variant="outline" size="sm" onClick={() => void navigate({ href: newPagePath(team.slug, `board`) })}>
+                  {emptyStateCopy(`boards`).action}
+                </Button>
+              )}
+            </Empty>
+            {permissions.isMember && <GettingStartedSection team={team} teamSlug={team.slug} />}
+          </>
         ) : null}
       </div>
     </div>
