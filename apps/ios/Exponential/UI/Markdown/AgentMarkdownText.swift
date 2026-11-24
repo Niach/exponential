@@ -26,6 +26,10 @@ struct AgentMarkdownContext {
 /// `#`. Descriptions and comments keep the `#IDENTIFIER` contract.
 struct AgentIssueRefContext {
     let teamId: String
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams`): the chat's
+    /// teams, in order; `teamId` is the first (a team-less link's team). One
+    /// team everywhere but the Assistant's chat (its own team never syncs).
+    var teamIds: [String]
     let db: DatabaseManager
     let onOpen: (String) -> Void
     /// Off for an uploaded markdown file: only `#IDENT` chips there, as on
@@ -39,6 +43,32 @@ struct AgentIssueRefContext {
     /// Part of the prototype cache key and the row's re-adopt trigger: the
     /// pill pass bakes the resolved NAMES into the model.
     var mentionKey: String { ChatMentionMembers.fingerprint(mentionMembers) }
+
+    /// What the issue chips resolve against: the chat's teams (an
+    /// identifier found in several = the first team's).
+    var scope: IssueRefLookup.Scope {
+        teamIds.count > 1 ? .teams(ids: teamIds) : .team(id: teamId)
+    }
+
+    init(
+        teamId: String, db: DatabaseManager, onOpen: @escaping (String) -> Void,
+        bareRefs: Bool = true, mentionMembers: [MentionMember] = []
+    ) {
+        self.init(teamIds: [teamId], db: db, onOpen: onOpen, bareRefs: bareRefs, mentionMembers: mentionMembers)
+    }
+
+    /// `teamIds` empty = no team known: nothing resolves.
+    init(
+        teamIds: [String], db: DatabaseManager, onOpen: @escaping (String) -> Void,
+        bareRefs: Bool = true, mentionMembers: [MentionMember] = []
+    ) {
+        self.teamId = teamIds.first ?? ""
+        self.teamIds = teamIds
+        self.db = db
+        self.onOpen = onOpen
+        self.bareRefs = bareRefs
+        self.mentionMembers = mentionMembers
+    }
 }
 
 /// The `@` vocabulary of a chat surface, off the two synced tables (both
@@ -50,20 +80,22 @@ struct AgentIssueRefContext {
 enum ChatMentionMembers {
     private struct Key: Hashable, Sendable {
         let accountId: String
-        let teamId: String
+        let teamIds: [String]
     }
 
     private static let memo = StoreMemo<Key, [MentionMember]>(capacity: 64)
 
-    static func members(teamId: String, db: DatabaseManager, accountId: String) -> [MentionMember] {
-        memo.peek(Key(accountId: accountId, teamId: teamId)) {
+    /// #EXP-2079 (`assistant.chatTeams`): the members of the chat's teams,
+    /// one row per person, the list's existing order.
+    static func members(teamIds: [String], db: DatabaseManager, accountId: String) -> [MentionMember] {
+        memo.peek(Key(accountId: accountId, teamIds: teamIds)) {
             guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
             let members = (try? await pool.read { db -> [MentionMember] in
                 let memberIds = try TeamMemberEntity
-                    .filter(Column("team_id") == teamId)
+                    .filter(teamIds.contains(Column("team_id")))
                     .fetchAll(db)
                     .map(\.userId)
-                return try UserEntity.filter(keys: memberIds).fetchAll(db)
+                return try UserEntity.filter(keys: Array(Set(memberIds))).fetchAll(db)
                     .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
             }) ?? []
             return members.sorted { $0.email < $1.email }

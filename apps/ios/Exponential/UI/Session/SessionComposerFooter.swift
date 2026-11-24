@@ -34,8 +34,9 @@ struct SessionComposerFooter: View {
         /// composer-menu.json `surface`: a session's composer or an agent
         /// chat's.
         var surface: ComposerMenu.Surface = .session
-        /// The team whose issues the "+" Issue page searches.
-        var teamId: String?
+        /// The teams whose issues the "+" Issue page searches (#EXP-2079,
+        /// agent-settings.json `assistant.chatTeams`: the chat's teams).
+        var teamIds: [String] = []
         /// #EXP-1434: the team's prompts (the `/` menu's) for the "+"
         /// Prompts page, and its pick (the `/` pick's effect: the body
         /// inserted at the caret).
@@ -87,6 +88,9 @@ struct SessionComposerFooter: View {
     /// conversation's pick checked (`AgentChatMcpPick`).
     struct McpMenu {
         let servers: [McpServerRow]
+        /// #EXP-2079 (`McpServers.chatPick`): server id → its team's name
+        /// while the chat reads more than one team; empty = one team.
+        var teamNames: [String: String] = [:]
         let picked: [String]
         let onChange: ([String]) -> Void
     }

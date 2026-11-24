@@ -1134,18 +1134,23 @@ impl Collections {
     /// byte-identical to the web sidebar's comparator (`use-team-data.ts`),
     /// so the rail and the web sidebar always list boards identically. (The
     /// old name tiebreak diverged from the web for null sort orders.)
+    ///
+    /// #EXP-2079: `team_id` may be a CHAT TEAMS key
+    /// (`domain::agent_settings::chat_teams_key`: the Assistant's
+    /// conversation reads several teams): team by team in the key's order.
     pub fn boards_in_team(&self, team_id: &str, cx: &App) -> Vec<Board> {
+        use domain::agent_settings::chat_teams_rank;
         let mut out: Vec<Board> = self
             .boards
             .read(cx)
             .iter()
-            .filter(|p| p.team_id == team_id)
+            .filter(|p| chat_teams_rank(team_id, &p.team_id).is_some())
             .cloned()
             .collect();
         out.sort_by(|a, b| {
-            a.sort_order
-                .unwrap_or(f64::MAX)
-                .total_cmp(&b.sort_order.unwrap_or(f64::MAX))
+            chat_teams_rank(team_id, &a.team_id)
+                .cmp(&chat_teams_rank(team_id, &b.team_id))
+                .then_with(|| a.sort_order.unwrap_or(f64::MAX).total_cmp(&b.sort_order.unwrap_or(f64::MAX)))
                 .then_with(|| a.created_at.cmp(&b.created_at))
                 .then_with(|| a.id.cmp(&b.id))
         });
@@ -1172,7 +1177,7 @@ impl Collections {
         let boards = self.boards.read(cx);
         let board_ids: std::collections::HashSet<&str> = boards
             .iter()
-            .filter(|p| p.team_id == team_id)
+            .filter(|p| domain::agent_settings::chat_teams_has(team_id, &p.team_id))
             .map(|p| p.id.as_str())
             .collect();
         let mut out: Vec<Issue> = self
@@ -1190,13 +1195,14 @@ impl Collections {
     /// BORROWED, unordered view for the hot paths (render-time pickers,
     /// per-keystroke snapshots) that filter or project before they own
     /// anything. Cloning every issue (descriptions included) there made the
-    /// whole window stutter on each redraw.
+    /// whole window stutter on each redraw. #EXP-2079: `team_id` may be a
+    /// chat teams key (see [`Self::boards_in_team`]).
     pub fn issue_refs_in_team<'a>(&'a self, team_id: &str, cx: &'a App) -> Vec<&'a Issue> {
         let board_ids: std::collections::HashSet<&str> = self
             .boards
             .read(cx)
             .iter()
-            .filter(|p| p.team_id == team_id)
+            .filter(|p| domain::agent_settings::chat_teams_has(team_id, &p.team_id))
             .map(|p| p.id.as_str())
             .collect();
         self.issues

@@ -125,7 +125,7 @@ private struct EntityRefChip: View {
               let identifier = group.ref.identifier, !identifier.isEmpty
         else { return nil }
         return IssueRefChipCache.chip(
-            identifier, scope: .team(id: context.teamId), db: context.db, accountId: accountId
+            identifier, scope: context.scope, db: context.db, accountId: accountId
         )
     }
 
@@ -207,7 +207,7 @@ struct EntityRefPreviewSheet: View {
         card(model)
             .task(id: group.ref.id) {
                 resolved = await EntityRefResolver.resolve(
-                    group: group, teamId: context?.teamId, db: context?.db, accountId: accountId
+                    group: group, teamIds: context?.teamIds ?? [], db: context?.db, accountId: accountId
                 )
             }
     }
@@ -275,31 +275,34 @@ enum EntityRefResolver {
         slimModel(group.ref)
     }
 
-    /// #PERF-5: GRDB's async read, never on main.
+    /// #PERF-5: GRDB's async read, never on main. #EXP-2079 (agent-settings
+    /// .json `assistant.chatTeams`): `teamIds` = the chat's teams, in order
+    /// (an identifier found in several = the first team's); a status glyph
+    /// reads the ISSUE's own team, never the session's.
     static func resolve(
-        group: EntityPreview.Group, teamId: String?, db: DatabaseManager?, accountId: String
+        group: EntityPreview.Group, teamIds: [String], db: DatabaseManager?, accountId: String
     ) async -> EntityPreviewModel {
         let ref = group.ref
         let slim = slimModel(ref)
         guard let db, let pool = try? db.pool(forAccountId: accountId) else { return slim }
         if ref.kind == "list" {
-            return await listModel(group, pool: pool, teamId: teamId) ?? slim
+            return await listModel(group, pool: pool, teamIds: teamIds) ?? slim
         }
         let resolved: EntityPreviewModel? = try? await pool.read { db in
             switch ref.kind {
-            case "issue": try issueModel(ref, db: db, teamId: teamId)
+            case "issue": try issueModel(ref, db: db, teamIds: teamIds)
             case "board": try boardModel(ref, db: db)
             case "action", "prompt": try promptModel(ref, db: db)
-            case "comment": try commentModel(ref, db: db, teamId: teamId)
+            case "comment": try commentModel(ref, db: db)
             case "session": try sessionModel(ref, db: db)
             case "label": try labelModel(ref, db: db)
             case "status": try statusModel(ref, db: db)
             case "device": try deviceModel(ref, db: db)
-            case "member": try memberModel(ref, db: db, teamId: teamId)
+            case "member": try memberModel(ref, db: db, teamIds: teamIds)
             case "team": try teamModel(ref, db: db)
             case "invite": try inviteModel(ref, db: db)
             case "notification": try notificationModel(ref, db: db)
-            case "attachment": try attachmentModel(ref, db: db, teamId: teamId)
+            case "attachment": try attachmentModel(ref, db: db)
             default: nil
             }
         }
@@ -338,10 +341,11 @@ enum EntityRefResolver {
 
     // MARK: Kinds
 
-    private static func issueModel(_ ref: EntityRef, db: Database, teamId: String?) throws -> EntityPreviewModel? {
-        var issue = try IssueEntity.fetchOne(db, key: ref.id)
-        if issue == nil, let identifier = ref.identifier, let teamId {
-            issue = try IssueEntity.fetchOne(
+    /// An identifier in the chat's teams: the first team's in order.
+    private static func issue(identifier: String?, teamIds: [String], db: Database) throws -> IssueEntity? {
+        guard let identifier else { return nil }
+        for teamId in teamIds {
+            let issue = try IssueEntity.fetchOne(
                 db,
                 sql: """
                 SELECT i.* FROM issues i JOIN boards p ON p.id = i.board_id
@@ -349,10 +353,17 @@ enum EntityRefResolver {
                 """,
                 arguments: [identifier.uppercased(), teamId]
             )
+            if let issue { return issue }
         }
-        guard let issue else { return nil }
+        return nil
+    }
+
+    private static func issueModel(_ ref: EntityRef, db: Database, teamIds: [String]) throws -> EntityPreviewModel? {
+        let found = try IssueEntity.fetchOne(db, key: ref.id)
+            ?? issue(identifier: ref.identifier, teamIds: teamIds, db: db)
+        guard let issue = found else { return nil }
         let board = try BoardEntity.fetchOne(db, key: issue.boardId)
-        let status = try resolvedStatus(issue, db: db, teamId: board?.teamId ?? teamId)
+        let status = try resolvedStatus(issue, db: db)
         var facts: [EntityPreviewModel.Fact] = [
             .init(id: "status", label: status.name, icon: status.iconName, tint: status.color),
         ]
@@ -431,13 +442,13 @@ enum EntityRefResolver {
         )
     }
 
-    private static func commentModel(_ ref: EntityRef, db: Database, teamId: String?) throws -> EntityPreviewModel? {
+    private static func commentModel(_ ref: EntityRef, db: Database) throws -> EntityPreviewModel? {
         guard let comment = try CommentEntity.fetchOne(db, key: ref.id) else { return nil }
         let author = try comment.authorId.flatMap { try UserEntity.fetchOne(db, key: $0) }
         let issue = try IssueEntity.fetchOne(db, key: comment.issueId)
         var rows: [EntityPreviewModel.Row] = []
         if let issue {
-            let status = try resolvedStatus(issue, db: db, teamId: teamId ?? comment.teamId)
+            let status = try resolvedStatus(issue, db: db)
             rows.append(.init(
                 id: issue.id,
                 icon: .glyph(status.iconName, status.color),
@@ -557,10 +568,11 @@ enum EntityRefResolver {
         )
     }
 
-    private static func memberModel(_ ref: EntityRef, db: Database, teamId: String?) throws -> EntityPreviewModel? {
+    private static func memberModel(_ ref: EntityRef, db: Database, teamIds: [String]) throws -> EntityPreviewModel? {
         let user = try UserEntity.fetchOne(db, key: ref.id)
+        // One row per person: the first team's row.
         var membership: TeamMemberEntity?
-        if let teamId {
+        for teamId in teamIds where membership == nil {
             membership = try TeamMemberEntity
                 .filter(Column("team_id") == teamId && Column("user_id") == ref.id)
                 .fetchOne(db)
@@ -616,12 +628,12 @@ enum EntityRefResolver {
         )
     }
 
-    private static func attachmentModel(_ ref: EntityRef, db: Database, teamId: String?) throws -> EntityPreviewModel? {
+    private static func attachmentModel(_ ref: EntityRef, db: Database) throws -> EntityPreviewModel? {
         guard let attachment = try AttachmentEntity.fetchOne(db, key: ref.id) else { return nil }
         let issue = try IssueEntity.fetchOne(db, key: attachment.issueId)
         var rows: [EntityPreviewModel.Row] = []
         if let issue {
-            let status = try resolvedStatus(issue, db: db, teamId: teamId ?? attachment.teamId)
+            let status = try resolvedStatus(issue, db: db)
             rows.append(.init(
                 id: issue.id,
                 icon: .glyph(status.iconName, status.color),
@@ -644,12 +656,12 @@ enum EntityRefResolver {
     /// row resolved like a mini chip, and the `+N more` the publisher's count
     /// says lie beyond the refs it sent.
     private static func listModel(
-        _ group: EntityPreview.Group, pool: DatabasePool, teamId: String?
+        _ group: EntityPreview.Group, pool: DatabasePool, teamIds: [String]
     ) async -> EntityPreviewModel? {
         let ref = group.ref
         let count = max(0, ref.count ?? 0)
         let rows: [EntityPreviewModel.Row] = (try? await pool.read { db in
-            try group.members.map { member in try memberRow(member, db: db, teamId: teamId) }
+            try group.members.map { member in try memberRow(member, db: db, teamIds: teamIds) }
         }) ?? group.members.map { memberRow($0) }
         return EntityPreviewModel(
             icon: .glyph(EntityChipIcon.glyph(for: ref), nil),
@@ -661,21 +673,12 @@ enum EntityRefResolver {
     }
 
     /// A member row off the store when it is there, else the ref's own label.
-    private static func memberRow(_ ref: EntityRef, db: Database, teamId: String?) throws -> EntityPreviewModel.Row {
+    private static func memberRow(_ ref: EntityRef, db: Database, teamIds: [String]) throws -> EntityPreviewModel.Row {
         if ref.kind == "issue" {
-            var issue = try IssueEntity.fetchOne(db, key: ref.id)
-            if issue == nil, let identifier = ref.identifier, let teamId {
-                issue = try IssueEntity.fetchOne(
-                    db,
-                    sql: """
-                    SELECT i.* FROM issues i JOIN boards p ON p.id = i.board_id
-                    WHERE upper(i.identifier) = ? AND p.team_id = ?
-                    """,
-                    arguments: [identifier.uppercased(), teamId]
-                )
-            }
-            if let issue {
-                let status = try resolvedStatus(issue, db: db, teamId: teamId)
+            let found = try IssueEntity.fetchOne(db, key: ref.id)
+                ?? issue(identifier: ref.identifier, teamIds: teamIds, db: db)
+            if let issue = found {
+                let status = try resolvedStatus(issue, db: db)
                 return .init(
                     id: issue.id,
                     icon: .glyph(status.iconName, status.color),
@@ -718,8 +721,9 @@ enum EntityRefResolver {
         return IssueStatusResolver.teamStatusesOrFallback(rows)
     }
 
-    private static func resolvedStatus(_ issue: IssueEntity, db: Database, teamId: String?) throws -> ResolvedIssueStatus {
-        let scope = try teamId ?? String.fetchOne(
+    /// #EXP-2079: against the ISSUE's own team's statuses (its board's).
+    private static func resolvedStatus(_ issue: IssueEntity, db: Database) throws -> ResolvedIssueStatus {
+        let scope = try String.fetchOne(
             db, sql: "SELECT team_id FROM boards WHERE id = ?", arguments: [issue.boardId]
         )
         return IssueStatusResolver.resolve(issue, team: try teamStatuses(db: db, teamId: scope))

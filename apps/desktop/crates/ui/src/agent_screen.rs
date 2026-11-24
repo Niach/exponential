@@ -238,6 +238,9 @@ struct FirstMcpServer {
     command: Option<String>,
     /// The viewer has not connected it (a pick opens Settings › MCP).
     blocked: bool,
+    /// #EXP-2079 (`assistant.chatTeams` (3)): its team, set only while the
+    /// pick reads SEVERAL teams: the row's second line names it.
+    team_name: Option<String>,
 }
 
 pub struct AgentScreenView {
@@ -465,9 +468,30 @@ impl AgentScreenView {
         }
         let Some(trpc) = crate::queries::trpc_client(cx) else { return };
         self.mcp_requested = Some(team_id.clone());
+        // #EXP-2079 (`assistant.chatTeams` (3)): `team_id` is the chat teams
+        // key: each team's servers, team by team.
+        let teams: Vec<(String, Option<String>)> = {
+            let ids = crate::chat_teams::teams_of(&team_id);
+            let named = ids.len() > 1;
+            let rows = Store::try_global(cx).map(|store| store.collections().teams.read(cx));
+            ids.into_iter()
+                .map(|id| {
+                    let name = rows.as_ref().filter(|_| named).and_then(|rows| rows.get(&id)).map(|team| team.name.clone());
+                    (id, name)
+                })
+                .collect()
+        };
         cx.spawn(async move |this, cx| {
-            let team = team_id.clone();
-            let loaded = cx.background_executor().spawn(async move { api::mcp_servers::list(&trpc, &team) }).await;
+            let loaded = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut loaded = Vec::new();
+                    for (team, team_name) in teams {
+                        loaded.extend(api::mcp_servers::list(&trpc, &team)?.into_iter().map(|entry| (entry, team_name.clone())));
+                    }
+                    Ok::<_, api::ApiError>(loaded)
+                })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 if this.mcp_requested.as_deref() != Some(team_id.as_str()) {
                     return;
@@ -476,7 +500,8 @@ impl AgentScreenView {
                     Ok(entries) => {
                         let servers = entries
                             .into_iter()
-                            .map(|entry| FirstMcpServer {
+                            .map(|(entry, team_name)| FirstMcpServer {
+                                team_name,
                                 blocked: crate::launch_options::mcp_block_reason(&entry.connection).is_some(),
                                 id: entry.config.id,
                                 name: entry.config.name,
@@ -531,22 +556,21 @@ impl AgentScreenView {
     }
 
     /// The team the subject's `/` prompts, issue refs, mentions and template
-    /// starter read. #EXP-1714: a global Assistant (its team is none of the
-    /// synced teams: the hidden personal team) borrows the window's ACTIVE
-    /// team; `send_first` keeps the agent's own team.
+    /// starter read. #EXP-2079 (agent-settings.json `assistant.chatTeams`,
+    /// superseding #EXP-1714's active team): the CHAT TEAMS key
+    /// (`crate::chat_teams`): the agent's own team while it is synced; a
+    /// global Assistant (its personal team never syncs) reads the first
+    /// composer's Teams pick ∩ the synced teams, else all of them.
+    /// `send_first` keeps the agent's own team.
     fn subject_team_id(&self, cx: &App) -> Option<String> {
         match &self.app {
             Some(app) => app.team_id.clone(),
             None => {
                 let team_id = self.agent.as_ref().and_then(|agent| agent.team_id.clone());
-                let synced = team_id.as_deref().is_some_and(|team_id| {
-                    Store::try_global(cx).is_some_and(|store| store.collections().teams.read(cx).get(team_id).is_some())
-                });
-                if synced || self.agent.is_none() || Store::try_global(cx).is_none() {
-                    team_id
-                } else {
-                    crate::navigation::screen_team_id(&self.nav, cx)
+                if self.agent.is_none() || Store::try_global(cx).is_none() {
+                    return team_id;
                 }
+                crate::chat_teams::key(team_id.as_deref(), self.first.teams_picked.as_deref(), cx)
             }
         }
     }
@@ -608,7 +632,7 @@ impl AgentScreenView {
                 cx,
             )
             .label(domain::app_templates::APP_TEMPLATES_COPY.from_template.clone())
-            .on_click(move |_, window, cx| crate::app_import_dialog::open(window, cx, team_id.clone()))
+            .on_click(move |_, window, cx| crate::app_import_dialog::open(window, cx, crate::chat_teams::first(&team_id).to_string()))
         });
         crate::controls::empty_state(Icon::new(registry::NAV_APPS), copy.starter_title.clone(), None, cx)
             .child(crate::controls::empty_state_actions().children(pills).children(from_template))
@@ -1654,12 +1678,14 @@ fn first_mcp_source(
                     let icon = crate::picker::mcp_server_picker::mcp_server_icon(server.url.as_deref(), server.command.as_deref());
                     // The launch picker's second line: the not-connected
                     // reason, else the host (or the command).
-                    let caption = if server.blocked {
-                        Some(crate::launch_options::MCP_CONNECT_FIRST.to_string())
-                    } else {
-                        crate::picker::mcp_server_picker::mcp_host(server.url.as_deref())
-                            .or_else(|| server.command.clone().filter(|command| !command.is_empty()))
-                    };
+                    let blocked = server.blocked.then_some(crate::launch_options::MCP_CONNECT_FIRST);
+                    // #EXP-2079: a pick over several teams names the team.
+                    let caption = crate::launch_options::mcp_team_line(server.team_name.as_deref(), blocked).or_else(|| {
+                        blocked.map(str::to_string).or_else(|| {
+                            crate::picker::mcp_server_picker::mcp_host(server.url.as_deref())
+                                .or_else(|| server.command.clone().filter(|command| !command.is_empty()))
+                        })
+                    });
                     search_list::MenuListRow {
                         id: server.id.clone(),
                         body: h_flex()

@@ -600,10 +600,23 @@ class ChatStoreManager internal constructor(
         val page = frame.toString()
         if (!runCatching { isCatchUpPage(page) }.getOrDefault(false)) return
         val row = rows.session(holder.accountId, sessionId)
-        val asker = row?.let { session ->
-            net.registry(holder.accountId)[session.teamId]?.firstOrNull { it.endpointId == from }?.userId
+        val registry = net.registry(holder.accountId)
+        val list = row?.let { registry[it.teamId] }
+        val asker = list?.firstOrNull { it.endpointId == from }?.userId
+        // #EXP-2079 (steer-enet.json A TEAM WITHOUT A LIST): the registry is
+        // keyed by SYNCED team, so a session in its starter's personal team
+        // (the Assistant's conversation) has no list: the endpoint's user in
+        // any list this device holds, allowed only when it is the starter.
+        val anyTeam = if (row != null && list == null) {
+            registry.values.firstNotNullOfOrNull { installs -> installs.firstOrNull { it.endpointId == from }?.userId }
+        } else {
+            null
         }
-        val access = pageAccess(row != null, row?.userId, row?.shared == true, asker)
+        val access = pageAccess(
+            row != null, row?.userId, row?.shared == true, asker,
+            teamListed = row == null || list != null,
+            anyTeamUserId = anyTeam,
+        )
         val chunk = runCatching { holder.store.answerPage(sessionId, page, access) }.getOrNull() ?: return
         runCatching {
             peer.sendChat(from, encodeSteerEnvelope(sessionId, listOf(Json.parseToJsonElement(chunk).jsonObject)))

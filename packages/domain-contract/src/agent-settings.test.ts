@@ -10,7 +10,9 @@ import {
   launchPick,
   mergeTeamPicks,
   teamPick,
+  assistantChatTeams,
   assistantMoveOf,
+  assistantOwnDevices,
   agentChatOf,
   groupAskRecipient,
   groupChatMoveOf,
@@ -35,6 +37,7 @@ import {
   issueActor,
   orderedAgents,
   runsOnDeviceIds,
+  runsOnRows,
   triggerSummary,
   validateAgentForm,
   visibleAgent,
@@ -95,6 +98,11 @@ describe(`agent-settings.json assistant`, () => {
   for (const c of fixture.assistant.runsOnCases) {
     it(`runsOnCases: ${c.name}`, () => {
       expect(runsOnDeviceIds(c.devices, c.boundId, c.assistant)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.runsOnRowCases) {
+    it(`runsOnRowCases: ${c.name}`, () => {
+      expect(runsOnRows(c.devices, c.boundId, c.assistant)).toEqual(c.expected)
     })
   }
   for (const c of fixture.assistant.visibleCases) {
@@ -257,6 +265,19 @@ describe(`MCP servers row (#EXP-1793)`, () => {
   for (const c of fixture.mcpValueCases) {
     it(`mcpValueCases: ${c.name}`, () => {
       expect(agentMcpServersValue(c.names)).toBe(c.expected)
+    })
+  }
+})
+
+describe(`#EXP-2079 the Assistant's chat reads the turn's teams (assistant.chatTeams)`, () => {
+  for (const c of fixture.assistant.chatTeams.cases) {
+    test(c.name, () => {
+      expect(assistantChatTeams(c)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.chatTeams.deviceCases) {
+    test(`devices: ${c.name}`, () => {
+      expect(assistantOwnDevices(c)).toBe(c.expected)
     })
   }
 })

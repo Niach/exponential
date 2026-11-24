@@ -28,6 +28,9 @@ final class AppMarkdownHost: HostPlugin {
     private let baseURL: URL?
     private let accountId: String
     private let teamId: String?
+    /// #EXP-2079: the chat's teams (`AgentIssueRefContext.scope`); `teamId`
+    /// = the first, a team-less link's team.
+    private let scope: IssueRefLookup.Scope?
     private let bareRefs: Bool
     private let origin: String?
     private weak var deps: AppDependencies?
@@ -56,6 +59,7 @@ final class AppMarkdownHost: HostPlugin {
         baseURL = context?.baseURL
         accountId = context?.accountId ?? ""
         teamId = context?.issueRefs?.teamId
+        scope = context?.issueRefs?.scope
         bareRefs = context?.issueRefs?.bareRefs ?? false
         self.deps = deps
         let base = baseURL?.absoluteString
@@ -77,7 +81,7 @@ final class AppMarkdownHost: HostPlugin {
         let refs = context?.issueRefs
         let key = [
             context?.accountId ?? "", context?.baseURL?.absoluteString ?? "",
-            refs?.teamId ?? "-", refs.map { $0.bareRefs ? "bare" : "hash" } ?? "-", planCard ? "plan" : "-",
+            refs?.scope.cacheKey ?? "-", refs.map { $0.bareRefs ? "bare" : "hash" } ?? "-", planCard ? "plan" : "-",
         ].joined(separator: "|")
         let host: AppMarkdownHost
         if let hit = hosts[key] {
@@ -273,7 +277,7 @@ final class AppMarkdownHost: HostPlugin {
         return ProseLinks.chipBareAppLinks(text, origin: origin, team: team) { kind, id in
             switch kind {
             case .issue:
-                return IssueRefChipCache.chip(id.uppercased(), scope: .team(id: teamId), db: db, accountId: accountId)?.title
+                return IssueRefChipCache.chip(id.uppercased(), scope: scope ?? .team(id: teamId), db: db, accountId: accountId)?.title
             case .board:
                 return cell(#"SELECT "name" FROM "boards" WHERE "team_id" = ? AND "slug" = ? LIMIT 1"#, teamId, id)
             case .session:
@@ -309,7 +313,6 @@ final class AppMarkdownHost: HostPlugin {
     private static let mentionScheme = "exp-mention:"
     private static let statusIcon = "issue-status:"
 
-    private var scope: IssueRefLookup.Scope? { teamId.map { .team(id: $0) } }
 
     func textLinks(_ piece: String) -> [TextLinkSegment]? {
         struct Hit {

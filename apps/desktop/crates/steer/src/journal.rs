@@ -163,6 +163,13 @@ impl ActivityJournal {
         Self::default()
     }
 
+    /// Does the `background_tasks` slot still list a task? The slot is
+    /// latest-wins and only its publisher's engine closes it (an EMPTY
+    /// list); an engine that is gone never will.
+    pub fn background_tasks_open(&self) -> bool {
+        matches!(&self.slots[SLOT_BACKGROUND_TASKS], Some(ActivityEvent::BackgroundTasks { tasks, .. }) if !tasks.is_empty())
+    }
+
     /// Record one published event, numbering the stream for the caller —
     /// tests only, so a case that does not care about sequences reads as it
     /// always did.

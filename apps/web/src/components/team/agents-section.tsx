@@ -87,7 +87,7 @@ import {
   LEAD_NONE,
   leadOptions,
   assistantModelValue,
-  runsOnDeviceIds,
+  runsOnRows,
 } from "@exp/domain-contract/agent-settings"
 import { modelChoices } from "@/components/launch-dialog/launch-options-pane"
 import { VoiceSettingsSection, type VoiceSettings } from "@/components/account/voice-settings-card"
@@ -193,30 +193,38 @@ export function useAgentDevices(teamId: string | undefined, own = false): SteerD
   }, [enabled, currentUserId, deviceRows, userRows, now, teamId, own])
 }
 
-/** The Device row's entries: online machines are pickable, an offline one
- *  stays listed (disabled) so a bound agent still names it, and a binding the
- *  viewer cannot see (a teammate's private machine) renders by its raw id.
+/** The Device row's entries (`runsOnRows`, `runsOnRowCases`): online
+ *  machines are pickable, an offline one stays listed (disabled unless bound)
+ *  so a bound agent still names it, and a binding the viewer cannot see (a
+ *  teammate's private machine) renders by its raw id.
  *  NEW-99: an Assistant's lists desktops only (`runsOnDeviceIds`). */
 function deviceRows(
   all: readonly SteerDevice[],
   boundId: string | null,
   assistant: boolean
 ): DevicePickerDevice[] {
-  const kept = new Set(runsOnDeviceIds(all, boundId, assistant))
-  const devices = all.filter((device) => kept.has(device.deviceId))
-  const rows: DevicePickerDevice[] = devices.map((device) => ({
-    id: device.deviceId,
-    name: device.deviceLabel || device.deviceId,
-    icon: device.icon,
-    kind: device.kind,
-    ...(deviceIsOnline(device)
-      ? {}
-      : { description: `Offline`, disabled: device.deviceId !== boundId }),
-  }))
-  if (boundId && !all.some((device) => device.deviceId === boundId)) {
-    rows.unshift({ id: boundId, name: boundId })
-  }
-  return rows
+  const byId = new Map(all.map((device) => [device.deviceId, device]))
+  return runsOnRows(
+    all.map((device) => ({
+      deviceId: device.deviceId,
+      kind: device.kind,
+      online: deviceIsOnline(device),
+    })),
+    boundId,
+    assistant
+  ).map((row) => {
+    const device = byId.get(row.id)
+    if (!device) return { id: row.id, name: row.id }
+    return {
+      id: row.id,
+      name: device.deviceLabel || device.deviceId,
+      icon: device.icon,
+      kind: device.kind,
+      ...(row.description
+        ? { description: row.description, disabled: row.disabled }
+        : {}),
+    }
+  })
 }
 
 /** #EXP-1849: the slot picker's `Each member's own device` entry. */

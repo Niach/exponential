@@ -554,7 +554,6 @@ export function AppEditor({
         disabled={!root && !deviceId}
         placeholder={!root && !deviceId ? APPS_COPY.noDevice : draft ? APPS_COPY.draftPlaceholder : APPS_COPY.composerPlaceholder}
         autoFocus={draft && !root}
-        users={users as User[]}
         busy={root?.busy ?? false}
         canStop
         opaque={opaque}

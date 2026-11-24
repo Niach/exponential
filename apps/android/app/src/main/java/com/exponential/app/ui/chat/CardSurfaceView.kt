@@ -45,7 +45,7 @@ import com.exponential.app.ui.markdown.LocalAppLinks
 import com.exponential.app.domain.expandTeamLink
 import com.exponential.app.ui.markdown.openCardHref
 import com.exponential.app.ui.markdown.rememberAppLinkHandler
-import com.exponential.app.ui.markdown.rememberIssueTextLinks
+import com.exponential.app.ui.markdown.rememberChatIssueTextLinks
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import dagger.hilt.EntryPoint
@@ -221,10 +221,11 @@ internal fun rememberCardHostFactory(
         if (onAction == null) null else { name, ctx, user -> latest.value?.invoke(name, ctx, user) }
     // #EXP-1674: the session or chat screen's handler knows the card's team;
     // anywhere else, the active team. Read late: neither rebuilds the model.
+    // #EXP-2079: the handler's chat teams (an issue links in ITS team).
     val ownLinks = rememberAppLinkHandler()
     val links = LocalAppLinks.current ?: ownLinks
     val latestLinks = androidx.compose.runtime.rememberUpdatedState(links)
-    val latestTextLinks = androidx.compose.runtime.rememberUpdatedState(rememberIssueTextLinks(links?.teamId, links?.team))
+    val latestTextLinks = androidx.compose.runtime.rememberUpdatedState(rememberChatIssueTextLinks(links?.teamIds.orEmpty()))
     return {
         cardHost(
             context,

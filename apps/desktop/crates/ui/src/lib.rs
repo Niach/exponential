@@ -233,6 +233,7 @@ mod source_control;
 mod steer_viewer;
 // #EDE-105: the chat store (every chat on disk, its search index).
 mod chat_store;
+mod chat_teams;
 mod transcript_rows;
 // EXP-965: the nested lists' connector lines.
 mod tree_guides;

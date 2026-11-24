@@ -256,6 +256,35 @@ export function useTeamUsers(teamId?: string) {
   }
 }
 
+/** #EXP-2079 (agent-settings.json `assistant.chatTeams` (2)): the members of
+ *  SEVERAL teams, one row per person, in `useTeamUsers`' order. One team =
+ *  exactly `useTeamUsers`. */
+export function useTeamsUsers(teamIds: readonly string[]) {
+  const key = teamIds.join(`,`)
+  const { data: members } = useLiveQuery(
+    (query) =>
+      teamIds.length > 0
+        ? query
+            .from({ members: teamMemberCollection })
+            .where(({ members }) => inArray(members.teamId, [...teamIds]))
+        : undefined,
+    [key]
+  )
+  const { data: allUsers } = useLiveQuery((query) =>
+    query
+      .from({ users: userCollection })
+      .orderBy(({ users }) => users.name)
+      .orderBy(({ users }) => users.id)
+  )
+  const users = useMemo(() => {
+    if (!members || !allUsers) return []
+    const userIds = new Set(members.map((member) => member.userId))
+    return allUsers.filter((user) => userIds.has(user.id)) as User[]
+  }, [allUsers, members])
+  const userMap = useMemo(() => new Map(users.map((user) => [user.id, user])), [users])
+  return { users, userMap }
+}
+
 export function useTeamInvites(teamId?: string) {
   const { data } = useLiveQuery(
     (query) =>
