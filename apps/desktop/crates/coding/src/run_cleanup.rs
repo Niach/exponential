@@ -1184,6 +1184,36 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// #EXP-2059: a merge of `origin/main` reached the session's branch from
+    /// ANOTHER checkout while this worktree kept the pre-merge files. The
+    /// finish parks no WIP (it would be the merge's inverse) and removes the
+    /// worktree: everything is on origin.
+    #[test]
+    fn finish_never_parks_the_inverse_of_a_merge() {
+        let (root, cleanup) = fixture("finish-inverse");
+        commit_in(&cleanup.worktree, "work.txt", "real work\n");
+        commit_in(&cleanup.clone, "main.txt", "main moved on\n");
+        std::fs::write(cleanup.clone.join("README.md"), "hello from main\n").unwrap();
+        git(&cleanup.clone, &["commit", "-q", "-am", "main edits"]);
+        git(&cleanup.clone, &["push", "-q", "origin", "main"]);
+        let twin = root.join("twin");
+        git(&cleanup.clone, &["worktree", "add", "-q", "-f", twin.to_str().unwrap(), &cleanup.branch]);
+        git(&twin, &["merge", "-q", "--no-ff", "-m", "Merge origin/main", "origin/main"]);
+        git(&twin, &["push", "-q", "origin", &cleanup.branch]);
+        git(&cleanup.clone, &["worktree", "remove", "--force", twin.to_str().unwrap()]);
+        let merge = run_git(Some(&cleanup.worktree), &["rev-parse", "HEAD"], None, "rev-parse").unwrap();
+        assert_eq!(worktree_dirty_state(&cleanup.worktree), DirtyState::TrackedChanges);
+        assert_eq!(
+            finish_worktree(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+            FinishOutcome::Removed { leftover: None }
+        );
+        assert!(!cleanup.worktree.exists());
+        assert!(!origin_has(&cleanup, "exp/leftover-1a2b3c4d"));
+        let pushed = run_git(Some(&origin_of(&cleanup)), &["rev-parse", &cleanup.branch], None, "rev-parse").unwrap();
+        assert_eq!(pushed, merge);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// #EXP-1618: origin's copy of the session's own branch moved on
     /// without this worktree (another device pushed, or the agent rewrote
     /// it): the finish can no longer fast-forward it, the leftover branch

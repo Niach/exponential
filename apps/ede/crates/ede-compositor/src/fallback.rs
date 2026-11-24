@@ -189,7 +189,6 @@ pub fn show(message: &Message, timeout: Duration) -> Result<(), String> {
     use smithay::{
         backend::{
             drm::DrmDeviceFd,
-            libinput::LibinputSessionInterface,
             session::{libseat::LibSeatSession, Session},
             udev::all_gpus,
         },
@@ -231,7 +230,7 @@ pub fn show(message: &Message, timeout: Duration) -> Result<(), String> {
         return Err("no display to show the message on".into());
     }
     tracing::info!("recovery message on {shown} display(s) for up to {}s", timeout.as_secs());
-    let mut libinput = Libinput::new_with_udev::<LibinputSessionInterface<LibSeatSession>>(session.clone().into());
+    let mut libinput = Libinput::new_with_udev::<crate::backend::seat::SeatInterface<LibSeatSession>>(session.clone().into());
     crate::libinput_log::route(&libinput);
     if libinput.udev_assign_seat(&seat).is_err() {
         tracing::warn!("libinput could not take the seat: the message stays until the timeout");

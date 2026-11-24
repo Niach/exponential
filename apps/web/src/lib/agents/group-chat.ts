@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm"
 import { groupAskRecipient } from "@exp/domain-contract/agent-settings"
 import { db } from "@/db/connection"
+import { closeAskMirrorsOf } from "@/lib/sessions/bus"
 import { agents, conversations, messages, sessionIssues, sessions, teamMembers, type Agent } from "@/db/schema"
 import { inSession, pendingInput } from "@/lib/sessions/messages"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
@@ -88,7 +89,7 @@ export async function endPrivateConversationsInTx(tx: Tx, agentId?: string): Pro
   const rootIds = rows.map((row) => row.id)
   if (rootIds.length === 0) return rootIds
   const now = new Date()
-  await tx
+  const ended = await tx
     .update(sessions)
     .set({
       status: `ended`,
@@ -100,6 +101,9 @@ export async function endPrivateConversationsInTx(tx: Tx, agentId?: string): Pro
       updatedAt: now,
     })
     .where(and(inArray(sessions.rootId, rootIds), ne(sessions.status, `ended`)))
+    .returning({ id: sessions.id })
+  // #FEED-299: an ended run's waiting cards (and their mirrors) close with it.
+  await closeAskMirrorsOf(tx, ended.map((row) => row.id), now)
   // Detached: no cascade takes the tree with its agent, and it reads as an
   // ended chat (titled after the agent, as every conversation is).
   await tx.update(sessions).set({ agentId: null }).where(inArray(sessions.rootId, rootIds))
