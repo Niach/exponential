@@ -8,6 +8,7 @@ import GRDB
 //   inline `seal {installId, publicKey, epoch: 1, wraps}`; an existing root
 //   without one gets it first (`sessionKeys.create`);
 // - `mentionUserIds` = the `@email` mentions resolved to user ids (metadata);
+// - `refIssueIds` = the `#IDENT` refs resolved over the chat teams (#EXP-2093);
 // - `sessions.answer` = `sealedCard` (the FULL card re-sealed with its
 //   answers) + the clear `decision` / `fresh`.
 // Attachments stay clear `attachmentIds`. #EDE-97: text goes in clear only
@@ -40,6 +41,41 @@ public enum SealedMentions {
             if seen.insert(email).inserted { out.append(email) }
         }
         return out
+    }
+}
+
+/// #EXP-2093: the `#IDENT` issue refs a sealed text carries as
+/// `refIssueIds` (web `refIssueIds`, Android `SealedWrite.issueRefs`).
+public enum SealedIssueRefs {
+    /// ExpUI `IssueRefs.pattern`'s `#` form (web `issue-refs.ts`).
+    private static let regex = try! NSRegularExpression(pattern: "(?<![A-Za-z0-9_#])#([A-Za-z][A-Za-z0-9]*-[0-9]+)(?![A-Za-z0-9_-])")
+
+    /// The identifiers of a text, uppercased, in order, once each.
+    public static func identifiers(in text: String) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let r = Range(match.range(at: 1), in: text) else { continue }
+            let identifier = text[r].uppercased()
+            if seen.insert(identifier).inserted { out.append(identifier) }
+        }
+        return out
+    }
+
+    /// The ids of `issues` (each with its team) the `identifiers` name inside
+    /// `teamIds`; an identifier in several teams = the first team's in order.
+    public static func resolve(
+        identifiers: [String], issues: [(id: String, identifier: String, teamId: String)], teamIds: [String]
+    ) -> [String] {
+        let rank = Dictionary(teamIds.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        var best: [String: (rank: Int, id: String)] = [:]
+        for issue in issues {
+            guard let at = rank[issue.teamId] else { continue }
+            let key = issue.identifier.uppercased()
+            if let held = best[key], held.rank <= at { continue }
+            best[key] = (at, issue.id)
+        }
+        return identifiers.compactMap { best[$0]?.id }
     }
 }
 
@@ -90,7 +126,10 @@ public final class SessionSealer: @unchecked Sendable {
                 return nil
             }
             guard let root else { return nil }
-            return SealRoot(id: root.id, teamId: root.teamId, deviceId: root.deviceId, shared: root.shared, key: root.sealKey, clearTree: root.clearTree)
+            return SealRoot(
+                id: root.id, teamId: root.teamId, deviceId: root.deviceId, shared: root.shared, key: root.sealKey,
+                clearTree: root.clearTree, scopeTeamIds: root.scopeTeamIds
+            )
         }
     }
 
@@ -116,6 +155,46 @@ public final class SessionSealer: @unchecked Sendable {
         return ids.isEmpty ? nil : ids.sorted()
     }
 
+    /// #EXP-2093 (agent-settings.json `assistant.chatTeams` (1)): the issues
+    /// the text's `#IDENT`s name, over the CHAT TEAMS of the tree it lands in
+    /// (a team chat's one team; the Assistant's: this send's Teams pick, else
+    /// the root's, ∩ the synced teams, else all of them); an identifier found
+    /// in several = the first team's in order. Nil = none.
+    func refIssueIds(accountId: String, _ input: SessionsSendInput, root: SealRoot?) -> [String]? {
+        guard let text = input.text else { return nil }
+        let identifiers = SealedIssueRefs.identifiers(in: text)
+        guard !identifiers.isEmpty else { return nil }
+        let ids = read(accountId) { db -> [String] in
+            let synced = TeamGroups.ordered(try TeamEntity.fetchAll(db)).map(\.id)
+            var own = root.flatMap { $0.teamId.isEmpty ? nil : $0.teamId }
+            if own == nil {
+                switch input {
+                case let .newChat(teamId, _, _, _, _, _, _, _): own = teamId
+                case let .agent(agentId, _, _, _, _, _):
+                    own = try String.fetchOne(db, sql: #"SELECT "team_id" FROM "agents" WHERE "id" = ?"#, arguments: [agentId])
+                case let .app(appId, _, _, _, _, _, _):
+                    own = try String.fetchOne(db, sql: #"SELECT "team_id" FROM "apps" WHERE "id" = ?"#, arguments: [appId])
+                default: break
+                }
+            }
+            // The turn's teams: the pick this send carries, else the root's.
+            let picked = input.scope.map(\.picked) ?? root?.scopeTeamIds
+            let teams = AgentSettings.chatTeams(ownTeamId: own, syncedTeamIds: synced, pickedTeamIds: picked)
+            guard !teams.isEmpty else { return [] }
+            let marks = { (n: Int) in Array(repeating: "?", count: n).joined(separator: ", ") }
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT i."id", i."identifier", b."team_id" FROM "issues" i JOIN "boards" b ON b."id" = i."board_id"
+                WHERE upper(i."identifier") IN (\(marks(identifiers.count))) AND b."team_id" IN (\(marks(teams.count)))
+                """, arguments: StatementArguments(identifiers + teams))
+            return SealedIssueRefs.resolve(
+                identifiers: identifiers,
+                issues: rows.map { (id: $0["id"], identifier: $0["identifier"], teamId: $0["team_id"]) },
+                teamIds: teams
+            )
+        } ?? []
+        return ids.isEmpty ? nil : ids
+    }
+
     /// Seals the text of a send (and keys the root when it has no key).
     /// `fresh` = the server refused this send's key write once: the tree is
     /// resolved from the server, never this store (#FEED-250 `staleTree`).
@@ -123,15 +202,20 @@ public final class SessionSealer: @unchecked Sendable {
     public func prepare(
         accountId: String, _ input: SessionsSendInput, fresh: Bool = false, actionCard: String? = nil
     ) async throws -> PreparedSend {
-        try await sending.prepare(
+        let root = root(accountId: accountId, for: input)
+        var prepared = try await sending.prepare(
             accountId: accountId,
             input,
-            root: root(accountId: accountId, for: input),
+            root: root,
             mentions: mentionUserIds(accountId: accountId, text: input.text),
             deviceIds: { deviceIds(accountId: accountId, steerDeviceId: $0) },
             fresh: fresh,
             actionCard: actionCard
         )
+        if prepared.input.input.text != nil {
+            prepared.input.refIssueIds = refIssueIds(accountId: accountId, input, root: root)
+        }
+        return prepared
     }
 
     /// #EXP-1641: a send into the ENCRYPTED tree `rootId` (a notification's
@@ -150,7 +234,11 @@ public final class SessionSealer: @unchecked Sendable {
             text: SealedAttachmentLines.withEmbeds(text, attachmentIds: input.attachmentIds, uploadOf: SealedAttachmentLines.upload)
         ), SealedEnvelope.isSealedBody(sealed) else { return nil }
         return PreparedSend(
-            input: SealedSendInput(input: input.with(text: sealed), mentionUserIds: mentionUserIds(accountId: accountId, text: text)),
+            input: SealedSendInput(
+                input: input.with(text: sealed),
+                mentionUserIds: mentionUserIds(accountId: accountId, text: text),
+                refIssueIds: refIssueIds(accountId: accountId, input, root: local?.id == rootId ? local : nil)
+            ),
             newKey: nil
         )
     }
@@ -247,6 +335,41 @@ public enum SealedAnswer {
 
 /// Where `SessionsApi` finds the sealer (set once at launch, after the key
 /// holder exists).
+/// #EXP-2093: the `#IDENT` issue refs a sealed text carries as
+/// `refIssueIds` (web `refIssueIds`, Android `SealedWrite.issueRefs`).
+public enum SealedIssueRefs {
+    /// ExpUI `IssueRefs.pattern`'s `#` form (web `issue-refs.ts`).
+    private static let regex = try! NSRegularExpression(pattern: "(?<![A-Za-z0-9_#])#([A-Za-z][A-Za-z0-9]*-[0-9]+)(?![A-Za-z0-9_-])")
+
+    /// The identifiers of a text, uppercased, in order, once each.
+    public static func identifiers(in text: String) -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for match in regex.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let r = Range(match.range(at: 1), in: text) else { continue }
+            let identifier = text[r].uppercased()
+            if seen.insert(identifier).inserted { out.append(identifier) }
+        }
+        return out
+    }
+
+    /// The ids of `issues` (each with its team) the `identifiers` name inside
+    /// `teamIds`; an identifier in several teams = the first team's in order.
+    public static func resolve(
+        identifiers: [String], issues: [(id: String, identifier: String, teamId: String)], teamIds: [String]
+    ) -> [String] {
+        let rank = Dictionary(teamIds.enumerated().map { ($1, $0) }, uniquingKeysWith: { a, _ in a })
+        var best: [String: (rank: Int, id: String)] = [:]
+        for issue in issues {
+            guard let at = rank[issue.teamId] else { continue }
+            let key = issue.identifier.uppercased()
+            if let held = best[key], held.rank <= at { continue }
+            best[key] = (at, issue.id)
+        }
+        return identifiers.compactMap { best[$0]?.id }
+    }
+}
+
 public final class SessionSealerSlot: @unchecked Sendable {
     private let lock = NSLock()
     private var value: SessionSealer?

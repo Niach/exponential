@@ -92,6 +92,10 @@ public struct SealedSendInput: Encodable, Equatable, Sendable {
     public let input: SessionsSendInput
     public let seal: NewChatSeal?
     public let mentionUserIds: [String]?
+    /// #EXP-2093: the issues the text's `#IDENT`s name, resolved over the
+    /// chat teams (`SealedIssueRefs`): the server links and briefs them
+    /// though the body is sealed.
+    public var refIssueIds: [String]?
     /// EXP-1458: a new child's `name` as a body envelope (the input carries
     /// no clear `name` then).
     public let sealedName: String?
@@ -109,6 +113,7 @@ public struct SealedSendInput: Encodable, Equatable, Sendable {
         input: SessionsSendInput,
         seal: NewChatSeal? = nil,
         mentionUserIds: [String]? = nil,
+        refIssueIds: [String]? = nil,
         sealedName: String? = nil,
         clientMessageId: String? = nil,
         cardItem: CardItemRef? = nil,
@@ -117,6 +122,7 @@ public struct SealedSendInput: Encodable, Equatable, Sendable {
         self.input = input
         self.seal = seal
         self.mentionUserIds = mentionUserIds
+        self.refIssueIds = refIssueIds
         self.sealedName = sealedName
         self.clientMessageId = clientMessageId
         self.cardItem = cardItem
@@ -130,13 +136,14 @@ public struct SealedSendInput: Encodable, Equatable, Sendable {
         return input.name == nil
     }
 
-    private enum Keys: String, CodingKey { case seal, mentionUserIds, sealedName, clientMessageId, cardItem, actionCard }
+    private enum Keys: String, CodingKey { case seal, mentionUserIds, refIssueIds, sealedName, clientMessageId, cardItem, actionCard }
 
     public func encode(to encoder: Encoder) throws {
         try input.encode(to: encoder)
         var c = encoder.container(keyedBy: Keys.self)
         try c.encodeIfPresent(seal, forKey: .seal)
         try c.encodeIfPresent(mentionUserIds, forKey: .mentionUserIds)
+        try c.encodeIfPresent(refIssueIds, forKey: .refIssueIds)
         try c.encodeIfPresent(sealedName, forKey: .sealedName)
         try c.encodeIfPresent(clientMessageId, forKey: .clientMessageId)
         try c.encodeIfPresent(cardItem, forKey: .cardItem)
@@ -165,6 +172,14 @@ extension SessionsSendInput {
         case let .app(_, _, _, ids, _, _, _): ids ?? []
         case let .message(_, _, ids, _): ids ?? []
         case .child, .switchAccount, .moveDevice: []
+        }
+    }
+
+    /// #EXP-1715: the Teams pick this send carries (nil = none sent).
+    public var scope: TeamsScope? {
+        switch self {
+        case let .agent(_, _, _, _, scope, _), let .message(_, _, _, scope): scope
+        default: nil
         }
     }
 
@@ -214,6 +229,8 @@ struct SealRoot: Equatable, Sendable {
     let key: TreeSealKey?
     /// #EDE-97: an outside MCP client's tree: plaintext, never keyed.
     var clearTree: Bool = false
+    /// #EXP-2093: the root's Teams pick (`sessions.scope_team_ids`).
+    var scopeTeamIds: [String]? = nil
 }
 
 public struct SendSealing: Sendable {

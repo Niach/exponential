@@ -602,6 +602,21 @@ final class AgentSettingsTests: XCTestCase {
         }
     }
 
+    /// #EXP-2094: the Home launch composer addressed to my Assistant reads
+    /// the chat teams with no own team; a team agent or Temporary session
+    /// keeps the composer's team.
+    func testHomeComposerTeams() {
+        let synced = ["t-a", "t-b", "t-c"]
+        func teams(_ assistant: Bool, _ teamId: String?, _ picked: [String]?) -> [String] {
+            AgentSettings.homeComposerTeams(toMyAssistant: assistant, teamId: teamId, syncedTeamIds: synced, pickedTeamIds: picked)
+        }
+        XCTAssertEqual(teams(true, "t-b", nil), synced, "nothing picked: every synced team, never the active one alone")
+        XCTAssertEqual(teams(true, "t-b", ["t-c", "t-a"]), ["t-a", "t-c"], "the Teams pick, in the synced order")
+        XCTAssertEqual(teams(true, "t-b", ["t-gone"]), synced, "nothing of the pick synced: every synced team")
+        XCTAssertEqual(teams(false, "t-b", ["t-a"]), ["t-b"], "a team agent or Temporary session keeps its team")
+        XCTAssertEqual(teams(false, nil, nil), [])
+    }
+
     /// #EXP-2079: `assistant.chatTeams.deviceCases`.
     func testOwnDevicesReplaysEveryCase() throws {
         let block = try XCTUnwrap(try assistantBlock()["chatTeams"] as? [String: Any])

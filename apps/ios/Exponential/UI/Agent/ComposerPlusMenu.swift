@@ -204,10 +204,11 @@ struct ComposerPlusMenu: View {
                 onClose()
             }
         default:
-            if model.agentId != nil, let teamId = model.teamId {
+            if model.agentId != nil, model.teamId != nil {
                 // A message to an agent has no implement subject: THE issue
-                // search list, a pick inserts `#IDENT` at the caret.
-                ChatIssueSearchList(teamIds: [teamId]) { issue in
+                // search list, a pick inserts `#IDENT` at the caret
+                // (#EXP-2094: my Assistant's = the chat teams').
+                ChatIssueSearchList(teamIds: model.chatTeamIds) { issue in
                     if let identifier = issue.identifier {
                         model.draftEditor.insertTextAtCaret("#\(identifier) ")
                     }
