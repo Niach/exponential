@@ -549,7 +549,10 @@ fn tree_rows(input: &IdeSidebarInput, value: &Value, hover: Option<&str>, extras
             row["depth"] = json!(1);
             row["group"] = json!(false);
             row["team"] = json!(source.team.clone());
-            row["menu"] = json!(if extras.deletable.contains(&source.id) { "active-delete" } else { "active" });
+            let menu = if extras.deletable.contains(&source.id) { "active-delete" } else { "active" };
+            // #EXP-2124: a chat already in its team's list has no Add to sidebar.
+            let placed = input.teams.iter().any(|team| team.items.iter().any(|item| item.kind == "session" && item.id == source.id));
+            row["menu"] = json!(if placed { format!("{menu}-placed") } else { menu.to_string() });
             rows.push(row);
         }
     }
@@ -1195,7 +1198,7 @@ fn team_menu(team_id: String, value: &str, region: gpui::WeakEntity<SidebarRegio
 /// (sidebar-menus.json `kinds`, the viewer's input) its items are. The
 /// document spells them out; the IDE writes them again from the table at
 /// mount (the platform's shortcut), and a test holds the two equal.
-fn menu_nodes() -> Vec<(String, &'static str, domain::sidebar_menus::SidebarMenuInput)> {
+fn menu_nodes() -> Vec<(String, &'static str, domain::sidebar_menus::SidebarMenuInput, &'static [&'static str])> {
     use domain::sidebar_menus::SidebarMenuInput as I;
     let owner = I { owner: true, ..I::default() };
     let mine = I { mine: true, ..I::default() };
@@ -1224,13 +1227,18 @@ fn menu_nodes() -> Vec<(String, &'static str, domain::sidebar_menus::SidebarMenu
             nodes.push((format!("ide_{node}{sfx}_menu"), kind, input));
         }
     }
-    nodes
+    // An Active row already in its team's list has no Add to sidebar.
+    const PLACED: &[&str] = &["add-to-sidebar"];
+    let mut out: Vec<(String, &'static str, I, &'static [&'static str])> = nodes.into_iter().map(|(node, kind, input)| (node, kind, input, &[] as &'static [&'static str])).collect();
+    out.push(("ide_active_delete_placed_menu".into(), "active-session", deletes, PLACED));
+    out.push(("ide_active_keep_placed_menu".into(), "active-session", I::default(), PLACED));
+    out
 }
 
 /// A table menu's genUI items: New › and Move to folder › bind the row's
 /// own rows (`newItems`, `moveItems`).
-fn table_menu_items(kind: &str, input: domain::sidebar_menus::SidebarMenuInput) -> Vec<Value> {
-    domain::sidebar_menus::sidebar_menu_items(kind, input, |id| match id {
+fn table_menu_items(kind: &str, input: domain::sidebar_menus::SidebarMenuInput, hidden: &[&str]) -> Vec<Value> {
+    domain::sidebar_menus::sidebar_menu_items(kind, input, hidden, |id| match id {
         "new" => Some(json!({"@path": "newItems"})),
         "move" => Some(json!({"@path": "moveItems"})),
         _ => None,
@@ -1239,8 +1247,8 @@ fn table_menu_items(kind: &str, input: domain::sidebar_menus::SidebarMenuInput) 
 
 /// #EXP-2124: the document's menus, written from the table.
 fn with_table_menus(doc: &mut uicore_gpui::inline::Document) {
-    for (node, kind, input) in menu_nodes() {
-        uicore_gpui::inline::set_prop(doc, &node, "items", Value::Array(table_menu_items(kind, input)));
+    for (node, kind, input, hidden) in menu_nodes() {
+        uicore_gpui::inline::set_prop(doc, &node, "items", Value::Array(table_menu_items(kind, input, hidden)));
     }
 }
 
@@ -1401,16 +1409,7 @@ fn move_writes(items: &[String], entries: &[SidebarEntry], item: &str, target: &
             let parent = entries.iter().find(|e| e.kind == SidebarEntryKind::Item && e.target_id.as_deref() == Some(item))?.parent_id.clone()?;
             sidebar_move(items, entries, &mv(Some(parent), None), new_folder)
         }
-        MoveTarget::NewFolder => {
-            let folder = new_folder_writes(entries, new_folder);
-            let created = folder.upserts.first()?;
-            let mut with_folder = entries.to_vec();
-            with_folder.push(SidebarEntry { id: new_folder.to_string(), kind: SidebarEntryKind::Folder, target_id: None, parent_id: None, name: created.name.clone(), sort_order: created.sort_order });
-            let moved = sidebar_move(items, &with_folder, &mv(None, Some(new_folder.to_string())), new_folder)?;
-            let mut upserts = folder.upserts;
-            upserts.extend(moved.upserts.into_iter().filter(|w| w.id.as_deref() != Some(new_folder)));
-            Some(SidebarWrites { upserts, deletes: moved.deletes, created_folder_id: Some(new_folder.to_string()) })
-        }
+        MoveTarget::NewFolder => domain::sidebar_folders::sidebar_move_to_new_folder(items, entries, item, new_folder),
     }
 }
 
@@ -2508,16 +2507,16 @@ mod tests {
     #[test]
     fn the_document_menus_are_the_table() {
         let doc = uicore_docs::doc("sidebar").expect("the sidebar").json();
-        for (node, kind, input) in menu_nodes() {
+        for (node, kind, input, hidden) in menu_nodes() {
             let found = find_node(&doc["root"], &node).unwrap_or_else(|| panic!("{node} is in the document"));
             assert_eq!(found["component"], "Menu", "{node}");
-            assert_eq!(found["props"]["items"], Value::Array(table_menu_items(kind, input)), "{node} = the {kind} table row");
+            assert_eq!(found["props"]["items"], Value::Array(table_menu_items(kind, input, hidden)), "{node} = the {kind} table row");
             if kind != "team" || node == "ide_team_menu" {
                 assert_eq!(found["props"]["openOn"], "contextmenu", "{node} opens on a right-click");
             }
         }
         // Every row kind of the table has its menu in the document.
-        let kinds: Vec<&str> = menu_nodes().into_iter().map(|(_, kind, _)| kind).collect();
+        let kinds: Vec<&str> = menu_nodes().into_iter().map(|(_, kind, _, _)| kind).collect();
         for kind in domain::sidebar_menus::sidebar_menu_kinds() {
             assert!(kinds.contains(&kind), "{kind} has no menu");
         }

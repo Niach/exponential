@@ -50,10 +50,10 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     date: "2026-11-24",
     title: "Sidebar menus",
     summary: "The Assistant sits on top of the sidebar, every sidebar row has a right-click menu, and the + next to the tabs opens a menu to start a chat, agent, app or board in any team. Boards, apps and devices open as tabs.",
-    body: r##"- **The Assistant on top**: your Assistant is the first row of the sidebar, with its unread count. The floating button stays.
-- **A right-click menu on every row**: Home, Chats, devices, teams, folders, boards, apps, agents and chats each have the same kind of menu: open, open in a new tab, what only that row does, copy link, move to folder, settings.
-- **The + next to the tabs**: it opens a menu with your Assistant and every team, each with New chat, agent, app or board.
-- **More pages as tabs**: Home, Needs you, Chats, Drafts, a device, a board and an app open as tabs like issues and chats. Open in new tab adds one without leaving the page you are on."##,
+    body: r##"- **The Assistant**: your Assistant is the first row of the sidebar and opens its chat.
+- **Right-click menus**: every sidebar row has one, in the same order everywhere: open, what the row does, arrange, settings.
+- **New tab menu**: the + next to the tabs starts a chat, agent, app or board in any team.
+- **Tabs for every page**: boards, apps, devices, Home, Chats, Needs you and Drafts open as tabs, and Open in new tab adds one in the background."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

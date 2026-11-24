@@ -78,11 +78,21 @@ fn only_danger_rows_are_destructive() {
     assert!(sidebar_menu_destructive("board", "archive"));
     assert!(sidebar_menu_destructive("active-session", "delete"));
     assert!(!sidebar_menu_destructive("board", "settings"));
-    let items = sidebar_menu_items("board", SidebarMenuInput { owner: true, ..Default::default() }, |id| (id == "move").then(|| json!({"@path": "moveItems"})));
+    let items = sidebar_menu_items("board", SidebarMenuInput { owner: true, ..Default::default() }, &[], |id| (id == "move").then(|| json!({"@path": "moveItems"})));
     assert_eq!(items.last().unwrap(), &json!({"label": "Archive", "value": "archive", "icon": "ui-archive", "destructive": true}));
     let mv = items.iter().find(|item| item["label"] == "Move to folder").unwrap();
     assert_eq!(mv["kind"], "submenu");
     assert_eq!(mv["items"], json!({"@path": "moveItems"}));
+}
+
+/// A verb the row has no action for is not drawn, nor a separator left
+/// doubled or at an end.
+#[test]
+fn a_verb_without_an_action_is_not_drawn() {
+    let placed = sidebar_item_menu_without("active-session", SidebarMenuInput { can_delete: true, ..Default::default() }, &["add-to-sidebar"]);
+    assert_eq!(placed, ["open", "open-new-tab", "separator", "copy-link", "separator", "delete"]);
+    let bare = sidebar_item_menu_without("active-session", SidebarMenuInput::default(), &["add-to-sidebar", "copy-link"]);
+    assert_eq!(bare, ["open", "open-new-tab"]);
 }
 
 /// THE New list is ONE piece: the IDE's team menu and new-tab menu draw

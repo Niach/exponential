@@ -190,12 +190,30 @@ pub fn new_tab_menu(assistant: bool, teams: &[NewTabTeam]) -> Vec<NewTabMenuRow>
     out
 }
 
-/// THE genUI `menuItem`s of a kind's menu: labels and icons from the
-/// table, `danger` rows destructive, the shortcut where one exists.
+/// A kind's menu without the verbs the row has no action for (an Active
+/// row already in its team's list has no Add to sidebar): a verb with
+/// nothing to do is never drawn, and no separator is left doubled or at an
+/// end.
+pub fn sidebar_item_menu_without(kind: &str, input: SidebarMenuInput, hidden: &[&str]) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for id in sidebar_item_menu(kind, input).into_iter().filter(|id| !hidden.contains(id)) {
+        if id == SIDEBAR_MENU_SEPARATOR && out.last().is_none_or(|last| *last == SIDEBAR_MENU_SEPARATOR) {
+            continue;
+        }
+        out.push(id);
+    }
+    if out.last() == Some(&SIDEBAR_MENU_SEPARATOR) {
+        out.pop();
+    }
+    out
+}
+
+/// THE genUI `menuItem`s of a kind's menu (less `hidden`): labels and icons
+/// from the table, `danger` rows destructive, the shortcut where one exists.
 /// `submenu(id)` gives a verb's submenu rows (New ›, Move to folder ›).
-pub fn sidebar_menu_items(kind: &str, input: SidebarMenuInput, submenu: impl Fn(&str) -> Option<serde_json::Value>) -> Vec<serde_json::Value> {
+pub fn sidebar_menu_items(kind: &str, input: SidebarMenuInput, hidden: &[&str], submenu: impl Fn(&str) -> Option<serde_json::Value>) -> Vec<serde_json::Value> {
     use serde_json::json;
-    sidebar_item_menu(kind, input)
+    sidebar_item_menu_without(kind, input, hidden)
         .into_iter()
         .map(|id| {
             if id == SIDEBAR_MENU_SEPARATOR {
