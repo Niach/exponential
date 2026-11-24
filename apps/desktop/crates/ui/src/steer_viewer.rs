@@ -896,6 +896,9 @@ pub(crate) struct SteerSessionView {
     conv_prints: Vec<u64>,
     conv_anchors: HashMap<FeedItemId, Vec<usize>>,
     conv_unanchored: Vec<usize>,
+    /// #EXP-2087 (ask-dock.json `tail`): the WAITING cards with no call in
+    /// the feed, after the last row ([`Self::conv_tail`]).
+    conv_open: Vec<usize>,
     /// #EXP-1732: a ROOT's view (its chat's Chat tab) also paints the tree's
     /// suggested-tasks cards: every one (`tree_suggestions`, the Dock's
     /// source while an item is open), and the settled ones INLINE at the
@@ -1231,6 +1234,7 @@ impl SteerSessionView {
             conv_prints: Vec::new(),
             conv_anchors: HashMap::new(),
             conv_unanchored: Vec::new(),
+            conv_open: Vec::new(),
             tree_suggestions: Vec::new(),
             conv_trailing: Vec::new(),
             own_tail: Vec::new(),
@@ -2301,6 +2305,8 @@ impl SteerSessionView {
             - synced
             - self.orphan_workflows.len()
             - if self.rows.is_empty() { self.conv_unanchored.len() } else { 0 };
+        self.conv_open.truncate(room);
+        let room = room - self.conv_open.len();
         self.conv_trailing.truncate(room);
         // §3: the orphan cards, in feed order, keyed above every feed id and
         // below the working row's so the list sync keeps its ascending order.
@@ -4053,6 +4059,7 @@ impl SteerSessionView {
             self.conv_prints.clear();
             self.conv_anchors.clear();
             self.conv_unanchored.clear();
+            self.conv_open.clear();
             self.tree_suggestions.clear();
             self.conv_trailing.clear();
             self.conv_memo = None;
@@ -4106,9 +4113,10 @@ impl SteerSessionView {
                 _ => None,
             })
             .collect();
-        let (anchors, tail) = crate::surface_card::anchor_cards(&calls, &self.conv_cards);
+        let (anchors, head, open) = crate::surface_card::anchor_cards(&calls, &self.conv_cards);
         self.conv_anchors = anchors;
-        self.conv_unanchored = tail;
+        self.conv_unanchored = head;
+        self.conv_open = open;
         // #EXP-1732: a ROOT's view = its chat's Chat tab: the tree's
         // suggested tasks too (dock.json: an open item docks; a settled
         // card stays inline, at the tail).
@@ -4153,10 +4161,13 @@ impl SteerSessionView {
 
     /// …and with no row at all they are synthetic rows of their own, after
     /// the orphan workflow cards and before the working row.
+    /// #EXP-2087: then the WAITING cards with no call in the feed (an open
+    /// card never sits above the transcript).
     /// #EXP-1732: then a root's settled suggested-tasks cards, always the
     /// last cards.
     fn conv_tail(&self) -> Vec<usize> {
         let mut tail = if self.rows.is_empty() { self.conv_unanchored.clone() } else { Vec::new() };
+        tail.extend(self.conv_open.iter().copied());
         tail.extend(self.conv_trailing.iter().copied());
         tail
     }

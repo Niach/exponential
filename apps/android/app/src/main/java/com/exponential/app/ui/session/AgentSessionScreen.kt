@@ -2216,12 +2216,18 @@ private fun ActivityFeed(
                     lead + head
                 } else {
                     val at = rows.indexOfFirst { row -> sessionCards.after(row).any { it.id == id } }
-                    if (at < 0) null else lead + sessionCards.head.size + at
+                    val tail = sessionCards.tail.indexOfFirst { it.id == id }
+                    when {
+                        at >= 0 -> lead + sessionCards.head.size + at
+                        // #EXP-2087: an open card after the last row.
+                        tail >= 0 -> lead + sessionCards.head.size + rows.size + orphanWorkflows.size + tail
+                        else -> null
+                    }
                 }
             }
         },
         more = { canLoadEarlier || chatMessagesMore },
-        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size).hashCode() },
+        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size, sessionCards.tail.size).hashCode() },
         page = loadEarlier,
         onTake = {
             onFollowChange(false)
@@ -2393,7 +2399,8 @@ private fun ActivityFeed(
         val visible = if (focused != null) {
             focused.items.size + 1
         } else {
-            rows.size + orphanWorkflows.size + (if (working) 1 else 0) + (if (ownTail.isNotEmpty()) 1 else 0)
+            rows.size + orphanWorkflows.size + sessionCards.tail.size + (if (working) 1 else 0) +
+                (if (ownTail.isNotEmpty()) 1 else 0)
         }
         if (following && visible > 0) {
             listState.scrollToItem(visible - 1)
@@ -2411,7 +2418,8 @@ private fun ActivityFeed(
         firstPin[0] = true
         if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
             val count = (if (canLoadEarlier) 1 else 0) + sessionCards.head.size + rows.size +
-                orphanWorkflows.size + (if (working) 1 else 0) + (if (ownTail.isNotEmpty()) 1 else 0) +
+                orphanWorkflows.size + sessionCards.tail.size + (if (working) 1 else 0) +
+                (if (ownTail.isNotEmpty()) 1 else 0) +
                 (if (feedFooter != null) 1 else 0)
             listState.requestScrollToItem(count - 1, Int.MAX_VALUE / 2)
         }
@@ -2758,6 +2766,11 @@ private fun ActivityFeed(
                         )
                     }
                 }
+            }
+            // #EXP-2087 (ask-dock.json `tail`): an open card with no call
+            // in the feed draws after the last row, never above the first.
+            items(sessionCards.tail, key = { "session-card-${it.id}" }, contentType = { "session-card" }) { card ->
+                SessionCardRow(card, ringCard)
             }
             // #EXP-1943: a RUNNING call with no report in the loaded feed
             // draws its card after the feed's last row.
@@ -3172,6 +3185,10 @@ internal class SessionCardSlots(
 ) {
     /** The cards with no call in the feed, at the transcript's head. */
     val head: List<SessionTree.SessionChatRow> get() = anchors.unanchored.mapNotNull(rows::get)
+
+    /** #EXP-2087: the WAITING cards with no call in the feed, after the
+     *  transcript's last row. */
+    val tail: List<SessionTree.SessionChatRow> get() = anchors.tail.mapNotNull(rows::get)
 
     /** The cards a feed row's calls posted, oldest first. */
     fun after(row: AgentFeedRow): List<SessionTree.SessionChatRow> {
