@@ -169,6 +169,7 @@ pub fn run(config: Config, config_path: Option<std::path::PathBuf>, autostart: V
                 open_seat()
             },
             || super::activation::holder(&seat_name, &ours, super::activation::loginctl),
+            || super::activation::activate(&ours),
             std::thread::sleep,
             std::time::Instant::now,
             || super::activation::gave_up_message(&seat_name),

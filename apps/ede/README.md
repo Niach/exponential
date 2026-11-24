@@ -659,8 +659,8 @@ its session became active while no DRM device is open, which was a black
 screen at every login from lightdm, the one login manager that starts a
 Wayland session before it switches to its VT (#EDE-219). While another
 session shows (the login screen after logind restarted, another VT) the
-wait has no end; while nobody has the displays the seat is asked for every
-second, and after 10 s the start fails with that reason, which ends at the
+wait has no end; while nobody has the displays logind is asked for them
+every second (`loginctl activate`), and after 10 s the start fails with that reason, which ends at the
 login screen like every fatal start
 (`crates/ede-compositor/src/backend/activation.rs`). A failed close
 or open in libinput's seat callbacks is a line in the journal, never a

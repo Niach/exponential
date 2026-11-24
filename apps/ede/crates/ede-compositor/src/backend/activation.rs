@@ -18,17 +18,18 @@
 //! While another session has the displays (the login screen after logind
 //! restarted, another VT) the wait has no end: that session is what the
 //! person sees. While nobody has them (the display manager let go of its
-//! greeter and has not switched yet), each reopening asks logind for the
-//! seat once more (libseat's `Activate`), and after [`GIVE_UP`] the start
-//! fails with the reason, which ends at the login screen instead of a
-//! black one.
+//! greeter and has not switched yet, a text console), logind is asked for
+//! them every [`ASK_EVERY`] (`loginctl activate`, which a session may ask
+//! for itself; libseat 0.8 asks once at its open, 0.9 never), and after
+//! [`GIVE_UP`] the start fails with the reason, which ends at the login
+//! screen instead of a black one.
 
 use std::time::{Duration, Instant};
 
 /// How often logind is asked.
 pub const POLL: Duration = Duration::from_millis(250);
-/// While nobody has the displays: how often the seat is opened anew, which
-/// asks logind to activate this session.
+/// While nobody has the displays: how often logind is asked to activate
+/// this session.
 pub const ASK_EVERY: Duration = Duration::from_secs(1);
 /// While nobody has the displays: how long until the start fails.
 pub const GIVE_UP: Duration = Duration::from_secs(10);
@@ -79,6 +80,16 @@ pub fn loginctl(args: &[&str]) -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// `loginctl activate` for `session` ([`holder`]'s): logind switches to its
+/// VT. Allowed without a password from inside the session itself.
+#[cfg_attr(not(feature = "udev"), allow(dead_code))]
+pub fn activate(session: &str) {
+    let args: &[&str] = if session == "auto" { &["activate"] } else { &["activate", session] };
+    if loginctl(args).is_none() {
+        tracing::warn!("logind did not activate this session (loginctl activate failed)");
+    }
+}
+
 /// What the wait does next.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -86,7 +97,7 @@ pub enum Step {
     Go,
     /// Sleep [`POLL`] and ask again.
     Wait,
-    /// Nobody has the displays: open the seat anew, which asks for them.
+    /// Nobody has the displays: ask logind for them.
     Ask,
     /// Nobody took the displays in [`GIVE_UP`]: the start fails.
     GiveUp,
@@ -133,13 +144,15 @@ pub fn gave_up_message(seat: &str) -> String {
 
 /// Waits until `seat` (an open seat session that said it is not active) is
 /// one that is. `reopen` closes the session it is given and opens a new
-/// one; `holder` asks logind; `sleep` waits and `now` tells the time. The
-/// active session, or why the start fails.
+/// one; `holder` asks logind who has the displays and `ask` asks it for
+/// them; `sleep` waits and `now` tells the time. The active session, or why
+/// the start fails.
 pub fn wait_for_seat<S>(
     mut seat: S,
     is_active: impl Fn(&S) -> bool,
     mut reopen: impl FnMut(S) -> Result<S, String>,
     mut holder: impl FnMut() -> Holder,
+    mut ask: impl FnMut(),
     mut sleep: impl FnMut(Duration),
     mut now: impl FnMut() -> Instant,
     gave_up: impl FnOnce() -> String,
@@ -157,7 +170,8 @@ pub fn wait_for_seat<S>(
             last = Some(holder);
         }
         match wait.step(holder, now()) {
-            Step::Go | Step::Ask => seat = reopen(seat)?,
+            Step::Go => seat = reopen(seat)?,
+            Step::Ask => ask(),
             Step::Wait => {}
             Step::GiveUp => return Err(gave_up()),
         }
@@ -214,12 +228,13 @@ mod tests {
         /// Another live session has the displays until then.
         other_until: Duration,
         opens: Cell<usize>,
+        asks: Cell<usize>,
         holders: RefCell<Vec<Holder>>,
     }
 
     impl Rig {
         fn new(active_at: Option<Duration>, other_until: Duration) -> Self {
-            Self { clock: Cell::new(Duration::ZERO), start: Instant::now(), active_at, other_until, opens: Cell::new(1), holders: RefCell::default() }
+            Self { clock: Cell::new(Duration::ZERO), start: Instant::now(), active_at, other_until, opens: Cell::new(1), asks: Cell::new(0), holders: RefCell::default() }
         }
         fn logind_active(&self) -> bool {
             self.active_at.is_some_and(|at| self.clock.get() >= at)
@@ -245,6 +260,7 @@ mod tests {
                     self.holders.borrow_mut().push(holder);
                     holder
                 },
+                || self.asks.set(self.asks.get() + 1),
                 |d| self.clock.set(self.clock.get() + d),
                 || self.start + self.clock.get(),
                 || gave_up_message("seat0"),
@@ -260,7 +276,7 @@ mod tests {
         let rig = Rig::new(Some(Duration::from_millis(400)), Duration::ZERO);
         assert_eq!(rig.wait(), Ok(true));
         assert_eq!(rig.clock.get(), Duration::from_millis(500), "found at the next poll");
-        assert_eq!(rig.opens.get(), 2, "the seat is opened anew once, when logind says active");
+        assert_eq!((rig.opens.get(), rig.asks.get()), (2, 0), "the seat is opened anew once, when logind says active");
     }
 
     #[test]
@@ -270,19 +286,19 @@ mod tests {
         let hour = Duration::from_secs(3600);
         let rig = Rig::new(Some(hour), hour);
         assert_eq!(rig.wait(), Ok(true));
-        assert_eq!(rig.opens.get(), 2, "the seat is not asked for while another session shows");
+        assert_eq!((rig.opens.get(), rig.asks.get()), (2, 0), "the seat is not asked for while another session shows");
     }
 
     #[test]
     fn a_seat_nobody_has_is_asked_for_and_then_given_up() {
-        // Nobody ever activates the session: the seat is opened anew (an
-        // `Activate` each) every second, and the start fails after ten,
-        // with a reason, instead of a black screen for good.
+        // Nobody ever activates the session: logind is asked every second,
+        // and the start fails after ten, with a reason, instead of a black
+        // screen for good.
         let rig = Rig::new(None, Duration::ZERO);
         let failed = rig.wait().unwrap_err();
         assert!(failed.contains("never got seat0's displays"), "{failed}");
         assert_eq!(rig.clock.get(), GIVE_UP);
-        assert_eq!(rig.opens.get(), 1 + 9, "asked at 1 s … 9 s");
+        assert_eq!((rig.opens.get(), rig.asks.get()), (1, 9), "asked at 1 s … 9 s");
         // The ten seconds count from when the displays were let go.
         let rig = Rig::new(None, Duration::from_secs(60));
         assert!(rig.wait().is_err());
@@ -291,28 +307,27 @@ mod tests {
 
     #[test]
     fn asking_for_the_seat_is_what_gets_it() {
-        // Logind activates the session only because it was asked again
-        // (the first `Activate` raced the greeter's X server letting go).
+        // Logind activates the session only because it was asked (libseat
+        // 0.9 never asks; 0.8's one `Activate` raced the greeter's X server
+        // letting go): active from the second ask on.
         let rig = Rig::new(None, Duration::ZERO);
         let asked = Cell::new(0);
         let seat = wait_for_seat(
             false,
             |active| *active,
-            |_| {
-                asked.set(asked.get() + 1);
-                Ok(asked.get() == 2)
-            },
-            || Holder::Nobody,
+            |_| Ok(true),
+            || if asked.get() == 2 { Holder::Ours } else { Holder::Nobody },
+            || asked.set(asked.get() + 1),
             |d| rig.clock.set(rig.clock.get() + d),
             || rig.start + rig.clock.get(),
             || unreachable!("the seat came"),
         );
-        assert_eq!((seat, rig.clock.get()), (Ok(true), Duration::from_secs(2)));
+        assert_eq!((seat, rig.clock.get()), (Ok(true), Duration::from_millis(2250)));
     }
 
     #[test]
     fn a_seat_that_cannot_be_opened_anew_fails_the_start() {
-        let seat = wait_for_seat(false, |a| *a, |_| Err("no seat session: EBUSY".into()), || Holder::Ours, |_| {}, Instant::now, || unreachable!());
+        let seat = wait_for_seat(false, |a| *a, |_| Err("no seat session: EBUSY".into()), || Holder::Ours, || {}, |_| {}, Instant::now, || unreachable!());
         assert_eq!(seat, Err("no seat session: EBUSY".to_string()));
     }
 }
