@@ -635,6 +635,7 @@ fun ChatScreen(
             // #FEED-239: the own bubbles wear the viewer's avatar on the right.
             LocalViewer provides teamUsers.firstOrNull { it.id == me },
         ) {
+            Box(Modifier.fillMaxSize()) {
             ChatContent(
                 view = view,
                 rootLoaded = rootRow != null,
@@ -718,6 +719,15 @@ fun ChatScreen(
                     )
                 },
             )
+            // #EXP-1950: an install waiting for approval, where this encrypted
+            // chat would open and no key of it is held: the waiting state
+            // instead of locked rows (under the header: back stays).
+            val heldKeys by com.exponential.app.data.sealed.SealedKeys.keys.collectAsStateWithLifecycle()
+            com.exponential.app.ui.session.InstallWaitingGate(
+                sealed = rootRow?.sealEpoch != null,
+                holdsKey = heldKeys[viewModel.rootId].orEmpty().isNotEmpty(),
+            )
+            }
         }
     }
 

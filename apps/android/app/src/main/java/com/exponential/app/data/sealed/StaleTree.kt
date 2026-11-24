@@ -17,7 +17,8 @@ fun isStaleTreeRefusal(message: String?): Boolean =
     message != null && (message == STALE_TREE_REFUSAL || OLD_STALE_TREE.matches(message))
 
 /** A tree's current public key. */
-internal data class PublicTreeKey(val publicKey: String, val epoch: Int)
+/** #EXP-1950: [vouch] = the server's signed wrap vouching for a key this install holds no secret of (R3); null = none. */
+internal data class PublicTreeKey(val publicKey: String, val epoch: Int, val vouch: Vouch? = null)
 
 /** The root Room has for a send (its key, when Room synced one; [clear] = `clear_tree`, #EDE-97). */
 internal data class LocalRoot(val rootId: String, val key: PublicTreeKey?, val clear: Boolean = false)
