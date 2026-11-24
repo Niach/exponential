@@ -1,0 +1,154 @@
+# NEW-129: the "Hey Claude" classifier, an option for Exponential's wake path
+# (#EXP-1859). Trained with livekit-wakeword (Apache-2.0) at the revision
+# pinned in train.sh, from Piper TTS samples only: no recorded voices.
+# livekit-wakeword's production settings (25k samples, medium, 100k steps).
+model_name: hey_claude
+
+target_phrases: ["hey claude"]
+
+n_samples: 25000
+n_samples_val: 5000
+n_background_samples: 2000
+n_background_samples_val: 500
+tts_batch_size: 16
+
+# Near misses that must NOT wake it. The generator cycles through ~4,700
+# CMUdict neighbours plus this list, so one line here is only ~3 of the
+# 25,000 negative clips: `negative_weights` below repeats the ones that matter.
+custom_negative_phrases:
+  - "hey cloud"
+  - "hey clod"
+  - "hey claudia"
+  - "okay claude"
+  - "claude"
+  - "hey"
+  - "hey clyde"
+  - "hey called"
+  - "hey cloudy"
+  - "hey clouds"
+  - "hey claudio"
+  - "hey claudine"
+  - "hey claus"
+  - "hey clause"
+  - "hey claw"
+  - "hey clad"
+  - "hey clog"
+  - "hey closed"
+  - "hey lord"
+  - "hey glad"
+  - "they called"
+  - "okay cloud"
+  - "okay claudia"
+  - "a cloud"
+  - "hey crowd"
+  # "Claude" inside a normal sentence.
+  - "i asked claude to review the code"
+  - "claude wrote the summary yesterday"
+  - "did claude finish the report"
+  - "we use claude for most of our coding"
+  - "claude monet painted the water lilies"
+  - "my friend claude lives in paris"
+  - "you could ask claude about it later"
+  - "claude said it would take about an hour"
+  - "is claude available this afternoon"
+  - "i think claude is right about that"
+  - "please tell claude i said hello"
+  - "claude and i went out for lunch"
+  - "that was claude on the phone"
+  - "the answer came from claude"
+  - "so claude fixed the failing test"
+  - "let me check what claude suggested"
+  - "yesterday claude opened a pull request"
+  - "they named the model claude"
+  - "and then claude replied"
+  - "have you heard from claude"
+  - "okay claude will handle it"
+  - "say that again claude"
+  - "thanks claude"
+  - "good morning claude"
+
+# How often train.sh repeats a phrase of the list above (livekit-wakeword has
+# no per-phrase weight; train.sh expands this key and drops it). 400 lines =
+# ~5 % of the negative clips each, ~1,250 clips.
+negative_weights:
+  "hey cloud": 400
+  "hey clod": 400
+  "hey claudia": 400
+  "okay claude": 400
+  "claude": 100
+  "hey": 60
+  "hey clyde": 100
+  "hey called": 100
+  "hey cloudy": 60
+  "hey clouds": 60
+  "hey claudio": 60
+  "hey claudine": 60
+  "hey claus": 40
+  "hey clause": 40
+  "hey claw": 40
+  "hey clad": 40
+  "hey clog": 30
+  "hey closed": 30
+  "hey lord": 30
+  "hey glad": 30
+  "they called": 30
+  "okay cloud": 40
+  "okay claudia": 40
+  "a cloud": 30
+  "hey crowd": 30
+  "i asked claude to review the code": 25
+  "claude wrote the summary yesterday": 25
+  "did claude finish the report": 25
+  "we use claude for most of our coding": 25
+  "claude monet painted the water lilies": 25
+  "my friend claude lives in paris": 25
+  "you could ask claude about it later": 25
+  "claude said it would take about an hour": 25
+  "is claude available this afternoon": 25
+  "i think claude is right about that": 25
+  "please tell claude i said hello": 25
+  "claude and i went out for lunch": 25
+  "that was claude on the phone": 25
+  "the answer came from claude": 25
+  "so claude fixed the failing test": 25
+  "let me check what claude suggested": 25
+  "yesterday claude opened a pull request": 25
+  "they named the model claude": 25
+  "and then claude replied": 25
+  "have you heard from claude": 25
+  "okay claude will handle it": 25
+  "say that again claude": 25
+  "thanks claude": 25
+  "good morning claude": 25
+
+noise_scales: [0.98]
+noise_scale_ws: [0.98]
+length_scales: [0.75, 1.0, 1.25]
+slerp_weights: [0.2, 0.35, 0.5, 0.65, 0.8]
+
+data_dir: ./data
+output_dir: ./output
+
+augmentation:
+  clip_duration: 2.0
+  batch_size: 16
+  rounds: 2
+  background_paths: [./data/backgrounds]
+  rir_paths: [./data/rirs]
+
+model:
+  model_type: conv_attention
+  model_size: medium
+
+steps: 100000
+learning_rate: 0.0001
+weight_decay: 0.01
+label_smoothing: 0.05
+max_negative_weight: 3000
+target_fp_per_hour: 0.2
+
+batch_n_per_class:
+  positive: 50
+  adversarial_negative: 50
+  ACAV100M_sample: 1024
+  background_noise: 50

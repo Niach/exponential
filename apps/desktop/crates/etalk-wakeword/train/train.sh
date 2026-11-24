@@ -7,13 +7,17 @@
 # that order). On a shared machine (NEW-129: mint's heavy lane has a 45 min
 # hold) run them a few per call, with staged.py's cuts in place of the long
 # ones: generate-fast for generate, augment-clips + features for augment,
-# train-phase ×3 for train.
+# train-resume for train (checkpoints every 5,000 steps).
 #
 # Defaults: train/hey_spezl.yaml, ~/.cache/etalk-wakeword-train (any disk
 # with ~40 GB free for the 25k-sample settings: the setup step downloads livekit-wakeword's
 # pre-computed ACAV100M negative features (~16 GB), MUSAN noise (~1.1 GB), MIT
 # room impulse responses and the Piper VITS checkpoint (~166 MB)).
 # Needs uv (0.7+), espeak-ng and ffmpeg (macOS: brew install uv espeak-ng ffmpeg).
+# On a desktop, run it cut off from the sound server (NEW-129): the
+# phonemizer starts `espeak-ng` once per clip, and espeak-ng registers an
+# audio client even with -q (bwrap with a tmpfs over /dev/snd and
+# $XDG_RUNTIME_DIR, PIPEWIRE_REMOTE and PULSE_SERVER pointing nowhere).
 # Trains on CUDA, Apple MPS or the CPU (livekit-wakeword picks).
 #
 # Output: <workdir>/output/<model_name>/<model_name>.onnx = the classifier
@@ -67,7 +71,7 @@ PY
     generate | augment | train | export | eval)
       lkww "$stage" "$work/config.yaml"
       ;;
-    generate-fast | augment-clips | features | train-phase)
+    generate-fast | augment-clips | features | train-resume)
       (cd "$work" && "$py" "$here/staged.py" "$work/config.yaml" "$stage")
       ;;
     *)
