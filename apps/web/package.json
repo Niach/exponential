@@ -57,6 +57,7 @@
     "@exp/emoji": "workspace:*",
     "@exp/icons": "workspace:*",
     "@exp/mcp-apps": "workspace:*",
+    "@exp/plugin-kit": "workspace:*",
     "@exp/steer-ticket": "workspace:*",
     "@exp/ui": "workspace:*",
     "@exponential_app/eui": "workspace:*",

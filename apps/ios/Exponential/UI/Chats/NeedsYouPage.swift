@@ -169,15 +169,12 @@ struct NeedsYouPageContent<Band: View>: View {
     @ViewBuilder var band: () -> Band
 
     var body: some View {
-        if rows.isEmpty, let waitingCode {
-            InstallWaiting(code: waitingCode)
-                .frame(maxHeight: .infinity)
-        } else if rows.isEmpty, pendingInstalls == 0 {
+        if rows.isEmpty, waitingCode == nil, pendingInstalls == 0 {
             NeedsYouList(rows: [], onOpen: onOpen)
                 .frame(maxHeight: .infinity)
         } else {
             ScrollView {
-                VStack(spacing: 0) {
+                VStack(spacing: InstallApprovalView.Waiting.listGap) {
                     if let waitingCode {
                         InstallWaiting(code: waitingCode)
                     } else {

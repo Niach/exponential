@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { useMcpActions } from "./actions"
-import { assigneeBoardIds, type IssueListRow, type MemberRow } from "./list-issue"
+import { assigneeBoardIds, type IssueListRow, type MemberRow } from "@exp/plugin-kit/model"
 
 // EXP-1183 — the issue rows carry only `assigneeId`; the names and avatars
 // come from the members of the boards' teams: `exponential_boards_get` per

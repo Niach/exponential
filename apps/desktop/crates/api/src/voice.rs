@@ -57,6 +57,22 @@ pub fn voice_get(trpc: &TrpcClient) -> Result<VoiceSettings, ApiError> {
     trpc.query("voice.get")
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceAssistant {
+    #[serde(default)]
+    agent_id: Option<String>,
+}
+
+/// #EXP-2080: the member's own Assistant as `voice.get` names it (a QUERY:
+/// it reads, it never creates one, unlike `agents.ensureAssistant`); `None`
+/// = they have none yet. Only `agentId` is read, so an older server's answer
+/// decodes as well.
+pub fn voice_assistant_id(trpc: &TrpcClient) -> Result<Option<String>, ApiError> {
+    let settings: VoiceAssistant = trpc.query("voice.get")?;
+    Ok(settings.agent_id.filter(|id| !id.is_empty()))
+}
+
 /// `voice.update` — mutation; returns what is stored now.
 pub fn voice_update(trpc: &TrpcClient, update: &VoiceUpdate) -> Result<VoiceSettings, ApiError> {
     trpc.mutation("voice.update", update)

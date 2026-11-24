@@ -98,7 +98,7 @@ jobs:
       - name: Push relay tests
         run: bun run test:push-relay
       - name: Package unit tests (contract, the Exponential UI catalog, @exp/ui, MCP apps)
-        run: bun --filter @exp/domain-contract test && bun --filter @exp/ecore test && bun --filter @exp/etalk test && bun --filter @exp/emcp test && bun --filter @exp/eengine test && bun --filter @exp/eagent test && bun --filter @exp/ecode test && bun --filter @exp/ede test && bun --filter @exp/uicore test && bun --filter @exponential_app/eui test && bun --filter @exp/ui --filter @exp/mcp-apps test
+        run: bun --filter @exp/domain-contract test && bun --filter @exp/ecore test && bun --filter @exp/etalk test && bun --filter @exp/emcp test && bun --filter @exp/eengine test && bun --filter @exp/eagent test && bun --filter @exp/ecode test && bun --filter @exp/ede test && bun --filter @exp/uicore test && bun --filter @exponential_app/eui test && bun --filter @exp/ui --filter @exp/mcp-apps --filter @exp/plugin-kit test
 
   ios:
     needs: dedupe
@@ -680,6 +680,10 @@ jobs:
       - name: Cargo tests (one claude store, junctions)
         working-directory: apps/desktop
         run: cargo test --locked -p eagent --lib claude_store
+      # #FEED-308: the command line stays under CreateProcess' limit.
+      - name: Cargo tests (command line limit, launch files)
+        working-directory: apps/desktop
+        run: cargo test --locked -p eagent --lib -- command_line launch_files
 
   desktop-fuzz:
     needs: dedupe

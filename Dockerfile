@@ -34,6 +34,7 @@ COPY packages/exponential-ui-element/package.json packages/exponential-ui-elemen
 COPY packages/exponential-ui-bench/package.json packages/exponential-ui-bench/package.json
 COPY packages/icons/package.json packages/icons/package.json
 COPY packages/mcp-apps/package.json packages/mcp-apps/package.json
+COPY packages/plugin-kit/package.json packages/plugin-kit/package.json
 COPY packages/licenses/package.json packages/licenses/package.json
 COPY packages/steer-ticket/package.json packages/steer-ticket/package.json
 COPY apps/steer-relay/package.json apps/steer-relay/package.json
@@ -46,7 +47,7 @@ COPY packages/view-catalog/package.json packages/view-catalog/package.json
 COPY packages/shots/package.json packages/shots/package.json
 RUN bun install --frozen-lockfile
 COPY . .
-# Widget + MCP Apps first: they emit loader.js/widget.js and mcp-apps/app.html
+# Widget + MCP Apps first: they emit loader.js/widget.js and mcp-apps/<view>.html
 # into apps/web/public, which the web build then copies into .output/public.
 RUN bun --filter @exp/widget build && bun --filter @exp/mcp-apps build && bun --filter @exp/web build
 

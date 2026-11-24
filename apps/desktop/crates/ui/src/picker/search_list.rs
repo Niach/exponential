@@ -583,8 +583,18 @@ pub(crate) fn local_issue_hits(team_id: &str, query: &str, cx: &App) -> Vec<Issu
     let collections = Store::global(cx).collections();
     let statuses = crate::queries::team_statuses(cx, team_id);
     let issues = collections.issue_refs_in_team(team_id, cx);
-    let rows: Vec<domain::issue_search::SearchRow<'_>> =
-        issues.iter().map(|issue| issue_search_row(issue, cx)).collect();
+    // #NEW-132: each row carries its team status row's NAME for `status:`.
+    let rows: Vec<domain::issue_search::SearchRow<'_>> = issues
+        .iter()
+        .map(|issue| {
+            let status_name = issue
+                .status_id
+                .as_deref()
+                .and_then(|id| statuses.iter().find(|status| status.id == id))
+                .map(|status| status.name.as_str());
+            issue_search_row(issue, cx).with_status_name(status_name)
+        })
+        .collect();
     domain::issue_search::rank(&rows, query, domain::issue_search::DEFAULT_LIMIT, &HashSet::new())
         .into_iter()
         .map(|ix| {

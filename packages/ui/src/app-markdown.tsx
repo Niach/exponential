@@ -3,6 +3,7 @@ import { BuiltinMarkdown, resolveThemeInput, type HostPlugin } from "@exponentia
 import { BASE_CSS, compiledTheme, paintHighlights, partClass, propAttribute } from "@exponential_app/eui/web"
 import type { MarkdownOptions } from "@exponential_app/eui/web"
 import { cn } from "./cn"
+import { useColorMode } from "./color-mode"
 
 // #VAPP-258: the app's read-only Markdown (issue descriptions, comments,
 // chats, plans, results) IS genUI's Markdown: the same parser and painter
@@ -61,11 +62,12 @@ export function AppMarkdown({
   id?: string
 }) {
   useAppMarkdownSheet()
+  const mode = useColorMode()
   const density = host?.markdownOptions?.density
   const rootRef = useRef<HTMLDivElement>(null)
   usePaintHighlights(rootRef, highlight, true, text)
   return (
-    <div ref={rootRef} className={cn(`xui-surface`, THEME.scope, `exp-markdown-view min-w-0`, className)} style={ZOOM} data-xui-mode="dark" data-xui-theme={RESOLVED.id} aria-label={ariaLabel}>
+    <div ref={rootRef} className={cn(`xui-surface`, THEME.scope, `exp-markdown-view min-w-0`, className)} style={ZOOM} data-xui-mode={mode} data-xui-theme={RESOLVED.id} aria-label={ariaLabel}>
       <div className={ROOT} data-xui-c="Markdown" data-xui-part="Markdown/root" {...(density ? { [DENSITY]: density } : {})}>
         <BuiltinMarkdown text={text} host={host} scope={THEME.scope} theme={RESOLVED} id={id} />
       </div>
@@ -91,6 +93,7 @@ const INLINE_SURFACE = { display: `inline`, font: `inherit`, color: `inherit`, l
  *  tool line's title); `highlight` absent = the bare text. */
 export function AppHighlightText({ text, highlight, className }: { text: string; highlight?: unknown; className?: string }) {
   useAppMarkdownSheet()
+  const mode = useColorMode()
   const ref = useRef<HTMLSpanElement>(null)
   usePaintHighlights(ref, highlight, false, text)
   return (
@@ -99,7 +102,7 @@ export function AppHighlightText({ text, highlight, className }: { text: string;
       className={cn(highlight ? `xui-surface ${THEME.scope} exp-find-text` : undefined, className)}
       // The theme's match fills live on its surface; the line keeps its own type.
       style={highlight ? INLINE_SURFACE : undefined}
-      data-xui-mode={highlight ? `dark` : undefined}
+      data-xui-mode={highlight ? mode : undefined}
       data-xui-theme={highlight ? RESOLVED.id : undefined}
     >
       {text}

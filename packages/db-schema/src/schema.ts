@@ -2524,9 +2524,10 @@ export const agents = pgTable(
     ownerId: text(`owner_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
-    // S-3 (agent-settings.json `assistant`): `assistant` = the owner's ONE
-    // personal Assistant in this team (only they read it in lists and edit
-    // it; never deleted); `agent` = a team agent. SYNCED.
+    // S-3 / #EXP-1989 (agent-settings.json `assistant`): `assistant` = the
+    // owner's ONE Assistant across their teams, in their personal team (only
+    // they read it in lists and edit it; never deleted; `uniq_agents_assistant`
+    // holds one per owner); `agent` = a team agent. SYNCED.
     role: agentRoleEnum(`role`).notNull().default(`agent`).$type<AgentRole>(),
     // #EXP-1990 (agent-settings.json `groupChat`): a team agent's ONE chat,
     // its group chat root (never set for an Assistant or an app's agent;
@@ -2542,7 +2543,7 @@ export const agents = pgTable(
     index(`idx_agents_team`).on(table.teamId),
     index(`idx_agents_device`).on(table.deviceId),
     uniqueIndex(`uniq_agents_assistant`)
-      .on(table.teamId, table.ownerId)
+      .on(table.ownerId)
       .where(sql`role = 'assistant'`),
   ]
 )
@@ -4128,6 +4129,11 @@ export const userVoiceSettings = pgTable(`user_voice_settings`, {
   meetingStartedAt: timestamp(`meeting_started_at`, { withTimezone: true }),
   // #FEED-163: the meeting's auto-stop in hours (meeting.json `autoStop.hoursValues`).
   meetingAutoStopHours: integer(`meeting_auto_stop_hours`).notNull().default(4),
+  // #EXP-1859 (agent-settings.json `voice.wake`): the team agents the member
+  // switched on to listen on the voice device, in order (<= `maxIds`; an
+  // agent deleted or left behind is skipped on read). Written only by
+  // voice.wakeAgent.
+  wakeAgentIds: jsonb(`wake_agent_ids`).$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   ...timestamps,
 }, (table) => [
   check(`user_voice_settings_language_check`, sql`${table.language} IN ('en', 'de')`),

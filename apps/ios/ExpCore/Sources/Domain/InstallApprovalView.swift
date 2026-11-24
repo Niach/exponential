@@ -29,6 +29,14 @@ public enum InstallApprovalView {
     /// The fixture's `icon` (the waiting EmptyState's glyph).
     public static let icon = "ui-private"
 
+    /// The fixture's `waiting`: where the waiting state stands (a share of the
+    /// window's height), its column, the gap above the Needs you rows.
+    public enum Waiting {
+        public static let topOffset = 0.2
+        public static let maxWidth = 448.0
+        public static let listGap = 12.0
+    }
+
     /// Events the rows fire (context `id` = the row's install id).
     public enum Events {
         public static let approve = "approve"

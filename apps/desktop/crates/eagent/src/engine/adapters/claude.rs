@@ -241,6 +241,15 @@ const ANTICIPATED_CONTINUATION_GRACE: Duration = Duration::from_secs(30);
 /// until it finished. Only while no title is known yet.
 const TITLE_EARLY_POLLS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(30)];
 
+/// #FEED-305: clears the session's `starting` mark however the start ends.
+struct StartUnderWay<'a>(&'a AtomicBool);
+
+impl Drop for StartUnderWay<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// #FEED-296: how the startup `initialize` wait ended.
 enum Startup {
     Answered(Result<wire::ControlResp, Error>),
@@ -519,6 +528,13 @@ struct ClaudeSession {
     /// between them), so two prompts racing on a loaded session used to spawn
     /// two CLIs, the second silently orphaning the first.
     start_gate: tokio::sync::Mutex<()>,
+    /// #FEED-305: a start is under way: `state.child` is an attempt's child
+    /// that has not answered `initialize` yet and may still be retired.
+    starting: AtomicBool,
+    /// #FEED-305: how many starts failed, and the last one's reason. A
+    /// prompt that waited at `start_gate` through a failed start fails with
+    /// that reason instead of spawning a round of its own.
+    start_failed: Mutex<(u64, Option<Value>)>,
     /// EXP-909: the LOGIN this run spends (`coding::profile_id` of the
     /// launch's `account`). Every live usage publish is keyed by it, so a run
     /// on one account never moves another's numbers.
@@ -1327,6 +1343,106 @@ fn workflow_card_name(workflow_name: Option<&str>, description: Option<&str>) ->
 /// immediately regardless.
 const WORKFLOW_PUBLISH_INTERVAL: Duration = Duration::from_millis(1000);
 
+/// What one spawn picks beyond its [`LaunchSpec`].
+#[derive(Clone, Copy)]
+struct LaunchPicks<'a> {
+    model: &'a str,
+    effort: Option<&'a str>,
+    /// Without `elicitation.form` the model must never pick AskUserQuestion:
+    /// there would be nothing to render its form with.
+    disallow_ask: bool,
+    /// The pin: claude's own uuid, NEVER the ACP id.
+    pin: &'a str,
+    resume: Option<&'a str>,
+}
+
+/// #FEED-308: where a launch's long texts go. Beside the `--settings` file
+/// (`<data_dir>/claude-hooks/<pid>/`, pruned with it), else under the temp
+/// dir (a server-free run); both short enough for Windows' `MAX_PATH`.
+fn launch_dir(spec: &LaunchSpec) -> PathBuf {
+    spec.reaper_settings_path
+        .as_deref()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| std::env::temp_dir().join("exponential-launch").join(std::process::id().to_string()))
+}
+
+/// The argv of one claude spawn. #FEED-308: the texts that grow (the system
+/// prompt append, the MCP document) are written to [`launch_dir`] and named
+/// by path, on every platform: on argv they crossed Windows' 32,767
+/// characters and no claude started ("os error 206").
+fn launch_argv(spec: &LaunchSpec, picks: &LaunchPicks<'_>) -> std::io::Result<Vec<String>> {
+    let dir = launch_dir(spec);
+    let mcp_file;
+    // EXP-1330: a `/btw` aside gets NO MCP servers — not `exponential`
+    // (its writes would run under the person's key), not code mode, not
+    // the team's — only the read-only built-in tools; strict, so the
+    // user's own config stays out as well ([`crate::aside`]).
+    let mcp = if spec.aside {
+        Some(McpConfig::Inline(crate::engine::launch::ASIDE_MCP_CONFIG))
+    } else {
+        // The document names the key as `${EXP_MCP_TOKEN}` and every team
+        // secret as a `${VAR}` reference (measured: the CLI expands them in
+        // a FILE's header values from its own environment too), so no
+        // credential lands on disk.
+        let document = match &spec.mcp {
+            crate::mcp::AgentMcp::ClaudeInline { url, session_id } => {
+                Some(wire::inline_mcp_config(url, session_id.as_deref(), &spec.servers))
+            }
+            // EXP-1426 part 5: a server-free run's own servers, beside
+            // the user's configured ones (never strict, below).
+            crate::mcp::AgentMcp::ServersOnly if !spec.servers.is_empty() => {
+                Some(wire::servers_mcp_config(&spec.servers))
+            }
+            _ => None,
+        };
+        match (&spec.mcp, document) {
+            (_, Some(document)) => {
+                mcp_file = crate::command_line::write_launch_file(&dir, "mcp", "json", &document)?;
+                Some(McpConfig::File(&mcp_file))
+            }
+            // The PTY path's `.exp-mcp.json`, kept as the zero-risk fallback.
+            (crate::mcp::AgentMcp::ClaudeFile, None) => {
+                mcp_file = spec.cwd.join(crate::mcp::MCP_JSON_FILE);
+                Some(McpConfig::File(&mcp_file))
+            }
+            _ => None,
+        }
+    };
+    let prompt_file = crate::command_line::write_launch_file(&dir, "prompt", "md", &spec.system_append)?;
+    let disallowed = disallowed_tools(picks.disallow_ask, spec.aside);
+    Ok(wire::claude_argv(&ClaudeArgs {
+        print_mode: wire::CLAUDE_PRINT_MODE,
+        model: (!picks.model.is_empty()).then_some(picks.model),
+        effort: picks.effort,
+        // ALWAYS pinned (measured): with the flag absent the CLI takes the
+        // user's own settings default and an `auto` machine never asks.
+        // EXP-1280: always `bypassPermissions` — plan mode is
+        // Exponential's ([`State::mode`] is our flag, never the CLI's).
+        // Every session, the voice conversation included: no tool call
+        // ever waits on a permission card.
+        permission_mode: Some(wire::argv_permission_mode(super::BUILD_MODE_ID)),
+        // EXP-772: ALWAYS.
+        allow_dangerous: true,
+        session_id: Some(picks.pin),
+        resume: picks.resume,
+        // EXP-1330: a `/btw` aside forks the parent's conversation, so
+        // the parent's own transcript never sees the question.
+        fork_session: spec.aside && picks.resume.is_some(),
+        mcp_config: mcp,
+        strict_mcp_config: mcp.is_some()
+            && (spec.aside || !matches!(spec.mcp, crate::mcp::AgentMcp::ServersOnly)),
+        settings: spec.reaper_settings_path.as_deref(),
+        add_dirs: &[],
+        // #EXP-1658: the session's team skills (unprefixed).
+        skills_dir: spec.skills_dir.as_deref(),
+        disallowed_tools: &disallowed,
+        // EXP-763: the run playbook (EXP-1025: + the team prompt), on
+        // every start and resume.
+        append_system_prompt_file: Some(&prompt_file),
+    }))
+}
+
 struct PlanTask {
     subject: String,
     status: String,
@@ -1372,6 +1488,8 @@ impl ClaudeSession {
             gone,
             gone_gate: Mutex::new(Some(gone_gate)),
             start_gate: tokio::sync::Mutex::new(()),
+            starting: AtomicBool::new(false),
+            start_failed: Mutex::new((0, None)),
             account_profile,
             live_usage: Mutex::new(live_usage),
             state: Mutex::new(state),
@@ -1425,7 +1543,9 @@ impl ClaudeSession {
     /// resumes with: the native id, never the public one.
     fn lazy_resume_handle(&self) -> Option<String> {
         let state = self.lock();
-        state.child.is_none().then(|| {
+        // #FEED-305: a child still starting may be retired; the caller that
+        // then starts one itself resumes the same conversation.
+        (state.child.is_none() || self.starting.load(Ordering::SeqCst)).then(|| {
             state
                 .native_session_id
                 .clone()
@@ -1486,15 +1606,30 @@ impl ClaudeSession {
         cx: &ConnectionTo<Client>,
         resume: Option<&str>,
     ) -> Result<(), Error> {
-        if self.lock().child.is_some() {
+        // #FEED-305: a child that has not answered `initialize` yet is not
+        // a started one. A second prompt used to take it for one, skip the
+        // gate and queue its turn on a process that was then retired: the
+        // turn never settled, and the session read busy with no process
+        // until the stall watchdog ended it 25 minutes later.
+        if self.lock().child.is_some() && !self.starting.load(Ordering::SeqCst) {
             return Ok(());
         }
+        let failed_before = self.start_failures().0;
         let _starting = self.start_gate.lock().await;
         // Re-checked under the gate: the caller we queued behind may have
         // spawned the child while we waited.
         if self.lock().child.is_some() {
             return Ok(());
         }
+        // #FEED-305: or its start failed while we waited: the same reason,
+        // now, never a second round of silent spawns.
+        if let (failed, Some(reason)) = self.start_failures() {
+            if failed != failed_before {
+                return Err(Error::internal_error().data(reason));
+            }
+        }
+        self.starting.store(true, Ordering::SeqCst);
+        let _under_way = StartUnderWay(&self.starting);
         // #FEED-253: a CLI that answers NOTHING to `initialize` (not one
         // stdout line in the whole control timeout) is wedged at startup:
         // it never runs the prompt either, and the run used to sit silent
@@ -1516,8 +1651,9 @@ impl ClaudeSession {
         let child = loop {
             let timeout = start_timeout(&self.spec.spawn.env, attempt);
             let child = Arc::new(self.spawn_child(resume).map_err(|error| {
-                Error::internal_error()
-                    .data(json!({ "reason": format!("could not start claude: {error}") }))
+                let reason = json!({ "reason": format!("could not start claude: {error}") });
+                self.start_failed_with(&reason);
+                Error::internal_error().data(reason)
             })?);
             {
                 let mut state = self.lock();
@@ -1561,7 +1697,9 @@ impl ClaudeSession {
                     if attempt >= START_ATTEMPTS {
                         let reason = silent_start_reason(timeout, attempt, starved_by.as_deref(), pressure.as_ref());
                         log::warn!("engine: {reason}");
-                        return Err(Error::internal_error().data(json!({ "reason": reason })));
+                        let reason = json!({ "reason": reason });
+                        self.start_failed_with(&reason);
+                        return Err(Error::internal_error().data(reason));
                     }
                     let backoff = start_backoff(&self.spec.spawn.env, attempt);
                     log::warn!(
@@ -1585,6 +1723,18 @@ impl ClaudeSession {
         };
         child.forward_exit(&self.spec.exit);
         Ok(())
+    }
+
+    /// #FEED-305: (how many starts failed, the last one's reason).
+    fn start_failures(&self) -> (u64, Option<Value>) {
+        self.start_failed.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+    }
+
+    /// #FEED-305: this start failed for `reason`; whoever waits at the gate
+    /// behind it fails with the same.
+    fn start_failed_with(&self, reason: &Value) {
+        let mut failed = self.start_failed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        *failed = (failed.0 + 1, Some(reason.clone()));
     }
 
     /// #FEED-296: the startup `initialize`, raced against [`StartClock`]:
@@ -1644,39 +1794,6 @@ impl ClaudeSession {
         let native = state.native_session_id.clone();
         drop(state);
 
-        let inline_mcp;
-        // EXP-1330: a `/btw` aside gets NO MCP servers — not `exponential`
-        // (its writes would run under the person's key), not code mode, not
-        // the team's — only the read-only built-in tools; strict, so the
-        // user's own config stays out as well ([`crate::aside`]).
-        let mcp = if self.spec.aside {
-            Some(McpConfig::Inline(crate::engine::launch::ASIDE_MCP_CONFIG))
-        } else {
-            match &self.spec.mcp {
-                crate::mcp::AgentMcp::ClaudeInline { url, session_id } => {
-                    inline_mcp =
-                        wire::inline_mcp_config(url, session_id.as_deref(), &self.spec.servers);
-                    Some(McpConfig::Inline(&inline_mcp))
-                }
-                // The PTY path's `.exp-mcp.json`, kept as the zero-risk fallback.
-                crate::mcp::AgentMcp::ClaudeFile => {
-                    inline_mcp = self
-                        .spec
-                        .cwd
-                        .join(crate::mcp::MCP_JSON_FILE)
-                        .display()
-                        .to_string();
-                    Some(McpConfig::File(Path::new(&inline_mcp)))
-                }
-                // EXP-1426 part 5: a server-free run's own servers, beside
-                // the user's configured ones (never strict, below).
-                crate::mcp::AgentMcp::ServersOnly if !self.spec.servers.is_empty() => {
-                    inline_mcp = wire::servers_mcp_config(&self.spec.servers);
-                    Some(McpConfig::Inline(&inline_mcp))
-                }
-                _ => None,
-            }
-        };
         // A launch that carries a resume seed reopens THAT conversation even
         // when the host called `session/new`: the recorded id is already taken,
         // so pinning it as a fresh `--session-id` would be refused. EXP-784:
@@ -1730,40 +1847,16 @@ impl ClaudeSession {
                 state.carried_base = None;
             }
         }
-        // Without `elicitation.form` the model must never pick
-        // AskUserQuestion: there would be nothing to render its form with.
-        let disallowed = disallowed_tools(disallow_ask, self.spec.aside);
-        let argv = wire::claude_argv(&ClaudeArgs {
-            print_mode: wire::CLAUDE_PRINT_MODE,
-            model: (!model.is_empty()).then_some(model.as_str()),
-            effort: effort.as_deref(),
-            // ALWAYS pinned (measured): with the flag absent the CLI takes the
-            // user's own settings default and an `auto` machine never asks.
-            // EXP-1280: always `bypassPermissions` — plan mode is
-            // Exponential's ([`State::mode`] is our flag, never the CLI's).
-            // Every session, the voice conversation included: no tool call
-            // ever waits on a permission card.
-            permission_mode: Some(wire::argv_permission_mode(super::BUILD_MODE_ID)),
-            // EXP-772: ALWAYS.
-            allow_dangerous: true,
-            session_id: Some(pin.as_str()),
-            resume: resume.as_deref(),
-            // EXP-1330: a `/btw` aside forks the parent's conversation, so
-            // the parent's own transcript never sees the question.
-            fork_session: self.spec.aside && resume.is_some(),
-            mcp_config: mcp,
-            strict_mcp_config: mcp.is_some()
-                && (self.spec.aside
-                    || !matches!(self.spec.mcp, crate::mcp::AgentMcp::ServersOnly)),
-            settings: self.spec.reaper_settings_path.as_deref(),
-            add_dirs: &[],
-            // #EXP-1658: the session's team skills (unprefixed).
-            skills_dir: self.spec.skills_dir.as_deref(),
-            disallowed_tools: &disallowed,
-            // EXP-763: the run playbook (EXP-1025: + the team prompt), on
-            // every start and resume.
-            append_system_prompt: Some(self.spec.system_append.as_str()),
-        });
+        let argv = launch_argv(
+            &self.spec,
+            &LaunchPicks {
+                model: &model,
+                effort: effort.as_deref(),
+                disallow_ask,
+                pin: &pin,
+                resume: resume.as_deref(),
+            },
+        )?;
         let mut spawn = self.spec.spawn.clone().args(argv);
         for (key, value) in wire::extra_env() {
             spawn = spawn.env(key, value);
@@ -6149,6 +6242,120 @@ mod tests {
         for tool in ["Edit", "Write", "NotebookEdit", "Bash"] {
             assert!(aside.contains(&tool), "{tool}");
         }
+    }
+
+    fn launch_spec(dir: &Path, system_append: String, servers: Vec<crate::mcp::McpServerWire>) -> LaunchSpec {
+        LaunchSpec {
+            kind: super::super::AdapterKind::Claude,
+            agent: crate::agent::CodingAgent::Claude,
+            spawn: crate::spawn::SpawnSpec::new("claude"),
+            options: Default::default(),
+            mcp: crate::mcp::AgentMcp::ClaudeInline {
+                url: "https://app.example/api/mcp".to_string(),
+                session_id: Some("11111111-2222-3333-4444-555555555555".to_string()),
+            },
+            servers,
+            cwd: cwd(),
+            session_id: "11111111-2222-3333-4444-555555555555".to_string(),
+            prompt: Some("s".repeat(200_000)),
+            resume: None,
+            replay: false,
+            personal_key: None,
+            reaper_settings_path: Some(dir.join("11111111-2222-3333-4444-555555555555.settings.json")),
+            system_append,
+            context_layers: Default::default(),
+            name_conversation: false,
+            aside: false,
+            skills_dir: None,
+            exit: crate::engine::ChildExitLink::new(),
+        }
+    }
+
+    /// #FEED-308 / #FEED-309: a huge system prompt append, a huge MCP
+    /// document and a huge start text leave the command line small. The
+    /// texts ride files beside the settings file (the start text goes over
+    /// stdin as `session/prompt`), so no start meets Windows' 32,767
+    /// characters ("os error 206").
+    #[test]
+    fn a_huge_prompt_and_mcp_config_stay_off_the_command_line() {
+        let dir = std::env::temp_dir().join(format!("exp-claude-launch-{}-{}", std::process::id(), uuid::Uuid::new_v4()));
+        let system_append = format!("# Playbook\n\n{}\n", "Regel \"eins\" \\ zwei. ".repeat(4_000));
+        let servers: Vec<crate::mcp::McpServerWire> = (0..200)
+            .map(|at| crate::mcp::McpServerWire {
+                id: format!("row-{at}"),
+                name: format!("server_{at}"),
+                transport: crate::mcp::McpWireTransport::Http { url: format!("https://mcp-{at}.example/{}", "p".repeat(200)) },
+                headers: vec![("Authorization".to_string(), format!("Bearer ${{EXP_MCP_TOKEN_{at}}}"))],
+                token_env: Some(format!("EXP_MCP_TOKEN_{at}")),
+                env: Vec::new(),
+                actor: None,
+            })
+            .collect();
+        assert!(system_append.len() > 80_000);
+        let spec = launch_spec(&dir, system_append.clone(), servers);
+        let picks = LaunchPicks {
+            model: "opus",
+            effort: Some("high"),
+            disallow_ask: true,
+            pin: "99999999-2222-3333-4444-555555555555",
+            resume: None,
+        };
+        let argv = launch_argv(&spec, &picks).expect("the launch files are written");
+
+        let value_of = |flag: &str| {
+            let at = argv.iter().position(|arg| arg == flag).unwrap_or_else(|| panic!("{flag} in {argv:?}"));
+            PathBuf::from(&argv[at + 1])
+        };
+        let prompt = value_of("--append-system-prompt-file");
+        assert_eq!(std::fs::read_to_string(&prompt).unwrap(), system_append);
+        let mcp = value_of("--mcp-config");
+        let document: Value = serde_json::from_str(&std::fs::read_to_string(&mcp).unwrap()).unwrap();
+        assert_eq!(document["mcpServers"].as_object().unwrap().len(), 201, "exponential and the team's 200");
+        assert_eq!(document["mcpServers"]["exponential"]["headers"]["Authorization"], "Bearer ${EXP_MCP_TOKEN}");
+        assert!(argv.contains(&"--strict-mcp-config".to_string()));
+        assert!(!argv.iter().any(|arg| arg == "--append-system-prompt"), "never the text on argv");
+
+        // Both beside the settings file, under short names (MAX_PATH).
+        for file in [&prompt, &mcp] {
+            assert_eq!(file.parent(), Some(dir.as_path()));
+            assert!(file.file_name().unwrap().len() <= 32, "{file:?}");
+        }
+        // The whole line is a few hundred characters, far under both of
+        // Windows' limits (`claude.exe`, and `claude.cmd` through cmd.exe).
+        let mut line = vec!["claude.cmd".to_string()];
+        line.extend(argv.iter().cloned());
+        assert!(argv.iter().all(|arg| arg.len() < 512), "{argv:?}");
+        for program in ["claude.exe", "claude.cmd"] {
+            crate::command_line::check(&line, 0, &crate::command_line::Limits::windows(program)).expect(program);
+        }
+        // What the old argv was, measured the same way: refused by name.
+        line.extend(["--append-system-prompt".to_string(), system_append]);
+        let refused = crate::command_line::check(&line, 0, &crate::command_line::Limits::windows("claude.exe")).unwrap_err();
+        assert!(refused.contains("the value of --append-system-prompt"), "{refused}");
+
+        // A resume names the same files: the same text, one file.
+        let resumed = launch_argv(&spec, &LaunchPicks { resume: Some("99999999-2222-3333-4444-555555555555"), ..picks }).unwrap();
+        assert!(resumed.contains(&prompt.display().to_string()));
+        assert!(resumed.contains(&mcp.display().to_string()));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A server-free run has no settings file: its files go under the temp
+    /// dir, and an aside's constant document stays inline.
+    #[test]
+    fn launch_files_without_a_settings_file_go_under_the_temp_dir() {
+        let mut spec = launch_spec(Path::new("/unused"), "playbook".to_string(), Vec::new());
+        spec.reaper_settings_path = None;
+        spec.aside = true;
+        assert!(launch_dir(&spec).starts_with(std::env::temp_dir()));
+        let picks = LaunchPicks { model: "", effort: None, disallow_ask: false, pin: "pin", resume: Some("parent") };
+        let argv = launch_argv(&spec, &picks).unwrap();
+        let at = argv.iter().position(|arg| arg == "--mcp-config").unwrap();
+        assert_eq!(argv[at + 1], crate::engine::launch::ASIDE_MCP_CONFIG);
+        let at = argv.iter().position(|arg| arg == "--append-system-prompt-file").unwrap();
+        assert_eq!(std::fs::read_to_string(&argv[at + 1]).unwrap(), "playbook");
+        let _ = std::fs::remove_file(&argv[at + 1]);
     }
 
     fn cwd() -> PathBuf {

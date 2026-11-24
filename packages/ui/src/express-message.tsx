@@ -22,6 +22,7 @@ import {
   type RowSegment,
 } from "@exp/domain-contract/chat-express"
 import fixture from "@exp/domain-contract/fixtures/chat-express.json"
+import { useColorMode } from "./color-mode"
 import { planCardHost, useCardLinks } from "./plan-card"
 import { SkeletonRows } from "./skeleton"
 import { SurfaceCardFrame, TranscriptMarker } from "./surface-card"
@@ -234,5 +235,6 @@ function BlockSurface({
   const links = useCardLinks()
   const host = useMemo(() => planCardHost((event) => actionRef.current?.(event), links), [links])
   if (!state.root) return <SkeletonRows rows={1} rowHeight={24} dot={false} />
-  return <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode="dark" />
+  const mode = useColorMode()
+  return <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode={mode} />
 }

@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   ISSUE_SEARCH_EMPTY_DETAIL,
   ISSUE_SEARCH_EMPTY_HINT,
+  ISSUE_SEARCH_NO_RESULTS,
 } from "@/lib/issue-search"
 
 class ResizeObserverStub {
@@ -75,6 +76,7 @@ vi.mock(`@/hooks/use-issue-search-results`, () => ({
 }))
 vi.mock(`@/hooks/use-team-statuses`, () => ({
   useTeamStatusesContext: () => ({ resolve: (row: unknown) => row }),
+  useStatusesForTeams: () => () => ({ resolve: () => ({ name: `Backlog` }) }),
 }))
 vi.mock(`@/components/issue-properties/status-dropdown`, () => ({
   toStatusPickerStatus: () => ({
@@ -109,6 +111,64 @@ describe(`IssueSearchSheet`, () => {
     mockState.results = [...mockState.issues]
     mockState.mobile = false
     mockState.chats = null
+  })
+
+  // #NEW-133 (search-list.json SUGGESTION): a recognised sentence puts ONE
+  // action row on top, outside the count; picking it rewrites the field and
+  // navigates nowhere.
+  it(`a sentence gets the Search: row on top; a pick rewrites the field`, () => {
+    open()
+    const input = document.querySelector<HTMLInputElement>(`[data-slot=command-input]`)!
+    fireEvent.change(input, { target: { value: `editor toolbar` } })
+    expect(screen.queryByTestId(`search-list-suggestion`)).toBeNull()
+    fireEvent.change(input, { target: { value: `Open issues about the editor from last week` } })
+    const row = screen.getByTestId(`search-list-suggestion`)
+    expect(row.textContent).toBe(`Search: is:open created:7d editor`)
+    expect(rows()[0]).toBe(row)
+    expect(row.getAttribute(`aria-selected`)).toBe(`true`)
+    expect(screen.getByTestId(`search-list-count`).textContent).toBe(String(mockState.issues.length))
+    // No results: the row stays, the empty state does not replace it.
+    mockState.results = []
+    fireEvent.change(input, { target: { value: `open issues about the editor from last week` } })
+    expect(screen.getByTestId(`search-list-suggestion`)).toBeTruthy()
+    expect(screen.queryByText(ISSUE_SEARCH_NO_RESULTS)).toBeNull()
+    expect(screen.getByTestId(`search-list-count`).textContent).toBe(`0`)
+    fireEvent.click(screen.getByTestId(`search-list-suggestion`))
+    expect(input.value).toBe(`is:open created:7d editor`)
+    expect(document.activeElement).toBe(input)
+    expect(screen.queryByTestId(`search-list-suggestion`)).toBeNull()
+    expect(mockState.navigate).not.toHaveBeenCalled()
+  })
+
+  // #NEW-133 with #EDE-99: the suggestion row sits above BOTH section
+  // headers, outside the count and the section counts; a chat pick stays
+  // the chat's, the suggestion's pick rewrites the field.
+  it(`the Search: row leads the Issues and Chats sections`, () => {
+    const onPick = vi.fn()
+    mockState.chats = {
+      items: [{ value: `chat:r1`, label: `Editor polish`, description: `…the editor toolbar.`, hint: `Mon` }],
+      loading: false,
+      onPick,
+    }
+    open()
+    const input = document.querySelector<HTMLInputElement>(`[data-slot=command-input]`)!
+    fireEvent.change(input, { target: { value: `open issues about the editor from last week` } })
+    const row = screen.getByTestId(`search-list-suggestion`)
+    const issues = screen.getByTestId(`search-list-issues`)
+    const chats = screen.getByTestId(`search-list-chats`)
+    expect(rows()[0]).toBe(row)
+    expect(row.getAttribute(`aria-selected`)).toBe(`true`)
+    expect(row.compareDocumentPosition(issues) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(issues.compareDocumentPosition(chats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(issues.contains(row)).toBe(false)
+    expect(screen.getByTestId(`search-list-count`).textContent).toBe(String(mockState.issues.length + 1))
+    expect(issues.textContent).toContain(`Issues`)
+    fireEvent.click(row)
+    expect(input.value).toBe(`is:open created:7d editor`)
+    expect(onPick).not.toHaveBeenCalled()
+    expect(mockState.navigate).not.toHaveBeenCalled()
+    expect(screen.queryByTestId(`search-list-suggestion`)).toBeNull()
+    expect(screen.getByTestId(`search-list-chats`)).toBeTruthy()
   })
 
   // #EDE-99 (search-list.json SECTIONS): with a store and a query, Issues

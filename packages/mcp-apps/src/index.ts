@@ -1,5 +1,5 @@
 // EXP-1183 — the MCP Apps views as components, for the styleguide's islands.
-// The app itself is the built `app.html` (vite.config.ts).
+// The app itself is the built `<view>.html` documents (vite.config.ts).
 export { DevicesView } from "./devices-view"
 export { IssueDetailView } from "./issue-detail-view"
 export { IssueListView } from "./issue-list-view"

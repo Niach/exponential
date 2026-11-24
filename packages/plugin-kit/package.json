@@ -1,0 +1,29 @@
+{
+  "name": "@exp/plugin-kit",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./model": "./src/model/index.ts",
+    "./client": "./src/client/index.ts",
+    "./theme": "./src/theme/index.ts",
+    "./mcp-entry": "./src/mcp-entry.ts",
+    "./generate": "./src/generate.ts"
+  },
+  "scripts": {
+    "generate": "bun run scripts/generate.ts",
+    "check": "bun run scripts/generate.ts --check",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@exp/icons": "workspace:*"
+  },
+  "devDependencies": {
+    "@exp/tsconfig": "workspace:*",
+    "@types/bun": "latest",
+    "typescript": "^7.0.2",
+    "vitest": "4.1.5"
+  }
+}

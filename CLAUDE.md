@@ -10,12 +10,12 @@ TanStack Start (React 19, TanStack Router/React DB) · PostgreSQL 18 via Drizzle
 
 ```
 apps/web          TanStack Start app (src/lib/trpc = one file per router; routes/api/shapes = one proxy per synced table; lib/sessions = the session tree; lib/emcp = eMCP's server half: the MCP server, the gate, audit, vault, upstream/)
-apps/push-relay   Hono/Bun            apps/steer-relay  presence + control + eTalk calls WS hub (Bun; VAPP-43: no session content but calls until #EXP-1941; viewers: eNet)
+apps/push-relay   Hono/Bun   apps/steer-relay  presence + control + eTalk calls WS hub (Bun; VAPP-43: no session content but calls until #EXP-1941; viewers: eNet)
 apps/site         exponential.at (Astro + Starlight: landing, docs, SDK docs, blog; README.md; ui.exponential.at 301s via scripts/ui-redirect.ts; /sdk/genui = the component catalogue)
-apps/ios          SwiftUI (Tuist + GRDB; ExpCore/ExpUI)   apps/android  Jetpack Compose
+apps/ios   SwiftUI (Tuist + GRDB; ExpCore/ExpUI)   apps/android  Jetpack Compose
 apps/ede          Exponential Desktop (eDE internally, #NEW-10; package + binaries exponential-*): own Cargo workspace; crates/ede-compositor = smithay compositor (winit nested for dev, headless pixman tests)
 apps/desktop      gpui IDE; crates/cli = the `exponential` daemon; crates/eagent = Agents, the server-free agent core (EXP-1426/1505, never an app-crate dep; `exponential-agent-runtime` = its one-release shim); crates/eagent-hub-core = the pure orchestration reducer replaying packages/eagent's fixtures (+ `-wasm`, EXP-1509); crates/coding = the launcher (runbook.md); crates/engine = ACP engine; crates/elocal = Local desktops (EDE-55); crates/eui-* + exponential-ui-ffi = the eUI SDK
-packages/db-schema        Drizzle schema + zod/domain types (authoritative; never mirrored here)
+packages/db-schema   Drizzle schema + zod/domain types (authoritative; never mirrored here)
 packages/domain-contract  contract.json → per-language enums + the fixtures (×4 replay) + pure TS references
 packages/etalk            @exp/etalk: eTalk's contract (voice, voice-call, talk-listen, meeting fixtures ×4 + TS references); Rust = crates/etalk*
 packages/ecore            @exp/ecore: eCore's contract.json → Rust crate `ecore` + TS/Swift/Kotlin (ids, grants, verdicts, errors, envelope; types only, gated)
@@ -23,9 +23,9 @@ packages/eagent           @exp/eagent: Agents' orchestration spec (tree, bus, wa
 packages/eengine          @exp/eengine: the Engine's contract (lifecycle, consent, capabilities, providers fixtures + the TS twin); Rust = crate eengine
 packages/emcp             @exp/emcp: eMCP's contract (exposes, access, audit, vault, upstream fixtures + TS references); server half = apps/web/src/lib/emcp, Rust = crate emcp
 packages/ui               @exp/ui: theme, shadcn set, shared primitives, islands
-packages/design-tokens · icons (icons.json → TS/Swift/Kotlin/Rust) · emoji · electric-protocol · steer-ticket · widget · view-catalog (views.json, drift-gated) · shots (capture pipeline) · store-shots (store + social pictures) · exponential-ui{,-react,-solid,-swift,-compose} (the SDK, guides/ = the guide apps CI compiles; `-solid` = the Solid renderer + `./primitives` on `src/behaviors/`, parity-gated against React; both web renderers take their classes from the shared recipes `@exponential_app/eui/web/primitives`)
+packages/design-tokens · icons (icons.json → TS/Swift/Kotlin/Rust) · plugin-kit (→ integrations/*) · emoji · electric-protocol · steer-ticket · widget · view-catalog (views.json, drift-gated) · shots (capture pipeline) · store-shots (store + social pictures) · exponential-ui{,-react,-solid,-swift,-compose} (the SDK, guides/ = the guide apps CI compiles; `-solid` = the Solid renderer + `./primitives` on `src/behaviors/`, parity-gated against React; both web renderers take their classes from the shared recipes `@exponential_app/eui/web/primitives`)
 shots/            COMMITTED webp store, <view>/<platform>.webp + index.json
-docs/             third-party-licences.md + licences/     selfhost/  pull-an-image compose + INSTALL.md
+docs/   third-party-licences.md + licences/   selfhost/  pull-an-image compose + INSTALL.md
 ```
 
 Workspace names `@exp/<dir>`; `apps/desktop` = Cargo (shared `CARGO_TARGET_DIR`). **Brand:** one Exponential SDK; copy says genUI, Motion, Voice, P2P, Computer Use, MCP Proxy, Agents, Core, Apps, Engine (ACP = only the Agent Client Protocol). Packages, crates, tags and code keep `e<lib>` (eui, etalk, enet, epilot, emcp, eagent, ecore, eengine = the Engine, Apps' runtime, tag `eengine-v*`; no `eapps`).

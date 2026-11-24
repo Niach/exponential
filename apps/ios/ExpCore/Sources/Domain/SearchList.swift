@@ -25,6 +25,38 @@ public enum SearchList {
         public static let count = "search-list-count"
     }
 
+    /// #NEW-133 (search-list.json SUGGESTION): the action row a recognised
+    /// sentence puts on top of the global search: its icon concept, label
+    /// format and test id.
+    public enum SuggestionSpec {
+        public static let icon = "nav-search"
+        public static let label = "Search: {query}"
+        public static let testId = "search-list-suggestion"
+    }
+
+    /// The suggestion row: the query a recognised sentence means and the
+    /// row's name.
+    public struct Suggestion: Equatable, Sendable {
+        public let query: String
+        public let label: String
+
+        public init(query: String, label: String) {
+            self.query = query
+            self.label = label
+        }
+    }
+
+    /// The suggestion row for the typed `text` (`suggestion.cases`), or nil
+    /// when the phrase grammar does not recognise a sentence.
+    public static func suggestion(
+        text: String,
+        members: [IssueSearchPhrase.Member],
+        now: Date = Date()
+    ) -> Suggestion? {
+        guard let query = IssueSearchPhrase.translate(text, members: members, now: now) else { return nil }
+        return Suggestion(query: query, label: SuggestionSpec.label.replacingOccurrences(of: "{query}", with: query))
+    }
+
     /// Where an open `#` token starts and what it holds.
     public struct Prefill: Equatable, Sendable {
         /// UTF-16 offset of the `#`.

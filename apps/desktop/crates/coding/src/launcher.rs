@@ -862,7 +862,7 @@ pub struct AcpLaunch {
     /// `None` for every other agent, which the reaper never anchored either.
     pub reaper_settings_path: Option<PathBuf>,
     /// EXP-1025: the text on the agent's additive system-prompt channel
-    /// (claude `--append-system-prompt`, codex `developer_instructions`):
+    /// (claude `--append-system-prompt-file`, codex `developer_instructions`):
     /// the run playbook, the team prompt and (EXP-1292) a team agent's
     /// instructions, composed by [`crate::skill::system_append_layers`] off
     /// the session's `sessions.brief` at prepare time — start AND resume, so
@@ -3454,6 +3454,22 @@ fn shell_system_append(deps: &CodingDeps, team_id: Option<&str>) -> String {
     }
 }
 
+/// #FEED-308: where an agent shell's system prompt append rides
+/// (`--append-system-prompt-file`). Its own folder, NOT [`HOOK_SETTINGS_DIR`]:
+/// a path under that one in a command line is the reaper's mark of a
+/// session's process.
+const SHELL_PROMPT_DIR: &str = "shell-prompts";
+
+/// #FEED-308: the shell's append as a file under the data dir, named by its
+/// content (one file per distinct text; the ones unused for
+/// [`HOOK_SETTINGS_TTL`] go).
+fn write_shell_prompt(data_dir: &Path, system_append: &str) -> Result<PathBuf, CodingError> {
+    let dir = data_dir.join(SHELL_PROMPT_DIR);
+    eagent::command_line::prune_launch_files(&dir, HOOK_SETTINGS_TTL);
+    eagent::command_line::write_launch_file(&dir, "prompt", "md", system_append)
+        .map_err(|err| CodingError::Io(err.to_string()))
+}
+
 /// EXP-1051 — the measured context layers for ONE launch ([`AcpLaunch::
 /// context_layers`]). Every number is a BYTE COUNT of something this
 /// launcher itself composed:
@@ -3631,7 +3647,8 @@ pub fn prepare_agent_shell(
         crate::claude_trust::ensure_onboarded(&cwd, true, profile_dir.as_deref());
     }
     let system_append = shell_system_append(deps, req.team_id.as_deref());
-    let args = shell_args(options, &agent_mcp, &system_append);
+    let prompt_file = write_shell_prompt(&deps.data_dir, &system_append)?;
+    let args = shell_args(options, &agent_mcp, &system_append, &prompt_file);
     let tab_title = agent_shell_tab_title(agent, req, &cwd);
     let mut spawn = SpawnSpec::new(&deps.settings.resolved_path_for(agent))
         .args(args)
@@ -4238,6 +4255,7 @@ mod tests {
             },
             &crate::argv::AgentMcp::ClaudeFile,
             crate::skill::RUN_SKILL,
+            Path::new("/data/shell-prompts/prompt.md"),
         );
         let model_at = flag.iter().position(|arg| arg == "--model").expect("--model");
         assert_eq!(flag[model_at + 1], picked.env[1].1);
@@ -4271,6 +4289,7 @@ mod tests {
                 &LaunchOptions { model: model.to_string(), ..defaults.clone() },
                 &crate::argv::AgentMcp::ClaudeFile,
                 crate::skill::RUN_SKILL,
+                Path::new("/data/shell-prompts/prompt.md"),
             );
             let at = args.iter().position(|arg| arg == "--model").expect("--model");
             args[at + 1].clone()
