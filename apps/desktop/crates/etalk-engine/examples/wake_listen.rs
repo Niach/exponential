@@ -25,6 +25,12 @@
 //! named `positives` should wake, every other clip should not.
 //!
 //! Prints one JSON line.
+//!
+//! macOS: the speech runtime loads only from the running executable's
+//! bundle, so run the built example from a stand-in one
+//! (`WL.app/Contents/MacOS/wake_listen`, with `WL.app/Contents/Frameworks/`
+//! copied from an installed Exponential.app); a bare `cargo run` never
+//! listens there.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};

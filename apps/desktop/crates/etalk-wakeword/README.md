@@ -29,11 +29,13 @@ rests while the room is quiet (`etalk-engine`'s `wake.rs`: no Silero frame
 at 0.1 or over for 1.28 s) and Silero alone listens.
 
 Speech worker CPU (user + system, every thread) over 120 s of a quiet room,
-`Hey spezl`, 3 runs each:
+`Hey spezl`, 3 runs each (the issue's own figure on the M4 Pro, the app on the
+real microphone, was 5.0 s = 4.2 %):
 
 | machine, microphone | before | after |
 |---|---|---|
 | Linux (i9-13900K, CUDA build), `pw-record` 16 kHz from a virtual PipeWire source | 6.4 – 7.2 s (5.3 – 6.0 % of one core) | 2.1 – 2.4 s (1.8 – 2.0 %) |
+| M4 Pro (macOS 27), `wake_listen idle`: a stand-in microphone, 48 kHz in 10 ms chunks | 4.6 – 5.2 s (3.8 – 4.4 %) | 1.9 s (1.5 – 1.6 %) |
 
 Where the Linux time goes, per second of audio on the listening thread: before
 the embedding ~41 ms, the mel spectrogram ~3.5 ms, the classifier ~2.7 ms and
@@ -41,7 +43,9 @@ Silero ~9 ms (together 5.4 – 6.1 s of the 120 s); after Silero and the
 bookkeeping, 1.2 – 1.3 s. The rest is the CUDA runtime's idle event thread
 (0.8 – 1.1 s, Linux GPU build only) and, outside the worker, `pw-record`
 (0.4 s). No `Level` frame is made while scanning (only a Listen, a turn or a
-call draws them). With sound in the room (talk, music, a TV) the model scores
+call draws them). The M4 Pro's listening thread (`sample`, before) agrees:
+of its working time 77 % in the model's networks (tract), 23 % in Silero,
+nothing else. With sound in the room (talk, music, a TV) the model scores
 every frame as before.
 
 Measure it without a microphone (the worker's own listening thread on a
@@ -52,6 +56,11 @@ default 48 kHz in 10 ms chunks is cpal's on macOS and Windows):
 cargo run --release -p etalk-engine --example wake_listen -- <data-dir> idle --seconds 120
 cargo run --release -p etalk-engine --example wake_listen -- <data-dir> clips <clips-dir>   # what still wakes
 ```
+
+macOS loads the speech runtime only from the running executable's bundle: put
+the built example in a stand-in one (`WL.app/Contents/MacOS/wake_listen`, with
+`WL.app/Contents/Frameworks/*.dylib` copied from an installed Exponential.app)
+and run it from there.
 
 `examples/wake_model.rs` times the three networks alone, fed as fast as they
 decode (M4 Pro: ~11 ms per second of audio; in real time, with cold caches
