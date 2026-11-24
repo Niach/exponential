@@ -72,6 +72,12 @@ pub struct SessionBrief {
     /// `false` from a server that does not send it.
     #[serde(default)]
     pub call: bool,
+    /// #EXP-2119 (session-brief.json AWAITS): a team agent's group chat has
+    /// nothing to say at its launch: the engine starts with NO first prompt
+    /// and the pending message is its first turn; `false` from a server that
+    /// does not send it.
+    #[serde(default)]
+    pub awaits_message: bool,
     /// EXP-1458 (FEED-178): the first person message when it is SEALED
     /// (its envelope, untouched): `brief` was composed WITHOUT its text,
     /// and the device opens it and puts it in as the Request itself.

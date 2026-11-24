@@ -82,6 +82,14 @@ pub fn find_codex_session_id(
     None
 }
 
+/// #EXP-2119: whether codex recorded the thread `id` at all (its rollout's
+/// file name ends in it; codex writes none before a thread's first turn).
+pub fn has_rollout(sessions_root: &Path, id: &str) -> bool {
+    let mut rollouts: Vec<(String, PathBuf)> = Vec::new();
+    collect_rollouts(sessions_root, 0, &mut rollouts);
+    rollouts.iter().any(|(name, _)| name.contains(id))
+}
+
 /// One rollout's first-line session meta.
 pub(crate) struct SessionMeta {
     pub(crate) cwd: String,

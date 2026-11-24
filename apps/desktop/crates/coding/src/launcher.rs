@@ -3000,9 +3000,24 @@ fn prepare_resume(
                 })
         })
         .flatten();
+    // #EXP-2119: a codex thread that never took a turn (a group chat launched
+    // without a first prompt, cut before its first message) has no rollout:
+    // `thread/resume` refuses it for good. It starts afresh instead.
+    let codex_unrun = agent == CodingAgent::Codex
+        && record.context_base().is_none()
+        && record.acp_session_id.as_deref().or(acp_native.as_deref()).is_some_and(|thread| {
+            let roots: Vec<PathBuf> = match &deps.codex_sessions_root {
+                Some(root) => vec![root.clone()],
+                None => [source_profile_dir.as_deref(), profile_dir.as_deref()]
+                    .into_iter()
+                    .filter_map(crate::codex_sessions::codex_sessions_root)
+                    .collect(),
+            };
+            !roots.is_empty() && !roots.iter().any(|root| crate::codex_sessions::has_rollout(root, thread))
+        });
     let codex_resume_id = (marker_allows_resume && agent == CodingAgent::Codex && !fresh)
         .then(|| {
-            acp_native.clone().or_else(|| {
+            acp_native.clone().filter(|_| !codex_unrun).or_else(|| {
                 deps.codex_sessions_root
                     .clone()
                     .or_else(|| crate::codex_sessions::codex_sessions_root(profile_dir.as_deref()))
@@ -3019,7 +3034,7 @@ fn prepare_resume(
     // EXP-746 (D8): an ACP run's surviving conversation is its recorded ACP
     // session id — `session/load` replays the WHOLE conversation, so it is as
     // native a resume as the handles above.
-    let acp_resume_id = record.acp_session_id.clone().filter(|_| record.is_acp() && !fresh);
+    let acp_resume_id = record.acp_session_id.clone().filter(|_| record.is_acp() && !fresh && !codex_unrun);
     let native_resume =
         acp_resume_id.is_some() || claude_resume_id.is_some() || codex_resume_id.is_some();
 
