@@ -94,7 +94,7 @@ final class SidebarTreeModel {
                 },
                 apps: try AppEntity.filter(Column("deleted_at") == nil).fetchAll(db).map(AppListEntry.init(row:)).map {
                     App(
-                        id: $0.id, teamId: $0.teamId, name: $0.name, icon: $0.glyph,
+                        id: $0.id, teamId: $0.teamId ?? "", name: $0.name, icon: $0.glyph,
                         color: $0.color ?? AppGlyph.neutralColor, agentId: $0.agentId
                     )
                 },

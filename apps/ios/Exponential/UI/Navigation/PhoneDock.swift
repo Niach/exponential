@@ -69,7 +69,7 @@ struct PhoneDock: View {
 
     @ViewBuilder
     private func cell(_ tab: Chats.Shell.Tab) -> some View {
-        let lit = tab == .new ? newOpen : selected == tab
+        let lit = newOpen ? tab == .new : selected == tab
         Button {
             if tab == .new {
                 UIApplication.endEditing()
@@ -126,7 +126,7 @@ struct PhoneDock: View {
 
     private func assistant(selected: Bool) -> some View {
         Circle()
-            .fill(GlassTokens.opaqueCardFill)
+            .fill(DesignTokens.Palette.card)
             .overlay(Circle().strokeBorder(GlassTokens.strokeCard, lineWidth: 1))
             .overlay { ExpLogoMark(size: PhoneDockMetrics.mark, color: DesignTokens.Palette.foreground) }
             .frame(width: PhoneDockMetrics.disc, height: PhoneDockMetrics.disc)
@@ -163,7 +163,7 @@ struct PhoneDock: View {
                         Spacer(minLength: 0)
                     }
                     .foregroundStyle(.white.opacity(enabled ? 1 : TextOpacity.tertiary))
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 14)
                     .frame(height: PhoneDockMetrics.menuRowHeight)
                     .contentShape(Rectangle())
                 }
@@ -172,7 +172,7 @@ struct PhoneDock: View {
                 .accessibilityIdentifier(Chats.TestIds.newMenuRow)
             }
         }
-        .padding(.vertical, 6)
+        .padding(6)
         .frame(width: PhoneDockMetrics.menuWidth)
         // THE glass menu fill (GlassMenu's opaque card composite + its tint).
         .background(GlassTokens.opaqueCardFill, in: shape)

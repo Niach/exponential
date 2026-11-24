@@ -49,10 +49,14 @@ struct SettingsRowGlyph: View {
 /// #EXP-2109 (settings-nav.json `nav.phone.settings`): the SETTINGS TAB: the
 /// viewer's card (opens Account), account / assistant / notifications /
 /// security, Devices, About, then the app's own rows (each server's signed-in
-/// account and Add server, the staging Sync diagnostics, the device's Keep
-/// tool steps). Nothing team related.
+/// account and Add server, Getting started for the first team, the staging
+/// Sync diagnostics, the device's Keep tool steps).
 struct SettingsTabView: View {
     @Environment(AppDependencies.self) private var deps
+    @Environment(TeamState.self) private var teamState
+    /// EXP-1270: Getting started's signals for the first team.
+    @State private var gettingStarted = GettingStartedProgress()
+    @State private var showGettingStarted = false
     @State private var showAddServer = false
     // The account that was active before Add-server opened, so a cancelled /
     // incomplete add can be rolled back off the tokenless pending account.
@@ -63,6 +67,7 @@ struct SettingsTabView: View {
     @State private var user: UserEntity?
 
     private var accountId: String { deps.auth.activeAccountId ?? "" }
+    private var firstTeamId: String? { teamState.orderedTeams.first?.id }
     private var account: ServerAccount? { deps.auth.accounts.first { $0.id == accountId } }
 
     /// `phone.settings` split into its cards.
@@ -91,6 +96,18 @@ struct SettingsTabView: View {
         }
         .pageHeader(Chats.Copy.Headers.settings)
         .task(id: accountId) { await observeUser() }
+        .task(id: "\(accountId)/\(firstTeamId ?? "")") {
+            if let firstTeamId {
+                gettingStarted.bind(accountId: accountId, teamId: firstTeamId, deps: deps)
+            } else {
+                gettingStarted.stop()
+            }
+        }
+        .sheet(isPresented: $showGettingStarted) {
+            if let firstTeamId {
+                GettingStartedSheet(progress: gettingStarted, accountId: accountId, teamId: firstTeamId)
+            }
+        }
         .accessibilityIdentifier("settings-tab")
         .fullScreenCover(isPresented: $showAddServer) {
             InstanceView(showCancel: true) {
@@ -251,13 +268,24 @@ struct SettingsTabView: View {
         .contentShape(Rectangle())
     }
 
-    /// The device's own rows (the staging Sync diagnostics, Keep tool
+    /// The app's own rows (Getting started, the staging Sync diagnostics, Keep tool
     /// steps); gone when it has none.
     @ViewBuilder
     private var deviceSection: some View {
         let showStorage = ChatStoreHub.shared.isAvailable
-        if showStorage || AppConstants.isStaging {
+        let showGettingStarted = !gettingStarted.loading && !gettingStarted.complete && !gettingStarted.entries.isEmpty
+        if showGettingStarted || showStorage || AppConstants.isStaging {
             VStack(spacing: 0) {
+                // EXP-1270: gone once every step is done.
+                if showGettingStarted {
+                    Button { self.showGettingStarted = true } label: {
+                        SettingsLinkRow(title: GettingStarted.title) {
+                            SettingsRowGlyph(icon: AppIcons.navGettingStarted)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(GettingStarted.TestId.entry)
+                }
                 // EXP-232: staging-only — exposes live shape status and a
                 // "Resync now" data-wipe hatch, not for store builds.
                 if AppConstants.isStaging {
@@ -323,7 +351,7 @@ struct SecuritySettingsPage: View {
 
 /// #EXP-2109 (settings-nav.json `nav.phone.team`): a team's SETTINGS page
 /// (its `…` menu): `phone.team` in order, each row as before (visibility,
-/// count, its own page); then the team's Getting started while it has steps.
+/// count, its own page).
 struct TeamSettingsView: View {
     private struct Counts: Equatable, Sendable {
         var members = 0
@@ -337,8 +365,6 @@ struct TeamSettingsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @State private var counts = Counts()
-    @State private var gettingStarted = GettingStartedProgress()
-    @State private var showGettingStarted = false
 
     var body: some View {
         ZStack {
@@ -353,17 +379,6 @@ struct TeamSettingsView: View {
                         }
                     }
                     .glassSection()
-                    // EXP-1270: gone once every step is done.
-                    if !gettingStarted.loading, !gettingStarted.complete, !gettingStarted.entries.isEmpty {
-                        Button { showGettingStarted = true } label: {
-                            SettingsLinkRow(title: GettingStarted.title) {
-                                SettingsRowGlyph(icon: AppIcons.navGettingStarted)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .glassSection()
-                        .accessibilityIdentifier(GettingStarted.TestId.entry)
-                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -371,14 +386,7 @@ struct TeamSettingsView: View {
             }
         }
         .pageHeader(Chats.Copy.Headers.settings, pushed: true)
-        .sheet(isPresented: $showGettingStarted) {
-            GettingStartedSheet(progress: gettingStarted, accountId: accountId, teamId: teamId)
-        }
-        .task(id: "\(accountId)/\(teamId)") {
-            gettingStarted.bind(accountId: accountId, teamId: teamId, deps: deps)
-            await observeCounts()
-        }
-        .onDisappear { gettingStarted.stop() }
+        .task(id: "\(accountId)/\(teamId)") { await observeCounts() }
         .accessibilityIdentifier("team-settings")
     }
 
