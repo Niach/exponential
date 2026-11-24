@@ -275,7 +275,11 @@ fun AgentScreen(
     // Assistant carries the turn's teams (null = every team).
     val pickTeamRows by viewModel.pickTeams.collectAsStateWithLifecycle()
     val teamsPicked by viewModel.teamsPick.collectAsStateWithLifecycle()
-    val teamsPick = if (recipientAgent?.assistant == true) {
+    // #EXP-2094: addressed to my Assistant (`listAgents` keeps only the
+    // viewer's own), the lists read the chat teams.
+    val toMyAssistant = recipientAgent?.assistant == true
+    val chatTeamPrompts by viewModel.chatTeamPrompts.collectAsStateWithLifecycle()
+    val teamsPick = if (toMyAssistant) {
         TeamsPickBinding(pickTeamRows, teamsPicked, viewModel::setTeamsPick)
     } else {
         null
@@ -394,10 +398,11 @@ fun AgentScreen(
     LaunchedEffect(draftSync) { draftSync.follow { composerArmed = false } }
     // NEW-2: the `/` menu of the launch composer = the team's prompts alone
     // (no session yet, so no builtins), the web `promptSlashName` prefix rule.
-    val slashPrompts = remember(draft, actionsState) {
+    // #EXP-2094: addressed to my Assistant = the chat teams' prompts, team by team.
+    val slashPrompts = remember(draft, actionsState, toMyAssistant, chatTeamPrompts) {
         SlashCommands.promptMatches(
             draft,
-            actionsState.actions.orEmpty().map { SlashPrompt(it.id, it.name, it.icon) },
+            if (toMyAssistant) chatTeamPrompts else actionsState.actions.orEmpty().map { SlashPrompt(it.id, it.name, it.icon) },
         )
     }
     val currentOnOpenIssue by rememberUpdatedState(onOpenIssue)
@@ -831,7 +836,12 @@ fun AgentScreen(
         val accountOptions = accountOptionsFor(device, availableAgentsFor(device))
         val account = accountOptions.firstOrNull { it.key == launch.accountKey } ?: accountOptions.firstOrNull()
         // #EXP-1434: Prompts › = the `/` menu's prompts, in its order.
-        val teamPrompts = actionsState.actions.orEmpty().map { SlashPrompt(it.id, it.name, it.icon) }
+        // #EXP-2094: addressed to my Assistant = the chat teams' prompts.
+        val teamPrompts = if (toMyAssistant) {
+            chatTeamPrompts
+        } else {
+            actionsState.actions.orEmpty().map { SlashPrompt(it.id, it.name, it.icon) }
+        }
         ComposerPlusMenuSheet(
             layout = ComposerMenu.composerMenuLayout(
                 ComposerMenuSurface.Launch,
@@ -887,7 +897,25 @@ fun AgentScreen(
                 } else {
                     // A message to an agent: the pick inserts `#IDENT`.
                     AgentIssueInsertPage(
-                        issues = pool,
+                        // #EXP-2094: my Assistant's = the chat teams' issues
+                        // (the `#` vocabulary, as the chat's + › Issue).
+                        issues = if (toMyAssistant) {
+                            issueRefCandidates.map {
+                                IssueOption(
+                                    id = it.issueId,
+                                    identifier = it.identifier,
+                                    title = it.title,
+                                    repositoryId = null,
+                                    status = null,
+                                    priority = null,
+                                    description = it.description,
+                                    createdAt = it.createdAt,
+                                    updatedAt = it.updatedAt,
+                                )
+                            }
+                        } else {
+                            pool
+                        },
                         onPick = { option ->
                             commitToken(insertIssueRef(composerField, option.identifier))
                             close()

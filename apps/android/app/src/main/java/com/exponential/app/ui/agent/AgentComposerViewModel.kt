@@ -1,6 +1,7 @@
 package com.exponential.app.ui.agent
 
-import com.exponential.app.data.chatTeamIdsFlow
+import com.exponential.app.data.homeComposerChatTeamIdsFlow
+import com.exponential.app.data.teamByTeamFlow
 import com.exponential.app.data.routeSubject
 import com.exponential.app.data.routeTeamIdFlow
 import android.net.Uri
@@ -57,6 +58,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -246,20 +248,56 @@ class AgentComposerViewModel @Inject constructor(
         routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId)
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
 
-    /** #EXP-2079 (agent-settings.json `assistant.chatTeams`): the teams the
-     *  `#` issues and `@` members read: [teamId] unless that is the unsynced
-     *  personal team (a start into the global Assistant's chat), then the
-     *  turn's teams (that chat root's Teams pick, else every synced team).
-     *  Uploads/starts keep [teamId]. */
+    /** S-3: the picked team agent (null = Temporary session: today's
+     *  launch). It is NOT a subject (EXP-1450): the issue chips stay beside
+     *  it and ride the send as `issueIds`. Declared before [chatTeamIds],
+     *  which reads it (Kotlin initialises in declaration order). */
+    private val _recipient = MutableStateFlow<String?>(null)
+    val recipient: StateFlow<String?> = _recipient
+
+    // ── #EXP-1715: the Assistant's Teams pick (composer-menu.json `teamsPick`)
+    private val _teamsPick = MutableStateFlow<List<String>?>(null)
+    /** The pick while the recipient is the viewer's Assistant; null = every team. */
+    val teamsPick: StateFlow<List<String>?> = _teamsPick
+
+    /** #EXP-2094: whether the agent row picks the viewer's OWN Assistant
+     *  (role assistant, owner = me). */
+    private val toMyAssistant: Flow<Boolean> =
+        combine(_recipient, auth.userId, ::Pair).flatMapLatest { (agentId, me) ->
+            if (agentId == null) {
+                flowOf(false)
+            } else {
+                dbFlow.scopedQuery(false) { db ->
+                    db.agentDefinitionDao().observeById(agentId).map { it != null && it.isAssistant && it.ownerId == me }
+                }
+            }
+        }.distinctUntilChanged()
+
+    /** #EXP-2079/#EXP-2094 (agent-settings.json `assistant.chatTeams`): the
+     *  teams the `#` issues, `@` members, `/` prompts and the "+" issue search
+     *  read. Addressed to my Assistant: the chat teams with no own team (the
+     *  Teams pick ∩ the synced teams, else all of them). Else [teamId], unless
+     *  that is the unsynced personal team (a start into the global
+     *  Assistant's chat), then that chat root's turn teams. Uploads/starts
+     *  keep [teamId]. */
     private val chatTeamIds: StateFlow<List<String>> =
-        chatTeamIdsFlow(
+        homeComposerChatTeamIdsFlow(
             dbFlow,
+            toMyAssistant,
             teamId,
+            _teamsPick,
             (routeSubject { savedStateHandle.get<String>(it) } as? com.exponential.app.data.RouteSubject.Chat)?.let { chat ->
                 dbFlow.scopedQuery<List<String>?>(null) { db -> db.sessionDao().observeById(chat.id).map { it?.scopeTeamIdList } }
             } ?: flowOf(null),
         ).flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.Eagerly, listOfNotNull(selection.selectedId.value))
+
+    /** #EXP-2094: the `/` menu's and "+ › Prompts"' rows while the agent row
+     *  picks my Assistant: the chat teams' prompts, team by team in order. */
+    val chatTeamPrompts: StateFlow<List<SlashPrompt>> =
+        teamByTeamFlow(dbFlow, chatTeamIds) { db, team -> db.promptDao().observeByTeam(team) }
+            .map { rows -> rows.map { SlashPrompt(it.id, it.name, it.icon) } }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // ── The shared launch rails ─────────────────────────────────────────────
     val steerEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
@@ -686,16 +724,8 @@ class AgentComposerViewModel @Inject constructor(
     }
 
     // ── S-3: the agent row's pick (the recipient) ───────────────────────────
-    /** The picked team agent (null = Temporary session: today's launch). It
-     *  is NOT a subject (EXP-1450): the issue chips stay beside it and ride
-     *  the send as `issueIds`. */
-    private val _recipient = MutableStateFlow<String?>(null)
-    val recipient: StateFlow<String?> = _recipient
-
-    // ── #EXP-1715: the Assistant's Teams pick (composer-menu.json `teamsPick`)
-    private val _teamsPick = MutableStateFlow<List<String>?>(null)
-    /** The pick while the recipient is the viewer's Assistant; null = every team. */
-    val teamsPick: StateFlow<List<String>?> = _teamsPick
+    // (`_recipient` / `_teamsPick` are declared above [chatTeamIds], which
+    // reads them at init.)
 
     fun setTeamsPick(next: List<String>?) {
         _teamsPick.value = next
