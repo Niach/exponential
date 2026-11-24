@@ -391,7 +391,7 @@ describe.skipIf(!ready.ok)(`team agents as group chats (#EXP-1990)`, () => {
         expect(await after(id)).toMatchObject({ status: `ended`, agentId: null, shared: false, busy: false, needsInput: false })
       }
       const ended = await after(mine)
-      expect(ended).toMatchObject({ teamId, userId: owner, sealPublicKey: tree.publicKey, sealEpoch: 1, sealRotateEpoch: null })
+      expect(ended).toMatchObject({ teamId, userId: owner, sealPublicKey: tree.publicKey, sealEpoch: 1, sealRotateEpoch: 1 })
       expect(sessionVisibleTo(ended, owner)).toBe(true)
       expect(sessionVisibleTo(ended, mate)).toBe(false)
       expect(sessionVisibleTo(await after(theirs), owner)).toBe(false)
@@ -434,8 +434,9 @@ describe.skipIf(!ready.ok)(`team agents as group chats (#EXP-1990)`, () => {
       const wrap = (reader: { id: string; x25519Public: string }, tree: typeof first) => ({ installId: reader.id, wrapped: wrapTreeKey(reader.x25519Public, tree.secret) })
       await keys(owner).create({ rootId, installId: ownerPhone.id, epoch: 1, publicKey: first.publicKey, wraps: [ownerPhone, ownerBox, matePhone].map((reader) => wrap(reader, first)) })
       const line = sealBody(first.publicKey, 1, `the old history`)
-      // Turned private WITH a rotation, as the switch did on staging.
+      // Turned private as the switch does: due, the next holder rotates.
       await db.transaction((tx) => restampTreesInTx(tx, [rootId], false))
+      expect(await keys(owner).due({ installId: ownerBox.id })).toContainEqual({ rootId, epoch: 1 })
       await keys(owner).create({ rootId, installId: ownerBox.id, epoch: 2, publicKey: second.publicKey, wraps: [wrap(ownerBox, second)] })
       if (!kept) await db.update(sessionKeys).set({ treePublicKey: null }).where(eq(sessionKeys.rootId, rootId))
       const late = await install(owner)
@@ -457,6 +458,11 @@ describe.skipIf(!ready.ok)(`team agents as group chats (#EXP-1990)`, () => {
       const mine = await keys(owner).mine({ installId: late.id, rootIds: [rootId] })
       expect(mine.map((row) => row.epoch).sort()).toEqual([1, 2])
       expect(openBody(line, new Map(mine.map((row) => [row.epoch, unwrapTreeKey(late.secret, row.wrapped)])))).toMatchObject({ status: `opened`, text: `the old history` })
+      // What is written on is sealed to the new key; the teammate has no wrap of any.
+      const next = sealBody(second.publicKey, 2, `and what I wrote since`)
+      expect(openBody(next, new Map(mine.map((row) => [row.epoch, unwrapTreeKey(late.secret, row.wrapped)])))).toMatchObject({ status: `opened`, text: `and what I wrote since` })
+      expect(openBody(next, new Map([[1, first.secret]]))).toMatchObject({ status: `noKey` })
+      expect(await keys(mate).mine({ installId: matePhone.id, rootIds: [rootId] })).toEqual([])
       // Never for an install that does not read it, whatever epoch is named.
       await expect(
         keys(owner).wrap({ installId: ownerBox.id, wraps: [{ rootId, epoch: 1, targetInstallId: matePhone.id, wrapped: wrapTreeKey(matePhone.x25519Public, first.secret) }] })

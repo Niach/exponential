@@ -48,9 +48,8 @@ export async function isGroupChat(
  * conversations and issue links). A tree turning shared: what a private
  * chat's bus wrote in full goes neutral for its new readers (#EXP-1409). A
  * tree turning private keeps only its readers' key wraps (#FEED-177);
- * `rotate` false = its key is never sealed to again (#EXP-2119).
  */
-export async function restampTreesInTx(tx: Tx, rootIds: string[], shared: boolean, rotate = true): Promise<void> {
+export async function restampTreesInTx(tx: Tx, rootIds: string[], shared: boolean): Promise<void> {
   if (rootIds.length === 0) return
   const tree = tx.select({ id: sessions.id }).from(sessions).where(inArray(sessions.rootId, rootIds))
   await tx
@@ -61,7 +60,7 @@ export async function restampTreesInTx(tx: Tx, rootIds: string[], shared: boolea
   await tx.update(conversations).set({ shared }).where(inArray(conversations.sessionId, tree))
   await tx.update(sessionIssues).set({ shared }).where(inArray(sessionIssues.sessionId, tree))
   await hidePrivateLinesInTx(tx, rootIds)
-  if (!shared) await dropNonReaderKeysInTx(tx, rootIds, { rotate })
+  if (!shared) await dropNonReaderKeysInTx(tx, rootIds)
 }
 
 /**
@@ -108,8 +107,9 @@ export async function endPrivateConversationsInTx(tx: Tx, agentId?: string): Pro
   // Detached: no cascade takes the tree with its agent, and it reads as an
   // ended chat (titled after the agent, as every conversation is).
   await tx.update(sessions).set({ agentId: null }).where(inArray(sessions.rootId, rootIds))
-  // #EXP-2119: ended for good, so no rotation (as the Assistant move).
-  await restampTreesInTx(tx, rootIds, false, false)
+  // #EXP-2119: due for a rotation (its member may write on): a holder rotates
+  // it, the old epoch stays readable to the member (OLDER EPOCHS).
+  await restampTreesInTx(tx, rootIds, false)
   return rootIds
 }
 

@@ -307,14 +307,12 @@ const DELETE_CHUNK = 5000
  * gets `seal_rotate_epoch` = its current epoch (DUE) and the holders rotate
  * (`steer::seal_keys`, the web / iOS / Android key holders through
  * `sessionKeys.due`); `create` clears it. Returns the roots it flagged.
- * `rotate` false = the trees ended for good with the drop (#EXP-2119): the
- * wraps go, nothing is due. A fixed number of queries per DROP_CHUNK roots,
- * never some per root.
+ * A fixed number of queries per DROP_CHUNK roots, never some per root.
  */
 export async function dropNonReaderKeysInTx(
   tx: Tx,
   rootIds: readonly string[],
-  options: { gone?: ReadonlySet<string>; rotate?: boolean } = {}
+  options: { gone?: ReadonlySet<string> } = {}
 ): Promise<string[]> {
   const flagged: string[] = []
   const ids = [...new Set(rootIds)].sort()
@@ -344,7 +342,6 @@ export async function dropNonReaderKeysInTx(
         )
       )
     }
-    if (options.rotate === false) continue
     const lost = new Set(dropped.map((row) => row.rootId))
     const due = roots.filter((root) => lost.has(root.id) && root.sealRotateEpoch === null)
     // One write per epoch among them (nearly always one).
