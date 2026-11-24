@@ -22,10 +22,10 @@ version="$(q 'show server_version_num')"
 [ "$((version / 10000))" = "$major" ] || { echo "expected Postgres $major, got $version" >&2; exit 1; }
 # Same libc as the stock alpine image: musl, never glibc.
 docker exec "$name" sh -c 'ldd /usr/local/bin/postgres 2>&1 | grep -q musl' || { echo "not a musl build" >&2; exit 1; }
-[ "$(q 'show wal_level')" = logical ]
+[ "$(q 'show wal_level')" = logical ] || { echo "wal_level flag not taken" >&2; exit 1; }
 q 'create extension vector' >/dev/null
 got="$(q "select extversion from pg_extension where extname = 'vector'")"
 [ -z "$want" ] || [ "$got" = "$want" ] || { echo "expected pgvector $want, got $got" >&2; exit 1; }
 q "create table t (id int primary key, v vector(3)); insert into t values (1, '[1,0,0]'), (2, '[0,1,0]'), (3, '[0.9,0.1,0]'); create index on t using hnsw (v vector_cosine_ops)" >/dev/null
-[ "$(q "set hnsw.iterative_scan = relaxed_order; set enable_seqscan = off; select string_agg(id::text, ',') from (select id from t order by v <=> '[1,0,0]' limit 2) s")" = "1,3" ]
+[ "$(q "set hnsw.iterative_scan = relaxed_order; set enable_seqscan = off; select string_agg(id::text, ',') from (select id from t order by v <=> '[1,0,0]' limit 2) s" | tail -1)" = "1,3" ] || { echo "HNSW search answered wrong" >&2; exit 1; }
 echo "ok: Postgres $version (musl), pgvector $got, HNSW cosine search works"

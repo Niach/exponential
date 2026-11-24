@@ -63,8 +63,16 @@ async function world(tx: RealDbTx) {
   const home = await team()
   const issue = async (title: string, description: string | null = null, at = home) =>
     (await tx.insert(issues).values({ boardId: at.boardId, teamId: at.teamId, title, description, creatorId: userId }).returning({ id: issues.id }))[0]!.id
+  // now() stands still inside one transaction: give each comment its own
+  // created_at, as comments written one after another have.
+  let commentSeq = 0
   const comment = async (issueId: string, body: string) =>
-    (await tx.insert(comments).values({ issueId, teamId: home.teamId, boardId: home.boardId, authorId: userId, body }).returning({ id: comments.id }))[0]!.id
+    (
+      await tx
+        .insert(comments)
+        .values({ issueId, teamId: home.teamId, boardId: home.boardId, authorId: userId, body, createdAt: new Date(Date.now() + 1000 * ++commentSeq) })
+        .returning({ id: comments.id })
+    )[0]!.id
   return { userId, ...home, team, issue, comment }
 }
 
