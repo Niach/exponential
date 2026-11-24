@@ -2,12 +2,12 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
 
-import { PhoneBoardMenuStrip, phoneBoardMenuHeight } from "./phone-board-menu"
+import { PhoneDock, PhoneDockAssistant, PhoneDockTab, PhoneNewMenu } from "./phone-dock"
 import { PhoneTab, PhoneTabBar } from "./phone-tab-bar"
 
-// #EXP-1384 (chats.json `shell.bar.drag`, `shell.boardMenu`): the drag lens
+// #EXP-1384 (chats.json `shell.bar.drag`; #EXP-2109 `shell.dock`, `shell.newMenu`): the drag lens
 // selects the tab it is lifted on, a lift far off the bar cancels, a plain
-// tap stays the tab's own click; the board menu lists the rows and closes.
+// tap stays the tab's own click; the dock's cells and the New popup.
 
 // jsdom lays nothing out: each tab gets a 60px-wide box side by side.
 function layout(nav: HTMLElement) {
@@ -75,40 +75,34 @@ describe(`PhoneTabBar drag`, () => {
   })
 })
 
-describe(`PhoneBoardMenuStrip`, () => {
-  it(`lists the boards, the active one checked, then New board; Escape closes`, () => {
+describe(`PhoneDock`, () => {
+  it(`draws a cell's label, badge and selection; the Assistant has no label`, () => {
+    render(
+      <PhoneDock>
+        <PhoneDockTab label="Chats" icon={<svg />} selected badge={{ count: 3, tone: `attention` }} />
+        <PhoneDockAssistant />
+      </PhoneDock>
+    )
+    const chats = screen.getByLabelText(fixture.copy.tabs.chats)
+    expect(chats.getAttribute(`aria-current`)).toBe(`page`)
+    expect(chats.textContent).toBe(`3Chats`)
+    expect(screen.getByLabelText(fixture.copy.tabs.assistant).textContent).toBe(``)
+  })
+})
+
+describe(`PhoneNewMenu`, () => {
+  it(`lists the fixture's items; a pick closes it and Escape closes it`, () => {
     const onOpenChange = vi.fn()
     const onSelect = vi.fn()
-    const onNewBoard = vi.fn()
-    render(
-      <PhoneBoardMenuStrip
-        open
-        onOpenChange={onOpenChange}
-        rows={[
-          { id: `a`, name: `Web`, glyph: <svg />, active: true },
-          { id: `b`, name: `iOS`, glyph: <svg /> },
-        ]}
-        onSelect={onSelect}
-        onNewBoard={onNewBoard}
-      >
-        <span>strip</span>
-      </PhoneBoardMenuStrip>
-    )
-    const rows = screen.getAllByTestId(fixture.testIds.boardMenuRow)
-    expect(rows.map((row) => row.textContent)).toEqual([`Web`, `iOS`, fixture.copy.boardMenu.newBoard])
-    expect(rows[0]!.getAttribute(`aria-checked`)).toBe(`true`)
+    render(<PhoneNewMenu open onOpenChange={onOpenChange} onSelect={onSelect} disabled={{ issue: true }} />)
+    const rows = screen.getAllByTestId(fixture.testIds.newMenuRow) as HTMLButtonElement[]
+    expect(rows.map((row) => row.textContent)).toEqual([fixture.copy.newMenu.issue, fixture.copy.newMenu.chat])
+    expect(rows[0]!.disabled).toBe(true)
     fireEvent.click(rows[1]!)
-    expect(onSelect).toHaveBeenCalledWith(`b`)
+    expect(onSelect).toHaveBeenCalledWith(`chat`)
     expect(onOpenChange).toHaveBeenCalledWith(false)
     onOpenChange.mockReset()
     fireEvent.keyDown(window, { key: `Escape` })
     expect(onOpenChange).toHaveBeenCalledWith(false)
-  })
-
-  it(`caps the panel at maxVisibleRows`, () => {
-    const { rowHeight, maxVisibleRows } = fixture.shell.boardMenu
-    const pad = fixture.shell.bar.padding * 2
-    expect(phoneBoardMenuHeight(3)).toBe(3 * rowHeight + pad)
-    expect(phoneBoardMenuHeight(30)).toBe(maxVisibleRows * rowHeight + pad)
   })
 })

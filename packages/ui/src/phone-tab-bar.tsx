@@ -7,14 +7,11 @@ import { Badge } from "./badge"
 import { cn } from "./cn"
 import { FAB_CHROME_CLASS } from "./fab-chrome"
 
-// Chat 58cb32df (#EXP-1373, fixture `chats.json` `shell.tabs`): the PHONE
-// bottom bar's tab capsule — on Android and web-mobile the look-alike of the
-// iOS Liquid Glass tab bar, painted on THE floating chrome recipe
+// #EXP-1373 → #EXP-2109 (fixture `chats.json` `shell.bar`): the floating
+// glass TAB CAPSULE, a running app's own screens bar on a phone (the main bar
+// is `PhoneDock`), painted on THE floating chrome recipe
 // (`FAB_CHROME_CLASS`): each tab an icon over its label, the selected one on
-// the glass-active pill, an optional count badge (Chats, #FEED-232). 52px tall, the
-// height of the two-armed new chat / new issue capsule beside it. iOS = the
-// system tab bar (ExpUI `PhoneTabBar` look), Android `ui/components`
-// `PhoneTabBar`.
+// the glass-active pill, an optional count badge. 52px tall.
 //
 // #EXP-1384 (`shell.bar`): the capsule takes the width beside the launcher
 // capsule (`flex-1` in the strip); each tab starts at its label's width
@@ -279,7 +276,6 @@ export function PhoneTab({
   icon,
   selected = false,
   badge,
-  caret,
   asChild = false,
   lensPreview,
   className,
@@ -294,10 +290,6 @@ export function PhoneTab({
   /** #FEED-232: THE count badge on the icon's top-right corner
    *  (nav-badges.json); absent or a count of 0 = none. */
   badge?: CountBadgeValue | null
-  /** #EXP-1645 (`shell.boardTab`): beside the glyph, out of flow, so showing
-   *  it never changes the tab's width (the Board tab on the board view, the
-   *  Team tab on the Team page). */
-  caret?: React.ReactNode
   /** Render as the single child (a `Link`/`<a>`); its own children are
    *  replaced by the tab's body. */
   asChild?: boolean
@@ -327,16 +319,6 @@ export function PhoneTab({
             data-slot="phone-tab-badge"
             className="absolute bottom-[calc(100%-8px)] left-[calc(50%+4px)]"
           />
-        )}
-        {caret && (
-          <span
-            aria-hidden
-            data-slot="phone-tab-caret"
-            className="absolute top-1/2 left-full flex -translate-y-1/2"
-            style={{ marginLeft: CHATS_SHELL.boardTab.caretGap }}
-          >
-            {caret}
-          </span>
         )}
       </span>
       <span className="min-w-0 max-w-full truncate text-[10px] font-medium leading-none">

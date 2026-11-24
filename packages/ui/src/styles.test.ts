@@ -142,7 +142,6 @@ describe(`@exp/ui styles.css`, () => {
       "packages/ui/src/detail-chrome.tsx": { count: 3, why: `glass edge fades, no control` },
       "packages/ui/src/dock.tsx": { count: 1, why: `THE Dock's band: its column wears FAB_LANE_CLASS` },
       "packages/ui/src/mobile-work-bar.tsx": { count: 1, why: `phones: no FAB` },
-      "packages/ui/src/phone-board-menu.tsx": { count: 1, why: `phones: no FAB` },
       "packages/ui/src/pr-row.tsx": { count: 1, why: `a tree guide line, no control` },
       "packages/ui/src/session-results-view.tsx": { count: 2, why: `a tile's scrim + badge inside the tile` },
     }

@@ -82,7 +82,7 @@ export const DOCK_COLUMN_CLASS = `${CHAT_COLUMN_CLASS} px-3 md:px-5`
 
 /** The phone's floating work bar sits under the band: the band clears it
  *  (`MOBILE_WORK_BAR_CLEARANCE`, restated so the barrel stays a line). */
-const PHONE_CLEARANCE_CLASS = `pb-[calc(5.5rem+env(safe-area-inset-bottom))]`
+const PHONE_CLEARANCE_CLASS = `pb-[calc(5.5rem+max(env(safe-area-inset-bottom),var(--phone-dock-h,0px)))]`
 
 /** THE floating band. `rows` = `dockRows(sources)`, top to bottom. */
 export function Dock({
