@@ -7110,15 +7110,15 @@
         "file": "shots/session-synced-tail/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 67688,
-        "sha256": "bf5e1d105895c55045791cab1afa8c19b95a7a202f5e051ff308abe989ba158d"
+        "bytes": 72910,
+        "sha256": "86b63c387edfa427fba0120773c71ff431c2cef2bc9a1e31456f321e913bd997"
       },
       "web-mobile": {
         "file": "shots/session-synced-tail/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 47454,
-        "sha256": "cc1360db820e30ae2527aabe5c3da0bb6db04ca5ab944bc60cb45bcc9b174dca"
+        "bytes": 54106,
+        "sha256": "50330e730086a143d582ccfe15eeb96351753aaecb7a4449ca53e92849639d0b"
       }
     },
     "settings-account": {
