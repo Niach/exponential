@@ -511,27 +511,14 @@ export function VoiceSettingsCard({
   )
 }
 
-/** The page body: the card over the synced devices of the member and the
- *  agents of the member's teams. */
-export function VoiceSettingsSection({
-  settings,
-  assistantId,
-  memberRowsOnly,
-}: {
-  settings: VoiceSettings
-  /** S-3: the Assistant page's Voice section (VoiceSettingsCard). */
-  assistantId?: string
-  /** #EXP-1847: only the member rows (VoiceSettingsCard). */
-  memberRowsOnly?: boolean
-}) {
+/** The member's synced devices as voice device rows (#EXP-1859: also the
+ *  team agent page's Wake word row reads the voice device's detail). */
+export function useVoiceDeviceRows(): VoiceDeviceRow[] {
   const { data: session } = useSession()
   const userId = session?.user?.id
   const { data: deviceRows } = useLiveQuery((query) => query.from({ d: deviceCollection }), [])
-  const { data: agentRows } = useLiveQuery((query) => query.from({ a: agentCollection }), [])
-  const { data: teamRows } = useLiveQuery((query) => query.from({ t: teamCollection }), [])
   const now = useNow(15_000)
-
-  const devices = useMemo<VoiceDeviceRow[]>(
+  return useMemo<VoiceDeviceRow[]>(
     () =>
       (deviceRows ?? [])
         .filter((device) => device.userId === userId)
@@ -547,6 +534,24 @@ export function VoiceSettingsSection({
         })),
     [deviceRows, userId, now]
   )
+}
+
+/** The page body: the card over the synced devices of the member and the
+ *  agents of the member's teams. */
+export function VoiceSettingsSection({
+  settings,
+  assistantId,
+  memberRowsOnly,
+}: {
+  settings: VoiceSettings
+  /** S-3: the Assistant page's Voice section (VoiceSettingsCard). */
+  assistantId?: string
+  /** #EXP-1847: only the member rows (VoiceSettingsCard). */
+  memberRowsOnly?: boolean
+}) {
+  const devices = useVoiceDeviceRows()
+  const { data: agentRows } = useLiveQuery((query) => query.from({ a: agentCollection }), [])
+  const { data: teamRows } = useLiveQuery((query) => query.from({ t: teamCollection }), [])
   const agents = useMemo<VoiceAgentRow[]>(() => {
     const teamNames = new Map((teamRows ?? []).map((team) => [team.id, team.name] as const))
     return (agentRows ?? []).map((agent) => ({
