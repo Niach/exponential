@@ -2296,12 +2296,33 @@ struct AgentSessionView: View {
     /// then the mark; the menu per `bubbleActions`.
     @ViewBuilder
     private func ownPendingBubbles(_ model: AgentSessionModel) -> some View {
-        ForEach(Array(model.ownBubbles.enumerated()), id: \.element.id) { index, bubble in
+        let bubbles = model.ownBubbles
+        // #EXP-2089: a teammate's not-consumed row sits left under their
+        // avatar and name, through THE grouping the sent inputs use.
+        let layouts = bubbles.contains { $0.memberId != nil }
+            ? sentInputLayouts(bubbles.map { NoFeedInput(id: $0.id, text: $0.text, at: $0.at, authorId: $0.memberId) }, model: model)
+            : [:]
+        ForEach(Array(bubbles.enumerated()), id: \.element.id) { index, bubble in
+            // The own group opens again after a teammate's bubble.
+            let opens = index == 0 || bubbles[index - 1].memberId != nil
+            if bubble.memberId != nil {
+                let layout = layouts[bubble.id]
+                TranscriptRow(
+                    layout: layout,
+                    avatar: { transcriptRows?.senderAvatar($0) ?? Self.fallbackAvatar($0) },
+                    ownAvatar: ownAvatar
+                ) {
+                    senderBubble(bubble.text, layout: layout, streaming: false, time: bubble.at.map { GlassTimeRow.formatted($0) })
+                        .modifier(FindRowMark(id: TranscriptFind.bubbleItemId(TranscriptFind.ownKey(bubble))))
+                }
+                .id(TranscriptFind.ownKey(bubble))
+                .deepLinkRow(findLink?.target == TranscriptFind.ownKey(bubble), frame: $findFrame)
+            } else {
             TranscriptRow(
                 side: .own,
-                gap: index == 0 ? TranscriptGrouping.Layout.gapBetween : TranscriptGrouping.Layout.gapInGroup,
+                gap: opens ? TranscriptGrouping.Layout.gapBetween : TranscriptGrouping.Layout.gapInGroup,
                 // #FEED-239: the group's first bubble wears the viewer's avatar.
-                avatar: index == 0 ? ownAvatar : nil
+                avatar: opens ? ownAvatar : nil
             ) {
                 if let name = bubble.actionName, bubble.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     // #EXP-2067 (chat-express.json ACTIONS): a press without
@@ -2316,7 +2337,7 @@ struct AgentSessionView: View {
                         status: bubble.state,
                         actions: bubble.actions,
                         onAction: { action in ownBubbleAction(action, bubble: bubble, model: model) },
-                        tail: index == 0
+                        tail: opens
                     )
                     // #EXP-1975: the own tail is a loaded find row.
                     .modifier(FindRowMark(id: TranscriptFind.bubbleItemId(TranscriptFind.ownKey(bubble))))
@@ -2325,6 +2346,7 @@ struct AgentSessionView: View {
             // #EXP-1975: its find key (where find centres it).
             .id(TranscriptFind.ownKey(bubble))
             .deepLinkRow(findLink?.target == TranscriptFind.ownKey(bubble), frame: $findFrame)
+            }
         }
     }
 

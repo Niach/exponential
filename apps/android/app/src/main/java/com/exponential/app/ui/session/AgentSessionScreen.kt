@@ -723,6 +723,11 @@ private fun RunFaceContent(
     val ownTail by viewModel.ownTail.collectAsStateWithLifecycle()
     // #EXP-1990: the teammates' inputs the device has not consumed yet.
     val teammateTail by viewModel.teammateTail.collectAsStateWithLifecycle()
+    // #EXP-2089 (message-delivery.json ORDER): every person's not-consumed
+    // rows in ONE list, oldest first, between the held rows and the outbox.
+    val pendingTail = remember(teammateTail, ownTail) {
+        com.exponential.app.domain.MessageDelivery.pendingTail(teammateTail, ownTail)
+    }
     // #FEED-260 (steer-enet.json SYNCED TAIL): a NOT-live feed (the stored
     // tail painted at open, a dropped feed's cache, an empty feed) is
     // followed by the session's synced messages after it, so the agent's
@@ -1297,10 +1302,10 @@ private fun RunFaceContent(
                 // rows = the sent inputs above it, then the own tail; find
                 // counts and paints them (no transcript to page in).
                 // #EXP-1990: + the teammates' inputs still waiting for the device.
-                val placeholderInputs = remember(sessionEnded, noFeedInputs, teammateTail) {
-                    (if (!sessionEnded) noFeedInputs else emptyList()) + teammateTail
+                val placeholderInputs = remember(sessionEnded, noFeedInputs) {
+                    if (!sessionEnded) noFeedInputs else emptyList()
                 }
-                val placeholderBubbles = remember(placeholderInputs, ownTail) { placeholderInputs + ownTail }
+                val placeholderBubbles = remember(placeholderInputs, pendingTail) { placeholderInputs + pendingTail }
                 // #EXP-1998: the sent inputs are the synced messages drawn
                 // here (a live or an ended placeholder draws none); an older
                 // one pages in by widening them and loading older messages.
@@ -1398,11 +1403,13 @@ private fun RunFaceContent(
                             members = tailMembers,
                         )
                     }
-                    if (ownTail.isNotEmpty()) {
+                    if (pendingTail.isNotEmpty()) {
                         com.exponential.app.ui.chat.OwnTailBubbles(
-                            ownTail,
+                            pendingTail,
                             viewModel::ownBubbleAction,
                             modifier = Modifier.padding(top = 8.dp),
+                            viewerId = tailViewerId,
+                            members = tailMembers,
                             // #EXP-1876: below the sent inputs = the same own group
                             // (#EXP-1990: unless a teammate's input ends them).
                             startsGroup = placeholderInputs.isEmpty() ||
@@ -1541,7 +1548,7 @@ private fun RunFaceContent(
                     sessionCards = cardSlots,
                     renderCard = renderSessionCard,
                     calls = feedCalls,
-                    ownTail = if (teammateTail.isEmpty()) ownTail else teammateTail + ownTail,
+                    ownTail = pendingTail,
                     onOwnAction = viewModel::ownBubbleAction,
                 )
                 }

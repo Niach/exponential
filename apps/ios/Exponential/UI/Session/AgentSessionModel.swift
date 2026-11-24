@@ -1878,14 +1878,20 @@ final class AgentSessionModel {
 
     private var ownTail: [OwnPendingBubble] {
         guard ownPending.contains(where: { $0.stored }) else { return ownPending }
-        var echoes: [(text: String, at: Double)] = []
+        // #EXP-2089: `member` = the teammate a group chat's line names (nil =
+        // the viewer's, or an unworded line: anyone's).
+        var echoes: [(text: String, at: Double, member: String?)] = []
         for item in feed.suffix(40) {
             if case let .userMessage(_, text, _, at) = item {
-                // #EXP-1990: a group chat's echo of the viewer's own line
+                // #EXP-1990: a group chat's echo of a member's line
                 // (`Message from <name> (member <id>): <body>`) = its body.
                 var own = text
-                if case let .member(_, userId, body) = TranscriptGrouping.feedInput(text), userId == currentUserId { own = body }
-                echoes.append((own.trimmingCharacters(in: .whitespacesAndNewlines), Double(at ?? 0) / 1000))
+                var member: String?
+                if case let .member(_, userId, body) = TranscriptGrouping.feedInput(text) {
+                    own = body
+                    member = userId == currentUserId ? nil : userId
+                }
+                echoes.append((own.trimmingCharacters(in: .whitespacesAndNewlines), Double(at ?? 0) / 1000, member))
             }
         }
         var used = Set<Int>()
@@ -1894,6 +1900,7 @@ final class AgentSessionModel {
             let since = (bubble.at?.timeIntervalSince1970 ?? 0) - 5
             guard let index = echoes.indices.first(where: {
                 !used.contains($0) && echoes[$0].text == bubble.text && echoes[$0].at >= since
+                    && (echoes[$0].member == nil || echoes[$0].member == bubble.memberId)
             }) else { return true }
             used.insert(index)
             return false
@@ -2005,7 +2012,8 @@ final class AgentSessionModel {
             let rows = try MessageEntity
                 .filter(Column("session_id") == id)
                 .filter(Column("author_kind") == "user")
-                .filter(Column("author_id") == viewerId)
+                // #EXP-2089: + every teammate's row the device has not consumed.
+                .filter(Column("author_id") == viewerId || Column("consumed_at") == nil)
                 .filter(Column("card") == nil || Column("card").like("%\"action\"%"))
                 .order(Column("created_at").desc)
                 .limit(50)
