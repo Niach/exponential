@@ -278,6 +278,18 @@ final class ChatExpressTests: XCTestCase {
         }
     }
 
+    /// #EXP-2074/#EXP-2076: the specimens' sample (a subagent narration, a
+    /// call turn): one block between two prose runs; its keys per lane.
+    func testSpecimenSample() {
+        let text = "Checked the three lanes.\n<a2ui>\nroot = Stack(children=[title, ship])\ntitle = Text(text=\"Build 1482 is green\")\nship = Button(label=\"Ship it\", on={press: Event(\"reply\", userMessage=\"Ship it\")})\n</a2ui>\nAll green."
+        XCTAssertTrue(ChatExpress.hasExpressBlock(text))
+        XCTAssertEqual(ChatExpress.plainProse(text), "Checked the three lanes.\n\nAll green.")
+        XCTAssertEqual(ChatExpress.readText(text, authorKind: "agent"), "Checked the three lanes.\n\nAll green.")
+        // A subagent lane's narration keys like the main lane's (same session).
+        XCTAssertEqual(ChatExpress.feedRowKey(sessionId: "s1", messageId: "msg_sub_1", firstSeq: 9), "n:s1:msg_sub_1")
+        XCTAssertEqual(ChatExpress.syncedRowKey("v5"), "m:v5")
+    }
+
     func testPreviewCases() throws {
         for c in try cases("previewCases") {
             let name = c["name"] as? String ?? ""

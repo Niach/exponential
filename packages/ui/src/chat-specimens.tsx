@@ -540,13 +540,31 @@ function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
 const CALL_CASE = sessionChatFixture.cases.find((entry) => entry.name.startsWith(`#EXP-1943`))!
 const CALL_ROWS = CALL_CASE.expected.rows as SessionChatRow[]
 const CALL_VIEW_CASE = sessionCardFixture.callViewCases[0]!
-const CALL_VIEW = CALL_VIEW_CASE.expected as CallView
+/** #EXP-2074 / #EXP-2076: THE sample agent text with ONE Express block
+ *  (chat-express.json `segmentCases` "prose, one block, prose", its block),
+ *  the same on every platform's specimen and the relay-fed demo feed. */
+export const EXPRESS_SAMPLE_TEXT = `Checked the three lanes.\n<a2ui>\nroot = Stack(children=[title, ship])\ntitle = Text(text="Build 1482 is green")\nship = Button(label="Ship it", on={press: Event("reply", userMessage="Ship it")})\n</a2ui>\nAll green.`
+const CALL_EXPRESS_ROW: SessionChatRow = {
+  type: `message`,
+  id: `v-express`,
+  author: `agent`,
+  authorId: null,
+  body: EXPRESS_SAMPLE_TEXT,
+  queued: false,
+  authorSessionId: null,
+  xref: null,
+}
+// #EXP-2076: the call view's last spoken turn holds a block (split like the chat).
+const CALL_VIEW: CallView = { ...(CALL_VIEW_CASE.expected as CallView), rows: [...(CALL_VIEW_CASE.expected as CallView).rows, CALL_EXPRESS_ROW] }
 const CALL_CHAT = { sessionId: `r1`, title: `Assistant`, agentId: `ag1` }
 const CALL_VIEWER = `u-dana`
 const callMember = (id: string) => (id === CALL_VIEWER ? { id, name: `Dana Reyes` } : null)
 const hhmm = (iso: string) => iso.slice(11, 16)
 const CALL_TIMES = new Map(
-  [...CALL_CASE.input.messages, ...CALL_VIEW_CASE.input.messages].map((message) => [message.id, hhmm(message.createdAt)])
+  [...CALL_CASE.input.messages, ...CALL_VIEW_CASE.input.messages, { id: CALL_EXPRESS_ROW.id, createdAt: `2026-11-18T09:10:00.000Z` }].map((message) => [
+    message.id,
+    hhmm(message.createdAt),
+  ])
 )
 
 export function CallSpecimen({ layout }: { layout: `transcript` | `bubbles` }) {

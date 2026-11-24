@@ -242,6 +242,30 @@ final class VoiceCallTests: XCTestCase {
         }
     }
 
+    /// #EXP-2076 (chat-express.json PROSE): the in-call caption only READS
+    /// the reply: an Express block's raw never reaches it.
+    func testReplyCaptionReadsPlainProse() {
+        let reply = """
+        Checked the three lanes.
+        <a2ui>
+        root = Stack(children=[title, ship])
+        title = Text(text="Build 1482 is green")
+        ship = Button(label="Ship it", on={press: Event("reply", userMessage="Ship it")})
+        </a2ui>
+        All green.
+        """
+        let events: [VoiceCall.Event] = [
+            .start(device: "mint"), .rang, .ready, .said(text: "How are the lanes?"), .replyStarted(text: reply),
+        ]
+        let state = events.reduce(VoiceCall.idle, VoiceCall.callStep)
+        let view = VoiceCall.callView(state, platform: .phone)
+        XCTAssertEqual(view?.activity, .speaking)
+        XCTAssertEqual(view?.caption, "Checked the three lanes.\n\nAll green.")
+        // A reply without a block reads as it is (trimmed).
+        let plain = VoiceCall.callStep(state, .replyStarted(text: "  Merged it.  "))
+        XCTAssertEqual(VoiceCall.callView(plain, platform: .phone)?.caption, "Merged it.")
+    }
+
     func testFlowCases() throws {
         for row in try cases("flowCases") {
             let name = row["name"] as? String ?? "?"

@@ -712,6 +712,9 @@ pub(crate) struct SteerSessionView {
     /// EXP-789: the subagent tab in focus (`None` = Main). Only honoured
     /// while that subagent's tab is visible ([`Self::active_subagent`]).
     focused_subagent: Option<String>,
+    /// #EXP-2074 (DEV-ONLY, `EXP_DEV_SUBAGENT=<subagentId>`): that
+    /// subagent's tab still waits to be focused once the feed holds it.
+    dev_subagent_pending: bool,
     /// EXP-788: the option the keyboard has highlighted on the pending card
     /// (↑/↓), and which card it was highlighted on — a new card starts with
     /// nothing highlighted.
@@ -1170,6 +1173,7 @@ impl SteerSessionView {
             // the keyboard on its first frame (the hide edge fires once).
             composer_shown: true,
             focused_subagent: None,
+            dev_subagent_pending: dev_subagent().is_some(),
             answer_cursor: None,
             answer_cursor_for: None,
             slash: None,
@@ -2092,6 +2096,16 @@ impl SteerSessionView {
             let _span = tracing::trace_span!("steer.derive").entered();
             self.refresh_derived();
         }
+        // #EXP-2074 (DEV-ONLY): `EXP_DEV_SUBAGENT` opens that subagent's tab
+        // once the feed holds it (the subagent-lane capture).
+        if self.dev_subagent_pending {
+            if let Some(id) = dev_subagent().filter(|id| self.subagents.iter().any(|agent| agent.subagent_id == *id)) {
+                self.dev_subagent_pending = false;
+                self.focused_subagent = Some(id.to_string());
+                self.window_from = None;
+                self.chat.scroll_to_end();
+            }
+        }
         self.reanchor_window();
         if std::mem::take(&mut self.extend_window) {
             self.grow_window();
@@ -2260,12 +2274,19 @@ impl SteerSessionView {
             };
             // #EXP-2071: an Express row's block views land and grow after
             // its text (their revision is part of its measure).
+            // #EXP-2074: on every lane (a subagent's tab too), its finality
+            // with it (a final row's unclosed block draws THE marker).
             let fingerprint = match spec {
-                FeedRowSpec::Single { item, .. } => match items.get(*item).map(|item| &item.kind) {
-                    Some(FeedKind::Narration { text, .. }) => {
-                        transcript_rows::fold_extra(fingerprint, crate::express_view::row_extra(text, cx))
-                    }
-                    _ => fingerprint,
+                FeedRowSpec::Single { item, .. } => match items.get(*item) {
+                    Some(feed_item) => match &feed_item.kind {
+                        FeedKind::Narration { text, .. } => {
+                            let extra = crate::express_view::row_extra(text, cx);
+                            let extra = if extra == 0 { 0 } else { extra << 1 | u64::from(self.narration_final(feed_item.id)) };
+                            transcript_rows::fold_extra(fingerprint, extra)
+                        }
+                        _ => fingerprint,
+                    },
+                    None => fingerprint,
                 },
                 _ => fingerprint,
             };
@@ -2540,6 +2561,15 @@ impl SteerSessionView {
             return None;
         }
         self.rows.iter().rposition(|spec| matches!(spec, FeedRowSpec::Single { item, .. } if *item == last))
+    }
+
+    /// #EXP-2071 / #EXP-2074 (chat-express.json): whether feed narration
+    /// `id` is FINAL ([`narration_is_final`] over this view's feed; a view
+    /// that is not live, or a turn that is not working, holds only final
+    /// rows).
+    fn narration_final(&self, id: FeedItemId) -> bool {
+        let streaming_turn = self.phase == ViewerPhase::Live && self.feed.turn_state().is_working();
+        narration_is_final(self.feed.items(), id, streaming_turn)
     }
 
     /// #EDE-65 lane O: the Chat tab's transcript document (tests, the
@@ -6928,6 +6958,7 @@ impl SteerSessionView {
             session_id: self.session_id.clone(),
             message_id: express.message_id,
             row_key: express.row_key,
+            actions: true,
         };
         let count = segments.len();
         let mut prose = |index: usize, text: &str, first: bool, last_prose: bool, cx: &mut App| {
@@ -7016,11 +7047,13 @@ impl SteerSessionView {
                 let streaming = self.phase == ViewerPhase::Live && self.feed.items().last().is_some_and(|last| last.id == item.id);
                 let key = self.find_item_key(item);
                 // #EXP-2071: a feed narration row is final once another row
-                // follows it or its turn ended.
+                // of ITS OWN lane follows it or its turn ended (#EXP-2074: a
+                // subagent's narration under another lane's newer rows is
+                // still streaming).
                 let express = NarrationRow {
                     row_key: domain::chat_express::feed_row_key(&self.session_id, message_id.as_deref(), item.seq.unwrap_or(item.id)),
                     message_id: None,
-                    is_final: !streaming || !self.feed.turn_state().is_working(),
+                    is_final: self.narration_final(item.id),
                 };
                 self.render_narration(item.id, text.clone(), *at, streaming, key.as_deref(), express, window, cx)
             }
@@ -10841,7 +10874,7 @@ impl Focusable for SteerSessionView {
 impl SteerSessionView {
     /// #EXP-1943 (session-card.json `callView`): a call session's own
     /// screen (its summary, its spoken turns), `None` for any other session.
-    fn call_view(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::Div> {
+    fn call_view(&mut self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<gpui::Div> {
         let row = self.row.clone().filter(domain::session_tree::is_call_session)?;
         let store = sync::Store::try_global(cx)?;
         let chat = row
@@ -10866,7 +10899,7 @@ impl SteerSessionView {
             icon: agent.as_ref().and_then(|agent| agent.icon.clone()),
             color: agent.as_ref().and_then(|agent| agent.color.clone()),
         };
-        let body = crate::call_view::call_view_body(&view, true, &call_agent, &time, &self.images, cx);
+        let body = crate::call_view::call_view_body(&view, true, &call_agent, &time, &self.images, !row.is_ended(), window, cx);
         Some(
             v_flex().size_full().min_h_0().min_w_0().child(
                 div()
@@ -10893,7 +10926,7 @@ impl Render for SteerSessionView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "SteerSessionView").entered();
         // #EXP-1943: a call session opens as THE call view.
-        if let Some(view) = self.call_view(cx) {
+        if let Some(view) = self.call_view(window, cx) {
             return view;
         }
         // EXP-776: the transcript list learns what changed since the last
@@ -11168,6 +11201,33 @@ pub(crate) struct NarrationRow {
     pub is_final: bool,
 }
 
+/// #EXP-2074 (chat-express.json: a feed narration row is FINAL when another
+/// row of ITS OWN lane follows it or its turn has ended): `id`'s lane is its
+/// `subagent_id` (`None` = the main lane), so rows of another lane (a
+/// parallel subagent, the main agent's while a subagent writes) never end
+/// it; the fragments of one narration only ever merge within their lane
+/// (`merge_narration_fragment`). `streaming_turn` = the view is live and
+/// its turn is working (otherwise every row is final). A row the feed no
+/// longer holds is final.
+pub(crate) fn narration_is_final(items: &[FeedItem], id: FeedItemId, streaming_turn: bool) -> bool {
+    if !streaming_turn {
+        return true;
+    }
+    let Some(at) = items.iter().rposition(|item| item.id == id) else { return true };
+    let lane = items[at].subagent_id();
+    items[at + 1..].iter().any(|item| item.subagent_id() == lane)
+}
+
+/// #EXP-2074 (DEV-ONLY, `EXP_DEV_SUBAGENT=<subagentId>`): the subagent whose
+/// tab a session view opens on once its feed holds it (the subagent lane's
+/// capture over the `steering` drive). Read once.
+fn dev_subagent() -> Option<&'static str> {
+    static TARGET: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    TARGET
+        .get_or_init(|| std::env::var("EXP_DEV_SUBAGENT").ok().map(|id| id.trim().to_string()).filter(|id| !id.is_empty()))
+        .as_deref()
+}
+
 fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: &[domain::rows::MessageRow]) -> Vec<SyncedTailRow> {
     use steer::enet_steer::{synced_tail, SyncedTailRow as Row, TailFeedRow};
     if live {
@@ -11247,6 +11307,36 @@ fn may_seed_from_journal(row: &domain::rows::SessionRow, device_id: &str) -> boo
 
 #[cfg(test)]
 mod tests {
+    /// #EXP-2074 (chat-express.json: FINAL = a row of its OWN lane follows
+    /// or the turn ended): a subagent's narration stays open under the main
+    /// lane's and another subagent's newer rows, and ends with its own lane's
+    /// next row; the main lane's the same way.
+    #[test]
+    fn a_narration_is_final_by_its_own_lane() {
+        use steer::feed::{FeedItem, FeedKind};
+        let item = |id: u64, kind: FeedKind| FeedItem { id, kind, seq: None };
+        let narration = |id, lane: Option<&str>| {
+            item(id, FeedKind::Narration { text: "Checked.".into(), message_id: None, subagent_id: lane.map(str::to_string), at: None })
+        };
+        let input = |id, lane: Option<&str>| item(id, FeedKind::UserMessage { text: "go".into(), subagent_id: lane.map(str::to_string), at: None });
+        let items = vec![narration(1, Some("sub-a")), narration(2, None), input(3, Some("sub-b"))];
+        // The turn works: nothing of their own lane follows 1, 2 or 3.
+        assert!(!super::narration_is_final(&items, 1, true));
+        assert!(!super::narration_is_final(&items, 2, true));
+        // The turn ended (or the view is not live): every row is final.
+        assert!(super::narration_is_final(&items, 1, false));
+        assert!(super::narration_is_final(&items, 2, false));
+        // Its own lane's next row ends each.
+        let mut more = items.clone();
+        more.push(input(4, Some("sub-a")));
+        assert!(super::narration_is_final(&more, 1, true));
+        assert!(!super::narration_is_final(&more, 2, true));
+        more.push(input(5, None));
+        assert!(super::narration_is_final(&more, 2, true));
+        // A row the feed no longer holds is final.
+        assert!(super::narration_is_final(&more, 99, true));
+    }
+
     /// #EXP-1873: quiet check-ins (the schedule firing, the quiet call) leave
     /// ONE row, the last firing's, covering the run; a message after quiet
     /// is shown and makes its check-in a normal turn.
