@@ -429,10 +429,12 @@ impl KeyHolder {
                 Ok(wrapped) => {
                     // #EXP-1950: signed over the key this install HOLDS; a
                     // root whose stored key is another one gets it unsigned
-                    // (the server would refuse the whole batch).
-                    let ours = b64url_encode(&PushKeypair::from_secret(secret).public()) == pair.public_key;
+                    // (the server would refuse the whole batch). #EXP-2119:
+                    // an OLDER epoch the server knows no key of names none.
+                    let held_public = b64url_encode(&PushKeypair::from_secret(secret).public());
+                    let ours = pair.public_key.is_empty() || held_public == pair.public_key;
                     let signature = ours
-                        .then(|| self.sign(&pair.root_id, pair.epoch, &pair.public_key, pair.target_endpoint_id.as_deref(), &wrapped))
+                        .then(|| self.sign(&pair.root_id, pair.epoch, &held_public, pair.target_endpoint_id.as_deref(), &wrapped))
                         .flatten();
                     wraps.push(PairWrap {
                         root_id: pair.root_id,
@@ -1501,6 +1503,77 @@ mod tests {
             for root in held.keys() {
                 assert!(holder.keyring().secret(root, 9).is_none(), "{name}: a foreign wrap was kept");
             }
+        }
+    }
+
+    /// One `pending` pair, and the wraps the holder answered it with.
+    struct OlderEpochDouble {
+        pair: PendingWrap,
+        wraps: Mutex<Vec<PairWrap>>,
+    }
+
+    impl KeyApi for OlderEpochDouble {
+        fn create(&self, _input: &CreateKey) -> Result<(), ApiError> {
+            unreachable!("nothing is keyed here")
+        }
+        fn mine(&self, _install_id: &str, _root_ids: Option<&[String]>) -> Result<Vec<HeldKey>, ApiError> {
+            Ok(Vec::new())
+        }
+        fn pending(&self, _install_id: &str, _root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError> {
+            Ok(vec![self.pair.clone()])
+        }
+        fn wrap(&self, _install_id: &str, wraps: &[PairWrap]) -> Result<(), ApiError> {
+            self.wraps.lock().unwrap().extend_from_slice(wraps);
+            Ok(())
+        }
+        fn public_keys(&self, _root_ids: &[String]) -> Result<Vec<RootKey>, ApiError> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// #EXP-2119 (`rotation` OLDER EPOCHS): the held secret of exactly
+    /// (root, epoch) leaves, signed over its own public key.
+    #[test]
+    fn older_epoch_cases_replay() {
+        let fixture = rotation_fixture();
+        let secret_at = |epoch: u32| hex32(fixture[if epoch == 1 { "tree" } else { "rotatedTree" }]["secret"].as_str().unwrap());
+        let identity = Identity::from_bytes([7; 32]);
+        let target = Identity::from_bytes([8; 32]);
+        let root = "00000000-0000-4000-8000-000000000001";
+        for case in fixture["rotation"]["olderEpochCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let public_key = match case["pair"]["publicKey"].as_str().unwrap() {
+                "tree" => fixture["tree"]["publicKey"].as_str().unwrap().to_string(),
+                other => other.to_string(),
+            };
+            let api = Arc::new(OlderEpochDouble {
+                pair: PendingWrap {
+                    root_id: root.into(),
+                    epoch: case["pair"]["epoch"].as_u64().unwrap() as u32,
+                    public_key,
+                    target_install_id: "t".into(),
+                    target_x25519_public: b64url_encode(&PushKeypair::derive(&target).public()),
+                    target_endpoint_id: Some(endpoint_id_hex(&target)),
+                },
+                wraps: Mutex::default(),
+            });
+            let holder = KeyHolder::signing("self".into(), &identity, api.clone(), Keyring::in_memory());
+            for epoch in case["held"].as_array().unwrap() {
+                let epoch = epoch.as_u64().unwrap() as u32;
+                holder.keyring().insert_secret(root, epoch, secret_at(epoch));
+            }
+            holder.answer_pending().unwrap();
+            let wraps = api.wraps.lock().unwrap().clone();
+            let Some(epoch) = case["wraps"].as_u64().map(|e| e as u32) else {
+                assert!(wraps.is_empty(), "{name}");
+                continue;
+            };
+            assert_eq!((wraps.len(), wraps[0].epoch), (1, api.pair.epoch), "{name}");
+            assert_eq!(unwrap_tree_key(&PushKeypair::derive(&target).secret(), &wraps[0].wrapped).unwrap(), secret_at(epoch), "{name}");
+            let own_public = b64url_encode(&PushKeypair::from_secret(secret_at(epoch)).public());
+            let endpoint = endpoint_id_hex(&target);
+            let statement = WrapStatement { root_id: root, epoch, tree_public_key: &own_public, recipient_endpoint_id: &endpoint, wrapped: &wraps[0].wrapped };
+            assert_eq!(wraps[0].signature, Some(sign_wrap(&identity, &statement).unwrap()), "{name}");
         }
     }
 
