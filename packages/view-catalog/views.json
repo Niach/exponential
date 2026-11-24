@@ -8350,7 +8350,7 @@
       "group": "coding",
       "title": "New install approval",
       "blurb": "#EXP-1950 (fixtures/install-trust.json): on a trusted install, Needs you lists each install waiting for its approval above the plans and questions (phones also on Devices): one Row (the label, a team-mate's name first; the code), a Badge (New install, or Reset for a team-mate who lost every install), Approve and Remove. The dev-only `?specimen=install-approval` feeds the fixture's two rows.",
-      "order": 95,
+      "order": 97,
       "web": {
         "route": "/t/$teamSlug/needs-you?specimen=install-approval",
         "anchor": {
@@ -8367,10 +8367,28 @@
         },
         "settleMs": 1200
       },
+      "ios": {
+        "shot": "sg_install-approval",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_install-approval",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "needs-you"
+        },
+        "anchorDelayMs": 1200,
+        "env": {
+          "EXP_DEV_INSTALL_TRUST": "install-approval"
+        }
+      },
       "notes": {
-        "desktop": "#EXP-1950 phase 2: not ported yet.",
-        "ios": "See desktop.",
-        "android": "See desktop."
+        "ios": "The capture-only specimen (`-uiTestingStyleguide install-approval`, `InstallTrustSpecimens`): the fixture's rows drawn by the real NeedsYouPage parts.",
+        "android": "The capture-only specimen (`InstallTrustSpecimenScreen`), the iOS one's twin.",
+        "desktop": "The DEV-ONLY `EXP_DEV_INSTALL_TRUST=install-approval` feeds the fixture into the real Needs you page (`install_approval.rs`)."
       }
     },
     {
@@ -8378,7 +8396,7 @@
       "group": "coding",
       "title": "New install waiting",
       "blurb": "#EXP-1950: an install not approved yet, on Needs you and where an encrypted chat would open: THE page EmptyState with the locked glyph, Waiting for approval, and its own code to compare. The dev-only `?specimen=install-waiting` draws it.",
-      "order": 96,
+      "order": 98,
       "web": {
         "route": "/t/$teamSlug/needs-you?specimen=install-waiting",
         "anchor": {
@@ -8395,10 +8413,28 @@
         },
         "settleMs": 800
       },
+      "ios": {
+        "shot": "sg_install-waiting",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_install-waiting",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "needs-you"
+        },
+        "anchorDelayMs": 1200,
+        "env": {
+          "EXP_DEV_INSTALL_TRUST": "install-waiting"
+        }
+      },
       "notes": {
-        "desktop": "#EXP-1950 phase 2: not ported yet.",
-        "ios": "See desktop.",
-        "android": "See desktop."
+        "ios": "The capture-only specimen (`-uiTestingStyleguide install-waiting`, `InstallTrustSpecimens`): the fixture's rows drawn by the real NeedsYouPage parts.",
+        "android": "The capture-only specimen (`InstallTrustSpecimenScreen`), the iOS one's twin.",
+        "desktop": "The DEV-ONLY `EXP_DEV_INSTALL_TRUST=install-waiting` feeds the fixture into the real Needs you page (`install_approval.rs`)."
       }
     },
     {
