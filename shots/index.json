@@ -7084,6 +7084,15 @@
         "sha256": "f3a3e80cb91b5ee25e2f27b726c9c828de3c6f3b883da554d240793ea6520f27"
       }
     },
+    "session-synced-tail": {
+      "desktop": {
+        "file": "shots/session-synced-tail/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 61762,
+        "sha256": "62a54621dd6e6a8040a33f807595ce513cf3eeebd4b09f168e7c0f8d7b952fb1"
+      }
+    },
     "settings-account": {
       "android": {
         "file": "shots/settings-account/android.webp",
