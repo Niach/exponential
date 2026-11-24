@@ -430,5 +430,57 @@
     ],
     "query": "editor by:lukas is:open created:7d",
     "expected": ["hit"]
+  },
+  {
+    "name": "a similar: token ranks no local rows, the server's order is the list",
+    "rows": [
+      { "id": "src", "identifier": "EXP-1", "title": "Login fails after the update", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "twin", "identifier": "EXP-2", "title": "Anmeldung schlägt nach dem Update fehl", "status": "done", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" },
+      { "id": "near", "identifier": "EXP-3", "title": "Sign-in loops forever", "createdAt": "2026-01-03T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z" },
+      { "id": "far", "identifier": "EXP-4", "title": "Dark mode", "createdAt": "2026-01-04T00:00:00Z", "updatedAt": "2026-01-04T00:00:00Z" }
+    ],
+    "query": "similar:EXP-1",
+    "serverHits": [
+      { "id": "twin", "identifier": "EXP-2", "title": "Anmeldung schlägt nach dem Update fehl" },
+      { "id": "near", "identifier": "EXP-3", "title": "Sign-in loops forever" }
+    ],
+    "allowUnsynced": false,
+    "expected": ["twin", "near"]
+  },
+  {
+    "name": "a similar: query lists nothing without server hits, whatever else it says",
+    "rows": [
+      { "id": "a", "identifier": "EXP-1", "title": "Login fails", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z", "creatorName": "Lukas Mai" },
+      { "id": "b", "identifier": "EXP-2", "title": "Login loops", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z", "creatorName": "Lukas Mai" }
+    ],
+    "query": "login by:lukas is:open similar:#EXP-1",
+    "expected": []
+  },
+  {
+    "name": "an empty similar: token is ignored, never a word",
+    "rows": [
+      { "id": "a", "identifier": "EXP-1", "title": "Login fails", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "b", "identifier": "EXP-2", "title": "Similar: a word in a title", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" }
+    ],
+    "query": "login similar: SIMILAR:#",
+    "expected": ["a"]
+  },
+  {
+    "name": "an unsynced similar: hit renders from its own fields, excluded ids and the limit still hold",
+    "rows": [
+      { "id": "src", "identifier": "EXP-1", "title": "Login fails", "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z" },
+      { "id": "own", "identifier": "EXP-2", "title": "Login loops", "createdAt": "2026-01-02T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z" }
+    ],
+    "query": "similar:exp-1",
+    "exclude": ["src"],
+    "limit": 2,
+    "serverHits": [
+      { "id": "src", "identifier": "EXP-1", "title": "Login fails" },
+      { "id": "z9", "identifier": "OTHER-9", "title": "Not synced yet" },
+      { "id": "own", "identifier": "EXP-2", "title": "Login loops" },
+      { "id": "z8", "identifier": "OTHER-8", "title": "Cut by the limit" }
+    ],
+    "allowUnsynced": true,
+    "expected": ["z9", "own"]
   }
 ]

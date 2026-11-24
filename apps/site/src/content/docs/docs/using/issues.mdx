@@ -15,6 +15,8 @@ Change status, priority and assignee inline from the row. Sub-issues sit under t
 
 **Cmd/Ctrl+F** or the magnifier opens **Search issues** across the team's boards, matching identifiers, titles and full text.
 
+On a server with semantic search (the default database image of the compose files), the search also finds issues that mean what you typed without sharing a word with it, in German and English alike; they follow the issues that match your words. `similar:NEW-12` lists the issues closest in meaning to NEW-12, its likely duplicates, and combines with the other filters, for example `similar:NEW-12 is:open`. It works wherever you search issues: the search, the `#` menu and the issue pickers.
+
 ## New issues
 
 <PlatformShots view="issue-create" platforms={["web"]} />
