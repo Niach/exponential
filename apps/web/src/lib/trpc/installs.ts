@@ -117,6 +117,13 @@ function signatureRefusal(endpointId: string, message: string, signature: string
   }
 }
 
+/** #EXP-1950: an install's newest registration signature over
+ *  `installMessage(userId, endpointId, x25519Public, signedAt)`; null
+ *  until it registers again. */
+function registrationOf(row: { registrationSignature: string | null; registrationSignedAt: string | null }) {
+  return { registrationSignature: row.registrationSignature, registrationSignedAt: row.registrationSignedAt }
+}
+
 /** EXP-1472: the machines whose installs hold a current tree key a new
  *  install of `userId` reads (its own trees, and the shared trees of its
  *  teams): each gets a `check_in` nudge, which runs its key holder's pass. */
@@ -192,6 +199,9 @@ export const installsRouter = router({
         appVersion: client && (input.kind === `desktop` || input.kind === `daemon`) ? client.version.slice(0, 32) : null,
         deviceId: deviceRowId,
         x25519Public: input.x25519Public,
+        // #EXP-1950: kept, so a client re-checks the binding (`installMessage`).
+        registrationSignature: input.signature,
+        registrationSignedAt: input.signedAt,
       }
 
       try {
@@ -271,6 +281,7 @@ export const installsRouter = router({
           endpointId: row.endpointId,
           x25519Public: row.x25519Public,
           lastSeenAt: row.lastSeenAt,
+          ...registrationOf(row),
         }))
     }),
 
@@ -337,6 +348,7 @@ export const installsRouter = router({
       platform: row.platform,
       endpointId: row.endpointId,
       x25519Public: row.x25519Public,
+      ...registrationOf(row),
       createdAt: row.createdAt,
       lastSeenAt: row.lastSeenAt,
       revokedAt: row.revokedAt,

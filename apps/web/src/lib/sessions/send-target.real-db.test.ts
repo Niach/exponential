@@ -87,14 +87,14 @@ describe.skipIf(!ready.ok)(`sessions.sendTarget`, () => {
     const w = await world()
     const [agent] = await db.insert(agents).values({ teamId: w.teamId, name: `Helper`, deviceId: w.deviceId, ownerId: w.owner }).returning()
     const api = caller(w.owner)
-    expect(await api.sendTarget({ agentId: agent!.id })).toEqual({ rootId: null, epoch: null, publicKey: null, brief: null, clearTree: false, rotationDue: false })
+    expect(await api.sendTarget({ agentId: agent!.id })).toEqual({ rootId: null, epoch: null, publicKey: null, brief: null, clearTree: false, rotationDue: false, vouch: null })
 
     const { tree, seal } = w.newSeal()
     const first = sealBody(tree.publicKey, 1, `hello @someone`)
     const sent = await sendSession({ userId: w.owner, input: { agentId: agent!.id, text: first, seal } })
     expect(await bodyOf(sent.messageId)).toBe(first)
     const target = await api.sendTarget({ agentId: agent!.id })
-    expect(target).toEqual({ rootId: sent.sessionId, epoch: 1, publicKey: tree.publicKey, brief: null, clearTree: false, rotationDue: false })
+    expect(target).toEqual({ rootId: sent.sessionId, epoch: 1, publicKey: tree.publicKey, brief: null, clearTree: false, rotationDue: false, vouch: null })
 
     const second = sealBody(target.publicKey!, target.epoch!, `again`)
     const again = await sendSession({ userId: w.owner, input: { agentId: agent!.id, text: second } })
@@ -111,14 +111,14 @@ describe.skipIf(!ready.ok)(`sessions.sendTarget`, () => {
     const [app] = await db.insert(apps).values({ teamId: w.teamId, slug: `notes-${id8()}`, name: `Notes` }).returning()
     const api = caller(w.owner)
     const fresh = await api.sendTarget({ appId: app!.id })
-    expect(fresh).toEqual({ rootId: null, epoch: null, publicKey: null, brief: editorBrief(app!), clearTree: false, rotationDue: false })
+    expect(fresh).toEqual({ rootId: null, epoch: null, publicKey: null, brief: editorBrief(app!), clearTree: false, rotationDue: false, vouch: null })
 
     const { tree, seal } = w.newSeal()
     const text = sealBody(tree.publicKey, 1, `${fresh.brief}\n\nmake it blue`)
     const sent = await sendSession({ userId: w.owner, input: { appId: app!.id, deviceId: w.deviceId, text, seal } })
     // The sealed text is stored as the writer composed it (no second brief).
     expect(await bodyOf(sent.messageId)).toBe(text)
-    expect(await api.sendTarget({ appId: app!.id })).toEqual({ rootId: sent.sessionId, epoch: 1, publicKey: tree.publicKey, brief: null, clearTree: false, rotationDue: false })
+    expect(await api.sendTarget({ appId: app!.id })).toEqual({ rootId: sent.sessionId, epoch: 1, publicKey: tree.publicKey, brief: null, clearTree: false, rotationDue: false, vouch: null })
 
     await db.update(sessions).set({ status: `ended`, endedAt: new Date() }).where(eq(sessions.id, sent.sessionId))
     expect((await api.sendTarget({ appId: app!.id })).brief).toBe(editorBrief(app!))

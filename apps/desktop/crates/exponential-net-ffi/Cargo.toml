@@ -47,3 +47,7 @@ required-features = ["node"]
 [[test]]
 name = "call_seal_fixture"
 required-features = ["node"]
+
+# #EXP-1950: runs in the push-only build too (it fails closed there).
+[[test]]
+name = "wrap_sig_fixture"

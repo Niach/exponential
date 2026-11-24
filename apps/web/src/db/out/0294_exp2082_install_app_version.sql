@@ -1,1 +1,0 @@
-ALTER TABLE "installs" ADD COLUMN "app_version" varchar(32);

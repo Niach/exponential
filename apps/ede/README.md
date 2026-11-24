@@ -650,6 +650,12 @@ and the Tier A canvas, no GPU involved), then falls back: a crash restarts
 the compositor, three quick crashes in a row (also across logins) land in
 safe mode, a fatal start gets safe mode once and then the login screen,
 where the previous session is still in the menu. Any key skips the wait.
+A compositor started while another session has the displays (the login
+screen after logind restarted, another VT) waits for its seat before it
+opens a GPU: an inactive session's DRM device has no DRM master, and the
+start used to end as "no GPU could be driven" (#EDE-218). A failed close
+or open in libinput's seat callbacks is a line in the journal, never a
+panic (`crates/ede-compositor/src/backend/seat.rs`).
 Ctrl+Alt+F3 gives a text login; `journalctl -b _COMM=exponential-compositor
 _COMM=exponential-session` has the details, `exponential-compositor doctor` what EGL
 renders with. Ending the session from the login manager (SIGTERM) stops

@@ -279,7 +279,8 @@ final class SteerEnetTests: XCTestCase {
                     consumedAt: m["consumedAt"] as? String,
                     createdAt: m["createdAt"] as? String ?? "",
                     createdAtMs: ms(m["createdAt"]),
-                    body: m["body"] as? String ?? ""
+                    body: m["body"] as? String ?? "",
+                    authorSessionId: m["authorSessionId"] as? String
                 )
             }.map { $0["id"] as? String ?? "" }
             XCTAssertEqual(got, try XCTUnwrap(c["expected"] as? [String], name), name)
@@ -308,6 +309,30 @@ final class SteerEnetTests: XCTestCase {
             live: false, feed: rows, messages: [message("m1", "ship it"), message("m2", "and tag it")]
         ) { $0 }
         XCTAssertEqual(kept.map(\.id), ["m2"])
+    }
+
+    // #EXP-2084: a child's reply the device consumed is in the feed as that
+    // session's input; its synced row never draws a second time after a
+    // not-live feed, even when the device's clock is behind the server's.
+    func testSyncedTailHoldsAChildReplyTheFeedEchoes() {
+        let feed: [AgentFeedItem] = [
+            .userMessage(id: 1, text: "Message from Fix the login (session s-child): The PR is open.", at: 1_000),
+            .narration(id: 2, text: "Noted.", at: 2_000),
+        ]
+        func reply(_ id: String, from: String, _ body: String) -> SteerNoFeed.TailMessage {
+            SteerNoFeed.TailMessage(
+                id: id, authorKind: "agent", hasCard: false, consumedAt: "2026-01-01T00:25:00Z",
+                createdAt: "2026-01-01T00:25:00Z", createdAtMs: 1_500_000, body: body, authorSessionId: from
+            )
+        }
+        let kept = SteerNoFeed.syncedTail(
+            live: false, feed: feed.compactMap(SteerNoFeed.tailFeedRow),
+            messages: [
+                reply("r1", from: "s-child", "The PR is open."), reply("r2", from: "s-child", "CI is green."),
+                reply("r3", from: "s-other", "The PR is open."),
+            ]
+        ) { $0 }
+        XCTAssertEqual(kept.map(\.id), ["r2", "r3"])
     }
 
     // #EXP-1990: a teammate's kept synced row draws under their name, the

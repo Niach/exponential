@@ -692,10 +692,12 @@ public enum SteerNoFeed {
         public let body: String
         /// #EXP-1990: who wrote a person's message (a group chat holds every member's).
         public let authorId: String?
+        /// #EXP-2084: the session that posted it (a child's reply), when not the chat's own.
+        public let authorSessionId: String?
 
         public init(
             id: String, authorKind: String, hasCard: Bool, consumedAt: String?, createdAt: String,
-            createdAtMs: Int?, body: String, authorId: String? = nil
+            createdAtMs: Int?, body: String, authorId: String? = nil, authorSessionId: String? = nil
         ) {
             self.id = id
             self.authorKind = authorKind
@@ -705,6 +707,7 @@ public enum SteerNoFeed {
             self.createdAtMs = createdAtMs
             self.body = body
             self.authorId = authorId
+            self.authorSessionId = authorSessionId
         }
     }
 
@@ -766,7 +769,8 @@ public enum SteerNoFeed {
     /// non-blank body, the agent's or a person's CONSUMED input, later than
     /// the feed's newest known row time, not already held by the feed (an
     /// agent line equal to, a prefix of or prefixed by a narration; an input
-    /// equal to a feed input). An empty feed takes the tail only while its
+    /// equal to a feed input; #EXP-2084 another session's line the feed holds
+    /// as that session's input, whatever its time). An empty feed takes the tail only while its
     /// live transcript cannot be loaded (`unreachable`, the OFFLINE LINE's
     /// condition) and only when it holds an agent line.
     public static func syncedTail<T>(
@@ -780,6 +784,13 @@ public enum SteerNoFeed {
         func trimmed(_ text: String) -> String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
         let narrations = feed.filter { $0.author == "agent" && !($0.text ?? "").isEmpty }.map { trimmed($0.text ?? "") }
         let inputs = Set(feed.filter { $0.author == "user" && !($0.text ?? "").isEmpty }.map { trimmed($0.text ?? "") })
+        // #EXP-2084: the inputs the device worded as another session's
+        // (`Message from <name> (session <id>): <body>`), by session and body.
+        var relays = Set<String>()
+        for r in feed where r.author == "user" {
+            guard let relay = r.text.flatMap(TranscriptGrouping.crossSessionInput) else { continue }
+            relays.insert("\(relay.sessionId)\n\(trimmed(relay.body))")
+        }
         var tail: [(item: T, row: TailMessage)] = []
         for item in messages {
             let m = row(item)
@@ -788,6 +799,7 @@ public enum SteerNoFeed {
             if body.isEmpty { continue }
             switch m.authorKind {
             case "agent":
+                if let from = m.authorSessionId, !from.isEmpty, relays.contains("\(from)\n\(body)") { continue }
                 if narrations.contains(where: { !$0.isEmpty && ($0.hasPrefix(body) || body.hasPrefix($0)) }) { continue }
             case "user":
                 if m.consumedAt == nil || inputs.contains(body) { continue }

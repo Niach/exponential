@@ -15,9 +15,9 @@
 //!   relay. The relay carries no session content EXCEPT a Voice call's
 //!   events and audio ([`call_host`], [`call_caller`]): #EXP-1941 seals
 //!   them end to end ([`call_keys`], `enet_core::call_seal`) only when the
-//!   server marks a call sealed, which needs both ends to seal and, until
-//!   sealing is switched on, no call is; until then a call crosses the
-//!   relay readable.
+//!   server marks a call sealed, which needs both ends to seal: a call
+//!   from or to an older app still crosses the relay readable, and until
+//!   sealing is mandatory the server decides which calls are sealed.
 //! - [`viewer`] (EXP-696) — the other end: watch and steer a session running
 //!   on ANOTHER of the user's devices, over eNet to that device only. It
 //!   joins `channel:'activity'`, turns the inbound stream into

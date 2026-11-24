@@ -72,9 +72,11 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: 'platforms;android-36 build-tools;35.0.0'
+      # Plus Robolectric's android-all jar (#EXP-2057: the app's tests run
+      # Robolectric offline from it, `robolectricJars`).
       - name: The app's assemble + unit-test compile
         working-directory: apps/android
-        run: ./gradlew :app:assembleProductionDebug :app:testProductionDebugUnitTest -x :app:testProductionDebugUnitTest --no-daemon
+        run: ./gradlew :app:assembleProductionDebug :app:robolectricJars :app:testProductionDebugUnitTest -x :app:testProductionDebugUnitTest --no-daemon
       - name: The runner template's compile + unit-test compile
         working-directory: apps/runner/android
         run: ../../../packages/exponential-ui-compose/gradlew -p . :app:compileReleaseKotlin :app:testDebugUnitTest -x :app:testDebugUnitTest --no-daemon

@@ -93,6 +93,7 @@ mod control;
 mod dbus;
 mod inbox;
 mod local_runs;
+mod off_loop;
 mod settings;
 mod settings_pages;
 mod share;
@@ -358,8 +359,12 @@ struct Shell {
     needs_you: Vec<inbox::NeedsYouItem>,
     /// #EDE-141: the tray's read of the accounts' stores runs off the main
     /// loop, one at a time; a refresh asked for meanwhile runs after it.
-    tray_reading: bool,
-    tray_again: bool,
+    tray_gate: off_loop::Gate,
+    /// #EDE-204: the rail's read on a delta, likewise.
+    chats_gate: off_loop::Gate,
+    /// Bumped by every read of the rail on the main loop (a pick, the
+    /// start): a read off the loop that started before it is dropped.
+    chats_epoch: u64,
     /// When the shell started (epoch ms): only inbox entries since then toast.
     started_ms: i64,
     /// `EDE_SHELL_DEMO`: the sample data, nothing leaves the shell.
@@ -2143,38 +2148,65 @@ fn demo() -> bool {
     std::env::var_os("EDE_SHELL_DEMO").is_some_and(|v| !v.is_empty() && v != "0")
 }
 
-/// #EDE-65: the rail's chats from the current entry's sessions: the team's
-/// synced store or the Local desktop's (whose changes it then watches).
-fn chats_refresh(shell: &SharedShell, cx: &mut App) {
-    if demo() {
-        return;
-    }
+/// #EDE-65: where the rail's chats are read, the current entry's sessions:
+/// the team's synced store or the Local desktop's (whose changes the shell
+/// then watches).
+fn chats_source(shell: &SharedShell) -> Option<chats::Source> {
     let current = shell.borrow().model.switcher.current.clone();
-    let chats = if current.kind == uicore_model::SwitcherKind::Local {
-        shell.borrow_mut().local_sessions = None;
-        local_desktop(shell)
-            .map(|d| {
-                shell.borrow_mut().local_sessions = Some(d.store.subscribe());
-                chats::chat_inputs(&chats::sessions(d.store.rows("sessions").unwrap_or_default()), d.executor.team_id(), &Default::default())
-            })
-            .unwrap_or_default()
+    shell.borrow_mut().local_sessions = None;
+    if current.kind == uicore_model::SwitcherKind::Local {
+        let desktop = local_desktop(shell)?;
+        shell.borrow_mut().local_sessions = Some(desktop.store.subscribe());
+        Some(chats::Source::Local { store: desktop.store.clone(), team_id: desktop.executor.team_id().to_string() })
     } else {
-        shell.borrow_mut().local_sessions = None;
-        let store = current.account.as_deref().and_then(|a| shell.borrow().workspaces.store(a));
-        match store {
-            Some(store) => {
-                let read = |shape: &str| sync::shapes::shape_by_name(shape).and_then(|spec| store.read_all(spec).ok()).unwrap_or_default();
-                let sessions = chats::sessions(read("sessions"));
-                let unread = chats::unread_roots(&sessions, &chats::rows(read("session_reads")), &current.id);
-                chats::chat_inputs(&sessions, &current.id, &unread)
-            }
-            None => Vec::new(),
-        }
-    };
+        let store = current.account.as_deref().and_then(|a| shell.borrow().workspaces.store(a))?;
+        Some(chats::Source::Team { store, team_id: current.id })
+    }
+}
+
+fn chats_apply(shell: &SharedShell, chats: Vec<uicore_model::chats::ChatInput>, cx: &mut App) {
     if shell.borrow().chats != chats {
         shell.borrow_mut().chats = chats;
         model_changed(shell, cx);
     }
+}
+
+/// #EDE-65: the rail's chats of the entry just made current (a pick, the
+/// start): read here, once, so the rail never shows the entry before.
+fn chats_refresh(shell: &SharedShell, cx: &mut App) {
+    if demo() {
+        return;
+    }
+    shell.borrow_mut().chats_epoch += 1;
+    let chats = chats_source(shell).map(|source| source.read()).unwrap_or_default();
+    chats_apply(shell, chats, cx);
+}
+
+/// #EDE-204: a delta moved the current entry's sessions or read marks: the
+/// rail's chats again, read off the main loop like the tray's inbox
+/// (#EDE-141, [`off_loop::read`]): one read at a time, a burst of deltas is
+/// two reads at most and the last one starts after the last delta.
+fn chats_moved(shell: &SharedShell, cx: &mut App) {
+    if demo() {
+        return;
+    }
+    let epoch = shell.borrow().chats_epoch;
+    off_loop::read(
+        shell,
+        |s| &mut s.chats_gate,
+        |shell| {
+            let source = chats_source(shell);
+            move || source.map(|source| source.read()).unwrap_or_default()
+        },
+        move |shell, chats, cx| {
+            // A pick meanwhile read its own entry's chats: these are the entry's before.
+            if shell.borrow().chats_epoch == epoch {
+                chats_apply(shell, chats, cx);
+            }
+        },
+        chats_moved,
+        cx,
+    );
 }
 
 /// Where a rail chat opens (#EDE-65): eDE's chat (lane I's document) on a
@@ -3751,36 +3783,25 @@ fn exp_tray_refresh(shell: &SharedShell, cx: &mut App) {
         tray_apply(shell, inbox::demo_inbox(now_ms()), inbox::demo_needs_you(), cx);
         return;
     }
-    let (sources, read, wanted) = {
-        let mut s = shell.borrow_mut();
-        if s.tray_reading {
-            s.tray_again = true;
-            return;
-        }
-        s.tray_reading = true;
-        (s.workspaces.tray_sources(), s.notifications.read_locally.clone(), s.spaces.wanted_sessions().into_iter().collect::<HashSet<String>>())
-    };
-    let shell = shell.clone();
-    cx.spawn(async move |cx| {
-        let (items, needs, space_sessions) = cx.background_executor().spawn(async move { tray_read(&sources, &read, &wanted, now_ms()) }).await;
-        let again = {
-            let mut s = shell.borrow_mut();
-            s.tray_reading = false;
-            std::mem::take(&mut s.tray_again)
-        };
-        cx.update(|cx| {
+    off_loop::read(
+        shell,
+        |s| &mut s.tray_gate,
+        |shell| {
+            let s = shell.borrow();
+            let (sources, read, wanted) = (s.workspaces.tray_sources(), s.notifications.read_locally.clone(), s.spaces.wanted_sessions().into_iter().collect::<HashSet<String>>());
+            move || tray_read(&sources, &read, &wanted, now_ms())
+        },
+        |shell, (items, needs, space_sessions), cx| {
             // #EXP-2024: the spaces' titles ride on the same read.
             if shell.borrow().spaces.sessions != space_sessions {
                 shell.borrow_mut().spaces.sessions = space_sessions;
-                spaces_changed(&shell, cx);
+                spaces_changed(shell, cx);
             }
-            tray_apply(&shell, items, needs, cx);
-            if again {
-                exp_tray_refresh(&shell, cx);
-            }
-        });
-    })
-    .detach();
+            tray_apply(shell, items, needs, cx);
+        },
+        exp_tray_refresh,
+        cx,
+    );
 }
 
 /// The tray's rows off the accounts' stores: BLOCKING (SQLite), off the
@@ -4253,8 +4274,9 @@ fn main() {
                 ..Notifications::default()
             },
             needs_you: Vec::new(),
-            tray_reading: false,
-            tray_again: false,
+            tray_gate: off_loop::Gate::default(),
+            chats_gate: off_loop::Gate::default(),
+            chats_epoch: 0,
             demo,
             // The demo toasts only through `--open notifications`.
             started_ms: if demo { i64::MAX / 2 } else { now_ms() },
@@ -4532,7 +4554,7 @@ fn main() {
                 chats_changed |= chat_changed;
                 chats_changed |= s.borrow().local_sessions.as_ref().is_some_and(|rx| rx.drain().any(|d| d.table == "sessions"));
                 if chats_changed {
-                    cx.update(|cx| chats_refresh(&s, cx));
+                    cx.update(|cx| chats_moved(&s, cx));
                 }
                 let expired = s.borrow_mut().notifications.expire(Instant::now());
                 if expired {

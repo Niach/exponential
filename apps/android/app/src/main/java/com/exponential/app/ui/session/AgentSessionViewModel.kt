@@ -1103,6 +1103,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                     createdAtMs = com.exponential.app.domain.WireTimestamps.parseEpochMs(row.createdAt),
                     body = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body,
                     authorId = row.authorId,
+                    authorSessionId = row.authorSessionId,
                 )
             }
         }.flatMapLatest { (more, messages) ->

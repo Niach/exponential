@@ -1739,6 +1739,12 @@ export const installs = pgTable(
       .notNull()
       .defaultNow(),
     revokedAt: timestamp(`revoked_at`, { withTimezone: true }),
+    // #EXP-1950: the newest registration's signature (base64url, 64 bytes)
+    // and its `signedAt` EXACTLY as signed (text: the string is in the
+    // message), so a client re-checks that `x25519_public` and the user
+    // belong to `endpoint_id` (`installMessage`). Null until it registers again.
+    registrationSignature: varchar(`registration_signature`, { length: 86 }),
+    registrationSignedAt: varchar(`registration_signed_at`, { length: 64 }),
   },
   (table) => [index(`idx_installs_user`).on(table.userId)]
 )
@@ -2390,6 +2396,12 @@ export const sessionKeys = pgTable(
       () => installs.id,
       { onDelete: `set null` }
     ),
+    // #EXP-1950 (fixtures/wrap-signature.json): the maker's ed25519
+    // signature over (root, epoch, tree public key, recipient endpoint id,
+    // wrapped), base64url, verified on write, and the maker's endpoint id
+    // (kept when `created_by_install_id` goes null). Both null = unsigned.
+    signature: varchar({ length: 86 }),
+    signerEndpointId: varchar(`signer_endpoint_id`, { length: 64 }),
     createdAt: timestamp(`created_at`, { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -300,6 +300,31 @@ RustBuffer uniffi_exponential_net_ffi_fn_func_unwrap_tree_key(RustBuffer install
 RustBuffer uniffi_exponential_net_ffi_fn_func_wrap_tree_key(RustBuffer install_public, RustBuffer tree_secret, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_ACCEPT_VOUCH
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_ACCEPT_VOUCH
+RustBuffer uniffi_exponential_net_ffi_fn_func_accept_vouch(RustBuffer statement, RustBuffer signature, RustBuffer signer_endpoint_id, RustBuffer pins, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_ACCEPT_WRAP
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_ACCEPT_WRAP
+RustBuffer uniffi_exponential_net_ffi_fn_func_accept_wrap(RustBuffer wrap, RustBuffer identity, RustBuffer install_secret, RustBuffer pins, int8_t required, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_SIGN_WRAP
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_SIGN_WRAP
+RustBuffer uniffi_exponential_net_ffi_fn_func_sign_wrap(RustBuffer identity, RustBuffer statement, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_VERIFY_WRAP_SIGNATURE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_VERIFY_WRAP_SIGNATURE
+int8_t uniffi_exponential_net_ffi_fn_func_verify_wrap_signature(RustBuffer statement, RustBuffer signature, RustBuffer signer_endpoint_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_WRAP_SIGNATURE_MESSAGE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_WRAP_SIGNATURE_MESSAGE
+RustBuffer uniffi_exponential_net_ffi_fn_func_wrap_signature_message(RustBuffer statement, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_FFI_EXPONENTIAL_NET_FFI_RUSTBUFFER_ALLOC
 #define UNIFFI_FFIDEF_FFI_EXPONENTIAL_NET_FFI_RUSTBUFFER_ALLOC
 RustBuffer ffi_exponential_net_ffi_rustbuffer_alloc(uint64_t size, RustCallStatus *_Nonnull out_status
@@ -623,6 +648,36 @@ uint16_t uniffi_exponential_net_ffi_checksum_func_unwrap_tree_key(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_WRAP_TREE_KEY
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_WRAP_TREE_KEY
 uint16_t uniffi_exponential_net_ffi_checksum_func_wrap_tree_key(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ACCEPT_VOUCH
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ACCEPT_VOUCH
+uint16_t uniffi_exponential_net_ffi_checksum_func_accept_vouch(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ACCEPT_WRAP
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ACCEPT_WRAP
+uint16_t uniffi_exponential_net_ffi_checksum_func_accept_wrap(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_SIGN_WRAP
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_SIGN_WRAP
+uint16_t uniffi_exponential_net_ffi_checksum_func_sign_wrap(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_VERIFY_WRAP_SIGNATURE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_VERIFY_WRAP_SIGNATURE
+uint16_t uniffi_exponential_net_ffi_checksum_func_verify_wrap_signature(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_WRAP_SIGNATURE_MESSAGE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_WRAP_SIGNATURE_MESSAGE
+uint16_t uniffi_exponential_net_ffi_checksum_func_wrap_signature_message(void
     
 );
 #endif

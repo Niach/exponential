@@ -649,6 +649,18 @@ fn start_adapter<A: ConnectTo<Client> + 'static>(
     adapter: impl FnOnce(Arc<FakeState>, ChildExitLink) -> A,
     backend: impl FnOnce(Arc<TestHost>) -> Arc<dyn RunBackend>,
 ) -> Harness {
+    try_start_adapter(name, resume, prompt, state, adapter, backend).expect("the engine starts")
+}
+
+/// [`start_adapter`] for a start that may fail (#EXP-2058).
+fn try_start_adapter<A: ConnectTo<Client> + 'static>(
+    name: &str,
+    resume: Option<ResumeHandle>,
+    prompt: Option<String>,
+    state: Arc<FakeState>,
+    adapter: impl FnOnce(Arc<FakeState>, ChildExitLink) -> A,
+    backend: impl FnOnce(Arc<TestHost>) -> Arc<dyn RunBackend>,
+) -> Result<Harness, eagent::engine::EngineError> {
     let worktree = std::env::temp_dir().join(format!(
         "exp1426-core-{name}-{}-{}",
         std::process::id(),
@@ -690,14 +702,14 @@ fn start_adapter<A: ConnectTo<Client> + 'static>(
         host_tools: Arc::new(eagent::engine::NoHostTools),
         sink: Some(sink.clone() as Arc<dyn EventSink>),
     };
-    let session = start_with(session, adapter, backend(host.clone())).expect("the engine starts");
-    Harness {
+    let session = start_with(session, adapter, backend(host.clone()))?;
+    Ok(Harness {
         session,
         sink,
         state,
         host,
         _runtime: runtime,
-    }
+    })
 }
 
 /// Poll until `check` holds or the budget runs out.
@@ -841,6 +853,70 @@ fn only_the_persons_message_answers_an_esc() {
 
     harness.session.kill("killed");
     assert!(harness.session.wait_timeout(BUDGET).is_some());
+}
+
+/// #EXP-2058: a backend with a side-car (`attached`) whose engine thread
+/// never starts ([`RunBackend::spawn_thread`] refuses, the OS out of
+/// threads).
+#[derive(Default)]
+struct NoThread {
+    attached: AtomicBool,
+    attaches: AtomicUsize,
+    ends: AtomicUsize,
+}
+
+impl RunBackend for NoThread {
+    fn attach(
+        &self,
+        _ctx: &Arc<SessionCtx>,
+        _commands: &flume::Sender<eagent::engine::EngineCommand>,
+    ) -> Result<(), eagent::engine::EngineError> {
+        self.attaches.fetch_add(1, Ordering::SeqCst);
+        self.attached.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn spawn_thread(
+        &self,
+        _builder: std::thread::Builder,
+        _body: Box<dyn FnOnce() + Send + 'static>,
+    ) -> std::io::Result<()> {
+        Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "no thread left"))
+    }
+
+    fn detach(&self, _ctx: &SessionCtx) {
+        self.attached.store(false, Ordering::SeqCst);
+    }
+
+    fn end(&self, _ctx: &SessionCtx, _outcome: &str, _child: Option<eagent::spawn::ChildExit>, _error: Option<String>) {
+        self.ends.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// #EXP-2058: an engine thread that fails to spawn AFTER the backend
+/// attached detaches it again: the start fails with the spawn's error and
+/// no side-car outlives the run that never was (no connection, so no end
+/// sequence stops it).
+#[test]
+fn a_failed_thread_spawn_detaches_the_attached_backend() {
+    let backend = Arc::new(NoThread::default());
+    let attached = backend.clone();
+    let started = try_start_adapter(
+        "no-thread",
+        None,
+        None,
+        Arc::new(FakeState::default()),
+        FakeAgent::new,
+        move |_host| attached,
+    );
+    match started {
+        Err(eagent::engine::EngineError::Spawn(err)) => assert_eq!(err.to_string(), "no thread left"),
+        Err(other) => panic!("the spawn's own error, not {other}"),
+        Ok(_) => panic!("a run without its thread never starts"),
+    }
+    assert_eq!(backend.attaches.load(Ordering::SeqCst), 1, "the side-car came up first");
+    assert!(!backend.attached.load(Ordering::SeqCst), "and was stopped again");
+    assert_eq!(backend.ends.load(Ordering::SeqCst), 0, "no connection, no end sequence");
 }
 
 /// #EXP-1514 (D 10): [`NoBackend`] that records the turn signal's edges

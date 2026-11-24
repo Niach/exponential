@@ -131,8 +131,10 @@ function SidebarProvider({
               ...style,
             } as React.CSSProperties
           }
+          // #EXP-1999: no inset-variant `:has()` ground (no inset sidebar
+          // here): a `:has()` this high re-ran on every mounted node.
           className={cn(
-            `group/sidebar-wrapper flex min-h-svh w-full has-data-[variant=inset]:bg-sidebar`,
+            `group/sidebar-wrapper flex min-h-svh w-full`,
             className
           )}
           {...props}

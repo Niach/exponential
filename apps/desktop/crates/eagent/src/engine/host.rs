@@ -221,6 +221,22 @@ pub trait RunBackend: Send + Sync + 'static {
         Ok(())
     }
 
+    /// #EXP-2058: start the run's engine thread. A host's own never differs;
+    /// a test's fails it here, the one failure between [`Self::attach`] and
+    /// a running connection.
+    fn spawn_thread(
+        &self,
+        builder: std::thread::Builder,
+        body: Box<dyn FnOnce() + Send + 'static>,
+    ) -> std::io::Result<()> {
+        builder.spawn(body).map(drop)
+    }
+
+    /// #EXP-2058: stop what [`Self::attach`] started, for a run whose
+    /// engine thread never did: no connection, so no [`Self::end`] either.
+    /// Writes nothing anywhere: the caller gets the start's error.
+    fn detach(&self, _ctx: &SessionCtx) {}
+
     /// The end sequence, once the connection is gone. MUST finish
     /// [`SessionCtx::exit`] (what `wait()` and `is_done()` read).
     fn end(

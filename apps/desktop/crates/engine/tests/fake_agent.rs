@@ -854,6 +854,7 @@ fn start_fake_prepared(
             sink: Some(sink.clone() as Arc<dyn EventSink>),
             conversation: Some(conversation.clone() as Arc<dyn engine::outbox::ConversationApi>),
             computer: None,
+            thread: None,
         },
     )
     .expect("the engine starts");
@@ -1830,6 +1831,7 @@ fn a_run_that_dies_in_its_handshake_ends_as_a_failed_phase() {
             sink: None,
             conversation: None,
             computer: None,
+            thread: None,
         },
     )
     .expect("the engine starts");
@@ -1953,6 +1955,7 @@ fn a_launch_that_dies_before_its_first_turn_says_it_could_not_start() {
             sink: None,
             conversation: None,
             computer: None,
+            thread: None,
         },
     )
     .expect("the engine starts");
@@ -2503,11 +2506,74 @@ fn start_computer_run(name: &str, space: bool) -> (Harness, Arc<Mutex<Vec<String
             sink: Some(sink.clone() as Arc<dyn EventSink>),
             conversation: Some(conversation.clone() as Arc<dyn engine::outbox::ConversationApi>),
             computer: Some(Arc::new(RecordingComputer(log.clone()))),
+            thread: None,
         },
     )
     .expect("the engine starts");
     let harness = Harness { session, sink, conversation, state, host, _hold: hold, _runtime: runtime };
     (harness, log)
+}
+
+/// #EXP-2058: a run whose engine thread fails to spawn AFTER its side-car
+/// attached (the OS out of threads) takes the side-car down again: the kill
+/// watch is dropped (unwatched) and the run's computer-use token and Esc
+/// hook are revoked, with no end sequence to do it (no connection ever
+/// ran) and no end written to the row.
+#[test]
+fn a_failed_thread_spawn_detaches_the_side_car() {
+    let (base, log) = recording_trpc();
+    let worktree = std::env::temp_dir().join(format!("exp2058-engine-no-thread-{}", std::process::id()));
+    std::fs::create_dir_all(&worktree).expect("the scratch worktree is creatable");
+    let _hold = coding::launch_gate::hold(&worktree);
+    let runtime = steer::SteerRuntime::new().expect("a steer runtime");
+    let child_exit = ChildExitLink::new();
+    let adapter = FakeAgent::new(Arc::new(FakeState::default()), child_exit.clone());
+    let unwatched = Arc::new(AtomicBool::new(false));
+    let (_kills, rx) = flume::unbounded();
+    let kill = KillFeed {
+        rx,
+        unwatch: Some(Box::new({
+            let unwatched = unwatched.clone();
+            move || unwatched.store(true, Ordering::SeqCst)
+        })),
+    };
+    let started = engine::start_with(
+        EngineStart {
+            prepared: prepared("sess-no-thread", worktree.clone()),
+            trpc: Arc::new(api::TrpcClient::new(&base, Arc::new(|| Some("tok".to_string())))),
+            runtime: Arc::clone(&runtime),
+            data_dir: worktree,
+            account_id: "acct-1".to_string(),
+            own_user_id: Some("user-1".to_string()),
+            personal_key: Some("expu_supersecretkey".to_string()),
+            persistent: false,
+            foreign_host: false,
+            rotation_host: false,
+            publish: false,
+            kill,
+            local_sink: None,
+        },
+        Arc::new(TestHost::default()),
+        EngineParts {
+            adapter,
+            child_exit,
+            sink: Some(RecordingSink::new() as Arc<dyn EventSink>),
+            conversation: Some(Arc::new(RecordingConversation::default()) as Arc<dyn engine::outbox::ConversationApi>),
+            computer: Some(Arc::new(RecordingComputer(log.clone()))),
+            thread: Some(Arc::new(|_builder, _body| {
+                Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "no thread left"))
+            })),
+        },
+    );
+    match started {
+        Err(engine::EngineError::Spawn(err)) => assert_eq!(err.to_string(), "no thread left"),
+        Err(other) => panic!("the spawn's own error, not {other}"),
+        Ok(_) => panic!("a run without its thread never starts"),
+    }
+    assert!(unwatched.load(Ordering::SeqCst), "the kill watch outlived the run that never was");
+    assert_eq!(computer_calls(&log, "revoke sess-no-thread"), 1, "{:?}", log.lock().unwrap());
+    assert_eq!(computer_calls(&log, "close_space"), 0, "the session lives: its space stays");
+    assert!(!log.lock().unwrap().iter().any(|line| ended_report(line)), "the start's caller reports the failure");
 }
 
 fn computer_calls(log: &Arc<Mutex<Vec<String>>>, what: &str) -> usize {

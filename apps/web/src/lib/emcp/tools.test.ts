@@ -2411,6 +2411,23 @@ describe(`exponential_comments_create audience reporter`, () => {
     expect(caller.comments.create).not.toHaveBeenCalled()
   })
 
+  // #FEED-290: "watched" reads `session_watches` (#NEW-49), the gates' own
+  // definition; `sessions.wake_on` is written by nothing, so reading it made
+  // every spawned root look attended.
+  it(`reads a spawned root's watcher from session_watches, never the dead wake_on`, async () => {
+    dbRows.current = [ownSession({ watched: true })]
+    h.db.select.mockClear()
+    await collectTools(USER, SESSION).get(`exponential_comments_create`)!(args)
+    const fields = (h.db.select.mock.calls as unknown as Array<[Record<string, unknown> | undefined]>)
+      .map(([selected]) => selected)
+      .find((selected) => selected && `watched` in selected)
+    expect(fields).toBeDefined()
+    const { sql } = new PgDialect().sqlToQuery(fields!.watched as never)
+    expect(sql).toContain(`session_watches`)
+    expect(sql).toContain(`sw.kind = 'session'`)
+    expect(sql).not.toContain(`wake_on`)
+  })
+
   it(`keeps it for a person's own session, and a team comment for anyone`, async () => {
     caller.comments.create.mockResolvedValue({
       comment: { id: UUID },

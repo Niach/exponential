@@ -198,6 +198,8 @@ data class SteerTailMessage(
     val createdAtMs: Long?,
     /** The OPENED body. */
     val body: String,
+    /** #EXP-2084: the session that posted it (a child's reply), when not the chat's own. */
+    val authorSessionId: String? = null,
 )
 
 /**
@@ -207,7 +209,8 @@ data class SteerTailMessage(
  * body, the agent's or a person's CONSUMED input, later than the feed's
  * newest known row time, not already held by the feed (an agent line equal
  * to, a prefix of or prefixed by a narration; an input equal to a feed
- * input). An empty feed takes the tail only while its live transcript
+ * input; #EXP-2084 another session's line the feed holds as that session's
+ * input, whatever its time). An empty feed takes the tail only while its live transcript
  * cannot be loaded ([unreachable], the OFFLINE LINE's condition) and only
  * when it holds an agent line.
  */
@@ -225,12 +228,18 @@ fun <T> steerSyncedTail(
     if (feed.isNotEmpty() && feedAt == null) return emptyList()
     val narrations = feed.filter { it.author == "agent" && !it.text.isNullOrEmpty() }.map { it.text!!.trim() }
     val inputs = feed.filter { it.author == "user" && !it.text.isNullOrEmpty() }.mapTo(HashSet()) { it.text!!.trim() }
+    // #EXP-2084: the inputs the device worded as another session's
+    // (`Message from <name> (session <id>): <body>`), by session and body.
+    val relays = feed.filter { it.author == "user" }
+        .mapNotNull { it.text?.let(com.exponential.app.domain.TranscriptGrouping::crossSessionInput) }
+        .mapTo(HashSet()) { "${it.sessionId}\n${it.body.trim()}" }
     val tail = messages
         .map { it to row(it) }
         .filter { (_, m) ->
             if (m.hasCard) return@filter false
             val body = m.body.trim()
             if (body.isEmpty()) return@filter false
+            if (m.authorKind == "agent" && !m.authorSessionId.isNullOrEmpty() && "${m.authorSessionId}\n$body" in relays) return@filter false
             when (m.authorKind) {
                 "agent" -> if (narrations.any { it.isNotEmpty() && (it.startsWith(body) || body.startsWith(it)) }) return@filter false
                 "user" -> if (m.consumedAt == null || body in inputs) return@filter false

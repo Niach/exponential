@@ -1988,7 +1988,7 @@ final class AgentSessionModel {
                         consumedAt: m.consumedAt, createdAt: m.createdAt,
                         createdAtMs: WireTimestamps.parse(m.createdAt).map { Int(($0.timeIntervalSince1970 * 1000).rounded()) },
                         body: m.locked.map(SealedPlaceholder.copy) ?? m.body,
-                        authorId: m.authorId
+                        authorId: m.authorId, authorSessionId: m.authorSessionId
                     )
                 }
         }

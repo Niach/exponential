@@ -11201,6 +11201,7 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
             consumed_at: m.consumed_at.as_deref().filter(|at| !at.is_empty()),
             created_at: m.created_at.as_deref().unwrap_or_default(),
             body: &bodies[i],
+            author_session_id: m.author_session_id.as_deref().filter(|id| !id.is_empty()),
         }
     })
     .into_iter()
@@ -11458,6 +11459,40 @@ mod tests {
         let tail = synced_tail_rows(false, false, &recorded, &synced);
         assert_eq!(tail.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m2"]);
         assert_eq!(tail[0].author_id.as_deref(), Some("u-mira"));
+    }
+
+    /// #EXP-2084: a child's reply the device consumed is in the feed as that
+    /// session's input; a not-live feed (a cold start) never draws its
+    /// synced row a second time, even when the device's clock is behind the
+    /// server's.
+    #[test]
+    fn a_childs_reply_the_feed_echoes_never_draws_twice() {
+        let recorded = [
+            FeedItem {
+                id: 1,
+                kind: FeedKind::UserMessage {
+                    text: "Message from Fix the login (session s-child): The PR is open.".into(),
+                    subagent_id: None,
+                    at: Some(1_000),
+                },
+                seq: Some(1),
+            },
+            FeedItem { id: 2, kind: FeedKind::Narration { text: "Noted.".into(), message_id: None, subagent_id: None, at: Some(2_000) }, seq: Some(2) },
+        ];
+        let reply = |id: &str, from: &str, body: &str| -> domain::rows::MessageRow {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "session_id": "p1", "root_id": "p1", "author_kind": "agent", "author_session_id": from, "body": body,
+                "created_at": "2026-11-23T20:30:00.000Z", "consumed_at": "2026-11-23T20:35:00.000Z"
+            }))
+            .unwrap()
+        };
+        let synced = [
+            reply("r1", "s-child", "The PR is open."),
+            reply("r2", "s-child", "CI is green."),
+            reply("r3", "s-other", "The PR is open."),
+        ];
+        let tail = synced_tail_rows(false, false, &recorded, &synced);
+        assert_eq!(tail.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["r2", "r3"]);
     }
 
     /// EXP-1294 rfix: a card's row is the one carrying ITS question id —

@@ -88,6 +88,9 @@ pub struct EngineParts<A> {
     /// #EXP-1514: tell the device's computer use through this instead of
     /// ePilot — a test's recorder. `None` = ePilot.
     pub computer: Option<Arc<dyn crate::lifecycle::RunComputer>>,
+    /// #EXP-2058: start the engine thread through this instead of the OS:
+    /// a test's refuses. `None` = a plain OS thread.
+    pub thread: Option<crate::lifecycle::EngineThread>,
 }
 
 /// Open an ENDED run's transcript read-only (a Past row on the desktop).
@@ -217,6 +220,7 @@ impl EngineSession {
             embeds: steer::ImageEmbeds::default(),
             audience: None,
             computer: None,
+            thread: None,
             space_run: false,
         }));
         let session = SessionSpec {
@@ -343,6 +347,7 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
             sink: None,
             conversation: None,
             computer: None,
+            thread: None,
         },
     )
 }
@@ -397,6 +402,7 @@ where
         embeds,
         audience: prepared.audience.clone(),
         computer: parts.computer,
+        thread: parts.thread,
         space_run: acp.computer_space,
     }));
     let session = SessionSpec {

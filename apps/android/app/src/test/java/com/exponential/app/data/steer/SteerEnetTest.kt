@@ -358,6 +358,7 @@ class SteerEnetTest {
                     createdAt = m["createdAt"]!!.jsonPrimitive.content,
                     createdAtMs = ms(m["createdAt"]),
                     body = m["body"]!!.jsonPrimitive.content,
+                    authorSessionId = str(m["authorSessionId"]),
                 )
             }
             assertEquals(
