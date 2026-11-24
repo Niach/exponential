@@ -52,7 +52,7 @@ export async function issueEmbeddingsAvailable(): Promise<boolean> {
   return ok
 }
 
-/** Forgets the cached answer (the boot pass calls it after applying 0002). */
+/** Forgets the cached answer (tests). */
 export function resetIssueEmbeddingsAvailability(): void {
   tableCheck = null
 }

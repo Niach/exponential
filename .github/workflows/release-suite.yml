@@ -400,7 +400,7 @@ jobs:
         # (bootstrap-cloud applyCustomSql); CI applies it manually because it
         # never boots the app — ON_ERROR_STOP so SQL errors fail the job.
         run: docker exec -i ${{ job.services.postgres.id }} psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0001_triggers.sql
-      - name: Apply the optional embeddings SQL (#NEW-134: a no-op without pgvector)
+      - name: Apply the optional embeddings SQL, a no-op without pgvector (#NEW-134)
         run: |
           docker exec -i ${{ job.services.postgres.id }} psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0002_issue_embeddings.sql
           [ "$(docker exec ${{ job.services.postgres.id }} psql -U postgres -d exponential -tAc "select to_regclass('public.issue_embeddings') is null")" = t ]

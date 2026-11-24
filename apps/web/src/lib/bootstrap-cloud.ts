@@ -101,8 +101,6 @@ let bootstrapPromise: Promise<void> | null = null
 // bootstrapCloud() below is the only production caller.
 export async function runBootstrapPass(): Promise<void> {
   await applyCustomSql()
-  // #NEW-134: 0002 may just have created the embeddings table.
-  await import(`@/lib/issue-embeddings/store`).then((m) => m.resetIssueEmbeddingsAvailability())
   await promoteInitialAdmins()
   // FEED-159: a deploy that made an action owner-only or destructive strips
   // the grants apps still store for it.
