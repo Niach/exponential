@@ -10,6 +10,12 @@
 // flowing, so the relay's idle timeout never ends a muted call.
 
 import { VOICE_CALL_CONSTANTS } from "@exp/etalk/voice-call"
+import captureWorkletUrl from "./worklets/call-capture.js?url&no-inline"
+import playbackWorkletUrl from "./worklets/call-playback.js?url&no-inline"
+
+/** The two worklet modules. `no-inline`: a small asset would become a
+ *  `data:` URL, which the CSP refuses like a blob. */
+export const CALL_WORKLET_URLS = { capture: captureWorkletUrl, playback: playbackWorkletUrl }
 
 const { upRate, downRate, upKbps, frameMs, jitterMs } = VOICE_CALL_CONSTANTS
 const UP_FRAME = (upRate * frameMs) / 1000
@@ -58,123 +64,16 @@ export async function opusCallSupported(): Promise<boolean> {
   }
 }
 
-// The capture worklet: the context's input resampled (linearly, when the
-// context could not open at `upRate`) to `upRate`, posted in whole frames.
-const CAPTURE_WORKLET = `
-class CallCapture extends AudioWorkletProcessor {
-  constructor(options) {
-    super()
-    this.target = options.processorOptions.rate
-    this.size = options.processorOptions.frame
-    this.step = sampleRate / this.target
-    this.pos = 0
-    this.last = 0
-    this.frame = new Float32Array(this.size)
-    this.fill = 0
-  }
-  emit(sample) {
-    this.frame[this.fill++] = sample
-    if (this.fill === this.size) {
-      this.port.postMessage(this.frame, [this.frame.buffer])
-      this.frame = new Float32Array(this.size)
-      this.fill = 0
-    }
-  }
-  process(inputs) {
-    const input = inputs[0] && inputs[0][0]
-    if (!input) return true
-    if (this.step === 1) {
-      for (let i = 0; i < input.length; i++) this.emit(input[i])
-      return true
-    }
-    while (this.pos < input.length) {
-      const i = Math.floor(this.pos)
-      const frac = this.pos - i
-      const a = i === 0 ? this.last : input[i - 1]
-      const b = input[i]
-      this.emit(a + (b - a) * frac)
-      this.pos += this.step
-    }
-    this.pos -= input.length
-    this.last = input[input.length - 1]
-    return true
-  }
-}
-registerProcessor('call-capture', CallCapture)
-`
-
-// The playback worklet: decoded chunks (any rate) resampled to the output
-// rate and queued; it starts (and restarts after an underrun) once
+// The capture worklet (worklets/call-capture.js): the context's input
+// resampled (linearly, when the context could not open at `upRate`) to
+// `upRate`, posted in whole frames. The playback worklet
+// (worklets/call-playback.js): decoded chunks (any rate) resampled to the
+// output rate and queued; it starts (and restarts after an underrun) once
 // `jitterMs` are buffered; `flush` drops the queue.
-const PLAYBACK_WORKLET = `
-class CallPlayback extends AudioWorkletProcessor {
-  constructor(options) {
-    super()
-    this.prime = Math.round(sampleRate * options.processorOptions.jitterMs / 1000)
-    this.queue = []
-    this.head = 0
-    this.buffered = 0
-    this.playing = false
-    this.port.onmessage = (event) => {
-      const data = event.data
-      if (data.t === 'flush') {
-        this.queue = []
-        this.head = 0
-        this.buffered = 0
-        this.playing = false
-        return
-      }
-      const chunk = this.resample(data.samples, data.rate)
-      this.queue.push(chunk)
-      this.buffered += chunk.length
-    }
-  }
-  resample(samples, rate) {
-    if (rate === sampleRate) return samples
-    const length = Math.floor(samples.length * sampleRate / rate)
-    const out = new Float32Array(length)
-    const step = rate / sampleRate
-    for (let j = 0; j < length; j++) {
-      const pos = j * step
-      const i = Math.floor(pos)
-      const a = samples[i]
-      const b = i + 1 < samples.length ? samples[i + 1] : a
-      out[j] = a + (b - a) * (pos - i)
-    }
-    return out
-  }
-  process(_inputs, outputs) {
-    const out = outputs[0][0]
-    if (!this.playing && this.buffered >= this.prime) this.playing = true
-    if (!this.playing) return true
-    let written = 0
-    while (written < out.length && this.queue.length > 0) {
-      const chunk = this.queue[0]
-      const take = Math.min(out.length - written, chunk.length - this.head)
-      out.set(chunk.subarray(this.head, this.head + take), written)
-      written += take
-      this.head += take
-      this.buffered -= take
-      if (this.head === chunk.length) {
-        this.queue.shift()
-        this.head = 0
-      }
-    }
-    if (written < out.length) this.playing = false
-    return true
-  }
-}
-registerProcessor('call-playback', CallPlayback)
-`
 
-async function addWorklet(context: AudioContext, source: string): Promise<void> {
-  const url = URL.createObjectURL(new Blob([source], { type: `text/javascript` }))
-  try {
-    await context.audioWorklet.addModule(url)
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}
+// #EXP-2102: by URL, from this origin. The CSP has no `blob:` in script-src
+// and must not get one.
+const addWorklet = (context: AudioContext, url: string): Promise<void> => context.audioWorklet.addModule(url)
 
 async function openMicrophone(): Promise<MediaStream> {
   if (!navigator.mediaDevices?.getUserMedia) throw new CallAudioError(`no_microphone`)
@@ -242,7 +141,7 @@ export async function openCallAudio(): Promise<CallAudio> {
     // Uplink: microphone → capture worklet → AudioEncoder → onPacket.
     const capture = await captureContext(stream)
     closers.push(() => void capture.context.close())
-    await addWorklet(capture.context, CAPTURE_WORKLET)
+    await addWorklet(capture.context, CALL_WORKLET_URLS.capture)
     const encoder = new AudioEncoder({
       output: (chunk) => {
         const packet = new Uint8Array(chunk.byteLength)
@@ -282,7 +181,7 @@ export async function openCallAudio(): Promise<CallAudio> {
     // Downlink: AudioDecoder → playback worklet → speaker.
     const playback = new AudioContext({ sampleRate: downRate, latencyHint: `interactive` })
     closers.push(() => void playback.close())
-    await addWorklet(playback, PLAYBACK_WORKLET)
+    await addWorklet(playback, CALL_WORKLET_URLS.playback)
     const speaker = new AudioWorkletNode(playback, `call-playback`, {
       numberOfInputs: 0,
       outputChannelCount: [1],
