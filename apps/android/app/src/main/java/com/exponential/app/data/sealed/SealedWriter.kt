@@ -164,7 +164,8 @@ class SealedWriter @Inject constructor(
             }
             else -> {
                 val key = crypto.generateTreeKey()
-                val wraps = readerWraps(accountId, installId, readers, key.secret) ?: throw TrpcException(NO_KEY_REFUSAL)
+                val targets = readerTargets(accountId, installId, readers) ?: throw TrpcException(NO_KEY_REFUSAL)
+                val wraps = wrapsFor(accountId, targets, key, rootId = null) ?: throw TrpcException(NO_KEY_REFUSAL)
                 val sealed = crypto.sealBody(key.publicKey, FIRST_EPOCH, body)
                 PreparedSend(
                     sealedName(withMentions, key.publicKey, FIRST_EPOCH).copy(
@@ -172,7 +173,7 @@ class SealedWriter @Inject constructor(
                         seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps),
                         actionCard = sealedActionCard(withMentions.actionCard, key.publicKey, FIRST_EPOCH),
                     ),
-                ) { result -> keep(accountId, result.sessionId, key.secret) }
+                ) { result -> keepSeal(accountId, result.sessionId, key, targets, wraps) }
             }
         }
     }
@@ -200,11 +201,12 @@ class SealedWriter @Inject constructor(
         if (treeKey != null) return sealedTo(withMentions, treeKey, body)
         val installId = nodes.get().installId(accountId) ?: return PreparedSend(withMentions)
         val key = crypto.generateTreeKey()
-        val wraps = readerWraps(accountId, installId, readers, key.secret) ?: return PreparedSend(withMentions)
+        val targets = readerTargets(accountId, installId, readers) ?: return PreparedSend(withMentions)
+        val wraps = wrapsFor(accountId, targets, key, rootId = null) ?: return PreparedSend(withMentions)
         val sealed = crypto.sealBody(key.publicKey, FIRST_EPOCH, body)
         return PreparedSend(
             withMentions.copy(text = sealed, seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps)),
-        ) { result -> keep(accountId, result.sessionId, key.secret) }
+        ) { result -> keepSeal(accountId, result.sessionId, key, targets, wraps) }
     }
 
     private sealed interface Keyless {
@@ -481,7 +483,9 @@ class SealedWriter @Inject constructor(
         val installId = nodes.get().installId(accountId) ?: return null
         val key = crypto.generateTreeKey()
         // #EXP-1960: a refused wrap: once more for this account's installs only.
-        val wraps = readerWraps(accountId, installId, if (ownOnly) readers.copy(deviceId = null) else readers, key.secret) ?: return null
+        val targets = readerTargets(accountId, installId, if (ownOnly) readers.copy(deviceId = null) else readers) ?: return null
+        // #EXP-1950: the root exists: every wrap is signed.
+        val wraps = wrapsFor(accountId, targets, key, rootId) ?: return null
         sessionKeys.create(accountId, CreateSessionKeyInput(rootId, installId, FIRST_EPOCH, key.publicKey, wraps))
         keep(accountId, rootId, key.secret)
         return PublicTreeKey(key.publicKey, FIRST_EPOCH)
@@ -493,23 +497,44 @@ class SealedWriter @Inject constructor(
             .getOrNull()?.let { PublicTreeKey(it.publicKey, it.epoch) }
 
     /**
-     * Wraps for the readers this install resolves (addendum 1): its own
-     * install always, the user's other installs, and the target device's
+     * The readers this install resolves (addendum 1): its own install
+     * always (first), the user's other installs, and the target device's
      * install when `installs.list` names it. Holders fill any gap later via
-     * `pending`. Null when this install's own wrap cannot be made.
+     * `pending`. Null without an identity.
      */
-    private suspend fun readerWraps(accountId: String, installId: String, target: Readers, secret: ByteArray): List<TreeKeyWrap>? {
+    private suspend fun readerTargets(accountId: String, installId: String, target: Readers): List<WrapTarget>? {
         val identity = identities.vault.identity(accountId, create = false) ?: return null
-        val own = TreeKeyWrap(installId, crypto.wrapTreeKey(base64Url(EnetFfi.x25519PublicOf(identity)), secret))
+        val own = WrapTarget(installId, WrapSignerFfi.endpointIdOf(identity), base64Url(EnetFfi.x25519PublicOf(identity)))
         val userId = auth.accounts.value.firstOrNull { it.id == accountId }?.userId
         val teamInstalls = target.teamId?.let { teamId -> runCatching { installs.list(accountId, teamId) }.getOrNull() }.orEmpty()
         val others = teamInstalls
             .filter { it.installId != installId }
             .filter { it.userId == userId || (target.deviceId != null && it.deviceId == target.deviceId) }
-            .mapNotNull { reader ->
-                runCatching { TreeKeyWrap(reader.installId, crypto.wrapTreeKey(reader.x25519Public, secret)) }.getOrNull()
-            }
+            .map { WrapTarget(it.installId, it.endpointId, it.x25519Public) }
         return listOf(own) + others
+    }
+
+    /**
+     * [key]'s wraps for [targets]; null when the own (first) one cannot be
+     * made. #EXP-1950: signed when [rootId] is known; a new root's seal
+     * (null) goes unsigned and its holder signs it again ([keepSeal]).
+     */
+    private suspend fun wrapsFor(accountId: String, targets: List<WrapTarget>, key: TreeKey, rootId: String?): List<TreeKeyWrap>? {
+        val signing = rootId?.let { root -> identities.vault.identity(accountId, create = false)?.let { root to it } }
+        val wraps = targets.mapNotNull { target ->
+            val wrapped = runCatching { crypto.wrapTreeKey(target.x25519Public, key.secret) }.getOrNull() ?: return@mapNotNull null
+            val signature = signing?.let { (root, id) ->
+                runCatching { WrapSignerFfi.sign(id, root, FIRST_EPOCH, key.publicKey, target.endpointId, wrapped) }.getOrNull()
+            }
+            TreeKeyWrap(target.installId, wrapped, signature)
+        }
+        return wraps.takeIf { it.firstOrNull()?.installId == targets.firstOrNull()?.installId }
+    }
+
+    /** A new root's key once the send created [rootId]; #EXP-1950: its unsigned seal is signed again by the holder. */
+    private fun keepSeal(accountId: String, rootId: String, key: TreeKey, targets: List<WrapTarget>, wraps: List<TreeKeyWrap>) {
+        keep(accountId, rootId, key.secret)
+        nodes.get().resignNewRoot(accountId, rootId, FIRST_EPOCH, key.publicKey, targets.filter { target -> wraps.any { it.installId == target.installId } })
     }
 
     private fun keep(accountId: String, rootId: String, secret: ByteArray) {
