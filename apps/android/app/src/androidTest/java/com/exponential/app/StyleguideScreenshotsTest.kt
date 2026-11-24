@@ -389,7 +389,7 @@ class StyleguideScreenshotsTest {
         // issue title; the issue-less private spike keeps its stored title.
         private const val PRIVATE_CHAT_TITLE = "Spike: offline queue"
         /** #EXP-2075: FB-9's chat (DEMO_AWAY_SESSION_ID), on the offline build server. */
-        private const val AWAY_CHAT_TITLE = "Screenshots attached to feedback"
+        private const val AWAY_CHAT_TITLE = "Sort today's widget reports"
         private const val RECENT_CHAT_TITLE = "Fix flaky scroll restore on the issue list"
         private const val COLD_START_CHAT_TITLE = "Reduce cold start below 800 ms"
         private const val COLD_START_REPLY_FRAGMENT = "Board snapshot cache"

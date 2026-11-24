@@ -146,7 +146,7 @@ final class StyleguideScreenshots: XCTestCase {
     /// APP-14: the seed's realPr issue (its open PR row).
     private static let guideTitle = "Group board issues by assignee"
     /// FB-9's chat (DEMO_AWAY_SESSION_ID), on the offline build server.
-    private static let awayChatTitle = "Screenshots attached to feedback"
+    private static let awayChatTitle = "Sort today's widget reports"
     /// APP-15: its chat carries the seeded quick replies.
     private static let batchGuideTitle = "Batch-edit labels from the board"
     private static let searchQuery = "by:alex"
