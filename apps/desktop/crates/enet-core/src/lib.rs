@@ -57,6 +57,8 @@ mod ticket;
 mod util;
 #[cfg(feature = "node")]
 pub mod wrap_sig;
+#[cfg(feature = "node")]
+pub mod install_trust;
 
 #[cfg(feature = "node")]
 pub use access::Access;
