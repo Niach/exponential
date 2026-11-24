@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server"
+import { scheduleIssueEmbedding } from "@/lib/issue-embeddings/recompute"
 import { z } from "zod"
 import { router, authedProcedure, generateTxId, type Context } from "@/lib/trpc"
 import {
@@ -762,6 +763,9 @@ export const issuesRouter = router({
         })
       }
 
+      // #NEW-134: semantic search reads the new issue ~30 s from now.
+      scheduleIssueEmbedding(result.issue.id)
+
       return result
     }),
 
@@ -1106,6 +1110,10 @@ export const issuesRouter = router({
           toStatus: statusChange.to,
         })
       }
+
+      // #NEW-134: only the words are embedded; a status, assignee or label
+      // change costs nothing here.
+      if (input.title !== undefined || input.description !== undefined) scheduleIssueEmbedding(issue.id)
 
       return { issue, txId }
     }),
