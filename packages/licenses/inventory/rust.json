@@ -4697,7 +4697,7 @@
     },
     {
       "name": "ede-observability",
-      "version": "0.2.32",
+      "version": "0.2.37",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -4712,7 +4712,7 @@
     },
     {
       "name": "ede-services",
-      "version": "0.2.32",
+      "version": "0.2.37",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -4727,7 +4727,7 @@
     },
     {
       "name": "ede-theme",
-      "version": "0.2.32",
+      "version": "0.2.37",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
@@ -4742,7 +4742,7 @@
     },
     {
       "name": "ede-ui",
-      "version": "0.2.32",
+      "version": "0.2.37",
       "declared": "Apache-2.0",
       "licenses": [
         "Apache-2.0"
