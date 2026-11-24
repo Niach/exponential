@@ -201,6 +201,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// #EXP-2119: a thread without a turn has no rollout.
+    #[test]
+    fn a_thread_is_recorded_once_it_has_a_rollout() {
+        let dir = temp_dir("has-rollout");
+        let root = dir.join("sessions");
+        assert!(!has_rollout(&root, "thread-1"));
+        write_rollout(&root, "2026/07/19", "2026-07-19T10-00-00", "thread-1", &dir);
+        assert!(has_rollout(&root, "thread-1"));
+        assert!(!has_rollout(&root, "thread-2"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn canonicalized_worktree_still_matches_the_recorded_cwd() {
         // codex records its CANONICAL cwd; the launcher's derived worktree
