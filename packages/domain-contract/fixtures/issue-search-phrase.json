@@ -1,0 +1,632 @@
+{
+  "$comment": "#NEW-133: THE PHRASE GRAMMAR of the issue search: translate(phrase, members, now) -> the structured query string the engine runs (issue-search.json: is:, status:, by:, created:, updated:), or null when the phrase is not a sentence. Deterministic, German + English, no model; web `translateIssueSearchPhrase` (apps/web/src/lib/issue-search-phrase.ts) is the reference and owns the WORD LISTS, mirrored byte for byte on iOS, Android and desktop; every case replays on all four. CASES: {name, now (ISO, UTC), members [{name, email}], phrase, expected (string | null)}. TOKENS: the phrase lowercased, split on whitespace, each token stripped of leading and trailing . , ; : ! ? \" ' ( ); empty tokens go. A token starting with by: is: status: created: updated: or similar: means the text already is a query: null. WALK left to right, first rule wins at each position: (1) DATE: a date phrase, optionally behind up to two lead-in words (aus, seit, since, from, in, im, during, within, während, innerhalb, von, vom, der, dem, den, des, the; consumed only when a date follows). Date phrases: heute|today -> today; gestern|yesterday -> yesterday; LAST unit -> 1d, 7d (week), 1m, 1y; LAST n unit (n = 1..9999) -> <n>d|w|m|y; THIS day -> today; THIS week -> >=<the UTC Monday of now's week>; THIS month -> YYYY-MM of now; THIS year -> >=YYYY-01-01; seit|since|ab|after|nach|from <ISO> -> >=<ISO>; vor|before|bis|until <ISO> -> <<ISO>; a bare valid ISO day or month -> itself; a month name (German or English, full) counts only after a month lead-in (in, im, from, since, seit, aus, during, während) or before a 4-digit year: with the year -> YYYY-MM, without -> the latest such month not after now's month (a month still ahead = last year's). (2) STATUS: `in progress|in arbeit|in bearbeitung` -> status:progress, `in review|im review` -> status:review, then one word: the open words -> is:open, the closed words -> is:closed, backlog, the done words -> status:done, the cancelled words -> status:cancelled, the duplicate words -> status:duplicate. (3) CREATOR: von|vom|by|from followed by a word that is a name word or the email local part of a member -> by:<word>; every following word that is a name word (or the local part) of one of the SAME members joins as another by:. No member: von|vom|by is dropped and the name stays a plain word; from falls through to (4). (4) an updated verb (updated, changed, geändert, aktualisiert, bearbeitet, ...) moves EVERY date to updated: and goes; a noun (issue(s), ticket(s), aufgabe(n), task(s), vorgang) goes and marks the sentence; filler words go; anything else is a word, kept in order. RESULT: null unless a date or a member matched, or a state/status word matched AND a noun was seen (`open issues` is a sentence, `open file dialog` is not). Else the query: is: tokens, status: tokens, by: tokens, the dates (created: or updated:), then the words, each list in first-seen order without repeats, joined by one space; null when that equals the tokens joined (nothing changed). SURFACE (search-list.json): a recognised sentence puts ONE action row `Search: <query>` on top of the search list; picking it replaces the field's text with the query.",
+  "cases": [
+    {
+      "name": "the German sentence: state, member, topic and last week",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "offene Issues von Lukas zum Editor aus letzter Woche",
+      "expected": "is:open by:lukas created:7d editor"
+    },
+    {
+      "name": "the English sentence: state, member, topic and last week",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "Open issues by Lukas about the editor from last week",
+      "expected": "is:open by:lukas created:7d editor"
+    },
+    {
+      "name": "plain words are not a sentence",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "editor toolbar crash",
+      "expected": null
+    },
+    {
+      "name": "a state word without the noun stays a word",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "open file dialog",
+      "expected": null
+    },
+    {
+      "name": "a state word beside the noun is a sentence",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "closed tickets login",
+      "expected": "is:closed login"
+    },
+    {
+      "name": "a query that already carries a filter token is left alone",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "offene issues by:lukas",
+      "expected": null
+    },
+    {
+      "name": "an unknown name stays a plain word, the lead-in goes",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "geschlossene Issues von Petra",
+      "expected": "is:closed petra"
+    },
+    {
+      "name": "an unknown name alone is not a sentence",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "von Petra",
+      "expected": null
+    },
+    {
+      "name": "a member alone is a sentence",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "von anna",
+      "expected": "by:anna"
+    },
+    {
+      "name": "both name words of one member join, a second member's word does not",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "issues by Lukas Mai Berg",
+      "expected": "by:lukas by:mai berg"
+    },
+    {
+      "name": "the email local part names a member",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "tickets from lukas.mai",
+      "expected": "by:lukas.mai"
+    },
+    {
+      "name": "from before a non-member is filler",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "crash from startup yesterday",
+      "expected": "created:yesterday crash startup"
+    },
+    {
+      "name": "statuses: done, cancelled, in progress, in review, backlog",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "erledigte Aufgaben, in Arbeit, in review, backlog, abgebrochene",
+      "expected": "status:done status:progress status:review status:backlog status:cancelled"
+    },
+    {
+      "name": "an updated verb moves the date to updated:",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "issues updated today",
+      "expected": "updated:today"
+    },
+    {
+      "name": "geändert seit gestern",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "Tickets von Anna geändert seit gestern",
+      "expected": "by:anna updated:yesterday"
+    },
+    {
+      "name": "last n units",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "bugs from the last 3 days",
+      "expected": "created:3d bugs"
+    },
+    {
+      "name": "letzten n wochen, monat, jahr",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "sync letzten 2 Wochen letzter Monat letztes Jahr",
+      "expected": "created:2w created:1m created:1y sync"
+    },
+    {
+      "name": "this week starts on the UTC Monday",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "issues this week",
+      "expected": "created:>=2026-11-09"
+    },
+    {
+      "name": "this week on a Monday is that day",
+      "now": "2026-11-09T00:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "diese Woche",
+      "expected": "created:>=2026-11-09"
+    },
+    {
+      "name": "this month and this year",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "diesen Monat dieses Jahr",
+      "expected": "created:2026-11 created:>=2026-01-01"
+    },
+    {
+      "name": "a month name after a lead-in is the latest such month",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "issues im Mai",
+      "expected": "created:2026-05"
+    },
+    {
+      "name": "a month still ahead this year is last year's",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "in december",
+      "expected": "created:2025-12"
+    },
+    {
+      "name": "a month with a year, with or without the lead-in",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "März 2026 since october 2025",
+      "expected": "created:2026-03 created:2025-10"
+    },
+    {
+      "name": "a bare month name is a word",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "may crash on march",
+      "expected": null
+    },
+    {
+      "name": "since and before an ISO date, a bare ISO date",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "seit 2026-11-01 before 2026-11-10 2026-10",
+      "expected": "created:>=2026-11-01 created:<2026-11-10 created:2026-10"
+    },
+    {
+      "name": "an impossible date is a word",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "since 2026-13-01 von anna",
+      "expected": "by:anna since 2026-13-01"
+    },
+    {
+      "name": "punctuation around words is dropped, a # stays",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "Show me all open issues, please: #EXP-12?",
+      "expected": "is:open #exp-12"
+    },
+    {
+      "name": "the same filter is listed once",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "open offene issues heute today",
+      "expected": "is:open created:today"
+    },
+    {
+      "name": "filler alone is not a sentence",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "show me all the issues",
+      "expected": null
+    },
+    {
+      "name": "a sentence without members knows no creators",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [],
+      "phrase": "offene Issues von Lukas",
+      "expected": "is:open lukas"
+    },
+    {
+      "name": "the date lead-in spans two words",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "Issues aus der letzten Woche zum Login",
+      "expected": "created:7d login"
+    },
+    {
+      "name": "a lead-in without a date behind it is filler or a word",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        }
+      ],
+      "phrase": "issues in the editor seit langem offen",
+      "expected": "is:open editor seit langem"
+    }
+  ]
+}

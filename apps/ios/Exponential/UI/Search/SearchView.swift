@@ -22,6 +22,10 @@ struct SearchView: View {
     @State private var viewModel: SearchViewModel?
     @State private var query = ""
 
+    /// The empty-query detail, the ×4 copy (`issue-search-surfaces.test.ts`
+    /// greps this file for it).
+    static let emptyDetail = "Matches identifiers, titles and full text. Filter with by:, is:, status:, created: and updated:."
+
     var body: some View {
         ZStack {
             AppBackground()
@@ -55,7 +59,18 @@ struct SearchView: View {
                         empty: shown.empty,
                         after: chatsSection(vm, shown: shown),
                         submit: { if let top = vm.chatRows.first { pick(top, vm: vm) } }
-                    ) : nil
+                    ) : nil,
+                    // #NEW-133: a recognised sentence = ONE action row on
+                    // top; a pick rewrites the field, the search re-runs.
+                    action: vm.suggestion.map { suggestion in
+                        SearchListAction(
+                            icon: AppIcons.conceptOrName(SearchList.SuggestionSpec.icon) ?? AppIcons.navSearch,
+                            label: suggestion.label,
+                            identifier: SearchList.SuggestionSpec.testId
+                        ) {
+                            query = suggestion.query
+                        }
+                    }
                 )
                 .overlay {
                     if trimmed.isEmpty { searchHint.allowsHitTesting(false) }
@@ -129,7 +144,7 @@ struct SearchView: View {
     /// title, the snippet with genUI's `highlight` and the muted date.
     private func chatsSection(_ vm: SearchViewModel, shown: SearchList.GlobalSections) -> AnyView? {
         guard let section = shown.sections.first(where: { $0.key == .chats }) else { return nil }
-        let preselect = vm.results.isEmpty ? vm.chatRows.first?.key : nil
+        let preselect = vm.results.isEmpty && vm.suggestion == nil ? vm.chatRows.first?.key : nil
         return AnyView(
             VStack(spacing: GlassPickerTokens.rowSpacing) {
                 GlassSectionBand(SearchList.GlobalChats.Copy.chats, count: section.count, loading: section.loading)
@@ -217,7 +232,7 @@ struct SearchView: View {
     private var searchHint: some View {
         EmptyState(
             title: "Search issues across this team's boards.",
-            description: "Matches identifiers, titles, full text, and by:creator.",
+            description: Self.emptyDetail,
             icon: AppIcons.navSearch
         )
         .frame(maxHeight: .infinity)

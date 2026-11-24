@@ -278,7 +278,7 @@ impl ParsedQuery {
     }
 }
 
-const DAY_MS: i64 = 86_400_000;
+pub(crate) const DAY_MS: i64 = 86_400_000;
 
 /// The system clock in epoch ms (the default `now`).
 pub fn now_ms() -> i64 {
@@ -302,7 +302,7 @@ fn ascii_number(text: &str) -> Option<i64> {
 }
 
 /// A UTC day `YYYY-MM-DD` or month `YYYY-MM` as its window, or `None`.
-fn parse_search_date(text: &str) -> Option<SearchRange> {
+pub(crate) fn parse_search_date(text: &str) -> Option<SearchRange> {
     let bytes = text.as_bytes();
     if !text.is_ascii() || !(bytes.len() == 7 || bytes.len() == 10) || bytes[4] != b'-' {
         return None;
@@ -424,7 +424,7 @@ pub fn parse_query_at(query: &str, now: i64) -> ParsedQuery {
 }
 
 /// Web `words()` — split on every non-alphanumeric char, empties dropped.
-fn words(text: &str) -> Vec<&str> {
+pub(crate) fn words(text: &str) -> Vec<&str> {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|word| !word.is_empty())
         .collect()
@@ -735,7 +735,7 @@ fn instant_of(value: Option<&str>) -> i64 {
 /// `YYYY-MM-DD[(T| )hh:mm[:ss[.fff]][Z|±hh[:mm]]]` → epoch millis. Covers both
 /// ISO-8601 (`…T…Z`) and Electric's timestamptz text (`… …+00`), the two
 /// forms a row's timestamps ever arrive in.
-fn parse_instant(value: &str) -> Option<i64> {
+pub(crate) fn parse_instant(value: &str) -> Option<i64> {
     let value = value.trim();
     let year: i64 = value.get(0..4)?.parse().ok()?;
     if value.get(4..5)? != "-" {
