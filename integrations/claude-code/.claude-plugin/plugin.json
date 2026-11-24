@@ -1,0 +1,29 @@
+{
+  "name": "exponential-code",
+  "displayName": "Exponential for Claude Code",
+  "version": "0.1.0",
+  "description": "Exponential in Claude Code: the issue of your branch in a pane with its pull request and live sessions, a status line that follows the pull request, a toast when a comment or a waiting session arrives, plus the Exponential connector and its skills.",
+  "author": {
+    "name": "Exponential",
+    "email": "support@exponential.at",
+    "url": "https://exponential.at"
+  },
+  "homepage": "https://exponential.at/docs/using/claude",
+  "repository": "https://github.com/Niach/exponential",
+  "license": "Apache-2.0",
+  "keywords": ["issue-tracker", "issues", "coding-agents", "pull-requests", "mcp", "mod"],
+  "icon": "./.claude-plugin/icon.png",
+  "documentationUrl": "https://exponential.at/docs/using/claude",
+  "supportUrl": "https://github.com/Niach/exponential/issues",
+  "privacyPolicyUrl": "https://exponential.at/privacy",
+  "termsOfServiceUrl": "https://exponential.at/terms",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "instance": {
+      "type": "string",
+      "title": "Exponential instance",
+      "description": "The origin of your Exponential instance. Change it only when you self-host.",
+      "default": "https://app.exponential.at"
+    }
+  }
+}

@@ -177,32 +177,47 @@ tab (the types also name `vscode` and `mobile`). There is no DOM and no
 webview: the HTML views never load in a mod; the mod renders the view-models.
 Limits: 10 s per hook, 4 MiB `$.store`, 100k characters per tree.
 
-The Exponential plugin (`integrations/claude-code`):
+The Exponential plugin for Claude Code (`integrations/claude-code`, plugin
+`exponential-code`, NEW-23; built against Claude Code 2.1.308):
 
-- `.mcp.json`: the generated entry, OAuth by default, optional `api_key` in
-  `userConfig` for headless use.
+- `.mcp.json`: the generated entry, OAuth on the first 401;
+  `userConfig.instance` names a self-hosted origin. A server the person added
+  under the name `exponential` with a key serves the mods too (headless).
 - `skills/exponential/SKILL.md`: the generated playbook.
-- commands: `/exp:issues` (list, drawn as a tree at the `CommandOutput` site),
-  `/exp:issue <IDENT>`, `/exp:start <IDENT>`.
-- mods, each a separate issue:
-  - **Issue pane**: the issue of the current `exp/<IDENT>` branch
-    (`$.session.repo()` / `git branch --show-current`) with its run status,
-    polled through `exponential_sessions` op `get`; opens on `/exp:issues`.
-  - **Status line**: the run's PR state from `exponential_issues` op `get`
-    (`prState`, `prUrl`), `$.ui.status`.
-  - **Toast**: a new reviewer comment or review notification from
-    `exponential_notifications` op `list`, `$.ui.toast`; a `tool.call` hook on
-    `mcp__exponential__exponential_pr` (op `open`) toasts the PR link.
+- `hooks/register.tsx`, one hooks module, every word and colour from
+  `hooks/kit/` (the generated copy of plugin-kit's `model/core`):
+  - **Issue pane** (`$.ui.open`, a `ui.render` hook on `Pane`): the issue the
+    branch names (an identifier anywhere in it: `exp/EXP-12`,
+    `feature/exp-12-export`; a session branch names none) or the one pinned
+    with `/exp-issue EXP-12`, with its pull request and its live sessions
+    from `exponential_issues` op `get` (`pullRequests`, `sessions`), re-read
+    every 30 s. `/exp-issues` lists the open issues by status; a row opens
+    its issue.
+  - **Status line** (`$.ui.status`): `EXP-12 · PR #40 · Checks running`, the
+    header pill's label as the server words it (`pullRequests[].status`).
+  - **Toasts** (`$.ui.toast`): a new unread comment, mention, reporter reply
+    or waiting session from `exponential_notifications` op `list`, polled
+    every 60 s; the newest row seen is kept in `$.store`, shared by every
+    session on the machine. A `tool.call` hook toasts the link of a PR
+    opened or queued through `exponential_pr_write`.
+  - `/exp-start EXP-12` fills the prompt with the request to start a coding
+    agent on the issue (a command's hook cannot submit a prompt itself).
+- A command a mod registers takes letters, digits, `_` and `-` only, so the
+  commands are `/exp-issues`, `/exp-issue`, `/exp-start`, not `/exp:…`.
+- `tests/mods.test.tsx` runs in the engine's own test host
+  (`claude plugin test`); the gate's `plugins` job runs it and
+  `claude plugin validate --strict` with a pinned CLI.
 
-Distribution: a `.claude-plugin/marketplace.json` in a git repository
-(`claude plugin marketplace add Niach/<repo>`, `claude plugin install
-exponential@<marketplace>`), and a submission to Anthropic's directory
-(GitHub repository + a paid claude.ai plan; one listing reaches claude.ai,
-Cowork and Claude Code, and lists the MCP server as a connector, which is how
-claude.ai users get the HTML views). On claude.ai chat only skills and the
-remote MCP server load; hooks, mods and `bin/` are ignored there. The
-`claude-code-hint` install prompt from a CLI works only for plugins in an
-official Anthropic marketplace, so it does not apply.
+Distribution: the plugin folder carries its own
+`.claude-plugin/marketplace.json` (`claude plugin marketplace add
+./integrations/claude-code` from a checkout). Publishing it (a marketplace
+file at the repository root, the public mirror the Claude plugin uses, or a
+submission to Anthropic's directory) is a person's decision and not done.
+The Claude plugin (`integrations/claude`: connector + skills, no code) is the
+directory listing for claude.ai, Cowork and Claude Code; on claude.ai chat
+only skills and the remote MCP server load, so the mods live in their own
+plugin. The `claude-code-hint` install prompt works only for plugins in an
+official Anthropic marketplace.
 
 ## 5. ChatGPT and Codex
 
