@@ -42,6 +42,36 @@ impl EngineHost for TestHost {
     fn on_exit(&self, _exit: EngineExit) {}
 }
 
+/// The Conversation as the outbox writes it: every reply body, in order.
+#[derive(Default)]
+struct RecordingConversation {
+    replies: Mutex<Vec<String>>,
+}
+
+impl engine::outbox::ConversationApi for RecordingConversation {
+    fn reply(
+        &self,
+        _session_id: &str,
+        body: &str,
+        _card: Option<&serde_json::Value>,
+        _extras: &api::session_device::ReplyExtras,
+    ) -> Result<api::session_device::ReplyResult, api::ApiError> {
+        let mut replies = self.replies.lock().expect("the reply log is not poisoned");
+        replies.push(body.to_string());
+        Ok(api::session_device::ReplyResult { message_id: format!("msg-{}", replies.len()), listeners: Vec::new() })
+    }
+
+    fn consume(&self, _session_id: &str, _message_ids: &[String]) -> Result<(), api::ApiError> {
+        Ok(())
+    }
+}
+
+impl RecordingConversation {
+    fn replies(&self) -> Vec<String> {
+        self.replies.lock().expect("the reply log is not poisoned").clone()
+    }
+}
+
 struct Harness {
     session: EngineSession,
     sink: Arc<RecordingSink>,
@@ -177,6 +207,19 @@ fn start(scenario: &str, seed: Option<String>) -> Harness {
 
 /// [`start`] for a run the pickup relaunched with a note (#EXP-2085).
 fn start_noted(scenario: &str, seed: Option<String>, start_note: Option<String>) -> Harness {
+    start_parts(scenario, seed, start_note, None, None)
+}
+
+/// [`start_noted`], optionally as the RELAUNCH of a recorded conversation
+/// (`transcript`: what the previous run's CLI left on disk, reopened through
+/// `session/load`) and with a recording Conversation (#EXP-2100).
+fn start_parts(
+    scenario: &str,
+    seed: Option<String>,
+    start_note: Option<String>,
+    transcript: Option<&str>,
+    conversation: Option<Arc<RecordingConversation>>,
+) -> Harness {
     let work = std::env::temp_dir().join(format!(
         "exp-claude-engine-{scenario}-{}",
         uuid::Uuid::new_v4().simple()
@@ -187,11 +230,22 @@ fn start_noted(scenario: &str, seed: Option<String>, start_note: Option<String>)
     let runtime = steer::SteerRuntime::new().expect("a steer runtime");
     let sink = RecordingSink::new();
     let child_exit = ChildExitLink::new();
-    let adapter = ClaudeAgent::new(adapter_spec(scenario, &work, &session_id, child_exit.clone()))
-        .expect("the adapter builds");
+    let mut spec = adapter_spec(scenario, &work, &session_id, child_exit.clone());
+    let mut launch = coding::PreparedLaunch { start_note, ..prepared(&session_id, &work, seed) };
+    if let Some(transcript) = transcript {
+        let project = work.join("claude-config/projects/-work-tree");
+        std::fs::create_dir_all(&project).expect("a projects dir");
+        std::fs::write(project.join(format!("{session_id}.jsonl")), transcript).expect("a transcript");
+        spec.resume = Some(engine::ResumeHandle::Acp(session_id.clone()));
+        launch.acp.resume = Some(coding::ResumeSeed::Acp(session_id.clone()));
+    }
+    if conversation.is_some() {
+        coding::sealing::note_clear_tree(&session_id);
+    }
+    let adapter = ClaudeAgent::new(spec).expect("the adapter builds");
     let session = engine::start_with(
         EngineStart {
-            prepared: coding::PreparedLaunch { start_note, ..prepared(&session_id, &work, seed) },
+            prepared: launch,
             trpc: Arc::new(api::TrpcClient::new("http://127.0.0.1:1", Arc::new(|| None))),
             runtime: Arc::clone(&runtime),
             data_dir: work.clone(),
@@ -210,7 +264,7 @@ fn start_noted(scenario: &str, seed: Option<String>, start_note: Option<String>)
             adapter,
             child_exit,
             sink: Some(sink.clone() as Arc<dyn EventSink>),
-            conversation: None,
+            conversation: conversation.map(|conversation| conversation as Arc<dyn engine::outbox::ConversationApi>),
             computer: None,
             thread: None,
         },
@@ -815,4 +869,56 @@ fn a_start_on_an_exhausted_login_walls_the_run() {
     );
     let prose = events_of(&harness.sink, "narration");
     assert!(prose.is_empty(), "the notice is state, never prose: {prose:?} / {:?}", harness.sink.snapshot().iter().filter_map(|e| serde_json::to_value(e).ok()).map(|e| e.to_string()).collect::<Vec<_>>());
+}
+
+/// #EXP-2100: a relaunch (a daemon restart, an app quit) reopens the recorded
+/// conversation through `session/load`, which streams the transcript back
+/// through the mapper. On this device the publisher drops that replay up to
+/// the host's `turn` seed, because the journal file it inherits already holds
+/// it (`steer::publisher`, `skip_history`). Nothing follows a conversation's
+/// LAST message, so it sat in the mapper's coalescer past the seed and went
+/// out 250 ms later as a live row: recorded a second time under its own
+/// message id, which every client merges onto the row the previous run
+/// recorded ("alpha beta gammaalpha beta gamma"). The whole replay, its last
+/// message included, lands before the seed; what follows it is only what the
+/// agent says now.
+#[test]
+fn a_relaunch_replays_its_last_reply_before_the_seed_never_as_a_live_row() {
+    let _serial = one_session_at_a_time();
+    let transcript = concat!(
+        r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"reply with three lines"}]},"uuid":"u-1","sessionId":"s"}"#,
+        "\n",
+        r#"{"type":"assistant","message":{"model":"claude-opus-5","id":"msg_previous","type":"message","role":"assistant","content":[{"type":"text","text":"alpha\nbeta\ngamma"}],"stop_reason":"end_turn"},"uuid":"a-1","sessionId":"s"}"#,
+        "\n",
+    );
+    let conversation = Arc::new(RecordingConversation::default());
+    let harness = start_parts("basic", None, None, Some(transcript), Some(conversation.clone()));
+    until("the host seeds the turn slot", || !events_of(&harness.sink, "turn").is_empty());
+    // Past the coalescers' idle flush (250 ms, on a 250 ms tick).
+    std::thread::sleep(Duration::from_millis(1200));
+    // The first message after the restart: the agent answers `ok`.
+    harness.session.deliver("m-1".to_string(), "Reply with the single word ok.".to_string());
+    until("the turn ends", || ended_turns(&harness.sink) >= 1);
+    until("the reply is posted", || !conversation.replies().is_empty());
+
+    // (kind, text) of every row and turn edge, in wire order.
+    let wire: Vec<(String, String)> = harness
+        .sink
+        .snapshot()
+        .iter()
+        .filter_map(|event| serde_json::to_value(event).ok())
+        .filter_map(|event| {
+            let kind = event["kind"].as_str()?.to_string();
+            matches!(kind.as_str(), "narration" | "turn")
+                .then(|| (kind, event["text"].as_str().unwrap_or_default().to_string()))
+        })
+        .collect();
+    let seed = wire.iter().position(|(kind, _)| kind == "turn").expect("a seed");
+    let history: Vec<&str> =
+        wire[..seed].iter().filter(|(kind, _)| kind == "narration").map(|(_, text)| text.as_str()).collect();
+    let live: Vec<&str> =
+        wire[seed..].iter().filter(|(kind, _)| kind == "narration").map(|(_, text)| text.as_str()).collect();
+    assert_eq!(history, vec!["alpha\nbeta\ngamma"], "the replay, its last message included, precedes the seed: {wire:?}");
+    assert_eq!(live, vec!["ok"], "after the seed only what the agent says now: {wire:?}");
+    assert_eq!(conversation.replies(), vec!["ok".to_string()]);
 }
