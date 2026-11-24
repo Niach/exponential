@@ -14,6 +14,12 @@
 //!   its process set changes and closed [`GRACE`] after it stops playing.
 //!   Every 20 ms each tap's audio is resampled to 16 kHz mono and sent as a
 //!   [`Chunk`] on the app's channel.
+//! - ATTACH (#NEW-127, meeting.json CHANNELS: ATTACH): an app that starts
+//!   mid-meeting keeps its first words. Core Audio's listeners
+//!   (the process list, each wanted process's `IsRunningOutput`) wake the
+//!   thread for a scan at once instead of at the next second, and a process
+//!   that just registered with Core Audio is tapped BEFORE it plays (armed
+//!   for [`GRACE`]), so its first cycle is already captured.
 //! - PERMISSION: the "Audio Recording" TCC service (`kTCCServiceAudioCapture`,
 //!   System Settings → Privacy & Security → Screen & System Audio Recording →
 //!   System Audio Recording Only). macOS has no public preflight, and probing
@@ -32,8 +38,10 @@ mod tap;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::ffi::c_void;
+use std::ptr::NonNull;
 use std::sync::mpsc::channel;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -42,7 +50,7 @@ use objc2::runtime::{AnyClass, AnyObject, Bool};
 use objc2::{class, msg_send};
 use objc2_core_audio::{
     kAudioHardwarePropertyProcessObjectList, kAudioObjectSystemObject, kAudioProcessPropertyBundleID,
-    kAudioProcessPropertyIsRunningOutput, kAudioProcessPropertyPID, AudioObjectID,
+    kAudioProcessPropertyIsRunningOutput, kAudioProcessPropertyPID, AudioObjectID, AudioObjectPropertyAddress,
 };
 use objc2_foundation::NSString;
 
@@ -50,7 +58,7 @@ use super::{chunk_queue, AppCapture, AudioApp, Capability, Chunk, ChunkSender, S
 use resample::Resampler;
 use tap::Tap;
 
-/// How often the apps are rescanned.
+/// How often the apps are rescanned when no listener asked for it.
 const SCAN: Duration = Duration::from_secs(1);
 /// How often captured audio is drained into chunks.
 const DRAIN: Duration = Duration::from_millis(20);
@@ -163,6 +171,78 @@ impl Drop for Guard {
     }
 }
 
+/// How often Core Audio said the apps changed (#NEW-127): its listeners
+/// bump this from its notification thread, a capture thread waits on it.
+/// Process-wide, so a listener never holds a pointer into a capture.
+static CHANGES: (Mutex<u64>, Condvar) = (Mutex::new(0), Condvar::new());
+
+fn changes() -> u64 {
+    *CHANGES.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Sleep up to `timeout`, less when the apps change past `seen`.
+fn wait_for_change(seen: u64, timeout: Duration) {
+    let guard = CHANGES.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    drop(CHANGES.1.wait_timeout_while(guard, timeout, |count| *count == seen));
+}
+
+/// Core Audio's notification thread: the apps changed. Never unwinds.
+unsafe extern "C-unwind" fn changed(
+    _object: AudioObjectID,
+    _count: u32,
+    _addresses: NonNull<AudioObjectPropertyAddress>,
+    _client: *mut c_void,
+) -> i32 {
+    *CHANGES.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) += 1;
+    CHANGES.1.notify_all();
+    0
+}
+
+/// The listeners of one capture: the process list and every wanted
+/// process's `IsRunningOutput`. Dropping it removes them.
+struct Listeners {
+    list: bool,
+    processes: HashSet<AudioObjectID>,
+}
+
+impl Listeners {
+    fn new() -> Self {
+        let system = kAudioObjectSystemObject as AudioObjectID;
+        Listeners { list: sys::listen(system, Some(kAudioHardwarePropertyProcessObjectList), changed), processes: HashSet::new() }
+    }
+
+    /// Listen to exactly `wanted`; `true` = a process is new here (it may
+    /// have started playing between the scan and its listener).
+    fn follow(&mut self, wanted: &HashSet<AudioObjectID>) -> bool {
+        self.processes.retain(|object| {
+            let keep = wanted.contains(object);
+            if !keep {
+                sys::unlisten(*object, None, changed);
+            }
+            keep
+        });
+        let mut added = false;
+        for object in wanted {
+            if !self.processes.contains(object) && sys::listen(*object, None, changed) {
+                self.processes.insert(*object);
+                added = true;
+            }
+        }
+        added
+    }
+}
+
+impl Drop for Listeners {
+    fn drop(&mut self) {
+        if self.list {
+            sys::unlisten(kAudioObjectSystemObject as AudioObjectID, Some(kAudioHardwarePropertyProcessObjectList), changed);
+        }
+        for object in self.processes.drain() {
+            sys::unlisten(object, None, changed);
+        }
+    }
+}
+
 /// One app's running channel.
 struct Channel {
     label: String,
@@ -176,17 +256,33 @@ fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
     let mut scanner = Scanner::default();
     let mut channels: HashMap<String, Channel> = HashMap::new();
     let mut failed: HashMap<String, Instant> = HashMap::new();
+    let mut listeners = Listeners::new();
+    let mut seen = changes();
     let mut next_scan = Instant::now();
     while !stop.load(Ordering::SeqCst) {
         let now = Instant::now();
-        if now >= next_scan {
+        let count = changes();
+        if now >= next_scan || count != seen {
+            if std::env::var_os("N127_DEBUG").is_some() { eprintln!("DBG {} scan listener={} ", super::now_ms(), count != seen); }
+            seen = count;
             next_scan = now + SCAN;
             let groups = scanner.scan();
+            if std::env::var_os("N127_DEBUG").is_some() { for g in &groups { if g.app.id.contains("say") { eprintln!("DBG   say objects={:?} playing={} fresh={} channel={}", g.objects, g.playing, g.fresh, channels.contains_key(&g.app.id)); } } }
+            let wanted: HashSet<AudioObjectID> = groups
+                .iter()
+                .filter(|group| selection.wants(&group.app.id))
+                .flat_map(|group| group.objects.iter().copied())
+                .collect();
+            if listeners.follow(&wanted) {
+                next_scan = now;
+            }
             let present: HashSet<&str> = groups.iter().map(|group| group.app.id.as_str()).collect();
             channels.retain(|id, _| present.contains(id.as_str()));
             for group in groups.iter().filter(|group| selection.wants(&group.app.id)) {
                 let id = &group.app.id;
-                if !group.playing {
+                // A process that just registered is about to play: its tap
+                // opens now, armed for GRACE (ATTACH).
+                if !group.playing && !(group.fresh && std::env::var_os("N127_NO_ARM").is_none()) {
                     if let Some(channel) = channels.get_mut(id) {
                         let since = *channel.quiet_since.get_or_insert(now);
                         if now.duration_since(since) >= GRACE {
@@ -196,7 +292,9 @@ fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
                     continue;
                 }
                 if let Some(channel) = channels.get_mut(id) {
-                    channel.quiet_since = None;
+                    if group.playing {
+                        channel.quiet_since = None;
+                    }
                     if channel.objects == group.objects {
                         let rate = channel.tap.rate();
                         if rate != channel.resampler.from() {
@@ -210,6 +308,7 @@ fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
                 if failed.get(id).is_some_and(|at| now.duration_since(*at) < RETRY) {
                     continue;
                 }
+                if std::env::var_os("N127_DEBUG").is_some() { eprintln!("DBG {} open {} playing={}", super::now_ms(), id, group.playing); }
                 match Tap::open(&group.objects, &group.app.name) {
                     Ok(tap) => {
                         failed.remove(id);
@@ -221,10 +320,13 @@ fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
                                 objects: group.objects.clone(),
                                 tap,
                                 resampler,
-                                quiet_since: None,
+                                quiet_since: (!group.playing).then_some(now),
                             },
                         );
                     }
+                    // An armed tap is a head start, never a reason to wait
+                    // RETRY once the app does play.
+                    Err(_) if !group.playing => {}
                     Err(error) => {
                         log::warn!("talk: no tap for {id}: {error}");
                         failed.insert(id.clone(), now);
@@ -248,7 +350,7 @@ fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
                 return;
             }
         }
-        std::thread::sleep(DRAIN);
+        wait_for_change(seen, DRAIN);
     }
 }
 
@@ -258,6 +360,9 @@ struct Group {
     /// Its process objects, sorted.
     objects: Vec<AudioObjectID>,
     playing: bool,
+    /// One of its processes registered with Core Audio since the last scan
+    /// (never on a scanner's first scan).
+    fresh: bool,
 }
 
 /// Groups process objects into apps, remembering each pid's app.
@@ -265,6 +370,7 @@ struct Group {
 struct Scanner {
     apps: HashMap<i32, AudioApp>,
     own: Option<AudioApp>,
+    primed: bool,
 }
 
 impl Scanner {
@@ -285,6 +391,7 @@ impl Scanner {
                     continue;
                 }
                 seen.insert(pid);
+                let fresh = self.primed && !self.apps.contains_key(&pid);
                 let app = self.apps.entry(pid).or_insert_with(|| identify(pid, Some(object))).clone();
                 if app.id == own_id {
                     continue;
@@ -294,11 +401,13 @@ impl Scanner {
                     Some(group) => {
                         group.objects.push(object);
                         group.playing |= playing;
+                        group.fresh |= fresh;
                     }
-                    None => groups.push(Group { app, objects: vec![object], playing }),
+                    None => groups.push(Group { app, objects: vec![object], playing, fresh }),
                 }
             }
             self.apps.retain(|pid, _| seen.contains(pid));
+            self.primed = true;
             for group in &mut groups {
                 group.objects.sort_unstable();
             }
