@@ -2793,6 +2793,7 @@ impl SteerSessionView {
         let empty = crate::queries::SessionDevicePresentation {
             label: None,
             offline: false,
+            online: false,
         };
         let (Some(row), Some(store)) = (self.row.as_ref(), sync::Store::try_global(cx)) else {
             return empty;
@@ -6136,11 +6137,15 @@ impl SteerSessionView {
                         row.busy,
                         host_away,
                         row.started_at.as_deref().is_some_and(|at| !at.is_empty()),
+                        false,
                     ) == steer::enet_steer::NoFeedState::Waiting
                 });
+            // #EXP-2119 (NO FEED): an ended row whose device is ONLINE has no
+            // transcript to send: never "offline".
+            let online = self.device(cx).online;
             let body: AnyElement = if never_held {
                 div().into_any_element()
-            } else if self.phase.is_device_offline() {
+            } else if self.phase.is_device_offline() && !online {
                 // VAPP-171: an ended row no device fed — the machine that
                 // holds its transcript, named (×4).
                 centered(vec![div()
@@ -6184,9 +6189,9 @@ impl SteerSessionView {
                         ))
                         .into_any_element(),
                 ])
-            } else if self.phase == ViewerPhase::Starting
+            } else if (self.phase == ViewerPhase::Starting || self.phase.is_device_offline())
                 && self.row.as_ref().is_some_and(|row| {
-                    steer::enet_steer::no_feed_state(row.is_ended(), row.busy)
+                    steer::enet_steer::no_feed_state_held(row.is_ended(), row.busy, host_away, true, online)
                         == steer::enet_steer::NoFeedState::Idle
                 })
             {
@@ -6658,6 +6663,7 @@ impl SteerSessionView {
             self.row_ended(),
             self.phase.is_device_offline(),
             self.host_away(cx),
+            self.device(cx).online,
         );
         (main && line).then(|| steer::enet_steer::no_feed_away(self.device(cx).label.as_deref()).0)
     }
