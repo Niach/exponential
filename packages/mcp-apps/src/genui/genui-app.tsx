@@ -35,6 +35,7 @@ import { actionConsent } from "@exp/domain-contract/app-actions"
 import { showActionOrigin, surfaceAction, type ActionEvent } from "@exp/domain-contract/chat-express"
 import { AppBridge, type DisplayMode, type HostContext } from "../bridge"
 import { applyColorMode, applyHostContext } from "../host-theme"
+import { EXPIRED_LINE, useViewLease } from "../lease"
 import { createConsentGate, createMcpAppHost, type CallTool, type ConsentGate } from "./mcp-host"
 import { decodeGenuiResult, type GenuiAppRead, type GenuiAppRow, type GenuiScreen } from "./result"
 
@@ -281,6 +282,14 @@ const PHONE_MAX = 767
 
 export function GenuiApp() {
   const [screen, setScreen] = useState<GenuiScreen | { kind: `waiting` }>({ kind: `waiting` })
+  // #NEW-24: read-only once the host's lease on the view expired (lease.ts).
+  const lease = useViewLease<GenuiScreen>(`genui`)
+  const leaseRef = useRef(lease)
+  leaseRef.current = lease
+  useEffect(() => {
+    if (screen.kind === `card` || screen.kind === `apps` || screen.kind === `app`) lease.keep(screen)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen])
   const bridge = useRef<AppBridge | null>(null)
   const root = useRef<HTMLDivElement>(null)
   const origin = useMemo(() => instanceOrigin(), [])
@@ -291,6 +300,7 @@ export function GenuiApp() {
   useEffect(() => {
     let available: readonly DisplayMode[] = []
     const context = (next: HostContext) => {
+      leaseRef.current.onContext(next)
       // #NEW-24: the host's theme, style variables and safe area.
       const named = applyHostContext(next)
       if (named) setTheme(named)
@@ -299,7 +309,9 @@ export function GenuiApp() {
     }
     const instance = new AppBridge({
       onHostContext: context,
+      onToolInput: () => leaseRef.current.onToolInput(),
       onToolResult: (result) => {
+        leaseRef.current.onToolResult()
         const next = decodeGenuiResult(result)
         setScreen(next)
         // #VAPP-292: a team app runs full size (the host's side pane or full
@@ -350,7 +362,10 @@ export function GenuiApp() {
     }
   }, [])
 
-  const call = useCallback<CallTool>((name, args) => (bridge.current ? bridge.current.callTool(name, args) : Promise.reject(new Error(`No MCP Apps host.`))), [])
+  // Every tools/call goes through the lease: none once it expired, and a
+  // refused first call expires it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const call = useMemo<CallTool>(() => leaseRef.current.guard((name, args) => (bridge.current ? bridge.current.callTool(name, args) : Promise.reject(new Error(`No MCP Apps host.`)))), [])
   const openLink = useCallback((url: string) => bridge.current?.openLink(url), [])
   const links = useMemo<CardLinks>(() => ({ openUrl: (url) => openLink(new URL(url, origin).href), textLinks: () => null }), [openLink, origin])
 
@@ -358,25 +373,33 @@ export function GenuiApp() {
     try {
       setScreen(decodeGenuiResult(await call(`exponential_apps`, { op: `get`, slug: row.slug, teamId: row.teamId })))
     } catch (error) {
+      // An expired view keeps the screen it has.
+      if (leaseRef.current.isExpired()) return
       setScreen({ kind: `error`, message: error instanceof Error ? error.message : String(error) })
     }
   }
 
+  // Read-only: the call's last screen when this page never drew one.
+  const shown: GenuiScreen | { kind: `waiting` } = lease.expired && screen.kind === `waiting` && lease.restored ? lease.restored : screen
   return (
     <ColorModeProvider value={theme}>
     <CardLinksProvider value={links}>
-      <div ref={root} className={cn(`font-sans text-foreground antialiased`, mode === `fullscreen` && `h-screen overflow-y-auto bg-background`)} style={overlay ? { minHeight: overlay } : undefined} data-testid="genui-view" data-screen={screen.kind} data-display-mode={mode}>
-        {screen.kind === `waiting` && (
+      <div ref={root} className={cn(`font-sans text-foreground antialiased`, mode === `fullscreen` && `h-screen overflow-y-auto bg-background`)} style={overlay ? { minHeight: overlay } : undefined} data-testid="genui-view" data-screen={shown.kind} data-expired={lease.expired || undefined} data-display-mode={mode}>
+        {lease.expired && <ListEmpty data-testid="view-expired">{EXPIRED_LINE}</ListEmpty>}
+        <div className="contents" inert={lease.expired}>
+        {shown.kind === `waiting` && !lease.expired && (
           <div className="flex flex-col gap-2 p-4">
             <Skeleton className="h-6 w-1/3" />
             <Skeleton className="h-10 w-full" />
           </div>
         )}
-        {screen.kind === `error` && <ListEmpty>{screen.message}</ListEmpty>}
-        {screen.kind === `card` && <div className="p-3"><SurfaceCard surface={screen.card.surface as never} title={screen.card.title ?? null} testKey="inline" onAction={(event) => { const body = showMessage(event); if (body) void bridge.current?.sendMessage(body).catch(() => undefined) }} /></div>}
-        {screen.kind === `apps` && <AppsList apps={screen.apps} onOpen={(row) => void openApp(row)} />}
-        {screen.kind === `app` && <AppRun key={`${screen.app.id}:${screen.app.version ?? 0}`} app={screen.app} call={call} origin={origin} openLink={openLink} phone={width <= PHONE_MAX} />}
-        <Toaster />
+        {shown.kind === `error` && <ListEmpty>{shown.message}</ListEmpty>}
+        {shown.kind === `card` && <div className="p-3"><SurfaceCard surface={shown.card.surface as never} title={shown.card.title ?? null} testKey="inline" onAction={(event) => { const body = showMessage(event); if (body) void bridge.current?.sendMessage(body).catch(() => undefined) }} /></div>}
+        {shown.kind === `apps` && <AppsList apps={shown.apps} onOpen={(row) => void openApp(row)} />}
+        {shown.kind === `app` && <AppRun key={`${shown.app.id}:${shown.app.version ?? 0}`} app={shown.app} call={call} origin={origin} openLink={openLink} phone={width <= PHONE_MAX} />}
+        </div>
+        {/* An expired view shows its one line, never a toast. */}
+        {!lease.expired && <Toaster />}
       </div>
     </CardLinksProvider>
     </ColorModeProvider>
