@@ -650,10 +650,19 @@ and the Tier A canvas, no GPU involved), then falls back: a crash restarts
 the compositor, three quick crashes in a row (also across logins) land in
 safe mode, a fatal start gets safe mode once and then the login screen,
 where the previous session is still in the menu. Any key skips the wait.
-A compositor started while another session has the displays (the login
-screen after logind restarted, another VT) waits for its seat before it
-opens a GPU: an inactive session's DRM device has no DRM master, and the
-start used to end as "no GPU could be driven" (#EDE-218). A failed close
+A compositor started while its session is not the seat's active one waits
+for its seat before it opens a GPU: an inactive session's DRM device has
+no DRM master, and the start used to end as "no GPU could be driven"
+(#EDE-218). Logind is asked who has the displays (`loginctl`), not the
+seat library: libseat before 0.9 (Ubuntu 24.04, Mint 22) never hears that
+its session became active while no DRM device is open, which was a black
+screen at every login from lightdm, the one login manager that starts a
+Wayland session before it switches to its VT (#EDE-219). While another
+session shows (the login screen after logind restarted, another VT) the
+wait has no end; while nobody has the displays the seat is asked for every
+second, and after 10 s the start fails with that reason, which ends at the
+login screen like every fatal start
+(`crates/ede-compositor/src/backend/activation.rs`). A failed close
 or open in libinput's seat callbacks is a line in the journal, never a
 panic (`crates/ede-compositor/src/backend/seat.rs`).
 Ctrl+Alt+F3 gives a text login; `journalctl -b _COMM=exponential-compositor
