@@ -342,8 +342,7 @@ final class AgentComposerModel {
         }
         guard let (users, members) = rows else { return }
         let memberIds = Set(members.filter { $0.teamId == teamId }.map(\.userId))
-        draftEditor.mentionMembers = users
-            .filter { memberIds.contains($0.id) }
+        draftEditor.mentionMembers = AgentSettings.chatMembers(users.filter { memberIds.contains($0.id) })
             .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
 

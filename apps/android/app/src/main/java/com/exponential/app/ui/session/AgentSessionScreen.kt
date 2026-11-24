@@ -263,6 +263,7 @@ import com.exponential.app.ui.agent.AgentIssuePickerPage
 import com.exponential.app.ui.agent.AgentIssueInsertPage
 import com.exponential.app.ui.agent.insertIssueRef
 import com.exponential.app.ui.agent.IssueOption
+import com.exponential.app.ui.agent.issueOption
 import com.exponential.app.domain.ComposerMenuConditions
 import com.exponential.app.domain.ComposerMenuEntry
 import com.exponential.app.domain.ComposerMenuRowId
@@ -872,8 +873,10 @@ private fun RunFaceContent(
     val feedCalls = remember(treeCalls, onOpenOrigin) {
         if (treeCalls.isEmpty()) FeedCalls.None else FeedCalls(treeCalls, onOpenOrigin?.let { open -> { id: String -> open(id, false) } })
     }
-    val entityRefResolver = remember(viewModel, session?.teamId, currentUserId) {
-        EntityRefResolver(viewModel.accountDb, session?.teamId, currentUserId)
+    // #EXP-2097: the preview cards read the chat teams, like the lists.
+    val entityChatTeamIds by viewModel.chatTeamIds.collectAsStateWithLifecycle()
+    val entityRefResolver = remember(viewModel, session?.teamId, currentUserId, entityChatTeamIds) {
+        EntityRefResolver(viewModel.accountDb, session?.teamId, currentUserId, entityChatTeamIds.ifEmpty { listOfNotNull(session?.teamId) })
     }
     val issueRefHandler = remember(issueRefCandidates) {
         IssueRefHandler(
@@ -6146,19 +6149,7 @@ internal fun SessionComposer(
         // Until `sessions.mcpPicks` lands the row reads empty (web parity),
         // never the team defaults. #EXP-1793: an agent chat's = its pick.
         mcpServerIds = if (agentChat) agentMcpServerIds else picks.mcpServerIds ?: emptyList(),
-        issues = issueRefCandidates.map {
-            IssueOption(
-                id = it.issueId,
-                identifier = it.identifier,
-                title = it.title,
-                repositoryId = null,
-                status = null,
-                priority = null,
-                description = it.description,
-                createdAt = it.createdAt,
-                updatedAt = it.updatedAt,
-            )
-        },
+        issues = issueRefCandidates.map(::issueOption),
         // An ENDED session takes no configure: the rows read-only (the server
         // refuses `This session has ended`). S-3: no Plan switch.
         readOnly = sessionEnded,

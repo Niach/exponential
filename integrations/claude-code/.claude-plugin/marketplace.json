@@ -1,0 +1,18 @@
+{
+  "name": "exponential-code",
+  "description": "Exponential's Claude Code plugin: the issue pane, the pull request status line, inbox toasts, the Exponential connector and its skills.",
+  "owner": {
+    "name": "Exponential",
+    "email": "support@exponential.at",
+    "url": "https://exponential.at"
+  },
+  "plugins": [
+    {
+      "name": "exponential-code",
+      "source": "./",
+      "description": "Exponential in Claude Code: the issue of your branch in a pane, a status line that follows its pull request, inbox toasts, the connector and its skills.",
+      "category": "productivity",
+      "tags": ["issue-tracker", "coding-agents", "mcp", "mod"]
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo } from "react"
+import { assistantChatMembers } from "@exp/domain-contract/agent-settings"
 import type { User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
 import { useTeamUsers, useTeamsUsers } from "@/hooks/use-team-data"
@@ -49,10 +50,8 @@ export function ChatTeamsMentionProvider({
 }
 
 function MentionUsersProvider({ users, children }: { users: readonly User[]; children: React.ReactNode }) {
-  const sorted = useMemo(
-    () => [...users].sort((a, b) => a.name.localeCompare(b.name)),
-    [users]
-  )
+  // #EXP-2095 (agent-settings.json `assistant.chatTeams` (2)): ONE order ×4.
+  const sorted = useMemo(() => assistantChatMembers(users), [users])
 
   const byEmail = useMemo(
     () => new Map(sorted.map((user) => [user.email.toLowerCase(), user])),

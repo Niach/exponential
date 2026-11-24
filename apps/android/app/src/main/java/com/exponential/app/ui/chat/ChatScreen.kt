@@ -617,7 +617,7 @@ fun ChatScreen(
     // Inline `@email` mention pills in the chat rows: the team's synced
     // members (issue detail's resolver); unknown addresses stay plain text.
     val mentionResolver = remember(teamUsers) {
-        MentionResolver(teamUsers.map { MentionMember(it.name ?: it.email, it.email) })
+        MentionResolver(com.exponential.app.ui.markdown.mentionMembers(teamUsers))
     }
 
     // #EXP-1674: links in a chat's prose open like everywhere else

@@ -158,7 +158,7 @@ pub const PROBE_TIMEOUT: Duration = Duration::from_secs(60);
 /// The env a probe must not inherit: each OUTRANKS `CLAUDE_CODE_OAUTH_TOKEN`
 /// in the CLI's credential order, so a stray one would answer for an API
 /// key or a cloud account instead of this login.
-const OUTRANKING_ENV: &[&str] = &[
+pub(crate) const OUTRANKING_ENV: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
     "CLAUDE_CODE_USE_BEDROCK",

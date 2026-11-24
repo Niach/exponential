@@ -882,7 +882,8 @@ public enum SteerNoFeed {
                 }
             }
             if let feedAt {
-                guard let created = m.createdAtMs, created > feedAt else { continue }
+                // #EXP-2101: a row of the feed's newest instant counts too.
+                guard let created = m.createdAtMs, created >= feedAt else { continue }
             }
             tail.append((item, m))
         }

@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 
-import { mintCallId, verifyCallId, type CallIdBinding } from "@/lib/voice-call-id"
+import { callLogTag, mintCallId, verifyCallId, type CallIdBinding } from "@/lib/voice-call-id"
 
 const AGENT = `3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
 const binding: CallIdBinding = { userId: `me`, deviceId: `d-mint`, agentId: AGENT, sealed: false }
@@ -100,5 +100,17 @@ describe(`#EXP-1941 the call id vouches`, () => {
 
   it(`an agent id that is no UUID mints nothing`, () => {
     expect(mintCallId({ ...binding, agentId: `agent-1` }, at(0))).toBeNull()
+  })
+})
+
+describe(`#FEED-268 a call's tag in the server log`, () => {
+  it(`is the id's random head, never a MAC byte, and "local" for anything that is no call id`, () => {
+    const id = mintCallId(binding, at(0))!
+    expect(callLogTag(id)).toBe(id.slice(0, 8))
+    // The MAC is the id's second half (bytes 8-15).
+    expect(id.slice(19).replace(/-/g, ``)).not.toContain(callLogTag(id))
+    expect(callLogTag(`call-3`)).toBe(`local`)
+    expect(callLogTag(null)).toBe(`local`)
+    expect(callLogTag(undefined)).toBe(`local`)
   })
 })

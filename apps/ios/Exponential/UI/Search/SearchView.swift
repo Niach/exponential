@@ -22,6 +22,16 @@ struct SearchView: View {
     @State private var viewModel: SearchViewModel?
     @State private var query = ""
 
+    /// The empty-query detail, the ×4 copy (`issue-search-surfaces.test.ts`
+    /// greps this file for it).
+    static let emptyDetail = "Matches identifiers, titles and full text. Filter with by:, is:, status:, created: and updated:."
+
+    /// #NEW-136: the model fallback's row and its failure toast, the copy
+    /// desktop prints too (search-list.json `suggestion.translate`; the same
+    /// gate greps this file).
+    static let translateLabel = "Translate to a search"
+    static let translateFailed = "Couldn't translate this search"
+
     var body: some View {
         ZStack {
             AppBackground()
@@ -55,7 +65,20 @@ struct SearchView: View {
                         empty: shown.empty,
                         after: chatsSection(vm, shown: shown),
                         submit: { if let top = vm.chatRows.first { pick(top, vm: vm) } }
-                    ) : nil
+                    ) : nil,
+                    // #NEW-133: a recognised sentence = ONE action row on
+                    // top; a pick rewrites the field, the search re-runs.
+                    // #NEW-136: an unrecognised one = the same row offering
+                    // the on-device model (never both).
+                    action: vm.suggestion.map { suggestion in
+                        SearchListAction(
+                            icon: AppIcons.conceptOrName(SearchList.SuggestionSpec.icon) ?? AppIcons.navSearch,
+                            label: suggestion.label,
+                            identifier: SearchList.SuggestionSpec.testId
+                        ) {
+                            query = suggestion.query
+                        }
+                    } ?? translateAction(vm)
                 )
                 .overlay {
                     if trimmed.isEmpty { searchHint.allowsHitTesting(false) }
@@ -97,6 +120,29 @@ struct SearchView: View {
         }
     }
 
+    /// #NEW-136 (search-list.json TRANSLATE): `Translate to a search`, the
+    /// suggestion's row with THE spinner trailing while the one call runs.
+    /// A pick asks the on-device model; its query rewrites the field (the
+    /// search re-runs), no query = the failed-action toast and the text
+    /// stays as typed.
+    private func translateAction(_ vm: SearchViewModel) -> SearchListAction? {
+        guard vm.translateRow != .hidden else { return nil }
+        return SearchListAction(
+            icon: AppIcons.conceptOrName(SearchList.SuggestionSpec.icon) ?? AppIcons.navSearch,
+            label: Self.translateLabel,
+            identifier: SearchList.TranslateSpec.testId,
+            busy: vm.translateRow == .running
+        ) {
+            vm.translate { translated in
+                if let translated {
+                    query = translated
+                } else {
+                    Toaster.shared.show(ToastItem(kind: .error, title: Self.translateFailed))
+                }
+            }
+        }
+    }
+
     /// One result as THE picker row (EXP-922's flat list, SLOP-28's one row
     /// type): the issue's TEAM status glyph (the search is team-scoped,
     /// #EXP-1382; EXP-1554: web's clocks), `IDENT Title` with the identifier
@@ -129,7 +175,7 @@ struct SearchView: View {
     /// title, the snippet with genUI's `highlight` and the muted date.
     private func chatsSection(_ vm: SearchViewModel, shown: SearchList.GlobalSections) -> AnyView? {
         guard let section = shown.sections.first(where: { $0.key == .chats }) else { return nil }
-        let preselect = vm.results.isEmpty ? vm.chatRows.first?.key : nil
+        let preselect = vm.results.isEmpty && vm.suggestion == nil ? vm.chatRows.first?.key : nil
         return AnyView(
             VStack(spacing: GlassPickerTokens.rowSpacing) {
                 GlassSectionBand(SearchList.GlobalChats.Copy.chats, count: section.count, loading: section.loading)
@@ -217,7 +263,7 @@ struct SearchView: View {
     private var searchHint: some View {
         EmptyState(
             title: "Search issues across this team's boards.",
-            description: "Matches identifiers, titles, full text, and by:creator.",
+            description: Self.emptyDetail,
             icon: AppIcons.navSearch
         )
         .frame(maxHeight: .infinity)

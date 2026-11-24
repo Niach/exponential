@@ -427,7 +427,7 @@ fun IssueFace(
     // in every read view below (description + comment list) instead of a raw
     // address. Display-only — the stored markdown keeps the `@email` token.
     val mentionMembers = remember(teamUsers) {
-        teamUsers.map { MentionMember(it.name ?: it.email, it.email) }
+        com.exponential.app.ui.markdown.mentionMembers(teamUsers)
     }
     val mentionResolver = remember(mentionMembers) { MentionResolver(mentionMembers) }
 
