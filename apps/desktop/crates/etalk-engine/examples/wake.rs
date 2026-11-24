@@ -47,7 +47,22 @@ use etalk_engine::listen::{Transcriber, RATE};
 use etalk_engine::listener::Engines;
 use etalk_engine::wake::{multi_window_ms, scan, turn, turn_ended, wake_allowed, wake_distance, Listener, TranscriptMatcher, WakeScanner};
 
+/// User + system CPU seconds of this process, every thread (macOS has no
+/// `/proc`: `getrusage`).
+#[cfg(not(target_os = "linux"))]
+fn cpu_seconds() -> f64 {
+    let mut usage = std::mem::MaybeUninit::<libc::rusage>::zeroed();
+    // SAFETY: `getrusage` fills the struct it is handed; zeroed is a valid `rusage`.
+    let usage = unsafe {
+        libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr());
+        usage.assume_init()
+    };
+    let seconds = |time: libc::timeval| time.tv_sec as f64 + time.tv_usec as f64 / 1e6;
+    seconds(usage.ru_utime) + seconds(usage.ru_stime)
+}
+
 /// User + system CPU seconds of this process, every thread (Linux).
+#[cfg(target_os = "linux")]
 fn cpu_seconds() -> f64 {
     let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
     let fields: Vec<&str> = stat.rsplit_once(')').map(|(_, rest)| rest.split_whitespace().collect()).unwrap_or_default();
