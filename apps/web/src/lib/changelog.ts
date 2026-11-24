@@ -25,6 +25,25 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-24-search-translate-on-your-device`,
+    date: `2026-11-24`,
+    title: `Translate a sentence into a search`,
+    summary: `Desktop and iOS: when the issue search does not understand a sentence, Translate to a search turns it into filters with a model on your own device or login.`,
+    body: `- **Translate to a search**: type a longer sentence the search does not recognise and pick the top row. The field is rewritten into filters and words you can still edit.
+- **Desktop**: it uses the Claude login you are already signed in with on this device. One short request, no session, nothing stored.
+- **iPhone and iPad**: it uses Apple Intelligence on the device, on iOS 26 or later. Nothing leaves the phone.
+- **Only when you ask**: typing never calls a model. Without a signed-in Claude on the desktop, or without Apple Intelligence on the phone, the row does not appear.`,
+  },
+  {
+    id: `2026-11-24-search-sentences-and-filters`,
+    date: `2026-11-24`,
+    title: `Search understands sentences and filters`,
+    summary: `Web, desktop, Android and iOS: the issue search takes filters such as is:open or created:7d, and a sentence in English or German becomes those filters with one pick.`,
+    body: `- **Filters**: narrow the issue search with \`is:open\` or \`is:closed\`, \`status:\` and a status name, and \`created:\` or \`updated:\` with a time such as \`7d\`, \`today\`, \`2026-11\` or \`>=2026-11-01\`, next to \`by:\` and plain words.
+- **Sentences**: type what you are looking for, in English or German, for example "open issues by Lukas about the editor from last week". The top row then reads \`Search: is:open by:lukas created:7d editor\`, and picking it puts those filters into the field.
+- **Teammates by name**: a name after "by" or "von" becomes \`by:\` when it is one of your teammates, and stays a plain word otherwise.`,
+  },
+  {
     id: `2026-11-24-desktop-cli-0-14-177`,
     date: `2026-11-24`,
     title: `Sessions keep going, and calls are end-to-end encrypted`,

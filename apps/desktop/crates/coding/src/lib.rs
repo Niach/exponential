@@ -89,6 +89,8 @@ pub mod ecode_helper;
 pub mod run_cleanup;
 pub mod run_registry;
 pub mod scratch;
+// #NEW-136: the issue search's one-shot translate call on the user's own claude login.
+pub mod search_translate;
 pub mod sealing;
 pub mod scm;
 pub mod stale_worktree;

@@ -32,6 +32,7 @@ import {
   mergedNowText,
   mergeNowFollowUp,
   mergeNowRefusal,
+  NO_CHECKS_GRACE_MS,
   noChecksVerdict,
   trainQueue,
   trainVerdict,
@@ -286,15 +287,25 @@ async function noChecksHold(
   if ((inputs.checks.get(pr.id)?.length ?? 0) > 0 || pr.state !== `open` || pr.mergeNow) return null
   const expected = (inputs.required.get(pr.base)?.length ?? 0) > 0
   // #FEED-282: no required names but CI on the repo: wait out the grace.
-  if (!expected && !inputs.ciSeen) return null
+  // #EXP-2090: a repo whose CI is new has no other PR reporting it; only a
+  // PR the forge touched within the grace is worth the read of its head.
+  const fresh = now.getTime() - (pr.providerUpdatedAt ?? pr.createdAt).getTime() < NO_CHECKS_GRACE_MS
+  if (!expected && !inputs.ciSeen && !fresh) return null
   const live = await forge.readPullRequest(forgeRepo(repo), pr.number).catch(() => null)
   if (!live) return null
   const since = live.updatedAt ?? pr.createdAt
+  const ageMs = now.getTime() - since.getTime()
+  // The runs the forge shows at this head, their rows not written yet.
+  const headRuns =
+    !expected && !inputs.ciSeen && ageMs < NO_CHECKS_GRACE_MS && live.headSha
+      ? ((await forge.checksAt(forgeRepo(repo), live.headSha).catch(() => null))?.length ?? 0) > 0
+      : false
   const verdict = noChecksVerdict({
     expected,
     ciSeen: inputs.ciSeen,
+    headRuns,
     mergeable: live.mergeable ?? null,
-    ageMs: now.getTime() - since.getTime(),
+    ageMs,
   })
   // `wait` with required names = the names already read pending (waitOf);
   // without, only this rule makes the PR wait.

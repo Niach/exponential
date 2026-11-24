@@ -299,7 +299,7 @@ impl Downlink {
 /// Dial `url` (the caller ticket's, as-is) on the steer runtime; `on_event`
 /// runs on a runtime thread.
 pub fn connect(runtime: &Arc<SteerRuntime>, url: String, on_event: impl Fn(CallCallerEvent) + Send + Sync + 'static) -> CallCaller {
-    connect_sealed(runtime, url, None, on_event)
+    connect_sealed(runtime, url, "", None, on_event)
 }
 
 /// #EXP-1941: [`connect`] for a caller the server told the call's mode
@@ -314,14 +314,34 @@ pub fn connect(runtime: &Arc<SteerRuntime>, url: String, on_event: impl Fn(CallC
 pub fn connect_sealed(
     runtime: &Arc<SteerRuntime>,
     url: String,
+    call_id: &str,
     sealing: Option<CallSealing>,
     on_event: impl Fn(CallCallerEvent) + Send + Sync + 'static,
 ) -> CallCaller {
     let (tx, rx) = flume::unbounded::<Outbound>();
+    // #FEED-268: `call_id` names the call in this socket's log lines.
+    let seen = Arc::new(std::sync::Mutex::new(crate::call_host::LinkLog::new("caller", call_id.to_string())));
+    let log = Arc::clone(&seen);
+    log::info!("call caller {call_id}: joining the relay ({})", if sealing.is_some() { "sealed" } else { "clear" });
+    let on_event = move |event: CallCallerEvent| {
+        {
+            let mut log = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            match &event {
+                CallCallerEvent::Ready => log.ready(),
+                CallCallerEvent::Audio(_) => log.audio(),
+                CallCallerEvent::Event(_) => {}
+                CallCallerEvent::Ended { reason } => log.close(&crate::call_host::call_end_text(reason.as_deref())),
+                CallCallerEvent::Failed(code) => log.close(&format!("the relay refused or ended it: {code}")),
+                CallCallerEvent::Dropped(err) => log.close(&format!("dropped: {err}")),
+            }
+        }
+        on_event(event);
+    };
     runtime.handle().spawn(async move {
         if let Err(err) = run(&url, &rx, &on_event, Timing::fixture(), sealing.as_ref()).await {
             on_event(CallCallerEvent::Dropped(err));
         }
+        seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).close("this caller hung up");
     });
     CallCaller { tx }
 }

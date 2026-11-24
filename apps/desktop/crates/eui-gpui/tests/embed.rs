@@ -186,7 +186,7 @@ fn replay_events(cx: &mut TestAppContext, name: &str) {
 #[gpui::test]
 fn the_fixture_lists_the_cases_replayed_here(_cx: &mut TestAppContext) {
     assert_eq!(names("render"), ["in-place", "own-data", "no-host-data", "same-ids-as-host", "bound-surface", "template-rows", "bad-surface-error-box", "unbound-surface-error-box", "nested-embed"]);
-    assert_eq!(names("events"), ["reply-bubbles", "which-row", "author-key-loses", "no-on-action", "inner-bound-context", "set-stays-inner", "host-function-denied"]);
+    assert_eq!(names("events"), ["reply-bubbles", "which-row", "author-key-loses", "no-on-action", "inner-bound-context", "inner-user-message", "set-stays-inner", "host-function-denied"]);
 }
 
 macro_rules! render_case {
@@ -222,6 +222,7 @@ events_case!(events_which_row, "which-row");
 events_case!(events_author_key_loses, "author-key-loses");
 events_case!(events_no_on_action, "no-on-action");
 events_case!(events_inner_bound_context, "inner-bound-context");
+events_case!(events_inner_user_message, "inner-user-message");
 events_case!(events_set_stays_inner, "set-stays-inner");
 events_case!(events_host_function_denied, "host-function-denied");
 

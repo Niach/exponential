@@ -406,7 +406,8 @@ object ChatExpress {
     /** `actionCases`: the person message an action posts, or [ActionResult.TooLarge]. */
     fun surfaceAction(event: ActionEvent, origin: ActionOrigin): ActionResult? {
         val name = (event.name as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotEmpty() } ?: return null
-        val context = event.context as? JsonObject
+        // An empty object is none: what a renderer hands for an event without one.
+        val context = (event.context as? JsonObject)?.takeIf { it.isNotEmpty() }
         if (name.codePointCount(0, name.length) > Limits.ACTION_NAME_MAX) return ActionResult.TooLarge
         if (context != null && utf8(context.toString()) > Limits.ACTION_CONTEXT_MAX_BYTES) return ActionResult.TooLarge
         val user = trimmed(event.userMessage)

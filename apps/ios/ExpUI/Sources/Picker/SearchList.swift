@@ -111,6 +111,28 @@ public struct SearchListSections {
     }
 }
 
+/// #NEW-133 (search-list.json SUGGESTION): ONE action row on top of the list,
+/// above the item rows and any Section band: THE picker row (`icon` = an
+/// `AppIcons` name), preselected, the row Return picks. Never counted, and
+/// while it shows the empty state is not drawn.
+public struct SearchListAction {
+    let icon: String
+    let label: String
+    let identifier: String
+    /// #NEW-136: the action is running: THE inline spinner in the row's
+    /// trailing slot.
+    let busy: Bool
+    let pick: () -> Void
+
+    public init(icon: String, label: String, identifier: String, busy: Bool = false, pick: @escaping () -> Void) {
+        self.icon = icon
+        self.label = label
+        self.identifier = identifier
+        self.busy = busy
+        self.pick = pick
+    }
+}
+
 /// THE search list: the input row and the picker rows under it.
 public struct SearchListView<Value: Hashable & Sendable>: View {
     let items: [PickerItem<Value>]
@@ -137,6 +159,7 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
     let leading: AnyView?
     let fieldChrome: Bool
     let sections: SearchListSections?
+    let action: SearchListAction?
 
     public init(
         items: [PickerItem<Value>],
@@ -154,9 +177,11 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
         onBackspaceEmpty: (() -> Void)? = nil,
         leading: AnyView? = nil,
         fieldChrome: Bool = false,
-        sections: SearchListSections? = nil
+        sections: SearchListSections? = nil,
+        action: SearchListAction? = nil
     ) {
         self.sections = sections
+        self.action = action
         self.leading = leading
         self.fieldChrome = fieldChrome
         self.items = items
@@ -204,7 +229,9 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
             identifier: inputIdentifier,
             autofocus: autofocus,
             onSubmit: {
-                if let top = visible.first(where: { !$0.disabled }) {
+                if let action {
+                    action.pick()
+                } else if let top = visible.first(where: { !$0.disabled }) {
                     onPick(top.value)
                 } else {
                     sections?.submit?()
@@ -280,10 +307,26 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
     private var rows: some View {
         ScrollView {
             LazyVStack(spacing: GlassPickerTokens.rowSpacing) {
+                if let action {
+                    GlassPickerSheetRow(
+                        item: PickerItem(value: action.label, label: action.label, icon: action.icon),
+                        checked: .none,
+                        style: GlassPickerTokens.selectionStyle(for: .single),
+                        action: action.pick
+                    )
+                    .background(GlassTokens.fillActive, in: RoundedRectangle(cornerRadius: GlassPickerTokens.rowRadius))
+                    .overlay(alignment: .trailing) {
+                        if action.busy {
+                            InlineSpinner().padding(.trailing, GlassPickerTokens.rowHPadding)
+                        }
+                    }
+                    .accessibilityIdentifier(action.identifier)
+                    .accessibilityAddTraits(.isSelected)
+                }
                 if loading {
                     SkeletonRows(rowHeight: CGFloat(SearchList.rowHeightPhone), dividers: false)
                 } else if visible.isEmpty {
-                    if let emptyText, sections?.empty ?? true {
+                    if action == nil, let emptyText, sections?.empty ?? true {
                         EmptyState(title: emptyText, size: .list)
                     }
                 } else {
@@ -291,7 +334,7 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
                         GlassSectionBand(title, count: visible.count)
                             .accessibilityIdentifier(SearchList.GlobalChats.TestIds.issues)
                     }
-                    let top = visible.first(where: { !$0.disabled })?.value
+                    let top = action == nil ? visible.first(where: { !$0.disabled })?.value : nil
                     ForEach(visible) { item in
                         GlassPickerSheetRow(
                             item: item,

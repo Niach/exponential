@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
+import { SEARCH_LIST_TRANSLATE } from "@exp/domain-contract/search-list"
 import {
   ISSUE_SEARCH_DEFAULT_LIMIT,
   ISSUE_SEARCH_EMPTY_DETAIL,
@@ -61,6 +62,53 @@ describe(`the four search surfaces print the same copy`, () => {
     // The strings this surface used to own, before the four agreed.
     expect(source).not.toContain(`Type to search issues`)
     expect(source).not.toContain(`Search issues...`)
+  })
+})
+
+// #NEW-136: `Translate to a search` exists where a model runs on the user's
+// own device or login: the desktop app and iOS. Web and Android have none,
+// so they have no row (search-list.json TRANSLATE).
+describe(`the model fallback row lives on desktop and iOS only`, () => {
+  const IOS_VIEW_MODEL = IOS_SEARCH.replace(`SearchView`, `SearchViewModel`)
+
+  it(`the fixture names the two platforms`, () => {
+    expect(SEARCH_LIST_TRANSLATE.platforms).toEqual([`desktop`, `ios`])
+    expect(SEARCH_LIST_TRANSLATE.label).toBe(`Translate to a search`)
+    expect(SEARCH_LIST_TRANSLATE.failed).toBe(`Couldn't translate this search`)
+  })
+
+  it(`desktop and iOS spell the row and the toast`, () => {
+    for (const surface of [DESKTOP_PALETTE, IOS_SEARCH]) {
+      const source = read(surface)
+      expect(source, `${surface} is missing the row`).toContain(`"${SEARCH_LIST_TRANSLATE.label}"`)
+      expect(source, `${surface} is missing the toast`).toContain(`"${SEARCH_LIST_TRANSLATE.failed}"`)
+    }
+  })
+
+  it(`web and Android never offer it`, () => {
+    for (const surface of [
+      WEB_SHEET,
+      `apps/web/src/components/issue-picker-host.tsx`,
+      `packages/ui/src/search-list.tsx`,
+      ANDROID_SEARCH,
+      ANDROID_SEARCH.replace(`SearchScreen`, `SearchViewModel`),
+      `apps/android/app/src/main/java/com/exponential/app/ui/components/SearchList.kt`,
+    ]) {
+      const source = read(surface)
+      expect(source, `${surface} offers the model fallback`).not.toContain(SEARCH_LIST_TRANSLATE.label)
+      expect(source, `${surface} offers the model fallback`).not.toContain(`SEARCH_LIST_TRANSLATE`)
+    }
+  })
+
+  it(`typing never calls the model: only a pick does`, () => {
+    // Desktop: the one call site sits in the pick handler's `translate`.
+    const desktop = read(DESKTOP_PALETTE)
+    expect(desktop.split(`search_translate::run(`).length - 1).toBe(1)
+    expect(desktop).toContain(`fn translate(&mut self`)
+    // iOS: the view model's `translate()` is the one caller of the model.
+    const ios = read(IOS_VIEW_MODEL)
+    expect(ios.split(`IssueSearchTranslator.translate(`).length - 1).toBe(1)
+    expect(ios).toContain(`func translate(done:`)
   })
 })
 

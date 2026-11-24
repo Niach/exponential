@@ -290,19 +290,7 @@ fun AgentScreen(
     val checkedOptions = remember(issueSubject, pool, issueRefCandidates) {
         val byId = pool.associateBy { it.id }
         issueSubject?.ids.orEmpty().mapNotNull { id ->
-            byId[id] ?: issueRefCandidates.firstOrNull { it.issueId == id }?.let {
-                IssueOption(
-                    id = it.issueId,
-                    identifier = it.identifier,
-                    title = it.title,
-                    repositoryId = null,
-                    status = null,
-                    priority = null,
-                    description = it.description,
-                    createdAt = it.createdAt,
-                    updatedAt = it.updatedAt,
-                )
-            }
+            byId[id] ?: issueRefCandidates.firstOrNull { it.issueId == id }?.let(::issueOption)
         }
     }
     val checkedCount = issueSubject?.ids?.size ?: 0

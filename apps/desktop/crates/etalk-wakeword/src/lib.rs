@@ -45,6 +45,10 @@ pub const EMBEDDING_WINDOW: usize = 76;
 pub const EMBEDDING_DIM: usize = 96;
 /// Embeddings per classifier input (16 × 80 ms = 1.28 s).
 pub const CLASSIFIER_WINDOW: usize = 16;
+/// #NEW-126: the whole frames [`Detector::rest`] keeps unscored: the
+/// [`CLASSIFIER_WINDOW`] - 1 embeddings before the next scored frame, and
+/// the mel frames the first of them reads ([`EMBEDDING_WINDOW`]).
+pub const REST_FRAMES: usize = CLASSIFIER_WINDOW - 1 + EMBEDDING_WINDOW.div_ceil(MEL_FRAMES_PER_FRAME);
 
 /// What went wrong loading or running a model.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -195,11 +199,18 @@ pub struct Detector {
     /// livekit-wakeword's classifiers, trained on -1…1 PCM; 32768.0 for
     /// openWakeWord's own, trained on int16-range floats).
     scale: f32,
-    /// The context and the samples not yet a whole frame.
+    /// The context, the frames at rest ([`Self::rest`]) and the samples
+    /// not yet a whole frame.
     pending: Vec<f32>,
     mel: VecDeque<f32>,
     embeddings: VecDeque<f32>,
+    /// Samples no longer in `pending`.
     consumed: usize,
+    /// #NEW-126: the whole frames in `pending` that [`Self::rest`] answered
+    /// without running a model (at most [`REST_FRAMES`]).
+    resting: usize,
+    /// Samples of the frames answered so far (scored or at rest).
+    answered: usize,
 }
 
 impl Detector {
@@ -214,6 +225,8 @@ impl Detector {
             mel: std::iter::repeat_n(1.0, EMBEDDING_WINDOW * MEL_BINS).collect(),
             embeddings: VecDeque::new(),
             consumed: 0,
+            resting: 0,
+            answered: 0,
         }
     }
 
@@ -234,19 +247,49 @@ impl Detector {
             self.mel.extend(mel);
             let excess = self.mel.len().saturating_sub(EMBEDDING_WINDOW * MEL_BINS);
             self.mel.drain(..excess);
-            let embedding = self.front.embed(self.mel.make_contiguous())?;
-            self.embeddings.extend(embedding);
-            let excess = self.embeddings.len().saturating_sub(CLASSIFIER_WINDOW * EMBEDDING_DIM);
-            self.embeddings.drain(..excess);
+            // #NEW-126: of the frames at rest only the last
+            // CLASSIFIER_WINDOW - 1 are embedded (the classifier reads no
+            // further back); each was answered when it came to rest.
+            if self.resting < CLASSIFIER_WINDOW {
+                let embedding = self.front.embed(self.mel.make_contiguous())?;
+                self.embeddings.extend(embedding);
+                let excess = self.embeddings.len().saturating_sub(CLASSIFIER_WINDOW * EMBEDDING_DIM);
+                self.embeddings.drain(..excess);
+            }
+            if self.resting > 0 {
+                self.resting -= 1;
+                continue;
+            }
+            self.answered += FRAME_SAMPLES;
             let score = if self.embeddings.len() == CLASSIFIER_WINDOW * EMBEDDING_DIM {
                 self.classifier.score(self.embeddings.make_contiguous())?
             } else {
                 0.0
             };
             let fired = self.trigger.push(score);
-            scores.push(Score { end: self.consumed, score, fired });
+            scores.push(Score { end: self.answered, score, fired });
         }
         Ok(scores)
+    }
+
+    /// #NEW-126: `samples` nobody needs scored (the room is quiet): no
+    /// model runs. Every frame they complete counts as a score of 0 (the
+    /// [`Trigger`] sees it), and the last [`REST_FRAMES`] are kept, so the
+    /// next [`Self::push`] scores exactly as if every frame had been
+    /// pushed: it first runs the mel model over the kept frames and the
+    /// embedding over the last [`CLASSIFIER_WINDOW`] - 1 of them.
+    pub fn rest(&mut self, samples: &[f32]) {
+        self.pending.extend(samples.iter().map(|sample| sample * self.scale));
+        while self.pending.len() >= MEL_CONTEXT + (self.resting + 1) * FRAME_SAMPLES {
+            self.resting += 1;
+            self.answered += FRAME_SAMPLES;
+            self.trigger.push(0.0);
+            if self.resting > REST_FRAMES {
+                self.pending.drain(..FRAME_SAMPLES);
+                self.consumed += FRAME_SAMPLES;
+                self.resting -= 1;
+            }
+        }
     }
 
     /// [`Self::push`], keeping only the first detection: where it ended

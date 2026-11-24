@@ -2476,13 +2476,12 @@ final class AgentSessionModel {
     /// ex-member still renders elsewhere), and membership is what an `@` may
     /// name.
     /// #EXP-2079 (`assistant.chatTeams`): the members of the chat's teams,
-    /// one row per person, the list's existing order.
+    /// one row per person, in the `@` list's one order (#EXP-2095).
     private func rebuildMentionMembers() {
         guard let teamId = session?.teamId else { return }
         let teamIds = chatTeamIds.isEmpty ? [teamId] : chatTeamIds
         let memberIds = Set(mentionMemberRows.filter { teamIds.contains($0.teamId) }.map(\.userId))
-        draftEditor.mentionMembers = mentionUserRows
-            .filter { memberIds.contains($0.id) }
+        draftEditor.mentionMembers = AgentSettings.chatMembers(mentionUserRows.filter { memberIds.contains($0.id) })
             .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
 

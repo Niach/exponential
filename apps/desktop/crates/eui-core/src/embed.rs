@@ -119,13 +119,18 @@ pub fn embed_mount(surface: &Value) -> EmbedMount {
 
 /// An inner event → the Embed's `action` payload (merged over the author's
 /// context like any component payload): `{name, context}`, a missing or
-/// non-object context = `{}`.
-pub fn embed_payload(name: &str, context: Option<&Value>) -> Value {
+/// non-object context = `{}`; plus `userMessage`, the inner event's
+/// resolved one, when it has one (#EXP-2104; no key otherwise).
+pub fn embed_payload(name: &str, context: Option<&Value>, user_message: Option<&str>) -> Value {
     let context = match context {
         Some(Value::Object(m)) => Value::Object(m.clone()),
         _ => Value::Object(Map::new()),
     };
-    json!({"name": name, "context": context})
+    let mut payload = json!({"name": name, "context": context});
+    if let Some(said) = user_message {
+        payload["userMessage"] = Value::String(said.to_string());
+    }
+    payload
 }
 
 /// The nested surface's id: the host's surface id and the Embed's (painted)
@@ -152,7 +157,8 @@ mod tests {
         assert_eq!(m.card.root, embed_error_root_value());
         assert_eq!(embed_surface_id("s", "card#a"), "s/card#a");
         assert_eq!(data_key_path("a/b~c"), "/a~1b~0c");
-        assert_eq!(embed_payload("reply", None), json!({"name": "reply", "context": {}}));
+        assert_eq!(embed_payload("reply", None, None), json!({"name": "reply", "context": {}}));
+        assert_eq!(embed_payload("reply", None, Some("Ship it")), json!({"name": "reply", "context": {}, "userMessage": "Ship it"}));
     }
 
     #[test]

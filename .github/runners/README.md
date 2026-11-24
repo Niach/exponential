@@ -125,7 +125,7 @@ so the desktop always wins:
 | What | Where | Priority | Memory |
 | --- | --- | --- | --- |
 | CI runners | `expci.slice` (root level) | `CPUWeight=idle`, `IOWeight=10`, 12 + 12 cores max | `MemoryHigh=16G`, `MemoryMax=20G`; 12 GB per container, no swap; `oom_score_adj` 1000 |
-| Agent runs + their builds, lane builds, emulators | `user@1000.service/expbg.slice/run-*.scope` (`run-scope-background.conf` moves every `systemd-run --user --scope` there) | `CPUWeight=idle` + nice 10; lanes nice 19, `ionice -c 3` | the slice: `MemoryHigh=16G`, `MemoryMax=20G` |
+| Agent runs + their builds, lane builds, emulators | `user@1000.service/expbg.slice/run-*.scope` (`run-scope-background.conf` moves every `systemd-run --user --scope` there) | `CPUWeight=idle` + nice 10; lanes nice 19, `ionice -c 3` | the slice: `MemoryHigh=24G`, `MemoryMax=28G` |
 | mint-ci daemon (eCode CI) + its jobs | `user@1000.service/expbg.slice/exponential-ci-daemon.service` | daemon nice 19 at `CPUWeight=1` (never `idle`: its beats starve into `runner_lost`); its job steps SCHED_IDLE + nice 19 (the runner sets them) | `MemoryMax=10G` inside the slice; `OOMScoreAdjust=1000` |
 | Cinnamon session (desktop app, browser, the Steam client) | `session-<id>.scope` | `CPUWeight=1000` (`session-interactive.conf`) | uncapped |
 | Steam games (Dota 2 = `app-steam-app570-*`) | `user@1000.service/app.slice/app-steam-app*.scope` (Steam makes them; not movable) | `CPUWeight=1000` against app.slice (`app-steam-game.conf`); idle background never wins a core | uncapped |
@@ -172,9 +172,10 @@ documentation only.
 
 While a game runs, CI drops to ONE Docker runner instead of stopping. Every
 `app-steam-*.scope` pulls in `exp-gaming.service`. Its `gaming-ci.sh hold`
-stops one runner, runner-2 first, as soon as that runner is between jobs, never
-mid-job. When the last game scope ends, systemd stops the unit and
-`gaming-ci.sh release` starts the runner again. A stopped runner is offline, so
+stops runner-2, and only runner-2, as soon as it is between jobs, never
+mid-job, and starts runner-1 again if something else took it down. When the
+last game scope ends, systemd stops the unit and `gaming-ci.sh release` starts
+runner-2 again, also when its mark was lost to a reboot or a kill. A stopped runner is offline, so
 `pick-runner.yml` overflows to GitHub-hosted sooner. The mint-ci daemon is held
 to one job by its device runner settings. Log:
 `~/.local/state/exponential/gaming-ci.log`.

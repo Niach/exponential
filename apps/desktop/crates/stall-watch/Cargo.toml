@@ -1,0 +1,18 @@
+[package]
+name = "stall-watch"
+description = "#EXP-2091: a process whose main thread or heartbeat stopped for minutes leaves its thread stacks in a file, without the logger"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# No `log`, no Sentry, nothing shared with the process it watches: the
+# watchdog thread reads atomics, writes one file and spawns the sampler
+# itself (`posix_spawn`, never `std::process`, whose spawn takes the
+# environment lock). `observability` starts it and reports its files.
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+# The tests' counting logger: the stall path makes no logger call.
+log = "0.4"

@@ -563,6 +563,21 @@ class AgentSettingsTest {
     }
 
     @Test
+    fun `assistant chatTeams memberCases (EXP-2095)`() {
+        val cases = assistant.getValue("chatTeams").jsonObject.getValue("memberCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 5)
+        for (case in cases) {
+            val members = case.getValue("members").jsonArray.map { it.jsonObject }
+            assertEquals(
+                case.str("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                AgentSettings.Assistant.chatMembers(members, id = { it.str("id").orEmpty() }, name = { it.str("name") }, email = { it.str("email") })
+                    .map { it.str("id") },
+            )
+        }
+    }
+
+    @Test
     fun `assistant chatTeams deviceCases (EXP-2079)`() {
         val cases = assistant.getValue("chatTeams").jsonObject.getValue("deviceCases").jsonArray.map { it.jsonObject }
         assertTrue(cases.isNotEmpty())

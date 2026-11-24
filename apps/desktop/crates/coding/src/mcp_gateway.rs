@@ -2366,6 +2366,49 @@ mod tests {
         sealing::set_service_wait(sealing::SERVICE_WAIT);
     }
 
+    /// #EXP-2118: an agent launched before its device's key holder runs (or
+    /// is even expected: the daemon's first seconds) keeps its gateway
+    /// route; a card in that window is refused here, one while the holder is
+    /// coming waits for it and goes sealed. Nothing reaches the server in clear.
+    #[test]
+    fn a_holder_that_comes_up_after_the_launch_seals_the_agents_cards() {
+        let _serial = serial();
+        sealing::uninstall();
+        sealing::expect_service(false);
+        sealing::set_service_wait(std::time::Duration::from_secs(10));
+        let server = fake_server(Arc::new(|_, _| json!({ "messageId": "m" })), json!({}));
+        let grant = gateway(&server, "boot-2118", "boot-2118");
+        let show = || call(&grant, SHOW_TOOL, json!({ "plan": { "text": "CLEAR-2118" } }));
+        let out = show();
+        assert!(out["error"].as_str().is_some_and(|e| e.contains("key holder is not running")), "{out}");
+        assert!(calls_of(&server, SHOW_TOOL).is_empty());
+
+        // The same agent, the same route: the holder comes up.
+        sealing::expect_service(true);
+        let tree = enet_core::sealed::generate_tree_key();
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let fake = Arc::new(crate::sealing::test_support::FakeService::default());
+            fake.keyring.insert_secret("boot-2118", 1, tree.secret);
+            fake.keyring.set_current("boot-2118", 1, tree.public);
+            fake.roots.lock().unwrap().insert("boot-2118".into(), "boot-2118".into());
+            sealing::install(fake);
+        });
+        let out = show();
+        holder.join().unwrap();
+        assert!(out.get("error").is_none(), "{out}");
+        let sent = calls_of(&server, SHOW_TOOL).pop().unwrap();
+        let card = enet_core::sealed::open_card(&sent["sealedCard"], &|_| Some(tree.secret)).card;
+        assert_eq!(card["plan"], "CLEAR-2118");
+        for (tool, args) in server.calls.lock().unwrap().iter() {
+            assert!(!args.to_string().contains("CLEAR-2118"), "{tool} went out in clear: {args}");
+        }
+        codemode::revoke("boot-2118");
+        sealing::uninstall();
+        sealing::expect_service(false);
+        sealing::set_service_wait(sealing::SERVICE_WAIT);
+    }
+
     /// #FEED-184: a key holder that is coming but never runs refuses the
     /// send and the answer (nothing in clear); #EDE-97: none coming at all
     /// refuses too.

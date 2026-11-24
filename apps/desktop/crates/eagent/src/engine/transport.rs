@@ -428,6 +428,9 @@ pub fn spawn_lines(spec: &SpawnSpec, stderr: StderrPolicy) -> std::io::Result<Ch
     let session =
         spec.env.iter().find(|(key, _)| key == crate::run_scope::SESSION_ENV).map(|(_, value)| value.as_str());
     let argv = mode.wrap_for(&spec.program, &spec.args, session);
+    // #FEED-308: measured as spawned (the scope wrap included), so a line
+    // the system would refuse fails here, naming the argument.
+    crate::command_line::check_spawn(&argv[0], &argv[1..], &spec.env)?;
     let mut cmd = background_command(&argv[0]);
     cmd.env("PATH", login_path());
     for key in &spec.env_remove {
@@ -718,6 +721,29 @@ mod tests {
             _ => crate::run_scope::run_nice(),
         };
         assert_eq!(nice.trim().parse::<i32>().expect("a number"), expected);
+    }
+
+    /// #FEED-308: what `CreateProcess` answered with "os error 206" is
+    /// refused before the spawn, naming the argument; the same text as a
+    /// file path starts.
+    #[cfg(windows)]
+    #[test]
+    fn a_command_line_over_the_windows_limit_is_refused_by_name() {
+        let long = SpawnSpec::new("cmd.exe").args(["/C", "echo", "--append-system-prompt", &"x".repeat(40_000)]);
+        let err = spawn_lines(&long, StderrPolicy::Drop).err().expect("refused");
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        let message = err.to_string();
+        assert!(message.contains("over Windows' limit of 30,000"), "{message}");
+        assert!(message.contains("the value of --append-system-prompt"), "{message}");
+        assert_ne!(err.raw_os_error(), Some(206));
+
+        let dir = std::env::temp_dir().join(format!("exp-command-line-{}", std::process::id()));
+        let file = crate::command_line::write_launch_file(&dir, "prompt", "md", &"x".repeat(40_000)).unwrap();
+        let short = SpawnSpec::new("cmd.exe").args(["/C", "echo", "--append-system-prompt-file", &file.display().to_string()]);
+        let child = spawn_lines(&short, StderrPolicy::Drop).expect("a path on the line starts");
+        let echoed = child.lines.recv_timeout(Duration::from_secs(30)).expect("cmd echoes its line");
+        assert!(echoed.contains("--append-system-prompt-file"), "{echoed}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

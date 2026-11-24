@@ -527,7 +527,9 @@ public enum ChatExpress {
     /// `tooLarge`; nil = no event name.
     public static func surfaceAction(_ event: ActionEvent, origin: ActionOrigin) -> ActionOutcome? {
         guard let name = event.name, !name.isEmpty else { return nil }
-        let context = event.context?.objectValue
+        // An empty object is none: what a renderer hands for an event without one.
+        let object = event.context?.objectValue
+        let context = (object?.isEmpty ?? true) ? nil : object
         if name.unicodeScalars.count > Limits.actionNameMax { return .tooLarge }
         if let context, utf8(json(.object(context))) > Limits.actionContextMaxBytes { return .tooLarge }
         let user = trim(event.userMessage ?? "")

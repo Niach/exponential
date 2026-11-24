@@ -324,6 +324,12 @@ jobs:
         run: |
           sudo journalctl -u exponential-space-guard.service -u polkit.service --no-pager -n 200 || true
 
+  # #NEW-134: Postgres 17 + pgvector, the real model.
+  embeddings:
+    needs: dedupe
+    if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'embeddings')
+    uses: ./.github/workflows/issue-embeddings.yml
+
   migrations:
     needs: [dedupe, pick]
     if: needs.dedupe.outputs.run == 'true' && (!inputs.only || inputs.only == 'migrations')
@@ -394,6 +400,10 @@ jobs:
         # (bootstrap-cloud applyCustomSql); CI applies it manually because it
         # never boots the app — ON_ERROR_STOP so SQL errors fail the job.
         run: docker exec -i ${{ job.services.postgres.id }} psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0001_triggers.sql
+      - name: Apply the optional embeddings SQL, a no-op without pgvector (#NEW-134)
+        run: |
+          docker exec -i ${{ job.services.postgres.id }} psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0002_issue_embeddings.sql
+          [ "$(docker exec ${{ job.services.postgres.id }} psql -U postgres -d exponential -tAc "select to_regclass('public.issue_embeddings') is null")" = t ]
       - name: Real-DB tests (sessions, Guide, triggers, backfills)
         # EXP-1284: the suites that need the migrated DB + the custom
         # triggers; the unit job runs them too but they skip without a DB.
@@ -670,6 +680,10 @@ jobs:
       - name: Cargo tests (one claude store, junctions)
         working-directory: apps/desktop
         run: cargo test --locked -p eagent --lib claude_store
+      # #FEED-308: the command line stays under CreateProcess' limit.
+      - name: Cargo tests (command line limit, launch files)
+        working-directory: apps/desktop
+        run: cargo test --locked -p eagent --lib -- command_line launch_files
 
   desktop-fuzz:
     needs: dedupe
