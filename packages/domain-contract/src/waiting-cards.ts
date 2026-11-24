@@ -41,6 +41,21 @@ export function dismissedCard<T extends { kind: string }>(card: T): T & Record<s
   return next as T & Record<string, unknown>
 }
 
+/** EXPIRY (#FEED-299, `expiryCases`): the cards of a session that ENDED
+ *  which still wait, each as the dismissed card the server stamps (its run
+ *  can no longer act on an answer). Nothing else expires a card. */
+export function expiredCards<T extends { kind: string }>(
+  messages: readonly { id: string; card: T | null; answeredAt: string | null | undefined }[]
+): { id: string; card: T & Record<string, unknown> }[] {
+  const expired: { id: string; card: T & Record<string, unknown> }[] = []
+  for (const message of messages) {
+    if (message.card && cardState(message.card, message.answeredAt) === `waiting`) {
+      expired.push({ id: message.id, card: dismissedCard(message.card) })
+    }
+  }
+  return expired
+}
+
 /** #NEW-79 / #FEED-287: may a SESSION's answer (`sessions_send {answer}`)
  *  land on a card? A voice conversation's cards are answered by its member
  *  in person only, but the conversation itself (`own`, the card's author)
