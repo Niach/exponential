@@ -1695,43 +1695,21 @@ async fn a_cli_silent_twice_fails_the_start_with_the_reason() {
 /// memory.high for four hours (a runaway build held 12.6 GB of it), and
 /// every failed start said only "answered nothing for 90s". A start that
 /// fails while its cgroups are under memory pressure names the slice, its
-/// use against its cap and the scope holding the most (a fake cgroup tree
-/// mirroring this test's own cgroup path, `EXP_CGROUP_ROOT`).
+/// use against its cap and the scope holding the most. The fake claude
+/// builds the fake cgroup tree (`EXP_CGROUP_ROOT`) around its OWN cgroup
+/// path: on a systemd host the child runs in a run scope of its own, never
+/// in this test's cgroup (the gate's runner, 2026-11-24).
 #[tokio::test]
 async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_scope() {
-    let Some(own) = std::fs::read_to_string("/proc/self/cgroup")
-        .ok()
-        .and_then(|text| text.lines().find_map(|line| line.strip_prefix("0::")).map(str::to_string))
-    else {
+    if std::fs::read_to_string("/proc/self/cgroup").map_or(true, |text| !text.lines().any(|line| line.starts_with("0::"))) {
         eprintln!("no cgroup v2 here: nothing to check");
-        return;
-    };
-    let parts: Vec<&str> = own.split('/').filter(|part| !part.is_empty()).collect();
-    if parts.len() < 2 {
-        eprintln!("cgroup {own} has no parent slice: nothing to check");
         return;
     }
     let _session = one_session_at_a_time();
     let work = workdir("silent-pressure");
-    let fake = work.0.join("cgroup");
-    let slice = fake.join(parts[..parts.len() - 1].join("/"));
-    let mine = fake.join(parts.join("/"));
-    let hog = slice.join("run-exp-hog.scope");
-    for dir in [&mine, &hog] {
-        std::fs::create_dir_all(dir).unwrap();
-    }
-    let calm = "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n";
-    for (dir, current, high) in [
-        (&slice, "17609365913", "17179869184"),
-        (&mine, "52428800", "max"),
-        (&hog, "13529146982", "max"),
-    ] {
-        std::fs::write(dir.join("memory.current"), format!("{current}\n")).unwrap();
-        std::fs::write(dir.join("memory.high"), format!("{high}\n")).unwrap();
-        std::fs::write(dir.join("memory.pressure"), calm).unwrap();
-    }
-    let slice_name = parts[parts.len() - 2].to_string();
-    let fake_root = fake.display().to_string();
+    let fake_root = work.0.join("cgroup").display().to_string();
+    let slice_file = work.0.join("slice.txt");
+    let slice_env = slice_file.display().to_string();
     let spawns = work.0.join("spawns.txt").display().to_string();
     let spec = spec_env(
         &Path::new(FIXTURES).join("basic"),
@@ -1741,7 +1719,8 @@ async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_sc
             ("EXP_FAKE_CLAUDE_HANGS", "5"),
             ("EXP_FAKE_CLAUDE_SPAWNS", spawns.as_str()),
             (engine::starved::CGROUP_ROOT_ENV, fake_root.as_str()),
-            (engine::adapters::claude::START_TIMEOUT_ENV, "1000"),
+            ("EXP_FAKE_CLAUDE_PRESSURE", slice_env.as_str()),
+            (engine::adapters::claude::START_TIMEOUT_ENV, "2000"),
             (engine::adapters::claude::START_BACKOFF_ENV, "0"),
         ],
     );
@@ -1766,6 +1745,10 @@ async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_sc
         .await
         .expect("the connection runs cleanly")
         .expect("the start fails");
+    let Ok(slice_name) = std::fs::read_to_string(&slice_file).map(|name| name.trim().to_string()) else {
+        eprintln!("the fake claude's cgroup has no parent slice: nothing to check");
+        return;
+    };
     let wall = format!(
         "Device is under memory pressure ({slice_name} 16.4 GB of 16.0 GB; run-exp-hog.scope holds 12.6 GB): claude did not start, it answered nothing at startup, 3 times in a row"
     );
