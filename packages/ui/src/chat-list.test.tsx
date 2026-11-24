@@ -194,10 +194,10 @@ describe(`PhoneTabBar`, () => {
   it(`paints each tab as icon over label, the selected one on the active pill`, () => {
     render(
       <PhoneTabBar>
-        {fixture.shell.tabs.map((tab) => (
+        {([`teams`, `chats`] as const).map((tab) => (
           <PhoneTab
             key={tab}
-            label={fixture.copy.tabs[tab as keyof typeof fixture.copy.tabs]}
+            label={fixture.copy.tabs[tab]}
             icon={<svg />}
             selected={tab === `chats`}
             badge={tab === `chats` ? { count: 2, tone: `attention` } : null}
@@ -206,7 +206,7 @@ describe(`PhoneTabBar`, () => {
       </PhoneTabBar>
     )
     const tabs = screen.getAllByRole(`button`)
-    expect(tabs.map((tab) => tab.getAttribute(`aria-label`))).toEqual([`Board`, `Chats`, `Apps`, `Team`])
+    expect(tabs.map((tab) => tab.getAttribute(`aria-label`))).toEqual([`Teams`, `Chats`])
     expect(tabs[1]!.className).toContain(`bg-glass-active`)
     expect(tabs[1]!.getAttribute(`aria-current`)).toBe(`page`)
     // #FEED-232: THE count badge on the icon's corner.
