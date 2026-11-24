@@ -1,3 +1,4 @@
+import { InstallWaitingGate } from "@/components/devices/install-approval"
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
 import {
   actionMarker,
@@ -1612,6 +1613,9 @@ export function AgentSessionView({
             )}
             style={{ bottom: dockHeight, ...edgeFadeStyle(follow.scrolled) }}
           >
+            {/* #EXP-1950: an install waiting for approval, where this
+                encrypted chat would open. */}
+            <InstallWaitingGate rootId={session.rootId ?? session.id} sealed={session.sealEpoch != null} />
             {/* steer-enet.json SENT INPUTS: what was sent (the brief the
                 claim consumed included) above the placeholder's copy. */}
             {sentShown && (

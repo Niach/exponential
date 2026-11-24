@@ -136,7 +136,7 @@ export const ISSUE_SEARCH_CLOSED_STATUSES = [
  */
 export const ISSUE_SEARCH_PLACEHOLDER = `Search issues`
 export const ISSUE_SEARCH_EMPTY_HINT = `Search issues across all your boards.`
-export const ISSUE_SEARCH_EMPTY_DETAIL = `Matches identifiers, titles, full text, and by:creator.`
+export const ISSUE_SEARCH_EMPTY_DETAIL = `Matches identifiers, titles and full text. Filter with by:, is:, status:, created: and updated:.`
 export const ISSUE_SEARCH_NO_RESULTS = `No issues match`
 
 /** Whether a row counts as UNDONE for ranking. An absent or unrecognized
@@ -195,12 +195,13 @@ export function issueSearchHasFilters(parsed: IssueSearchQuery): boolean {
   )
 }
 
-const DAY_MS = 86_400_000
+export const ISSUE_SEARCH_DAY_MS = 86_400_000
+const DAY_MS = ISSUE_SEARCH_DAY_MS
 const RELATIVE_DAYS: Record<string, number> = { d: 1, w: 7, m: 30, y: 365 }
 
 /** Days since 1970-01-01 of a proleptic Gregorian UTC date (Howard
  *  Hinnant's days_from_civil), the same integer arithmetic ×4. */
-function daysFromCivil(year: number, month: number, day: number): number {
+export function daysFromCivil(year: number, month: number, day: number): number {
   const y = month <= 2 ? year - 1 : year
   const era = Math.floor(y / 400)
   const yoe = y - era * 400
@@ -216,7 +217,7 @@ function daysInMonth(year: number, month: number): number {
 }
 
 /** A UTC day `YYYY-MM-DD` or month `YYYY-MM` as its window, or null. */
-function parseIssueSearchDate(text: string): IssueSearchRange | null {
+export function parseIssueSearchDate(text: string): IssueSearchRange | null {
   const match = /^([0-9]{4})-([0-9]{2})(?:-([0-9]{2}))?$/.exec(text)
   if (!match) return null
   const year = Number(match[1])
@@ -308,7 +309,7 @@ export function parseIssueSearchQuery(
 
 const NON_WORD = /[^\p{L}\p{N}]+/u
 
-function words(text: string): string[] {
+export function issueSearchWords(text: string): string[] {
   return text.split(NON_WORD).filter((word) => word.length > 0)
 }
 
@@ -377,23 +378,23 @@ function prepare(row: IssueSearchRow): Prepared {
     identifier: row.identifier.toLowerCase(),
     number: identifierNumber(row.identifier),
     title,
-    titleWords: words(title),
+    titleWords: issueSearchWords(title),
     get description(): string {
       description ??= raw.toLowerCase()
       return description
     },
     get descriptionWords(): string[] {
-      descriptionWords ??= words(this.description)
+      descriptionWords ??= issueSearchWords(this.description)
       return descriptionWords
     },
     creatorWords: [
-      ...words((row.creatorName ?? ``).toLowerCase()),
-      ...words((row.creatorAgentName ?? ``).toLowerCase()),
+      ...issueSearchWords((row.creatorName ?? ``).toLowerCase()),
+      ...issueSearchWords((row.creatorAgentName ?? ``).toLowerCase()),
     ],
     creatorEmail: (row.creatorEmail ?? ``).toLowerCase(),
     statusWords: [
-      ...words((row.status ?? ``).toLowerCase()),
-      ...words((row.statusName ?? ``).toLowerCase()),
+      ...issueSearchWords((row.status ?? ``).toLowerCase()),
+      ...issueSearchWords((row.statusName ?? ``).toLowerCase()),
     ],
     updatedMs: timeOf(row.updatedAt),
     createdMs: timeOf(row.createdAt),

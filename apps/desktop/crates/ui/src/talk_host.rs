@@ -596,11 +596,15 @@ impl TalkHost for ExponentialHost {
         let local = crate::queries::active_account(cx).is_some_and(|account| account.is_local());
         Some(cx.spawn(async move |cx| {
             let (asking, ids) = (Arc::clone(&trpc), (call_id.clone(), device_id.clone(), agent_id.clone()));
+            // #FEED-268: how long the ring waited for its ticket (the relay
+            // gives up on a ring nobody joins in `ringTimeoutMs`).
+            let (log_call_id, asked) = (call_id.clone(), std::time::Instant::now());
             let ticket = cx
                 .background_executor()
                 .spawn(async move { api::voice::voice_call_host_ticket_for(&asking, &ids.0, &ids.1, &ids.2) })
                 .await
                 .map_err(|err| err.to_string())?;
+            log::info!("[voice] call {log_call_id}: the host ticket came after {} ms (sealed {})", asked.elapsed().as_millis(), ticket.seal);
             let join = host_join(ticket.seal, refuse_only, node.is_some());
             let asking = Arc::clone(&trpc);
             let agent = agent_id.clone();
@@ -634,7 +638,7 @@ impl TalkHost for ExponentialHost {
                 }
             };
             let (tx, events) = flume::unbounded::<CallLinkEvent>();
-            let host = steer::call_host::connect_sealed(&runtime, ticket.url, sealing, move |event| {
+            let host = steer::call_host::connect_sealed(&runtime, ticket.url, &log_call_id, sealing, move |event| {
                 let _ = tx.send(link_event(event));
             });
             Ok(CallConnection { link: Box::new(SteerLink(host)), events, refuse })
@@ -686,7 +690,7 @@ impl TalkHost for ExponentialHost {
                 }
             });
             let (tx, events) = flume::unbounded::<DialLinkEvent>();
-            let caller = steer::call_caller::connect_sealed(&runtime, started.url, sealing, move |event| {
+            let caller = steer::call_caller::connect_sealed(&runtime, started.url, &started.call_id, sealing, move |event| {
                 let _ = tx.send(dial_event(event));
             });
             Ok(DialConnection { link: Box::new(SteerDial(caller)), events })

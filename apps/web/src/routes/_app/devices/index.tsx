@@ -1,6 +1,7 @@
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
 import { MobileDetailHeader, useIsMobile } from "@exp/ui"
+import { PendingInstalls } from "@/components/devices/install-approval"
 import { MyMachines } from "@/components/my-machines"
 import { useMemberTeams } from "@/components/home/use-member-teams"
 import { PushedTitle } from "@/components/team/mobile-page-header"
@@ -9,6 +10,7 @@ import { useSteerConfig } from "@/hooks/use-steer-config"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { useInstallTrust } from "@/lib/enet/use-install-trust"
 import { pageTitle } from "@/lib/page-title"
 
 // #EXP-2109 (settings-nav.json `nav.phone`): the phones' Devices list, pushed
@@ -39,6 +41,7 @@ function PhoneDevices({ device }: { device: string | undefined }) {
   const team = useTeamBySlug(defaultTeamSlug)
   const { isOwner } = useTeamPermissions(team)
   const { teamIds } = useMemberTeams(user.id)
+  const installTrust = useInstallTrust()
   const steerConfig = useSteerConfig()
   const enabled = Boolean(steerConfig?.enabled)
   const remote = useSteerDevices({ enabled, currentUserId: user.id, teamId: team?.id, listTeamIds: teamIds })
@@ -50,6 +53,12 @@ function PhoneDevices({ device }: { device: string | undefined }) {
         backLabel={CHATS_COPY.headers.settings}
       />
       <div className={`min-h-0 flex-1 overflow-y-auto px-4 pt-6 ${PAGE_END_CLEARANCE}`}>
+        {/* #EXP-1950: the installs waiting for approval. */}
+        {installTrust.rows.length > 0 && (
+          <div className="mb-6">
+            <PendingInstalls trust={installTrust} />
+          </div>
+        )}
         {enabled && (
           <MyMachines
             devices={remote.devices}

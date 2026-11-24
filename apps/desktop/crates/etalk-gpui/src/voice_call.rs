@@ -433,11 +433,13 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
     let settings = crate::speak_replies::settings(cx);
     let here = host::device_id(cx);
     let meeting_here = settings.meeting() && here.is_some() && settings.voice_device_id == here;
-    match ring_answer(meeting_here, active(cx), crate::speak_replies::speech_state(cx)) {
+    let (busy, speech) = (active(cx), crate::speak_replies::speech_state(cx));
+    match ring_answer(meeting_here, busy, speech) {
         RingAnswer::RefuseMeeting => return refuse(call_id, agent_id, "meeting", cx),
         RingAnswer::RefuseBusy => return refuse(call_id, agent_id, "busy", cx),
         RingAnswer::Ignore => {
-            log::info!("[voice] call {call_id}: not answered here");
+            // #FEED-268: why (the caller hears `no_answer` from the relay).
+            log::info!("[voice] call {call_id}: not answered here (in a call: {busy}, speech: {speech:?})");
             return;
         }
         RingAnswer::Answer => {}
@@ -460,7 +462,7 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
                 (connection.link, connection.events)
             }
             Err(err) => {
-                log::warn!("[voice] the call host ticket was refused: {err}");
+                log::warn!("[voice] call {call_id}: the call host ticket was refused: {err}");
                 return;
             }
         };

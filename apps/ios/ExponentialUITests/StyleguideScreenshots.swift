@@ -43,7 +43,8 @@ import XCTest
 ///   sg_app-settings-links · sg_app-settings-automations · sg_app-events (#EXP-1850) ·
 ///   sg_app-csv-import · sg_app-record-history · sg_app-record-undo ·
 ///   sg_team-avatar · sg_device-attention ·
-///   sg_os-live-activity · sg_os-live-activity-island · sg_os-notification-actions
+///   sg_os-live-activity · sg_os-live-activity-island · sg_os-notification-actions ·
+///   sg_install-approval · sg_install-waiting (#EXP-1950)
 ///
 /// EXP-1295 (Chats v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -1314,7 +1315,7 @@ final class StyleguideScreenshots: XCTestCase {
         "call-controls", "call-pill", "device-readiness",
         "sealed-locked", "plan-page", "pr-row", "pr-checks", "ci-run", "runner-settings", "repo-runs", "repo-ci", "session-row",
         "team-avatar", "device-attention", "share-targets", "share-composer", "composer-add-file",
-        "needs-you", "results-tab", "record-form-field-states",
+        "needs-you", "results-tab", "install-approval", "install-waiting", "record-form-field-states",
         "os-live-activity", "os-live-activity-island", "os-notification-actions",
     ]
 
@@ -1373,6 +1374,9 @@ final class StyleguideScreenshots: XCTestCase {
             // #FEED-191: THE entry row + THE list, THE Results tab body.
             case "needs-you": snapshot("sg_needs-you", settle: 2)
             case "results-tab": snapshot("sg_results-tab", settle: 2)
+            // #EXP-1950: the approval rows + the waiting state (install-trust.json).
+            case "install-approval": snapshot("sg_install-approval", settle: 2)
+            case "install-waiting": snapshot("sg_install-waiting", settle: 2)
             case "pr-row": snapshot("sg_pr-row", settle: 2)
             // Session 20b7fdc2: THE session row (web's `session-row` island).
             case "session-row": snapshot("sg_session-row", settle: 2)

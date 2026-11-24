@@ -229,7 +229,9 @@ struct AgentsView: View {
             LazyVStack(alignment: .leading, spacing: 12) {
                 // #EXP-1950: phones also list the installs waiting for approval here.
                 if sizeClass == .compact {
+                    // Web's `mb-6`: 12 + the stack's 12 = 24 under the band.
                     LivePendingInstalls()
+                        .padding(.bottom, 12)
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     // EXP-1169 (web + desktop parity): "Add device" rides
