@@ -162,21 +162,24 @@ public final class SessionSealer: @unchecked Sendable {
 
     // MARK: answers
 
-    /// The sealed form of an answer when the card is sealed (nil = answer in
-    /// clear, the card is plaintext or can't be resealed here).
-    func sealAnswer(accountId: String, _ input: AnswerMessageInput) async -> SealedAnswerInput? {
-        guard crypto.isAvailable else { return nil }
+    /// The sealed form of an answer when the card is sealed (nil = the card
+    /// is plaintext: answer in clear). A sealed card that can't be resealed
+    /// here (no key, #EXP-2123: one this install may not make) throws:
+    /// its answer never leaves in clear.
+    func sealAnswer(accountId: String, _ input: AnswerMessageInput) async throws -> SealedAnswerInput? {
         let row = read(accountId) { db -> (card: String, rootId: String)? in
             guard let message = try MessageEntity.fetchOne(db, key: input.messageId), let card = message.card else { return nil }
             return (card, message.rootId)
         }
         guard let row, SealedEnvelope.mayBeSealedCard(row.card) else { return nil }
         let opened = opener.card(row.card, rootId: row.rootId)
+        if opened.status == .plain { return nil }
+        guard crypto.isAvailable else { throw SealedOnlyError() }
         // An escalated card this install can't open in its own tree: the
         // mirror's `sealedCard` (sealed to the watching tree) stands in.
         let json = opened.status == .opened ? opened.json : escalatedCard(accountId: accountId, messageId: input.messageId)
         guard let json,
-              let card = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else { return nil }
+              let card = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else { throw SealedOnlyError() }
         let root = read(accountId) { db in try SessionEntity.fetchOne(db, key: row.rootId) }
         guard let key = await holder.sealKey(
             accountId: accountId,
@@ -185,13 +188,13 @@ public final class SessionSealer: @unchecked Sendable {
             teamId: root?.teamId,
             deviceIds: [],
             shared: root?.shared ?? false
-        ), await holder.sealAllowed(accountId: accountId, rootId: row.rootId, key: key) else { return nil }
+        ), await holder.sealAllowed(accountId: accountId, rootId: row.rootId, key: key) else { throw SealedOnlyError() }
         let answered = SealedAnswer.answeredCard(card, input)
         guard let data = try? JSONSerialization.data(withJSONObject: answered, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8),
               let envelope = try? crypto.sealCard(treePublicKey: key.publicKey, epoch: key.epoch, cardJson: json),
               let object = try? JSONSerialization.jsonObject(with: Data(envelope.utf8)),
-              let sealedCard = CardJSON(any: object) else { return nil }
+              let sealedCard = CardJSON(any: object) else { throw SealedOnlyError() }
         return SealedAnswerInput(messageId: input.messageId, decision: input.decision, fresh: input.fresh, sealedCard: sealedCard)
     }
 
