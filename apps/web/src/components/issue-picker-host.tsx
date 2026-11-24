@@ -91,7 +91,8 @@ interface IssuePickerBodyBase<R extends IssuePickerRow> {
   suggestion?: { query: string; label: string } | null
 }
 
-const SuggestionGlyph = conceptIcon(SEARCH_LIST_SUGGESTION.icon)
+// search-list.json `suggestion.icon`.
+const SuggestionGlyph = conceptIcon(`nav-search`)
 /** The suggestion row's value (never an issue id or a chat key). */
 const SUGGESTION_VALUE = `search-suggestion`
 

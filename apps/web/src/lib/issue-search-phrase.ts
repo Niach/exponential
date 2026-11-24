@@ -9,7 +9,6 @@
 import { searchSuggestionLabel } from "@exp/domain-contract/search-list"
 import {
   ISSUE_SEARCH_DAY_MS,
-  daysFromCivil,
   issueSearchWords,
   parseIssueSearchDate,
 } from "@/lib/issue-search"
