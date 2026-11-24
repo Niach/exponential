@@ -1,12 +1,16 @@
 package com.exponential.app.data.sealed
 
+import at.exponential.net.ffi.EnetWrapStatement
+import at.exponential.net.ffi.verifyWrapSignature
 import com.exponential.app.data.api.CreateSessionKeyInput
 import com.exponential.app.data.api.DueTreeKey
 import com.exponential.app.data.api.HeldTreeKey
 import com.exponential.app.data.api.PendingTreeKey
 import com.exponential.app.data.api.PendingWrap
 import com.exponential.app.data.api.TrpcException
+import com.exponential.app.data.enet.EnetFfi
 import com.exponential.app.data.enet.IdentitySlots
+import com.exponential.app.data.enet.base64Url
 import com.exponential.app.data.push.SecretSealer
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -183,6 +187,55 @@ class RotationFixtureTest {
             for (root in held.keys + holds.keys) {
                 assertEquals("$name: $root", holds[root].orEmpty(), vault.all("acct")[root].orEmpty().keys.sorted())
             }
+        }
+    }
+
+    /** #EXP-2119 (OLDER EPOCHS): the held secret of exactly (root, epoch) leaves, signed over its own public key. */
+    @Test
+    fun olderEpochCasesReplayTheFixture() = runBlocking {
+        val root = "00000000-0000-4000-8000-000000000001"
+        val tree = fixture.getValue("tree").jsonObject
+        val rotated = fixture.getValue("rotatedTree").jsonObject
+        val secretAt = mapOf(1 to hex(tree.str("secret")), 2 to hex(rotated.str("secret")))
+        val publicAt = mapOf(1 to tree.str("publicKey"), 2 to rotated.str("publicKey"))
+        val own = ByteArray(32) { 7 }
+        val target = ByteArray(32) { 8 }
+        val cases = rotation.getValue("olderEpochCases").jsonArray
+        assertTrue(cases.size >= 3)
+        for (element in cases) {
+            val case = element.jsonObject
+            val name = case.str("name")
+            val pair = case.getValue("pair").jsonObject
+            val epoch = pair.getValue("epoch").jsonPrimitive.int
+            val sent = mutableListOf<PendingWrap>()
+            val server = object : HolderApi {
+                override suspend fun mine(installId: String, rootIds: List<String>?) = emptyList<HeldTreeKey>()
+                override suspend fun pending(installId: String) = listOf(
+                    PendingTreeKey(
+                        root, epoch, if (pair.str("publicKey") == "tree") tree.str("publicKey") else pair.str("publicKey"),
+                        "t", base64Url(EnetFfi.x25519PublicOf(target)), WrapSignerFfi.endpointIdOf(target),
+                    ),
+                )
+                override suspend fun wrap(installId: String, wraps: List<PendingWrap>) {
+                    sent += wraps
+                }
+            }
+            val vault = TreeKeyVault(MapSlots(), XorSealer)
+            vault.put("acct", mapOf(root to case.getValue("held").jsonArray.map { it.jsonPrimitive.int }.associateWith { secretAt.getValue(it) }))
+            TreeKeyHolder(
+                "acct", SELF, SealedFfi.installSecret(own), SealedFfi, vault, server,
+                installPublic = base64Url(EnetFfi.x25519PublicOf(own)), identity = own, signer = WrapSignerFfi,
+            ) {}.answerPending()
+            val wraps = case.intOrNull("wraps")
+            if (wraps == null) {
+                assertTrue(name, sent.isEmpty())
+                continue
+            }
+            val wrap = sent.single()
+            assertEquals(name, epoch, wrap.epoch)
+            assertArrayEquals(name, secretAt.getValue(wraps), SealedFfi.unwrapTreeKey(SealedFfi.installSecret(target), wrap.wrapped))
+            val statement = EnetWrapStatement(root, epoch.toUInt(), publicAt.getValue(wraps), WrapSignerFfi.endpointIdOf(target), wrap.wrapped)
+            assertTrue(name, verifyWrapSignature(statement, wrap.signature!!, WrapSignerFfi.endpointIdOf(own)))
         }
     }
 

@@ -1,8 +1,13 @@
 package com.exponential.app.data.sealed
 
+import at.exponential.net.ffi.EnetServedWrap
 import at.exponential.net.ffi.EnetWrapStatement
+import at.exponential.net.ffi.EnetWrapVerdict
+import at.exponential.net.ffi.acceptWrap
 import at.exponential.net.ffi.endpointIdOf as ffiEndpointIdOf
 import at.exponential.net.ffi.signWrap
+import com.exponential.app.data.enet.EnetFfi
+import com.exponential.app.data.enet.base64Url
 
 /**
  * #EXP-1950: signs a tree-key wrap THIS install made with its eNet identity
@@ -16,6 +21,9 @@ interface WrapSigner {
 
     /** base64url signature over (root, epoch, tree public key, recipient endpoint id, wrapped bytes); throws on a malformed field. */
     fun sign(identity: ByteArray, rootId: String, epoch: Int, treePublicKey: String, recipientEndpointId: String, wrapped: String): String
+
+    /** #EXP-2119: the public half of a held tree [secret] (the server may not know an older epoch's); null = not derivable. */
+    fun treePublicKey(identity: ByteArray, installSecret: ByteArray, rootId: String, epoch: Int, secret: ByteArray): String?
 }
 
 object WrapSignerFfi : WrapSigner {
@@ -23,6 +31,15 @@ object WrapSignerFfi : WrapSigner {
 
     override fun sign(identity: ByteArray, rootId: String, epoch: Int, treePublicKey: String, recipientEndpointId: String, wrapped: String): String =
         signWrap(identity, EnetWrapStatement(rootId, epoch.toUInt(), treePublicKey, recipientEndpointId, wrapped))
+
+    /** The binding names a secret's public key only in a wrap's verdict: one made for this install itself, opened again. */
+    override fun treePublicKey(identity: ByteArray, installSecret: ByteArray, rootId: String, epoch: Int, secret: ByteArray): String? = runCatching {
+        val own = SealedFfi.wrapTreeKey(base64Url(EnetFfi.x25519PublicOf(identity)), secret)
+        when (val verdict = acceptWrap(EnetServedWrap(rootId, epoch.toUInt(), own, null, null), identity, installSecret, emptyList(), false)) {
+            is EnetWrapVerdict.Unsigned -> verdict.treePublicKey
+            is EnetWrapVerdict.Verified, is EnetWrapVerdict.Refused -> null
+        }
+    }.getOrNull()
 }
 
 /** A reader a wrap names: its install id, ed25519 key (endpoint id) and X25519 key. */
