@@ -123,7 +123,7 @@ pub struct LaunchSpec {
     /// for every other agent, which the reaper never anchored either.
     pub reaper_settings_path: Option<PathBuf>,
     /// EXP-1025: the run playbook plus the team prompt, composed by the
-    /// launcher (`AcpLaunch::system_append`); claude `--append-system-prompt`,
+    /// launcher (`AcpLaunch::system_append`); claude `--append-system-prompt-file`,
     /// codex `developer_instructions`, on start AND resume.
     pub system_append: String,
     /// EXP-1051: the raw byte counts of everything the launcher put into the
