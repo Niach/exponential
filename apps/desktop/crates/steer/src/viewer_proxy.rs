@@ -125,9 +125,10 @@ fn serve_one(stream: UnixStream, spawn: SpawnViewer) {
             Err(flume::RecvTimeoutError::Disconnected) => break,
         };
         // VAPP-169: the device-offline end keeps an app's viewer redialing,
-        // but the CLI's follow is one-shot and exits on it: close there too.
+        // (#EXP-2119: a suspended run's too) but the CLI's follow is one-shot
+        // and exits on it: close there too.
         let terminal =
-            matches!(&event, ViewerEvent::Phase(phase) if phase.is_terminal() || phase.is_device_offline());
+            matches!(&event, ViewerEvent::Phase(phase) if phase.is_terminal() || matches!(phase, crate::viewer::ViewerPhase::Ended { .. }));
         let Ok(mut json) = serde_json::to_string(&event) else { continue };
         json.push('\n');
         if writer.write_all(json.as_bytes()).is_err() || terminal {

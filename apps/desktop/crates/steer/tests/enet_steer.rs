@@ -846,6 +846,99 @@ async fn a_device_offline_viewer_redials_when_the_device_comes_back() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// #EXP-2119: a suspended run's `bye` is not the end. An IDLE suspension
+/// (the device stays, nothing feeds) holds the transcript: no banner phase,
+/// no redial before the stale beat; a row wake joins the revived run. A
+/// daemon RESTART (the device goes and comes back) is rejoined on the beat.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_suspended_runs_viewer_holds_its_transcript_and_comes_back() {
+    use steer::{ViewerEvent, ViewerPhase, ViewerTimings};
+    let dir = std::env::temp_dir().join(format!("enet-steer-suspend-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let registry = Arc::new(Registry::default());
+    let device = start(&registry, &dir, "fred", InstallKind::Daemon);
+    let viewer = start(&registry, &dir, "fred", InstallKind::Desktop);
+    for install in [&device, &viewer] {
+        tokio::time::timeout(WAIT, install.passes_at_least(1)).await.unwrap();
+    }
+    for install in [&device, &viewer] {
+        install.refresh();
+        tokio::time::timeout(WAIT, install.passes_at_least(2)).await.unwrap();
+    }
+    let d = device.node().unwrap();
+    let v = viewer.node().unwrap();
+    d.add_ticket(&v.ticket());
+    v.add_ticket(&d.ticket());
+    let runtime: &SteerRuntime = Box::leak(Box::new(SteerRuntime::new().unwrap()));
+    let here = vec![enet::endpoint_hex(&d.endpoint_id())];
+
+    for restart in [false, true] {
+        let session_id = format!("sess-suspend-{restart}-{}", std::process::id());
+        let run = || {
+            steer::publish(
+                runtime,
+                PublishSpec {
+                    session_id: session_id.clone(),
+                    audience: Some(coding::SteerAudience {
+                        team_id: "team-1".into(),
+                        starter_user_id: "fred".into(),
+                        shared: false,
+                    }),
+                    ..Default::default()
+                },
+                hooks(&Arc::new(Recorded::default())),
+            )
+        };
+        let first = run();
+        wait_until(|| enet_steer::has_room(&session_id)).await;
+        let source = Arc::new(Redial { node: Arc::clone(&v), endpoints: Mutex::new(here.clone()) });
+        let timings = ViewerTimings {
+            retry_base: Duration::from_millis(50),
+            retry_cap: Duration::from_millis(100),
+            // The idle round must not be rescued by the beat.
+            offline_redial: if restart { Duration::from_millis(300) } else { Duration::from_secs(600) },
+            lost_grace: Duration::from_millis(50),
+            ..Default::default()
+        };
+        let (events_tx, events) = flume::unbounded();
+        let handle = steer::spawn_viewer_with(runtime, Some(source.clone()), session_id.clone(), events_tx, timings);
+        while !matches!(next_event(&events).await, ViewerEvent::Synced { .. }) {}
+
+        if restart {
+            source.endpoints.lock().unwrap().clear();
+        }
+        first.shutdown(Some(steer::viewer::SUSPENDED.into()));
+        while next_event(&events).await != ViewerEvent::Phase(ViewerPhase::Ended { outcome: Some(steer::viewer::SUSPENDED.into()) }) {}
+        assert!(handle.is_active(), "a suspended run's viewer keeps its loop");
+        wait_until(|| !enet_steer::has_room(&session_id)).await;
+        let _second = run();
+        wait_until(|| enet_steer::has_room(&session_id)).await;
+        tokio::time::sleep(Duration::from_millis(900)).await;
+        assert!(
+            events.try_iter().all(|event| !matches!(event, ViewerEvent::Phase(_) | ViewerEvent::Reset)),
+            "the phase holds, nothing is dialed or lost (restart {restart})"
+        );
+        if restart {
+            // The device is back: the beat alone rejoins.
+            *source.endpoints.lock().unwrap() = here.clone();
+        } else {
+            handle.note_row_wake();
+        }
+        let mut seen = Vec::new();
+        while !matches!(seen.last(), Some(ViewerEvent::Synced { .. })) {
+            seen.push(next_event(&events).await);
+        }
+        assert!(seen.contains(&ViewerEvent::Phase(ViewerPhase::Live)), "{seen:?}");
+        assert!(!seen.contains(&ViewerEvent::Phase(ViewerPhase::Connecting)), "a silent redial");
+        handle.shutdown();
+    }
+
+    device.stop();
+    viewer.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// VAPP-169: a source whose endpoints appear once the device is back.
 struct Redial {
     node: Arc<enet_core::Node>,

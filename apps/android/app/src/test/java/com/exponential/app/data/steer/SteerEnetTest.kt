@@ -294,6 +294,8 @@ class SteerEnetTest {
                     deviceOffline = case["deviceOffline"]?.jsonPrimitive?.boolean ?: false,
                     // #EXP-2000: `started` absent = true.
                     started = case["started"]?.jsonPrimitive?.boolean ?: true,
+                    // #EXP-2119: `deviceOnline` absent = false.
+                    deviceOnline = case["deviceOnline"]?.jsonPrimitive?.boolean ?: false,
                 ),
             )
         }
@@ -386,7 +388,8 @@ class SteerEnetTest {
                     rows = c["rows"]!!.jsonPrimitive.long.toInt(),
                     ended = c["ended"]!!.jsonPrimitive.boolean,
                     noFeed = c["noFeed"]!!.jsonPrimitive.boolean,
-                    deviceOffline = c["deviceOffline"]!!.jsonPrimitive.boolean,
+                    deviceOffline = c["deviceOffline"]?.jsonPrimitive?.boolean ?: false,
+                    deviceOnline = c["deviceOnline"]?.jsonPrimitive?.boolean ?: false,
                 ),
             )
         }
