@@ -4,12 +4,12 @@
 // and answers' shapes as apps/web lib/emcp, over an in-memory team running
 // the Standup sample app (samples/apps/standup.app.json).
 //
-//   bun run build                                   # the two documents
+//   bun run build                                   # the four documents
 //   bun scripts/connector-harness.ts                # http://localhost:3001/mcp
 //
 // Then point the basic host at it (SERVERS='["http://localhost:3001/mcp"]')
 // and call exponential_apps {op: "get", slug: "standup"} or exponential_show.
-// The issue, device and inbox views ride the same harness (app.html): their
+// The issue, device and inbox views ride the same harness (<view>.html): their
 // nouns answer list ops the way /api/mcp does outside a session (the model's
 // summary + structuredContent, lib/emcp/view-results.ts).
 
@@ -108,7 +108,7 @@ const DEVICES = [
 const NOTIFICATIONS = ISSUES.slice(0, 6).map((issue, i) => ({ id: randomUUID(), userId: ME, issueId: issue.id, teamId: TEAM, type: i % 2 ? `issue_comment` : `issue_assigned`, title: `${issue.identifier} ${issue.title}`, body: i % 2 ? `Ana: Looks right on web.` : null, readAt: i > 3 ? new Date().toISOString() : null, pushedAt: null, createdAt: new Date(Date.now() - i * 3_600_000).toISOString(), updatedAt: new Date().toISOString() }))
 
 const VIEWS = { issues: `ui://exponential/issues`, inbox: `ui://exponential/inbox`, devices: `ui://exponential/devices` } as const
-const viewHtml = (view: keyof typeof VIEWS) => genuiHtml(`app.html`).replace(/<meta name="exp-view" content="[a-z]+"\s*\/?>/, `<meta name="exp-view" content="${view}" />`)
+const viewHtml = (view: keyof typeof VIEWS) => genuiHtml(`${view}.html`).replace(/<meta name="exp-view" content="[a-z]+"\s*\/?>/, `<meta name="exp-view" content="${view}" />`)
 const num = (value: unknown, fallback: number) => (typeof value === `number` ? value : typeof value === `string` && /^\d+$/.test(value) ? Number(value) : fallback)
 /** A list op the way /api/mcp answers it outside a session. */
 const listed = (noun: string, rows: unknown[], args: Record<string, unknown>) => {
