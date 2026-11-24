@@ -7,6 +7,7 @@
 #[cfg(feature = "udev")]
 mod cursor;
 pub mod headless;
+pub mod seat;
 #[cfg(feature = "udev")]
 pub mod udev;
 #[cfg(feature = "winit")]
@@ -624,6 +625,25 @@ impl FrameHealth {
     }
 }
 
+/// A compositor started while its session is not the seat's active one waits
+/// here, before it opens a GPU (#EDE-218): logind hands an inactive session
+/// its DRM device without DRM master, so every modeset is "Permission
+/// denied" and the start ended as "no GPU could be driven", twice, and the
+/// session closed. It happens when the compositor is started again while
+/// the login screen has the displays: after logind's own restart (its
+/// watchdog after a long stall) GDM shows a new greeter on its VT. `turn`
+/// runs the event loop once (the seat's notifier flips `active`); how many
+/// turns it took.
+#[cfg_attr(not(feature = "udev"), allow(dead_code))]
+pub fn wait_until_active<E>(mut active: impl FnMut() -> bool, mut turn: impl FnMut() -> Result<(), E>) -> Result<usize, E> {
+    let mut turns = 0;
+    while !active() {
+        turn()?;
+        turns += 1;
+    }
+    Ok(turns)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Resume {
     Scan,
@@ -696,6 +716,28 @@ mod tests {
         // A pinned mode that just appeared (the window is that size again) wins.
         assert_eq!(mode_to_follow(Some(mode(1280, 800)), mode(3200, 1824), Some(mode(3200, 1824))), Some(mode(3200, 1824)));
         assert_eq!(mode_to_follow(None, mode(1280, 800), None), Some(mode(1280, 800)));
+    }
+
+    #[test]
+    fn an_inactive_seat_is_waited_for_before_a_gpu_is_opened() {
+        // Active from the start (every normal login): no turn at all.
+        assert_eq!(wait_until_active(|| true, || -> Result<(), ()> { panic!("an active seat is not waited for") }), Ok(0));
+        // #EDE-218: the login screen has the displays; the seat's notifier
+        // says "active" on the third turn of the loop, and only then does
+        // the start go on to its GPUs.
+        let active = std::cell::Cell::new(false);
+        let turns = std::cell::Cell::new(0);
+        let waited = wait_until_active(
+            || active.get(),
+            || -> Result<(), ()> {
+                turns.set(turns.get() + 1);
+                active.set(turns.get() == 3);
+                Ok(())
+            },
+        );
+        assert_eq!((waited, active.get()), (Ok(3), true));
+        // A loop that fails ends the wait with its error (the seat was lost).
+        assert_eq!(wait_until_active(|| false, || Err("the seat is gone")), Err("the seat is gone"));
     }
 
     #[test]
