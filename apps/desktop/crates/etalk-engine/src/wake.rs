@@ -73,6 +73,15 @@ pub const MODEL_HISTORY_MS: usize = 2_000;
 /// EXP-1424: the edits [`model_match`] tolerates when it strips the phrase
 /// (the model already heard it: only the transcript's spelling is in doubt).
 pub const MODEL_EDIT_RATIO: f32 = 0.5;
+/// #NEW-126: a model scores a frame only while the room is not quiet: Silero
+/// gave some frame at least this in the last [`MODEL_GATE_HOLD_MS`]. Far
+/// under [`crate::listen::THRESHOLD`]: a phrase Silero scores lower than
+/// this throughout could open no segment, so its turn would hear nothing.
+pub const MODEL_GATE: f32 = 0.1;
+/// #NEW-126: how long after the last such frame the model keeps scoring: its
+/// classifier's window (1.28 s), so every frame that could still hold the
+/// phrase is scored.
+pub const MODEL_GATE_HOLD_MS: usize = 1_280;
 
 const fn frames(ms: usize) -> usize {
     (ms * RATE / 1000).div_ceil(FRAME)
@@ -321,6 +330,9 @@ pub struct WakeScanner {
     /// EXP-1424: frames kept back even in silence (a model's seed reaches
     /// back [`MODEL_HISTORY_MS`], past a segment that already closed).
     history: usize,
+    /// #NEW-126: frames since Silero last scored one at [`MODEL_GATE`] or
+    /// over (0 at the start: nothing is known quiet yet).
+    unheard: usize,
 }
 
 impl WakeScanner {
@@ -336,6 +348,7 @@ impl WakeScanner {
             scores: Vec::new(),
             played: 0,
             history: frames(crate::listen::PAD_MS),
+            unheard: 0,
         }
     }
 
@@ -355,6 +368,7 @@ impl WakeScanner {
     pub fn push(&mut self, probability: f32) -> Option<Check> {
         // What the previous frame left behind (its check is handled by now).
         self.trim();
+        self.unheard = if probability >= MODEL_GATE { 0 } else { self.unheard.saturating_add(1) };
         self.scores.push(probability);
         let closed = self.segmenter.push(probability);
         let hop = frames(WINDOW_HOP_MS);
@@ -413,6 +427,12 @@ impl WakeScanner {
     /// Frames scored so far.
     pub fn frames(&self) -> usize {
         self.segmenter.frames()
+    }
+
+    /// #NEW-126: the room is quiet: no frame reached [`MODEL_GATE`] for
+    /// [`MODEL_GATE_HOLD_MS`], so a model has nothing to score.
+    pub fn quiet(&self) -> bool {
+        self.unheard >= frames(MODEL_GATE_HOLD_MS)
     }
 
     /// Drop what no check or seed can reach any more.
@@ -505,8 +525,11 @@ impl WakeDetector for TranscriptMatcher {
     }
 }
 
-/// EXP-1424: a phrase's model scores every frame; Silero still segments
-/// (the turn needs its scores), nothing is transcribed while scanning. A
+/// EXP-1424: a phrase's model scores the frames; Silero still segments
+/// (the turn needs its scores), nothing is transcribed while scanning.
+/// #NEW-126: in a quiet room ([`WakeScanner::quiet`]) the model rests
+/// ([`etalk_wakeword::Detector::rest`]): Silero alone listens, and the first
+/// frame it hears something in is scored as if the model had never rested. A
 /// detection is a [`Check`] from up to [`MODEL_HISTORY_MS`] before it (never
 /// before its segment's padded start) to the detection; its segment is the
 /// open one (else the check's start), so the echo and cooldown rules hold.
@@ -528,6 +551,10 @@ impl WakeDetector for ModelDetector {
             if playing {
                 scanner.played = scanner.frames();
             }
+        }
+        if scanner.quiet() {
+            self.0.rest(samples);
+            return Ok(None);
         }
         // Always fed (its history stays whole); a detection while playing
         // is dropped below.
@@ -729,6 +756,9 @@ mod tests {
         assert_eq!(c["debounceFrames"], etalk_wakeword::models::DEBOUNCE);
         assert_eq!(c["modelHistoryMs"], MODEL_HISTORY_MS);
         assert_eq!(c["modelEditRatio"].as_f64().unwrap() as f32, MODEL_EDIT_RATIO);
+        assert_eq!(c["gate"].as_f64().unwrap() as f32, MODEL_GATE);
+        assert_eq!(c["gateHoldMs"], MODEL_GATE_HOLD_MS);
+        assert_eq!(MODEL_GATE_HOLD_MS, etalk_wakeword::CLASSIFIER_WINDOW * etalk_wakeword::FRAME_SAMPLES * 1000 / etalk_wakeword::RATE, "the classifier's window");
         for model in etalk_wakeword::models::MODELS {
             assert!(model.threshold > 0.0 && model.threshold < 1.0, "{}: its own measured threshold", model.id);
         }
@@ -956,9 +986,14 @@ mod tests {
     /// What the turn answered, the transcriptions spent while scanning, and
     /// the check that woke it.
     fn model_wake(played: usize) -> (Option<etalk::Event>, usize, Option<Check>) {
+        model_wake_after(1.0, played)
+    }
+
+    /// [`model_wake`] with `quiet` seconds of silence before the phrase.
+    fn model_wake_after(quiet: f32, played: usize) -> (Option<etalk::Event>, usize, Option<Check>) {
         let fixtures = crate::wakeword_fixtures::fixtures().join("tests/fixtures");
         let (phrase, _) = crate::wakeword_fixtures::wav(&fixtures.join("positive.wav"));
-        let audio = [tone(1.0, 0.0), phrase, tone(NO_COMMAND_MS as f32 / 1000.0 + 1.0, 0.0)].concat();
+        let audio = [tone(quiet, 0.0), phrase, tone(NO_COMMAND_MS as f32 / 1000.0 + 1.0, 0.0)].concat();
         let model = etalk_wakeword::Detector::new(
             crate::wakeword_fixtures::front_end(),
             crate::wakeword_fixtures::hey_livekit(),
@@ -998,6 +1033,38 @@ mod tests {
         assert!(check.start >= check.end.saturating_sub(frames(MODEL_HISTORY_MS)) && check.start < check.end, "{check:?}");
         assert_eq!(scanned, 0, "nothing transcribed while scanning");
         assert_eq!(answer, Some(etalk::Event::Heard { id: "wake-1".into(), text: "Move it.".into() }));
+    }
+
+    /// #NEW-126: in a quiet room the model rests (no frame scored), and the
+    /// phrase after it wakes exactly as it does in a stream scored whole:
+    /// the same check, as many frames later as the quiet lasted longer.
+    #[test]
+    fn a_model_that_rested_wakes_like_one_that_never_did() {
+        let (answer, _, check) = model_wake(0);
+        let check = check.expect("the model heard the phrase");
+        // 8 s more: 250 Silero frames, 100 of the model's.
+        let (rested_answer, scanned, rested) = model_wake_after(9.0, 0);
+        let rested = rested.expect("the model heard the phrase after its rest");
+        assert_eq!((rested.start, rested.end), (check.start + 250, check.end + 250));
+        assert_eq!((rested_answer, scanned), (answer, 0));
+    }
+
+    /// #NEW-126: the gate, frame by frame, as the fixture has it.
+    #[test]
+    fn the_model_rests_like_the_fixture() {
+        for case in detector()["gate"].as_array().unwrap() {
+            let mut scanner = WakeScanner::for_model();
+            let mut quiet = Vec::new();
+            for run in case["frames"].as_array().unwrap() {
+                for _ in 0..run["count"].as_u64().unwrap() {
+                    scanner.samples(&[0.0; FRAME]);
+                    scanner.push(run["probability"].as_f64().unwrap() as f32);
+                }
+                quiet.push(scanner.quiet());
+            }
+            let expected: Vec<bool> = case["frames"].as_array().unwrap().iter().map(|run| run["rests"].as_bool().unwrap()).collect();
+            assert_eq!(quiet, expected, "{}", case["name"]);
+        }
     }
 
     #[test]
