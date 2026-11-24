@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { Button, GLASS_CARD_CLASS, ListEmpty, Skeleton, cn } from "@exp/ui"
+import { Button, ColorModeProvider, GLASS_CARD_CLASS, ListEmpty, Skeleton, cn, type ColorMode } from "@exp/ui"
 import { actionsFromBridge, McpActionsProvider } from "./actions"
 import { AppBridge, type DisplayMode, type HostContext, type ToolResult } from "./bridge"
 import type { DevicesView } from "./devices-view"
+import { applyColorMode, applyHostContext } from "./host-theme"
 import type { IssueDetailView } from "./issue-detail-view"
 import type { InboxView } from "./inbox-view"
 import type { IssueListView } from "./issue-list-view"
@@ -65,6 +66,7 @@ const LIST_TOOL: Partial<Record<AppView, string>> = {
 export function App({ view, views }: { view: AppView; views: AppViews }) {
   const [screen, setScreen] = useState<Screen>({ kind: `waiting` })
   const [mode, setMode] = useState<DisplayMode>(`inline`)
+  const [theme, setTheme] = useState<ColorMode>(`dark`)
   const [loadingMore, setLoadingMore] = useState(false)
   const bridge = useRef<AppBridge | null>(null)
   const root = useRef<HTMLDivElement>(null)
@@ -74,6 +76,9 @@ export function App({ view, views }: { view: AppView; views: AppViews }) {
 
   useEffect(() => {
     const context = (next: HostContext) => {
+      // #NEW-24: the host's theme, style variables and safe area.
+      const named = applyHostContext(next)
+      if (named) setTheme(named)
       if (next.availableDisplayModes) available.current = next.availableDisplayModes
       if (next.displayMode) setMode(next.displayMode)
     }
@@ -115,11 +120,11 @@ export function App({ view, views }: { view: AppView; views: AppViews }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view])
 
-  // Exponential is dark on every client (the web forces `html.dark`), so the
-  // views are too, whatever the host's own theme: they read as the app.
+  // Exponential is dark on every client, so dark is the fallback: a host
+  // that names a theme gets its own (#NEW-24, host-theme.ts).
   useLayoutEffect(() => {
-    document.documentElement.classList.add(`dark`)
-  }, [])
+    applyColorMode(theme)
+  }, [theme])
 
   // Inline, the host sizes the frame to the content; full size, the frame is
   // the host's and the view scrolls inside it.
@@ -202,6 +207,7 @@ export function App({ view, views }: { view: AppView; views: AppViews }) {
     )
 
   return (
+    <ColorModeProvider value={theme}>
     <McpActionsProvider value={actions}>
       <div
         ref={root}
@@ -261,5 +267,6 @@ export function App({ view, views }: { view: AppView; views: AppViews }) {
         )}
       </div>
     </McpActionsProvider>
+    </ColorModeProvider>
   )
 }

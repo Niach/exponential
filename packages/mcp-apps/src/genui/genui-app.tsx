@@ -7,6 +7,7 @@ import promptsFixture from "@exp/domain-contract/fixtures/prompts.json"
 import {
   CardLinksProvider,
   CodeBlock,
+  ColorModeProvider,
   CodeBlockContent,
   EmptyState,
   ICON_COMPONENTS,
@@ -26,11 +27,14 @@ import {
   getActionIcon,
   toast,
   type CardLinks,
+  type ColorMode,
   type PromptActionRole,
+  useColorMode,
 } from "@exp/ui"
 import { actionConsent } from "@exp/domain-contract/app-actions"
 import { showActionOrigin, surfaceAction, type ActionEvent } from "@exp/domain-contract/chat-express"
 import { AppBridge, type DisplayMode, type HostContext } from "../bridge"
+import { applyColorMode, applyHostContext } from "../host-theme"
 import { createConsentGate, createMcpAppHost, type CallTool, type ConsentGate } from "./mcp-host"
 import { decodeGenuiResult, type GenuiAppRead, type GenuiAppRow, type GenuiScreen } from "./result"
 
@@ -128,6 +132,8 @@ type ScreenRequest = { screen: string; params: Record<string, string> }
 
 function AppSurface({ app, call, origin, openLink, screen, onScreen }: { app: GenuiAppRead; call: CallTool; origin: string; openLink: (url: string) => void; screen: ReturnType<typeof resolveScreen> | null; onScreen: ((request: ScreenRequest) => void) | null }) {
   const consent = useMemo(createConsentGate, [])
+  // #NEW-24: the surface paints in the host's mode (dark when it names none).
+  const colorMode = useColorMode()
   const onScreenRef = useRef(onScreen)
   onScreenRef.current = onScreen
   const hasShell = onScreen !== null
@@ -172,7 +178,7 @@ function AppSurface({ app, call, origin, openLink, screen, onScreen }: { app: Ge
   }
   return (
     <>
-      <HostSurface host={host} surfaceId={surfaceId} plugin={plugin} extensions={EXTENSIONS} theme={typeof pkg.theme === `string` ? pkg.theme : DEFAULT_THEME_ID} mode="dark" readOnly={app.viewer?.access === `read`} />
+      <HostSurface host={host} surfaceId={surfaceId} plugin={plugin} extensions={EXTENSIONS} theme={typeof pkg.theme === `string` ? pkg.theme : DEFAULT_THEME_ID} mode={colorMode} readOnly={app.viewer?.access === `read`} />
       <ConsentCard gate={consent} />
     </>
   )
@@ -281,9 +287,13 @@ export function GenuiApp() {
   const [width, setWidth] = useState(() => (typeof window === `undefined` ? 800 : window.innerWidth))
 
   const [mode, setMode] = useState<DisplayMode>(`inline`)
+  const [theme, setTheme] = useState<ColorMode>(`dark`)
   useEffect(() => {
     let available: readonly DisplayMode[] = []
     const context = (next: HostContext) => {
+      // #NEW-24: the host's theme, style variables and safe area.
+      const named = applyHostContext(next)
+      if (named) setTheme(named)
       if (next.availableDisplayModes) available = next.availableDisplayModes
       if (next.displayMode) setMode(next.displayMode)
     }
@@ -309,9 +319,10 @@ export function GenuiApp() {
     }
   }, [])
 
+  // Dark is the fallback; a host that names a theme gets its own (#NEW-24).
   useLayoutEffect(() => {
-    document.documentElement.classList.add(`dark`)
-  }, [])
+    applyColorMode(theme)
+  }, [theme])
 
   // The host sizes the frame to the content. A fixed dialog or drawer (an
   // app's entry form, the consent card) is out of the flow, so while one is
@@ -352,6 +363,7 @@ export function GenuiApp() {
   }
 
   return (
+    <ColorModeProvider value={theme}>
     <CardLinksProvider value={links}>
       <div ref={root} className={cn(`font-sans text-foreground antialiased`, mode === `fullscreen` && `h-screen overflow-y-auto bg-background`)} style={overlay ? { minHeight: overlay } : undefined} data-testid="genui-view" data-screen={screen.kind} data-display-mode={mode}>
         {screen.kind === `waiting` && (
@@ -367,5 +379,6 @@ export function GenuiApp() {
         <Toaster />
       </div>
     </CardLinksProvider>
+    </ColorModeProvider>
   )
 }
