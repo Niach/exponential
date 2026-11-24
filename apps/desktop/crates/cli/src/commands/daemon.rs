@@ -431,6 +431,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
             None
         }
     };
+    // #EXP-2118: the key holder comes with the eNet node far below (after the
+    // agent probe and the device's register); the pickup worker starts before
+    // it, so its sealed writes wait for the holder instead of failing.
+    if runtime.is_some() {
+        coding::sealing::expect_service(true);
+    }
     let personal_key = context::ensure_personal_key(&ctx).ok();
     let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
     // EXP-484: the collected agent status (accounts + usage windows), filled

@@ -656,8 +656,10 @@ async fn register(inner: &Arc<Inner>, identity: &Identity) -> Registered {
 
 async fn run(inner: Arc<Inner>) {
     run_node(&inner).await;
-    // No key holder comes from a node that is gone (stopped, or never up).
-    if lock(&inner.holder).is_none() {
+    // No key holder comes from a node that never came up. A STOPPED node said
+    // so itself (`stop`): by now the next account's node may be expected, and
+    // clearing that flag would fail its writes (#EXP-2118).
+    if lock(&inner.holder).is_none() && !inner.stopped.load(Ordering::SeqCst) {
         coding::sealing::expect_service(false);
     }
 }
@@ -722,6 +724,10 @@ async fn run_node(inner: &Arc<Inner>) {
     while !inner.stopped.load(Ordering::SeqCst) {
         if matches!(registered, Registered::Later) {
             registered = register(&inner, &identity).await;
+        }
+        // Stopped meanwhile: what follows is the next node's to say.
+        if inner.stopped.load(Ordering::SeqCst) {
+            break;
         }
         if matches!(registered, Registered::Never) {
             // Refused for good: no key holder ever comes in this process.
