@@ -94,7 +94,7 @@ class SettingsViewModel @Inject constructor(
 /**
  * #EXP-2109 (settings-nav.json `phone.settings`): THE SETTINGS TAB, only what is
  * the viewer's: their card (opens Account), then account, Assistant,
- * notifications, security · devices · about, then the servers and General.
+ * notifications, security · devices · about, then the servers and General (Getting started in it).
  */
 @Composable
 fun SettingsScreen(
@@ -159,6 +159,14 @@ fun SettingsScreen(
                     }
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SectionHeader("Servers")
+                    Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
+                        // EXP-1320: an entity list = flat gapless rows, no dividers.
+                        accounts.forEach { row -> ServerRow(account = row, onClick = { onOpenAccount(row.id) }) }
+                        SettingsRow(icon = ExpIcons.uiAdd, title = "Add server", showChevron = false, onClick = onAddServer)
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionHeader("General")
                     Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
                         if (gettingStarted.visible) {
@@ -188,14 +196,6 @@ fun SettingsScreen(
                             },
                         )
                         KeepToolStepsRow(viewModel)
-                    }
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SectionHeader("Servers")
-                    Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
-                        // EXP-1320: an entity list = flat gapless rows, no dividers.
-                        accounts.forEach { row -> ServerRow(account = row, onClick = { onOpenAccount(row.id) }) }
-                        SettingsRow(icon = ExpIcons.uiAdd, title = "Add server", showChevron = false, onClick = onAddServer)
                     }
                 }
             }

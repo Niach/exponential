@@ -43,7 +43,6 @@ import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.components.PageHeaderCircle
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
-import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SidebarFolderGlyph
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.TeamAvatar
@@ -73,8 +72,9 @@ object TeamsTestIds {
     const val MORE = "team-more"
 }
 
-/** One server's teams as the root page lists them. */
-data class TeamsGroup(val accountId: String, val title: String?, val teams: List<com.exponential.app.data.db.TeamEntity>)
+/** One server's teams as the root page lists them: the active account's, then
+ *  the other signed-in servers' ([server] = its name, under the team's). */
+data class TeamsGroup(val accountId: String, val server: String?, val teams: List<com.exponential.app.data.db.TeamEntity>)
 
 @Composable
 fun TeamsScreen(
@@ -83,11 +83,12 @@ fun TeamsScreen(
     viewModel: TeamsViewModel = hiltViewModel(),
 ) {
     val groups by viewModel.groups.collectAsStateWithLifecycle()
+    val activeId by viewModel.activeAccountId.collectAsStateWithLifecycle()
     val needsYou by chats.needsYouByTeam.collectAsStateWithLifecycle()
     var setup by remember { mutableStateOf(false) }
     Scaffold(containerColor = Color.Transparent) { padding ->
         TeamsContent(
-            groups = groups?.let { list -> list.map { TeamsGroup(it.accountId, it.hostname.takeIf { list.size > 1 }, it.teams) } },
+            groups = groups?.let { list -> list.map { TeamsGroup(it.accountId, it.hostname.takeIf { _ -> it.accountId != activeId }, it.teams) } },
             needsYou = needsYou,
             onOpenTeam = { accountId, teamId ->
                 viewModel.useAccount(accountId)
@@ -145,21 +146,19 @@ fun TeamsContent(
                     },
                 )
                 else -> groups.filter { it.teams.isNotEmpty() }.forEach { group ->
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        group.title?.let { SectionHeader(it) }
-                        RowGroup {
-                            group.teams.forEach { team ->
-                                SettingsRow(
-                                    icon = ExpIcons.uiTeam,
-                                    leading = { TeamAvatar(team.iconUrl, size = RowGlyph) },
-                                    title = team.name,
-                                    trailing = {
-                                        CountBadge(needsYou[team.id] ?: 0, NavBadges.Tone.Attention, testTag = "team-row-badge")
-                                    },
-                                    onClick = { onOpenTeam(group.accountId, team.id) },
-                                    modifier = Modifier.testTag(TeamsTestIds.TEAM_ROW),
-                                )
-                            }
+                    RowGroup {
+                        group.teams.forEach { team ->
+                            SettingsRow(
+                                icon = ExpIcons.uiTeam,
+                                leading = { TeamAvatar(team.iconUrl, size = RowGlyph) },
+                                title = team.name,
+                                subtitle = group.server,
+                                trailing = {
+                                    CountBadge(needsYou[team.id] ?: 0, NavBadges.Tone.Attention, testTag = "team-row-badge")
+                                },
+                                onClick = { onOpenTeam(group.accountId, team.id) },
+                                modifier = Modifier.testTag(TeamsTestIds.TEAM_ROW),
+                            )
                         }
                     }
                 }

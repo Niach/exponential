@@ -88,7 +88,7 @@ private fun tabTestTag(tab: String): String = when (tab) {
 
 @Composable
 fun PhoneDock(
-    /** The lit tab (`shell.pages`), null while none is. */
+    /** The lit tab (`shell.pages`), null while none is; while New is open only New lights. */
     selected: String?,
     /** The New popup is up: its cell lights and wears `openIcon`. */
     newOpen: Boolean,
@@ -124,7 +124,7 @@ fun PhoneDock(
                     DockCell(
                         tab = tab,
                         icon = if (tab == "new" && newOpen) ExpIcons.byConcept(Chats.Shell.NewMenu.OPEN_ICON) ?: ExpIcons.uiClose else tabIcon(tab),
-                        selected = if (tab == "new") newOpen else selected == tab,
+                        selected = if (tab == "new") newOpen else !newOpen && selected == tab,
                         badge = if (tab == "chats") chatsBadge else NavBadges.NONE,
                         onClick = { onSelect(tab) },
                     )
@@ -132,7 +132,7 @@ fun PhoneDock(
             }
         }
         AssistantDisc(
-            selected = selected == "assistant",
+            selected = !newOpen && selected == "assistant",
             onClick = { onSelect("assistant") },
             modifier = Modifier.align(Alignment.TopCenter),
         )

@@ -49,6 +49,8 @@ class TeamsViewModel @Inject constructor(
     private val auth: AuthRepository,
     multiAccountTeams: MultiAccountTeamRepository,
 ) : ViewModel() {
+    val activeAccountId: StateFlow<String?> = auth.activeAccountId
+
     /** Null until the first read landed. */
     val groups: StateFlow<List<ServerTeamGroup>?> = multiAccountTeams.serverGroups
         .map<List<ServerTeamGroup>, List<ServerTeamGroup>?> { groups ->
