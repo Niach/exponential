@@ -81,6 +81,7 @@ import {
   resolveInviteCapacity,
   assertCanCreateWidget,
   assertWithinStorageLimit,
+  storageLimitMessage,
   type PlanTier,
 } from "./billing"
 import { PLAN_LIMIT_MESSAGE_PREFIX } from "./plan-limit-error"
@@ -601,6 +602,22 @@ describe(`assertWithinStorageLimit — per-team storage budget`, () => {
   it(`free team blocked once an upload would exceed 250 MB`, async () => {
     await seed([], 250)
     await expect(assertWithinStorageLimit(WS, 1)).rejects.toThrow(TRPCError)
+  })
+
+  // #FEED-279: a session at the wall reports it instead of a failed upload.
+  it(`the refusal names the limit, the team's use, the upload and where an owner sees it`, async () => {
+    await seed([], 249.5)
+    const error = await assertWithinStorageLimit(WS, 2 * 1024 * 1024).catch((caught) => caught)
+    expect(error).toBeInstanceOf(TRPCError)
+    expect(error.message).toBe(
+      `${PLAN_LIMIT_MESSAGE_PREFIX} up to 250 MB of storage (attachments, session results, repositories and CI logs). The team uses 249.5 MB and this upload adds 2 MB. An owner sees the use and deletes files in Settings → Storage. Upgrade to upload more.`
+    )
+  })
+
+  it(`a small upload and a zero-byte probe read honestly`, () => {
+    expect(storageLimitMessage(10240, 10240, 1)).toContain(`up to 10 GB of storage`)
+    expect(storageLimitMessage(10240, 10240, 1)).toContain(`The team uses 10 GB and this upload adds 0.1 MB.`)
+    expect(storageLimitMessage(250, 251.3, 0)).toContain(`The team uses 251.3 MB. An owner`)
   })
 
   it(`a team comp lifts the storage budget past the free cap`, async () => {

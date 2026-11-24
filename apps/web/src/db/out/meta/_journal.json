@@ -2080,6 +2080,13 @@
       "when": 1795500177607,
       "tag": "0296_exp2082_install_app_version",
       "breakpoints": true
+    },
+    {
+      "idx": 297,
+      "version": "7",
+      "when": 1795517623354,
+      "tag": "0297_exp1989_one_assistant_per_owner",
+      "breakpoints": true
     }
   ]
 }

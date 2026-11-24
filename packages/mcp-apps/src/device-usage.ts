@@ -1,5 +1,5 @@
 import type { MeterTone } from "@exp/ui"
-import { ago, resetCountdown } from "./list-session"
+import { ago, resetCountdown } from "@exp/plugin-kit/model"
 
 // EXP-1183 — the Devices view's pure half: the `exponential_devices_list`
 // wire row (tools.ts) and the presentation rules the app's Devices page

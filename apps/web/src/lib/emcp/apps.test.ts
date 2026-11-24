@@ -29,7 +29,10 @@ describe(`MCP Apps (EXP-1183)`, () => {
 
   it(`#VAPP-292: the genUI view is its own document, told the instance origin`, () => {
     expect(mcpAppDocument(`genui`)).toBe(`genui.html`)
-    expect(mcpAppDocument(`issues`)).toBe(`app.html`)
+    // #NEW-24: every view reads its own file.
+    expect(mcpAppDocument(`issues`)).toBe(`issues.html`)
+    expect(mcpAppDocument(`inbox`)).toBe(`inbox.html`)
+    expect(mcpAppDocument(`devices`)).toBe(`devices.html`)
     const built = `<html><head><meta name="exp-view" content="genui" /><meta name="exp-origin" content="" /></head></html>`
     const html = mcpAppHtml(`genui`, built, `https://app.example.com/`)
     expect(html).toContain(`<meta name="exp-origin" content="https://app.example.com" />`)

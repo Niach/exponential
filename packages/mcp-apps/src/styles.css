@@ -45,11 +45,80 @@ html,
 body {
   background: transparent !important;
 }
-/* A frame stays transparent only while its colour scheme matches its
-   parent's; hosts that render us dark declare dark, and so do we (the app
-   is dark-only). */
-:root {
+/* #NEW-24: a frame stays transparent only while its colour scheme matches
+   its parent's, so it follows the host's theme (host-theme.ts toggles
+   `html.dark`; dark is the fallback, as the app is everywhere). It also is
+   what the host's `light-dark()` style variables resolve against. */
+html {
+  color-scheme: light;
+}
+html.dark {
   color-scheme: dark;
+}
+
+/* The host's style variables (MCP Apps `hostContext.styles.variables`, set
+   on the root by host-theme.ts) under OUR token names, ours as the fallback:
+   the card takes the host's ground, text, hairlines, radius and faces where
+   it names them and stays Exponential's where it does not. The two blocks
+   repeat @exp/ui's own light (`:root`) and dark (`.dark`) values. */
+html:not(.dark) {
+  --background: var(--color-background-primary, oklch(1 0 0));
+  --popover: var(--color-background-primary, oklch(1 0 0));
+  --card: var(--color-background-primary, oklch(1 0 0));
+  --foreground: var(--color-text-primary, oklch(0.145 0 0));
+  --card-foreground: var(--color-text-primary, oklch(0.145 0 0));
+  --popover-foreground: var(--color-text-primary, oklch(0.145 0 0));
+  --muted-foreground: var(--color-text-secondary, oklch(0.556 0 0));
+  --border: var(--color-border-primary, oklch(0.922 0 0));
+  --input: var(--color-border-primary, oklch(0.922 0 0));
+  --ring: var(--color-ring-primary, oklch(0.708 0 0));
+  --destructive: var(--color-text-danger, oklch(0.577 0.245 27.325));
+  /* The glass and code tokens are dark-only in @exp/ui (the app is). Their
+     light values are the `exponential` genUI theme's own light mode
+     (packages/exponential-ui/themes/exponential.theme.json, pinned by
+     host-theme.test.ts): background, card, muted, secondary, accent,
+     border, borderStrong, strokeActive, bubbleOwn, link. */
+  --glass-background-top: var(--color-background-primary, #ffffff);
+  --glass-background-bottom: var(--color-background-primary, #ffffff);
+  --glass-fill-card: var(--color-background-primary, #ffffff);
+  --glass-fill-section: var(--color-background-secondary, #f5f5f5);
+  --glass-fill-panel: var(--color-background-secondary, #f5f5f5);
+  --glass-fill-row: var(--color-background-secondary, #f5f5f5);
+  --glass-fill-active: var(--color-background-secondary, #f5f5f5);
+  --glass-stroke-row: var(--color-border-primary, #e5e5e5);
+  --glass-stroke-section: var(--color-border-primary, #e5e5e5);
+  --glass-stroke-card: var(--color-border-primary, #e5e5e5);
+  --glass-stroke-strong: var(--color-border-secondary, #d4d4d4);
+  --glass-stroke-active: var(--color-border-secondary, #a1a1a1);
+  --glass-fill-own: #e7f0fe;
+  --code-text: #2b59c8;
+  --code-fill: #2b59c81f;
+  --code-stroke: #2b59c833;
+  /* end light */
+}
+html.dark {
+  --background: var(--color-background-primary, oklch(0.145 0 0));
+  --popover: var(--color-background-primary, oklch(0.205 0 0));
+  --foreground: var(--color-text-primary, oklch(0.985 0 0));
+  --card-foreground: var(--color-text-primary, oklch(0.985 0 0));
+  --popover-foreground: var(--color-text-primary, oklch(0.985 0 0));
+  --muted-foreground: var(--color-text-secondary, oklch(0.708 0 0));
+  --ring: var(--color-ring-primary, oklch(0.556 0 0));
+}
+html {
+  --radius: calc(var(--border-radius-md, 10px) + 2px);
+}
+body,
+.font-sans {
+  font-family: var(--font-sans, "Inter", ui-sans-serif, system-ui, sans-serif);
+}
+.font-mono {
+  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+/* The host's safe area (`hostContext.safeAreaInsets`): the view's root keeps
+   its content clear of the host's chrome. */
+#root > [data-display-mode] {
+  padding: var(--exp-safe-top, 0px) var(--exp-safe-right, 0px) var(--exp-safe-bottom, 0px) var(--exp-safe-left, 0px);
 }
 body::before {
   display: none !important;

@@ -1,7 +1,7 @@
 import { EmptyState, ListRow, LiveDot, cn, conceptIcon } from "@exp/ui"
 import type { NotificationRow } from "./model"
-import { inboxGroups, notificationConcept, type InboxGroup } from "./list-inbox"
-import { relativeTime } from "./time"
+import { inboxGroups, notificationConcept, type InboxGroup } from "@exp/plugin-kit/model"
+import { relativeTime } from "@exp/plugin-kit/model"
 
 const AllCaughtUpIcon = conceptIcon(`status-done`)
 

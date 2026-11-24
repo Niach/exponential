@@ -8,9 +8,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 // mounts it in a sandbox beside the call, fed the call's result. Hosts
 // without the extension ignore the field; the tools answer exactly as before.
 //
-// The views are ONE built document (`packages/mcp-apps`, emitted into the web
-// public dir before the web build, like the widget); each resource is that
-// document with its view stamped into the `exp-view` meta tag. The issue
+// Each view is its OWN built document (`packages/mcp-apps`, `<view>.html`,
+// emitted into the web public dir before the web build, like the widget;
+// #NEW-24: one bundle per view, nothing shared at runtime), its view stamped
+// into the `exp-view` meta tag. The issue
 // detail has no resource of its own: `exponential_issues_get` is always
 // loaded and its budget has no room for the binding, so the issues view
 // opens an issue in place (the host forwards its tools/call). EXP-1291: the
@@ -51,8 +52,6 @@ export function mcpAppToolMeta(view: McpAppView): Record<string, unknown> {
 
 // Production runs from the repo root with the build in `.output/public`; the
 // dev server runs in apps/web over `public/`.
-// #VAPP-292: the genUI view is its own document (`genui.html`: the eUI
-// renderer + the app host), so the issue views do not carry its bundle.
 const builtCandidates = (file: string) => [
   join(`.output`, `public`, `mcp-apps`, file),
   join(`public`, `mcp-apps`, file),
@@ -61,12 +60,12 @@ const builtCandidates = (file: string) => [
 
 /** The built document a view is served from. */
 export function mcpAppDocument(view: McpAppView): string {
-  return view === `genui` ? `genui.html` : `app.html`
+  return `${view}.html`
 }
 
 const cached = new Map<string, { path: string; mtimeMs: number; html: string }>()
 
-function readBuiltApp(file = `app.html`): string | null {
+function readBuiltApp(file: string): string | null {
   for (const candidate of builtCandidates(file)) {
     const path = join(process.cwd(), candidate)
     let mtimeMs: number

@@ -1,5 +1,5 @@
 import { inboxGroups, notificationConcept } from "./list-inbox"
-import type { NotificationRow } from "./model"
+import type { NotificationRow } from "./core"
 
 const note = (id: string, issueId: string | null, readAt: string | null = null): NotificationRow => ({
   id,

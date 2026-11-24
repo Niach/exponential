@@ -17,6 +17,7 @@ import { useAllAgentRows } from "@/hooks/use-agent-row"
 import { useGlobalChatSearch } from "@/hooks/use-global-chat-search"
 import { SEARCH_LIST_CHATS } from "@exp/domain-contract/search-list"
 import type { Board, User } from "@/db/schema"
+import { useStatusesForTeams } from "@/hooks/use-team-statuses"
 
 const UiBackIcon = conceptIcon(`ui-back`)
 
@@ -95,10 +96,12 @@ export function IssueSearchSheet({
   )
 
   // #NEW-21: each row carries its creator's name + email and its agent's
-  // name, so `by:lukas` and a bare `lukas` reach who filed it.
+  // name, so `by:lukas` and a bare `lukas` reach who filed it. #NEW-132:
+  // and its team status NAME, so `status:review` reaches a custom status.
   const { data: users } = useLiveQuery((q) => (open ? q.from({ users: userCollection }) : undefined), [open])
   const userMap = useMemo(() => new Map(((users ?? []) as User[]).map((user) => [user.id, user])), [users])
   const agents = useAllAgentRows()
+  const statusesOf = useStatusesForTeams(teamIds)
   const rows = useMemo(() => {
     const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]))
     return ((issues ?? NO_ROWS) as SearchResult[]).map((issue) => {
@@ -110,9 +113,10 @@ export function IssueSearchSheet({
         creatorAgentName: issue.creatorAgentId
           ? (agentNames.get(issue.creatorAgentId) ?? null)
           : null,
+        statusName: statusesOf(boardMap.get(issue.boardId)?.teamId).resolve(issue).name,
       }
     })
-  }, [issues, userMap, agents])
+  }, [issues, userMap, agents, statusesOf, boardMap])
   const localById = useMemo(
     () => new Map<string, SearchResult>(rows.map((i) => [i.id, i])),
     [rows]

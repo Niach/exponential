@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react"
 import type { ToolResult } from "./bridge"
+import { BUSY_PATTERN } from "./lease"
 import { decodeToolResult, type Decoded } from "./model"
 
 // EXP-1183 — what a view may DO, handed down by the app shell: call one of
@@ -38,10 +39,12 @@ export function useMcpActions(): McpActions {
 // Hosts throttle a view: OpenClaw allows 4 requests in flight and ~30 tool
 // calls a minute per view, refusing the rest ("concurrency limit reached").
 // A view fires pictures, the diff and its poll together, so calls queue
-// behind a small gate and a refusal is retried after a pause.
+// behind a small gate and a throttle is retried after a pause. Any other
+// refusal by the host is never retried: on the view's first call it means
+// the host's lease on the view expired, and the view goes read-only
+// (#NEW-24, lease.ts `guard`, which wraps the `callTool` handed in here).
 export const MAX_CALLS_IN_FLIGHT = 2
 const BUSY_RETRIES = 3
-const BUSY_PATTERN = /concurrency limit|rate limit|too many/i
 
 /** Runs `task`s at most `limit` at a time, in call order. */
 export function createGate(limit: number) {

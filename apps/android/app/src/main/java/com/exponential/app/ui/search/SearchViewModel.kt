@@ -116,6 +116,9 @@ private class PreparedRow(
     override val creatorName: String? = creator?.name
     override val creatorEmail: String? = creator?.email
     override val creatorAgentName: String? = creatorAgent?.name
+
+    /** #NEW-132: the resolved team status row's name, for `status:`. */
+    override val statusName: String? get() = result.status.name
 }
 
 /** The active team's prepared pool. */
