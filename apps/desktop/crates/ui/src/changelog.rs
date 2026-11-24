@@ -46,6 +46,21 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-desktop-cli-0-14-177",
+    date: "2026-11-24",
+    title: "Sessions keep going, and calls are end-to-end encrypted",
+    summary: "Desktop and CLI 0.14.177: sessions no longer stop by themselves, they start and pick up reliably, and calls between up-to-date apps are end-to-end encrypted.",
+    body: r##"- **Sessions keep going**: a session no longer stops by itself with "I've stopped as you asked".
+- **Reliable starts**: a session starts and picks up its messages reliably, also in an encrypted chat.
+- **Calls are end-to-end encrypted**: a call between up-to-date apps is sealed with the chat's key, so the relay cannot read or hear it.
+- **Views in chat**: an agent's views draw in the chat, in a subagent's tab and in a call's transcript.
+- **Busy machines**: builds on a busy machine no longer block new sessions.
+- **Chat fixes**: a child's reply no longer shows twice after a restart, an open question or plan stays at the end of the chat, and a teammate's message the agent has not read yet shows as pending."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_355: ChangelogEntry = ChangelogEntry {
     id: "2026-11-24-phones-views-in-chat",
     date: "2026-11-24",
     title: "Views in your phone's chats",
