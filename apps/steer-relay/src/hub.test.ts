@@ -579,7 +579,7 @@ describe(`voice calls (NEW-55)`, () => {
   }
   function dial(
     hub: Hub,
-    opts: { callId?: string; owner?: string; deviceId?: string } = {}
+    opts: { callId?: string; owner?: string; deviceId?: string; mode?: `call` | `turn`; phrase?: string } = {}
   ) {
     const sock = new FakeSocket()
     hub.onOpen(
@@ -592,6 +592,8 @@ describe(`voice calls (NEW-55)`, () => {
         agentId: `agent-1`,
         deviceId: opts.deviceId ?? `mint`,
         deviceOwnerId: opts.owner ?? `owner`,
+        ...(opts.mode ? { mode: opts.mode } : {}),
+        ...(opts.phrase ? { phrase: opts.phrase } : {}),
       })
     )
     return sock
@@ -638,6 +640,21 @@ describe(`voice calls (NEW-55)`, () => {
     expect(caller.closed).toBeNull()
     expect(hub.stats().calls).toBe(1)
     expect(hub.counters().callRings).toBe(1)
+    hub.destroy()
+  })
+
+  // EXP-1859: a turn call's ring says its mode and phrase.
+  test(`a turn call's ring carries its mode and phrase`, () => {
+    const hub = new Hub()
+    const device = onlineDevice(hub)
+    dial(hub, { mode: `turn`, phrase: `Hey Studio` })
+    expect(device.lastFrame(`call_ring`)).toEqual({
+      t: `call_ring`,
+      callId: `call-1`,
+      agentId: `agent-1`,
+      mode: `turn`,
+      phrase: `Hey Studio`,
+    })
     hub.destroy()
   })
 
