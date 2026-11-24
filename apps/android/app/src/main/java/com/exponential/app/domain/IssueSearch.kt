@@ -179,7 +179,7 @@ object IssueSearch {
                 created.isNotEmpty() || updated.isNotEmpty()
     }
 
-    private const val DAY_MS = 86_400_000L
+    internal const val DAY_MS = 86_400_000L
     private val RELATIVE_DAYS = mapOf('d' to 1L, 'w' to 7L, 'm' to 30L, 'y' to 365L)
     private val RELATIVE_RANGE = Regex("^([0-9]{1,4})([dwmy])$")
     private val DATE = Regex("^([0-9]{4})-([0-9]{2})(?:-([0-9]{2}))?$")
@@ -202,6 +202,9 @@ object IssueSearch {
         if (month == 2L) return if ((year % 4 == 0L && year % 100 != 0L) || year % 400 == 0L) 29 else 28
         return if (month in setOf(4L, 6L, 9L, 11L)) 30 else 31
     }
+
+    /** #NEW-133: whether [text] is a valid UTC day or month (the phrase grammar's date test). */
+    internal fun isDate(text: String): Boolean = parseDate(text) != null
 
     /** A UTC day `YYYY-MM-DD` or month `YYYY-MM` as its window, or null. */
     private fun parseDate(text: String): Range? {
@@ -524,6 +527,21 @@ object IssueSearch {
             i++
         }
         return false
+    }
+
+    /**
+     * #NEW-133: the web's `issueSearchWords`: maximal runs of word chars,
+     * empties dropped (the phrase grammar reads a member's name words).
+     */
+    internal fun words(text: String): List<String> {
+        val out = mutableListOf<String>()
+        var start = 0
+        for (i in 0..text.length) {
+            if (i < text.length && isWordChar(text[i])) continue
+            if (i > start) out.add(text.substring(start, i))
+            start = i + 1
+        }
+        return out
     }
 
     /**

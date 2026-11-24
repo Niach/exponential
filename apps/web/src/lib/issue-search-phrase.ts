@@ -6,6 +6,7 @@
 // (`IssueSearchPhrase.kt`) and desktop (`domain::issue_search_phrase`),
 // byte-locked by `packages/domain-contract/fixtures/issue-search-phrase.json`
 // (its `$comment` is the spec; read it before changing a rule).
+import { searchSuggestionLabel } from "@exp/domain-contract/search-list"
 import {
   ISSUE_SEARCH_DAY_MS,
   daysFromCivil,
@@ -328,4 +329,16 @@ export function translateIssueSearchPhrase(text: string, options?: IssueSearchPh
     ...words,
   ].join(` `)
   return query === tokens.join(` `) ? null : query
+}
+
+/** The global search's suggestion row (search-list.json SUGGESTION): the
+ *  query a recognised sentence means and the row's name, or null. */
+export interface IssueSearchSuggestion {
+  query: string
+  label: string
+}
+
+export function issueSearchSuggestion(text: string, options?: IssueSearchPhraseOptions): IssueSearchSuggestion | null {
+  const query = translateIssueSearchPhrase(text, options)
+  return query === null ? null : { query, label: searchSuggestionLabel(query) }
 }

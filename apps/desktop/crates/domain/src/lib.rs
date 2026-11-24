@@ -183,6 +183,7 @@ pub mod issue_trash;
 /// Row timestamps as UTC milliseconds (both spellings the shapes deliver).
 pub mod instant;
 pub mod issue_search;
+pub mod issue_search_phrase;
 // EXP-1248: THE list item (geometry, PR node states), fixture-locked ×4.
 pub mod list_item;
 // #EXP-1730: messages are keyed by their own session, fixture-locked ×4.
