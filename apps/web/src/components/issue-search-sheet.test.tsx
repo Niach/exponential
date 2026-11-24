@@ -75,6 +75,7 @@ vi.mock(`@/hooks/use-issue-search-results`, () => ({
 }))
 vi.mock(`@/hooks/use-team-statuses`, () => ({
   useTeamStatusesContext: () => ({ resolve: (row: unknown) => row }),
+  useStatusesForTeams: () => () => ({ resolve: () => ({ name: `Backlog` }) }),
 }))
 vi.mock(`@/components/issue-properties/status-dropdown`, () => ({
   toStatusPickerStatus: () => ({
