@@ -9,6 +9,8 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { pageTitle } from "@/lib/page-title"
+import { InstallWaiting, PendingInstalls } from "@/components/devices/install-approval"
+import { useInstallTrust } from "@/lib/enet/use-install-trust"
 
 // #FEED-191 NEEDS YOU (fixtures/needs-you.json `route`): every plan and question
 // waiting on the viewer. Wide: the content card, no header. Phones: pushed, the
@@ -37,6 +39,9 @@ function NeedsYouPage() {
   const me = authSession?.user?.id ?? null
   const permissions = useTeamPermissions(team)
   const { rows, isReady } = useNeedsYou(team?.id, me, permissions.isOwner)
+  // #EXP-1950: the installs waiting for this install's approval sit on top;
+  // this install waiting itself shows its code.
+  const installTrust = useInstallTrust()
   const open = useOpenNeedsYou(teamSlug, me)
   // #EXP-1710: an `approval` ready PR row's press = Needs approval.
   const press = useNeedsYouPress(open)
@@ -68,9 +73,10 @@ function NeedsYouPage() {
             }
           />
         )}
-        {!team || (!isReady && rows.length === 0) ? <SkeletonRows /> : (
+        {installTrust.status === `waiting` && installTrust.code ? <InstallWaiting code={installTrust.code} /> : <PendingInstalls trust={installTrust} />}
+        {!team || (!isReady && rows.length === 0) ? <SkeletonRows /> : rows.length > 0 || (installTrust.rows.length === 0 && installTrust.status !== `waiting`) ? (
           <NeedsYouList rows={rows} onOpen={press.press} actions={(row) => <NeedsYouStuckActions row={row} />} />
-        )}
+        ) : null}
         {press.dialog}
       </div>
     </div>

@@ -74,7 +74,7 @@ export type SealSessionRow = {
 export type InstallRow = ReaderInstall & { userId?: string; deviceId?: string | null; revokedAt?: unknown }
 
 export type SealDeps = {
-  holder: Pick<KeyHolder, `userId` | `installId` | `newTreeKey` | `keep` | `createTree` | `current` | `keysFor`> | undefined
+  holder: (Pick<KeyHolder, `userId` | `installId` | `newTreeKey` | `keep` | `createTree` | `current` | `keysFor`> & Partial<Pick<KeyHolder, `adoptNewRoot` | `trust`>>) | undefined
   me: string
   session: (id: string) => SealSessionRow | undefined
   sessions: () => readonly SealSessionRow[]
@@ -108,7 +108,9 @@ export type SealDeps = {
   waits?: { holderMs: number; keyMs: number; pollMs: number; createRetryMs?: number }
 }
 
-export type TreePublicKey = { epoch: number; publicKey: string }
+/** #EXP-1950: a signed wrap of that epoch for another install (`acceptVouch`). */
+export type Vouch = { recipientEndpointId: string; wrapped: string; signature: string; signerEndpointId: string }
+export type TreePublicKey = { epoch: number; publicKey: string; vouch?: Vouch | null }
 export type RequestKeyResult =
   | { state: `keyed`; epoch: number; publicKey: string }
   | { state: `clear` }
@@ -120,6 +122,8 @@ export type ServerTarget = {
   publicKey: string | null
   /** #EDE-97: an outside MCP client's conversation (absent on an older server = not). */
   clearTree?: boolean
+  /** #EXP-1950: a signed wrap of that epoch vouching for `publicKey`. */
+  vouch?: Vouch | null
 }
 
 export type SealedSendInput = SessionsSendInput & {
@@ -196,7 +200,8 @@ async function readersFor(
   deps: SealDeps
 ): Promise<ReaderInstall[]> {
   const out = new Map<string, ReaderInstall>()
-  const add = (row: InstallRow) => out.set(row.installId, { installId: row.installId, x25519Public: row.x25519Public })
+  const add = (row: InstallRow) =>
+    out.set(row.installId, { installId: row.installId, x25519Public: row.x25519Public, endpointId: row.endpointId ?? null, userId: row.userId ?? null })
   if (root.userId === deps.me || root.shared) for (const row of live(await deps.myInstalls())) add(row)
   // `installs.list` names an install's device by its MACHINE id (the
   // `sessions.device_id`); a devices row uuid is accepted too (#EXP-1960:
@@ -329,8 +334,10 @@ export async function sealSendInput(
     }
   }
 
-  let key: { epoch: number; publicKey: string }
+  let key: { epoch: number; publicKey: string; vouch?: Vouch | null }
   let after = noop
+  /** The existing root the key belongs to (R3 below); none for a new root. */
+  let keyRoot: string | undefined
   let seal: SealedSendInput[`seal`]
   if (target?.rootId) {
     const known = target.epoch && target.publicKey ? { epoch: target.epoch, publicKey: target.publicKey } : undefined
@@ -343,16 +350,19 @@ export async function sealSendInput(
         deviceId: root?.deviceId ?? null,
       }))
     if (held === CLEAR) return plain
-    key = held
+    key = known ? { ...held, vouch: target.vouch ?? null } : held
+    keyRoot = target.rootId
   } else if (root && !(target && fresh)) {
     const synced = root.sealPublicKey && root.sealEpoch ? { epoch: root.sealEpoch, publicKey: root.sealPublicKey } : undefined
     const known = fresh ? ((await deps.publicKey(root.id).catch(() => undefined)) ?? synced) : synced
     const held = known ?? holder.current(root.id) ?? (await keyFirst(root.id, root))
     if (held === CLEAR) return plain
     key = held
+    keyRoot = root.id
   } else if (fresh && (input.sessionId || input.parentId) && !conversation) {
     // A session the store does not have: its key, when it is a keyed root.
     key = await awaitKey((input.sessionId ?? input.parentId)!)
+    keyRoot = input.sessionId ?? input.parentId ?? undefined
   } else {
     // A root this send creates: its first key rides inline.
     const created = holder.newTreeKey(
@@ -360,7 +370,24 @@ export async function sealSendInput(
     )
     key = { epoch: created.epoch, publicKey: created.publicKey }
     seal = { installId: holder.installId, publicKey: created.publicKey, epoch: 1, wraps: created.wraps }
-    after = (result: { sessionId: string }) => holder.keep(result.sessionId, created.epoch, created.secret)
+    after = (result: { sessionId: string }) =>
+      holder.adoptNewRoot ? holder.adoptNewRoot(result.sessionId, created) : holder.keep(result.sessionId, created.epoch, created.secret)
+  }
+
+  // #EXP-1950 R2 + R3 (install-trust.json `sealCases`): only to the key of
+  // a held secret of that epoch, or one a pinned install vouched for;
+  // release 1 seals an unvouched key and records it, never a refused one.
+  const rootOfKey = keyRoot ? (deps.session(keyRoot)?.rootId ?? keyRoot) : undefined
+  if (rootOfKey && holder.trust) {
+    const secret = holder.keysFor(rootOfKey).get(key.epoch)
+    const verdict = holder.trust.seal({
+      rootId: rootOfKey,
+      epoch: key.epoch,
+      publicKey: key.publicKey,
+      held: secret ? { secret, record: holder.trust.recordOf(rootOfKey, key.epoch) } : null,
+      vouch: key.vouch ?? null,
+    })
+    if (!verdict.seal) throw new NoKeyError()
   }
 
   const { name, ...rest } = input

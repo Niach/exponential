@@ -406,6 +406,13 @@ private suspend fun seedPendingPreviews(
 /** A team member offered by @mention autocomplete. */
 data class MentionMember(val name: String, val email: String)
 
+/** #EXP-2095 (agent-settings.json `assistant.chatTeams` (2)): the synced
+ *  [users] as the `@` list, in its ONE order ×4 (never the query's). */
+fun mentionMembers(users: List<com.exponential.app.data.db.UserEntity>): List<MentionMember> =
+    com.exponential.app.domain.AgentSettings.Assistant
+        .chatMembers(users, id = { it.id }, name = { it.name }, email = { it.email })
+        .map { MentionMember(it.name?.takeIf { name -> name.isNotEmpty() } ?: it.email, it.email) }
+
 /** Pull `text` out of `{ "text": "..." }` issue description JSON; tolerate plain markdown. */
 fun extractDescriptionMarkdown(raw: String?): String {
     if (raw.isNullOrBlank()) return ""

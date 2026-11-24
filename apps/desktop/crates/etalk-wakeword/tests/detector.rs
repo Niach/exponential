@@ -80,3 +80,27 @@ fn a_detection_says_where_the_phrase_ended() {
     assert!(end > RATE && end <= audio.len() - RATE / 2, "{end}");
     assert_eq!(end % FRAME_SAMPLES, 0);
 }
+
+/// #NEW-126: frames at rest cost no model, and the frames scored after them
+/// score exactly as in a stream scored whole, however long the rest (shorter
+/// than the classifier's window, longer than what is kept).
+#[test]
+fn a_rest_never_changes_the_scores_after_it() {
+    let phrase = clip("positive.wav");
+    let noise = |seconds: f32| -> Vec<f32> {
+        (0..(seconds * RATE as f32) as u32).map(|i| ((i.wrapping_mul(2_654_435_761) >> 16) as f32 / 65_536.0 - 0.5) * 0.01).collect()
+    };
+    for seconds in [0.3, 1.0, 1.9, 2.5, 7.3] {
+        let quiet = noise(seconds);
+        let audio = [quiet.as_slice(), phrase.as_slice()].concat();
+        let mut whole = detector();
+        let expected: Vec<_> = audio.chunks(512).flat_map(|part| whole.push(part).unwrap()).collect();
+        let mut rested = detector();
+        quiet.chunks(512).for_each(|part| rested.rest(part));
+        assert_eq!(rested.samples(), quiet.len());
+        let scored: Vec<_> = phrase.chunks(512).flat_map(|part| rested.push(part).unwrap()).collect();
+        assert!(!scored.is_empty() && scored.iter().any(|score| score.fired), "{seconds} s: the phrase fires");
+        assert_eq!(scored, expected[expected.len() - scored.len()..], "{seconds} s of rest");
+        assert_eq!(scored[0].end, (quiet.len() / FRAME_SAMPLES + 1) * FRAME_SAMPLES, "{seconds} s: the frames at rest count");
+    }
+}

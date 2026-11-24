@@ -306,7 +306,7 @@ impl LaunchOptions {
 /// runs are the ACP engine, whose adapters compose their own argv.
 ///
 /// - claude: `--model <m> [--effort ultracode|<e>] <mcp_config_args>
-///   <permission_args> --append-system-prompt <playbook>`
+///   <permission_args> --append-system-prompt-file <playbook file>`
 /// - codex: `-c check_for_update_on_startup=false [-m <m>]
 ///   [-c model_reasoning_effort=<e>] <mcp -c overrides>
 ///   -c developer_instructions=<playbook> --dangerously-bypass-…`
@@ -326,8 +326,15 @@ pub fn claude_model_arg(model: &str) -> Option<String> {
 
 /// `system_append` = [`crate::skill::system_append`]'s text (EXP-1025: the
 /// playbook plus the team prompt) — the caller composes it, since the team is
-/// the launcher's to know.
-pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp, system_append: &str) -> Vec<String> {
+/// the launcher's to know. #FEED-308: claude reads it from `prompt_file`
+/// (the caller wrote the same text there), never from argv: Windows' command
+/// line ends at 32,767 characters.
+pub fn shell_args(
+    opts: &LaunchOptions,
+    mcp: &AgentMcp,
+    system_append: &str,
+    prompt_file: &std::path::Path,
+) -> Vec<String> {
     let trimmed_model = opts.model.trim();
     let trimmed_effort = opts.effort.trim();
     let mut args: Vec<String> = Vec::new();
@@ -353,8 +360,8 @@ pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp, system_append: &str) -> 
             args.extend(permission_args());
             // EXP-763: the run playbook (EXP-1025: + the team prompt),
             // appended to the system prompt.
-            args.push("--append-system-prompt".into());
-            args.push(system_append.into());
+            args.push("--append-system-prompt-file".into());
+            args.push(prompt_file.display().to_string());
         }
         CodingAgent::Codex => {
             // EXP-389: codex's startup update prompt ("Update now / Skip …
@@ -397,10 +404,14 @@ pub fn shell_args(opts: &LaunchOptions, mcp: &AgentMcp, system_append: &str) -> 
             // config string, so it rides `-c` like the MCP block). A TOML
             // basic string on ONE line — the `-c key=value` parser must
             // never see a raw newline.
+            // #FEED-308: codex takes it on argv only (no file form), so the
+            // express layer stays out: a terminal draws no views, and with
+            // it the line is past Windows' 32,767 characters.
+            let (system_append, _) = crate::skill::split_express_layer(system_append);
             args.push("-c".into());
             args.push(format!(
                 "developer_instructions={}",
-                toml_basic_string(system_append)
+                toml_basic_string(&system_append)
             ));
             // EXP-690: every codex run bypasses approvals and the sandbox.
             args.push("--dangerously-bypass-approvals-and-sandbox".into());
@@ -584,7 +595,8 @@ mod tests {
     /// and the run playbook still ride it on every agent.
     #[test]
     fn shell_args_per_agent() {
-        let claude = shell_args(&claude_opts(), &AgentMcp::ClaudeFile, RUN_SKILL);
+        let prompt_file = std::path::Path::new("/data/shell-prompts/prompt-0123456789abcdef.md");
+        let claude = shell_args(&claude_opts(), &AgentMcp::ClaudeFile, RUN_SKILL, prompt_file);
         assert_eq!(
             claude,
             vec![
@@ -595,8 +607,8 @@ mod tests {
                 ".exp-mcp.json".to_string(),
                 "--strict-mcp-config".to_string(),
                 "--dangerously-skip-permissions".to_string(),
-                "--append-system-prompt".to_string(),
-                RUN_SKILL.to_string(),
+                "--append-system-prompt-file".to_string(),
+                "/data/shell-prompts/prompt-0123456789abcdef.md".to_string(),
             ]
         );
 
@@ -611,6 +623,7 @@ mod tests {
                 session_id: None,
             },
             RUN_SKILL,
+            prompt_file,
         );
         assert_eq!(args[..2], ["-c", "check_for_update_on_startup=false"]);
         // EXP-792: ONE inline-table flag carries the whole `mcp_servers`
@@ -628,6 +641,22 @@ mod tests {
         assert!(args.contains(&"model_reasoning_effort=\"high\"".to_string()));
         assert!(args.contains(&"--dangerously-bypass-approvals-and-sandbox".to_string()));
         assert!(!args.iter().any(|arg| arg.contains("expu_")));
+
+        // #FEED-308: codex has no file form, so its argv carries the append
+        // WITHOUT the express layer (a terminal draws no views).
+        let layered = crate::skill::system_append(Some("Team rule."));
+        let (head, express) = crate::skill::split_express_layer(&layered);
+        assert!(express.is_some(), "the append ends in the express layer");
+        let with_layer = shell_args(&codex, &AgentMcp::ClaudeFile, &layered, prompt_file);
+        let instructions = with_layer
+            .iter()
+            .find_map(|arg| arg.strip_prefix("developer_instructions="))
+            .expect("developer_instructions");
+        let doc: toml::Value = format!("v = {instructions}").parse().unwrap();
+        assert_eq!(doc["v"].as_str(), Some(head.as_ref()));
+        // Claude's never rides argv at all.
+        let claude_layered = shell_args(&claude_opts(), &AgentMcp::ClaudeFile, &layered, prompt_file);
+        assert!(claude_layered.iter().all(|arg| arg.len() < 256), "{claude_layered:?}");
 
         // A shell never resumes and never pins a session file.
         for args in [&claude, &args] {

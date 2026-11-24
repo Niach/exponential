@@ -607,7 +607,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                 dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeams(teamIds) }
             }
         }
-        .map { users -> users.map { MentionMember(it.name ?: it.email, it.email) } }
+        .map { users -> com.exponential.app.ui.markdown.mentionMembers(users) }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**

@@ -11,6 +11,25 @@ import { findEventKey, findInChatQuery, findMessageKey, type FindStop } from "./
 export const SEARCH_LIST_CHATS = fixture.chats
 export const SEARCH_LIST_CHATS_COPY = fixture.chats.copy
 
+/** #NEW-133 (search-list.json SUGGESTION): the action row a recognised
+ *  sentence puts on top of the global search: its icon concept, label
+ *  format and test id. */
+export const SEARCH_LIST_SUGGESTION = {
+  icon: fixture.suggestion.icon,
+  label: fixture.suggestion.label,
+  testId: fixture.suggestion.testId,
+} as const
+
+/** #NEW-136 (search-list.json TRANSLATE): the same row offering the model
+ *  fallback: its name, the failure toast, its test id and the platforms
+ *  that show it (web and Android never do). */
+export const SEARCH_LIST_TRANSLATE = fixture.suggestion.translate
+
+/** The suggestion row's name for a translated query (`Search: <query>`). */
+export function searchSuggestionLabel(query: string): string {
+  return fixture.suggestion.label.replace(`{query}`, query)
+}
+
 export type GlobalSectionKey = `issues` | `chats`
 
 export interface GlobalSection {

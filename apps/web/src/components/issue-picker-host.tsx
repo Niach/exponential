@@ -10,13 +10,14 @@ import {
   Sheet,
   SheetContent,
   SheetTitle,
+  conceptIcon,
   issueSearchItems,
   useIsMobile,
   type PickerItem,
   type SearchListDensity,
   type SearchListSection,
 } from "@exp/ui"
-import { globalSections, SEARCH_LIST_CHATS } from "@exp/domain-contract/search-list"
+import { globalSections, SEARCH_LIST_CHATS, SEARCH_LIST_SUGGESTION } from "@exp/domain-contract/search-list"
 import { toStatusPickerStatus } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
 import {
@@ -85,7 +86,15 @@ interface IssuePickerBodyBase<R extends IssuePickerRow> {
   /** #EDE-99 (search-list.json CHATS): the global search's Chats section;
    *  null = no chat store here (today's list). */
   chats?: GlobalChatsSection | null
+  /** #NEW-133 (search-list.json SUGGESTION): the global search's top row
+   *  `Search: <query>` for a recognised sentence; a pick rewrites the field. */
+  suggestion?: { query: string; label: string } | null
 }
+
+// search-list.json `suggestion.icon`.
+const SuggestionGlyph = conceptIcon(`nav-search`)
+/** The suggestion row's value (never an issue id or a chat key). */
+const SUGGESTION_VALUE = `search-suggestion`
 
 /** The Chats section's rows (built by the host) and their pick. */
 export interface GlobalChatsSection {
@@ -142,7 +151,15 @@ export function IssuePickerBody<R extends IssuePickerRow>(
     inputTestId,
     className,
     chats,
+    suggestion,
   } = props
+  // The suggestion row: an action row (icon + name) above everything.
+  const leadItems = useMemo<PickerItem<string>[] | undefined>(
+    () =>
+      suggestion ? [{ value: SUGGESTION_VALUE, label: suggestion.label, icon: SuggestionGlyph }] : undefined,
+    [suggestion]
+  )
+  const inputRef = useRef<HTMLInputElement | null>(null)
   const { resolve } = useTeamStatusesContext()
   const checked = props.mode === `multi` ? props.checked : (NO_ROWS as R[])
   const checkedIds = useMemo(
@@ -211,6 +228,9 @@ export function IssuePickerBody<R extends IssuePickerRow>(
   const shared = {
     items,
     sections,
+    leadItems,
+    leadRowTestId: SEARCH_LIST_SUGGESTION.testId,
+    inputRef,
     // The engine already ranked and capped the rows (EXP-892).
     shouldFilter: false,
     query,
@@ -262,6 +282,12 @@ export function IssuePickerBody<R extends IssuePickerRow>(
       // Picking LINKS or NAVIGATES: nothing is ever the picked row.
       value={null}
       onChange={(id) => {
+        if (id === SUGGESTION_VALUE) {
+          // A pick rewrites the field: the search re-runs, the focus stays.
+          if (suggestion) onQueryChange(suggestion.query)
+          inputRef.current?.focus()
+          return
+        }
         const row = byId.get(id)
         if (row) props.onPick(row)
         else if (chats && chats.items.some((item) => item.value === id)) chats.onPick(id)

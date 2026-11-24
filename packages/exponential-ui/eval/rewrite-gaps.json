@@ -37,6 +37,8 @@
     { "id": "issue-properties", "class": "expressible", "with": "Drawer + Group + Row (chevron selector) + Select / DatePicker" },
     { "id": "search-list", "class": "expressible", "with": "SearchList (the catalog's own); the caret anchoring is the host's" },
     { "id": "inbox", "class": "expressible", "with": "List sectionBy + Section + Row + LiveDot (app extension)" },
+    { "id": "install-approval", "class": "expressible", "with": "Section + per install a Stack of Row (title, the code as subtitle, trailing Badge) + a Stack of two Buttons (#EXP-1950)" },
+    { "id": "install-waiting", "class": "expressible", "with": "the page EmptyState (ui-private, Waiting for approval, the code) (#EXP-1950)" },
     { "id": "my-issues", "class": "expressible", "with": "Tabs + List + Row" },
     { "id": "drafts", "class": "expressible", "with": "List + Row (title, meta) + EmptyState" },
     { "id": "sidebar-tree", "class": "expressible", "with": "Sidebar + one reorderable List (Row depth/open/chevron, trailing Badge + LiveDot) for Home, Devices, the team folders and Active" },

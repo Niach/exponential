@@ -4,8 +4,11 @@
 # gradle daemons, and the mint-ci daemon (ci-daemon-background.conf). A sibling
 # of app.slice (games, the browser) and session.slice (pipewire), so idle CPU
 # ranks it below them, and one memory budget caps all of it: one agent run with
-# gradle + an emulator held 23 GB on 2026-11-13. Expci.slice (root, 20 GB) +
-# this (20 GB) leave the desktop and a game >= 22 of the 62 GB.
+# gradle + an emulator held 23 GB on 2026-11-13. Raised from 16G/20G on
+# 2026-11-24 (#FEED-306): the lane builds, an emulator and a dozen agent runs
+# no longer fit under 16 GB, and a slice above MemoryHigh throttles every new
+# process in it, so no engine could start. Expci.slice (root, 20 GB) + this
+# (28 GB) leave the desktop and a game >= 14 of the 62 GB.
 [Unit]
 Description=Exponential background work (agent runs, builds, mint-ci): idle CPU, capped memory
 Before=slices.target
@@ -13,7 +16,7 @@ Before=slices.target
 [Slice]
 CPUWeight=idle
 IOWeight=10
-MemoryHigh=16G
-MemoryMax=20G
+MemoryHigh=24G
+MemoryMax=28G
 ManagedOOMMemoryPressure=kill
 ManagedOOMMemoryPressureLimit=80%

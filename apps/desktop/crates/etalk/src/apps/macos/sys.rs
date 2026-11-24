@@ -11,9 +11,10 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
 use objc2_core_audio::{
-    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
-    AudioObjectPropertySelector,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyElementWildcard, kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyScopeWildcard, kAudioObjectPropertySelectorWildcard, AudioObjectAddPropertyListener,
+    AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID, AudioObjectPropertyAddress,
+    AudioObjectPropertySelector, AudioObjectRemovePropertyListener,
 };
 use objc2_foundation::NSString;
 
@@ -94,6 +95,34 @@ fn address(selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress 
         mElement: kAudioObjectPropertyElementMain,
     }
 }
+
+/// #NEW-127: have Core Audio call `listener` (on its own notification
+/// thread) whenever `selector` of `object` changes (`None` = any of its
+/// properties). `false` = not installed.
+pub(super) fn listen(object: AudioObjectID, selector: Option<AudioObjectPropertySelector>, listener: Listener) -> bool {
+    let address = listened(selector);
+    unsafe { AudioObjectAddPropertyListener(object, NonNull::from(&address), Some(listener), null_mut()) == 0 }
+}
+
+/// Undo [`listen`] (an object that is gone already took its listeners along).
+pub(super) fn unlisten(object: AudioObjectID, selector: Option<AudioObjectPropertySelector>, listener: Listener) {
+    let address = listened(selector);
+    unsafe { AudioObjectRemovePropertyListener(object, NonNull::from(&address), Some(listener), null_mut()) };
+}
+
+fn listened(selector: Option<AudioObjectPropertySelector>) -> AudioObjectPropertyAddress {
+    match selector {
+        Some(selector) => address(selector),
+        None => AudioObjectPropertyAddress {
+            mSelector: kAudioObjectPropertySelectorWildcard,
+            mScope: kAudioObjectPropertyScopeWildcard,
+            mElement: kAudioObjectPropertyElementWildcard,
+        },
+    }
+}
+
+pub(super) type Listener =
+    unsafe extern "C-unwind" fn(AudioObjectID, u32, NonNull<AudioObjectPropertyAddress>, *mut c_void) -> i32;
 
 /// One fixed-size property value (`T` = a plain C value, valid all-zero).
 pub(super) fn get<T: Copy>(object: AudioObjectID, selector: AudioObjectPropertySelector) -> Option<T> {

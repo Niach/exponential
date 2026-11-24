@@ -12,6 +12,7 @@ import {
   ISSUE_SEARCH_PLACEHOLDER,
   type IssueSearchRow,
 } from "@/lib/issue-search"
+import { issueSearchSuggestion } from "@/lib/issue-search-phrase"
 import { useBoardsForTeams } from "@/hooks/use-team-data"
 import { useAllAgentRows } from "@/hooks/use-agent-row"
 import { useGlobalChatSearch } from "@/hooks/use-global-chat-search"
@@ -100,6 +101,13 @@ export function IssueSearchSheet({
   // and its team status NAME, so `status:review` reaches a custom status.
   const { data: users } = useLiveQuery((q) => (open ? q.from({ users: userCollection }) : undefined), [open])
   const userMap = useMemo(() => new Map(((users ?? []) as User[]).map((user) => [user.id, user])), [users])
+  // #NEW-133 (search-list.json SUGGESTION): a sentence the phrase grammar
+  // recognises puts `Search: <query>` on top; the members are the synced
+  // users that feed the creator names.
+  const suggestion = useMemo(
+    () => issueSearchSuggestion(query, { members: (users ?? []) as User[] }),
+    [query, users]
+  )
   const agents = useAllAgentRows()
   const statusesOf = useStatusesForTeams(teamIds)
   const rows = useMemo(() => {
@@ -171,6 +179,7 @@ export function IssueSearchSheet({
       }
       searchPlaceholder={chats ? SEARCH_LIST_CHATS.copy.placeholder : ISSUE_SEARCH_PLACEHOLDER}
       chats={chats}
+      suggestion={suggestion}
       onQueryInput={setQuery}
       emptyText={emptyState}
       onPick={handlePick}
