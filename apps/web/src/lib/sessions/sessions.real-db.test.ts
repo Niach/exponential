@@ -620,14 +620,24 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     // The device's `ended` report of a ROOT (its process went away: an app
     // quit, a crash) reads idle; only a person's End ends it. A CHILD's
     // still ends it.
-    await host.report({ sessionId: root.sessionId, status: `running`, busy: true })
-    await host.report({ sessionId: root.sessionId, status: `ended` })
+    // #EXP-2058: each report answers with the status the row then reads,
+    // so the device tears down at once only what really ended.
+    expect(await host.report({ sessionId: root.sessionId, status: `running`, busy: true })).toMatchObject({
+      status: `running`,
+    })
+    expect(await host.report({ sessionId: root.sessionId, status: `ended` })).toMatchObject({ status: `idle` })
     expect(await row(root.sessionId)).toMatchObject({ status: `idle`, busy: false, endedAt: null })
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
     await host.claim({ sessionId: child.sessionId, deviceId: w.deviceId })
-    await host.report({ sessionId: child.sessionId, status: `ended` })
+    expect(await host.report({ sessionId: child.sessionId, busy: true })).toMatchObject({ status: `running` })
+    expect(await host.report({ sessionId: child.sessionId, status: `ended` })).toMatchObject({ status: `ended` })
     expect(await row(child.sessionId)).toMatchObject({ status: `ended` })
     expect(await row(root.sessionId)).toMatchObject({ status: `idle` })
+    // A late report of the ended row (a no-op) still says ended; a row
+    // that is gone says nothing.
+    expect(await host.report({ sessionId: child.sessionId, status: `idle` })).toMatchObject({ status: `ended` })
+    const gone = await host.report({ sessionId: `00000000-0000-4000-8000-000000000000`, status: `ended` })
+    expect(gone).not.toHaveProperty(`status`)
   })
 
   it(`a root's \`ended\` report before its first turn ends it; after a turn it reads idle (FEED-134)`, async () => {
