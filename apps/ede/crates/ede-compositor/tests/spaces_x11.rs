@@ -317,18 +317,34 @@ fn a_space_server_that_stops_answering_costs_the_space_not_the_compositor() {
 
     // SAFETY: a signal to our own child.
     assert_eq!(unsafe { libc::kill(pid as i32, libc::SIGSTOP) }, 0);
-    let asked = Instant::now();
-    let answered = h.with(move |state| state.space_xwm_round_trip(desk));
-    let waited = asked.elapsed();
+    // #EDE-217: what is asserted is the mechanism, not a wall-clock
+    // window. A stopped server never answers, so the call returns only
+    // because the limit cut it: `timed_out` says so. How long it waited
+    // has no lower bound: the limit is a budget per second for all calls
+    // together, and what this second's earlier calls (the window
+    // manager's start, the healthy round trip above) spent on a loaded
+    // machine comes off this wait (CI: 117 ms of 200). Its upper bound is
+    // the limit plus what a loaded machine takes to schedule the watcher
+    // thread: generous, as the failure it guards against is a wait
+    // without end.
+    let (answered, timed_out, waited) = h.with(move |state| {
+        let asked = Instant::now();
+        let answered = state.space_xwm_round_trip(desk);
+        let waited = asked.elapsed();
+        (answered, state.space_xwm_timed_out(desk), waited)
+    });
     assert_eq!(answered, Some(false), "a stopped server cannot answer");
-    assert!(waited + Duration::from_millis(50) >= ROUND_TRIP_LIMIT && waited < ROUND_TRIP_LIMIT + Duration::from_secs(1), "the compositor waited {waited:?} for the space's server");
+    assert_eq!(timed_out, Some(true), "the call ended because the time limit cut the connection (it waited {waited:?})");
+    assert!(waited <= ROUND_TRIP_LIMIT + Duration::from_secs(5), "the compositor waited {waited:?} for the space's server, its limit is {ROUND_TRIP_LIMIT:?}");
     // Then the compositor answers at once again, and the server goes.
     let deadline = Instant::now() + Duration::from_secs(30);
     while h.with(move |state| state.spaces.get(desk).is_some_and(|s| s.x11().is_some())) {
         assert!(Instant::now() < deadline, "the space's server that stopped answering was never let go of");
         let asked = Instant::now();
         h.with(|_| ());
-        assert!(asked.elapsed() < Duration::from_millis(500), "the compositor waited {:?} again", asked.elapsed());
+        // A cut connection fails every call at once; the bound is wide
+        // (a loaded machine's scheduling), the failure is a second wait.
+        assert!(asked.elapsed() < Duration::from_secs(5), "the compositor waited {:?} again", asked.elapsed());
         std::thread::sleep(Duration::from_millis(5));
     }
     let gone = |pid: u32| std::fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| stat.rsplit(')').next().unwrap_or_default().trim_start().starts_with('Z'));

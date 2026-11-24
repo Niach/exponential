@@ -79,6 +79,35 @@ export const FEED_ITEM_CAP = contract.steerFeed.itemCap
  *  older transcript one "Load earlier" pulls in. */
 export const FEED_WINDOW = contract.steerFeed.window
 export const FEED_WINDOW_STEP = contract.steerFeed.windowStep
+/** #EXP-1999 (web only): a Load earlier page MOUNTS in slices of this many
+ *  feed items, one task each (the whole page in one task was 90–250 ms).
+ *  The window itself still moves one `windowStep` per press. */
+export const FEED_MOUNT_SLICE = 40
+
+/** #EXP-1999: where the mounted rows start while a page slices in. `floorId`
+ *  = the oldest item id mounted so far (null = nothing slicing): the rows
+ *  start at it until the slices reach the window's own start. */
+export function mountedWindowStart(
+  feed: readonly { id: number }[],
+  windowStart: number,
+  floorId: number | null
+): number {
+  if (floorId === null) return windowStart
+  const at = feed.findIndex((item) => item.id >= floorId)
+  return at === -1 ? windowStart : Math.max(windowStart, at)
+}
+
+/** #EXP-1999: the floor after the next slice (null = the page is in). */
+export function nextMountFloor(
+  feed: readonly { id: number }[],
+  windowStart: number,
+  floorId: number | null,
+  slice = FEED_MOUNT_SLICE
+): number | null {
+  const start = mountedWindowStart(feed, windowStart, floorId)
+  const next = Math.max(windowStart, start - slice)
+  return next <= windowStart ? null : feed[next].id
+}
 /** Events per `history_page` ask — the relay's schema rejects anything
  *  larger. */
 export const HISTORY_PAGE_LIMIT = contract.steerFeed.historyPageMax

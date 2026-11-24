@@ -69,7 +69,7 @@
     "build:widget": "bun --filter @exp/widget build",
     "build:mcp-apps": "bun --filter @exp/mcp-apps build",
     "test:widget": "bun --filter @exp/widget test",
-    "test:lanes": "sh scripts/lanes/lock.test.sh && sh scripts/lanes/session-manifest.test.sh && sh scripts/lanes/capture.test.sh",
+    "test:lanes": "sh scripts/lanes/lock.test.sh && sh scripts/lanes/session-manifest.test.sh && sh scripts/lanes/capture.test.sh && sh scripts/lanes/sweep.test.sh",
     "claude-plugin:sync": "bun scripts/sync-claude-plugin.ts",
     "test:merge-train": "bun test scripts/merge-train packages/domain-contract/src/merge-train.test.ts",
     "bump:versions": "node .github/actions/bump-versions/bump.mjs --config .github/release-versions.json",

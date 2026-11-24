@@ -71,8 +71,11 @@ export function globalChatRows(input: {
     const root = input.roots[chat.rootId]
     if (!root) continue
     const hit = chat.hit
+    // #FEED-300: a system input (a schedule tick, a relay, a teammate's
+    // line) is never the person's own words.
     const person =
-      hit.kind === `user_message` || (hit.kind === `message` && !!hit.messageId && input.messageAuthors[hit.messageId] === `user`)
+      !hit.system &&
+      (hit.kind === `user_message` || (hit.kind === `message` && !!hit.messageId && input.messageAuthors[hit.messageId] === `user`))
     rows.push({
       key: `chat:${chat.rootId}`,
       rootId: chat.rootId,

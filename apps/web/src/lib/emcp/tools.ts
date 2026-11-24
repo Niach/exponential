@@ -245,7 +245,7 @@ import {
 import { ALWAYS_LOAD_META } from "./always-load"
 import { mcpAppToolMeta, type McpAppView } from "./apps"
 import { inlineShowResult } from "@exp/mcp-apps/genui-result"
-import { ALL_MCP_TOOL_GATES, type McpToolGates } from "./gates"
+import { ALL_MCP_TOOL_GATES, watchedByLiveSession, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
 import { trainEdge } from "@/lib/merge-train/edge"
 import {
@@ -742,8 +742,9 @@ export function registerExponentialTools(
         userId: sessions.userId,
         deviceId: sessions.deviceId,
         rootAgentId: root.agentId,
-        // NEW-1: a live session watches this one (its spawner).
-        watched: sql<boolean>`EXISTS (SELECT 1 FROM sessions w WHERE w.status <> 'ended' AND w.wake_on @> jsonb_build_array(${sessions.id}::text))`,
+        // NEW-1: a live session watches this one (its spawner); the gates' own
+        // definition (#FEED-290: `sessions.wake_on` is dead since #NEW-49).
+        watched: watchedByLiveSession,
       })
       .from(sessions)
       .leftJoin(root, eq(root.id, sessions.rootId))

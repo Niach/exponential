@@ -71,10 +71,13 @@ fn save(worktree: &Path, add: &[&str], message: &str) -> WipSave {
         return WipSave::NotARepo;
     }
     let tracked_only = add.contains(&"-u");
-    match worktree_dirty_state(worktree) {
-        DirtyState::Clean => return WipSave::Clean,
-        DirtyState::UntrackedOnly if tracked_only => return WipSave::Clean,
-        DirtyState::UntrackedOnly | DirtyState::TrackedChanges => {}
+    let nothing_to_save = |state: DirtyState| match state {
+        DirtyState::Clean => true,
+        DirtyState::UntrackedOnly => tracked_only,
+        DirtyState::TrackedChanges => false,
+    };
+    if nothing_to_save(worktree_dirty_state(worktree)) {
+        return WipSave::Clean;
     }
     // FEED-67: a Stop mid-rebase leaves HEAD detached. A commit there lands
     // on no branch, the tree then reads clean and run cleanup removes the
@@ -87,6 +90,21 @@ fn save(worktree: &Path, add: &[&str], message: &str) -> WipSave {
                 .to_string(),
         );
     }
+    // #EXP-2059: files still at the state BEFORE `HEAD` are no work; saved,
+    // they would be the revert of `HEAD`.
+    let stale = match crate::stale_worktree::bring_up_to_head(worktree) {
+        Ok(stale) => stale,
+        Err(detail) => return WipSave::Failed(detail),
+    };
+    let mut message = message.to_string();
+    if let Some(stale) = &stale {
+        log::warn!("WIP save in {}: {}", worktree.display(), stale.note());
+        if nothing_to_save(worktree_dirty_state(worktree)) {
+            return WipSave::Clean;
+        }
+        message = format!("{message}\n\n{}\n", stale.note());
+    }
+    let message = message.as_str();
     if tracked_only {
         if let Err(err) = run_git(Some(worktree), add, None, "git add") {
             return WipSave::Failed(err.detail);
@@ -314,6 +332,161 @@ mod tests {
         assert_eq!(log.trim(), WIP_FINISH_COMMIT_MESSAGE);
         let files = git(&dir, &["show", "--name-only", "--format=", "HEAD"]);
         assert!(files.contains("README.md") && !files.contains("debris.log"), "{files}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #EXP-2059: `exp/APP-1` gets a merge of `main` made in ANOTHER
+    /// checkout of it (`worktree add -f`), so the returned worktree's files
+    /// and index stay at the pre-merge commit while its `HEAD` is the merge.
+    /// `main` rewrote line 1 of `a.txt` and `README.md`, added `new.txt`
+    /// and deleted `gone.txt`; the branch's own commit added `own.txt`.
+    fn merged_under(tag: &str) -> (PathBuf, PathBuf) {
+        let dir = repo(tag);
+        std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\nfour\nfive\n").unwrap();
+        std::fs::write(dir.join("gone.txt"), "old\n").unwrap();
+        git(&dir, &["add", "a.txt", "gone.txt"]);
+        git(&dir, &["commit", "-q", "-m", "files"]);
+        git(&dir, &["branch", "main"]);
+        let side = temp_dir(&format!("{tag}-side"));
+        let main = side.join("main");
+        git(&dir, &["worktree", "add", "-q", main.to_str().unwrap(), "main"]);
+        std::fs::write(main.join("a.txt"), "ONE\ntwo\nthree\nfour\nfive\n").unwrap();
+        std::fs::write(main.join("README.md"), "hello from main\n").unwrap();
+        std::fs::write(main.join("new.txt"), "new\n").unwrap();
+        git(&main, &["rm", "-q", "gone.txt"]);
+        git(&main, &["add", "-A"]);
+        git(&main, &["commit", "-q", "-m", "main moves on"]);
+        std::fs::write(dir.join("own.txt"), "own\n").unwrap();
+        git(&dir, &["add", "own.txt"]);
+        git(&dir, &["commit", "-q", "-m", "own work"]);
+        let twin = side.join("twin");
+        git(&dir, &["worktree", "add", "-q", "-f", twin.to_str().unwrap(), "exp/APP-1"]);
+        git(&twin, &["merge", "-q", "--no-ff", "-m", "Merge main into exp/APP-1", "main"]);
+        (dir, side)
+    }
+
+    /// #EXP-2059: a worktree still at the pre-merge state is no work: no
+    /// WIP commit (it would be the merge's inverse), the files come up to
+    /// `HEAD`. Whether the index stayed behind too or already is `HEAD`'s.
+    #[test]
+    fn the_pure_inverse_of_a_merge_is_never_saved() {
+        for index_at_head in [false, true] {
+            let (dir, side) = merged_under(if index_at_head { "inverse-index" } else { "inverse" });
+            if index_at_head {
+                git(&dir, &["reset", "-q"]);
+            }
+            let head = git(&dir, &["rev-parse", "HEAD"]);
+            assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "one\ntwo\nthree\nfour\nfive\n");
+            assert_eq!(save_tracked_wip_commit(&dir), WipSave::Clean, "index at HEAD: {index_at_head}");
+            assert_eq!(git(&dir, &["rev-parse", "HEAD"]), head);
+            assert_eq!(worktree_dirty_state(&dir), DirtyState::Clean);
+            assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "ONE\ntwo\nthree\nfour\nfive\n");
+            assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "hello from main\n");
+            assert!(dir.join("new.txt").exists() && !dir.join("gone.txt").exists());
+            let _ = std::fs::remove_dir_all(&dir);
+            let _ = std::fs::remove_dir_all(&side);
+        }
+    }
+
+    /// #EXP-2059: real edits in a pre-merge worktree are saved ON the
+    /// merge: one outside what it changed, one in a file it changed too.
+    /// Nothing of the merge is reverted. The stop-time save does the same.
+    #[test]
+    fn real_edits_in_a_pre_merge_worktree_survive_and_revert_nothing() {
+        for stop in [false, true] {
+            let (dir, side) = merged_under(if stop { "edits-stop" } else { "edits" });
+            let merge = git(&dir, &["rev-parse", "HEAD"]);
+            std::fs::write(dir.join("own.txt"), "own, edited\n").unwrap();
+            std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\nfour\nFIVE\n").unwrap();
+            let saved = if stop { save_wip_commit(&dir) } else { save_tracked_wip_commit(&dir) };
+            assert_eq!(saved, WipSave::Committed { branch: "exp/APP-1".to_string() });
+            assert_eq!(git(&dir, &["rev-parse", "HEAD~1"]), merge);
+            assert_eq!(worktree_dirty_state(&dir), DirtyState::Clean);
+            let files = git(&dir, &["show", "--name-only", "--format=", "HEAD"]);
+            assert_eq!(files.lines().collect::<Vec<_>>(), ["a.txt", "own.txt"]);
+            assert_eq!(git(&dir, &["show", "HEAD:a.txt"]), "ONE\ntwo\nthree\nfour\nFIVE\n");
+            assert_eq!(git(&dir, &["show", "HEAD:own.txt"]), "own, edited\n");
+            assert_eq!(git(&dir, &["show", "HEAD:README.md"]), "hello from main\n");
+            assert_eq!(git(&dir, &["show", "HEAD:new.txt"]), "new\n");
+            let body = git(&dir, &["log", "-1", "--format=%b"]);
+            assert!(body.contains("Not saved: 3 path(s)") && body.contains("1 edited path(s)"), "{body}");
+            let _ = std::fs::remove_dir_all(&dir);
+            let _ = std::fs::remove_dir_all(&side);
+        }
+    }
+
+    /// #EXP-2059: an edit that collides with the merge is neither saved as
+    /// a revert nor dropped: the save is refused, the worktree untouched.
+    #[test]
+    fn an_edit_that_collides_with_the_merge_keeps_the_worktree() {
+        let (dir, side) = merged_under("collide");
+        let merge = git(&dir, &["rev-parse", "HEAD"]);
+        std::fs::write(dir.join("a.txt"), "uno\ntwo\nthree\nfour\nfive\n").unwrap();
+        match save_tracked_wip_commit(&dir) {
+            WipSave::Failed(detail) => assert!(detail.contains("stays in the worktree"), "{detail}"),
+            other => panic!("expected Failed, got {other:?}"),
+        }
+        assert_eq!(git(&dir, &["rev-parse", "HEAD"]), merge);
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "uno\ntwo\nthree\nfour\nfive\n");
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "hello\n");
+        assert!(dir.join("gone.txt").exists() && !dir.join("new.txt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&side);
+    }
+
+    /// #EXP-2059: a fast-forward that reached the branch from another
+    /// checkout (one commit, then several: `@{1}` names where it stood).
+    #[test]
+    fn the_pure_inverse_of_a_fast_forward_is_never_saved() {
+        let dir = repo("ff");
+        let side = temp_dir("ff-side");
+        let twin = side.join("twin");
+        git(&dir, &["worktree", "add", "-q", "-f", twin.to_str().unwrap(), "exp/APP-1"]);
+        std::fs::write(twin.join("README.md"), "second\n").unwrap();
+        git(&twin, &["commit", "-q", "-am", "second"]);
+        assert_eq!(worktree_dirty_state(&dir), DirtyState::TrackedChanges);
+        assert_eq!(save_tracked_wip_commit(&dir), WipSave::Clean);
+        assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "second\n");
+        // Two commits in one move, and an edit of this worktree's own.
+        git(&twin, &["checkout", "-q", "--detach"]);
+        std::fs::write(twin.join("README.md"), "third\n").unwrap();
+        git(&twin, &["commit", "-q", "-am", "third"]);
+        std::fs::write(twin.join("b.txt"), "b\n").unwrap();
+        git(&twin, &["add", "b.txt"]);
+        git(&twin, &["commit", "-q", "-m", "fourth"]);
+        let tip = git(&twin, &["rev-parse", "HEAD"]);
+        git(&twin, &["update-ref", "-m", "moved from elsewhere", "refs/heads/exp/APP-1", tip.trim()]);
+        std::fs::write(dir.join("own.txt"), "own\n").unwrap();
+        git(&dir, &["add", "-N", "own.txt"]);
+        assert!(matches!(save_tracked_wip_commit(&dir), WipSave::Committed { .. }));
+        assert_eq!(git(&dir, &["rev-parse", "HEAD~1"]), tip);
+        let files = git(&dir, &["show", "--name-only", "--format=", "HEAD"]);
+        assert_eq!(files.trim(), "own.txt");
+        assert_eq!(git(&dir, &["show", "HEAD:README.md"]), "third\n");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&side);
+    }
+
+    /// #EXP-2059: ordinary work is parked as before: in the very files the
+    /// last commit changed, and an undo of the whole last commit made HERE
+    /// (index at `HEAD`) is work too.
+    #[test]
+    fn ordinary_work_and_an_own_undo_are_parked_as_before() {
+        let dir = repo("ordinary");
+        std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+        std::fs::write(dir.join("README.md"), "second\n").unwrap();
+        git(&dir, &["add", "-A"]);
+        git(&dir, &["commit", "-q", "-m", "second"]);
+        std::fs::write(dir.join("README.md"), "third\n").unwrap();
+        assert!(matches!(save_tracked_wip_commit(&dir), WipSave::Committed { .. }));
+        assert_eq!(git(&dir, &["show", "HEAD:README.md"]), "third\n");
+        assert_eq!(git(&dir, &["log", "-1", "--format=%b"]).trim(), "");
+        std::fs::write(dir.join("README.md"), "fourth\n").unwrap();
+        git(&dir, &["commit", "-q", "-am", "fourth"]);
+        std::fs::write(dir.join("README.md"), "third\n").unwrap();
+        assert!(matches!(save_tracked_wip_commit(&dir), WipSave::Committed { .. }));
+        assert_eq!(git(&dir, &["show", "HEAD:README.md"]), "third\n");
+        assert_eq!(git(&dir, &["log", "-1", "--format=%s"]).trim(), WIP_FINISH_COMMIT_MESSAGE);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
