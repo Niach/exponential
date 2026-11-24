@@ -1686,6 +1686,60 @@ async fn work_between_two_quiets_never_interrupts_the_turn() {
     assert_eq!(interrupts, 0, "work re-arms the quiet guard: no interrupt");
 }
 
+/// #FEED-274 regression: a worker answered `quiet`, its turn ended, a
+/// background build finished and the CLI woke the model for the completion
+/// notification (no prompt from anyone), which it answered `quiet` again.
+/// The guard counted that as a loop and interrupted, and the CLI told the
+/// model "the user" had stopped it. A task notification is a new inbound
+/// message: it re-arms the guard, and the CLI never sees an interrupt.
+#[tokio::test]
+async fn a_quiet_answer_to_a_task_notification_never_interrupts() {
+    let _session = one_session_at_a_time();
+    let work = workdir("quiet-after-notification");
+    let adapter =
+        ClaudeAgent::new(spec("quiet-after-notification", &work.0, false)).expect("the adapter builds");
+    let stop_reason = Client
+        .v1()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            let response = cx
+                .send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![ContentBlock::Text(TextContent::new("Build it in the background."))],
+                ))
+                .block_task()
+                .await?;
+            // The continuation the notification opens runs after the
+            // prompt's own `result`.
+            tokio::time::sleep(Duration::from_millis(600)).await;
+            Ok::<_, Error>(response.stop_reason)
+        })
+        .await
+        .expect("the connection runs cleanly");
+    assert_eq!(stop_reason, StopReason::EndTurn);
+    let stdin = std::fs::read_to_string(work.0.join("stdin.jsonl")).expect("the fake logged stdin");
+    let interrupts = stdin
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|line| line["request"]["subtype"] == serde_json::json!("interrupt"))
+        .count();
+    assert_eq!(interrupts, 0, "a task notification re-arms the quiet guard: no interrupt");
+}
+
 /// EXP-784: the stall watchdog's interrupt says `cancel_queued: false` on
 /// the notification, and that reaches the CLI's `interrupt` verbatim — the
 /// steers queued behind the wedged turn are what it is rescuing.

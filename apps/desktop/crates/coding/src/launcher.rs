@@ -1071,6 +1071,10 @@ pub struct PreparedLaunch {
     /// message), consumed by the engine once that turn is sent. `None` for a
     /// fresh session (its brief is no message) and a device-started resume.
     pub seed_message_id: Option<String>,
+    /// #EXP-2085: one line the host says as this run starts (the pickup's
+    /// relaunch note: the background tasks the restart ended), a feed notice
+    /// and the lead of the agent's first input. `None` from [`prepare`].
+    pub start_note: Option<String>,
     /// EXP-275/EXP-690: the spawn runs with permissions bypassed
     /// (`--dangerously-skip-permissions` / codex bypass — mirrors
     /// `permission_args`: every claude/codex run bypasses, and plan mode
@@ -2555,6 +2559,7 @@ fn prepare_session(
             computer_space: computer_use == crate::computer_place::Placed::Space,
         },
         seed_message_id: None,
+        start_note: None,
         bypass_permissions: true,
         plan_mode: options.plan_mode,
         agent,
@@ -3269,6 +3274,7 @@ fn prepare_resume(
             computer_space: computer_use == crate::computer_place::Placed::Space,
         },
         seed_message_id: resume.message_id.clone(),
+        start_note: None,
         bypass_permissions: true,
         plan_mode: options.plan_mode,
         agent,

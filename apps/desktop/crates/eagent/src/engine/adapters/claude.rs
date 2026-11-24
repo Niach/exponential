@@ -95,7 +95,7 @@ pub use crate::engine::local::INJECTED_PROMPT_META_KEY;
 /// EXP-850: the three `_meta` keys this adapter's new state rides on, plus
 /// the two a WAIT tool row carries (ACP v1 has no `wait` kind).
 pub use crate::engine::local::{
-    BACKGROUND_TASKS_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY, TURN_META_KEY,
+    BACKGROUND_TASKS_META_KEY, DEVICE_INTERRUPT_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY, TURN_META_KEY,
     TURN_TOKENS_META_KEY, TURN_WRITING_META_KEY, WORKFLOW_META_KEY,
 };
 
@@ -780,6 +780,10 @@ struct State {
     /// #EXP-1828: a second `quiet` with no new prompt interrupts the turn.
     quiet_guard: wire::QuietGuard,
 }
+
+/// #FEED-274: what the agent is told after the quiet guard interrupted its
+/// turn (the CLI's own words for an interrupt name "the user").
+pub const QUIET_INTERRUPT_NOTE: &str = "Note from Exponential: this device ended your last turn, not a person. You had called quiet twice with nothing new in between, and the CLI words that interrupt as the user's. Nobody asked you to stop and nothing was rejected. If work is left, carry on with it now; if not, end this turn without a reply.";
 
 /// EXP-784: what the adapter knows about the plan window, from the CLI's
 /// `rate_limit_event`s and its synthetic "You've hit your…" notices.
@@ -2092,6 +2096,10 @@ impl ClaudeSession {
             && state.deferred.is_none()
             && !state.continuation_end_pending;
         state.continuation_running = true;
+        // #FEED-274: a turn the CLI opens itself answers something new (a
+        // finished background task): the agent may answer THAT quiet once.
+        // The loop the guard is for re-wakes inside one turn, never here.
+        state.quiet_guard.on_prompt();
         // A continuation that starts while the previous one waits on its
         // tasks supersedes that end: the agent is working again.
         state.continuation_end_pending = false;
@@ -3737,6 +3745,9 @@ impl ClaudeSession {
                         // for it) the continuation still follows — right
                         // after this turn's `result`, which opens it then.
                         state.notification_pending = true;
+                        // #FEED-274: a finished background task IS a new
+                        // inbound message: the agent may answer it quiet.
+                        state.quiet_guard.on_prompt();
                         if between_turns {
                             self.begin_continuation(cx, &mut state, true);
                         }
@@ -3898,6 +3909,11 @@ impl ClaudeSession {
                 )) {
                     log::warn!("engine: claude quiet-loop interrupt failed: {error}");
                 }
+                // #FEED-274: the CLI tells the model "the user" interrupted;
+                // the host tells it who really did.
+                let mut meta = Map::new();
+                meta.insert(DEVICE_INTERRUPT_META_KEY.to_string(), json!(QUIET_INTERRUPT_NOTE));
+                self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
             }
         }
 
