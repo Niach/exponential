@@ -626,6 +626,18 @@ object AgentSettings {
             return turn.ifEmpty { syncedTeamIds }
         }
 
+        /** #EXP-2095 (`chatTeams.memberCases`, TS `assistantChatMembers`): the
+         *  `@` list's ONE order ×4: by the shown name (the name, else the
+         *  email) lowercased, then the email lowercased, then the id. */
+        fun <T> chatMembers(members: List<T>, id: (T) -> String, name: (T) -> String?, email: (T) -> String?): List<T> =
+            members.sortedWith(
+                compareBy<T>(
+                    { (name(it)?.takeIf { shown -> shown.isNotEmpty() } ?: email(it).orEmpty()).lowercase() },
+                    { email(it).orEmpty().lowercase() },
+                    { id(it) },
+                ),
+            )
+
         /** #EXP-2079 (`chatTeams.deviceCases`, TS `assistantOwnDevices`): the
          *  device list of a session in a team the viewer does not sync, that
          *  they started (the Assistant's conversation) = their own machines,

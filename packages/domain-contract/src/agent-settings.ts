@@ -453,6 +453,28 @@ export function assistantChatTeams(input: {
   return turn.length > 0 ? turn : [...syncedTeamIds]
 }
 
+/** #EXP-2095 (`assistant.chatTeams` (2), `memberCases`): the `@` list's ONE
+ *  order ×4: by the shown name (the name, else the email) lowercased, then
+ *  the email lowercased, then the id; plain string order, no collation. */
+export function assistantChatMembers<T extends { id: string; name?: string | null; email?: string | null }>(
+  members: readonly T[]
+): T[] {
+  const key = (m: T) => {
+    const email = (m.email ?? ``).toLowerCase()
+    return [(m.name || m.email || ``).toLowerCase(), email, m.id] as const
+  }
+  return members
+    .map((member) => ({ member, key: key(member) }))
+    .sort((a, b) => {
+      for (let i = 0; i < 3; i++) {
+        if (a.key[i] < b.key[i]) return -1
+        if (a.key[i] > b.key[i]) return 1
+      }
+      return 0
+    })
+    .map((row) => row.member)
+}
+
 /** #EXP-2079 (`assistant.chatTeams` `deviceCases`): the device list of a
  *  session in a team the viewer does not sync, that they started (the
  *  Assistant's conversation) = their own machines, no team rule. */

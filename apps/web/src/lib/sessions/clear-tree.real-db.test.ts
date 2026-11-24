@@ -35,6 +35,7 @@ if (!ready.ok) console.info(`[clear-tree.real-db] skipped: ${ready.reason}`)
 
 const { sendSession } = await import(`@/lib/sessions/send`)
 const { postShowCard, buildPlanCard, buildSealedShowCard } = await import(`@/lib/sessions/plan`)
+const { postReplies, postSuggestions } = await import(`@/lib/sessions/suggestions`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
 const { createTreeKeyInTx } = await import(`@/lib/sessions/tree-keys`)
 
@@ -176,5 +177,22 @@ describe.skipIf(!ready.ok)(`cards (cardCases)`, () => {
     await expect(postShowCard({ userId: w.owner, sessionId: r.rootId, card: sealed, replace: false })).resolves.toBeTruthy()
     const keyless = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `k` } })
     await expect(postShowCard({ userId: w.owner, sessionId: keyless.sessionId, card: plan, replace: false })).resolves.toBeTruthy()
+  })
+
+  it(`#EXP-2118: plaintext suggestions and replies into a keyed tree are refused and nothing of them is stored`, async () => {
+    const w = await world()
+    const r = await w.keyedServerRoot()
+    const tasks = [{ title: `CLEAR-2118`, text: `CLEAR-2118` }]
+    const replies = [`CLEAR-2118`]
+    const refused = /end-to-end encrypted/
+    await expect(postSuggestions({ userId: w.owner, callerSessionId: r.rootId, tasks })).rejects.toThrow(refused)
+    await expect(postReplies({ userId: w.owner, callerSessionId: r.rootId, replies })).rejects.toThrow(refused)
+    await expect(
+      postShowCard({ userId: w.owner, sessionId: r.rootId, card: buildPlanCard({ plan: `CLEAR-2118` }), replace: false })
+    ).rejects.toThrow(refused)
+    const rows = await db.select().from(messages).where(eq(messages.sessionId, r.rootId))
+    expect(JSON.stringify(rows)).not.toContain(`CLEAR-2118`)
+    const keyless = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `k` } })
+    await expect(postReplies({ userId: w.owner, callerSessionId: keyless.sessionId, replies })).resolves.toBeTruthy()
   })
 })

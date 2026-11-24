@@ -16,6 +16,8 @@ reqwest.workspace = true
 libc.workspace = true
 # #ERR-12: native crashes (signals, aborts, SEH) as events on the next launch.
 crash-monitor = { path = "../crash-monitor" }
+# #EXP-2091: the thread stacks of a process that stopped, without the logger.
+stall-watch = { path = "../stall-watch" }
 
 [dev-dependencies]
 # The tunnel test builds its own reqwest client.

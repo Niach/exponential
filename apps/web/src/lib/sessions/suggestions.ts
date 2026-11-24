@@ -17,7 +17,7 @@ import { assertCanSteer, isSessionPrincipal, loadSessionForUser } from "@/lib/se
 import { assertIssuesInTeam, linkIssues } from "@/lib/sessions/issues"
 import { insertMessage, messageWithSession } from "@/lib/sessions/messages"
 import { isSealedBody, isSealedCard } from "@/lib/sessions/sealed"
-import { sendSession, type SendExtras } from "@/lib/sessions/send"
+import { assertNotPlainInSealedTree, sendSession, type SendExtras } from "@/lib/sessions/send"
 import type { Tx } from "@/lib/sessions/tx"
 import {
   patchReplies,
@@ -207,6 +207,8 @@ export async function postSuggestions(args: {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Suggest only on your own session` })
   }
   return db.transaction(async (tx) => {
+    // #EXP-2118 (sealed-content.json `clearTree.cardCases`): never stored in clear.
+    await assertNotPlainInSealedTree(tx, session.rootId, session.id)
     const items: SuggestionItem[] = []
     for (const task of args.tasks) {
       const issueIds = task.issueIds?.length
@@ -250,6 +252,7 @@ export async function postReplies(args: {
   }
   const items: ReplyItem[] = args.replies.map((text) => ({ id: crypto.randomUUID(), text }))
   return db.transaction(async (tx) => {
+    await assertNotPlainInSealedTree(tx, session.rootId, session.id)
     const messageId = await insertMessage(tx, session, {
       authorKind: `agent`,
       authorSessionId: session.id,

@@ -101,7 +101,7 @@ final class IssueDetailViewModel {
     // Members offered by the editor's @-mention autocomplete — the issue's
     // team only (EXP-487).
     var mentionMembers: [MentionMember] {
-        teamUsers.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+        AgentSettings.chatMembers(teamUsers).map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
     /// True once the bounded load clock ran out with no issue row — the view
     /// swaps its spinner for a real explanation plus a retry (EXP-264: a push
