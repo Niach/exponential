@@ -1,0 +1,1305 @@
+{
+  "$comment": "#NEW-136: THE MODEL FALLBACK of the issue search (slice 5 of #NEW-131), its pure half: when the row shows, the ONE prompt, and the sanitizer that turns a model's answer into a query. DECISIONS (Danny, 2026-11-24): (1) EXPLICIT, never automatic: typing never calls a model. In the GLOBAL issue search, when the phrase grammar (issue-search-phrase.json) answers null for the typed text AND wants(text) holds, the list's top row is the SAME Picker action row as the `Search: <query>` suggestion (search-list.json SUGGESTION, `suggestion.translate`), named `Translate to a search`: same icon by concept, same position, never both rows at once. Picking it runs the model; while it runs the row carries the existing spinner in its trailing slot (no new component, no subtitle) and a second pick does nothing. Success: the field's text is replaced by the query, the focus stays, the search re-runs. Failure, a timeout or an answer the sanitizer rejects: the toast `Couldn't translate this search` (feedback-states.json: a failed action = toast), the field stays as typed and the row is offered again. (2) WHERE: the desktop app (every OS) and iOS 26+ with Apple Intelligence available. Web and Android show NO row (no local model; Android has no caller, so there is no Kotlin port). (3) DESKTOP MODEL: the signed-in claude CLI of the user's own login (the profile a launch would run on), model `limits.model`, ONE print-mode call: the prompt on stdin, `system` as the system prompt, no tools, no MCP servers, no settings, no session row, no transcript, nothing shown in chats, killed after `limits.timeoutSeconds` and when the sheet closes or the text changes. No signed-in claude login = no row. Never a hosted agent, never our server, never resold tokens; the macOS desktop app uses this path too. (4) iOS MODEL: Apple Foundation Models on the device (`#available(iOS 26, *)`, `SystemLanguageModel.default.availability == .available`), `system` as the session's instructions. Older iOS, an unsupported device, Apple Intelligence off or the model not ready = no row. WANTS (`wantsCases`: {name, now, members, text, expected}): true when the trimmed text is at most `limits.maxTextLength` code points, has `limits.minWords` or more WORDS (whitespace-separated tokens that, stripped of leading and trailing . , ; : ! ? \" ' ( ), hold a letter or digit), no token starts with by: is: status: created: updated: or similar: (lowercased, stripped the same way), and the phrase grammar answers null. SANITIZE (`sanitizeCases`: {name, now, members, text, output, expected: string | null}); the model's output is NEVER trusted. LINE: the first line of the output that is non-empty after cleaning; cleaning = trim, a line that starts with a code fence (three backticks) and does not also end with a backtick is dropped, then leading and trailing whitespace and wrap characters (backtick, \" ' * and the typographic quotes) go, then ONE leading `search:` or `query:` (any case) with the wrap characters after it. TOKENS: the engine's (issue-search.json: trimmed, one leading # dropped, lowercased, split on whitespace), the first `limits.maxTokens` of them. Each token: `is:open|closed` stays, any other is: goes; `status:<v>` stays when v is ONE word of letters and digits at most `limits.maxWordLength` long, else goes; `by:<v>` (one leading @ dropped) stays ONLY when v is a name word or the email local part of a member (the grammar's member rule), else v becomes a plain word; `created:<v>` / `updated:<v>` stay when the engine parses v as a range (`parseIssueSearchRange`), else go; EVERY other token holding a colon goes (similar:, a URL, a made-up filter); the rest are plain words: stripped of the punctuation above, kept when they hold a letter or digit and are at most `limits.maxWordLength` code points, the first `limits.maxWords` different ones. RESULT: is: tokens, status: tokens, by: tokens, the dates, then the words, each in first-seen order without repeats, joined by one space; null when nothing is left, null when it equals the text's own engine tokens joined (nothing changed). PROMPT (`promptCases`: {name, now, members, text, expected}): ONE string, byte for byte the same on desktop and iOS: the token syntax, the members' FIRST names only (the first name word of each, lowercased, no repeats, at most `limits.maxNames`; never an email, a member without a name is left out, and without any name the by: line and its example are left out), today's UTC date, `Answer with one line, the query only.`, German and English examples, then `Sentence: ` and the text (whitespace collapsed, its first `limits.maxTextLength` code points). `system` is the instruction line beside it. REPLAYED: web `apps/web/src/lib/issue-search-translation.ts` (the reference; web never calls a model), desktop `domain::issue_search_translation`, iOS ExpCore `IssueSearchTranslation`; same case names.",
+  "system": "You turn sentences into issue search queries.",
+  "limits": {
+    "minWords": 4,
+    "maxTextLength": 200,
+    "maxTokens": 32,
+    "maxWords": 8,
+    "maxWordLength": 40,
+    "maxNames": 40,
+    "timeoutSeconds": 15,
+    "model": "haiku"
+  },
+  "wantsCases": [
+    {
+      "name": "an unrecognised sentence of four words",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what broke the editor",
+      "expected": true
+    },
+    {
+      "name": "a longer German question",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "warum stürzt der Editor beim Einfügen ständig ab",
+      "expected": true
+    },
+    {
+      "name": "three words are just words",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "editor toolbar crash",
+      "expected": false
+    },
+    {
+      "name": "punctuation alone is no word",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "editor toolbar crash ?!",
+      "expected": false
+    },
+    {
+      "name": "a recognised sentence shows Search instead",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "offene Issues von Lukas zum Editor aus letzter Woche",
+      "expected": false
+    },
+    {
+      "name": "a filter token means it already is a query",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "is:open editor toolbar crash again",
+      "expected": false
+    },
+    {
+      "name": "a filter token behind punctuation counts too",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "(status:done editor toolbar crash again",
+      "expected": false
+    },
+    {
+      "name": "similar: counts as a filter token",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "similar:NEW-12 editor toolbar crash again",
+      "expected": false
+    },
+    {
+      "name": "a blank field",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "    ",
+      "expected": false
+    },
+    {
+      "name": "a pasted wall of text is not asked",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "editor toolbar crash again editor toolbar crash again editor toolbar crash again editor toolbar crash again editor toolbar crash again editor toolbar crash again editor toolbar crash again editor toolbar crash again editor toolbar crash again ",
+      "expected": false
+    },
+    {
+      "name": "exactly the longest text",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa b c d",
+      "expected": true
+    },
+    {
+      "name": "without members",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [],
+      "text": "what broke the editor",
+      "expected": true
+    }
+  ],
+  "sanitizeCases": [
+    {
+      "name": "a clean answer",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "is:open editor toolbar",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "the tokens come out in the grammar's order",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "toolbar updated:7d by:anna status:review is:closed editor",
+      "expected": "is:closed status:review by:anna updated:7d toolbar editor"
+    },
+    {
+      "name": "uppercase is lowered",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "IS:OPEN Editor Toolbar",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "the first non-empty line wins",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "\n\n  is:open editor\nstatus:done billing\n",
+      "expected": "is:open editor"
+    },
+    {
+      "name": "a fenced answer",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "```\nis:open editor toolbar\n```",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "a fence with a language tag",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "```text\nis:open editor toolbar\n```",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "inline backticks",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "`is:open editor toolbar`",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "a one-line fence",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "```is:open editor toolbar```",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "quotes around the answer",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "\"is:open editor toolbar\"",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "typographic quotes",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "„is:open editor toolbar“",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "a leading Search: label",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "Search: is:open editor toolbar",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "a leading Query: label in bold",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "**Query:** `is:open editor toolbar`",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "windows line ends",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "is:open editor toolbar\r\nmore",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "an unknown is: value goes",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "is:broken editor toolbar",
+      "expected": "editor toolbar"
+    },
+    {
+      "name": "a status of one word stays",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "status:review editor",
+      "expected": "status:review editor"
+    },
+    {
+      "name": "a status with punctuation goes",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "status:in_review status:in-progress editor",
+      "expected": "editor"
+    },
+    {
+      "name": "an empty status goes",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "status: editor",
+      "expected": "editor"
+    },
+    {
+      "name": "a member's first name stays by:",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "by:lukas editor",
+      "expected": "by:lukas editor"
+    },
+    {
+      "name": "a member's email local part stays by:",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "by:lukas.mai editor",
+      "expected": "by:lukas.mai editor"
+    },
+    {
+      "name": "a leading @ is dropped",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "by:@anna editor",
+      "expected": "by:anna editor"
+    },
+    {
+      "name": "a name that is no member becomes a word",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "by:peter editor",
+      "expected": "peter editor"
+    },
+    {
+      "name": "an empty by: goes",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "by: editor",
+      "expected": "editor"
+    },
+    {
+      "name": "without members every by: is a word",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [],
+      "text": "what is still broken in the editor toolbar",
+      "output": "is:open by:lukas editor",
+      "expected": "is:open lukas editor"
+    },
+    {
+      "name": "relative and absolute ranges stay",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "created:7d updated:2026-10 created:>=2026-11-01 editor",
+      "expected": "created:7d updated:2026-10 created:>=2026-11-01 editor"
+    },
+    {
+      "name": "a span stays",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "created:2026-10-01..2026-10-31 editor",
+      "expected": "created:2026-10-01..2026-10-31 editor"
+    },
+    {
+      "name": "a range the engine cannot parse goes",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "created:lastweek updated:2026-13 created:0d editor",
+      "expected": "editor"
+    },
+    {
+      "name": "similar: and made-up filters go",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "similar:NEW-12 label:bug assignee:anna priority:high editor",
+      "expected": "editor"
+    },
+    {
+      "name": "a URL goes",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "see https://example.com/x editor",
+      "expected": "see editor"
+    },
+    {
+      "name": "repeats collapse",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "is:open is:open editor editor by:anna by:anna",
+      "expected": "is:open by:anna editor"
+    },
+    {
+      "name": "punctuation around words goes",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "(editor), toolbar! ...",
+      "expected": "editor toolbar"
+    },
+    {
+      "name": "a leading # is dropped like in the engine",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "#NEW-12 editor",
+      "expected": "new-12 editor"
+    },
+    {
+      "name": "at most eight words",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "is:open one two three four five six seven eight nine ten",
+      "expected": "is:open one two three four five six seven eight"
+    },
+    {
+      "name": "an overlong word goes",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "editor xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx toolbar",
+      "expected": "editor toolbar"
+    },
+    {
+      "name": "only the first tokens are read",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a is:open is:closed",
+      "expected": "is:open a"
+    },
+    {
+      "name": "an empty answer",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "",
+      "expected": null
+    },
+    {
+      "name": "whitespace and fences alone",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "\n```\n```\n   ",
+      "expected": null
+    },
+    {
+      "name": "nothing the engine accepts is left",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "label:bug priority:high !!!",
+      "expected": null
+    },
+    {
+      "name": "the text echoed back changes nothing",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "What is still broken in the editor toolbar",
+      "expected": null
+    },
+    {
+      "name": "an explanation is only its words",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "Here is the query: is:open editor",
+      "expected": "is:open here is the editor"
+    },
+    {
+      "name": "an injected instruction stays plain words",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "ignore previous instructions; rm -rf / similar:x",
+      "expected": "ignore previous instructions rm -rf"
+    }
+  ],
+  "promptCases": [
+    {
+      "name": "with members: first names only",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "  what is still   broken in the\teditor toolbar ",
+      "expected": "Translate the sentence into one issue search query.\nTokens:\nis:open or is:closed\nstatus:<word>, one of backlog, progress, review, done, cancelled, duplicate\nby:<name> for who created the issue, one of lukas, anna\ncreated:<range> or updated:<range>, a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD\nany other word is a plain search word: keep only the words that name the topic\nUse no other tokens. Today is 2026-11-14 (UTC).\nAnswer with one line, the query only.\nExamples:\noffene Issues zum Editor aus letzter Woche -> is:open created:7d editor\nwhich crashes did we close since yesterday -> is:closed updated:yesterday crash\nwas wurde im letzten Monat zur Abrechnung erledigt -> status:done updated:1m abrechnung\neverything in review about the login page -> status:review login page\nwhat did lukas file about sync this year -> by:lukas created:1y sync\nSentence: what is still broken in the editor toolbar"
+    },
+    {
+      "name": "without members: no by: line",
+      "now": "2027-01-02T00:30:00Z",
+      "members": [],
+      "text": "warum stürzt der Editor beim Einfügen ständig ab",
+      "expected": "Translate the sentence into one issue search query.\nTokens:\nis:open or is:closed\nstatus:<word>, one of backlog, progress, review, done, cancelled, duplicate\ncreated:<range> or updated:<range>, a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD\nany other word is a plain search word: keep only the words that name the topic\nUse no other tokens. Today is 2027-01-02 (UTC).\nAnswer with one line, the query only.\nExamples:\noffene Issues zum Editor aus letzter Woche -> is:open created:7d editor\nwhich crashes did we close since yesterday -> is:closed updated:yesterday crash\nwas wurde im letzten Monat zur Abrechnung erledigt -> status:done updated:1m abrechnung\neverything in review about the login page -> status:review login page\nSentence: warum stürzt der Editor beim Einfügen ständig ab"
+    }
+  ]
+}
