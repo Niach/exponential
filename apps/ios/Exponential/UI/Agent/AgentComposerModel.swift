@@ -119,7 +119,16 @@ final class AgentComposerModel {
     /// pick itself (nil = every team).
     private var teamRows: [TeamEntity] = []
     var teamsPicked: [String]?
+    /// #EXP-2109: the New chat page spans every team (a play button's page
+    /// keeps its subject's): the agent row lists every team's agents, and a
+    /// plain chat carries the Teams pick, the page's (`plain*`; its `teamId`
+    /// = the first picked).
+    var crossTeam = false
+    var plainPicked: [String] = []
+    var onPlainPick: ([String]) -> Void = { _ in }
     private var pullRequestRows: [StartPullRequestOption.Candidate] = []
+    /// Every live app's agent: listed as its app only.
+    private var appAgentIds: [String] = []
     @ObservationIgnored private var openPulls: [PullRequestEntity] = []
     @ObservationIgnored private var pullLinks: [PullRequestIssueEntity] = []
     @ObservationIgnored private var poolTask: Task<Void, Never>?
@@ -233,11 +242,12 @@ final class AgentComposerModel {
             let prompts = try PromptEntity.fetchAll(db)
             let agents = try AgentDefinitionEntity.fetchAll(db)
             let teams = try TeamEntity.fetchAll(db)
+            let apps = try AppEntity.filter(Column("deleted_at") == nil).fetchAll(db).compactMap(\.agentId)
             let pulls = try PullRequestEntity
                 .filter(Column("state") == DomainContract.prStateOpen)
                 .fetchAll(db)
             let links = try PullRequestIssueEntity.fetchAll(db)
-            return (boards, prompts, (agents, teams), pulls, links)
+            return (boards, prompts, (agents, teams, apps), pulls, links)
         }
         poolTask = Task { [weak self] in
             do {
@@ -249,6 +259,7 @@ final class AgentComposerModel {
                     self.agentRows = agents.0
                     self.syncedTeamIds = agents.1.map(\.id)
                     self.teamRows = agents.1
+                    self.appAgentIds = agents.2
                     self.openPulls = pulls
                     self.pullLinks = links
                     self.rebuildPullRequestRows()
@@ -373,6 +384,17 @@ final class AgentComposerModel {
     /// then name) — what `agentId` must name. #EXP-1714: plus the viewer's
     /// global Assistant (`agentsInTeam`).
     var agents: [AgentDefinitionEntity] {
+        if crossTeam {
+            // Every team's agents and the viewer's ONE Assistant (the global
+            // one first: its personal team never syncs).
+            let me = deps.auth.userId
+            let mine = agentRows.filter { AgentSettings.isMyAssistant($0, me: me) }
+            let assistant = mine.first { !syncedTeamIds.contains($0.teamId) } ?? mine.first
+            let appAgents = Set(appAgentIds)
+            return (assistant.map { [$0] } ?? []) + agentRows
+                .filter { !$0.isAssistant && syncedTeamIds.contains($0.teamId) && !appAgents.contains($0.id) }
+                .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+        }
         guard let teamId else { return [] }
         return AgentSettings.agentsInTeam(
             agentRows.sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) },
@@ -381,9 +403,20 @@ final class AgentComposerModel {
     }
 
     /// #EXP-1715 (composer-menu.json `teamsPick`): the Teams pick while the
-    /// agent row picks the viewer's OWN Assistant; nil for anyone else (no
-    /// `scopeTeamIds` on the wire then).
+    /// agent row picks the viewer's OWN Assistant; #EXP-2109 a plain chat's
+    /// (its own team leads, at least one); nil for a team agent's.
     var teamsPick: ComposerTeamsBinding? {
+        if crossTeam, agentId == nil {
+            return ComposerTeamsBinding(
+                teams: ComposerTeamsBinding.teams(teamRows),
+                picked: plainPicked,
+                onChange: { [weak self] next in
+                    guard let self else { return }
+                    // Every team checked (nil) = every team, still a list.
+                    self.onPlainPick(next ?? TeamGroups.ordered(self.teamRows).map(\.id))
+                }
+            )
+        }
         guard let agentId, let agent = agentRows.first(where: { $0.id == agentId }),
               AgentSettings.isMyAssistant(agent, me: deps.auth.userId)
         else { return nil }
@@ -811,6 +844,9 @@ final class AgentComposerModel {
         teamId: String, deviceId: String, text: String?, attachmentIds: [String]
     ) -> SessionsSendInput {
         let attachments = attachmentIds.isEmpty ? nil : attachmentIds
+        // #EXP-2109: the OTHER picked teams; none = its own team only.
+        let scope = crossTeam ? plainPicked.filter { $0 != teamId } : []
+        let scopeTeamIds = scope.isEmpty ? nil : scope
         switch subject {
         case .none:
             return .newChat(
@@ -819,7 +855,8 @@ final class AgentComposerModel {
                 options: launch.buildOptions(),
                 text: text,
                 attachmentIds: attachments,
-                repositoryId: chatRepoId.isEmpty ? nil : chatRepoId
+                repositoryId: chatRepoId.isEmpty ? nil : chatRepoId,
+                scopeTeamIds: scopeTeamIds
             )
         case .issues:
             return .newChat(
@@ -828,7 +865,8 @@ final class AgentComposerModel {
                 options: launch.buildOptions(),
                 text: text,
                 attachmentIds: attachments,
-                issueIds: effectiveChecked
+                issueIds: effectiveChecked,
+                scopeTeamIds: scopeTeamIds
             )
         case .prompt, .agent:
             // NEW-2: the picked saved PROMPT: its body plus `text` = the first
@@ -841,7 +879,8 @@ final class AgentComposerModel {
                 text: text,
                 attachmentIds: attachments,
                 promptId: promptId,
-                repositoryId: chatRepoId.isEmpty ? nil : chatRepoId
+                repositoryId: chatRepoId.isEmpty ? nil : chatRepoId,
+                scopeTeamIds: scopeTeamIds
             )
         }
     }

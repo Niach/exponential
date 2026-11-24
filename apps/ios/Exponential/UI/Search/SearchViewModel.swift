@@ -2,11 +2,11 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// Backs the Search page: observes the ACTIVE team's issues (#EXP-1382,
-/// search-list.json TEAM SCOPE — the phone shell has one active team) and
+/// Backs the Search page: observes every member team's issues (#EXP-2109:
+/// no active team on a phone; search-list.json) and
 /// ranks queries with the shared `IssueSearch` engine (EXP-892 — the ONE
 /// algorithm web, iOS, Android and desktop run). A debounced server
-/// `issues.search` for that team (full-text over title + description +
+/// `issues.search` over those teams (full-text over title + description +
 /// comments) augments it with issues the local ranking missed.
 ///
 /// TYPING never waits on the rank: every snapshot is PREPARED once
@@ -38,16 +38,16 @@ final class SearchViewModel {
     /// shows the empty state meanwhile (feedback-states.json: no false
     /// "No issues match" while the work is pending).
     var isRanking: Bool {
-        !query.isEmpty && teamId != nil && (index == nil || localQuery != query)
+        !query.isEmpty && (index == nil || localQuery != query)
     }
 
-    /// The active team's statuses in render order (EXP-1554: a row's glyph
-    /// is its TEAM status's, e.g. the quarter clock of In Progress among
-    /// three started statuses, as web draws it).
-    private(set) var teamStatuses: [ResolvedIssueStatus] = []
+    /// Each team's statuses in render order, by board (EXP-1554: a row's
+    /// glyph is its TEAM status's, e.g. the quarter clock of In Progress
+    /// among three started statuses, as web draws it).
+    private(set) var boardStatuses: [String: [ResolvedIssueStatus]] = [:]
 
     // #EDE-99 (search-list.json CHATS): the chat store's `searchAll`, the
-    // active team's roots only. nil `chatHits` = no store on this client.
+    // synced roots only. nil `chatHits` = no store on this client.
     /// The Chats rows on screen (the previous query's while a newer one runs).
     private(set) var chatRows: [SearchList.GlobalChatRow] = []
     /// A newer query is with the store (the Section's spinner).
@@ -61,9 +61,8 @@ final class SearchViewModel {
     private var chatQuery = ""
     private var chatTask: Task<Void, Never>?
 
-    private var teamId: String?
     private var query = ""
-    /// The active team's issues, prepared once per snapshot.
+    /// The issues, prepared once per snapshot.
     private var index: IssueSearch.Index<IssueEntity>?
     // The local rank for `localQuery` and the server's relevance-ordered
     // hits for `serverHitsQuery`; `publish` merges them only while both
@@ -87,33 +86,22 @@ final class SearchViewModel {
         self.issuesApi = issuesApi
     }
 
-    /// Points the page at `teamId` (the shell's active team) and observes its
-    /// issues; a switch re-runs the query against the new team.
-    func startObserving(teamId: String?) {
+    func startObserving() {
         stopObserving() // restartable: the view re-arms on every appear
-        if teamId != self.teamId {
-            self.teamId = teamId
-            index = nil
-            local = []
-            localQuery = ""
-            serverHits = []
-            serverHitsQuery = ""
-            results = []
-            teamStatuses = []
-            chatHits = []
-            chatHitsQuery = ""
-            chatRows = []
-        }
-        guard let teamId, let pool = try? db.pool(forAccountId: accountId) else { return }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
 
-        let statusObservation = ValueObservation.tracking { db in
-            try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
+        let statusObservation = ValueObservation.tracking { db -> [String: [ResolvedIssueStatus]] in
+            let byTeam = Dictionary(grouping: try IssueStatusEntity.fetchAll(db), by: \.teamId)
+                .mapValues(IssueStatusResolver.teamStatuses)
+            return Dictionary(
+                try BoardEntity.fetchAll(db).map { ($0.id, byTeam[$0.teamId] ?? []) }, uniquingKeysWith: { a, _ in a }
+            )
         }
         .removeDuplicates()
         statusTask = Task { [weak self] in
             do {
-                for try await rows in statusObservation.values(in: pool) {
-                    self?.teamStatuses = IssueStatusResolver.teamStatuses(rows)
+                for try await next in statusObservation.values(in: pool) {
+                    self?.boardStatuses = next
                 }
             } catch {}
         }
@@ -128,11 +116,11 @@ final class SearchViewModel {
         // custom status as well as the anchor.
         let observation = ValueObservation.tracking { db in
             let issues = try IssueEntity
-                .filter(sql: "board_id IN (SELECT id FROM boards WHERE team_id = ?)", arguments: [teamId])
+                .filter(sql: "board_id IN (SELECT id FROM boards)")
                 .fetchAll(db)
             let users = try UserEntity.fetchAll(db)
-            let agents = try AgentDefinitionEntity.filter(Column("team_id") == teamId).fetchAll(db)
-            let statuses = try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            let agents = try AgentDefinitionEntity.fetchAll(db)
+            let statuses = try IssueStatusEntity.fetchAll(db)
             return SearchSnapshot(
                 issues: issues,
                 members: Dictionary(users.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }),
@@ -202,28 +190,32 @@ final class SearchViewModel {
         }
         scheduleRank(debounce: true)
 
-        // ONE request, scoped to the active team (`issues.search` takes the
-        // team id); failures just mean no server hits.
-        guard let teamId else { return }
+        // ONE request over every synced team; failures just mean no server
+        // hits.
         let accountId = accountId
         let api = issuesApi
+        let db = db
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: Self.serverDebounce)
             guard !Task.isCancelled else { return }
+            let teamIds = (try? await db.pool(forAccountId: accountId).read { db in
+                try String.fetchAll(db, sql: #"SELECT "id" FROM "teams" LIMIT 50"#)
+            }) ?? []
+            guard !teamIds.isEmpty else { return }
             let hits = (try? await api.search(
                 accountId: accountId,
-                teamId: teamId,
+                teamIds: teamIds,
                 query: trimmed,
                 limit: Self.resultLimit
             )) ?? []
-            guard let self, !Task.isCancelled, self.query == trimmed, self.teamId == teamId else { return }
+            guard let self, !Task.isCancelled, self.query == trimmed else { return }
             self.serverHits = hits
             self.serverHitsQuery = trimmed
             self.publish()
         }
     }
 
-    /// The active team's roots (`SessionListsModel.searchRoots`): a change
+    /// The synced roots (`SessionListsModel.searchRoots`): a change
     /// re-filters the rows on screen.
     func setChatRoots(_ roots: [String: SearchList.GlobalChatRoot]) {
         guard roots != chatRoots else { return }
@@ -365,7 +357,7 @@ final class SearchViewModel {
     }
 }
 
-/// #NEW-21: one observed snapshot: the team's issues and the synced members
+/// #NEW-21: one observed snapshot: the teams' issues and the synced members
 /// and agents their creator ids resolve against (#NEW-132: and the team
 /// status names their status ids resolve against).
 private struct SearchSnapshot: Equatable, Sendable {

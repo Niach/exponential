@@ -24,7 +24,6 @@ enum AppIntentsHost {
     struct Context: Sendable {
         let accountId: String
         let userId: String?
-        let teamId: String?
         let deps: AppDependencies
     }
 
@@ -40,7 +39,6 @@ enum AppIntentsHost {
         return Context(
             accountId: accountId,
             userId: account.userId,
-            teamId: SharedBoardMirror.readActiveTeam(accountId: accountId),
             deps: deps
         )
     }
@@ -74,15 +72,18 @@ struct IntentBoard: AppIntents.AppEntity {
         DisplayRepresentation(title: "\(name)")
     }
 
-    /// The active account's boards (its active team's when it has one), in
-    /// sidebar order.
+    /// The active account's boards: team order, then sidebar order.
     static func all(_ context: AppIntentsHost.Context) async -> [IntentBoard] {
         guard let pool = try? context.deps.db.pool(forAccountId: context.accountId) else { return [] }
-        let rows = (try? await pool.read { db in try BoardEntity.fetchAll(db) }) ?? []
-        let scoped = context.teamId.map { team in rows.filter { $0.teamId == team } }.flatMap { $0.isEmpty ? nil : $0 } ?? rows
-        return scoped
-            .map { IntentBoard(id: $0.id, name: $0.name, sortOrder: $0.sortOrder ?? 0) }
-            .sorted { $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.name < $1.name }
+        let rows = (try? await pool.read { db -> [BoardEntity] in
+            let boards = Dictionary(grouping: try BoardEntity.fetchAll(db), by: \.teamId)
+            return TeamGroups.ordered(try TeamEntity.fetchAll(db)).flatMap { team in
+                (boards[team.id] ?? []).sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
+            }
+        }) ?? []
+        return rows.enumerated().map { index, board in
+            IntentBoard(id: board.id, name: board.name, sortOrder: Double(index))
+        }
     }
 }
 
@@ -111,13 +112,12 @@ struct IntentAgent: AppIntents.AppEntity {
         DisplayRepresentation(title: "\(name)")
     }
 
-    /// agent-settings.json `orderedAgents` of the active account (its active
-    /// team's when it has one): the member's Assistant first.
+    /// agent-settings.json `orderedAgents` of the active account, every
+    /// team's: the member's Assistant first.
     static func ordered(_ context: AppIntentsHost.Context) async -> [AgentDefinitionEntity] {
         guard let pool = try? context.deps.db.pool(forAccountId: context.accountId) else { return [] }
         let rows = (try? await pool.read { db in try AgentDefinitionEntity.fetchAll(db) }) ?? []
-        let scoped = context.teamId.map { team in rows.filter { $0.teamId == team } }.flatMap { $0.isEmpty ? nil : $0 } ?? rows
-        return AgentOrdering.orderedAgents(scoped, me: context.userId)
+        return AgentOrdering.orderedAgents(rows, me: context.userId)
     }
 }
 

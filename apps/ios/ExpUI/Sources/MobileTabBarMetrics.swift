@@ -1,24 +1,42 @@
 import ExpCore
 import SwiftUI
 
-/// #EXP-1384 (chats.json `shell.bar`): the phone bottom strip = the tab
-/// capsule (Board · Chats · Apps · Team, each an icon over its label) beside
-/// the unchanged split launcher (chat | new issue). The capsule is
-/// `height` tall with `padding` inside and TAKES THE WIDTH the screen leaves
-/// beside the launcher (`gap` between them); each tab starts as wide as its
-/// label (label + 2 × `tabPaddingX`, at least `tabMinWidth`) and the tabs
-/// share the rest evenly; a label truncates only when the labels alone do
-/// not fit, the widest giving way first (`tabWidths`). The caret never takes
-/// part: it hangs beside the glyph (`caretOffset`).
+/// #EXP-2109 (chats.json `shell.dock` / `shell.newMenu`): the phone's docked
+/// bar and its New popup.
+public enum PhoneDockMetrics {
+    public static let height = CGFloat(Chats.Shell.Dock.height)
+    public static let icon = CGFloat(Chats.Shell.Dock.icon)
+    public static let label = CGFloat(Chats.Shell.Dock.label)
+    public static let gap = CGFloat(Chats.Shell.Dock.gap)
+    /// The Assistant cell: its disc, the mark in it, how far it rises above
+    /// the bar, the ring of the page background around it, the glow's blur.
+    public static let disc = CGFloat(Chats.Shell.Dock.disc)
+    public static let mark = CGFloat(Chats.Shell.Dock.mark)
+    public static let raise = CGFloat(Chats.Shell.Dock.raise)
+    public static let ring = CGFloat(Chats.Shell.Dock.ring)
+    public static let glow = CGFloat(Chats.Shell.Dock.glow)
+    /// What a page under the bar reserves above the safe area: the bar and
+    /// the part of the disc's ring that rises above it.
+    public static var clearance: CGFloat { height + raise + ring }
+
+    public static let menuWidth = CGFloat(Chats.Shell.NewMenu.width)
+    public static let menuRowHeight = CGFloat(Chats.Shell.NewMenu.rowHeight)
+    public static let menuRadius = CGFloat(Chats.Shell.NewMenu.radius)
+    public static let menuGap = CGFloat(Chats.Shell.NewMenu.gap)
+}
+
+/// chats.json `shell.bar`: a running app's own screens bar (the floating
+/// glass capsule, `PhoneTabCapsule`). The capsule is `height` tall with
+/// `padding` inside; each tab starts as wide as its label (label + 2 ×
+/// `tabPaddingX`, at least `tabMinWidth`) and the tabs share the rest evenly;
+/// a label truncates only when the labels alone do not fit, the widest giving
+/// way first (`tabWidths`).
 ///
-/// The numbers live here rather than inside `MobileTabBar` so the
-/// distribution is TESTED (`MobileTabBarMetricsTests`) instead of eyeballed.
+/// The numbers live here rather than inside the view so the distribution is
+/// TESTED (`MobileTabBarMetricsTests`) instead of eyeballed.
 public enum MobileTabBarMetrics {
 
-    /// SE / mini — the narrowest screen the bar must fit.
-    public static let smallestPhoneWidth: CGFloat = 375
-
-    /// The capsule's height (`shell.bar.height`) — the launcher's arms match it.
+    /// The capsule's height (`shell.bar.height`).
     public static let barHeight = CGFloat(Chats.Shell.Bar.height)
     /// The capsule's own padding around its tabs (`shell.bar.padding`).
     public static let pillPadding = CGFloat(Chats.Shell.Bar.padding)
@@ -29,45 +47,12 @@ public enum MobileTabBarMetrics {
     public static let tabPaddingX = CGFloat(Chats.Shell.Bar.tabPaddingX)
     /// The tab label under its icon.
     public static let labelSize: CGFloat = 10
-    /// Capsule → launcher (`shell.bar.gap`).
-    public static let launcherGap = CGFloat(Chats.Shell.Bar.gap)
-    /// The strip's screen inset.
-    public static let inset: CGFloat = 16
-
-    /// The caret (`shell.boardTab`): `caretSize`, `caretGap` after the glyph's
-    /// right edge, out of flow, so showing it never changes a tab's width.
-    public static let caretSize = CGFloat(Chats.Shell.BoardTab.caretSize)
-    public static let caretGap = CGFloat(Chats.Shell.BoardTab.caretGap)
-    /// The caret's offset from a trailing-anchored overlay on the glyph: it
-    /// starts `caretGap` past the glyph's right edge.
-    public static var caretOffset: CGFloat { caretSize + caretGap }
 
     /// The drag lens (`shell.bar.drag`).
     public static let lensScale = CGFloat(Chats.Shell.Bar.Drag.lensScale)
     public static let cancelDistance = CGFloat(Chats.Shell.Bar.Drag.cancelDistance)
     /// Movement that turns a press into a drag; below it the press is a tap.
     public static let dragSlop: CGFloat = 6
-
-    /// One launcher arm — the 52pt rung every floating slot wears.
-    public static let launcherArm: CGFloat = FloatingBarTokens.slot
-    /// Two arms split by a hairline.
-    public static var capsuleWidth: CGFloat { 2 * launcherArm + GlassTokens.hairline }
-
-    /// The board menu (`shell.boardMenu`).
-    public static let menuRowHeight = CGFloat(Chats.Shell.BoardMenu.rowHeight)
-    public static let menuMaxVisibleRows = Chats.Shell.BoardMenu.maxVisibleRows
-    public static let menuRadius = CGFloat(Chats.Shell.BoardMenu.radius)
-
-    /// The board menu's open height: the rows (New board included) up to
-    /// `maxVisibleRows`, plus the strip's padding above and below.
-    public static func menuHeight(rows: Int) -> CGFloat {
-        CGFloat(min(max(rows, 0), menuMaxVisibleRows)) * menuRowHeight + 2 * pillPadding
-    }
-
-    /// The width the tab capsule takes on a screen `screenWidth` wide.
-    public static func capsuleTabsWidth(screenWidth: CGFloat, launcher: CGFloat = capsuleWidth) -> CGFloat {
-        max(screenWidth - 2 * inset - launcherGap - launcher, 0)
-    }
 
     /// A tab's natural width off its label's: label + 2 × `tabPaddingX`, at
     /// least `tabMinWidth`.

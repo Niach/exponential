@@ -5,8 +5,8 @@ import SwiftUI
 
 /// #FEED-191 NEEDS YOU, the phone's page (needs-you.json THE LIST): pushed from
 /// the Chats list's first row, the page header with the back control (the
-/// Archived page's), one reading column of THE inbox page's rows, the ACTIVE
-/// team's. A press opens the chat by the row's `opens`. #EXP-1710: a stuck
+/// Archived page's), one reading column of THE inbox page's rows, over
+/// every team. A press opens the chat by the row's `opens`. #EXP-1710: a stuck
 /// PR's Button sm row runs Retry (= Resume), Merge now (owners, THE
 /// `merge-now-pr` alert, `titleStack` in an open stack) and Close PR
 /// (close-pr.json's confirm); an `approval` ready PR's press is Needs
@@ -15,7 +15,6 @@ import SwiftUI
 struct NeedsYouPage: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(SessionListsModel.self) private var lists
-    @Environment(TeamState.self) private var teamState
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.toaster) private var toaster
@@ -44,7 +43,7 @@ struct NeedsYouPage: View {
                 // sit on top; this install waiting itself shows its code.
                 let trust = deps.installTrust.snapshot(accountId)
                 NeedsYouPageContent(
-                    rows: lists.needsYou(teamId: teamState.activeTeamId, me: deps.auth.userId, now: now),
+                    rows: lists.needsYou(me: deps.auth.userId, now: now),
                     waitingCode: trust.waiting ? trust.code : nil,
                     pendingInstalls: trust.rows.count,
                     onOpen: { row in
@@ -192,7 +191,6 @@ struct NeedsYouPageContent<Band: View>: View {
                 .padding(.bottom, 16)
             }
             .scrollContentBackground(.hidden)
-            .tabBarBottomInset()
         }
     }
 }
