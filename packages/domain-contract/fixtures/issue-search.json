@@ -351,6 +351,19 @@
     "expected": ["m", "w"]
   },
   {
+    "name": "today is since the UTC day of now began, yesterday the UTC day before it",
+    "now": "2026-11-14T12:00:00Z",
+    "rows": [
+      { "id": "t1", "identifier": "EXP-1", "title": "This morning", "createdAt": "2026-11-14T00:00:00Z", "updatedAt": "2026-11-14T00:00:00Z" },
+      { "id": "t2", "identifier": "EXP-2", "title": "Later today", "createdAt": "2026-11-14T18:00:00Z", "updatedAt": "2026-11-14T18:00:00Z" },
+      { "id": "y1", "identifier": "EXP-3", "title": "Last night", "createdAt": "2026-11-13T23:59:59Z", "updatedAt": "2026-11-14T09:00:00Z" },
+      { "id": "y2", "identifier": "EXP-4", "title": "Yesterday at dawn", "createdAt": "2026-11-13T00:00:00Z", "updatedAt": "2026-11-13T00:00:00Z" },
+      { "id": "o", "identifier": "EXP-5", "title": "Two days ago", "createdAt": "2026-11-12T23:59:59Z", "updatedAt": "2026-11-12T23:59:59Z" }
+    ],
+    "query": "created:yesterday updated:today",
+    "expected": ["y1"]
+  },
+  {
     "name": "a created: day or month is that UTC day or month",
     "rows": [
       { "id": "a", "identifier": "EXP-1", "title": "Start of day", "createdAt": "2026-11-03T00:00:00Z", "updatedAt": "2026-11-03T00:00:00Z" },

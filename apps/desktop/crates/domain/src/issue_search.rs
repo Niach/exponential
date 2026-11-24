@@ -316,6 +316,14 @@ fn parse_search_date(text: &str) -> Option<SearchRange> {
 /// #NEW-132: a `created:`/`updated:` value as its window, or `None`. Web
 /// `parseIssueSearchRange`.
 pub fn parse_range(value: &str, now: i64) -> Option<SearchRange> {
+    if value == "today" || value == "yesterday" {
+        let day = now.div_euclid(DAY_MS) * DAY_MS;
+        return Some(if value == "today" {
+            SearchRange { from: day, to: i64::MAX }
+        } else {
+            SearchRange { from: day - DAY_MS, to: day }
+        });
+    }
     if let Some(unit) = value.chars().last() {
         let days = match unit {
             'd' => Some(1),

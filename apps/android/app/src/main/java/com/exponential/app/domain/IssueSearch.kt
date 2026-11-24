@@ -222,6 +222,10 @@ object IssueSearch {
 
     /** #NEW-132: a `created:`/`updated:` value as its window, or null. Web `parseIssueSearchRange`. */
     fun parseRange(value: String, now: Long): Range? {
+        if (value == "today" || value == "yesterday") {
+            val day = Math.floorDiv(now, DAY_MS) * DAY_MS
+            return if (value == "today") Range(day, Long.MAX_VALUE) else Range(day - DAY_MS, day)
+        }
         RELATIVE_RANGE.matchEntire(value)?.let { relative ->
             val count = relative.groupValues[1].toLong()
             if (count < 1) return null

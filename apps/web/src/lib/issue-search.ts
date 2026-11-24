@@ -39,7 +39,8 @@
 //   updated:<range>       a row without that timestamp never matches
 //
 // A <range> is `<n>d|w|m|y` (the last n×1/7/30/365 days before `now`,
-// n = 1…9999), a UTC day `YYYY-MM-DD` or month `YYYY-MM`, a comparison
+// n = 1…9999), `today` (since the UTC day of `now` began) or `yesterday`
+// (the UTC day before it), a UTC day `YYYY-MM-DD` or month `YYYY-MM`, a comparison
 // against one (`>D` after it ends, `>=D` from its start, `<D` before its
 // start, `<=D` until its end), or `D..D` (the first's start to the second's
 // end). Impossible dates (`2026-13`, `2026-02-30`) are ignored. A query of
@@ -233,6 +234,12 @@ function parseIssueSearchDate(text: string): IssueSearchRange | null {
 
 /** #NEW-132: a `created:`/`updated:` value as its window, or null. */
 export function parseIssueSearchRange(value: string, now: number): IssueSearchRange | null {
+  if (value === `today` || value === `yesterday`) {
+    const day = Math.floor(now / DAY_MS) * DAY_MS
+    return value === `today`
+      ? { from: day, to: Number.POSITIVE_INFINITY }
+      : { from: day - DAY_MS, to: day }
+  }
   const relative = /^([0-9]{1,4})([dwmy])$/.exec(value)
   if (relative) {
     const count = Number(relative[1])

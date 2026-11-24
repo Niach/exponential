@@ -251,6 +251,12 @@ public enum IssueSearch {
     }
 
     private static func parseRange(_ value: String, seconds now: Double) -> DateRange? {
+        if value == "today" || value == "yesterday" {
+            let day = (now / daySeconds).rounded(.down) * daySeconds
+            return value == "today"
+                ? DateRange(from: day, to: .infinity)
+                : DateRange(from: day - daySeconds, to: day)
+        }
         let bytes = Array(value.utf8)
         // `<n>d|w|m|y`, n = 1…4 ASCII digits.
         if (2...5).contains(bytes.count), let unit = bytes.last,
