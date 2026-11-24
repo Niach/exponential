@@ -243,6 +243,10 @@
     {
       "route": "/devices",
       "reason": "The phones' device list, drawn from presence: a pushed Settings page; `device` pictures the detail."
+    },
+    {
+      "route": "/t/$teamSlug",
+      "reason": "Redirects to the team's page (phones) or Home (md+): the `team` and `agent-home` views."
     }
   ],
   "views": [
