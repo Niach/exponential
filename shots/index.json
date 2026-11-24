@@ -7096,15 +7096,15 @@
         "file": "shots/session-synced-tail/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 62574,
-        "sha256": "87a39b827d5cc6cd1b457093cee066e7223745a12a220cca8c02b64a36539e15"
+        "bytes": 66868,
+        "sha256": "826c956f7f080da6ff1d6e89ba863bab10395511a9b2d90182fc2d422329eaa7"
       },
       "ios": {
         "file": "shots/session-synced-tail/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 48310,
-        "sha256": "c32b6d516dc169ecd0c28f1d860f2215080a95c8c71a43166c85d1f8b2f9bd7f"
+        "bytes": 54728,
+        "sha256": "2f96806b20e33196b55e76133768170ee47224eb272edcf0ec387302fed701fa"
       },
       "web": {
         "file": "shots/session-synced-tail/web.webp",
