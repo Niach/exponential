@@ -14,6 +14,8 @@ const DB_NAME = `exp-enet`
 const STORE = `identities`
 /** EXP-1459: this install's unwrapped tree keys (tree-key-store.ts). */
 export const TREE_KEY_STORE = `tree-keys`
+/** #EXP-1950: this install's pin store (trust-store.ts). */
+export const TRUST_STORE = `install-pins`
 
 export type SealedIdentity = {
   key: CryptoKey
@@ -36,9 +38,9 @@ function request<T>(req: IDBRequest<T>): Promise<T> {
 }
 
 function openDb(): Promise<IDBDatabase> {
-  const req = indexedDB.open(DB_NAME, 2)
+  const req = indexedDB.open(DB_NAME, 3)
   req.onupgradeneeded = () => {
-    for (const name of [STORE, TREE_KEY_STORE]) {
+    for (const name of [STORE, TREE_KEY_STORE, TRUST_STORE]) {
       if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name)
     }
   }

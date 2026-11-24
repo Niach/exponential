@@ -9,6 +9,13 @@
 // reader was dropped) and answers `sessionKeys.pending`: automatic, no
 // approval. Writers create a tree's first key (`createTree`) with wraps for
 // the readers they can resolve.
+// #EXP-1950 (fixtures/install-trust.json, wrap-signature.json): with its
+// identity this holder SIGNS every wrap it makes (create, pending, rotation;
+// a new root's inline seal right after the send, `sessionKeys.resign`), and
+// with its `InstallTrust` it keeps a wrap only by R1, wraps only for targets
+// R4 allows (an install that asked and is not approved gets nothing) and
+// follows `installs.trust` on every pass. Release 1 records, refuses only
+// what the fixture refuses now.
 
 import {
   createFailure,
@@ -21,6 +28,8 @@ import {
   type CreateFailure,
   type TreeKeys,
 } from "@exp/domain-contract/sealed-content"
+import { resignAfter, signWrap } from "@exp/domain-contract/wrap-signature"
+import type { InstallTrust } from "./install-trust"
 import type { TreeKeyStore } from "./tree-key-store"
 
 export const PENDING_INTERVAL_MS = 60 * 1000
@@ -36,28 +45,40 @@ export type PendingPair = {
   publicKey: string
   targetInstallId: string
   targetX25519Public: string
+  /** #EXP-1950: the target's ed25519 key (absent on an older server: the wrap goes unsigned). */
+  targetEndpointId?: string | null
 }
 
-export type TreeWrap = { installId: string; wrapped: string }
+export type TreeWrap = { installId: string; wrapped: string; signature?: string }
+
+/** A served wrap (`sessionKeys.mine`). */
+export type MineRow = { rootId: string; epoch: number; wrapped: string; signature?: string | null; signerEndpointId?: string | null }
 
 /** tRPC `sessionKeys` (lib/trpc/session-keys.ts). */
 export type SessionKeysApi = {
-  mine: (input: { installId: string; rootIds?: string[] }) => Promise<Array<{ rootId: string; epoch: number; wrapped: string }>>
+  mine: (input: { installId: string; rootIds?: string[] }) => Promise<MineRow[]>
   pending: (input: { installId: string; limit?: number }) => Promise<PendingPair[]>
   wrap: (input: {
     installId: string
-    wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string }>
+    wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string; signature?: string }>
   }) => Promise<unknown>
   create: (input: { rootId: string; installId: string; epoch: number; publicKey: string; wraps: TreeWrap[] }) => Promise<unknown>
   /** #EXP-1951: the roots this install rotates (`epoch` = the one to supersede). */
   due: (input: { installId: string; limit?: number }) => Promise<Array<{ rootId: string; epoch: number }>>
+  /** #EXP-1950 (wrap-signature.json `resign`): signed wraps replace unsigned rows. */
+  resign?: (input: {
+    installId: string
+    wraps: Array<{ rootId: string; epoch: number; installId: string; wrapped: string; signature: string }>
+  }) => Promise<{ replaced: number; skipped: number }>
 }
 
 /** An install a writer wraps a new tree key for. */
-export type ReaderInstall = { installId: string; x25519Public: string }
+export type ReaderInstall = { installId: string; x25519Public: string; endpointId?: string | null; userId?: string | null }
 
-/** A freshly generated tree key with its wraps (a new root's first key). */
-export type NewTreeKey = { epoch: 1; publicKey: string; secret: Uint8Array; wraps: TreeWrap[] }
+/** A freshly generated tree key with its wraps (a new root's first key);
+ *  `recipients` = each wrap's recipient endpoint id, for signing it once the
+ *  root id is known (`adoptNewRoot`). */
+export type NewTreeKey = { epoch: 1; publicKey: string; secret: Uint8Array; wraps: TreeWrap[]; recipients?: Map<string, string> }
 
 const EMPTY: TreeKeys = new Map()
 
@@ -77,8 +98,31 @@ export class KeyHolder {
     readonly userId: string,
     readonly installId: string,
     private readonly installSecret: Uint8Array,
-    private readonly deps: { api: SessionKeysApi; store: TreeKeyStore; now?: () => number }
+    private readonly deps: {
+      api: SessionKeysApi
+      store: TreeKeyStore
+      now?: () => number
+      /** #EXP-1950: the install's 32 identity bytes (signs every wrap it makes). */
+      identity?: Uint8Array
+      /** #EXP-1950: the pin store and the four rules. */
+      trust?: InstallTrust
+    }
   ) {}
+
+  /** #EXP-1950: this install's trust (none = the rules are off, as before). */
+  get trust(): InstallTrust | undefined {
+    return this.deps.trust
+  }
+
+  /** The signature of a wrap this install makes; undefined without an identity or the recipient's key. */
+  private sign(key: { rootId: string; epoch: number; publicKey: string }, recipientEndpointId: string | null | undefined, wrapped: string): string | undefined {
+    if (!this.deps.identity || !recipientEndpointId) return undefined
+    try {
+      return signWrap(this.deps.identity, { rootId: key.rootId, epoch: key.epoch, treePublicKey: key.publicKey, recipientEndpointId, wrapped })
+    } catch {
+      return undefined
+    }
+  }
 
   /** The cache first (content opens offline), then every wrap the server holds. */
   async start(): Promise<void> {
@@ -89,12 +133,17 @@ export class KeyHolder {
   /** The keys this install cached (IndexedDB), no network. */
   async loadCache(): Promise<void> {
     const cached = await this.deps.store.all(this.userId).catch(() => [])
-    for (const key of cached) this.hold(key.rootId, key.epoch, key.secret)
+    for (const key of cached) {
+      this.hold(key.rootId, key.epoch, key.secret)
+      // Decision (c): a key held before the pin store knew it stays, `legacy`.
+      if (this.deps.trust && !this.deps.trust.store.roots[key.rootId]?.epochs[String(key.epoch)]) this.deps.trust.record(key.rootId, key.epoch, `legacy`)
+    }
     if (cached.length > 0) this.notify()
   }
 
   stop() {
     this.stopped = true
+    this.deps.identity?.fill(0)
     for (const epochs of this.keys.values()) for (const secret of epochs.values()) secret.fill(0)
     this.keys.clear()
     this.listeners.clear()
@@ -129,10 +178,17 @@ export class KeyHolder {
       for (const row of rows) {
         if (this.keys.get(row.rootId)?.has(row.epoch)) continue
         let secret: Uint8Array
-        try {
-          secret = unwrapTreeKey(this.installSecret, row.wrapped)
-        } catch {
-          continue // not wrapped to this install's key: never shown, never cached
+        if (this.deps.trust) {
+          // R1 (install-trust.json `keepCases`): kept and recorded, or refused.
+          const verdict = this.deps.trust.keep(row, this.installSecret)
+          if (!verdict.keep) continue
+          secret = verdict.secret
+        } else {
+          try {
+            secret = unwrapTreeKey(this.installSecret, row.wrapped)
+          } catch {
+            continue // not wrapped to this install's key: never shown, never cached
+          }
         }
         this.hold(row.rootId, row.epoch, secret)
         await this.deps.store.put(this.userId, { rootId: row.rootId, epoch: row.epoch, secret }).catch(() => {})
@@ -165,17 +221,23 @@ export class KeyHolder {
     let written = 0
     for (let round = 0; round < PENDING_ROUNDS && !this.stopped; round++) {
       const pairs = await this.deps.api.pending({ installId: this.installId, limit: PENDING_LIMIT })
-      const wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string }> = []
+      const wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string; signature?: string }> = []
       for (const pair of pairs) {
         const secret = this.keys.get(pair.rootId)?.get(pair.epoch)
         // Only for the key the root really carries.
         if (!secret || treeKeyFromSecret(secret).publicKey !== pair.publicKey) continue
+        // R4: never for a target that is not pinned (and asked) or whose key is not the pinned one.
+        const verdict = this.deps.trust?.target({ installId: pair.targetInstallId, x25519Public: pair.targetX25519Public, endpointId: pair.targetEndpointId })
+        if (verdict && !verdict.wrap) continue
         try {
+          const wrapped = wrapTreeKey(pair.targetX25519Public, secret)
+          const signature = this.sign(pair, pair.targetEndpointId, wrapped)
           wraps.push({
             rootId: pair.rootId,
             epoch: pair.epoch,
             targetInstallId: pair.targetInstallId,
-            wrapped: wrapTreeKey(pair.targetX25519Public, secret),
+            wrapped,
+            ...(signature ? { signature } : {}),
           })
         } catch {
           // A malformed reader key: skip it, the others still get theirs.
@@ -215,12 +277,14 @@ export class KeyHolder {
       const key = generateTreeKey()
       let failure: CreateFailure | null = null
       try {
+        const wrapped = wrapTreeKey(own, key.secret)
+        const signature = this.sign({ rootId: root.rootId, epoch, publicKey: key.publicKey }, this.deps.trust?.endpointId, wrapped)
         await this.deps.api.create({
           rootId: root.rootId,
           installId: this.installId,
           epoch,
           publicKey: key.publicKey,
-          wraps: [{ installId: this.installId, wrapped: wrapTreeKey(own, key.secret) }],
+          wraps: [{ installId: this.installId, wrapped, ...(signature ? { signature } : {}) }],
         })
       } catch (error) {
         const data = (error as { data?: { code?: unknown } } | null)?.data
@@ -247,8 +311,10 @@ export class KeyHolder {
   /** One holder pass: the rotations that are due, then the pending wraps
    *  (the new epochs' readers among them). */
   async pass(): Promise<void> {
+    await this.deps.trust?.sync().catch(() => {})
     await this.rotateDue().catch(() => {})
     await this.answerPending()
+    await this.resignPending().catch(() => {})
   }
 
   /** A new tree key (epoch 1) wrapped for `readers` (this install always
@@ -256,10 +322,14 @@ export class KeyHolder {
   newTreeKey(readers: ReaderInstall[]): NewTreeKey {
     const key = generateTreeKey()
     const wraps = new Map<string, string>()
+    const recipients = new Map<string, string>()
     for (const reader of readers) {
       if (wraps.has(reader.installId)) continue
+      // R4: a reader this install may not wrap for is skipped (its holders decide later).
+      if (reader.installId !== this.installId && this.deps.trust && !this.deps.trust.target(reader).wrap) continue
       try {
         wraps.set(reader.installId, wrapTreeKey(reader.x25519Public, key.secret))
+        if (reader.endpointId) recipients.set(reader.installId, reader.endpointId)
       } catch {
         // A malformed reader key: that install asks a holder later.
       }
@@ -267,17 +337,59 @@ export class KeyHolder {
     if (!wraps.has(this.installId)) {
       throw new Error(`this install is not among the readers`)
     }
+    if (this.deps.trust) recipients.set(this.installId, this.deps.trust.endpointId)
     return {
       epoch: 1,
       publicKey: key.publicKey,
       secret: key.secret,
       wraps: [...wraps].map(([installId, wrapped]) => ({ installId, wrapped })),
+      recipients,
     }
+  }
+
+  /** #EXP-1950 (install-trust.json `newRoot`): a key this install created
+   *  in the send that created its root. Its wraps went unsigned (the root id
+   *  was unknown); now they are signed (`sessionKeys.resign`), and again on
+   *  every pass until the server took them. */
+  async adoptNewRoot(rootId: string, key: NewTreeKey): Promise<void> {
+    await this.keep(rootId, key.epoch, key.secret)
+    if (!this.deps.identity || !this.deps.api.resign) return
+    const wraps: Array<{ rootId: string; epoch: number; installId: string; wrapped: string; signature: string }> = []
+    for (const wrap of key.wraps) {
+      const signature = this.sign({ rootId, epoch: key.epoch, publicKey: key.publicKey }, key.recipients?.get(wrap.installId), wrap.wrapped)
+      if (signature) wraps.push({ rootId, epoch: key.epoch, installId: wrap.installId, wrapped: wrap.wrapped, signature })
+    }
+    if (wraps.length === 0) return
+    this.unsignedRoots.set(rootId, wraps)
+    await this.resignPending().catch(() => {})
+  }
+
+  /** Signed wraps of new roots the server has not taken yet. */
+  private unsignedRoots = new Map<string, Array<{ rootId: string; epoch: number; installId: string; wrapped: string; signature: string }>>()
+
+  /** Sends the signed wraps of new roots (`resign`); an older server
+   *  (NOT_FOUND) or a blip = again on a later pass, quietly. */
+  async resignPending(): Promise<number> {
+    const resign = this.deps.api.resign
+    if (!resign || this.unsignedRoots.size === 0) return 0
+    let replaced = 0
+    for (const [rootId, wraps] of [...this.unsignedRoots]) {
+      try {
+        replaced += (await resign({ installId: this.installId, wraps })).replaced
+        this.unsignedRoots.delete(rootId)
+      } catch (error) {
+        const data = (error as { data?: { code?: unknown } } | null)?.data
+        if (resignAfter({ code: typeof data?.code === `string` ? data.code : null }) === `refused`) this.unsignedRoots.delete(rootId)
+      }
+    }
+    return replaced
   }
 
   /** Keeps a tree key this install created (the root now exists). */
   async keep(rootId: string, epoch: number, secret: Uint8Array): Promise<void> {
     this.hold(rootId, epoch, secret)
+    // It made the key itself: verified (install-trust.json `newRoot.makerRecord`).
+    this.deps.trust?.record(rootId, epoch, `verified`)
     this.notify()
     await this.deps.store.put(this.userId, { rootId, epoch, secret }).catch(() => {})
   }
@@ -290,7 +402,10 @@ export class KeyHolder {
       installId: this.installId,
       epoch: key.epoch,
       publicKey: key.publicKey,
-      wraps: key.wraps,
+      wraps: key.wraps.map((wrap) => {
+        const signature = this.sign({ rootId, epoch: key.epoch, publicKey: key.publicKey }, key.recipients?.get(wrap.installId), wrap.wrapped)
+        return signature ? { ...wrap, signature } : wrap
+      }),
     })
     await this.keep(rootId, key.epoch, key.secret)
     return { epoch: key.epoch, publicKey: key.publicKey }
