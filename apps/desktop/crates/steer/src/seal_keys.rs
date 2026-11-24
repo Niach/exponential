@@ -288,6 +288,13 @@ impl KeyHolder {
         self.trust().is_none_or(|trust| trust.makes_keys())
     }
 
+    /// #EXP-2123: how many (root, epoch) rotations the server refused this
+    /// install for good (tests: a waiting install's are never remembered).
+    #[cfg(test)]
+    pub(crate) fn refused_count(&self) -> usize {
+        lock(&self.inner.refused).len()
+    }
+
     /// #EXP-2123: what this install does with `write` (`refused` = the server
     /// answered `KEY_MAKER_REFUSAL`).
     fn key_step(&self, write: KeyWrite, refused: bool) -> KeyMakerStep {

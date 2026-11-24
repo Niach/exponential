@@ -656,3 +656,280 @@ fn a_server_without_install_trust_changes_nothing() {
 fn the_build_constant_is_record_only() {
     assert_eq!(TRUST_MODE, TrustMode::Record);
 }
+
+// ── #EXP-2123: who makes a chat key (install-trust.json `keyMaker`) ──────
+
+/// One server double for the key writes, HONEST or MALICIOUS, over the
+/// liar's install chain (`installs.trust`). Honest: a waiting install's
+/// `create` is refused 403 `KEY_MAKER_REFUSAL` (and, `refuse_all`, a joined
+/// one's too), `due` names it nothing. Malicious: every key write is
+/// accepted and every root it knows is named due AND stranded.
+struct KeyServer {
+    honest: bool,
+    /// The server lists the install as waiting.
+    waits: std::sync::atomic::AtomicBool,
+    /// Honest, but it refuses a joined install too (its chain lags).
+    refuse_all: std::sync::atomic::AtomicBool,
+    chain: Arc<Liar>,
+    /// Stored keys `(epoch, public)` per root.
+    roots: Mutex<HashMap<String, (u32, String)>>,
+    creates: Mutex<Vec<CreateKey>>,
+    /// The roots `due` names honestly: `(root, epoch, stranded)`.
+    due: Mutex<Vec<(String, u32, bool)>>,
+    requested: Mutex<Vec<String>>,
+    /// The key the tree's device makes when asked (`requestKey`).
+    device_key: Mutex<Option<enet_core::sealed::TreeKey>>,
+}
+
+impl KeyServer {
+    fn new(honest: bool, waits: bool, chain: Arc<Liar>) -> Arc<KeyServer> {
+        Arc::new(KeyServer {
+            honest,
+            waits: waits.into(),
+            refuse_all: false.into(),
+            chain,
+            roots: Mutex::default(),
+            creates: Mutex::default(),
+            due: Mutex::default(),
+            requested: Mutex::default(),
+            device_key: Mutex::default(),
+        })
+    }
+    fn refuses(&self) -> bool {
+        self.honest && (self.waits.load(Ordering::SeqCst) || self.refuse_all.load(Ordering::SeqCst))
+    }
+    fn creates(&self) -> usize {
+        lock(&self.creates).len()
+    }
+}
+
+impl KeyApi for KeyServer {
+    fn create(&self, input: &CreateKey) -> Result<(), ApiError> {
+        if self.refuses() {
+            return Err(ApiError::Http { status: 403, message: enet_core::install_trust::KEY_MAKER_REFUSAL.into() });
+        }
+        let mut roots = lock(&self.roots);
+        match roots.get(&input.root_id) {
+            None => {}
+            Some((epoch, _)) if input.epoch == epoch + 1 => {}
+            _ => return Err(ApiError::Http { status: 409, message: "keyed".into() }),
+        }
+        roots.insert(input.root_id.clone(), (input.epoch, input.public_key.clone()));
+        lock(&self.creates).push(input.clone());
+        Ok(())
+    }
+    fn mine(&self, _install_id: &str, _root_ids: Option<&[String]>) -> Result<Vec<HeldKey>, ApiError> {
+        Ok(Vec::new())
+    }
+    fn pending(&self, _install_id: &str, _root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError> {
+        Ok(Vec::new())
+    }
+    fn wrap(&self, _install_id: &str, _wraps: &[PairWrap]) -> Result<(), ApiError> {
+        Ok(())
+    }
+    fn public_keys(&self, root_ids: &[String]) -> Result<Vec<RootKey>, ApiError> {
+        Ok(lock(&self.roots)
+            .iter()
+            .filter(|(root, _)| root_ids.contains(root))
+            .map(|(root, (epoch, public))| RootKey { root_id: root.clone(), epoch: *epoch, public_key: public.clone(), vouch: None })
+            .collect())
+    }
+    fn request_key(&self, root_id: &str) -> Result<api::session_keys::RequestedKey, ApiError> {
+        lock(&self.requested).push(root_id.to_string());
+        // The tree's (approved) device keys it: the key lands for the next read.
+        if let Some(key) = lock(&self.device_key).as_ref() {
+            lock(&self.roots).insert(root_id.to_string(), (1, key.public_key()));
+            return Ok(api::session_keys::RequestedKey::Requested);
+        }
+        Ok(api::session_keys::RequestedKey::NoHost)
+    }
+    fn due(&self, _install_id: &str) -> Result<Vec<api::session_keys::DueRoot>, ApiError> {
+        let rows = lock(&self.due).clone();
+        if !self.honest {
+            let mut every: Vec<api::session_keys::DueRoot> =
+                lock(&self.roots).iter().map(|(root, (epoch, _))| api::session_keys::DueRoot { root_id: root.clone(), epoch: *epoch, stranded: true }).collect();
+            every.extend(rows.into_iter().map(|(root_id, epoch, _)| api::session_keys::DueRoot { root_id, epoch, stranded: true }));
+            return Ok(every);
+        }
+        if self.waits.load(Ordering::SeqCst) {
+            return Ok(Vec::new());
+        }
+        Ok(rows.into_iter().map(|(root_id, epoch, stranded)| api::session_keys::DueRoot { root_id, epoch, stranded }).collect())
+    }
+}
+
+impl TrustApi for KeyServer {
+    fn trust(&self, install_id: &str) -> Result<TrustAnswer, ApiError> {
+        self.chain.trust(install_id)
+    }
+    fn request_approval(&self, install_id: &str) -> Result<(), ApiError> {
+        self.chain.request_approval(install_id)
+    }
+    fn claim_root(&self, install_id: &str, signature: &str, approvals: &[RootClaimApproval]) -> Result<(), ApiError> {
+        self.chain.claim_root(install_id, signature, approvals)
+    }
+    fn approve(&self, install_id: &str, subject_install_id: &str, kind: ApprovalKind, signature: &str) -> Result<(), ApiError> {
+        self.chain.approve(install_id, subject_install_id, kind, signature)
+    }
+    fn revoke(&self, install_id: &str) -> Result<(), ApiError> {
+        self.chain.revoke(install_id)
+    }
+}
+
+/// Install N of `user-me`: A holds the account's chain; N asked and is
+/// waiting, or (`approved`) A approved it.
+fn install_n(honest: bool, approved: bool) -> (Arc<KeyServer>, KeyHolder, Arc<TrustKeeper>) {
+    let fx = fixture();
+    let chain = Arc::new(Liar::default());
+    *lock(&chain.installs) = vec![served(&fx, "A", None, false), served(&fx, "N", None, !approved)];
+    let mut approvals = vec![approval(&fx, ApprovalKind::Root, "A", "A")];
+    if approved {
+        approvals.push(approval(&fx, ApprovalKind::Approve, "N", "A"));
+    }
+    *lock(&chain.approvals) = approvals;
+    let server = KeyServer::new(honest, !approved, chain.clone());
+    let path = store_file();
+    let n = identity(&fx, "N");
+    mark_new(&path, &n, "user-me").unwrap();
+    let keeper = Arc::new(TrustKeeper::open(path, &n, "user-me", "install-N".into(), server.clone(), TRUST_MODE));
+    let holder = KeyHolder::signing("install-N".into(), &n, server.clone(), Keyring::in_memory());
+    holder.set_trust(keeper.clone());
+    (server, holder, keeper)
+}
+
+/// The free functions seal through the process-global service.
+static GLOBAL: Mutex<()> = Mutex::new(());
+
+/// A synced root row flagged for rotation at `epoch`.
+fn flagged_row(root: &str, epoch: u32, public: &[u8; 32]) -> domain::rows::SessionRow {
+    domain::rows::SessionRow {
+        id: root.into(),
+        seal_public_key: Some(enet_core::sealed::b64url_encode(public)),
+        seal_epoch: Some(i64::from(epoch)),
+        seal_rotate_epoch: Some(i64::from(epoch)),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_waiting_install_makes_no_chat_key_against_an_honest_and_a_malicious_server() {
+    let _global = lock(&GLOBAL);
+    for honest in [true, false] {
+        let kind = if honest { "honest" } else { "malicious" };
+        let (server, holder, keeper) = install_n(honest, false);
+        // `Unknown` = reconciled first, then judged.
+        assert!(!holder.joined(), "{kind}");
+        assert_eq!(keeper.snapshot().state, TrustState::Waiting, "{kind}");
+
+        // (a) The first message of a NEW chat: no seal, the send fails.
+        assert_eq!(holder.new_root_seal(Vec::new()).err(), Some(coding::sealing::SealError::KeyMakerWaits), "{kind}");
+        assert_eq!(coding::sealing::SealError::KeyMakerWaits.to_string(), coding::sealing::NO_KEY_REFUSAL);
+
+        // (b) The first message into a KEYLESS chat: nothing created, its
+        // devices asked, sealed to the key the device made.
+        assert_eq!(holder.ensure_key("keyless"), Err(coding::sealing::SealError::KeyMakerWaits), "{kind}");
+        let device = enet_core::sealed::generate_tree_key();
+        *lock(&server.device_key) = Some(device.clone());
+        coding::sealing::install(Arc::new(holder.clone()));
+        let body = coding::sealing::seal_body("keyless", "the first words");
+        let opened = body.as_deref().map(|body| enet_core::sealed::open_body(body, &|e| (e == 1).then_some(device.secret)).text);
+        // (b') a tree no device keys: the no-key refusal, never plaintext.
+        *lock(&server.device_key) = None;
+        let none = coding::sealing::seal_body("keyless-2", "never in clear");
+        // (d) A daemon asked to key its tree (`tree_key`): skipped, nothing asked.
+        let asked = lock(&server.requested).len();
+        coding::sealing::ensure_tree_key("claimed");
+        let asked_at_claim = lock(&server.requested).len() - asked;
+        coding::sealing::uninstall();
+        assert_eq!(opened, Some(Some("the first words".to_string())), "{kind}: {body:?}");
+        assert!(lock(&server.requested).contains(&"keyless".to_string()), "{kind}");
+        assert_eq!(none, Err(coding::sealing::SealError::NoKey(coding::sealing::NO_KEY_REFUSAL.into())), "{kind}");
+        assert_eq!(asked_at_claim, 0, "{kind}: a claim asks nobody");
+        assert_eq!(server.creates(), 0, "{kind}: no key written by a waiting install");
+
+        // (c) It races a due rotation holding the current epoch: never
+        // creates, pass after pass, and remembers nothing.
+        let held = enet_core::sealed::generate_tree_key();
+        holder.keyring().insert_secret("due", 1, held.secret);
+        holder.keyring().note_sessions(&[flagged_row("due", 1, &held.public)]);
+        lock(&server.roots).insert("due".into(), (1, held.public_key()));
+        lock(&server.due).push(("due".into(), 1, false));
+        for _ in 0..3 {
+            holder.pass();
+            assert_eq!(holder.rotate_due(), 0, "{kind}");
+            assert_eq!(holder.rotate_root("due", 1), Ok(false), "{kind}");
+        }
+        assert_eq!(server.creates(), 0, "{kind}: never rotated");
+        assert_eq!(holder.refused_count(), 0, "{kind}: nothing remembered");
+        assert_eq!(server.roots.lock().unwrap()["due"].0, 1, "{kind}");
+    }
+}
+
+#[test]
+fn an_approved_install_keys_and_rotates() {
+    let _global = lock(&GLOBAL);
+    let (server, holder, keeper) = install_n(true, true);
+    assert!(holder.joined());
+    assert_eq!(keeper.snapshot().state, TrustState::Trusted);
+    assert!(holder.new_root_seal(Vec::new()).is_ok());
+    assert_eq!(holder.ensure_key("keyless").unwrap().0, 1);
+    assert_eq!(server.creates(), 1);
+    // A due rotation of a root it holds.
+    holder.keyring().note_sessions(&[flagged_row("keyless", 1, &holder.keyring().current("keyless").unwrap().1)]);
+    lock(&server.due).push(("keyless".into(), 1, false));
+    assert_eq!(holder.rotate_due(), 1);
+    assert_eq!(server.roots.lock().unwrap()["keyless"].0, 2);
+    // The daemon's claim keys its tree.
+    coding::sealing::install(Arc::new(holder.clone()));
+    coding::sealing::ensure_tree_key("claimed");
+    coding::sealing::uninstall();
+    assert_eq!(server.roots.lock().unwrap().get("claimed").map(|r| r.0), Some(1));
+}
+
+#[test]
+fn a_joined_install_the_honest_server_refuses_does_not_remember_it() {
+    let _global = lock(&GLOBAL);
+    let (server, holder, _keeper) = install_n(true, true);
+    assert!(holder.joined());
+    server.refuse_all.store(true, Ordering::SeqCst);
+    // A first key: the same step as waiting (its devices are asked).
+    assert_eq!(holder.ensure_key("keyless"), Err(coding::sealing::SealError::KeyMakerWaits));
+    // A due rotation: skipped, never remembered.
+    let held = enet_core::sealed::generate_tree_key();
+    holder.keyring().insert_secret("due", 1, held.secret);
+    holder.keyring().note_sessions(&[flagged_row("due", 1, &held.public)]);
+    lock(&server.roots).insert("due".into(), (1, held.public_key()));
+    assert_eq!(holder.rotate_due(), 0);
+    assert_eq!(holder.rotate_root("due", 1), Ok(false));
+    assert_eq!(holder.refused_count(), 0);
+    // The chain caught up: it rotates now.
+    server.refuse_all.store(false, Ordering::SeqCst);
+    assert_eq!(holder.rotate_due(), 1);
+    assert_eq!(server.roots.lock().unwrap()["due"].0, 2);
+}
+
+#[test]
+fn a_joined_install_rotates_a_stranded_root_it_holds_no_secret_of() {
+    let _global = lock(&GLOBAL);
+    let (server, holder, _keeper) = install_n(true, true);
+    // Keyed by a waiting install before the rule: no approved reader holds epoch 1.
+    let stranded = enet_core::sealed::generate_tree_key();
+    lock(&server.roots).insert("stranded".into(), (1, stranded.public_key()));
+    // Not stranded and not held: not this install's (as before).
+    lock(&server.due).push(("stranded".into(), 1, false));
+    assert_eq!(holder.rotate_due(), 0);
+    assert!(server.creates() == 0);
+    // Named stranded: rotated WITHOUT the old secret, its own wrap.
+    lock(&server.due).clear();
+    lock(&server.due).push(("stranded".into(), 1, true));
+    assert_eq!(holder.rotate_due(), 1);
+    let create = lock(&server.creates)[0].clone();
+    assert_eq!((create.root_id.as_str(), create.epoch), ("stranded", 2));
+    assert_eq!(create.wraps.iter().map(|w| w.install_id.as_str()).collect::<Vec<_>>(), ["install-N"]);
+    assert!(create.wraps[0].signature.is_some(), "its own signed wrap");
+    assert!(holder.keyring().secret("stranded", 2).is_some());
+    assert!(holder.keyring().secret("stranded", 1).is_none());
+    // Already rotated: nothing again.
+    assert_eq!(holder.rotate_due(), 0);
+    assert_eq!(server.creates(), 1);
+}

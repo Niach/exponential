@@ -1435,6 +1435,8 @@ pub(crate) mod test_support {
         pub requested: Mutex<Vec<String>>,
         /// The key the asked device makes (it lands on the next poll).
         pub device_keys: Mutex<Option<(u32, [u8; 32])>>,
+        /// #EXP-2123: this install waits for approval: it makes no key.
+        pub waits: AtomicBool,
     }
 
     impl SealService for FakeService {
@@ -1464,6 +1466,9 @@ pub(crate) mod test_support {
             if self.not_reader_of.lock().unwrap().iter().any(|root| root == root_id) {
                 return Err(SealError::NotReader);
             }
+            if self.waits.load(Ordering::SeqCst) {
+                return Err(SealError::KeyMakerWaits);
+            }
             let key = generate_tree_key();
             self.keyring.insert_secret(root_id, 1, key.secret);
             self.keyring.set_current(root_id, 1, key.public);
@@ -1483,6 +1488,9 @@ pub(crate) mod test_support {
         }
         fn deliver_direct(&self, to: &DeliverTo, message: &MessageRow) {
             self.delivered.lock().unwrap().push((to.endpoint_id.clone(), message.clone()));
+        }
+        fn makes_keys(&self) -> bool {
+            !self.waits.load(Ordering::SeqCst)
         }
     }
 
@@ -1880,6 +1888,39 @@ mod tests {
         set_send_key_wait(SEND_KEY_WAIT);
         assert_eq!(refused, Err(SealError::NotReader));
         assert!(started.elapsed() < Duration::from_secs(2), "no silent wait");
+        uninstall();
+    }
+
+    /// #EXP-2123 (install-trust.json `keyMaker`): an install that waits for
+    /// approval keys nothing. firstKey: its own tree's writer (UI, answers:
+    /// `seal_body`) and a send into another tree ask the devices and seal to
+    /// their key, else fail with the no-key refusal (never plaintext);
+    /// deviceKey (a claim): skipped, nobody asked.
+    #[test]
+    fn a_waiting_install_asks_the_devices_and_never_keys_or_goes_plain() {
+        let _serial = serial();
+        let fake = install_fake();
+        fake.waits.store(true, Ordering::SeqCst);
+        let key = generate_tree_key();
+        *fake.device_keys.lock().unwrap() = Some((1, key.public));
+        *fake.request_answer.lock().unwrap() = Some(RequestKeyAnswer::Requested);
+        let body = seal_body("wk-root", "for the approved readers").unwrap();
+        assert_eq!(enet_core::sealed::open_body(&body, &|e| (e == 1).then_some(key.secret)).text.as_deref(), Some("for the approved readers"));
+        assert_eq!(fake.requested.lock().unwrap().as_slice(), ["wk-root"]);
+        assert!(fake.created.lock().unwrap().is_empty());
+        uninstall();
+
+        let fake = install_fake();
+        fake.waits.store(true, Ordering::SeqCst);
+        *fake.request_answer.lock().unwrap() = Some(RequestKeyAnswer::NoHost);
+        let refusal = Err(SealError::NoKey(NO_KEY_REFUSAL.into()));
+        assert_eq!(seal_body("wk-none", "never in clear"), refusal);
+        assert_eq!(seal_card("wk-none", &serde_json::json!({"kind": "report", "summary": "x"})).map(|_| ()), Err(SealError::NoKey(NO_KEY_REFUSAL.into())));
+        assert_eq!(seal_body_for_tree("wk-none", "never in clear"), refusal);
+        let asked = fake.requested.lock().unwrap().len();
+        ensure_tree_key("wk-claim");
+        assert_eq!(fake.requested.lock().unwrap().len(), asked, "a claim asks nobody");
+        assert!(fake.created.lock().unwrap().is_empty());
         uninstall();
     }
 
