@@ -3402,6 +3402,8 @@ fn woke(result: Result<Vec<String>, coding::pickup::WakeError>) -> bool {
             );
             false
         }
+        // #EXP-2081: a refused wake waits out its backoff: nothing to say.
+        Err(coding::pickup::WakeError::Backoff) => false,
         Err(err) => {
             log::warn!("pickup: {err}");
             false
