@@ -5687,15 +5687,15 @@
         "file": "shots/install-approval/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 30716,
-        "sha256": "322af2798c482778008db6e52fc15a8ac73a3abf69a851929023f420002278c0"
+        "bytes": 61922,
+        "sha256": "a6ab0d1b4026793799b69d06e81aa01e7338cf23dd84ff46b3696dd7e000ed0a"
       },
       "web-mobile": {
         "file": "shots/install-approval/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 29582,
-        "sha256": "d1baba0c9552fc366e8bee30320724f04bce0b69a990910201345d9471862127"
+        "bytes": 30284,
+        "sha256": "1f28c4ccbff69fae2abef8f26f4f97e419a514d69df4454ba3062404d6d74a0f"
       }
     },
     "install-waiting": {
@@ -5703,15 +5703,15 @@
         "file": "shots/install-waiting/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 54102,
-        "sha256": "c2fda84fb7628545f2de9f1d5a9ea223bd1d1b06ccc94b86865187b5a293d058"
+        "bytes": 58830,
+        "sha256": "88a14a5d7f9fb033caa0bacd020080c77622698457268ff40a526baab42fb3d0"
       },
       "web-mobile": {
         "file": "shots/install-waiting/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 11114,
-        "sha256": "c2ac6a3575408424957cac301a765fd1a3c9eff309a4835e20721548c7c00b0c"
+        "bytes": 39550,
+        "sha256": "6025b9774840b623d90772f6c1929235bebd8d2d3dace7ef64d3fc7aef58a33e"
       }
     },
     "invite-accept": {
