@@ -398,16 +398,23 @@ public actor TreeKeyHolder {
             }
             readers.removeAll { $0.installId == installId }
             readers.insert(InstallEntry(installId: installId, userId: nil, kind: InstallEntry.iosKind, endpointId: endpoint, x25519Public: own.publicKey), at: 0)
-            let wraps = resignWraps(rootId: root, epoch: entry.epoch, treePublic: treePublic, secret: secret, readers: readers)
+            let wraps = Array(resignWraps(rootId: root, epoch: entry.epoch, treePublic: treePublic, secret: secret, readers: readers).prefix(resignMaxWraps))
+            guard !wraps.isEmpty else {
+                resignQueue[root] = nil
+                continue
+            }
             do {
                 replaced += try await keys.resign(accountId: accountId, installId: installId, wraps: wraps).replaced
             } catch {
-                if error.trpcErrorCode == "NOT_FOUND" || (error as? TreeKeyError) == .unavailable { return replaced }
-                guard error.trpcErrorCode == "BAD_REQUEST" || error.trpcErrorCode == "FORBIDDEN" else { continue }
-                // A target that is no reader refuses the call: our own wrap alone.
-                if wraps.count > 1 {
-                    let ownOnly = Array(wraps.prefix(1))
-                    replaced += (try? await keys.resign(accountId: accountId, installId: installId, wraps: ownOnly).replaced) ?? 0
+                // wrap-signature.json `resign.failureCases`.
+                switch (error as? TreeKeyError) == .unavailable ? .notYet : resignAfter(code: error.trpcErrorCode) {
+                case .notYet: return replaced
+                case .retry: continue
+                case .refused:
+                    // A target that is no reader refuses the call: our own wrap alone.
+                    if wraps.count > 1 {
+                        replaced += (try? await keys.resign(accountId: accountId, installId: installId, wraps: Array(wraps.prefix(1))).replaced) ?? 0
+                    }
                 }
             }
             resignQueue[root] = nil

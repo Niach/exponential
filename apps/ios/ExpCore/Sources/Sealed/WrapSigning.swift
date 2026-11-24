@@ -74,3 +74,48 @@ public enum WrapSignerFactory {
         #endif
     }
 }
+
+// ── signing again (wrap-signature.json `resign`, decision (c)) ────────────
+
+/// `sessionKeys.resign`: at most this many wraps per call.
+public let resignMaxWraps = 200
+
+/// Which check of `sessionKeys.resign` decided a wrap, in the order they apply.
+public enum ResignRule: String, Sendable {
+    case callerNotReader, staleEpoch, targetNotReader, badSignature, noRow, signedRow, unsignedRow
+}
+
+public enum ResignOutcome: String, Sendable { case replaced, skipped, refused }
+
+/// The stored row of the pair a `resign` wrap names.
+public enum ResignRow: String, Sendable { case none, unsigned, signed }
+
+/// The server's rule (the TS reference `resignOutcome`): the first rule
+/// that applies, and its outcome.
+public func resignOutcome(
+    callerReader: Bool, currentEpoch: Bool, targetReader: Bool, signatureValid: Bool, row: ResignRow
+) -> (rule: ResignRule, outcome: ResignOutcome) {
+    let rule: ResignRule = if !callerReader { .callerNotReader }
+        else if !currentEpoch { .staleEpoch }
+        else if !targetReader { .targetNotReader }
+        else if !signatureValid { .badSignature }
+        else { switch row { case .none: .noRow; case .signed: .signedRow; case .unsigned: .unsignedRow } }
+    let outcome: ResignOutcome = switch rule {
+    case .callerNotReader, .targetNotReader, .badSignature: .refused
+    case .staleEpoch, .noRow, .signedRow: .skipped
+    case .unsignedRow: .replaced
+    }
+    return (rule, outcome)
+}
+
+/// What a holder does after a failed `resign` (`failureCases`): an older
+/// server has no such procedure (`notYet`, quietly again on a later pass).
+public enum ResignAfter: String, Sendable { case notYet, refused, retry }
+
+public func resignAfter(code: String?) -> ResignAfter {
+    switch code {
+    case "NOT_FOUND": .notYet
+    case "FORBIDDEN", "BAD_REQUEST": .refused
+    default: .retry
+    }
+}

@@ -30,6 +30,45 @@ final class WrapSigningTests: XCTestCase {
         XCTAssertEqual(TreePublicKeys.of(secret: try SealedContentFixtureTests.hex(other["secret"])), other["publicKey"] as? String)
     }
 
+    /// wrap-signature.json `resign`: the server's rule, by name.
+    func testReplaysTheResignCases() throws {
+        let block = try XCTUnwrap(try fixture()["resign"] as? [String: Any], "resign")
+        XCTAssertEqual(block["procedure"] as? String, "sessionKeys.resign")
+        XCTAssertEqual(block["maxWraps"] as? Int, resignMaxWraps)
+        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = try XCTUnwrap(c["name"] as? String)
+            let got = resignOutcome(
+                callerReader: try XCTUnwrap(c["callerReader"] as? Bool),
+                currentEpoch: try XCTUnwrap(c["currentEpoch"] as? Bool),
+                targetReader: try XCTUnwrap(c["targetReader"] as? Bool),
+                signatureValid: try XCTUnwrap(c["signatureValid"] as? Bool),
+                row: try XCTUnwrap(ResignRow(rawValue: try XCTUnwrap(c["row"] as? String)), name)
+            )
+            XCTAssertEqual(got.rule.rawValue, c["rule"] as? String, name)
+            XCTAssertEqual(got.outcome.rawValue, c["outcome"] as? String, name)
+        }
+        let outcomes = try XCTUnwrap(block["outcomes"] as? [String: String])
+        for rule in try XCTUnwrap(block["order"] as? [String]) {
+            let r = try XCTUnwrap(ResignRule(rawValue: rule), rule)
+            let facts = (
+                callerReader: r != .callerNotReader, currentEpoch: r != .staleEpoch, targetReader: r != .targetNotReader,
+                signatureValid: r != .badSignature, row: r == .noRow ? ResignRow.none : r == .signedRow ? .signed : .unsigned
+            )
+            XCTAssertEqual(resignOutcome(callerReader: facts.callerReader, currentEpoch: facts.currentEpoch, targetReader: facts.targetReader, signatureValid: facts.signatureValid, row: facts.row).outcome.rawValue, outcomes[rule], rule)
+        }
+    }
+
+    func testReplaysTheResignFailureCases() throws {
+        let block = try XCTUnwrap(try fixture()["resign"] as? [String: Any], "resign")
+        let cases = try XCTUnwrap(block["failureCases"] as? [[String: Any]])
+        XCTAssertEqual(cases.count, 5)
+        for c in cases {
+            XCTAssertEqual(resignAfter(code: c["code"] as? String).rawValue, c["after"] as? String, c["name"] as? String ?? "")
+        }
+    }
+
     #if ENET_NODE
     struct Row: Equatable {
         var wrapped: String
@@ -51,7 +90,7 @@ final class WrapSigningTests: XCTestCase {
         let dueRoots = Locked<[DueTreeKey]>([])
         let refusals = Locked<[String]>([])
         let resignCalls = Locked<[[ResignedTreeKeyWrap]]>([])
-        let resignMissing = Locked(false)
+        let resignFails = Locked<String?>(nil)
 
         static func key(_ root: String, _ epoch: UInt32, _ install: String) -> String { "\(root)\n\(epoch)\n\(install)" }
 
@@ -140,23 +179,43 @@ final class WrapSigningTests: XCTestCase {
 
         func due(accountId: String, installId: String) async throws -> [DueTreeKey] { dueRoots.value }
 
-        /// `sessionKeys.resign`: a signature is REQUIRED; an unsigned row of
-        /// the current epoch is replaced, a signed one never touched.
+        /// `sessionKeys.resign` by the fixture's rule (`resignOutcome`): a
+        /// signature is REQUIRED; an unsigned row of the current epoch is
+        /// replaced, a signed one never touched; a refusal writes nothing.
         func resign(accountId: String, installId: String, wraps: [ResignedTreeKeyWrap]) async throws -> ResignResult {
-            if resignMissing.value { throw refuse("NOT_FOUND", "No procedure") }
+            if let code = resignFails.value { throw refuse(code, "No procedure") }
             resignCalls.mutate { $0.append(wraps) }
+            let pairs = wraps.map { Self.key($0.rootId, $0.epoch, $0.installId) }
+            guard Set(pairs).count == pairs.count else { throw refuse("BAD_REQUEST", "One wrap per pair") }
             var out: [String: Row] = [:]
             var skipped = 0
             for wrap in wraps {
-                guard readers.value[wrap.rootId]?.contains(wrap.installId) == true else { throw refuse("BAD_REQUEST", "not a reader") }
-                guard let current = roots.value[wrap.rootId], current.epoch == wrap.epoch else { skipped += 1; continue }
-                let row = try check(
-                    caller: installId, root: wrap.rootId, epoch: wrap.epoch, publicKey: current.publicKey,
-                    target: wrap.installId, wrapped: wrap.wrapped, signature: wrap.signature
-                )
+                let current = roots.value[wrap.rootId]
+                let currentEpoch = current?.epoch == wrap.epoch
+                var valid = false
+                if currentEpoch, let current, let signer = installs.value[installId]?.endpointId, let recipient = installs.value[wrap.installId]?.endpointId {
+                    valid = try verifyWrapSignature(
+                        statement: EnetWrapStatement(rootId: wrap.rootId, epoch: wrap.epoch, treePublicKey: current.publicKey, recipientEndpointId: recipient, wrapped: wrap.wrapped),
+                        signature: wrap.signature, signerEndpointId: signer
+                    )
+                }
                 let key = Self.key(wrap.rootId, wrap.epoch, wrap.installId)
-                guard let stored = rows.value[key], stored.signature == nil else { skipped += 1; continue }
-                out[key] = row
+                let stored = rows.value[key]
+                let (rule, outcome) = resignOutcome(
+                    callerReader: readers.value[wrap.rootId]?.contains(installId) == true,
+                    currentEpoch: currentEpoch,
+                    targetReader: readers.value[wrap.rootId]?.contains(wrap.installId) == true,
+                    signatureValid: valid,
+                    row: stored == nil ? .none : stored?.signature == nil ? .unsigned : .signed
+                )
+                switch outcome {
+                case .refused:
+                    throw rule == .badSignature
+                        ? refuse("BAD_REQUEST", "A wrap's signature is not your install's over this key")
+                        : refuse("FORBIDDEN", rule.rawValue)
+                case .skipped: skipped += 1
+                case .replaced: out[key] = Row(wrapped: wrap.wrapped, signature: wrap.signature, signer: installs.value[installId]?.endpointId, madeBy: installId)
+                }
             }
             rows.mutate { $0.merge(out) { $1 } }
             return ResignResult(replaced: out.count, skipped: skipped)
@@ -267,7 +326,7 @@ final class WrapSigningTests: XCTestCase {
         keys.roots.mutate { $0[root] = (1, tree.publicKey) }
         keys.rows.mutate { $0[VerifyingKeys.key(root, 1, "me")] = Row(wrapped: try! self.crypto.wrap(installPublic: me.x25519Public, treeSecret: tree.secret), signature: nil, signer: nil, madeBy: "old") }
         let holder = try holder(keys)
-        keys.resignMissing.mutate { $0 = true }
+        keys.resignFails.mutate { $0 = "NOT_FOUND" }
         await holder.sync(accountId: "a")
         let peer = try XCTUnwrap(keys.rows.value[VerifyingKeys.key(root, 1, "peer")])
         XCTAssertEqual(peer.madeBy, "me")
@@ -284,7 +343,7 @@ final class WrapSigningTests: XCTestCase {
         let me = try entry("me", meIdentity)
         keys.roots.mutate { $0[root] = (1, crypto.generateTreeKey().publicKey) }
         keys.rows.mutate { $0[VerifyingKeys.key(root, 1, "me")] = Row(wrapped: try! self.crypto.wrap(installPublic: me.x25519Public, treeSecret: tree.secret), signature: nil, signer: nil, madeBy: "old") }
-        keys.resignMissing.mutate { $0 = true }
+        keys.resignFails.mutate { $0 = "NOT_FOUND" }
         try await holder(keys).sync(accountId: "a")
         let peer = try XCTUnwrap(keys.rows.value[VerifyingKeys.key(root, 1, "peer")])
         XCTAssertNil(peer.signature)
@@ -324,11 +383,27 @@ final class WrapSigningTests: XCTestCase {
         let me = try entry("me", meIdentity)
         keys.roots.mutate { $0[root] = (1, tree.publicKey) }
         keys.rows.mutate { $0[VerifyingKeys.key(root, 1, "me")] = Row(wrapped: try! self.crypto.wrap(installPublic: me.x25519Public, treeSecret: tree.secret), signature: nil, signer: nil, madeBy: "old") }
-        keys.resignMissing.mutate { $0 = true }
+        keys.resignFails.mutate { $0 = "NOT_FOUND" }
         let holder = try holder(keys)
         await holder.sync(accountId: "a")
         XCTAssertNil(keys.rows.value[VerifyingKeys.key(root, 1, "me")]?.signature)
-        keys.resignMissing.mutate { $0 = false }
+        keys.resignFails.mutate { $0 = nil }
+        await holder.sync(accountId: "a")
+        XCTAssertNotNil(keys.rows.value[VerifyingKeys.key(root, 1, "me")]?.signature)
+        try assertEveryRowSignedByMe(keys)
+    }
+
+    /// A blip (`retry`) keeps the root for the next pass; the pass goes on.
+    func testABlipIsRetriedOnTheNextPass() async throws {
+        let keys = try server()
+        let tree = crypto.generateTreeKey()
+        let me = try entry("me", meIdentity)
+        keys.roots.mutate { $0[root] = (1, tree.publicKey) }
+        keys.rows.mutate { $0[VerifyingKeys.key(root, 1, "me")] = Row(wrapped: try! self.crypto.wrap(installPublic: me.x25519Public, treeSecret: tree.secret), signature: nil, signer: nil, madeBy: "old") }
+        keys.resignFails.mutate { $0 = "INTERNAL_SERVER_ERROR" }
+        let holder = try holder(keys)
+        await holder.sync(accountId: "a")
+        keys.resignFails.mutate { $0 = nil }
         await holder.sync(accountId: "a")
         XCTAssertNotNil(keys.rows.value[VerifyingKeys.key(root, 1, "me")]?.signature)
         try assertEveryRowSignedByMe(keys)
@@ -372,7 +447,7 @@ final class WrapSigningTests: XCTestCase {
         let ids = (0..<count).map { String(format: "01234567-89ab-4def-8123-%012d", $0) }
         for id in ids {
             let tree = crypto.generateTreeKey()
-            keys.readers.mutate { $0[id] = ["me"] }
+            keys.readers.mutate { $0[id] = ["me", "peer"] }
             keys.roots.mutate { $0[id] = (1, tree.publicKey) }
             keys.rows.mutate { $0[VerifyingKeys.key(id, 1, "me")] = Row(wrapped: try! self.crypto.wrap(installPublic: me.x25519Public, treeSecret: tree.secret), signature: nil, signer: nil, madeBy: "old") }
         }
