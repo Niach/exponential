@@ -166,7 +166,7 @@ fun AgentsScreen(
     ClaimedFailedActionToast(failure, viewModel::claimFailure)
     // FEED-149: the selected team when the caller OWNS it — its Remove drops a
     // teammate's share from that team; null = no Remove on any row.
-    val ownedTeamId by viewModel.ownedTeamId.collectAsStateWithLifecycle()
+    val ownedTeamIds by viewModel.ownedTeamIds.collectAsStateWithLifecycle()
     // FEED-149: the teammate's shared row whose Remove waits on its confirm.
     var dropShareTarget by remember { mutableStateOf<SteerDevice?>(null) }
 
@@ -221,8 +221,8 @@ fun AgentsScreen(
         containerColor = Color.Transparent,
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            // #EXP-1384 (chats.json `shell.header`): the page header; pushed
-            // from the Team page's Devices row, the back control first.
+            // The page header; pushed from the Settings tab's Devices row, the
+            // back control first.
             com.exponential.app.ui.components.PageHeader(
                 title = com.exponential.app.domain.Chats.Copy.HEADERS.getValue("devices"),
                 onBack = onBack,
@@ -332,9 +332,8 @@ fun AgentsScreen(
                                 onSignIn = { _, _ -> },
                                 onAddAccount = {},
                                 onUpdate = {},
-                                onRemoveShare = ownedTeamId
-                                    ?.takeIf { device.rowId != null && it in device.sharedTeamIds }
-                                    ?.let { { dropShareTarget = device } },
+                                onRemoveShare = { dropShareTarget = device }
+                                    .takeIf { device.rowId != null && device.sharedTeamIds.any { it in ownedTeamIds } },
                             )
                         }
                         if (onlineTeam.isNotEmpty()) {
@@ -375,7 +374,7 @@ fun AgentsScreen(
     }
 
     // FEED-149: the owner's Remove — the prompt names the machine; Remove drops
-    // its share from the selected team (the shape delta removes the row, a
+    // its share from the teams the viewer owns (the shape delta removes the row, a
     // failure is the remove toast).
     dropShareTarget?.let { target ->
         PromptAlert(
@@ -383,7 +382,8 @@ fun AgentsScreen(
             onDismiss = { dropShareTarget = null },
             handlers = mapOf(
                 "remove" to {
-                    ownedTeamId?.let { teamId -> viewModel.dropDeviceShare(target, teamId) }
+                    target.sharedTeamIds.filter { it in ownedTeamIds }
+                        .forEach { teamId -> viewModel.dropDeviceShare(target, teamId) }
                     dropShareTarget = null
                 },
             ),

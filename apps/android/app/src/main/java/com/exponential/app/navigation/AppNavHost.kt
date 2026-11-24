@@ -1,13 +1,6 @@
 package com.exponential.app.navigation
 
-import com.exponential.app.domain.SidebarFolders
-import com.exponential.app.ui.components.rememberSidebarFolders
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.input.pointer.pointerInput
-import com.exponential.app.ui.home.HomeViewModel
-import com.exponential.app.ui.onboarding.CreateBoardSheet
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContentTransitionScope.SlideDirection
@@ -20,6 +13,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -71,9 +67,8 @@ import io.sentry.android.navigation.SentryNavigationListener
 import com.exponential.app.AppViewModel
 import com.exponential.app.ExponentialApp
 import com.exponential.app.data.ChatShare
-import com.exponential.app.data.TeamSelection
-import com.exponential.app.domain.NavBadges
-import com.exponential.app.domain.TeamLiveRuns
+import com.exponential.app.data.ShellState
+import com.exponential.app.domain.Chats
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.data.electric.SyncHealth
 import androidx.browser.customtabs.CustomTabsIntent
@@ -98,14 +93,15 @@ import com.exponential.app.ui.agent.AgentScreen
 import com.exponential.app.ui.auth.LoginScreen
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomBarSuppression
-import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.components.LocalPageHeaderActions
 import com.exponential.app.ui.components.PageHeaderActions
-import com.exponential.app.ui.components.PhoneBoardMenu
 import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.ui.components.LocalOverlayToaster
 import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.PhoneDock
+import com.exponential.app.ui.components.PhoneNewMenu
 import com.exponential.app.ui.components.ToastHost
+import com.exponential.app.ui.components.aboveDock
 import com.exponential.app.ui.components.BlockingOverlayHost
 import com.exponential.app.ui.components.Toaster
 import com.exponential.app.ui.icons.ExpIcons
@@ -114,7 +110,6 @@ import com.exponential.app.ui.invite.InviteAcceptScreen
 import com.exponential.app.ui.issue.IssueDraftScreen
 import com.exponential.app.ui.onboarding.OnboardingScreen
 import com.exponential.app.ui.personal.PersonalScreen
-import com.exponential.app.ui.issue.IssueListMode
 import com.exponential.app.ui.issue.IssueListScreen
 import com.exponential.app.ui.search.SearchScreen
 import com.exponential.app.ui.chat.ChatScreen
@@ -131,22 +126,21 @@ import com.exponential.app.ui.settings.McpActivityScreen
 import com.exponential.app.ui.settings.McpSettingsScreen
 import com.exponential.app.ui.settings.PromptSettingsScreen
 import com.exponential.app.ui.settings.PromptsSettingsScreen
-import com.exponential.app.ui.onboarding.TeamSetupSheet
-import com.exponential.app.ui.settings.SettingsViewModel
 import com.exponential.app.ui.settings.SkillSettingsScreen
-import com.exponential.app.ui.settings.TeamTabViewModel
 import com.exponential.app.ui.settings.SkillsSettingsScreen
 import com.exponential.app.ui.chat.AgentConversationScreen
 import com.exponential.app.ui.apps.AppEditorScreen
 import com.exponential.app.ui.apps.AppRunScreen
-import com.exponential.app.ui.apps.AppsScreen
 import com.exponential.app.ui.settings.AgentsSettingsScreen
 import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.settings.AboutScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
 import com.exponential.app.ui.settings.VoiceSettingsScreen
+import com.exponential.app.ui.settings.SecuritySettingsScreen
 import com.exponential.app.ui.settings.SettingsScreen
-import com.exponential.app.ui.settings.TeamTabScreen
+import com.exponential.app.ui.settings.TeamSettingsRootScreen
+import com.exponential.app.ui.teams.TeamPageScreen
+import com.exponential.app.ui.teams.TeamsScreen
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
 import com.exponential.app.ui.settings.TeamSettingsScreen
 import com.exponential.app.ui.settings.ThirdPartyLicensesScreen
@@ -164,24 +158,22 @@ import dagger.hilt.android.EntryPointAccessors
 
 /**
  * The single navigation surface, mirroring the iOS `AppNavigator`: a gradient
- * [AppBackground] behind one push-stack `NavHost`, with the floating bottom
- * pill (Issues · Inbox · Devices · Chats + the Chat | New issue
- * capsule) overlaid on the top-level routes; the app lands on the Agent page,
- * which the Chat arm selects like a tab. EXP-1210: the tabs are ROOT siblings
- * ([MainTabs], [selectTab]) — no back button, no slide between them. Replaces
- * the inline graph + `MainScaffold` drawer shell that used to live in
- * MainActivity.
+ * [AppBackground] behind one push-stack `NavHost`, with the docked bar (#EXP-2109:
+ * Chats · Teams · Assistant · New · Settings) over the pages `shell.pages`
+ * lists; the app lands on Chats. EXP-1210: the tabs are ROOT siblings
+ * ([MainTabs], [selectTab]) — no back button, no slide between them. There is
+ * no active team: a screen's team is derived from what it shows.
  */
 @Composable
 fun AppNavHost() {
     val viewModel: AppViewModel = hiltViewModel()
     val deepLinkBus = applicationDeepLinkBus()
-    val teamSelection = applicationTeamSelection()
+    val shell = applicationShellState()
     val webLinkResolver = applicationWebLinkResolver()
     val state by viewModel.state.collectAsStateWithLifecycle()
     // No session yet (see below). #EXP-1694: each graph has its own controller:
     // handing the signed-in back stack to the signed-out graph crashed Sign out
-    // ("agent-tab is not a direct child of this NavGraph").
+    // ("a tab is not a direct child of this NavGraph").
     val needsAuth =
         state.accounts.isEmpty() || state.instanceUrl == null || state.token == null
     val navController = key(needsAuth) { rememberNavController() }
@@ -206,7 +198,7 @@ fun AppNavHost() {
     val startDestination = when {
         state.instanceUrl == null -> "instance"
         state.token == null -> "login"
-        else -> AGENT_TAB_ROUTE
+        else -> MainTabs.CHATS
     }
 
     // EXP-1031: the app's ONE toaster, above both nav graphs, drawn by ONE
@@ -235,7 +227,7 @@ fun AppNavHost() {
     // chat root = the chat, else the session view. Same snapshot hazard
     // as the issue route — the screens read their id from SavedStateHandle
     // once. #EXP-1638: a recent-chat app shortcut rides the same open.
-    suspend fun openSession(id: String, card: PushDeepLinks.Card? = null, onAgentRoot: Boolean = false) {
+    suspend fun openSession(id: String, card: PushDeepLinks.Card? = null, onRoot: Boolean = false) {
         // #EXP-1662: a session with a waiting plan of its own = its
         // chat's plan tab, on that plan. waiting-cards.json DEEP LINKS: a
         // push's card (its `messageId`), else the session's waiting
@@ -248,11 +240,9 @@ fun AppNavHost() {
                 ?: InboxRoute.landing(target, root, webLinkResolver.waitingCard(id), plan = false)
         }
         val route = landingRoute(landing) ?: sessionTargetRoute(id, target)
-        val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(id))
         guarded {
-            teamSwitch?.let(viewModel::applyTeamSwitch)
             // #EXP-1830: a shortcut or widget lands by THE back stack rule.
-            if (onAgentRoot) navController.launchOnAgentRoot(route, tabSwitch) else navController.navigateDeepLink(route)
+            if (onRoot) navController.launchOnRoot(route, tabSwitch) else navController.navigateDeepLink(route, tabSwitch)
         }
     }
 
@@ -261,6 +251,8 @@ fun AppNavHost() {
         // Leave the target in the bus while unauthenticated so a share/deep-link
         // received before login resumes once the token lands (token is a key).
         if (state.token == null) return@LaunchedEffect
+        // A cold start's push for the Assistant lands on its tab too.
+        AssistantTab.ref = withTimeoutOrNull(ASSISTANT_WAIT_MS) { viewModel.assistantNow() }
         when (target) {
             // A real push, never launchSingleTop (EXP-528): single top REPLACES
             // the top entry and the replacement keeps its id, so its
@@ -270,13 +262,9 @@ fun AppNavHost() {
             // keeps the only thing single top bought us: a re-tap for what is
             // already on screen stays a no-op.
             is DeepLinkBus.Target.Issue -> {
-                // chats.json: a link naming another team switches first
-                // (inside the guard: a held navigation switches nothing).
-                val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfIssue(target.id))
                 guarded {
-                    teamSwitch?.let(viewModel::applyTeamSwitch)
                     if (target.rooted) {
-                        navController.launchIssueOnAgentRoot(target.id, tabSwitch, target.comment)
+                        navController.launchIssueOnRoot(target.id, tabSwitch, target.comment)
                     } else {
                         navController.navigateIssueDeepLink(target.id, target.comment)
                     }
@@ -294,87 +282,82 @@ fun AppNavHost() {
             // #ERR-27: a notification tap lands by THE back stack rule, so
             // chat after chat opened from the shade never stacks (each kept
             // its ChatViewModel, its tree and its transcript alive).
-            is DeepLinkBus.Target.Session -> openSession(target.id, target.card, onAgentRoot = target.rooted)
+            is DeepLinkBus.Target.Session -> openSession(target.id, target.card, onRoot = target.rooted)
             // #EXP-1638 (app-shortcuts.json): the app icon's long-press menu,
             // onto the pages the app already has.
-            // #EXP-1830 THE BACK STACK RULE: every entry lands on the Agent
-            // tab root, its target pushed over it.
+            // #EXP-1830 THE BACK STACK RULE: every entry lands on the Chats
+            // root, its target pushed over it.
             is DeepLinkBus.Target.AppShortcut -> when (val shortcut = target.target) {
                 // A chat that is gone (or another account's): the start screen.
                 is AppShortcuts.Target.Chat ->
                     if (webLinkResolver.sessionTarget(shortcut.id) != null) {
-                        openSession(shortcut.id, onAgentRoot = true)
+                        openSession(shortcut.id, onRoot = true)
                     } else {
-                        guarded { navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false) }
+                        guarded { navController.selectTab(MainTabs.CHATS, tabSwitch, restore = false) }
                     }
                 // #EXP-1830: THE agent's conversation (the caller's DM;
                 // none yet = the empty DM, whose composer creates it).
                 is AppShortcuts.Target.Agent -> guarded {
-                    navController.launchOnAgentRoot(Routes.agentDm(shortcut.id), tabSwitch)
+                    navController.launchOnRoot(Routes.agentDm(shortcut.id), tabSwitch)
                 }
-                // THE New issue page, on the current board (its picker
+                // THE New issue page, on the last-used board (its picker
                 // switches); a cold start waits a beat for the board to load.
                 AppShortcuts.Target.NewIssue -> {
-                    val boardId = viewModel.currentBoardId.value
-                        ?: withTimeoutOrNull(BOARD_WAIT_MS) { viewModel.currentBoardId.filterNotNull().first() }
+                    val boardId = viewModel.newIssueBoardId.value
+                        ?: withTimeoutOrNull(BOARD_WAIT_MS) { viewModel.newIssueBoardId.filterNotNull().first() }
                     if (boardId != null) {
                         guarded {
-                            navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false)
+                            navController.selectTab(MainTabs.CHATS, tabSwitch, restore = false)
                             navController.openIssueDraft(boardId)
                         }
                     }
                 }
-                // THE composer: the Agent tab root, its default agent row.
+                // THE composer page, its default agent row.
                 AppShortcuts.Target.NewChat -> guarded {
                     deepLinkBus.requestComposerFocus()
-                    navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false)
+                    navController.launchOnRoot(AGENT_ROUTE, tabSwitch)
                 }
                 AppShortcuts.Target.Search -> guarded {
-                    navController.launchOnAgentRoot("search", tabSwitch)
+                    navController.launchOnRoot("search", tabSwitch)
                 }
             }
             // #EXP-1830 (home-widgets.json TAPS): a home widget's header or
             // row, by THE back stack rule.
             is DeepLinkBus.Target.Widget -> when (val widget = target.target) {
                 WidgetLinks.Target.Home -> Unit
-                WidgetLinks.Target.MyIssues -> guarded {
-                    deepLinkBus.requestMyIssues()
-                    navController.selectTab(MainTabs.ISSUES, tabSwitch, restore = false)
+                // My issues stands on a board's chips: the last-used board's.
+                WidgetLinks.Target.MyIssues -> {
+                    val boardId = viewModel.newIssueBoardId.value
+                        ?: withTimeoutOrNull(BOARD_WAIT_MS) { viewModel.newIssueBoardId.filterNotNull().first() }
+                    if (boardId != null) {
+                        guarded {
+                            deepLinkBus.requestMyIssues()
+                            navController.launchOnRoot(Routes.board(boardId), tabSwitch)
+                        }
+                    }
                 }
                 WidgetLinks.Target.NeedsYou -> guarded {
-                    navController.launchOnAgentRoot(Routes.CHATS_NEEDS_YOU, tabSwitch)
+                    navController.launchOnRoot(Routes.CHATS_NEEDS_YOU, tabSwitch)
                 }
-                is WidgetLinks.Target.Board -> {
-                    val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfBoard(widget.id))
-                    guarded {
-                        teamSwitch?.let(viewModel::applyTeamSwitch)
-                        navController.launchOnAgentRoot("board/${widget.id}", tabSwitch)
-                    }
+                is WidgetLinks.Target.Board -> guarded {
+                    navController.launchOnRoot(Routes.board(widget.id), tabSwitch)
                 }
-                is WidgetLinks.Target.Issue -> {
-                    val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfIssue(widget.id))
-                    guarded {
-                        teamSwitch?.let(viewModel::applyTeamSwitch)
-                        navController.launchIssueOnAgentRoot(widget.id, tabSwitch)
-                    }
+                is WidgetLinks.Target.Issue -> guarded {
+                    navController.launchIssueOnRoot(widget.id, tabSwitch)
                 }
-                is WidgetLinks.Target.NeedsYouRow -> {
-                    val teamSwitch = viewModel.planTeamSwitch(null, webLinkResolver.teamOfSession(widget.rootId))
-                    guarded {
-                        teamSwitch?.let(viewModel::applyTeamSwitch)
-                        navController.launchOnAgentRoot(
-                            Routes.needsYou(widget.rootId, widget.messageId, widget.opens),
-                            tabSwitch,
-                        )
-                    }
+                is WidgetLinks.Target.NeedsYouRow -> guarded {
+                    navController.launchOnRoot(
+                        Routes.needsYou(widget.rootId, widget.messageId, widget.opens),
+                        tabSwitch,
+                    )
                 }
             }
             // #EXP-1534: an agent_signed_out push tap or inbox row = the
             // Devices page with that device's settings open
-            // (fixtures/inbox-route.json `device`). Team-less: no switch.
+            // (fixtures/inbox-route.json `device`).
             is DeepLinkBus.Target.Device -> guarded {
                 if (target.rooted) {
-                    navController.launchOnAgentRoot(Routes.deviceSettings(target.deviceId), tabSwitch)
+                    navController.launchOnRoot(Routes.deviceSettings(target.deviceId), tabSwitch)
                 } else {
                     navController.navigateDeepLink(Routes.deviceSettings(target.deviceId))
                 }
@@ -383,13 +366,13 @@ fun AppNavHost() {
             // alike, by the one open rule (app-link.json `openCases`).
             is DeepLinkBus.Target.Link -> {
                 val resolved = webLinkResolver.resolveLink(target.link, target.host)
-                val activeTeam = resolved.accountId == state.activeAccountId &&
-                    resolved.teamId == teamSelection.selectedId.value
+                // #EXP-2109: every member team is in scope; only another
+                // server's account is switched to.
                 val screen = resolved.destination
-                when (linkOpenOutcome(resolved.member, activeTeam, resolved.found, resolved.webOnly)) {
+                when (linkOpenOutcome(resolved.member, resolved.accountId == state.activeAccountId, resolved.found, resolved.webOnly)) {
                     LinkOpenOutcome.NoAccess -> {
                         toaster.error(LINK_NO_ACCESS)
-                        guarded { navController.selectTab(MainTabs.AGENT, tabSwitch, restore = false) }
+                        guarded { navController.selectTab(MainTabs.CHATS, tabSwitch, restore = false) }
                     }
                     LinkOpenOutcome.Browser ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
@@ -400,12 +383,9 @@ fun AppNavHost() {
                         } else {
                             toaster.error(LINK_NO_ACCESS)
                         }
-                    LinkOpenOutcome.SwitchTeam -> {
-                        val teamSwitch = viewModel.planTeamSwitch(resolved.accountId, resolved.teamId)
-                        guarded {
-                            teamSwitch?.let(viewModel::applyTeamSwitch)
-                            screen?.let { navController.openLinkDestination(it, target.uri, tabSwitch) }
-                        }
+                    LinkOpenOutcome.SwitchTeam -> guarded {
+                        resolved.accountId?.let(viewModel::switchAccount)
+                        screen?.let { navController.openLinkDestination(it, target.uri, tabSwitch) }
                     }
                     LinkOpenOutcome.Open -> guarded {
                         screen?.let { navController.openLinkDestination(it, target.uri, tabSwitch) }
@@ -420,21 +400,19 @@ fun AppNavHost() {
                 // EXP-1635 (share-targets.json): a sharing shortcut skips Share
                 // to; an id this viewer can no longer follow lands on it.
                 val direct = target.directShareId?.let { viewModel.resolveDirectShare(it) }
-                val teamSwitch = direct?.let { viewModel.planTeamSwitch(null, it.teamId) }
                 guarded {
-                    teamSwitch?.let(viewModel::applyTeamSwitch)
                     when {
                         direct?.sessionId != null -> {
-                            teamSelection.setPendingChatShare(ChatShare(target, sessionId = direct.sessionId))
-                            navController.navigateDeepLink(Routes.chat(direct.sessionId))
+                            shell.setPendingChatShare(ChatShare(target, sessionId = direct.sessionId))
+                            navController.navigateDeepLink(Routes.chat(direct.sessionId), tabSwitch)
                         }
                         direct?.pick != null -> {
-                            teamSelection.setPendingChatShare(ChatShare(target, pick = direct.pick))
-                            navController.selectTab(MainTabs.AGENT, tabSwitch)
+                            shell.setPendingChatShare(ChatShare(target, pick = direct.pick, teamId = direct.teamId))
+                            navController.navigateDeepLink(AGENT_ROUTE)
                         }
                         else -> {
-                            // The pending share lives in the TeamSelection singleton.
-                            teamSelection.setPendingShare(target)
+                            // The pending share lives in the ShellState singleton.
+                            shell.setPendingShare(target)
                             navController.navigate(Routes.SHARE_TO) { launchSingleTop = true }
                         }
                     }
@@ -515,10 +493,9 @@ fun AppNavHost() {
             // re-scopes every live screen in place — no key(activeAccountId)
             // rebuild, no pending-handoff flags.
             val unreadCount by viewModel.unreadCount.collectAsStateWithLifecycle()
-            val draftCount by viewModel.draftCount.collectAsStateWithLifecycle()
-            // EXP-1075: my live runs per team.
-            val liveRunsByTeam by viewModel.liveRunsByTeam.collectAsStateWithLifecycle()
-            val currentBoardId by viewModel.currentBoardId.collectAsStateWithLifecycle()
+            val newIssueBoardId by viewModel.newIssueBoardId.collectAsStateWithLifecycle()
+            val assistant by viewModel.assistant.collectAsStateWithLifecycle()
+            LaunchedEffect(assistant) { AssistantTab.ref = assistant }
             val gatedOtherServers by viewModel.gatedOtherServers.collectAsStateWithLifecycle()
             val syncHealth by viewModel.syncHealth.collectAsStateWithLifecycle()
             AuthenticatedNav(
@@ -532,21 +509,20 @@ fun AppNavHost() {
                 syncHealth = syncHealth,
                 needsOnboarding = needsOnboarding,
                 unreadCount = unreadCount,
-                draftCount = draftCount,
-                liveRunsByTeam = liveRunsByTeam,
-                currentBoardId = currentBoardId,
+                newIssueBoardId = newIssueBoardId,
+                assistant = viewModel.assistant,
                 onSetInstanceUrl = { viewModel.setInstanceUrl(it) },
                 onRetrySync = { viewModel.retrySync() },
             )
             // NEW-69: a running voice call, full screen over every screen.
             // FEED-272: its Chat tab opens the agent's chat when none shows.
-            com.exponential.app.ui.call.VoiceCallHost(onOpenChat = { id -> navController.navigate(Routes.agentDm(id)) })
+            com.exponential.app.ui.call.VoiceCallHost(onOpenChat = { id -> navController.open(Routes.agentDm(id), tabSwitch) })
         }
         // Drawn last, so it overlays every screen's header (sonner
         // top-center does the same); only the cards take touches.
         ToastHost(toaster, Modifier.align(Alignment.TopCenter))
         // EXP-1275 (D8.5): the window's ONE blocking overlay — switching
-        // team or account, signing out — over everything, toasts included.
+        // account, signing out — over everything, toasts included.
         BlockingOverlayHost()
         }
     }
@@ -581,6 +557,7 @@ private fun UnauthenticatedNav(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AuthenticatedNav(
     navController: NavHostController,
@@ -593,20 +570,19 @@ private fun AuthenticatedNav(
     syncHealth: SyncHealth,
     needsOnboarding: Boolean,
     unreadCount: Int,
-    draftCount: Int,
-    liveRunsByTeam: Map<String, TeamLiveRuns>,
-    currentBoardId: String?,
+    newIssueBoardId: String?,
+    assistant: kotlinx.coroutines.flow.StateFlow<AssistantRef?>,
     onSetInstanceUrl: (String) -> Unit,
     onRetrySync: () -> Unit,
 ) {
-    val teamSelection = applicationTeamSelection()
+    val shell = applicationShellState()
     val planLinks = applicationWebLinkResolver()
     val planScope = rememberCoroutineScope()
     val openPlanTab = remember(navController) {
         OpenPlanPage { sessionId, messageId ->
             planScope.launch {
                 val root = planLinks.planChat(sessionId)
-                navController.navigate(root?.let { Routes.chatPlan(it, messageId) } ?: Routes.session(sessionId))
+                navController.open(root?.let { Routes.chatPlan(it, messageId) } ?: Routes.session(sessionId), tabSwitch)
             }
         }
     }
@@ -624,112 +600,60 @@ private fun AuthenticatedNav(
         }
     }
 
-    // (Fresh starts need no auto-push anymore: the Issues tab root IS the
-    // last-opened board — its current-board resolution starts there.)
-
-    // Linear-style floating bottom bar over the top-level routes only; detail
-    // and settings screens get the full height back.
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     // #EXP-1815: the screen on top's thread, for FcmService's presentation.
     val inAppNotifications = applicationInAppNotifications()
     DisposableEffect(backStackEntry) {
-        inAppNotifications.setViewing(ViewingThreads.of(currentRoute) { backStackEntry?.arguments?.getString(it) })
+        inAppNotifications.setViewing(
+            ViewingThreads.of(currentRoute) { name ->
+                if (currentRoute == MainTabs.ASSISTANT) assistant.value?.sessionId.takeIf { name == "sessionId" }
+                else backStackEntry?.arguments?.getString(name)
+            },
+        )
         onDispose { }
     }
     DisposableEffect(Unit) { onDispose { inAppNotifications.setViewing(null) } }
-    // EXP-1210: the tab whose stack is up — a detail pushed inside a tab
-    // still lights that tab.
-    val currentTab = remember(backStackEntry) { navController.currentTab() }
-    // #EXP-1384: Devices (pushed from the Team page) keeps the bar, the Team
-    // tab lit.
-    val onDevicesPage = currentRoute == Routes.TEAM_SETTINGS_PATTERN &&
-        backStackEntry?.arguments?.getString("section") == SettingsNav.DEVICES
-    val barVisible = !needsOnboarding &&
-        (
-            currentRoute in MainTabs.routes || currentRoute == "board/{boardId}" || onDevicesPage ||
-                // #EXP-1388: the Archived page keeps the bar, the Chats tab lit.
-                currentRoute == Routes.CHATS_ARCHIVED
-            )
+    // #EXP-2109 (`shell.pages`): the tab the page lights and whether the bar
+    // shows; a page not listed is a detail: no bar.
+    val page = Chats.Shell.page(MainTabs.page(currentRoute))
+    val barVisible = !needsOnboarding && page.bar
     // EXP-698 r5 (Mechanism A): a screen may claim the tab bar's slot for a
     // bar of its own — today the issue list's multi-select bar. The switch is
     // provided to the whole NavHost; the chrome below reads it directly.
     val barSuppression = remember { BottomBarSuppression() }
-    val barShown = barVisible && !barSuppression.suppressed
+    // The keyboard takes the bar's place (the Assistant's composer).
+    val barShown = barVisible && !barSuppression.suppressed && !WindowInsets.isImeVisible
 
-    // #FEED-232: the Chats tab's count badge (`chatsBadge`) and each team's
-    // needs-you count (the team menu's rows, the Team tab's corner).
+    // #FEED-232: the Chats tab's count badge (`chatsBadge`), over every team.
     val chatsVm: ChatsViewModel = hiltViewModel()
     val chatsBadge by chatsVm.chatsBadge.collectAsStateWithLifecycle()
-    val needsYouByTeam by chatsVm.needsYouByTeam.collectAsStateWithLifecycle()
-    // Session 58cb32df: the Team tab wears the ACTIVE team's avatar + name.
-    val teams by chatsVm.teams.collectAsStateWithLifecycle()
-    val selectedTeamId by teamSelection.selectedId.collectAsStateWithLifecycle()
-    val activeTeam = teams.firstOrNull { it.id == selectedTeamId }
-    // EXP-825: every launcher entry point is NAVIGATION onto the Agent page
+    // EXP-825: every launcher entry point is NAVIGATION onto the composer page
     // with a preselection seed — every play button with what it acts on.
     // The seed rides the route string, so the concrete route differs per seed:
-    // an EMPTY seed IS the Agent tab (the bar's chat arm), and a seeded tap reuses the
-    // deep-link rule — a no-op when that exact seeded route is already on top,
-    // else a NEW entry whose ViewModel reads the new seed (single top would
-    // keep the old entry's ViewModel, which read its seed once — EXP-528).
-    val openAgent: (AgentComposerSeed) -> Unit = { seed ->
-        val route = agentRoute(seed)
-        if (route == AGENT_ROUTE) {
-            navController.selectTab(MainTabs.AGENT, tabSwitch)
-        } else {
-            navController.navigateDeepLink(route)
-        }
-    }
-    // EXP-1121: the "Ready to code?" fixes. Team settings shows the SELECTED
-    // team, so the issue's team is selected first (a no-op when it already
-    // is); it is PUSHED over the issue, so Back returns to Start coding.
-    // Devices is a tab (EXP-1210): a switch; an issue opened inside a
-    // non-Agent tab comes back with that tab's restored stack.
+    // a tap reuses the deep-link rule — a no-op when that exact route is
+    // already on top, else a NEW entry whose ViewModel reads the new seed
+    // (single top would keep the old entry's ViewModel, which read its seed
+    // once — EXP-528).
+    val openAgent: (AgentComposerSeed) -> Unit = { seed -> navController.navigateDeepLink(agentRoute(seed)) }
+    // EXP-1121: the "Ready to code?" fixes: the issue's team's settings page
+    // and Devices, PUSHED over the issue, so Back returns to Start coding.
     val openReadinessTeamSettings: (String, String) -> Unit = { teamId, section ->
-        if (teamSelection.selectedId.value != teamId) teamSelection.select(teamId)
-        navController.navigate(Routes.teamSettings(section)) { launchSingleTop = true }
+        navController.navigate(Routes.teamSettings(teamId, section)) { launchSingleTop = true }
     }
     val openReadinessDevices: () -> Unit = {
-        navController.navigate(Routes.teamSettings(SettingsNav.DEVICES)) { launchSingleTop = true }
+        navController.navigate(Routes.DEVICES) { launchSingleTop = true }
     }
 
-    // The single add-issue affordance. EXP-973: it rides EVERY tab, not just
-    // the board ones — a pushed board route still wins (the reader is looking
-    // at that board), anything else files onto the team's current board.
+    // New › Issue (`shell.newMenu`): the board on screen, else the last-used
+    // one, else the first board of the first team.
     val composeBoardId = when (currentRoute) {
-        "board/{boardId}" -> backStackEntry?.arguments?.getString("boardId")
-        else -> currentBoardId
+        Routes.BOARD_PATTERN -> backStackEntry?.arguments?.getString("boardId")
+        else -> newIssueBoardId
     }
-
-    // #EXP-1384 (chats.json `shell.boardTab` / `shell.boardMenu`): the Board
-    // tab wears the ACTIVE board, and on the board view its tap morphs the
-    // strip into the board menu — the active team's boards in sidebar order.
-    val homeVm: HomeViewModel = hiltViewModel()
-    val homeState by homeVm.state.collectAsStateWithLifecycle()
-    val activeGroup = homeState.boardTree.firstOrNull { it.accountId == activeAccountId }
-    val activeBlock = activeGroup?.teamBlocks?.firstOrNull { it.team.id == selectedTeamId }
-    val teamBoards = activeBlock?.boards.orEmpty().sortedBy { it.sortOrder }
-    val activeBoard = teamBoards.firstOrNull { it.id == composeBoardId }
-    // #EXP-1832: the member's board folders, read-only (the board menu folds them).
-    val boardFolders = rememberSidebarFolders(selectedTeamId, SidebarFolders.SECTION_BOARD, teamBoards.map { it.id })
-    val onBoardView = currentRoute == MainTabs.ISSUES || currentRoute == "board/{boardId}"
-    // #EXP-1645 (`shell.teamTab`): the Team tab, on the Team page itself (never
-    // the settings or Devices pages pushed from it), opens the same menu over
-    // the member's teams, the rows the Team page lists.
-    val onTeamPage = currentRoute == MainTabs.TEAM
-    val settingsVm: SettingsViewModel = hiltViewModel()
-    val teamTabVm: TeamTabViewModel = hiltViewModel()
-    val serverGroups by settingsVm.serverGroups.collectAsStateWithLifecycle()
-    var stripMenuOpen by remember { mutableStateOf(false) }
-    // Which menu the strip shows; kept through the collapse.
-    var teamMenu by remember { mutableStateOf(false) }
-    var createBoardOpen by remember { mutableStateOf(false) }
-    var createTeamOpen by remember { mutableStateOf(false) }
-    // Leaving the menu's page (or the bar hiding) folds the menu.
-    LaunchedEffect(onBoardView, onTeamPage, teamMenu, barVisible) {
-        if (!barVisible || !(if (teamMenu) onTeamPage else onBoardView)) stripMenuOpen = false
-    }
+    var newOpen by remember { mutableStateOf(false) }
+    // Leaving the page (or the bar hiding) closes the popup.
+    LaunchedEffect(backStackEntry?.id, barShown) { newOpen = false }
     // The page header's circles (`shell.header.buttons`), the same on every
     // page: search pushes the phone search, the inbox the inbox page.
     val pageHeaderActions = PageHeaderActions(
@@ -752,17 +676,17 @@ private fun AuthenticatedNav(
         EntityNavigator { target -> guarded {
             when (target) {
                 is EntityTarget.Issue -> navController.navigate(issueRoute(target.id, commentId = target.commentId))
-                is EntityTarget.Board -> navController.navigate("board/${target.id}")
+                is EntityTarget.Board -> navController.navigate(Routes.board(target.id))
                 is EntityTarget.Session -> navController.navigate(Routes.session(target.id))
                 // NEW-7: a `prompt` ref opens its Settings page.
                 is EntityTarget.Prompt -> navController.navigate(Routes.promptSettings(target.id))
-                EntityTarget.Prompts -> navController.navigate(Routes.PROMPTS_SETTINGS)
+                is EntityTarget.Prompts -> navController.openTeamSettings(target.teamId, SettingsNav.PROMPTS, tabSwitch)
                 // NEW-7: an `agent` ref opens my conversation with it.
-                is EntityTarget.Agent -> navController.navigate(Routes.agentDm(target.id))
-                // #EXP-1384: Devices is a Team-page row, pushed.
-                EntityTarget.Devices -> navController.navigate(Routes.teamSettings(SettingsNav.DEVICES)) { launchSingleTop = true }
-                is EntityTarget.TeamSettings -> navController.navigate(Routes.teamSettings(target.section))
-                EntityTarget.Team -> navController.selectTab(MainTabs.TEAM, tabSwitch)
+                is EntityTarget.Agent -> navController.open(Routes.agentDm(target.id), tabSwitch)
+                EntityTarget.Devices -> navController.navigate(Routes.DEVICES) { launchSingleTop = true }
+                is EntityTarget.TeamSettings -> navController.openTeamSettings(target.teamId, target.section, tabSwitch)
+                is EntityTarget.Team -> target.teamId?.let { navController.navigate(Routes.team(it)) }
+                    ?: navController.selectTab(MainTabs.TEAMS, tabSwitch)
                 // Session 58cb32df: the inbox is a page, pushed.
                 EntityTarget.Inbox -> navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
             }
@@ -774,8 +698,6 @@ private fun AuthenticatedNav(
     // recomposes on every navigation (Back included) and sync tick.
     val activeAccountIdLatest = rememberUpdatedState(activeAccountId)
     val cloudAlreadyAddedLatest = rememberUpdatedState(cloudAlreadyAdded)
-    val currentBoardIdLatest = rememberUpdatedState(currentBoardId)
-    val liveRunsByTeamLatest = rememberUpdatedState(liveRunsByTeam)
     val unreadCountLatest = rememberUpdatedState(unreadCount)
     val onSetInstanceUrlLatest = rememberUpdatedState(onSetInstanceUrl)
     Box(modifier = Modifier.fillMaxSize()) {
@@ -790,12 +712,12 @@ private fun AuthenticatedNav(
     ) {
     NavHost(
         navController = navController,
-        // The Agent tab is the stack ROOT (where the app lands); every other
-        // tab is one entry above it, so Back from a tab returns to Agent.
-        startDestination = if (needsOnboarding) "onboarding" else AGENT_TAB_ROUTE,
+        // Chats is the stack ROOT (where the app lands); every other tab is
+        // one entry above it, so Back from a tab returns to Chats.
+        startDestination = if (needsOnboarding) "onboarding" else MainTabs.CHATS,
         // iOS-style horizontal push/pop transitions — except a tab switch
         // (EXP-1210): tab roots are siblings, so moving between them (and
-        // Back from a tab root to the Agent root) swaps with no transition.
+        // Back from a tab root to the Chats root) swaps with no transition.
         enterTransition = {
             if (isTabSwap(tabSwitch)) EnterTransition.None
             else slideIntoContainer(SlideDirection.Start, pushSpec)
@@ -816,55 +738,65 @@ private fun AuthenticatedNav(
         composable("onboarding") {
             OnboardingScreen(
                 onDone = {
-                    navController.navigate(AGENT_TAB_ROUTE) { popUpTo("onboarding") { inclusive = true } }
+                    navController.navigate(MainTabs.CHATS) { popUpTo("onboarding") { inclusive = true } }
                 },
             )
         }
-        composable(AGENT_TAB_ROUTE) {
-            val composerFocusBus = applicationDeepLinkBus()
-            // The Agent TAB: the composer with an EMPTY seed (its ViewModel
-            // finds no args on this route), no back button, the bar over it.
-            AgentScreen(
-                onBack = null,
-                // The New chat shortcut: the composer focused.
-                pendingComposerFocus = composerFocusBus.pendingComposerFocus.collectAsStateWithLifecycle().value,
-                onComposerFocused = composerFocusBus::consumeComposerFocus,
-                onOpenSession = { sessionId -> navController.navigate(Routes.session(sessionId)) },
+        composable(MainTabs.ASSISTANT) {
+            AssistantTabScreen(
+                ref = assistant,
+                onOpenSession = { id -> navController.navigate(Routes.session(id)) },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
-                // EXP-1291: an accepted send lands on its chat.
-                onLandInChat = { id -> navController.navigate(Routes.chat(id)) },
+                onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
+                onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, chatId = rootId) },
+                onOpenApp = { id -> navController.navigate(Routes.app(id)) },
             )
         }
-        composable("home") {
-            val myIssuesBus = applicationDeepLinkBus()
-            // The Issues tab root: the current board's list with the inline
-            // switcher; picking another board swaps it in place (no push).
-            val selectedTeamId by teamSelection.selectedId.collectAsStateWithLifecycle()
-            IssueListScreen(
-                boardId = currentBoardIdLatest.value,
-                mode = IssueListMode.Root,
-                // EXP-1075: the switcher SHEET marks the teams holding MY
-                // live runs (EXP-1210: the pill wears no dot).
-                liveRunsByTeam = liveRunsByTeamLatest.value,
-                selectedTeamId = selectedTeamId,
-                onOpenIssue = { id -> navController.navigate("issue/$id") },
-                // Session 58cb32df: the gear moved to the Team tab.
-                onOpenAgent = openAgent,
-                // EXP-686: search left the bottom bar — the board header's
-                // button pushes it instead.
-                onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
-                // EXP-1270: Getting started's "Start a run" lands on the Agent
-                // home; the compose form the hidden FAB would have opened.
-                onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
-                onNewIssue = {
-                    currentBoardIdLatest.value?.let { navController.openIssueDraft(it) }
+        composable(MainTabs.TEAMS) {
+            TeamsScreen(
+                onOpenTeam = { id -> navController.navigate(Routes.team(id)) { launchSingleTop = true } },
+                chats = chatsVm,
+            )
+        }
+        listOf(Routes.TEAM_PATTERN, Routes.FOLDER_PATTERN).forEach { pattern ->
+            composable(pattern) {
+                TeamPageScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenFolder = { teamId, folderId -> navController.navigate(Routes.folder(teamId, folderId)) },
+                    onOpenBoard = { id -> navController.navigate(Routes.board(id)) },
+                    onOpenAgent = { id, root -> navController.open(root?.let { Routes.chat(it) } ?: Routes.agentDm(id), tabSwitch) },
+                    onRunApp = { id -> navController.navigate(Routes.appRun(id)) },
+                    onOpenApp = { id -> navController.navigate(Routes.app(id)) },
+                    onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
+                    onNewAgent = { teamId -> navController.navigate(Routes.agentNew(teamId)) },
+                    onOpenSettings = { teamId -> navController.navigate(Routes.teamSettingsRoot(teamId)) },
+                    chats = chatsVm,
+                    folder = pattern == Routes.FOLDER_PATTERN,
+                )
+            }
+        }
+        composable(Routes.TEAM_SETTINGS_ROOT_PATTERN) {
+            Docked {
+                TeamSettingsRootScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenSection = { teamId, section -> navController.navigate(Routes.teamSettings(teamId, section)) },
+                )
+            }
+        }
+        composable(
+            Routes.DEVICES_PATTERN,
+            arguments = listOf(
+                // #EXP-1534: the device whose settings open.
+                navArgument("device") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 },
-                // Session 58cb32df: the board's Drafts chip reopens a draft.
-                onOpenDraft = { boardId, draftId -> navController.openIssueDraft(boardId, draftId = draftId) },
-                // #EXP-1830: the My issues widget's header.
-                pendingMyIssues = myIssuesBus.pendingMyIssues.collectAsStateWithLifecycle().value,
-                onMyIssuesShown = myIssuesBus::consumeMyIssues,
+            ),
+        ) { entry ->
+            AgentsScreen(
+                onBack = { navController.popBackStack() },
+                openDeviceRowId = entry.arguments?.getString("device"),
             )
         }
         composable("search") {
@@ -878,15 +810,14 @@ private fun AuthenticatedNav(
                 // with find in chat seeded on the query at the hit.
                 onOpenChatHit = { pick, isRoot ->
                     com.exponential.app.ui.chat.FindInChatSeeds.put(pick)
-                    navController.navigate(if (isRoot) Routes.chat(pick.sessionId) else Routes.session(pick.sessionId)) {
-                        popUpTo("search") { inclusive = true }
-                    }
+                    navController.popBackStack("search", inclusive = true)
+                    navController.open(if (isRoot) Routes.chat(pick.sessionId) else Routes.session(pick.sessionId), tabSwitch)
                 },
             )
         }
         composable(
-            // EXP-825: the SEEDED Agent page — a pushed detail over any tab
-            // (the empty one is AGENT_TAB_ROUTE) whose six nullable query args carry the preselection seed
+            // EXP-825: THE composer page — a pushed detail (New › Chat, every play
+            // button) whose nullable query args carry the preselection seed
             // (`AgentComposerSeed.fromArgs` reads them off the ViewModel's
             // SavedStateHandle). The pattern is generated with the args so a
             // navigate() with fewer of them still matches.
@@ -899,13 +830,24 @@ private fun AuthenticatedNav(
                 }
             },
         ) {
+            val composerFocusBus = applicationDeepLinkBus()
             AgentScreen(
                 onBack = { navController.popBackStack() },
+                // The New chat shortcut: the composer focused.
+                pendingComposerFocus = composerFocusBus.pendingComposerFocus.collectAsStateWithLifecycle().value,
+                onComposerFocused = composerFocusBus::consumeComposerFocus,
                 onOpenSession = { sessionId -> navController.navigate(Routes.session(sessionId)) },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
-                // The seeded composer gives way to the chat it started.
-                onLandInChat = { id -> navController.landOnChat(id, replaceCurrent = true) },
+                onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
+                // The composer gives way to the chat it started (the Assistant's = its tab).
+                onLandInChat = { id ->
+                    if (AssistantTab.landingOf(Routes.chat(id), assistant.value) != null) {
+                        navController.popBackStack()
+                        navController.open(Routes.chat(id), tabSwitch)
+                    } else {
+                        navController.landOnChat(id, replaceCurrent = true)
+                    }
+                },
             )
         }
         composable(MainTabs.INBOX) {
@@ -926,13 +868,13 @@ private fun AuthenticatedNav(
             )
         }
         composable(Routes.CHATS) {
-            // EXP-1291: the Chats tab (it replaced Reviews) — a row opens
-            // its chat, an agent row its channel (the same screen).
+            // The Chats tab: a row opens its chat, an agent row its channel
+            // (the same screen), the Assistant's row its tab.
             ChatsScreen(
-                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
+                onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
                 // NEW-7: an agent with no conversation of mine yet opens its
                 // empty DM (the first send creates it).
-                onOpenAgent = { id -> navController.navigate(Routes.agentDm(id)) },
+                onOpenAgent = { id -> navController.open(Routes.agentDm(id), tabSwitch) },
                 // #EXP-1733: an app row opens the app's chat (its editor).
                 onOpenApp = { id -> navController.navigate(Routes.app(id)) },
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
@@ -940,7 +882,7 @@ private fun AuthenticatedNav(
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
                 // #FEED-239: an agent row's `…` › Agent settings opens that
                 // agent's chat with its settings item open.
-                onOpenAgentSettings = { id, rootId -> navController.navigate(Routes.agentChatSettings(id, rootId)) },
+                onOpenAgentSettings = { id, rootId -> navController.open(Routes.agentChatSettings(id, rootId), tabSwitch) },
                 inboxUnread = unreadCountLatest.value,
                 // #EXP-1388: the Archived entry pushes the Archived page.
                 onOpenArchived = { navController.navigate(Routes.CHATS_ARCHIVED) { launchSingleTop = true } },
@@ -953,7 +895,7 @@ private fun AuthenticatedNav(
             // row opens the chat on the right tab.
             NeedsYouPage(
                 onBack = { navController.popBackStack() },
-                onOpen = { row -> navController.navigate(Routes.needsYou(row)) },
+                onOpen = { row -> navController.open(Routes.needsYou(row), tabSwitch) },
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
                 inboxUnread = unreadCountLatest.value,
             )
@@ -962,7 +904,7 @@ private fun AuthenticatedNav(
             // #EXP-1388: the viewer's archived chats (the page header with
             // back; the selection bar unarchives).
             ChatsScreen(
-                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
+                onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
                 onOpenAgent = { id -> navController.navigate(Routes.agentDm(id)) },
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
                 inboxUnread = unreadCountLatest.value,
@@ -970,27 +912,17 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
             )
         }
-        composable(MainTabs.TEAM) {
-            // Session 58cb32df: the Team tab (the active team, the ONE team
-            // switch, the settings rows, the servers, General).
-            TeamTabScreen(
-                onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
+        composable(MainTabs.SETTINGS) {
+            SettingsScreen(
+                onOpenAccount = { accountId -> navController.navigate("server/$accountId") },
                 onOpenAssistant = { navController.navigate(Routes.ASSISTANT_SETTINGS) },
-                // #EXP-1381: every settings row opens its own page.
-                onOpenTeamSettings = { section -> navController.navigate(Routes.teamSettings(section)) },
-                onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
-                onOpenAbout = { navController.navigate("about") },
                 onOpenNotifications = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
+                onOpenSecurity = { navController.navigate(Routes.SECURITY) },
+                onOpenDevices = { navController.navigate(Routes.DEVICES) },
+                onOpenAbout = { navController.navigate(Routes.ABOUT) },
+                onOpenSyncDiagnostics = { navController.navigate(Routes.SYNC_DIAGNOSTICS) },
                 onAddServer = { navController.navigate("add-server") },
-                onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
-            )
-        }
-        composable(MainTabs.APPS) {
-            // #EXP-1384: the Apps TAB's root (chats.json `shell.tabs`).
-            AppsScreen(
-                // VAPP-242: a row RUNS the app; `…` › Edit app / New app / an import = the editor.
-                onRunApp = { id -> navController.navigate(Routes.appRun(id)) },
-                onOpenApp = { id -> navController.navigate(Routes.app(id)) },
+                onOpenComposer = { navController.navigateDeepLink(AGENT_ROUTE) },
             )
         }
         composable(
@@ -1031,33 +963,25 @@ private fun AuthenticatedNav(
                 },
             )
         }
-        composable("settings") {
-            SettingsScreen(
-                onOpenServerDetail = { accountId -> navController.navigate("server/$accountId") },
-                onOpenTeamSettings = { section -> navController.navigate(Routes.teamSettings(section)) },
-                onOpenSyncDiagnostics = { navController.navigate("sync-diagnostics") },
-                onOpenAbout = { navController.navigate("about") },
-                onOpenNotifications = { navController.navigate(Routes.NOTIFICATION_SETTINGS) },
-                onAddServer = { navController.navigate("add-server") },
-                onOpenAssistant = { navController.navigate(Routes.ASSISTANT_SETTINGS) },
-                onBack = { navController.popBackStack() },
-                onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
-            )
+        composable(Routes.SECURITY) {
+            Docked { SecuritySettingsScreen(onBack = { navController.popBackStack() }) }
         }
         composable(Routes.NOTIFICATION_SETTINGS) {
-            com.exponential.app.ui.settings.NotificationSettingsScreen(onBack = { navController.popBackStack() })
+            Docked { com.exponential.app.ui.settings.NotificationSettingsScreen(onBack = { navController.popBackStack() }) }
         }
-        composable("sync-diagnostics") {
-            SyncDiagnosticsScreen(onBack = { navController.popBackStack() })
+        composable(Routes.SYNC_DIAGNOSTICS) {
+            Docked { SyncDiagnosticsScreen(onBack = { navController.popBackStack() }) }
         }
-        composable("about") {
-            AboutScreen(
-                onOpenThirdPartyLicenses = { navController.navigate("third-party-licenses") },
-                onBack = { navController.popBackStack() },
-            )
+        composable(Routes.ABOUT) {
+            Docked {
+                AboutScreen(
+                    onOpenThirdPartyLicenses = { navController.navigate(Routes.LICENSES) },
+                    onBack = { navController.popBackStack() },
+                )
+            }
         }
-        composable("third-party-licenses") {
-            ThirdPartyLicensesScreen(onBack = { navController.popBackStack() })
+        composable(Routes.LICENSES) {
+            Docked { ThirdPartyLicensesScreen(onBack = { navController.popBackStack() }) }
         }
         composable("add-server") {
             InstanceScreen(
@@ -1076,63 +1000,50 @@ private fun AuthenticatedNav(
             LoginScreen(
                 instanceUrl = "",
                 onLoggedIn = {
-                    navController.resetToAgentRoot()
+                    navController.resetToRoot()
                 },
                 onChangeInstance = { navController.popBackStack() },
             )
         }
-        composable("server/{accountId}") { entry ->
+        composable(Routes.SERVER_PATTERN) { entry ->
             val accountId = entry.arguments?.getString("accountId").orEmpty()
-            ServerDetailScreen(
-                accountId = accountId,
-                onBack = { navController.popBackStack() },
-                onOpenVoice = { navController.navigate("server/$accountId/voice") },
-            )
+            Docked {
+                ServerDetailScreen(
+                    accountId = accountId,
+                    onBack = { navController.popBackStack() },
+                    onOpenVoice = { navController.navigate("server/$accountId/voice") },
+                )
+            }
         }
         // NEW-67: the account's Settings → Voice page (`voice.json`); the
         // ViewModel reads `accountId` off the SavedStateHandle.
-        composable("server/{accountId}/voice") {
-            VoiceSettingsScreen(onBack = { navController.popBackStack() })
+        composable(Routes.SERVER_VOICE_PATTERN) {
+            Docked { VoiceSettingsScreen(onBack = { navController.popBackStack() }) }
         }
         composable(
             // #EXP-1381 (settings-nav.json): ONE team settings category per
             // page, its label the title; the TeamSettingsViewModel reads
             // `section` off the SavedStateHandle and observes only its data.
             Routes.TEAM_SETTINGS_PATTERN,
-            arguments = listOf(
-                navArgument("section") { type = NavType.StringType },
-                // #EXP-1534: Devices only, the device whose settings open.
-                navArgument("device") {
-                    type = NavType.StringType
-                    nullable = true
-                    defaultValue = null
-                },
-            ),
         ) { entry ->
             val back: () -> Unit = { navController.popBackStack() }
-            Box(Modifier.fillMaxSize().testTag(SettingsNav.PAGE_TEST_ID)) {
+            val teamId = entry.arguments?.getString("teamId").orEmpty()
+            Docked { Box(Modifier.fillMaxSize().testTag(SettingsNav.PAGE_TEST_ID)) {
             when (entry.arguments?.getString("section")) {
                 SettingsNav.AGENTS -> AgentsSettingsScreen(
                     onBack = back,
                     onOpenAgent = { id -> navController.navigate(Routes.agentSettings(id)) },
-                    onNewAgent = { navController.navigate(Routes.AGENT_NEW) },
+                    onNewAgent = { navController.navigate(Routes.agentNew(teamId)) },
                 )
                 SettingsNav.PROMPTS -> PromptsSettingsScreen(
                     onBack = back,
                     onOpenPrompt = { id -> navController.navigate(Routes.promptSettings(id)) },
-                    onNewPrompt = { navController.navigate(Routes.PROMPT_NEW) },
-                )
-                // The devices page, moved here from the tab bar (chats.json `shell`).
-                // #EXP-1534: `?device=` (an agent_signed_out row / push) opens
-                // that device's settings sheet on top.
-                SettingsNav.DEVICES -> AgentsScreen(
-                    onBack = back,
-                    openDeviceRowId = entry.arguments?.getString("device"),
+                    onNewPrompt = { navController.navigate(Routes.promptNew(teamId)) },
                 )
                 // #VAPP-185: Settings › MCP (settings-mcp.json); Activity is its own page.
                 SettingsNav.MCP -> McpSettingsScreen(
                     onBack = back,
-                    onOpenActivity = { navController.navigate(Routes.MCP_ACTIVITY) },
+                    onOpenActivity = { navController.navigate(Routes.mcpActivity(teamId)) },
                 )
                 // #EXP-1661: Settings › Skills, read only on phones.
                 SettingsNav.SKILLS -> SkillsSettingsScreen(
@@ -1141,14 +1052,14 @@ private fun AuthenticatedNav(
                 )
                 else -> TeamSettingsScreen(
                     onBack = back,
-                    onOpenRepo = { id -> navController.navigate(Routes.repo(id)) },
+                    onOpenRepo = { id -> navController.navigate(Routes.repo(teamId, id)) },
                 )
             }
-            }
+            } }
         }
         composable(Routes.SHARE_TO) {
             // EXP-1635 (share-targets.json STEP 1): where the share goes.
-            val pendingShare by teamSelection.pendingShare.collectAsStateWithLifecycle()
+            val pendingShare by shell.pendingShare.collectAsStateWithLifecycle()
             val shareVm: ShareTargetPickerViewModel = hiltViewModel()
             val shareTo by shareVm.shareTo.collectAsStateWithLifecycle()
             // New issue discarded its share: nothing left to place.
@@ -1163,16 +1074,16 @@ private fun AuthenticatedNav(
                     state = shareTo,
                     imageUris = share.imageUris,
                     onBack = {
-                        teamSelection.consumePendingShare()
+                        shell.consumePendingShare()
                     },
                     onSelectTeam = shareVm::selectTeam,
                     onNewIssue = { navController.navigate(Routes.SHARE_COMPOSE) { launchSingleTop = true } },
                     onPick = { pick ->
-                        teamSelection.consumePendingShare()?.let {
-                            teamSelection.setPendingChatShare(ChatShare(it, pick = pick))
+                        shell.consumePendingShare()?.let {
+                            shell.setPendingChatShare(ChatShare(it, pick = pick, teamId = shareTo.teamId))
                         }
                         navController.popBackStack(Routes.SHARE_TO, inclusive = true)
-                        navController.selectTab(MainTabs.AGENT, tabSwitch)
+                        navController.navigateDeepLink(AGENT_ROUTE)
                     },
                 )
             }
@@ -1180,11 +1091,11 @@ private fun AuthenticatedNav(
         composable(Routes.SHARE_COMPOSE) {
             // Single-screen share composer: the prefilled create form with the
             // "Share to" destination selector on top (EXP-60). The pending
-            // share lives in the TeamSelection singleton (not route
+            // share lives in the ShellState singleton (not route
             // state) so backing out and re-entering re-fills the form; it's
             // consumed exactly once — on a successful create or an explicit
             // discard.
-            val pendingShare by teamSelection.pendingShare.collectAsStateWithLifecycle()
+            val pendingShare by shell.pendingShare.collectAsStateWithLifecycle()
             val sharePrefill = remember(pendingShare) { pendingShare?.let { buildSharePrefill(it) } }
             val shareVm: ShareTargetPickerViewModel = hiltViewModel()
             val shareState by shareVm.state.collectAsStateWithLifecycle()
@@ -1198,30 +1109,35 @@ private fun AuthenticatedNav(
                     }
                 },
                 sharePrefill = sharePrefill,
-                onSharePrefillConsumed = { teamSelection.consumePendingShare() },
+                onSharePrefillConsumed = { shell.consumePendingShare() },
                 shareMode = true,
                 shareGroups = shareState.groups,
                 shareRecentBoardId = shareState.recentBoardId,
                 shareGroupsLoading = shareState.isLoading,
             )
         }
-        composable("board/{boardId}") { entry ->
+        composable(Routes.BOARD_PATTERN) { entry ->
             val boardId = entry.arguments?.getString("boardId").orEmpty()
             // Remembering the opened board drives the share picker's default.
             LaunchedEffect(boardId) {
                 val accountId = activeAccountIdLatest.value
                 if (boardId.isNotBlank() && accountId != null) {
-                    teamSelection.rememberLastBoard(accountId, boardId)
+                    shell.rememberLastBoard(accountId, boardId)
                 }
             }
+            val myIssuesBus = applicationDeepLinkBus()
             IssueListScreen(
                 boardId = boardId,
-                mode = IssueListMode.Pushed,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onBack = { navController.popBackStack() },
                 onOpenAgent = openAgent,
-                onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
+                onOpenComposer = { navController.navigateDeepLink(AGENT_ROUTE) },
                 onNewIssue = { navController.openIssueDraft(boardId) },
+                // Session 58cb32df: the board's Drafts chip reopens a draft.
+                onOpenDraft = { draftBoard, draftId -> navController.openIssueDraft(draftBoard, draftId = draftId) },
+                // #EXP-1830: the My issues widget's header.
+                pendingMyIssues = myIssuesBus.pendingMyIssues.collectAsStateWithLifecycle().value,
+                onMyIssuesShown = myIssuesBus::consumeMyIssues,
             )
         }
         composable(
@@ -1281,7 +1197,7 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenAgent = openAgent,
-                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
+                onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
                 onCreateSubIssue = { boardId, parentId ->
@@ -1296,7 +1212,7 @@ private fun AuthenticatedNav(
                 sessionId = entry.arguments?.getString("sessionId").orEmpty(),
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
+                onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
                 // S-3: an inter-session link pushes that session.
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
             )
@@ -1328,31 +1244,16 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
-                onOpenChat = { id -> navController.navigate(Routes.chat(id)) },
+                onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
                 // The "+"'s New issue: filed + linked to this root on create.
                 onNewIssue = { boardId, rootId -> navController.openIssueDraft(boardId, chatId = rootId) },
                 // #EXP-1849: an app's root opens as the app, replacing this entry.
                 onOpenApp = { id -> navController.replaceWith(Routes.app(id)) },
             )
         }
-        composable(Routes.AGENTS_SETTINGS) {
-            AgentsSettingsScreen(
-                onBack = { navController.popBackStack() },
-                onOpenAgent = { id -> navController.navigate(Routes.agentSettings(id)) },
-                onNewAgent = { navController.navigate(Routes.AGENT_NEW) },
-            )
-        }
-        // #EXP-1987: Settings › Assistant (the account page) hands over to the
-        // Assistant's own agent page once its row is known.
+        // #EXP-1987: Settings › Assistant (the account page).
         composable(Routes.ASSISTANT_SETTINGS) {
-            AssistantSettingsRoute(
-                onBack = { navController.popBackStack() },
-                onOpenAssistant = { id ->
-                    navController.navigate(Routes.agentSettings(id)) {
-                        popUpTo(Routes.ASSISTANT_SETTINGS) { inclusive = true }
-                    }
-                },
-            )
+            Docked { AssistantSettingsRoute(onBack = { navController.popBackStack() }) }
         }
         composable(Routes.AGENT_SETTINGS_PATTERN) {
             AgentSettingsScreen(
@@ -1361,7 +1262,7 @@ private fun AuthenticatedNav(
                 onDeleted = { navController.popBackStack() },
             )
         }
-        composable(Routes.AGENT_NEW) {
+        composable(Routes.AGENT_NEW_PATTERN) {
             AgentSettingsScreen(
                 onBack = { navController.popBackStack() },
                 // A created agent replaces the `new` page with its own.
@@ -1398,13 +1299,6 @@ private fun AuthenticatedNav(
                         if (here != null) popUpTo(here) { inclusive = true }
                     }
                 },
-            )
-        }
-        composable(Routes.PROMPTS_SETTINGS) {
-            PromptsSettingsScreen(
-                onBack = { navController.popBackStack() },
-                onOpenPrompt = { id -> navController.navigate(Routes.promptSettings(id)) },
-                onNewPrompt = { navController.navigate(Routes.PROMPT_NEW) },
             )
         }
         composable(Routes.PROMPT_SETTINGS_PATTERN) {
@@ -1455,10 +1349,10 @@ private fun AuthenticatedNav(
                 onOpenRun = { runId -> navController.navigate(Routes.ciRun(runId)) },
             )
         }
-        composable(Routes.MCP_ACTIVITY) {
+        composable(Routes.MCP_ACTIVITY_PATTERN) {
             McpActivityScreen(onBack = { navController.popBackStack() })
         }
-        composable(Routes.PROMPT_NEW) {
+        composable(Routes.PROMPT_NEW_PATTERN) {
             PromptSettingsScreen(
                 onBack = { navController.popBackStack() },
                 // A created prompt replaces the `new` page with its own.
@@ -1477,7 +1371,7 @@ private fun AuthenticatedNav(
                 token = token,
                 onBack = { navController.popBackStack() },
                 onAccepted = {
-                    navController.resetToAgentRoot()
+                    navController.resetToRoot()
                 },
             )
         }
@@ -1519,20 +1413,23 @@ private fun AuthenticatedNav(
         }
     }
 
-    // After the NavHost, so the menu's back wins over the NavHost's pop.
-    BackHandler(enabled = stripMenuOpen) { stripMenuOpen = false }
-    if (stripMenuOpen) {
-        // The board menu's transparent scrim: a press outside the panel
-        // collapses it (the panel sits above, in the bar's own layer).
-        Box(
-            Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false).consume()
-                        stripMenuOpen = false
-                    }
-                },
+    // After the NavHost, so the popup's back wins over the NavHost's pop.
+    BackHandler(enabled = newOpen) { newOpen = false }
+    AnimatedVisibility(
+        visible = newOpen && barShown,
+        enter = fadeIn(Motion.standard(reduceMotion)),
+        exit = fadeOut(Motion.standard(reduceMotion)),
+    ) {
+        PhoneNewMenu(
+            issueEnabled = composeBoardId != null,
+            onPick = { item ->
+                newOpen = false
+                when (item) {
+                    "issue" -> composeBoardId?.let { navController.openIssueDraft(it) }
+                    else -> navController.navigateDeepLink(AGENT_ROUTE)
+                }
+            },
+            onDismiss = { newOpen = false },
         )
     }
 
@@ -1544,117 +1441,38 @@ private fun AuthenticatedNav(
             fadeOut(Motion.standard(reduceMotion)),
         modifier = Modifier.align(Alignment.BottomCenter),
     ) {
-        BottomNavBar(
-            selected = when {
-                onDevicesPage -> "team"
-                currentTab == MainTabs.ISSUES -> "board"
-                currentTab == MainTabs.CHATS -> "chats"
-                currentTab == MainTabs.APPS -> "apps"
-                currentTab == MainTabs.TEAM -> "team"
-                else -> null
-            },
-            agentActive = currentTab == MainTabs.AGENT && !onDevicesPage,
-            board = activeBoard,
-            onBoardView = onBoardView,
-            team = activeTeam,
-            onTeamPage = onTeamPage,
+        // The lit tab keeps through the bar's exit (a detail lights none).
+        val lit = remember { mutableStateOf(page.tab) }
+        if (page.tab != null) lit.value = page.tab
+        PhoneDock(
+            selected = lit.value,
+            newOpen = newOpen,
             chatsBadge = chatsBadge,
-            // The switcher's corner: every OTHER team's needs-you rows.
-            teamBadge = NavBadges.appIconBadge(needsYouByTeam.filterKeys { it != selectedTeamId }.values.toList()),
-            // The Chat arm (the Agent page) rides every top-level surface, with New issue beside it in
-            // one capsule (EXP-827/EXP-973) — dimmed while the team has no
-            // board to file onto. The arm SWITCHES to the Agent page like a
-            // tab (it is the start destination, never a push) and reads
-            // selected while it is up.
-            composeEnabled = composeBoardId != null,
-            // EXP-1210: every entry SWITCHES to a sibling root (a re-tap pops
-            // back to it). #EXP-1384: the Board tab ON the board view opens
-            // the board menu instead (`shell.boardTab`), #EXP-1645: the Team
-            // tab ON the Team page the team menu (`shell.teamTab`).
-            onSelectTab = { tab ->
-                when (tab) {
-                    "board" -> if (onBoardView && activeBoard != null) {
-                        stripMenuOpen = teamMenu || !stripMenuOpen
-                        teamMenu = false
-                    } else {
-                        navController.selectTab(MainTabs.ISSUES, tabSwitch)
-                    }
-                    "chats" -> navController.selectTab(MainTabs.CHATS, tabSwitch)
-                    "apps" -> navController.selectTab(MainTabs.APPS, tabSwitch)
-                    "team" -> if (onTeamPage) {
-                        stripMenuOpen = !teamMenu || !stripMenuOpen
-                        teamMenu = true
-                    } else {
-                        navController.selectTab(MainTabs.TEAM, tabSwitch)
-                    }
+            onSelect = { tab ->
+                if (tab == "new") {
+                    newOpen = !newOpen
+                } else {
+                    newOpen = false
+                    // EXP-1210: every tab SWITCHES to a sibling root (a re-tap
+                    // pops back to it).
+                    navController.selectTab(tab, tabSwitch)
                 }
             },
-            onChat = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
-            boardMenu = if (teamMenu) {
-                PhoneBoardMenu.teams(
-                    teams = serverGroups.flatMap { it.teams },
-                    activeTeamId = selectedTeamId,
-                    needsYou = needsYouByTeam,
-                    onSelect = { picked ->
-                        // The Team page's own switch: the Team tab follows it,
-                        // so this lands on the picked team's Team page.
-                        val accountId = serverGroups.firstOrNull { picked in it.teams }?.accountId
-                        if (accountId != null && picked.id != selectedTeamId) teamTabVm.switchTeam(accountId, picked.id)
-                    },
-                    onNewTeam = { createTeamOpen = true },
-                )
-            } else {
-                PhoneBoardMenu.boards(
-                    boards = teamBoards,
-                    activeBoardId = activeBoard?.id,
-                    onSelect = { picked ->
-                        val accountId = activeGroup?.accountId
-                        if (accountId != null && picked.id != composeBoardId) homeVm.selectBoard(accountId, picked.id)
-                        // A pushed board gives way to the Board tab's root, which
-                        // follows the pick.
-                        if (currentRoute != MainTabs.ISSUES) navController.selectTab(MainTabs.ISSUES, tabSwitch)
-                    },
-                    // The teams shape is member-only, so the active team is one
-                    // the viewer belongs to: a member may create boards
-                    // (TeamPermissions.canCreate).
-                    onNewBoard = if (activeBlock != null) ({ createBoardOpen = true }) else null,
-                    folders = boardFolders,
-                )
-            },
-            menuOpen = stripMenuOpen,
-            onMenuOpenChange = { stripMenuOpen = it },
-            onCompose = {
-                composeBoardId?.let { navController.openIssueDraft(it) }
-            },
-        )
-    }
-    if (createBoardOpen) {
-        // The menu's New board row: the board form for the active team (the
-        // old board switcher's create flow); the new board's last-used
-        // pointer swaps the Board tab in place.
-        CreateBoardSheet(
-            teamId = selectedTeamId,
-            onCreated = { createBoardOpen = false },
-            onDismiss = { createBoardOpen = false },
-        )
-    }
-    if (createTeamOpen) {
-        // The team menu's New team row: the Team page's own create flow.
-        TeamSetupSheet(
-            onDismiss = { createTeamOpen = false },
-            onCreated = { createTeamOpen = false },
-            onJoined = { createTeamOpen = false },
         )
     }
     }
 }
 
-/**
- * The Agent TAB — the stack root and launch landing. A distinct route from the
- * seeded `agent?…` page (AGENT_ROUTE_PATTERN), so tab pops never land on a
- * seeded entry.
- */
-private const val AGENT_TAB_ROUTE = MainTabs.AGENT
+/** A page the docked bar stands on, its content kept above the bar. */
+@Composable
+private fun Docked(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().aboveDock()) { content() }
+}
+
+/** A team settings category, or the Teams page while the team is unknown. */
+private fun NavHostController.openTeamSettings(teamId: String?, section: String, marker: TabSwitchMarker?) {
+    if (teamId != null) navigate(Routes.teamSettings(teamId, section)) else selectTab(MainTabs.TEAMS, marker)
+}
 
 /** EXP-1210: a move the NavHost draws with no transition (see [MainTabs]). */
 private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwap(
@@ -1709,6 +1527,9 @@ private fun NavHostController.landOnChat(chatId: String, replaceCurrent: Boolean
  */
 /** #EXP-1638: how long a New issue app shortcut waits for a cold start's board. */
 private const val BOARD_WAIT_MS = 3_000L
+
+/** How long a deep link waits for the Assistant's local rows. */
+private const val ASSISTANT_WAIT_MS = 1_000L
 
 private fun NavHostController.openIssueDraft(
     boardId: String,
@@ -1853,11 +1674,11 @@ private interface InAppNotificationsEntryPoint {
 }
 
 @Composable
-private fun applicationTeamSelection(): TeamSelection {
+private fun applicationShellState(): ShellState {
     val app = LocalContext.current.applicationContext as ExponentialApp
     return EntryPointAccessors
-        .fromApplication(app, TeamSelectionEntryPoint::class.java)
-        .teamSelection()
+        .fromApplication(app, ShellStateEntryPoint::class.java)
+        .shellState()
 }
 
 @Composable
@@ -1876,8 +1697,8 @@ private interface DeepLinkEntryPoint {
 
 @dagger.hilt.EntryPoint
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
-private interface TeamSelectionEntryPoint {
-    fun teamSelection(): TeamSelection
+private interface ShellStateEntryPoint {
+    fun shellState(): ShellState
 }
 
 @dagger.hilt.EntryPoint

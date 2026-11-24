@@ -3,7 +3,7 @@ package com.exponential.app.ui.onboarding
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.ui.components.FailedAction
-import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.ShellState
 import com.exponential.app.data.api.BoardRepositoryChoice
 import com.exponential.app.data.api.BoardsApi
 import com.exponential.app.data.api.RepositoriesApi
@@ -31,7 +31,7 @@ class CreateBoardViewModel @Inject constructor(
     private val repositoriesApi: RepositoriesApi,
     private val teamsApi: TeamsApi,
     private val holder: DatabaseHolder,
-    private val selection: TeamSelection,
+    private val shell: ShellState,
 ) : ViewModel() {
 
     data class UiState(
@@ -89,7 +89,6 @@ class CreateBoardViewModel @Inject constructor(
                 val team = teamsApi.getDefault(accountId)
                     ?: error("Create a team first.")
                 holder.database(forAccountId = accountId).teamDao().upsert(team)
-                if (selection.selectedId.value == null) selection.select(team.id)
                 team.id
             }.onSuccess { _teamId.value = it }
                 .onFailure {
@@ -105,10 +104,10 @@ class CreateBoardViewModel @Inject constructor(
         }
     }
 
-    /** Remember the freshly-created board as last-used so the Issues tab opens on it. */
+    /** Remember the freshly-created board as last-used so New issue files onto it. */
     fun rememberCreated(boardId: String) {
         val accountId = auth.activeAccountId.value ?: return
-        selection.rememberLastBoard(accountId, boardId)
+        shell.rememberLastBoard(accountId, boardId)
     }
 
     fun loadRepos(teamId: String) {

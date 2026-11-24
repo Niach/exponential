@@ -4,49 +4,55 @@ import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 
 /**
- * EXP-1210: the bottom bar's destinations are ROOT siblings on the phone. The
- * Agent tab is the stack's bottom (where the app lands); every other tab root
- * sits directly on it, never on another tab, and switching between them is
- * the standard bottom-nav switch: pop to the Agent root SAVING the tab being
- * left, then the target with its saved stack RESTORED. No tab root carries a
- * back button; system Back on a non-Agent tab returns to the Agent root, then
- * leaves the app. A tab's pushes are SAVED across a switch and restored on
- * return, except the Agent tab's: it is the `popUpTo` target, so it always
- * lands on its root (iOS `MainTab.keepsPushes` mirrors this).
+ * EXP-1210, #EXP-2109 (chats.json `shell.tabs`): the docked bar's destinations
+ * are ROOT siblings on the phone. CHATS is the stack's bottom (where the app
+ * lands); every other tab root sits directly on it, never on another tab, and
+ * switching between them is the standard bottom-nav switch: pop to the Chats
+ * root SAVING the tab being left, then the target with its saved stack
+ * RESTORED. No tab root carries a back button; system Back on another tab
+ * returns to Chats, then leaves the app. (New is a popup, never a route.)
  */
 object MainTabs {
-    /** The Agent tab — the stack root and launch landing (the launcher's
-     *  Chat arm). */
-    const val AGENT = "agent-tab"
-    /** #EXP-1384 (chats.json `shell.tabs`): Board · Chats · Apps · Team
-     *  (Devices left the bar: a row on the Team page, pushed). */
-    const val ISSUES = "home"
-    /** The Apps tab: the team's apps list (`Routes.APPS`). */
-    const val APPS = "apps"
-    /** The Chats tab (EXP-1291's Chats tab, renamed). */
     const val CHATS = "chats"
-    /** The Team tab: the active team, the team switch, the settings rows. */
-    const val TEAM = "team"
-    /** Session 58cb32df: the inbox is a PAGE now (the Chats header's inbox
-     *  circle pushes it), no longer a tab root. */
+    const val TEAMS = "teams"
+    const val ASSISTANT = "assistant"
+    const val SETTINGS = "settings"
+    /** Session 58cb32df: the inbox is a PAGE (the page header's inbox circle
+     *  pushes it), not a tab root. */
     const val INBOX = "personal"
 
-    val routes: Set<String> = setOf(AGENT, ISSUES, CHATS, APPS, TEAM)
+    val routes: Set<String> = setOf(CHATS, TEAMS, ASSISTANT, SETTINGS)
 
     /**
      * The tab whose stack is up, given which tab roots are [onStack]: the
-     * other tab sitting on the Agent root if there is one (a switch always
-     * pops to the Agent root first, so at most one does), else the Agent
-     * tab. A detail pushed inside a tab still reads as that tab. Null before
-     * the graph has a tab (onboarding).
+     * other tab sitting on the Chats root if there is one (a switch always
+     * pops to the Chats root first, so at most one does), else Chats. A
+     * detail pushed inside a tab still reads as that tab. Null before the
+     * graph has a tab (onboarding).
      *
      * Android-free on purpose: this is the unit-tested half.
      */
     fun current(onStack: (String) -> Boolean): String? =
-        routes.firstOrNull { it != AGENT && onStack(it) } ?: AGENT.takeIf(onStack)
+        routes.firstOrNull { it != CHATS && onStack(it) } ?: CHATS.takeIf(onStack)
 
     /** [current] over a back stack's route patterns (bottom → top). */
     fun current(routes: List<String?>): String? = current { it in routes }
+
+    /** The `shell.pages` page a route pattern shows (null = a detail: no bar). */
+    fun page(route: String?): String? = when (route) {
+        CHATS -> "chats"
+        TEAMS -> "teams"
+        ASSISTANT -> "assistant"
+        SETTINGS -> "settings"
+        Routes.TEAM_PATTERN -> "team"
+        Routes.FOLDER_PATTERN -> "folder"
+        Routes.BOARD_PATTERN -> "board"
+        Routes.TEAM_SETTINGS_ROOT_PATTERN, Routes.TEAM_SETTINGS_PATTERN -> "team-settings"
+        Routes.DEVICES_PATTERN -> "devices"
+        Routes.ASSISTANT_SETTINGS, Routes.NOTIFICATION_SETTINGS, Routes.SERVER_PATTERN, Routes.SERVER_VOICE_PATTERN,
+        Routes.ABOUT, Routes.SECURITY, Routes.SYNC_DIAGNOSTICS, Routes.LICENSES -> "settings-page"
+        else -> null
+    }
 
     /** A move between two tab roots — drawn with no transition at all. */
     fun isRootSwap(from: String?, to: String?): Boolean = from in routes && to in routes
@@ -82,20 +88,20 @@ fun NavHostController.currentTab(): String? = MainTabs.current { route ->
 }
 
 /**
- * Wipe every tab's live AND saved stack, then land on a fresh Agent root —
+ * Wipe every tab's live AND saved stack, then land on a fresh Chats root —
  * a stack reset (another account signed in, an invite accepted) must not
  * let a later tab tap restore the previous account's or team's screens.
  */
-fun NavHostController.resetToAgentRoot() {
-    MainTabs.routes.forEach { if (it != MainTabs.AGENT) clearBackStack(it) }
-    navigate(MainTabs.AGENT) { popUpTo(MainTabs.AGENT) { inclusive = true } }
+fun NavHostController.resetToRoot() {
+    MainTabs.routes.forEach { if (it != MainTabs.CHATS) clearBackStack(it) }
+    navigate(MainTabs.CHATS) { popUpTo(MainTabs.CHATS) { inclusive = true } }
 }
 
 /**
  * Switch to the tab [route]. Re-selecting the tab you are on pops back to its
- * root; otherwise pop to the Agent root saving the current tab's stack, then
+ * root; otherwise pop to the Chats root saving the current tab's stack, then
  * open [route] restoring its own ([restore] = false lands on the bare root,
- * for a link). Popped to the Agent ROUTE rather than
+ * for a link). Popped to the Chats ROUTE rather than
  * `graph.findStartDestination()`: the graph's start is `onboarding` for an
  * account that began in the wizard, which is never on the stack afterwards.
  */
@@ -111,7 +117,7 @@ fun NavHostController.selectTab(
         return
     }
     navigate(route) {
-        popUpTo(MainTabs.AGENT) { saveState = true }
+        popUpTo(MainTabs.CHATS) { saveState = true }
         launchSingleTop = true
         restoreState = restore
     }

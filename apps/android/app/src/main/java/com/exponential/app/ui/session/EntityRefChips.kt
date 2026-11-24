@@ -66,6 +66,7 @@ import com.exponential.app.ui.components.commentCaption
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.relativeTime
+import com.exponential.app.ui.markdown.LocalAppLinks
 import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.MdStyle
 import com.exponential.app.ui.parseColor
@@ -154,6 +155,7 @@ fun EntityRefPreviewSheet(
     members: List<EntityRef>,
     onDismiss: () -> Unit,
 ) {
+    val chatTeam = LocalAppLinks.current?.teamId
     val navigator = LocalEntityNavigator.current
     val open: (EntityTarget) -> Unit = { target ->
         onDismiss()
@@ -181,7 +183,7 @@ fun EntityRefPreviewSheet(
             "invite" -> InviteCard(ref, open)
             "notification" -> NotificationCard(ref, open)
             "attachment" -> AttachmentCard(ref, open)
-            "repository" -> SlimCard(ref, onOpen = { open(teamSettingsTarget(ref.kind)) })
+            "repository" -> SlimCard(ref, onOpen = { open(teamSettingsTarget(ref.kind, chatTeam)) })
             "list" -> ListCard(ref, members, open)
             else -> SlimCard(ref, onOpen = null)
         }
@@ -345,8 +347,9 @@ private fun BoardCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 
 @Composable
 private fun PromptCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
+    val chatTeam = LocalAppLinks.current?.teamId
     val prompt = teamPrompts().firstOrNull { it.id == ref.id } ?: run {
-        SlimCard(ref, onOpen = { open(EntityTarget.Prompts) })
+        SlimCard(ref, onOpen = { open(EntityTarget.Prompts(chatTeam)) })
         return
     }
     EntityPreviewCard(
@@ -458,8 +461,9 @@ private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 
 @Composable
 private fun LabelCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
+    val chatTeam = LocalAppLinks.current?.teamId
     val label = teamLabels().firstOrNull { it.id == ref.id } ?: run {
-        SlimCard(ref, onOpen = { open(teamSettingsTarget("label")) })
+        SlimCard(ref, onOpen = { open(teamSettingsTarget("label", chatTeam)) })
         return
     }
     val color = remember(label.color) { parseColor(label.color) }
@@ -467,14 +471,15 @@ private fun LabelCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         icon = { LabelDot(color, size = 12.dp) },
         eyebrow = "Label",
         title = label.name,
-        onOpen = { open(teamSettingsTarget("label")) },
+        onOpen = { open(teamSettingsTarget("label", chatTeam)) },
     )
 }
 
 @Composable
 private fun StatusCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
+    val chatTeam = LocalAppLinks.current?.teamId
     val status = teamStatuses().firstOrNull { it.rowId == ref.id } ?: run {
-        SlimCard(ref, onOpen = { open(teamSettingsTarget("status")) })
+        SlimCard(ref, onOpen = { open(teamSettingsTarget("status", chatTeam)) })
         return
     }
     EntityPreviewCard(
@@ -482,7 +487,7 @@ private fun StatusCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         eyebrow = "Status",
         title = status.name,
         subtitle = status.category.wire.replaceFirstChar { it.uppercase() },
-        onOpen = { open(teamSettingsTarget("status")) },
+        onOpen = { open(teamSettingsTarget("status", chatTeam)) },
     )
 }
 
@@ -514,13 +519,14 @@ private fun DeviceCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 
 @Composable
 private fun MemberCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
+    val chatTeam = LocalAppLinks.current?.teamId
     val teamId = LocalEntityRefResolver.current?.teamId
     val user by observeScoped(ref.id, null) { it.userDao().observeById(ref.id) }
     val members by observeScoped(teamId, emptyList()) { db ->
         if (teamId == null) flowOf(emptyList()) else db.teamMemberDao().observeByTeam(teamId)
     }
     val row = user ?: run {
-        SlimCard(ref, onOpen = { open(teamSettingsTarget("member")) })
+        SlimCard(ref, onOpen = { open(teamSettingsTarget("member", chatTeam)) })
         return
     }
     val role = members.firstOrNull { it.userId == row.id }?.role
@@ -535,33 +541,35 @@ private fun MemberCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         } else {
             { GlassPill(role.replaceFirstChar { c -> c.uppercase() }, size = PillSize.Sm, mode = PillMode.Readonly) }
         },
-        onOpen = { open(teamSettingsTarget("member")) },
+        onOpen = { open(teamSettingsTarget("member", chatTeam)) },
     )
 }
 
 @Composable
 private fun TeamCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
+    val chatTeam = LocalAppLinks.current?.teamId
     val team by observeScoped(ref.id, null) { it.teamDao().observeById(ref.id) }
     val row = team ?: run {
-        SlimCard(ref, onOpen = { open(teamSettingsTarget("team")) })
+        SlimCard(ref, onOpen = { open(teamSettingsTarget("team", chatTeam)) })
         return
     }
     EntityPreviewCard(
         icon = { TeamAvatar(row.iconUrl, size = 24.dp) },
         eyebrow = "Team",
         title = row.name,
-        onOpen = { open(teamSettingsTarget("team")) },
+        onOpen = { open(teamSettingsTarget("team", chatTeam)) },
     )
 }
 
 @Composable
 private fun InviteCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
+    val chatTeam = LocalAppLinks.current?.teamId
     val teamId = LocalEntityRefResolver.current?.teamId
     val invites by observeScoped(teamId, emptyList()) { db ->
         if (teamId == null) flowOf(emptyList()) else db.teamInviteDao().observeByTeam(teamId)
     }
     val invite = invites.firstOrNull { it.id == ref.id } ?: run {
-        SlimCard(ref, onOpen = { open(teamSettingsTarget("invite")) })
+        SlimCard(ref, onOpen = { open(teamSettingsTarget("invite", chatTeam)) })
         return
     }
     EntityPreviewCard(
@@ -569,7 +577,7 @@ private fun InviteCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         eyebrow = "Invite",
         title = invite.email?.takeIf { it.isNotBlank() } ?: "Invite link",
         facts = { GlassPill(invite.role.replaceFirstChar { it.uppercase() }, size = PillSize.Sm, mode = PillMode.Readonly) },
-        onOpen = { open(teamSettingsTarget("invite")) },
+        onOpen = { open(teamSettingsTarget("invite", chatTeam)) },
     )
 }
 
@@ -619,6 +627,7 @@ private fun AttachmentCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 @Composable
 private fun ListCard(ref: EntityRef, members: List<EntityRef>, open: (EntityTarget) -> Unit) {
     val issueRefs = LocalIssueRefs.current
+    val chatTeam = LocalAppLinks.current?.teamId
     val count = maxOf(0, ref.count ?: 0)
     EntityPreviewCard(
         icon = { HeaderGlyph(conceptGlyph(EntityPreview.refIcon(ref))) },
@@ -639,7 +648,7 @@ private fun ListCard(ref: EntityRef, members: List<EntityRef>, open: (EntityTarg
                 primary = EntityPreview.chipLabel(member),
                 secondary = EntityPreview.chipDetail(member) ?: target?.title?.takeIf { !isIssue },
                 monoPrimary = isIssue,
-                onClick = memberTarget(member)?.let { t -> { open(t) } },
+                onClick = memberTarget(member, chatTeam)?.let { t -> { open(t) } },
             )
         },
         more = (count - members.size).takeIf { it > 0 && members.isNotEmpty() }?.let { "+$it more" },
@@ -648,25 +657,25 @@ private fun ListCard(ref: EntityRef, members: List<EntityRef>, open: (EntityTarg
 }
 
 /** #EXP-1381: a team-scoped kind opens ITS settings category's page
- *  (settings-nav.json); a status (no phone page) or a team opens the Team tab,
+ *  (settings-nav.json); a status (no phone page) or a team opens the team's page,
  *  never the owner-only General page (iOS `.teamSettings(nil)`). */
-private fun teamSettingsTarget(kind: String): EntityTarget = when (kind) {
-    "label" -> EntityTarget.TeamSettings(SettingsNav.LABELS)
-    "member", "invite" -> EntityTarget.TeamSettings(SettingsNav.MEMBERS)
-    "repository" -> EntityTarget.TeamSettings(SettingsNav.REPOSITORIES)
-    else -> EntityTarget.Team
+private fun teamSettingsTarget(kind: String, teamId: String?): EntityTarget = when (kind) {
+    "label" -> EntityTarget.TeamSettings(teamId, SettingsNav.LABELS)
+    "member", "invite" -> EntityTarget.TeamSettings(teamId, SettingsNav.MEMBERS)
+    "repository" -> EntityTarget.TeamSettings(teamId, SettingsNav.REPOSITORIES)
+    else -> EntityTarget.Team(teamId)
 }
 
 /** Where a list member's row lands — the same mapping the Open rows use,
  *  minus the kinds that need a synced row to know their issue. */
-private fun memberTarget(ref: EntityRef): EntityTarget? = when (ref.kind) {
+private fun memberTarget(ref: EntityRef, teamId: String?): EntityTarget? = when (ref.kind) {
     "issue" -> EntityTarget.Issue(ref.id)
     "board" -> EntityTarget.Board(ref.id)
     "session" -> EntityTarget.Session(ref.id)
     "prompt", "action" -> EntityTarget.Prompt(ref.id)
     "agent" -> EntityTarget.Agent(ref.id)
     "device" -> EntityTarget.Devices
-    "label", "status", "member", "invite", "team", "repository" -> teamSettingsTarget(ref.kind)
+    "label", "status", "member", "invite", "team", "repository" -> teamSettingsTarget(ref.kind, teamId)
     "notification" -> EntityTarget.Inbox
     else -> null
 }

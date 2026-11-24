@@ -1,6 +1,5 @@
 package com.exponential.app.ui.steer
 
-import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.SessionsSendResult
@@ -64,11 +63,10 @@ class SteerLaunchDelegate @Inject constructor(
     private val steerApi: SteerApi,
     private val sender: SessionSender,
     holder: DatabaseHolder,
-    selection: TeamSelection,
 ) {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
-    private var teamIdFlow: Flow<String?> = selection.selectedId
+    private var teamIdFlow: Flow<String?> = com.exponential.app.data.firstTeamIdFlow(dbFlow)
 
     private val _enabled = MutableStateFlow<Boolean?>(null)
     /** Steer availability on this instance. null = not resolved yet. */
@@ -78,7 +76,7 @@ class SteerLaunchDelegate @Inject constructor(
     private var _devices: StateFlow<List<SteerDevice>?>? = null
     /**
      * The online machines this surface can start on: the caller's own plus
-     * (EXP-432) the selected team's shared servers. null = not resolved yet.
+     * (EXP-432) the host's team's shared servers. null = not resolved yet.
      * Empty until [attach].
      */
     val devices: StateFlow<List<SteerDevice>?>
@@ -102,7 +100,7 @@ class SteerLaunchDelegate @Inject constructor(
     private var _startCandidates: StateFlow<List<IssueOption>>? = null
 
     /**
-     * Issues the composer's picker can chip: the selected team's live boards'
+     * Issues the composer's picker can chip: the host's team's live boards'
      * open issues, `updatedAt` desc. Empty until [attach].
      */
     val startCandidates: StateFlow<List<IssueOption>>
@@ -111,7 +109,7 @@ class SteerLaunchDelegate @Inject constructor(
     /** Bind to the hosting ViewModel's scope — call once from its `init`. */
     fun attach(
         scope: CoroutineScope,
-        /** EXP-1186: the host's team (default: the selection). */
+        /** EXP-1186: the host's team (default: the first member team). */
         teamId: Flow<String?>? = null,
     ) {
         if (this.scope != null) return
