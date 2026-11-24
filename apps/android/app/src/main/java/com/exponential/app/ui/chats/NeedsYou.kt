@@ -250,9 +250,9 @@ fun NeedsYouPageContent(
             rows.isEmpty() && pendingInstalls == 0 -> needsYouList(rows, onOpen, onAction)
             else -> {
                 if (waitingCode != null) {
-                    item(key = "__install_waiting__") { InstallWaiting(waitingCode, Modifier.padding(horizontal = 8.dp)) }
+                    item(key = "__install_waiting__") { InstallWaiting(waitingCode, Modifier.padding(horizontal = 16.dp)) }
                 } else if (pendingInstalls > 0) {
-                    item(key = "__pending_installs__") { Box(Modifier.padding(horizontal = 8.dp)) { band() } }
+                    item(key = "__pending_installs__") { Box(Modifier.padding(horizontal = 16.dp)) { band() } }
                 }
                 if (rows.isNotEmpty()) needsYouList(rows, onOpen, onAction)
             }
