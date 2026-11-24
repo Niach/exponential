@@ -7084,6 +7084,29 @@
         "sha256": "f3a3e80cb91b5ee25e2f27b726c9c828de3c6f3b883da554d240793ea6520f27"
       }
     },
+    "session-synced-tail": {
+      "ios": {
+        "file": "shots/session-synced-tail/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 48310,
+        "sha256": "c32b6d516dc169ecd0c28f1d860f2215080a95c8c71a43166c85d1f8b2f9bd7f"
+      },
+      "web": {
+        "file": "shots/session-synced-tail/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 67688,
+        "sha256": "bf5e1d105895c55045791cab1afa8c19b95a7a202f5e051ff308abe989ba158d"
+      },
+      "web-mobile": {
+        "file": "shots/session-synced-tail/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 47454,
+        "sha256": "cc1360db820e30ae2527aabe5c3da0bb6db04ca5ab944bc60cb45bcc9b174dca"
+      }
+    },
     "settings-account": {
       "android": {
         "file": "shots/settings-account/android.webp",
