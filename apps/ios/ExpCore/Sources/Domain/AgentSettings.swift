@@ -673,6 +673,31 @@ public enum AgentSettings {
         return turn.isEmpty ? syncedTeamIds : turn
     }
 
+    /// #EXP-2094 (`assistant.chatTeams`): a composer's Teams pick over its
+    /// root's stored `scopeTeamIds`. The chat teams read the composer's own
+    /// pick the moment it moves (a removed Teams chip = nil = every synced
+    /// team at once), not the stored one until the next send; a stored pick
+    /// that moves (the send landed, another client) re-seeds it.
+    public struct TeamsPickDraft: Equatable, Sendable {
+        private var edited = false
+        private var value: [String]?
+
+        public init() {}
+
+        /// The pick the composer shows and the chat teams read.
+        public func picked(stored: [String]?) -> [String]? { edited ? value : stored }
+
+        public mutating func pick(_ next: [String]?) {
+            edited = true
+            value = next
+        }
+
+        public mutating func reseed() {
+            edited = false
+            value = nil
+        }
+    }
+
     /// #EXP-2079 (`assistant.chatTeams` `deviceCases`): the device list of a
     /// session in a team the viewer does not sync, that they started (the
     /// Assistant's conversation) = their own machines, no team rule.

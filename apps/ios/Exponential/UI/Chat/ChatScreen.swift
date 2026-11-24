@@ -1599,7 +1599,8 @@ struct ChatComposer: View {
     @Environment(TeamState.self) private var teamState: TeamState?
     /// #EXP-1715: the Teams pick (nil = every team), seeded from the root's
     /// synced `scope_team_ids` and re-seeded when another client moves it.
-    @State private var teamsPicked: [String]?
+    @State private var teamsDraft = AgentSettings.TeamsPickDraft()
+    private var teamsPicked: [String]? { teamsDraft.picked(stored: root?.scopeTeamIds) }
     /// #EXP-1793: the MCP servers (`mcpServers.list`) for the "+" MCP servers
     /// page of a first message to an agent (#EXP-2079: of the chat's teams,
     /// team by team).
@@ -1641,7 +1642,7 @@ struct ChatComposer: View {
         return ComposerTeamsBinding(
             teams: ComposerTeamsBinding.teams(teamState?.teams ?? []),
             picked: teamsPicked,
-            onChange: { teamsPicked = $0 }
+            onChange: { teamsDraft.pick($0) }
         )
     }
 
@@ -1651,10 +1652,13 @@ struct ChatComposer: View {
     /// #EXP-1714's single lookup team): what the `/` prompts, the "+" issue
     /// search and the MCP pick read: the draft's team while synced, else the
     /// turn's teams (the root's Teams pick ∩ the synced teams, else all of
-    /// them; the global Assistant's personal team never syncs).
+    /// them; the global Assistant's personal team never syncs). #EXP-2094:
+    /// the composer's Teams pick while it has one (a removed chip widens at
+    /// once).
     private var chatTeamIds: [String] {
         guard let teamState else { return draftTeamId.map { [$0] } ?? [] }
-        return teamState.chatTeamIds(ownTeamId: draftTeamId, pickedTeamIds: root?.scopeTeamIds)
+        let picked = teamsPick != nil ? teamsPicked : root?.scopeTeamIds
+        return teamState.chatTeamIds(ownTeamId: draftTeamId, pickedTeamIds: picked)
     }
 
     var body: some View {
@@ -1781,7 +1785,8 @@ struct ChatComposer: View {
             )
             mcpServers = McpServers.chatPick(lists, teamNames: teamNames)
         }
-        .task(id: root?.scopeTeamIds) { teamsPicked = root?.scopeTeamIds }
+        .onChange(of: root?.scopeTeamIds) { _, _ in teamsDraft.reseed() }
+        .onChange(of: root?.id) { _, _ in teamsDraft.reseed() }
         .onChange(of: teamsPick?.scope) { _, scope in draft?.scope = scope }
         .task(id: chatTeamIds) {
             slashPrompts.bind(accountId: accountId, teamIds: chatTeamIds, db: deps.db)

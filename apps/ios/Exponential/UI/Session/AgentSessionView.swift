@@ -246,7 +246,8 @@ struct AgentSessionView: View {
     @State private var watchPending: Set<String> = []
     /// #EXP-1715: the Teams pick (nil = every team), seeded from the root's
     /// synced `scope_team_ids` and re-seeded when another client moves it.
-    @State private var teamsPicked: [String]?
+    @State private var teamsDraft = AgentSettings.TeamsPickDraft()
+    private var teamsPicked: [String]? { teamsDraft.picked(stored: model?.session?.scopeTeamIds ?? session.scopeTeamIds) }
     /// #EXP-1793: the MCP servers for an agent chat's "+" MCP servers page
     /// (`mcpServers.list`; #EXP-2079: of the chat's teams, team by team).
     @State private var mcpServers = McpServers.ChatPick()
@@ -477,9 +478,8 @@ struct AgentSessionView: View {
                 guard (note.object as? String) == rootId else { return }
                 messageLimit = Chats.MessageLimits.shared.limit(rootId)
             }
-            .onChange(of: model?.session?.scopeTeamIds ?? session.scopeTeamIds, initial: true) { _, ids in
-                teamsPicked = ids
-            }
+            .onChange(of: model?.session?.scopeTeamIds ?? session.scopeTeamIds) { _, _ in teamsDraft.reseed() }
+            .onChange(of: session.id) { _, _ in teamsDraft.reseed() }
             .task(id: session.viaAppId) { await observeViaApp() }
             .task(id: "\(session.id)|\(model == nil)|\(chatTeamIds)") { await loadMcpPick() }
             // #EXP-2079: the `/` prompts of the chat's teams, team by team.
@@ -618,11 +618,13 @@ struct AgentSessionView: View {
     /// prompts, the "+" Issue page): the session's own team while it is a
     /// synced one, else the turn's teams (the conversation root's Teams pick
     /// ∩ the synced teams, else all of them). The Assistant's conversation
-    /// lives in a personal team that never syncs.
+    /// lives in a personal team that never syncs. #EXP-2094: the composer's
+    /// Teams pick while it has one (a removed chip widens at once).
     private var chatTeamIds: [String] {
         guard let teamState else { return [session.teamId] }
         let root = transcriptRows?.root ?? (session.parentId == nil ? model?.session ?? session : nil)
-        return teamState.chatTeamIds(ownTeamId: session.teamId, pickedTeamIds: root?.scopeTeamIds)
+        let picked = teamsPick != nil ? teamsPicked : root?.scopeTeamIds
+        return teamState.chatTeamIds(ownTeamId: session.teamId, pickedTeamIds: picked)
     }
 
     /// #EXP-2079 (`deviceCases`): the session's team is one the viewer
@@ -3107,7 +3109,7 @@ struct AgentSessionView: View {
         return ComposerTeamsBinding(
             teams: ComposerTeamsBinding.teams(teamState?.teams ?? []),
             picked: teamsPicked,
-            onChange: { teamsPicked = $0 }
+            onChange: { teamsDraft.pick($0) }
         )
     }
 

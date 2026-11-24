@@ -617,6 +617,27 @@ final class AgentSettingsTests: XCTestCase {
 
     /// #EXP-2079: `assistant.chatTeams.cases` (supersedes #EXP-1714's
     /// single lookup team).
+    /// #EXP-2094: removing the Teams chip widens the chat teams at once,
+    /// before any send; a moved stored pick re-seeds the composer's.
+    func testTeamsPickDraftReadsTheComposersPickAtOnce() {
+        let synced = ["a", "b"]
+        let stored: [String]? = ["a"]
+        var draft = AgentSettings.TeamsPickDraft()
+        func teams() -> [String] {
+            AgentSettings.chatTeams(ownTeamId: "personal", syncedTeamIds: synced, pickedTeamIds: draft.picked(stored: stored))
+        }
+        XCTAssertEqual(draft.picked(stored: stored), ["a"])
+        XCTAssertEqual(teams(), ["a"])
+        draft.pick(nil)
+        XCTAssertNil(draft.picked(stored: stored))
+        XCTAssertEqual(teams(), ["a", "b"])
+        draft.pick(["b"])
+        XCTAssertEqual(teams(), ["b"])
+        draft.reseed()
+        XCTAssertEqual(draft.picked(stored: ["b"]), ["b"])
+        XCTAssertEqual(teams(), ["a"])
+    }
+
     func testChatTeamsReplaysEveryCase() throws {
         let block = try XCTUnwrap(try assistantBlock()["chatTeams"] as? [String: Any])
         let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
