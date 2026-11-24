@@ -82,7 +82,9 @@
     "downRate": 24000,
     "upKbps": 24,
     "downKbps": 32,
-    "jitterMs": 40
+    "jitterMs": 40,
+    "turnDialMs": 2000,
+    "turnReplyWaitMs": 60000
   },
   "wire": {
     "kinds": {"up": 1, "down": 2},
@@ -200,6 +202,30 @@
     {"name": "the relay's max length drops it with a toast", "platform": "phone", "events": [{"t": "start", "device": "mint", "language": "en"}, {"t": "rang"}, {"t": "ready"}, {"t": "hungUp", "reason": "max_length"}], "view": null, "toast": "The call dropped"},
     {"name": "the other socket going away drops it with a toast", "platform": "phone", "events": [{"t": "start", "device": "mint", "language": "en"}, {"t": "rang"}, {"t": "ready"}, {"t": "hungUp", "reason": "dropped"}], "view": null, "toast": "The call dropped"},
     {"name": "a dropped call ends it with a toast", "platform": "phone", "events": [{"t": "start", "device": "mint", "language": "en"}, {"t": "rang"}, {"t": "ready"}, {"t": "failed", "code": "dropped"}], "view": null, "toast": "The call dropped"}
+  ],
+  "turnHostCases": [
+    { "name": "a command: sent, its reply spoken, then the host hangs up", "events": [{ "t": "said", "text": "What's new on the board?" }, { "t": "replyStarted" }, { "t": "replyFinished" }], "actions": [{ "t": "send", "text": "What's new on the board?" }, { "t": "speak" }, { "t": "hangUp" }] },
+    { "name": "only the phrase: nothing sent, hung up at once", "events": [{ "t": "empty" }], "actions": [{ "t": "hangUp" }] },
+    { "name": "a blank utterance counts as nothing", "events": [{ "t": "said", "text": "   " }], "actions": [{ "t": "hangUp" }] },
+    { "name": "one turn: a second utterance is not sent", "events": [{ "t": "said", "text": "Move it to done." }, { "t": "said", "text": "And close it." }, { "t": "replyStarted" }, { "t": "replyFinished" }], "actions": [{ "t": "send", "text": "Move it to done." }, { "t": "speak" }, { "t": "hangUp" }] },
+    { "name": "one reply: the next one is not spoken", "events": [{ "t": "said", "text": "Status?" }, { "t": "replyStarted" }, { "t": "replyFinished" }, { "t": "replyStarted" }], "actions": [{ "t": "send", "text": "Status?" }, { "t": "speak" }, { "t": "hangUp" }] },
+    { "name": "a reply before anything was sent is not this turn's", "events": [{ "t": "replyStarted" }, { "t": "said", "text": "Status?" }, { "t": "replyStarted" }, { "t": "replyFinished" }], "actions": [{ "t": "send", "text": "Status?" }, { "t": "speak" }, { "t": "hangUp" }] },
+    { "name": "no reply in time: hung up, the reply lands in the chat", "events": [{ "t": "said", "text": "Status?" }, { "t": "replyWaitOver" }], "actions": [{ "t": "send", "text": "Status?" }, { "t": "hangUp" }] },
+    { "name": "the wait is over only before the reply starts", "events": [{ "t": "said", "text": "Status?" }, { "t": "replyStarted" }, { "t": "replyWaitOver" }, { "t": "replyFinished" }], "actions": [{ "t": "send", "text": "Status?" }, { "t": "speak" }, { "t": "hangUp" }] }
+  ],
+  "turnCapsuleCases": [
+    { "name": "the wake opens the capsule like a key-down", "call": { "t": "woke" }, "ptt": [{ "t": "keyDown", "muted": false }] },
+    { "name": "the ring's events show nothing", "call": { "t": "rang" }, "ptt": [] },
+    { "name": "ready shows nothing", "call": { "t": "ready" }, "ptt": [] },
+    { "name": "a partial is the capsule's partial", "call": { "t": "partial", "text": "what's new" }, "ptt": [{ "t": "partial", "text": "what's new" }] },
+    { "name": "said: heard and sent at once (the host sent it)", "call": { "t": "said", "text": "What's new on the board?" }, "ptt": [{ "t": "heard", "text": "What's new on the board?" }, { "t": "sent" }] },
+    { "name": "queued keeps Thinking", "call": { "t": "queued", "count": 1, "text": "What's new on the board?" }, "ptt": [] },
+    { "name": "the reply starts: Speaking with the conversation's newest reply", "call": { "t": "replyStarted" }, "ptt": [{ "t": "replied", "body": "{newest reply}", "speaking": true }] },
+    { "name": "the reply ends: Replied", "call": { "t": "replyFinished" }, "ptt": [{ "t": "speakFinished" }] },
+    { "name": "hung up before anything was sent: hidden", "call": { "t": "hungUp" }, "before": "listening", "ptt": [{ "t": "empty" }] },
+    { "name": "hung up after the send: the capsule fades on its own", "call": { "t": "hungUp" }, "before": "sent", "ptt": [] },
+    { "name": "a failure before said falls back to the local turn: the capsule keeps listening", "call": { "t": "failed", "code": "no_answer" }, "before": "listening", "ptt": [] },
+    { "name": "a failure after said: Thinking until the reply lands in the chat", "call": { "t": "failed", "code": "dropped" }, "before": "sent", "ptt": [] }
   ],
   "tabs": {
     "order": ["chat", "voice"],
