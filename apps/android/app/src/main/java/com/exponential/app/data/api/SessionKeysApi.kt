@@ -62,6 +62,10 @@ data class RequestKeyInput(val rootId: String)
 @Serializable
 data class RequestKeyResult(val state: String, val epoch: Int? = null, val publicKey: String? = null)
 
+/** #EXP-1951 `sessionKeys.due`: a root this install rotates; [epoch] = the one to supersede. */
+@Serializable
+data class DueTreeKey(val rootId: String, val epoch: Int)
+
 const val PENDING_MAX = 200
 
 @Singleton
@@ -104,6 +108,16 @@ class SessionKeysApi @Inject constructor(private val trpc: TrpcClient) {
             input = PublicKeysInput(rootIds),
             inputSerializer = PublicKeysInput.serializer(),
             outputSerializer = ListSerializer(TreePublicKey.serializer()),
+        )
+
+    /** #EXP-1951 (sealed-content.json `rotation`): the roots this install rotates now. */
+    suspend fun due(accountId: String, installId: String): List<DueTreeKey> =
+        trpc.query(
+            accountId,
+            path = "sessionKeys.due",
+            input = PendingSessionKeysInput(installId),
+            inputSerializer = PendingSessionKeysInput.serializer(),
+            outputSerializer = ListSerializer(DueTreeKey.serializer()),
         )
 
     /** #EXP-1960: a keyless tree this install may not key: its devices key it. */

@@ -102,6 +102,29 @@ fun keylessStep(answer: RequestKeyAnswer): KeylessStep = when (answer) {
     RequestKeyAnswer.Requested, RequestKeyAnswer.NotFound, RequestKeyAnswer.Error -> KeylessStep.Wait
 }
 
+// ── rotation (sealed-content.json `rotation`, #EXP-1951) ──────────────────
+
+/** What a holder does with the answer of a rotation's `sessionKeys.create`. */
+enum class RotationAfter { Adopt, Reread, Leave, Retry }
+
+/**
+ * The epoch a holder creates for a root that is due (`stepCases`), null =
+ * nothing to rotate here: [flagged] = the root's `seal_rotate_epoch`,
+ * [current] = its `seal_epoch` as this install knows it, [held] = this
+ * install holds the current epoch's secret, [left] = the server refused this
+ * (root, epoch) before.
+ */
+fun rotationEpoch(flagged: Int?, current: Int?, held: Boolean, left: Boolean = false): Int? =
+    if (flagged == null || current == null || current != flagged || !held || left || current >= Int.MAX_VALUE) null else current + 1
+
+/** `answerCases`: [failure] = [createFailure] of the rotation's create, null = created. */
+fun rotationAfter(failure: CreateFailure?): RotationAfter = when (failure) {
+    null -> RotationAfter.Adopt
+    CreateFailure.Stale -> RotationAfter.Reread
+    CreateFailure.Transient -> RotationAfter.Retry
+    else -> RotationAfter.Leave
+}
+
 /** [probe] until it answers non-null, every [pollMs], for at most [timeoutMs]; null = it never did. */
 internal suspend fun <T : Any> awaitWithin(timeoutMs: Long, pollMs: Long, probe: suspend () -> T?): T? =
     withTimeoutOrNull(timeoutMs) {

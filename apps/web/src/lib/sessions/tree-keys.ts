@@ -4,7 +4,7 @@
 // (suites mock @/lib/trpc whole).
 import { CLEAR_TREE_REFUSAL, STALE_TREE_REFUSAL, WRAP_REFUSAL } from "@exp/domain-contract/sealed-content"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { devices, installs, sessionKeys, sessions, type Session } from "@/db/schema"
 import { teamMemberPairs } from "@/lib/auth/membership"
 import type { Tx } from "@/lib/sessions/tx"
@@ -197,7 +197,8 @@ export interface TreeKeyInput {
 
 /** `sessionKeys.create` inside the caller's transaction: a tree's first key
  *  (epoch 1) or a rotation (`seal_epoch + 1`, by the starter or the
- *  executing device), with wraps for readers including the caller's own. */
+ *  executing device, or by any reader while the root is due), with wraps
+ *  for readers including the caller's own. */
 export async function createTreeKeyInTx(
   tx: Tx,
   userId: string,
@@ -232,7 +233,9 @@ export async function createTreeKeyInTx(
       // the tree again and re-seals (sealed-content.json `staleTree`).
       throw new TRPCError({ code: `CONFLICT`, message: STALE_TREE_REFUSAL })
     }
-    if (root.userId !== userId && !caller.executing) {
+    // #EXP-1951 (`rotation.rotatorCases`): a root that is DUE (a reader
+    // was dropped) is rotated by the next reader that is online.
+    if (root.userId !== userId && !caller.executing && root.sealRotateEpoch == null) {
       throw new TRPCError({
         code: `FORBIDDEN`,
         message: `Only the session's starter or its device rotates the key`,
@@ -262,41 +265,147 @@ export async function createTreeKeyInTx(
   }
   await tx
     .update(sessions)
-    // A rotation supersedes the epoch a private turn flagged (#FEED-177).
+    // A rotation supersedes the epoch a dropped reader flagged (#FEED-177, #EXP-1951).
     .set({ sealPublicKey: input.publicKey, sealEpoch: input.epoch, sealRotateEpoch: null })
     .where(eq(sessions.id, root.id))
   return { rootId: root.id, epoch: input.epoch, wraps: input.wraps.length }
 }
 
+/** `lockTreeKeys` for many roots in ONE statement, in the order given (the
+ *  callers sort, so two of them never wait on each other). */
+async function lockTreeKeysMany(tx: Tx, rootIds: readonly string[]): Promise<void> {
+  if (rootIds.length === 0) return
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext('session_keys:' || t.id)) FROM unnest(${sql.param([...rootIds])}::text[]) WITH ORDINALITY AS t(id, n) ORDER BY t.n`
+  )
+}
+
+/** Roots handled per round of `dropNonReaderKeysInTx` (a fixed number of
+ *  queries each, whatever the trees' size). */
+export const DROP_CHUNK = 500
+const DELETE_CHUNK = 5000
+
 /**
- * #FEED-177: a tree that turns PRIVATE (its root re-stamped `shared: false`
- * in `tx`, before this runs) keeps only its new readers' wraps: every
- * teammate install's `session_keys` row goes, so `mine` never hands them
+ * A tree's key when a READER IS DROPPED (sealed-content.json `rotation`;
+ * #FEED-177: a tree turned private, #EXP-1951: a revoked install, a member
+ * removed, an account deleted, a device unshared or removed). Run in `tx`
+ * AFTER the write that dropped them: every `session_keys` row of `rootIds`
+ * whose install is no longer a reader goes (and every row of `gone`, the
+ * installs of an account about to be deleted), so `mine` never hands them
  * the key again and `pending` (readers only) never re-wraps it for them.
  * The server cannot rotate (it never sees a secret; a rotation is
- * `create {epoch + 1}` by the starter or the executing device), so what an
- * install already unwrapped stays readable to it until a device rotates:
- * when any wrap went, the root's `seal_rotate_epoch` names its current
- * epoch and the holders (`steer::seal_keys`) rotate; `create` clears it.
+ * `create {epoch + 1}` by a holder), so what an install already unwrapped
+ * stays readable to it until a holder rotates: each root that lost a wrap
+ * gets `seal_rotate_epoch` = its current epoch (DUE) and the holders rotate
+ * (`steer::seal_keys`, the web / iOS / Android key holders through
+ * `sessionKeys.due`); `create` clears it. Returns the roots it flagged.
+ * A fixed number of queries per DROP_CHUNK roots, never some per root.
  */
-export async function dropNonReaderKeysInTx(tx: Tx, rootIds: string[]): Promise<void> {
-  for (const rootId of rootIds) {
-    // Serializes with the tree's key writes (`createTreeKeyInTx`).
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`session_keys:${rootId}`}))`)
-    const [root] = await tx.select().from(sessions).where(eq(sessions.id, rootId)).limit(1)
-    if (!root || root.parentId !== null || root.sealEpoch === null) continue
-    const readers = [...(await treeReaders(tx, root)).keys()]
-    const dropped = await tx
-      .delete(sessionKeys)
-      .where(
-        and(
-          eq(sessionKeys.rootId, root.id),
-          ...(readers.length > 0 ? [notInArray(sessionKeys.installId, readers)] : [])
+export async function dropNonReaderKeysInTx(
+  tx: Tx,
+  rootIds: readonly string[],
+  options: { gone?: ReadonlySet<string> } = {}
+): Promise<string[]> {
+  const flagged: string[] = []
+  const ids = [...new Set(rootIds)].sort()
+  for (let at = 0; at < ids.length; at += DROP_CHUNK) {
+    const chunk = new Set(ids.slice(at, at + DROP_CHUNK))
+    // Serializes with the trees' key writes (`createTreeKeyInTx`, `wrap`).
+    await lockTreeKeysMany(tx, [...chunk])
+    const roots = (await tx.select().from(sessions).where(inArray(sessions.id, [...chunk]))).filter(
+      (root) => chunk.has(root.id) && root.parentId === null && root.sealEpoch !== null
+    )
+    if (roots.length === 0) continue
+    const keyed = new Set(roots.map((root) => root.id))
+    const readersOf = await treeReadersMany(tx, roots)
+    const held = await tx
+      .select({ id: sessionKeys.id, rootId: sessionKeys.rootId, installId: sessionKeys.installId })
+      .from(sessionKeys)
+      .where(inArray(sessionKeys.rootId, [...keyed]))
+    const dropped = held.filter(
+      (row) => keyed.has(row.rootId) && (options.gone?.has(row.installId) || !readersOf.get(row.rootId)?.has(row.installId))
+    )
+    if (dropped.length === 0) continue
+    for (let from = 0; from < dropped.length; from += DELETE_CHUNK) {
+      await tx.delete(sessionKeys).where(
+        inArray(
+          sessionKeys.id,
+          dropped.slice(from, from + DELETE_CHUNK).map((row) => row.id)
         )
       )
-      .returning({ installId: sessionKeys.installId })
-    if (dropped.length > 0 && root.sealRotateEpoch === null) {
-      await tx.update(sessions).set({ sealRotateEpoch: root.sealEpoch }).where(eq(sessions.id, root.id))
     }
+    const lost = new Set(dropped.map((row) => row.rootId))
+    const due = roots.filter((root) => lost.has(root.id) && root.sealRotateEpoch === null)
+    // One write per epoch among them (nearly always one).
+    for (const epoch of new Set(due.map((root) => root.sealEpoch!))) {
+      await tx
+        .update(sessions)
+        .set({ sealRotateEpoch: epoch })
+        .where(
+          inArray(
+            sessions.id,
+            due.filter((root) => root.sealEpoch === epoch).map((root) => root.id)
+          )
+        )
+    }
+    flagged.push(...due.map((root) => root.id))
   }
+  return flagged
+}
+
+/** Whose wraps: these installs, an account's installs, or the installs
+ *  bound to these devices rows. */
+export type KeyHolders = { installIds: readonly string[] } | { userId: string } | { deviceRowIds: readonly string[] }
+
+/** The roots in which `who` holds a wrap (an install without one never had
+ *  the tree's secret), in a fixed number of queries; `teamIds` = only the trees with a
+ *  session in one of these teams. */
+export async function rootsHeldBy(tx: Tx, who: KeyHolders, teamIds?: readonly string[]): Promise<string[]> {
+  if (teamIds?.length === 0) return []
+  let installIds: string[]
+  if (`installIds` in who) installIds = [...who.installIds]
+  else if (`userId` in who) {
+    const rows = await tx.select({ id: installs.id, userId: installs.userId }).from(installs).where(eq(installs.userId, who.userId))
+    installIds = rows.filter((row) => row.userId === who.userId).map((row) => row.id)
+  } else {
+    if (who.deviceRowIds.length === 0) return []
+    const rows = await tx
+      .select({ id: installs.id, deviceId: installs.deviceId })
+      .from(installs)
+      .where(inArray(installs.deviceId, [...who.deviceRowIds]))
+    installIds = rows.filter((row) => row.deviceId !== null && who.deviceRowIds.includes(row.deviceId)).map((row) => row.id)
+  }
+  if (installIds.length === 0) return []
+  const held = await tx
+    .select({ rootId: sessionKeys.rootId, installId: sessionKeys.installId })
+    .from(sessionKeys)
+    .where(inArray(sessionKeys.installId, installIds))
+  const rootIds = [...new Set(held.filter((row) => installIds.includes(row.installId)).map((row) => row.rootId))]
+  if (!teamIds) return rootIds
+  const inTeams = new Set<string>()
+  for (let at = 0; at < rootIds.length; at += DELETE_CHUNK) {
+    const chunk = rootIds.slice(at, at + DELETE_CHUNK)
+    const rows = await tx
+      .select({ rootId: sessions.rootId, teamId: sessions.teamId })
+      .from(sessions)
+      .where(and(inArray(sessions.rootId, chunk), inArray(sessions.teamId, [...teamIds])))
+    for (const row of rows) if (row.rootId && chunk.includes(row.rootId) && teamIds.includes(row.teamId)) inTeams.add(row.rootId)
+  }
+  return [...inTeams]
+}
+
+/** #EXP-1951: `who` stopped reading (the write that dropped them ran in
+ *  `tx`): their wraps go and the trees are due. */
+export async function dropReaderKeysInTx(tx: Tx, who: KeyHolders, teamIds?: readonly string[]): Promise<string[]> {
+  return dropNonReaderKeysInTx(tx, await rootsHeldBy(tx, who, teamIds))
+}
+
+/** #EXP-1951: an account about to be DELETED in `tx` (its installs and
+ *  their wraps cascade away with it): the wraps go now and every tree they
+ *  read is due. */
+export async function dropAccountKeysInTx(tx: Tx, userId: string): Promise<string[]> {
+  const rootIds = await rootsHeldBy(tx, { userId })
+  if (rootIds.length === 0) return []
+  const own = await tx.select({ id: installs.id, userId: installs.userId }).from(installs).where(eq(installs.userId, userId))
+  return dropNonReaderKeysInTx(tx, rootIds, { gone: new Set(own.filter((row) => row.userId === userId).map((row) => row.id)) })
 }
