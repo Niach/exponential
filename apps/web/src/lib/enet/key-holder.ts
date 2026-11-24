@@ -66,6 +66,9 @@ export class KeyHolder {
   private listeners = new Set<() => void>()
   private asked = new Map<string, number>()
   private queued = new Set<string>()
+  /** #EXP-2119: what did not open yet: a row is not drawn again by itself, so
+   *  its wrap, made after it asked, is fetched by the next pass. */
+  private unopened = new Map<string, { rootId: string; epoch: number }>()
   private flushing: Promise<void> | undefined
   private stopped = false
   /** #EXP-1951: rotations the server refused this install, `root\nepoch`. */
@@ -150,6 +153,7 @@ export class KeyHolder {
     const last = this.asked.get(rootId)
     if (last !== undefined && now - last < MISSING_RETRY_MS) return
     this.asked.set(rootId, now)
+    if (epoch !== null) this.unopened.set(`${rootId}\n${epoch}`, { rootId, epoch })
     this.queued.add(rootId)
     this.flushing ??= Promise.resolve().then(async () => {
       const rootIds = [...this.queued]
@@ -245,9 +249,11 @@ export class KeyHolder {
     return rotated
   }
 
-  /** One holder pass: the rotations that are due, then the pending wraps
+  /** One holder pass: the wraps still missing here, the rotations that are due, then the pending wraps
    *  (the new epochs' readers among them). */
   async pass(): Promise<void> {
+    for (const [key, want] of this.unopened) if (this.keys.get(want.rootId)?.has(want.epoch)) this.unopened.delete(key)
+    if (this.unopened.size > 0) await this.refresh().catch(() => {})
     await this.rotateDue().catch(() => {})
     await this.answerPending()
   }

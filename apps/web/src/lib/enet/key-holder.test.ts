@@ -238,6 +238,23 @@ describe(`rotation (#EXP-1951)`, () => {
     })
   }
 
+  // #EXP-2119: content asked before its wrap was made opens on the next pass.
+  it(`a pass fetches the wraps of what did not open yet, then stops asking`, async () => {
+    let rows: Array<{ rootId: string; epoch: number; wrapped: string }> = []
+    let asked = 0
+    const holder = new KeyHolder(`u1`, SELF, hex(fixture.install.secret), { api: fakeApi({ mine: async () => (asked++, rows) }), store: memoryTreeKeyStore() })
+    await holder.start()
+    holder.request(ROOT, 1)
+    await new Promise((resolve) => setTimeout(resolve))
+    await holder.pass()
+    expect(asked).toBe(3)
+    rows = [{ rootId: ROOT, epoch: 1, wrapped: fixture.wrap.wrapped }]
+    await holder.pass()
+    expect(holder.keysFor(ROOT).has(1)).toBe(true)
+    await holder.pass()
+    expect(asked).toBe(4)
+  })
+
   it(`an older server without \`due\` still gets its pending wraps answered`, async () => {
     const api = fakeApi({ due: async () => Promise.reject(Object.assign(new Error(`No procedure`), { data: { code: `NOT_FOUND` } })) })
     const holder = new KeyHolder(`u1`, SELF, hex(fixture.install.secret), { api, store: memoryTreeKeyStore() })
