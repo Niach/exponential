@@ -46,7 +46,10 @@ type ChatSession = { id: string; rootId?: string | null; teamId: string; scopeTe
  *  conversation) = the chat teams of `ownTeamId` with nothing picked. */
 export function useSessionChatTeams(
   session: ChatSession | null | undefined,
-  ownTeamId?: string | null
+  ownTeamId?: string | null,
+  /** #EXP-2082: the composer's Teams pick while it is being edited (null =
+   *  none: every team), read at once; undefined = the root's stored pick. */
+  draftPick?: readonly string[] | null
 ): ChatTeams {
   const rootId = session ? (session.rootId ?? session.id) : null
   const { data } = useLiveQuery(
@@ -57,7 +60,7 @@ export function useSessionChatTeams(
     [rootId, session?.id]
   )
   const root = (data?.[0] as ChatSession | undefined) ?? session ?? null
-  return useChatTeams(session?.teamId ?? ownTeamId ?? null, root?.scopeTeamIds ?? null)
+  return useChatTeams(session?.teamId ?? ownTeamId ?? null, draftPick !== undefined ? draftPick : (root?.scopeTeamIds ?? null))
 }
 
 /** `deviceCases`: the device list of `session` is the viewer's OWN machines
