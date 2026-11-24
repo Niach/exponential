@@ -140,6 +140,37 @@ describe(`IssueSearchSheet`, () => {
     expect(mockState.navigate).not.toHaveBeenCalled()
   })
 
+  // #NEW-133 with #EDE-99: the suggestion row sits above BOTH section
+  // headers, outside the count and the section counts; a chat pick stays
+  // the chat's, the suggestion's pick rewrites the field.
+  it(`the Search: row leads the Issues and Chats sections`, () => {
+    const onPick = vi.fn()
+    mockState.chats = {
+      items: [{ value: `chat:r1`, label: `Editor polish`, description: `…the editor toolbar.`, hint: `Mon` }],
+      loading: false,
+      onPick,
+    }
+    open()
+    const input = document.querySelector<HTMLInputElement>(`[data-slot=command-input]`)!
+    fireEvent.change(input, { target: { value: `open issues about the editor from last week` } })
+    const row = screen.getByTestId(`search-list-suggestion`)
+    const issues = screen.getByTestId(`search-list-issues`)
+    const chats = screen.getByTestId(`search-list-chats`)
+    expect(rows()[0]).toBe(row)
+    expect(row.getAttribute(`aria-selected`)).toBe(`true`)
+    expect(row.compareDocumentPosition(issues) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(issues.compareDocumentPosition(chats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(issues.contains(row)).toBe(false)
+    expect(screen.getByTestId(`search-list-count`).textContent).toBe(String(mockState.issues.length + 1))
+    expect(issues.textContent).toContain(`Issues`)
+    fireEvent.click(row)
+    expect(input.value).toBe(`is:open created:7d editor`)
+    expect(onPick).not.toHaveBeenCalled()
+    expect(mockState.navigate).not.toHaveBeenCalled()
+    expect(screen.queryByTestId(`search-list-suggestion`)).toBeNull()
+    expect(screen.getByTestId(`search-list-chats`)).toBeTruthy()
+  })
+
   // #EDE-99 (search-list.json SECTIONS): with a store and a query, Issues
   // then Chats as titled sections, the count adds both, a chat pick is the
   // hook's.
