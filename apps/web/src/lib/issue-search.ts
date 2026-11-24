@@ -136,7 +136,7 @@ export const ISSUE_SEARCH_CLOSED_STATUSES = [
  */
 export const ISSUE_SEARCH_PLACEHOLDER = `Search issues`
 export const ISSUE_SEARCH_EMPTY_HINT = `Search issues across this team's boards.`
-export const ISSUE_SEARCH_EMPTY_DETAIL = `Matches identifiers, titles, full text, and by:creator.`
+export const ISSUE_SEARCH_EMPTY_DETAIL = `Matches identifiers, titles and full text. Filter with by:, is:, status:, created: and updated:.`
 export const ISSUE_SEARCH_NO_RESULTS = `No issues match`
 
 /** Whether a row counts as UNDONE for ranking. An absent or unrecognized

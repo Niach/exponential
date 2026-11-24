@@ -301,14 +301,14 @@ pub fn translate(text: &str, members: &[PhraseMember<'_>], now: i64) -> Option<S
         //    the same member joins (`von Lukas Mai`).
         if has(CREATOR_LEAD, t) {
             let mut matched: Vec<&Member> = match next {
-                Some(next) => members.iter().filter(|member| is_of(member, next)).collect(),
+                Some(next) => members.iter().filter(|member| is_of(*member, next)).collect::<Vec<&Member>>(),
                 None => Vec::new(),
             };
             if !matched.is_empty() {
                 let mut j = i + 1;
                 while j < tokens.len() {
                     let narrowed: Vec<&Member> =
-                        matched.iter().copied().filter(|member| is_of(member, &tokens[j])).collect();
+                        matched.iter().copied().filter(|member| is_of(*member, &tokens[j])).collect();
                     if narrowed.is_empty() {
                         break;
                     }

@@ -65,6 +65,8 @@
 //! * [`issue_search`] — EXP-892's ONE issue-search engine (rank + server-hit
 //!   merge), byte-locked ×4 by
 //!   `packages/domain-contract/fixtures/issue-search.json`;
+//! * [`issue_search_phrase`] — #NEW-133's DE+EN phrase grammar (a sentence →
+//!   the structured query), byte-locked ×4 by `fixtures/issue-search-phrase.json`;
 //! * [`diff`] — EXP-895's ONE diff model + parser (`git diff`, bare steer
 //!   sections, GitHub patches), byte-locked ×4 by
 //!   `packages/domain-contract/fixtures/diff/`;
