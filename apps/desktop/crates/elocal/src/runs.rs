@@ -775,7 +775,7 @@ impl LocalRuns {
             mine.sort_by(|a, b| a.get("created_at").and_then(Value::as_str).cmp(&b.get("created_at").and_then(Value::as_str)));
             let mut first = !in_hub;
             for message in mine {
-                let (message_id, text) = (message.get("id").and_then(Value::as_str).unwrap_or("").to_string(), message.get("body").and_then(Value::as_str).unwrap_or("").to_string());
+                let (message_id, text) = (message.get("id").and_then(Value::as_str).unwrap_or("").to_string(), crate::parity::input_text(message));
                 *self.echo.lock().expect("echo") = Some((message_id.clone(), id.to_string()));
                 let outcome = if first {
                     first = false;
@@ -834,7 +834,8 @@ impl LocalRuns {
         };
         let live: Vec<String> = self.live.lock().expect("live").keys().cloned().collect();
         let refused = self.refused.lock().expect("refused").clone();
-        let body = |id: &str| messages.iter().find(|m| m.get("id").and_then(Value::as_str) == Some(id)).and_then(|m| m.get("body").and_then(Value::as_str)).unwrap_or("").to_string();
+        // #EXP-2067: an action row reaches the agent as its `[action]` line.
+        let body = |id: &str| messages.iter().find(|m| m.get("id").and_then(Value::as_str) == Some(id)).map(crate::parity::input_text).unwrap_or_default();
         for wake in crate::parity::wake_plan(&self.desktop.executor.device_id(), &sessions, &messages, &live, &refused) {
             let mut rows = wake.message_ids.iter();
             if !wake.live {
