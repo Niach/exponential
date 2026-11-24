@@ -1719,9 +1719,16 @@ impl SteerSessionView {
 
     /// EXP-760: the team whose issues this feed's `#IDENT` / bare `EXP-1`
     /// tokens resolve against — the session row's own `team_id` (EXP-1294:
-    /// every session carries it). `None` before the row syncs.
-    fn ref_team_id(&self, _cx: &App) -> Option<String> {
-        self.row.as_ref()?.team_id.clone().filter(|id| !id.is_empty())
+    /// every session carries it). `None` before the row syncs. #EXP-2079
+    /// (agent-settings.json `assistant.chatTeams`): the session's CHAT TEAMS
+    /// key (`crate::chat_teams`): its own team while that is synced, the
+    /// turn's teams for the Assistant's conversation. Every list of the chat
+    /// reads it (`#` refs and chips, `@` members, `/` prompts, links); what
+    /// needs one real team takes the row's own.
+    pub(crate) fn ref_team_id(&self, cx: &App) -> Option<String> {
+        let row = self.row.as_ref()?;
+        row.team_id.as_deref().filter(|id| !id.is_empty())?;
+        crate::chat_teams::session_key(row, cx)
     }
 
     /// EXP-760: the feed's chip resolver — BARE mode, because agents narrate
@@ -4206,7 +4213,7 @@ impl SteerSessionView {
     /// own row painter (the inline plan / question answers while the reader
     /// may message the session).
     fn render_conversation_cards(&self, indices: &[usize], window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
+        let team_id = self.ref_team_id(cx);
         let text = crate::session_chat::ChatText::team(team_id.as_deref()).answering(self.may_message);
         let cards: Vec<AnyElement> = indices
             .iter()
@@ -4512,13 +4519,12 @@ impl SteerSessionView {
         self.slash_dismissed_for = None;
         // NEW-2: the contract catalog, then the team's prompts; the agent's
         // own commands stay hidden.
+        // #EXP-2079 (`assistant.chatTeams` (4)): the chat teams' prompts.
         let prompts: Vec<slash_commands::SlashPrompt> = self
-            .row
-            .as_ref()
-            .and_then(|row| row.team_id.as_deref())
+            .ref_team_id(cx)
             .filter(|_| sync::Store::try_global(cx).is_some())
             .map(|team_id| {
-                crate::queries::team_prompts(cx, team_id)
+                crate::queries::team_prompts(cx, &team_id)
                     .0
                     .iter()
                     .map(slash_commands::SlashPrompt::from)
@@ -10042,9 +10048,26 @@ impl SteerSessionView {
         if self.mcp_requested || self.mcp_attempts >= MCP_LOAD_ATTEMPTS || !(self.configurable() || agent_pick) {
             return;
         }
-        let Some(team_id) = self.row.as_ref().and_then(|row| row.team_id.clone()) else {
-            return;
+        // #EXP-2079 (agent-settings.json `assistant.chatTeams` (3)): the
+        // servers of the CHAT TEAMS, team by team; with more than one each
+        // row names its team.
+        let teams: Vec<(String, Option<String>)> = {
+            let Some(row) = self.row.as_ref().filter(|row| row.team_id.is_some()) else {
+                return;
+            };
+            let ids = crate::chat_teams::session_team_ids(row, cx);
+            let named = ids.len() > 1;
+            let rows = sync::Store::try_global(cx).map(|store| store.collections().teams.read(cx));
+            ids.into_iter()
+                .map(|id| {
+                    let name = rows.as_ref().filter(|_| named).and_then(|rows| rows.get(&id)).map(|team| team.name.clone());
+                    (id, name)
+                })
+                .collect()
         };
+        if teams.is_empty() {
+            return;
+        }
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             return;
         };
@@ -10054,15 +10077,20 @@ impl SteerSessionView {
             let loaded = cx
                 .background_executor()
                 .spawn(async move {
-                    let servers = api::mcp_servers::list(&trpc, &team_id)
-                        .inspect_err(|err| log::debug!("[steer] mcpServers.list: {err}"))
-                        .ok()?;
+                    let mut servers = Vec::new();
+                    for (team_id, team_name) in teams {
+                        let listed = api::mcp_servers::list(&trpc, &team_id)
+                            .inspect_err(|err| log::debug!("[steer] mcpServers.list: {err}"))
+                            .ok()?;
+                        servers.extend(listed.into_iter().map(|entry| (entry, team_name.clone())));
+                    }
                     let picks = api::session_device::mcp_picks(&trpc, &session_id)
                         .inspect_err(|err| log::debug!("[steer] sessions.mcpPicks: {err}"))
                         .ok()?;
                     let options: Vec<crate::launch_options::McpServerOption> = servers
                         .into_iter()
-                        .map(|entry| crate::launch_options::McpServerOption {
+                        .map(|(entry, team_name)| crate::launch_options::McpServerOption {
+                            team_name,
                             blocked: crate::launch_options::mcp_block_reason(&entry.connection),
                             enabled_by_default: entry.config.enabled_by_default,
                             id: entry.config.id,

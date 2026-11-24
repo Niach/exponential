@@ -403,13 +403,34 @@ pub fn envelope_overhead(session_id: &str) -> usize {
     envelope_head(session_id).len() + 2
 }
 
-/// The device's access rule for one envelope's sender: `viewer_user_id` =
-/// the sender endpoint's user in the SESSION team's registry list (`None` =
-/// not in it).
-pub fn viewer_allowed(viewer_user_id: Option<&str>, starter_user_id: &str, shared: bool) -> bool {
-    match viewer_user_id {
+/// Who an envelope's sender is to this device (steer-enet.json `access`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Sender {
+    /// The sender endpoint's user in the SESSION team's registry list
+    /// (`None` = not in it).
+    pub team_user_id: Option<String>,
+    /// Does the device hold a registry list for the session's team at all?
+    /// A team that is never synced (a personal team) has none.
+    pub team_listed: bool,
+    /// The sender endpoint's user in ANY list the device holds.
+    pub any_team_user_id: Option<String>,
+}
+
+impl Sender {
+    /// A sender the carrier already named (a relay tunnel's ticket user).
+    pub fn known(user_id: &str) -> Self {
+        Self { team_user_id: Some(user_id.to_string()), team_listed: true, any_team_user_id: None }
+    }
+}
+
+/// The device's access rule for one envelope's sender. #EXP-2079: with no
+/// registry list at all for the session's team the starter is allowed from
+/// any list the device holds, nobody else (`shared` or not); a team whose
+/// list merely lacks the endpoint stays refused.
+pub fn viewer_allowed(sender: &Sender, starter_user_id: &str, shared: bool) -> bool {
+    match sender.team_user_id.as_deref() {
         Some(user) => user == starter_user_id || shared,
-        None => false,
+        None => !sender.team_listed && sender.any_team_user_id.as_deref() == Some(starter_user_id),
     }
 }
 
@@ -603,14 +624,14 @@ pub fn has_room(session_id: &str) -> bool {
 }
 
 /// One chat message from `from`, received on `node`. Returns whether it was
-/// a steer envelope (the caller handles anything else). `user_in_team`
-/// resolves `(team id, endpoint)` to the endpoint's user in that team's
-/// registry list; `stored` = the host's journals for STORED REPLAY.
+/// a steer envelope (the caller handles anything else). `sender_in_team`
+/// resolves `(team id, endpoint)` to who the endpoint is for a session of
+/// that team (`Sender`); `stored` = the host's journals for STORED REPLAY.
 pub fn receive(
     node: &Arc<Node>,
     from: EndpointId,
     body: &[u8],
-    user_in_team: &dyn Fn(&str, &EndpointId) -> Option<String>,
+    sender_in_team: &dyn Fn(&str, &EndpointId) -> Sender,
     stored: Option<&StoredJournals>,
 ) -> bool {
     let Some(envelope) = parse_envelope(body) else { return false };
@@ -619,7 +640,7 @@ pub fn receive(
         return true;
     }
     let peer = FeedPeer::Enet(EnetPeer { id: from, node: Arc::clone(node) });
-    serve_envelope(peer, envelope, &|team_id| user_in_team(team_id, &from), stored);
+    serve_envelope(peer, envelope, &|team_id| sender_in_team(team_id, &from), stored);
     true
 }
 
@@ -630,7 +651,7 @@ pub fn receive_tunnel(peer: &crate::tunnel::TunnelPeer, user_id: &str, envelope:
         return;
     }
     let stored = lock(tunnel_stored()).clone();
-    serve_envelope(FeedPeer::Tunnel(peer.clone()), envelope, &|_| Some(user_id.to_string()), stored.as_ref());
+    serve_envelope(FeedPeer::Tunnel(peer.clone()), envelope, &|_| Sender::known(user_id), stored.as_ref());
 }
 
 /// The relay closed a tunnel (or its control socket went): its viewer
@@ -658,12 +679,12 @@ pub(crate) fn set_tunnel_stored(stored: StoredJournals) {
 }
 
 /// One viewer envelope from `peer`, whatever carried it: the access rule
-/// (`user_of(team)` = the sender's user in that team), then the live room's
+/// (`user_of(team)` = who the sender is for a session of that team), then the live room's
 /// loop or STORED REPLAY.
 fn serve_envelope(
     peer: FeedPeer,
     envelope: Envelope,
-    user_of: &dyn Fn(&str) -> Option<String>,
+    user_of: &dyn Fn(&str) -> Sender,
     stored: Option<&StoredJournals>,
 ) {
     let mut envelope = envelope;
@@ -726,10 +747,9 @@ fn allowed(
     peer: &FeedPeer,
     session_id: &str,
     audience: &SteerAudience,
-    user_of: &dyn Fn(&str) -> Option<String>,
+    user_of: &dyn Fn(&str) -> Sender,
 ) -> bool {
-    let user = user_of(&audience.team_id);
-    if viewer_allowed(user.as_deref(), &audience.starter_user_id, audience.shared) {
+    if viewer_allowed(&user_of(&audience.team_id), &audience.starter_user_id, audience.shared) {
         return true;
     }
     log::info!("enet steer: {} refused for session {session_id}", peer.label());
@@ -1441,8 +1461,13 @@ mod tests {
     #[test]
     fn access_cases() {
         for case in fixture()["access"].as_array().unwrap() {
+            let sender = Sender {
+                team_user_id: case["viewerUserId"].as_str().map(str::to_string),
+                team_listed: case.get("teamListed").and_then(Value::as_bool).unwrap_or(true),
+                any_team_user_id: case.get("anyTeamUserId").and_then(Value::as_str).map(str::to_string),
+            };
             let allowed = viewer_allowed(
-                case["viewerUserId"].as_str(),
+                &sender,
                 case["starterUserId"].as_str().unwrap(),
                 case["shared"].as_bool().unwrap(),
             );

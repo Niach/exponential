@@ -68,6 +68,7 @@ import { clearBlockedInTx } from "@/lib/sessions/watchdog"
 import { SUBAGENT_NO_CHILDREN, subagentRedirectText } from "@/lib/sessions/subagent"
 import {
   agentForwardLine,
+  assertIssuesInTree,
   assertIssuesInTeam,
   forwardIssues,
   linkIssues,
@@ -572,7 +573,7 @@ async function postSendMessage(
       throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid encrypted card` })
     }
   }
-  if (input.refIssueIds?.length) await assertIssuesInTeam(tx, session.teamId, input.refIssueIds)
+  if (input.refIssueIds?.length) await assertIssuesInTree(tx, session.rootId, input.refIssueIds)
   const messageId = from?.asSession
     ? await postSessionInput(tx, session, from.sessionId, text)
     : await postPersonMessage(tx, session, authorId, text, from?.sessionId ?? null)
@@ -1495,14 +1496,15 @@ async function messageSession(
             addedBy: userId,
             addedBySessionId: caller?.id ?? null,
           })
-        } else {
-          await assertIssuesInTeam(tx, target.teamId, input.issueIds)
         }
       }
       const issueBrief = await forwardedIssueBrief(tx, target, input.issueIds)
       // #EXP-1961: a call reads what was typed in its chat before its next answer.
       if (target.voiceCall && !from && !extras.callPrompt) await copyChatIntoCall(tx, target)
       const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from, issueBrief)
+      // #EXP-2082: a conversation only reads the forwarded issues: those of
+      // its tree's teams, after the Teams pick this call carries was stored.
+      if (input.issueIds?.length && !linksIssues(target)) await assertIssuesInTree(tx, target.rootId, input.issueIds)
       // A PERSON's message into a worker = it takes its issues again.
       if (messageId && !from?.asSession) await retakeHeldIssues(tx, target, userId)
       await applyWakeOn(tx, caller, input)
@@ -1643,9 +1645,10 @@ async function messageAgent(
     const from = caller
       ? { sessionId: caller.id, asSession: viaMcp && caller.id !== session.id }
       : null
-    if (input.issueIds?.length) await assertIssuesInTeam(tx, agent.teamId, input.issueIds)
     const issueBrief = await forwardedIssueBrief(tx, session, input.issueIds)
     const messageId = await postSendMessage(tx, session, input, userId, uploaderIds, from, issueBrief)
+    // #EXP-2082: checked after the call's own Teams pick was stored.
+    if (input.issueIds?.length) await assertIssuesInTree(tx, session.rootId, input.issueIds)
     await applyWakeOn(tx, caller, input)
     await extras.within?.(tx, { sessionId: session.id, messageId, rootId: session.id })
     return { sessionId: session.id, messageId, status: session.status, txid, queued: created }

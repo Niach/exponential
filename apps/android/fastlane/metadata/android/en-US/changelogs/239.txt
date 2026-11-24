@@ -2,3 +2,4 @@
 - Calls are end-to-end encrypted between up-to-date apps
 - An open question or plan card sits after the chat's last message
 - A subagent's reply no longer shows twice after reopening the app
+- Your Assistant's chat lists issues, people, MCP servers and prompts from all your teams

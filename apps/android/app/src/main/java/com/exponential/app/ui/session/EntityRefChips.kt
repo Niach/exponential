@@ -72,6 +72,7 @@ import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 
@@ -230,9 +231,16 @@ private fun <T> observeScoped(
     return flow.collectAsState(empty)
 }
 
+/** [ofBoardId] (#EXP-2079, agent-settings.json `assistant.chatTeams` (6)):
+ *  an issue's status reads the ISSUE's own team (through its board), never
+ *  the session's; null = the run's team. */
 @Composable
-private fun teamStatuses(): List<ResolvedIssueStatus> {
-    val teamId = LocalEntityRefResolver.current?.teamId
+private fun teamStatuses(ofBoardId: String? = null): List<ResolvedIssueStatus> {
+    val runTeamId = LocalEntityRefResolver.current?.teamId
+    val board by observeScoped(ofBoardId, null as BoardEntity?) { db ->
+        if (ofBoardId == null) flowOf(null) else db.boardDao().observeAll().map { rows -> rows.firstOrNull { it.id == ofBoardId } }
+    }
+    val teamId = if (ofBoardId == null) runTeamId else board?.teamId ?: runTeamId
     val rows by observeScoped(teamId, emptyList<IssueStatusEntity>()) { db ->
         if (teamId == null) flowOf(emptyList()) else db.issueStatusDao().observeByTeam(teamId)
     }
@@ -277,7 +285,7 @@ private fun IssueCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         SlimCard(ref, subtitle = ref.title?.takeIf { !ref.identifier.isNullOrBlank() }, onOpen = { open(EntityTarget.Issue(ref.id)) })
         return
     }
-    val statuses = teamStatuses()
+    val statuses = teamStatuses(ofBoardId = row.boardId)
     val labels = teamLabels()
     val joins by observeScoped(row.id, emptyList()) { it.issueLabelDao().observeByIssue(row.id) }
     val status = remember(row, statuses) { IssueStatusResolver.resolve(row, statuses) }

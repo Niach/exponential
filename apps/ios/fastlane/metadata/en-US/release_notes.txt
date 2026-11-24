@@ -4,6 +4,7 @@
 - A subagent's reply no longer shows twice after reopening the app
 - A teammate's message the agent has not picked up yet shows as waiting
 - One tap on Reconnect dials a dropped call afresh
+- Your Assistant's chat lists issues, people, MCP servers and prompts from all your teams
 - Messages that arrive late show up in their place in the chat, find and search
 - Find in chat reaches your own unsent messages and lands on every hit
 - A chat no device has picked up yet stays quiet
@@ -51,4 +52,3 @@
 - My issues tabs on a board; [Image #1] placeholders when you attach an image
 - Home screen widgets: Board, My issues and Needs you
 - Ask Siri or Shortcuts to open an agent's chat; agent chat links open from a cold start
-- Owners set an app's Everyone else access in Settings › MCP › Access
