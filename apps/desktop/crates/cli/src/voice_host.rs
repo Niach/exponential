@@ -5,7 +5,8 @@
 //! WORKER. The same speech worker as the IDE (`exponential __speech-worker`,
 //! `etalk::SpeechClient`; CrispASR is a pinned runtime download, nothing is
 //! linked), but only while one of the member's agents runs here (`agents.list`
-//! of the synced teams, Runs on = this device). It is PROBED once (no CUDA
+//! of the synced teams and the member's own Assistant, #EXP-2080; Runs on =
+//! this device). It is PROBED once (no CUDA
 //! driver = nothing downloads, `speech` missing at once; else the voice
 //! downloads, loads and warms up), then exits: an idle server holds no GPU
 //! memory. A ring brings it up again (the ring hides the load) and it exits
@@ -1272,14 +1273,57 @@ fn clip_file(deps: &Deps, clip_id: &str) -> Option<PathBuf> {
     }
 }
 
-/// The agents of the synced teams whose Runs on is this device.
-fn hosted_agents(deps: &Deps) -> Option<Vec<HostedAgent>> {
+/// The agents whose Runs on is this device: the synced teams' and the
+/// member's own Assistant.
+fn hosted_agents(trpc: &api::TrpcClient, teams: &[String], device_id: &str) -> Option<Vec<HostedAgent>> {
+    hosted_from(
+        teams,
+        device_id,
+        |team_id| api::agents::list(trpc, team_id),
+        || own_assistant(|| api::voice::voice_assistant_id(trpc), |id| api::agents::get(trpc, id)),
+    )
+}
+
+/// The member's own Assistant, READ only (#EXP-2080): `voice.get` names it
+/// and `agents.get` reads it. Never `agents.ensureAssistant`: that creates
+/// one on first use, and a daemon is never the client that creates a
+/// member's Assistant (NEW-99: its device is a desktop). None yet = `None`:
+/// nothing is asked further, nothing is hosted.
+fn own_assistant(
+    named: impl Fn() -> Result<Option<String>, api::ApiError>,
+    get: impl Fn(&str) -> Result<api::agents::Agent, api::ApiError>,
+) -> Result<Option<api::agents::Agent>, api::ApiError> {
+    match named()? {
+        Some(id) => get(&id).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// The agents that run on `device_id` as the server names them: every synced
+/// team's list, and the member's own Assistant (#EXP-2080: after the move,
+/// #EXP-1984, it lives in their personal team, never a synced one, and no
+/// team's list names it; before the move it is a row of a team's list too:
+/// one entry per agent). `None` = a read did not reach the server (the last
+/// answer stands). A server that REFUSES the Assistant ask, or answers it
+/// in a shape this build cannot read (an older one), hosts the teams' agents
+/// as before.
+fn hosted_from(
+    teams: &[String],
+    device_id: &str,
+    list: impl Fn(&str) -> Result<Vec<api::agents::Agent>, api::ApiError>,
+    assistant: impl Fn() -> Result<Option<api::agents::Agent>, api::ApiError>,
+) -> Option<Vec<HostedAgent>> {
     let mut hosted = Vec::new();
-    for team_id in (deps.teams)() {
-        let agents = api::agents::list(&deps.trpc, &team_id).ok()?;
-        hosted.extend(hosted_of(&agents, &deps.device_id));
+    for team_id in teams {
+        hosted.extend(hosted_of(&list(team_id).ok()?, device_id));
+    }
+    match assistant() {
+        Ok(assistant) => hosted.extend(hosted_of(assistant.as_slice(), device_id)),
+        Err(api::ApiError::Transport { .. } | api::ApiError::Unauthorized | api::ApiError::UpgradeRequired) => return None,
+        Err(err) => log::debug!("[voice] the Assistant was not named ({err}): the teams' agents only"),
     }
     hosted.sort_by(|a, b| a.id.cmp(&b.id));
+    hosted.dedup_by(|a, b| a.id == b.id);
     Some(hosted)
 }
 
@@ -1309,10 +1353,11 @@ pub fn spawn(deps: Deps) -> Option<VoiceHost> {
     let agents_deps = Arc::clone(&deps);
     let stopped = Arc::new(AtomicBool::new(false));
     let agents_stopped = Arc::clone(&stopped);
-    // The agents that run here, read off the loop (a request per team).
+    // The agents that run here, read off the loop (a request per team, and
+    // the Assistant's two reads).
     let _ = std::thread::Builder::new().name("voice-agents".into()).spawn(move || {
         while !agents_stopped.load(Ordering::SeqCst) {
-            if let Some(agents) = hosted_agents(&agents_deps) {
+            if let Some(agents) = hosted_agents(&agents_deps.trpc, &(agents_deps.teams)(), &agents_deps.device_id) {
                 if agents_tx.send(Input::Agents(agents)).is_err() {
                     break;
                 }
@@ -1880,6 +1925,100 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(hosted_of(&agents, "here"), vec![HostedAgent { id: "a".into(), team_id: "t".into() }]);
+    }
+
+    fn listed(value: serde_json::Value) -> Vec<api::agents::Agent> {
+        serde_json::from_value(value).unwrap()
+    }
+
+    /// #EXP-2080 (after the Assistant move, #EXP-1984): the member's ONE
+    /// Assistant lives in their personal team, which is never synced and
+    /// which no team's `agents.list` names: it is asked for on its own, and
+    /// one bound to this device is hosted like any other agent.
+    #[test]
+    fn the_members_own_assistant_is_hosted_past_the_synced_teams() {
+        let teams = vec!["t".to_string()];
+        let list = |_: &str| Ok(listed(serde_json::json!([{ "id": "a", "teamId": "t", "deviceId": "here" }])));
+        let assistant = || Ok(listed(serde_json::json!([{ "id": "z", "teamId": "personal", "deviceId": "here", "role": "assistant" }])).pop());
+        assert_eq!(
+            hosted_from(&teams, "here", list, assistant),
+            Some(vec![
+                HostedAgent { id: "a".into(), team_id: "t".into() },
+                HostedAgent { id: "z".into(), team_id: "personal".into() },
+            ])
+        );
+        // No synced team's agent runs here: the Assistant alone brings the voice up.
+        let none = |_: &str| Ok(Vec::new());
+        assert_eq!(hosted_from(&teams, "here", none, assistant), Some(vec![HostedAgent { id: "z".into(), team_id: "personal".into() }]));
+    }
+
+    /// Switch off (self-hosted): the Assistant is a row of a synced team's
+    /// list as well: one entry. One that runs elsewhere, or none: not hosted.
+    #[test]
+    fn the_assistant_is_one_entry_and_only_when_it_runs_here() {
+        let teams = vec!["t".to_string(), "u".to_string()];
+        let list = |team: &str| Ok(if team == "t" { listed(serde_json::json!([{ "id": "z", "teamId": "t", "deviceId": "here", "role": "assistant" }])) } else { Vec::new() });
+        let same = || Ok(listed(serde_json::json!([{ "id": "z", "teamId": "t", "deviceId": "here", "role": "assistant" }])).pop());
+        assert_eq!(hosted_from(&teams, "here", list, same), Some(vec![HostedAgent { id: "z".into(), team_id: "t".into() }]));
+        let elsewhere = || Ok(listed(serde_json::json!([{ "id": "y", "teamId": "personal", "deviceId": "desktop" }])).pop());
+        assert_eq!(hosted_from(&teams, "here", list, elsewhere), Some(vec![HostedAgent { id: "z".into(), team_id: "t".into() }]));
+        assert_eq!(hosted_from(&teams, "here", list, || Ok(None)), Some(vec![HostedAgent { id: "z".into(), team_id: "t".into() }]));
+    }
+
+    /// #EXP-2080: no Assistant yet = nothing created, nothing hosted. The
+    /// daemon only READS (`voice.get`, then `agents.get` when one is named):
+    /// a member's first Assistant is created by a client of theirs, on a
+    /// desktop (NEW-99), never by a daemon's poll.
+    #[test]
+    fn no_assistant_yet_creates_nothing_and_hosts_nothing() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let log = Arc::clone(&seen);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut buf = [0u8; 8192];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let line = String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or_default().to_string();
+                let body = if line.contains("/agents.list") {
+                    r#"{"result":{"data":{"agents":[]}}}"#
+                } else if line.contains("/voice.get") {
+                    r#"{"result":{"data":{"voiceDeviceId":null,"agentId":null}}}"#
+                } else {
+                    r#"{"result":{"data":{"agent":{"id":"made","teamId":"personal","deviceId":"here","role":"assistant"}}}}"#
+                };
+                log.lock().unwrap().push(line);
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+            }
+        });
+        let trpc = api::TrpcClient::new(&base, Arc::new(api::StaticToken("tok".into())));
+        assert_eq!(hosted_agents(&trpc, &["t".to_string()], "here"), Some(Vec::new()));
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 2, "{seen:?}");
+        assert!(seen[0].starts_with("GET /api/trpc/agents.list?"), "{seen:?}");
+        assert!(seen[1].starts_with("GET /api/trpc/voice.get"), "{seen:?}");
+        assert!(seen.iter().all(|line| !line.starts_with("POST") && !line.contains("ensureAssistant")), "{seen:?}");
+        // Pure: none named = the agent is never read.
+        assert_eq!(own_assistant(|| Ok(None), |_| panic!("no agent is read")).unwrap(), None);
+    }
+
+    /// A read that did not reach the server leaves the last answer standing
+    /// (None), the Assistant's as a team's; a server that refuses the ask
+    /// (an older one) hosts the teams' agents as before.
+    #[test]
+    fn a_failed_assistant_read_never_drops_the_hosted_agents() {
+        let teams = vec!["t".to_string()];
+        let list = |_: &str| Ok(listed(serde_json::json!([{ "id": "a", "teamId": "t", "deviceId": "here" }])));
+        let offline = || Err(api::ApiError::Transport { message: "down".into(), offline: true });
+        assert_eq!(hosted_from(&teams, "here", list, offline), None);
+        let signed_out = || Err(api::ApiError::Unauthorized);
+        assert_eq!(hosted_from(&teams, "here", list, signed_out), None);
+        let unreadable = || Err(api::ApiError::Decode("an older answer".into()));
+        assert_eq!(hosted_from(&teams, "here", list, unreadable), Some(vec![HostedAgent { id: "a".into(), team_id: "t".into() }]));
+        let refused = || Err(api::ApiError::Http { status: 404, message: "No procedure".into() });
+        assert_eq!(hosted_from(&teams, "here", list, refused), Some(vec![HostedAgent { id: "a".into(), team_id: "t".into() }]));
     }
 
     /// The N95 case: no agent here = no worker, no row; an agent here and
