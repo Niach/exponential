@@ -360,7 +360,7 @@ public final class SessionsApi: Sendable {
             answers: answers, surfaceData: surfaceData
         )
         // EXP-1459: a sealed card is answered by re-sealing it whole.
-        if let sealed = await sealer?.sealAnswer(accountId: accountId, input) {
+        if let sealed = try await sealer?.sealAnswer(accountId: accountId, input) {
             try await trpc.mutationVoid(accountId: accountId, path: "sessions.answer", input: sealed)
             return
         }

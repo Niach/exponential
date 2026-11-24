@@ -22,6 +22,9 @@ import os
 // approved gets nothing; a waiting install wraps for itself only), and
 // answers R2 + R3 for a send and the call key from its keyring. Release 1
 // records; it refuses only what the fixture refuses now. None = as before.
+// #EXP-2123 (install-trust.json `keyMaker`): only a JOINED install makes a
+// key (a first key, a new chat's, a rotation); one that waits for approval
+// wraps for itself only, so its key would exist nowhere else.
 
 private let logger = Logger(subsystem: "at.exponential", category: "TreeKeys")
 
@@ -241,6 +244,13 @@ public actor TreeKeyHolder {
         _ = await fetch(accountId: accountId, installId: install, rootIds: [rootId.lowercased()])
     }
 
+    /// #EXP-2123: whether this install makes chat keys: only once it is
+    /// joined (no trust = the rules are off).
+    private func makesKeys(accountId: String, installId: String) async -> Bool {
+        guard let trust else { return true }
+        return await trust.makesKeys(accountId: accountId, installId: installId)
+    }
+
     /// The secrets this install holds for `rootId`, by epoch.
     public nonisolated func held(rootId: String) -> [UInt32: Data] {
         ring.keys(rootId: rootId)
@@ -292,8 +302,12 @@ public actor TreeKeyHolder {
     /// epoch for every root the server names as due whose current secret this
     /// install holds, wrapped for THIS install only: the current readers get
     /// theirs from `pending`, which lists readers and nobody else.
+    /// #EXP-2123 (install-trust.json `keyMaker`): never while this install
+    /// waits for approval; a STRANDED root is rotated without the old secret.
     @discardableResult
     func rotateDue(accountId: String, installId: String) async -> Int {
+        let joined = await makesKeys(accountId: accountId, installId: installId)
+        guard keyMakerStep(joined: joined, write: .rotation) == .make else { return 0 }
         guard let own = installKey(), let due = try? await keys.due(accountId: accountId, installId: installId), !due.isEmpty else { return 0 }
         // The server holds a wrap of each for this install: unwrap what is missing.
         let missing = due.filter { !ring.holds(rootId: $0.rootId, epoch: $0.epoch) }.map(\.rootId)
@@ -302,9 +316,9 @@ public actor TreeKeyHolder {
         for root in due {
             let held = ring.keys(rootId: root.rootId)
             let mark = "\(root.rootId)\n\(root.epoch)"
-            guard let epoch = rotationEpoch(
+            guard let epoch = strandedRotationEpoch(
                 flagged: root.epoch, current: max(root.epoch, held.keys.max() ?? 0),
-                held: held[root.epoch] != nil, left: left.contains(mark)
+                held: held[root.epoch] != nil, stranded: root.stranded, joined: joined, left: left.contains(mark)
             ) else { continue }
             let key = crypto.generateTreeKey()
             guard let wrapped = try? crypto.wrap(installPublic: own.publicKey, treeSecret: key.secret) else { continue }
@@ -317,6 +331,8 @@ public actor TreeKeyHolder {
                 ))
             } catch {
                 let body: TrpcErrorBody? = if case let .httpError(_, raw) = error as? TrpcError { TrpcErrorBody.parse(raw) } else { nil }
+                // The server lists this install as waiting: nothing is remembered.
+                if isKeyMakerRefusal(body?.message) { continue }
                 failure = createFailure(code: body?.code, message: body?.message)
             }
             switch rotationAfter(failure) {
@@ -394,7 +410,8 @@ public actor TreeKeyHolder {
 
     /// The key a NEW chat starts with: a fresh keypair, held here, with
     /// wraps for the readers this install can resolve. Store the secret under
-    /// the new root's id once the server answered (`adopt`).
+    /// the new root's id once the server answered (`adopt`). An install that
+    /// waits for approval makes none (`SealRefusal`, #EXP-2123).
     public func newChatSeal(
         accountId: String,
         teamId: String?,
@@ -403,6 +420,11 @@ public actor TreeKeyHolder {
     ) async throws -> (seal: NewChatSeal, key: GeneratedTreeKey) {
         guard crypto.isAvailable else { throw TreeKeyError.unavailable }
         guard let install = await installId(accountId) else { throw TreeKeyError.noInstall }
+        let joined = await makesKeys(accountId: accountId, installId: install)
+        guard keyMakerStep(joined: joined, write: .newRoot) == .make else {
+            logger.error("No key for a new root: this install waits for approval")
+            throw SealRefusal()
+        }
         let key = crypto.generateTreeKey()
         // Its root id is unknown until the server answers: unsigned now,
         // signed again for the same readers once adopted.
@@ -488,8 +510,9 @@ public actor TreeKeyHolder {
 
     /// The key to seal to on an EXISTING root: its synced key when this
     /// install holds it, else the server's (fetching our wrap), else a new
-    /// one (`sessionKeys.create`, epoch 1). nil = no key can be had (no eNet,
-    /// not registered): the caller sends plaintext.
+    /// one (`sessionKeys.create`, epoch 1); one this install may not key
+    /// (#EXP-2123: it waits for approval) asks its devices and waits for
+    /// theirs (`keyWait`). nil = no key can be had: the caller sends nothing.
     /// `lookup` false = the caller already knows the root is keyless (#FEED-250,
     /// sealed-content.json `staleTree`): create first, the server's key only
     /// when the create is refused.
@@ -500,7 +523,8 @@ public actor TreeKeyHolder {
         teamId: String?,
         deviceIds: [String],
         shared: Bool,
-        lookup: Bool = true
+        lookup: Bool = true,
+        keyWait: Duration = sealKeyWait
     ) async -> TreeSealKey? {
         guard crypto.isAvailable, let install = await installId(accountId) else { return nil }
         if let known { return known }
@@ -512,6 +536,14 @@ public actor TreeKeyHolder {
             outcome = await createKey(accountId: accountId, rootId: rootId, teamId: teamId, deviceIds: deviceIds, shared: shared, ownOnly: true)
         }
         if case let .keyed(key) = outcome { return key }
+        if case .failed(.notReader) = outcome {
+            let (answer, key) = await requestKey(accountId: accountId, rootId: rootId)
+            switch keylessStep(answer: answer) {
+            case .sealed where key != nil: return key
+            case .sealed, .wait: return await arrivingKey(accountId: accountId, rootId: rootId, wait: keyWait)
+            default: return nil
+            }
+        }
         // Another writer keyed the root meanwhile: seal to theirs.
         _ = await fetch(accountId: accountId, installId: install, rootIds: [rootId])
         return await serverKey(accountId: accountId, rootId: rootId)
@@ -519,7 +551,9 @@ public actor TreeKeyHolder {
 
     /// #EXP-1960: one `sessionKeys.create` (epoch 1) for a keyless root, its
     /// failure read for the writer's `keylessStep`; `ownOnly` = wrapped for
-    /// this account's own installs only (`retryOwn`).
+    /// this account's own installs only (`retryOwn`). #EXP-2123: an install
+    /// that waits for approval (by its own store or by the server's refusal)
+    /// creates nothing: `notReader`, its writer asks the tree's devices.
     public func createKey(
         accountId: String,
         rootId: String,
@@ -529,6 +563,8 @@ public actor TreeKeyHolder {
         ownOnly: Bool = false
     ) async -> TreeKeyCreate {
         guard crypto.isAvailable, let install = await installId(accountId) else { return .unavailable }
+        let joined = await makesKeys(accountId: accountId, installId: install)
+        guard keyMakerStep(joined: joined, write: .firstKey) == .make else { return .failed(.notReader) }
         let key = crypto.generateTreeKey()
         let wraps: [TreeKeyWrap]
         do {
@@ -550,6 +586,7 @@ public actor TreeKeyHolder {
         } catch {
             logger.error("sessionKeys.create failed: \(error.localizedDescription)")
             let body: TrpcErrorBody? = if case let .httpError(_, raw) = error as? TrpcError { TrpcErrorBody.parse(raw) } else { nil }
+            if isKeyMakerRefusal(body?.message) { return .failed(.notReader) }
             return .failed(createFailure(code: body?.code, message: body?.message))
         }
         ring.add([(rootId, 1, key.secret)])
@@ -587,6 +624,20 @@ public actor TreeKeyHolder {
         guard let remote = try? await keys.publicKeys(accountId: accountId, rootIds: [rootId]).first else { return nil }
         return remote.key
     }
+
+    /// The server's key of a keyless tree this install may not key, polled
+    /// until its device's claim keys it (`wait`); nil = none came.
+    func arrivingKey(accountId: String, rootId: String, wait: Duration) async -> TreeSealKey? {
+        let clock = ContinuousClock()
+        let deadline = clock.now + wait
+        while true {
+            if let key = await serverKey(accountId: accountId, rootId: rootId) { return key }
+            if clock.now >= deadline || Task.isCancelled { return nil }
+            try? await Task.sleep(for: min(Self.keyPoll, deadline - clock.now))
+        }
+    }
+
+    static let keyPoll: Duration = .seconds(1)
 
     /// R4 over a writer's readers: this install always, the others only
     /// where the rule wraps for them (a skipped one asks a holder later).
