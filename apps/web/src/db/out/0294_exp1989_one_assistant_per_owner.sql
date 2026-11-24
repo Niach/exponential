@@ -97,6 +97,12 @@ UPDATE "attachments" a SET "team_id" = s."team_id"
 FROM "sessions" s
 WHERE s."id" IN (SELECT "id" FROM "exp1986_roots" WHERE "keep") AND a."session_id" = s."id" AND a."team_id" <> s."team_id";
 --> statement-breakpoint
+-- #EXP-2082: the kept chat's inbox rows carry the personal team (the
+-- Assistant's chat lists in every team's inbox, never under the old team).
+UPDATE "notifications" n SET "team_id" = s."team_id"
+FROM "sessions" s
+WHERE s."id" IN (SELECT "id" FROM "exp1986_roots" WHERE "keep") AND n."session_id" = s."id" AND n."team_id" IS DISTINCT FROM s."team_id";
+--> statement-breakpoint
 -- The readers of a private tree (sealed-content.json): its starter's installs
 -- and the installs of a host device of one of its sessions (a member where
 -- that session runs). Every other wrap goes; the next key rotates.
