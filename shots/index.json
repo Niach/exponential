@@ -5687,8 +5687,8 @@
         "file": "shots/install-approval/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 16424,
-        "sha256": "705230a4a7322296d4c03c9b640ae605b2c9f2021252ab6fc99fd8f96e817fb0"
+        "bytes": 16580,
+        "sha256": "a9d8ed357bbe7f70577b676660bab2796ef5269e1930c3bf5eb7b157aa5b0ee4"
       },
       "desktop": {
         "file": "shots/install-approval/desktop.webp",
@@ -5724,8 +5724,8 @@
         "file": "shots/install-waiting/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 11574,
-        "sha256": "942117c8e567593088727ca99d5b718573a2568e4096b93b97d2630832354ef5"
+        "bytes": 11520,
+        "sha256": "ac714101e61b25fc0baebccd8990155d007f4de66ab40fc6295587f3f7f7db36"
       },
       "desktop": {
         "file": "shots/install-waiting/desktop.webp",
