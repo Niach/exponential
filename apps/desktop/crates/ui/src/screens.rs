@@ -391,9 +391,12 @@ fn push_background_tab(tabs: &mut Vec<TabEntry>, screen: Screen, root: Option<St
 
 /// #EXP-2124 (owner): Home's tab and the new session composer are ONE tab —
 /// a chat (or an agent's conversation) started from Home REPLACES Home, and
-/// takes the Home tab's place: the index of that tab. Pure.
-fn home_tab_taken_over(tabs: &[TabEntry], replaced: Option<&Screen>, screen: &Screen) -> Option<usize> {
-    if replaced != Some(&Screen::Home) || !screen.is_detail() {
+/// takes the Home tab's place: the index of that tab. Web's landing rule
+/// (`work-tabs.ts` `landing`): any real navigation that LEAVES Home for a
+/// page with no tab yet lands in the Home tab the same way (`left_home`).
+/// Pure.
+fn home_tab_taken_over(tabs: &[TabEntry], replaced: Option<&Screen>, left_home: bool, screen: &Screen) -> Option<usize> {
+    if (replaced != Some(&Screen::Home) && !left_home) || !screen.holds_tab() || *screen == Screen::Home {
         return None;
     }
     tabs.iter().position(|tab| tab.screen == Screen::Home)
@@ -1426,9 +1429,11 @@ impl ScreensPanel {
         // EXP-1294: a session lands on its ROOT's tab (one tab per tree), so
         // the lookup is by screen and then by tree root.
         let root = screen_root(&screen, cx);
+        // A real navigation (not a Running row's, not Back) away from Home.
+        let left_home = previous.as_ref() == Some(&Screen::Home) && matches!(pending_origin, Some(PendingOrigin::Derive | PendingOrigin::Explicit(_) | PendingOrigin::Rail));
         let existing = self
             .find_tab(&screen, root.as_deref())
-            .or_else(|| home_tab_taken_over(&self.tabs, replaced.as_ref(), &screen));
+            .or_else(|| home_tab_taken_over(&self.tabs, replaced.as_ref(), left_home, &screen));
         // EXP-923: a live chat opened from the rail's Running section gets
         // NO tab of its own, and that decision outlives the click: a step
         // INSIDE the tree (a session card, Back to the chat) stays
@@ -3299,13 +3304,16 @@ mod tests {
     fn a_chat_from_home_takes_the_home_tab() {
         let tabs = vec![issue_tab("i1", None), TabEntry::new(Screen::Home, None, None), issue_tab("i2", None)];
         let chat = Screen::Chat { session_id: "c1".into() };
-        assert_eq!(home_tab_taken_over(&tabs, Some(&Screen::Home), &chat), Some(1));
+        assert_eq!(home_tab_taken_over(&tabs, Some(&Screen::Home), false, &chat), Some(1));
+        // Web's landing rule: leaving Home for a page lands in its tab too.
+        assert_eq!(home_tab_taken_over(&tabs, None, true, &Screen::Chats), Some(1));
+        assert_eq!(home_tab_taken_over(&tabs, None, true, &Screen::Home), None);
         let agent = Screen::Agent { agent_id: "a1".into() };
-        assert_eq!(home_tab_taken_over(&tabs, Some(&Screen::Home), &agent), Some(1));
-        assert_eq!(home_tab_taken_over(&tabs, None, &chat), None);
-        assert_eq!(home_tab_taken_over(&tabs, Some(&Screen::Chats), &chat), None);
-        assert_eq!(home_tab_taken_over(&tabs, Some(&Screen::Home), &Screen::Chats), None);
-        assert_eq!(home_tab_taken_over(&tabs[..1], Some(&Screen::Home), &chat), None);
+        assert_eq!(home_tab_taken_over(&tabs, Some(&Screen::Home), false, &agent), Some(1));
+        assert_eq!(home_tab_taken_over(&tabs, None, false, &chat), None);
+        assert_eq!(home_tab_taken_over(&tabs, Some(&Screen::Chats), false, &chat), None);
+
+        assert_eq!(home_tab_taken_over(&tabs[..1], Some(&Screen::Home), false, &chat), None);
         // The tab then rebinds in place: the chat at the Home tab's index.
         let mut tabs = tabs;
         tabs[1].screen = chat.clone();

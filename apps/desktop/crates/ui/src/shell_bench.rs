@@ -463,6 +463,7 @@ fn sample() -> IdeSidebarInput {
     let device = |id: &str, name: &str, online: bool, team_mark: Option<&str>| IdeDeviceInput { id: id.into(), name: name.into(), icon: if team_mark.is_some() { "ui-server".into() } else { "nav-devices".into() }, online, team_mark: team_mark.map(Into::into) };
     IdeSidebarInput {
         screen: "home".into(),
+        assistant: Some(uicore_model::ide::IdeAssistantInput { id: "as1".into(), name: "Bro".into(), unread: 2, needs_you: false }),
         needs_you: 0,
         drafts: 0,
         chats: IdeCount { count: 1, tone: IdeTone::Attention },
@@ -688,7 +689,7 @@ fn shell_sidebar_folders() {
 
     // CRM lifted to Release checklist's top edge: a line, before it.
     show(&mut cx, demo(Vec::new(), None));
-    let (from, to) = (bounds(&mut cx, "ide_item_row.x4"), bounds(&mut cx, "ide_item_row.x3"));
+    let (from, to) = (bounds(&mut cx, "ide_app_row.x4"), bounds(&mut cx, "ide_app_row.x3"));
     // Held by its bottom edge: the lifted copy rides above the pointer.
     let grab = gpui::point(from.center().x, from.origin.y + from.size.height - px(2.));
     press(&mut cx, grab);
@@ -699,7 +700,7 @@ fn shell_sidebar_folders() {
     settle(&mut cx);
 
     // Leave planner held over Ops desk's middle: the row lights, drop INTO.
-    let (from, to) = (bounds(&mut cx, "ide_item_row.x5"), bounds(&mut cx, "ide_item_row.x6"));
+    let (from, to) = (bounds(&mut cx, "ide_app_row.x5"), bounds(&mut cx, "ide_app_row.x6"));
     let grab = gpui::point(from.center().x, from.origin.y + from.size.height - px(2.));
     press(&mut cx, grab);
     move_to(&mut cx, gpui::point(grab.x, grab.y + px(6.)));
@@ -792,10 +793,10 @@ fn a_chats_row_drops_only_into_its_team_list() {
         cx.capture_screenshot(window).expect("the frame").save(PathBuf::from(dir).join(name)).expect("the PNG");
     };
     shoot(&mut cx, "chats-drag-into.png");
-    let beside = painted(&mut cx, "ide_item_row.b1");
+    let beside = painted(&mut cx, "ide_board_owner_row.b1");
     assert_eq!(drop_at(&mut cx, gpui::point(beside.center().x, beside.origin.y + beside.size.height - px(2.))), Some(("b1".into(), ListDropPosition::After)), "beside a row of its team");
     shoot(&mut cx, "chats-drag-line.png");
-    let other = painted(&mut cx, "ide_item_row.b9");
+    let other = painted(&mut cx, "ide_board_owner_row.b9");
     assert_eq!(drop_at(&mut cx, other.center()), None, "another team's row never takes it");
     // Esc on the Chats page: the drag's sidebar drops it.
     cx.update(crate::shell_regions::cancel_chat_drag);
@@ -928,7 +929,7 @@ fn shell_sidebar_tree_pages() {
         })
         .unwrap();
     };
-    for (kind, name) in [("device", "desktop-sidebar-device-menu.png"), ("board", "desktop-sidebar-board-menu.png")] {
+    for (kind, name) in [("team", "desktop-sidebar-team-menu-right-click.png"), ("device", "desktop-sidebar-device-menu.png"), ("board", "desktop-sidebar-board-menu.png")] {
         std::env::set_var("EXP_DEV_SIDEBAR_MENU", kind);
         go(&mut cx, Screen::Drafts);
         settle(&mut cx);

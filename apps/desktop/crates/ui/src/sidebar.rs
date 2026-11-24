@@ -32,11 +32,10 @@
 //! Every affordance dispatches a typed action (§3.6) or navigates directly;
 //! menus render in the Root overlay, outside this element tree.
 
-use crate::controls::PointerContextMenuExt as _;
 use std::collections::HashMap;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext as _, ClickEvent, Entity,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity,
     Hsla, InteractiveElement as _, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window, WindowId,
@@ -57,7 +56,7 @@ use sync::Store;
 use crate::board::BoardView;
 use crate::coding_flow;
 use crate::trunk_sync::TrunkSync;
-use crate::icons::{self, registry, ExpIcon};
+use crate::icons::{registry, ExpIcon};
 use crate::navigation::{
     active_board_id, screen_team_id, nav_for_window, navigate, resolved_screen,
     Navigation, Screen,
@@ -1407,7 +1406,7 @@ mod tests {
         settle(cx);
         let (offset, viewport, content) = extent(cx);
         assert!((offset - (content - viewport)).abs() < 0.5, "the wheel reaches the end: {offset} of {content} in {viewport}");
-        let last = painted(&surface, "ide_item_row.b39", cx);
+        let last = painted(&surface, "ide_board_owner_row.b39", cx);
         let scroll = painted(&surface, "scroll", cx);
         assert!(last.top() >= scroll.top() && f32::from(last.bottom()) <= f32::from(scroll.bottom()) + 0.5, "the last row is in view: {last:?} in {scroll:?}");
 

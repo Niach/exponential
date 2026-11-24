@@ -9702,7 +9702,7 @@
       },
       "notes": {
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
-        "desktop": "#EXP-2124: `EXP_DEV_TEAM_MENU` hovers the first team row and presses its `…`, the menu the right-click opens too (THE table's `team` row, New › THE New list).",
+        "desktop": "#EXP-2124: `EXP_DEV_SIDEBAR_MENU=team` right-clicks the first team row (THE table's `team` row, New › THE New list; its hover `…` opens the same menu).",
         "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
         "android": "#EXP-2027: phones keep today's navigation until their own redesign."
       },
@@ -9712,7 +9712,7 @@
           "value": "home"
         },
         "env": {
-          "EXP_DEV_TEAM_MENU": "1"
+          "EXP_DEV_SIDEBAR_MENU": "team"
         },
         "anchorDelayMs": 1200
       }
