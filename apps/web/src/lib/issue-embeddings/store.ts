@@ -59,18 +59,22 @@ export function resetIssueEmbeddingsAvailability(): void {
 
 /**
  * The default cosine-DISTANCE cutoff (1 - cosine similarity) of
- * `nearestIssueIds`. e5 vectors sit close together: measured with this
- * model (int8), a query and an issue about the same thing land at
- * 0.09 to 0.16, unrelated pairs at 0.17 to 0.23 (store.real-db.test.ts,
- * the PR of #NEW-134). #NEW-135 owns the final value.
+ * `nearestIssueIds`. A SOFT bound, not a relevance test: e5 vectors sit close
+ * together and the bands overlap. Measured with this model (int8) in
+ * issue-embeddings.real-db.test.ts: a query and the issue it means land at
+ * 0.09 to 0.19, the other issues at 0.16 to 0.28; two short unrelated issues
+ * in the SAME language can be as near as 0.11 to each other. What is
+ * reliable is the ORDER (the right issues come first, across German and
+ * English); #NEW-135 should rank and blend by distance and treat this value
+ * only as "drop the clearly unrelated tail".
  */
-export const ISSUE_EMBEDDING_MAX_DISTANCE = 0.17
+export const ISSUE_EMBEDDING_MAX_DISTANCE = 0.2
 export const ISSUE_EMBEDDING_DEFAULT_K = 20
 
 export interface NearestIssueOptions {
   /** How many issues at most (default 20). */
   readonly k?: number
-  /** Cosine distance above which a neighbour is not a match (default 0.17). */
+  /** Cosine distance above which a neighbour is not a match (default 0.2). */
   readonly maxDistance?: number
 }
 
