@@ -70,6 +70,9 @@ pub use eagent::engine::api_retry;
 // interrupted, one that ignores the interrupt for `STALL_KILL_GRACE` ends the
 // run with a reason. Pure; the lifecycle ticker drives it.
 pub use eagent::engine::stall;
+// #FEED-296/#FEED-306: a start starved of memory, and the device's pressure
+// a failed start names.
+pub use eagent::engine::starved;
 pub mod stop_save;
 pub use eagent::engine::transport;
 

@@ -12,7 +12,7 @@ import {
   type SessionScreenOpen,
   type SessionScreenTab,
 } from "@exp/domain-contract/session-screen"
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { useNavigate } from "@tanstack/react-router"
 import {
@@ -61,9 +61,13 @@ import { useSessionNav } from "@/hooks/use-session-nav"
 import type { ChatSearch } from "@/lib/session-screen-search"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import type { MessagePage } from "@/hooks/use-session-tree"
-import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
+import { useBoardsForTeams, useTeamsUsers } from "@/hooks/use-team-data"
+import { useSessionChatTeams, useSessionOwnDevices } from "@/hooks/use-chat-teams"
+import { syncedIssueTeamId } from "@/lib/chat-teams"
+import { ChatTeamsScope } from "@/components/chat/chat-teams-scope"
+import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import { useStatusesForTeams } from "@/hooks/use-team-statuses"
 import type { Team } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import {
@@ -130,7 +134,19 @@ export interface ChatScreenAgent {
   settings: ReactNode
 }
 
-export function ChatScreen({
+/** #EXP-2079 (agent-settings.json `assistant.chatTeams`): THE session screen
+ *  under its chat's own scope: every `#` ref, `@` member and link of the
+ *  chat reads the chat teams (the Assistant's conversation: its turn's). */
+export function ChatScreen(props: ComponentProps<typeof ChatScreenBody>) {
+  const chatTeams = useSessionChatTeams(props.root)
+  return (
+    <ChatTeamsScope chatTeams={chatTeams}>
+      <ChatScreenBody {...props} />
+    </ChatTeamsScope>
+  )
+}
+
+function ChatScreenBody({
   team,
   teamSlug,
   view,
@@ -165,9 +181,14 @@ export function ChatScreen({
   const isMobile = useIsMobile()
   const deviceGlyph = useDeviceGlyphs()
   const permissions = useTeamPermissions(team)
-  const { users } = useTeamUsers(team.id)
-  const boards = useTeamBoards(team.id)
-  const { resolve } = useTeamStatusesContext()
+  // #EXP-2079: the people, boards and statuses of the CHAT TEAMS (one team
+  // for every chat of a synced team; a linked issue reads its OWN team's).
+  const chatTeams = useSessionChatTeams(root)
+  const { users } = useTeamsUsers(chatTeams.teamIds)
+  const { boards } = useBoardsForTeams(chatTeams.teamIds)
+  const statusesOf = useStatusesForTeams(chatTeams.teamIds)
+  const { data: auth } = useSession()
+  const ownDevices = useSessionOwnDevices(root, auth?.user?.id)
 
   const issueTabs = view.tabs.filter(
     (tab): tab is Extract<SessionChatView[`tabs`][number], { kind: `issue` }> =>
@@ -295,7 +316,7 @@ export function ChatScreen({
   // first); an issue row that has not synced draws NO glyph, never Backlog.
   const issueStatus = (issue: Issue | undefined) => {
     if (!issue) return null
-    const status = resolve(issue)
+    const status = statusesOf(syncedIssueTeamId(issue) ?? ``).resolve(issue)
     return {
       icon: status.icon,
       colorClass: statusColorClass(status),
@@ -424,7 +445,7 @@ export function ChatScreen({
     (sessionId: string) => rowsById.get(sessionId)?.cli ?? root.cli,
     [rowsById, root.cli]
   )
-  const suggestions = useSuggestionActions({ teamId: team.id, enabled: permissions.isMember, agentFor })
+  const suggestions = useSuggestionActions({ teamId: team.id, enabled: permissions.isMember, agentFor, ownDevices })
   const sessionName = useMemo(() => chatSessionNames(view.tabs), [view.tabs])
   const dockChildren = useMemo(
     () =>
@@ -439,9 +460,14 @@ export function ChatScreen({
   )
 
   const firstIssue = issueTabs[0] ? issuesById.get(issueTabs[0].issueId) : undefined
+  // #EXP-2079 (`assistant.chatTeams` (5)): New issue files into the chat's
+  // first issue's board, else the first chat team with a board (that team's
+  // flow picks the board); no such team = the page's team (its no-board copy).
+  const newIssueTeamId = syncedIssueTeamId(firstIssue) ?? boards[0]?.teamId
+  const newIssueTeamSlug = chatTeams.teams.find((row) => row.id === newIssueTeamId)?.slug ?? teamSlug
   const menu = useChatTabMenu({
     rootId: root.id,
-    teamSlug,
+    teamSlug: newIssueTeamSlug,
     issueIds,
     newIssueBoardId: firstIssue?.boardId,
     canEdit: permissions.isMember,
@@ -472,7 +498,6 @@ export function ChatScreen({
       origin={view.origin}
       onOpenXref={openRowSession}
       surface={root.agentId ? `agent` : `session`}
-      browseTeamId={team.id}
       chat={{
         tree: rows,
         issues: treeIssues,
@@ -527,6 +552,9 @@ export function ChatScreen({
         agentId={root.agentId ?? null}
         agentName={agent?.name ?? view.title}
         heading={!isMobile}
+        // #EXP-2076: a block's action posts into the call session, like any
+        // opened session view (an ended one's surfaces are inert).
+        actionTarget={openSessionRow.status === `ended` ? null : { teamId: team.id, sessionId: openSessionRow.id }}
       />
     )
   } else if (screen.open === `session` && openSessionRow) {
@@ -573,8 +601,9 @@ export function ChatScreen({
             issue={issue}
             users={users as User[]}
             board={board}
-            teamSlug={teamSlug}
-            teamId={team.id}
+            // An issue opens in its OWN team (#EXP-2079 (6)).
+            teamSlug={chatTeams.teams.find((row) => row.id === board.teamId)?.slug ?? teamSlug}
+            teamId={board.teamId}
             readOnly={!permissions.canMutateIssue(issue)}
             embedded
           />

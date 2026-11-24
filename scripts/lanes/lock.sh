@@ -22,8 +22,10 @@
 # #EXP-1844: the owner file also names the session (5th word, the first 8 of
 # EXP_MCP_SESSION_ID), so a waiter sees WHO holds a lane and for how long. A
 # heavy-lane holder past LANE_MAX_HOLD_SECONDS (default 45 min, 0 = never) is
-# handed over: the next waiter takes the slot (its build is NOT killed; it
-# just stops counting against the lane), and the overrun is logged. Every
+# handed over: #FEED-306: the next waiter first ENDS the holder's lane.sh and
+# its whole process tree (TERM, KILL after LANE_KILL_GRACE_SECONDS), and
+# refuses the handover when it cannot (not a lane.sh, a survivor): a
+# lane never runs two heavy jobs at once. The overrun is logged. Every
 # take, wait, release, handover and overrun goes to the queue log
 # (lane_log_file: ~/.local/state/exponential/lanes.log); `lane.sh status`
 # prints holders and waiters.
@@ -31,6 +33,72 @@
 LANE_LOCK_STALE_SECONDS=${LANE_LOCK_STALE_SECONDS:-300}
 LANE_LOCK_POLL_SECONDS=${LANE_LOCK_POLL_SECONDS:-30}
 LANE_MAX_HOLD_SECONDS=${LANE_MAX_HOLD_SECONDS:-2700}
+LANE_KILL_GRACE_SECONDS=${LANE_KILL_GRACE_SECONDS:-20}
+
+# #FEED-306: <pid> and every descendant of it, one per line (a snapshot of
+# the process table: `ps` on Linux and macOS alike).
+lane_tree_pids() {
+  case "$1" in '' | *[!0-9]*) return 0 ;; esac
+  ps -A -o pid= -o ppid= 2>/dev/null | awk -v root="$1" '
+    { parent[$1] = $2; n++; pids[n] = $1 }
+    END {
+      keep[root] = 1
+      grown = 1
+      while (grown) {
+        grown = 0
+        for (i = 1; i <= n; i++) {
+          p = pids[i]
+          if (!(p in keep) && (parent[p] in keep)) { keep[p] = 1; grown = 1 }
+        }
+      }
+      for (p in keep) print p
+    }'
+}
+
+# True when any of the pids still runs (a zombie has ended: only its
+# parent's wait is left).
+lane_any_alive() {
+  for _lane_p in "$@"; do
+    _lane_st=$(ps -o stat= -p "$_lane_p" 2>/dev/null)
+    case "$_lane_st" in '' | Z*) ;; *) return 0 ;; esac
+  done
+  return 1
+}
+
+# True when <pid> runs scripts/lanes/lane.sh (the only holder whose process
+# tree a waiter may end: never a person's shell that took a lock by hand).
+lane_pid_is_lane() {
+  case "$1" in '' | *[!0-9]*) return 1 ;; esac
+  ps -o args= -p "$1" 2>/dev/null | grep -q 'lane\.sh'
+}
+
+# #FEED-306: ends <pid> and its whole process tree: TERM, then KILL after
+# <grace> seconds for whatever is left (descendants forked meanwhile
+# included). 0 = nothing of it runs any more.
+lane_end_tree() {
+  _lane_tree=$(lane_tree_pids "$1")
+  [ -n "$_lane_tree" ] || return 0
+  # shellcheck disable=SC2086
+  kill -TERM $_lane_tree 2>/dev/null
+  _lane_waited=0
+  # shellcheck disable=SC2086
+  while lane_any_alive $_lane_tree && [ "$_lane_waited" -lt "$2" ]; do
+    sleep 1
+    _lane_waited=$((_lane_waited + 1))
+  done
+  # shellcheck disable=SC2086
+  if lane_any_alive $_lane_tree; then
+    _lane_tree="$_lane_tree $(lane_tree_pids "$1")"
+    kill -KILL $_lane_tree 2>/dev/null
+    _lane_waited=0
+    while lane_any_alive $_lane_tree && [ "$_lane_waited" -lt 5 ]; do
+      sleep 1
+      _lane_waited=$((_lane_waited + 1))
+    done
+  fi
+  # shellcheck disable=SC2086
+  ! lane_any_alive $_lane_tree
+}
 
 lane_lock_dir() {
   case "$1" in
@@ -296,6 +364,9 @@ lock_take_over() {
     [ -n "$mtime" ] && [ $(( $(date +%s) - mtime )) -gt 60 ] && rmdir "$1.takeover" 2>/dev/null
     return 1
   fi
+  # #FEED-306: 0 only when the dir went (a refused handover must not make
+  # try_take_lock retry at once, for ever).
+  _lane_took=1
   if [ "$(cat "$1/owner" 2>/dev/null)" = "$_lane_seen" ]; then
     _lane_desc=$(lock_describe "$1")
     _lane_held=$(lock_held_seconds "$1") || _lane_held=-
@@ -303,16 +374,37 @@ lock_take_over() {
       echo "take_lock: taking over $1 from '$(echo "$_lane_seen" | cut -d' ' -f1)' (pid $(echo "$_lane_seen" | cut -d' ' -f3) is gone)" >&2
       lane_log "$1" "takeover owner=$(lock_owner "$1") session=$(lock_field "$1" 5) pid=$(lock_field "$1" 3) held=${_lane_held}s reason=dead to=${2:-?}"
       rm -rf "$1"
+      _lane_took=0
     elif lock_overdue "$1"; then
-      # #EXP-1844: the overrun holder's build keeps running; only the slot
-      # moves. Its own release can no longer free ours (release_lock checks
-      # the pid), and its lane.sh already warned it at the deadline.
-      echo "take_lock: $1 $_lane_desc, past the lane's max hold of $(lane_age "$(lane_max_hold "$1")"): taking the slot over" >&2
-      lane_log "$1" "handover owner=$(lock_owner "$1") session=$(lock_field "$1" 5) pid=$(lock_field "$1" 3) held=${_lane_held}s reason=overdue to=${2:-?}"
-      rm -rf "$1"
+      # #FEED-306: never two heavy jobs: the overrun holder's lane.sh and
+      # its build go first (before, the build ran on: on 2026-11-24 a cargo
+      # build held mint's expbg.slice over its memory.high for 4 hours
+      # after its slot was handed on). A holder that is no lane.sh of this
+      # host, or that survives, keeps the slot.
+      _lane_hpid=$(lock_field "$1" 3)
+      _lane_hhost=$(lock_field "$1" 4)
+      _lane_line="owner=$(lock_owner "$1") session=$(lock_field "$1" 5) pid=$_lane_hpid held=${_lane_held}s"
+      if [ "$_lane_hhost" != "$(lane_lock_host)" ] || ! lane_pid_is_lane "$_lane_hpid"; then
+        lane_log "$1" "handover-refused $_lane_line reason=overdue to=${2:-?} why=not-a-lane-job"
+      else
+        echo "take_lock: $1 $_lane_desc, past the lane's max hold of $(lane_age "$(lane_max_hold "$1")"): ending its job, then taking the slot over" >&2
+        lane_log "$1" "end $_lane_line reason=overdue to=${2:-?}"
+        if lane_end_tree "$_lane_hpid" "$LANE_KILL_GRACE_SECONDS"; then
+          lane_log "$1" "handover $_lane_line reason=overdue to=${2:-?}"
+          rm -rf "$1"
+          _lane_took=0
+        else
+          echo "take_lock: $1: the overdue job of pid $_lane_hpid did not end; the slot stays with it" >&2
+          lane_log "$1" "handover-refused $_lane_line reason=overdue to=${2:-?} why=still-running"
+        fi
+      fi
     fi
+  else
+    # Changed hands meanwhile: look again.
+    _lane_took=0
   fi
   rmdir "$1.takeover"
+  return "$_lane_took"
 }
 
 # An owner is one word: lock_owner reads the first word back.

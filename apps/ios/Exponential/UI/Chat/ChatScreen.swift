@@ -384,8 +384,9 @@ struct ChatScreen: View {
         }
         .sheet(isPresented: $linkSheetOpen) {
             if let rows {
+                // #EXP-2079: candidates and search over the chat's teams.
                 ChatLinkIssueSheet(
-                    teamId: rows.root.teamId,
+                    teamIds: chatTeamIds,
                     excluded: Set(rows.issues.map(\.id)),
                     onPick: { issueId in
                         linkSheetOpen = false
@@ -396,6 +397,8 @@ struct ChatScreen: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat-screen")
+        // #EXP-2079: the cards' `~/` and `#IDENT` links read the chat's teams.
+        .cardChatTeams(chatTeamIds, ownTeamSynced: ownTeamSynced)
         .onAppear(perform: appear)
         .onDisappear(perform: disappear)
         // A held item that arrived opens; an open item that vanished (an
@@ -693,6 +696,21 @@ struct ChatScreen: View {
         return true
     }
 
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams`): the teams this
+    /// chat's lists read (Link an issue, New issue, its cards' links): the
+    /// root's own team while it is a synced one, else the turn's teams (the
+    /// root's Teams pick ∩ the synced teams, else all of them).
+    private var chatTeamIds: [String] {
+        guard let root = rows?.root else { return [] }
+        return teamState.chatTeamIds(ownTeamId: root.teamId, pickedTeamIds: root.scopeTeamIds)
+    }
+
+    /// The root's team is one the viewer syncs (no team synced yet = yes).
+    private var ownTeamSynced: Bool {
+        guard let root = rows?.root, !teamState.teams.isEmpty else { return true }
+        return teamState.teams.contains { $0.id == root.teamId }
+    }
+
     /// A member may link and file here (`resolveTeamAccess`: every member
     /// comments and creates issues). #EXP-1714: the viewer's own Assistant
     /// conversation stays editable while its team (the personal one) never
@@ -814,6 +832,9 @@ struct ChatScreen: View {
         )
         // #EDE-99: find searches ONE transcript, a child's while scoped to it.
         .environment(\.chatFind, find.sessionId == nil ? find : nil)
+        // #EXP-1950: an install waiting for approval, where this encrypted
+        // chat would open: the waiting state instead of locked rows.
+        .overlay { InstallWaitingGate(rootId: rows.root.id, sealed: rows.root.sealEpoch != nil) }
         .id(rows.root.id)
     }
 
@@ -1188,14 +1209,18 @@ struct ChatScreen: View {
     }
 
     /// The New issue page filing into this root, on its first issue's board,
-    /// else the team's first board.
+    /// else the team's first board. #EXP-2079 (agent-settings.json
+    /// `assistant.chatTeams`): the first chat team with a board (the
+    /// Assistant's own team never syncs and has none).
     private func newIssue() {
         guard let rows else { return }
         let boardId = rows.issues.first?.boardId
-            ?? teamState.boards
-                .filter { $0.teamId == rows.root.teamId }
-                .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
-                .first?.id
+            ?? chatTeamIds.lazy.compactMap { teamId in
+                teamState.boards
+                    .filter { $0.teamId == teamId }
+                    .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
+                    .first?.id
+            }.first
         guard let boardId else {
             toaster.error(FeedbackStates.Errors.title(verb: "file", thing: "the issue"), description: "The team has no board yet.")
             return
@@ -1577,10 +1602,12 @@ struct ChatComposer: View {
     @Environment(TeamState.self) private var teamState: TeamState?
     /// #EXP-1715: the Teams pick (nil = every team), seeded from the root's
     /// synced `scope_team_ids` and re-seeded when another client moves it.
-    @State private var teamsPicked: [String]?
-    /// #EXP-1793: the agent's team's MCP servers (`mcpServers.list`) for the
-    /// "+" MCP servers page of a first message to an agent.
-    @State private var mcpServers: [McpServerRow] = []
+    @State private var teamsDraft = AgentSettings.TeamsPickDraft()
+    private var teamsPicked: [String]? { teamsDraft.picked(stored: root?.scopeTeamIds) }
+    /// #EXP-1793: the MCP servers (`mcpServers.list`) for the "+" MCP servers
+    /// page of a first message to an agent (#EXP-2079: of the chat's teams,
+    /// team by team).
+    @State private var mcpServers = McpServers.ChatPick()
 
     /// #EXP-1793 (composer-menu.json `mcpPick`): an agent's first message
     /// (no conversation yet) picks the servers its conversation opens with,
@@ -1588,7 +1615,8 @@ struct ChatComposer: View {
     private var mcpMenu: SessionComposerFooter.McpMenu? {
         guard let draft, let pick = draft.mcpPick, draft.agentId != nil else { return nil }
         return SessionComposerFooter.McpMenu(
-            servers: mcpServers,
+            servers: mcpServers.servers,
+            teamNames: mcpServers.teamNames,
             picked: pick.picked,
             onChange: { draft.mcpPick?.picked = $0 }
         )
@@ -1617,19 +1645,23 @@ struct ChatComposer: View {
         return ComposerTeamsBinding(
             teams: ComposerTeamsBinding.teams(teamState?.teams ?? []),
             picked: teamsPicked,
-            onChange: { teamsPicked = $0 }
+            onChange: { teamsDraft.pick($0) }
         )
     }
 
     /// The upload / send team: the root's (the agent's before the first send).
     private var draftTeamId: String? { root?.teamId ?? teamId }
-    /// #EXP-1714 (`lookupTeamId`): what the `/` prompts and the "+" issue
-    /// search read: the draft's team while synced, else the active team
-    /// (the global Assistant's personal team never syncs).
-    private var lookupTeamId: String? {
-        AgentSettings.lookupTeamId(
-            draftTeamId, teamIds: teamState?.teams.map(\.id) ?? [], activeTeamId: teamState?.activeTeam?.id
-        )
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams`, superseding
+    /// #EXP-1714's single lookup team): what the `/` prompts, the "+" issue
+    /// search and the MCP pick read: the draft's team while synced, else the
+    /// turn's teams (the root's Teams pick ∩ the synced teams, else all of
+    /// them; the global Assistant's personal team never syncs). #EXP-2094:
+    /// the composer's Teams pick while it has one (a removed chip widens at
+    /// once).
+    private var chatTeamIds: [String] {
+        guard let teamState else { return draftTeamId.map { [$0] } ?? [] }
+        let picked = teamsPick != nil ? teamsPicked : root?.scopeTeamIds
+        return teamState.chatTeamIds(ownTeamId: draftTeamId, pickedTeamIds: picked)
     }
 
     var body: some View {
@@ -1746,14 +1778,21 @@ struct ChatComposer: View {
         }
         // #EXP-1793: the agent's servers seed the first message's pick.
         .onChange(of: agentRow?.mcpServerIds) { _, _ in seedMcpPick() }
-        .task(id: agentId == nil || !sessionId.isEmpty ? nil : draftTeamId) {
-            guard agentId != nil, sessionId.isEmpty, let teamId = draftTeamId else { mcpServers = []; return }
-            mcpServers = (try? await McpServersApi(trpc: deps.trpc).list(accountId: accountId, teamId: teamId)) ?? []
+        // #EXP-2079 (`McpServers.chatPick`): the servers of the chat's teams.
+        .task(id: agentId == nil || !sessionId.isEmpty ? nil : chatTeamIds) {
+            let teamIds = chatTeamIds
+            guard agentId != nil, sessionId.isEmpty, !teamIds.isEmpty else { mcpServers = McpServers.ChatPick(); return }
+            let lists = await McpServersApi(trpc: deps.trpc).list(accountId: accountId, teamIds: teamIds)
+            let teamNames = Dictionary(
+                (teamState?.teams ?? []).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }
+            )
+            mcpServers = McpServers.chatPick(lists, teamNames: teamNames)
         }
-        .task(id: root?.scopeTeamIds) { teamsPicked = root?.scopeTeamIds }
+        .onChange(of: root?.scopeTeamIds) { _, _ in teamsDraft.reseed() }
+        .onChange(of: root?.id) { _, _ in teamsDraft.reseed() }
         .onChange(of: teamsPick?.scope) { _, scope in draft?.scope = scope }
-        .task(id: lookupTeamId) {
-            slashPrompts.bind(accountId: accountId, teamId: lookupTeamId, db: deps.db)
+        .task(id: chatTeamIds) {
+            slashPrompts.bind(accountId: accountId, teamIds: chatTeamIds, db: deps.db)
         }
         .onAppear { claimRootModel() }
         .onChange(of: root?.id) { _, _ in claimRootModel() }
@@ -1817,7 +1856,7 @@ struct ChatComposer: View {
             onUsage: { showUsageSheet = true },
             ended: ended,
             surface: (root?.agentId ?? agentId).map { $0.isEmpty ? .session : .agent } ?? .session,
-            teamId: lookupTeamId,
+            teamIds: chatTeamIds,
             // #EXP-1434: the "+" Prompts page = the `/` menu's prompts; a
             // pick inserts the body at the caret.
             prompts: slashPrompts.prompts,

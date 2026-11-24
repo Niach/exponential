@@ -2,11 +2,22 @@ package com.exponential.app.ui.markdown
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.compositionLocalOf
+import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SearchIssueHit
+import com.exponential.app.data.chatTeamIssues
+import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.IssueStatusEntity
+import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.IssueSearch
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 
 // Inline `#IDENTIFIER` issue references (masterplan §5e) — the Android
 // counterpart of apps/web/src/lib/issue-refs.ts (+ the TipTap decoration in
@@ -132,6 +143,55 @@ fun issueRefTarget(issue: IssueEntity, statuses: List<ResolvedIssueStatus>): Iss
         updatedAt = issue.updatedAt,
         status = issue.status,
     )
+
+/**
+ * #EXP-2079 (agent-settings.json `assistant.chatTeams` (1)): the issues of
+ * the chat teams as targets, newest-first; an identifier found in several
+ * teams = the first team's in [teamIds]' order; each glyph resolves against
+ * the ISSUE's own team's statuses ((6)), never the session's.
+ */
+fun chatTeamIssueRefTargets(
+    issues: List<IssueEntity>,
+    boards: List<BoardEntity>,
+    statusRows: List<IssueStatusEntity>,
+    teamIds: List<String>,
+): List<IssueRefTarget> {
+    val statuses = statusRows.groupBy { it.teamId }.mapValues { (_, rows) -> IssueStatusResolver.teamStatuses(rows) }
+    val boardTeam = boards.associate { it.id to it.teamId }
+    return chatTeamIssues(issues, boards, teamIds)
+        .sortedByDescending { it.createdAt }
+        .map { issueRefTarget(it, statuses[boardTeam[it.boardId]] ?: IssueStatusResolver.builtinDefaults) }
+}
+
+/** [chatTeamIssueRefTargets] over the synced rows ([issues] = a screen's
+ *  shared read of every issue). */
+@OptIn(ExperimentalCoroutinesApi::class)
+fun chatTeamIssueRefsFlow(
+    dbFlow: Flow<ExponentialDatabase?>,
+    teamIds: Flow<List<String>>,
+    issues: Flow<List<IssueEntity>> = dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() },
+): Flow<List<IssueRefTarget>> = teamIds.flatMapLatest { ids ->
+    if (ids.isEmpty()) {
+        flowOf(emptyList())
+    } else {
+        combine(
+            issues,
+            dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
+            dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() },
+        ) { rows, boards, statusRows -> chatTeamIssueRefTargets(rows, boards, statusRows, ids) }
+    }
+}
+
+/** #EXP-2079: `issues.search` over the chat teams, team by team in order; an
+ *  identifier found in several = the first team's. */
+suspend fun searchChatTeamIssueRefs(
+    issuesApi: IssuesApi,
+    accountId: String,
+    teamIds: List<String>,
+    query: String,
+): List<IssueRefTarget> =
+    teamIds.flatMap { team -> issuesApi.search(accountId, team, query).map(::issueRefTarget) }
+        .distinctBy { it.identifier.uppercase() }
 
 /**
  * A server full-text hit as a target — an issue this device has not synced

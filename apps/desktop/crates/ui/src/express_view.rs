@@ -168,6 +168,9 @@ pub(crate) struct ExpressTarget {
     pub session_id: String,
     pub message_id: Option<String>,
     pub row_key: String,
+    /// Every press posts into `session_id` (`false` = inert surfaces: an
+    /// ended call's view and the specimens, #EXP-2076).
+    pub actions: bool,
 }
 
 /// One block's items in the agent's column: a frame per surface (the
@@ -221,9 +224,15 @@ fn build(key: &str, surface: &str, block: &BlockState, target: &ExpressTarget, m
     }
     let (key, surface, generation) = (key.to_string(), surface.to_string(), block.generation);
     let source = crate::surface_card::ActionSource::Block { key: block.key.clone(), message_id: target.message_id.clone() };
-    let session_id = target.session_id.clone();
+    let (session_id, actions) = (target.session_id.clone(), target.actions);
     window.defer(cx, move |window, cx| {
-        let host = Rc::new(crate::surface_card::ActionHost::new(&session_id, source, cx));
+        // A read-only row keeps the plan card's sandbox alone (media, urls,
+        // no action posts).
+        let host: Rc<dyn eui_gpui::host::HostPlugin> = if actions {
+            Rc::new(crate::surface_card::ActionHost::new(&session_id, source, cx))
+        } else {
+            Rc::new(crate::plan_card::CardSurfaceHost::for_session(&session_id, cx))
+        };
         let options = crate::plan_card::surface_options(&surface, host);
         let view = cx.new(|cx| SurfaceView::new(options, window, cx));
         let state = cx.default_global::<ExpressRows>();

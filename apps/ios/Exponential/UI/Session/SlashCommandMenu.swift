@@ -134,8 +134,9 @@ struct SlashCommandMenu: View {
 
 /// NEW-2: the team's prompts as the `/` menu lists them — the synced,
 /// body-less `prompts` rows in the team's order (sortOrder, then name), live
-/// off GRDB. A host binds it to its team; a pick's body comes from
-/// `prompts.get` (`loadBody`).
+/// off GRDB. A host binds it to its teams (#EXP-2079, agent-settings.json
+/// `assistant.chatTeams`: the chat's teams, team by team); a pick's body
+/// comes from `prompts.get` (`loadBody`).
 @MainActor
 @Observable
 final class TeamSlashPrompts {
@@ -145,17 +146,19 @@ final class TeamSlashPrompts {
 
     nonisolated init() {}
 
-    func bind(accountId: String, teamId: String?, db: DatabaseManager) {
-        let key = "\(accountId)/\(teamId ?? "")"
+    func bind(accountId: String, teamIds: [String], db: DatabaseManager) {
+        let key = "\(accountId)/\(teamIds.joined(separator: ","))"
         guard boundKey != key else { return }
         stop()
         boundKey = key
-        guard let teamId, let pool = try? db.pool(forAccountId: accountId) else { return }
+        guard !teamIds.isEmpty, let pool = try? db.pool(forAccountId: accountId) else { return }
         let observation = ValueObservation.tracking { db in
-            try PromptEntity
-                .filter(Column("team_id") == teamId)
-                .order(Column("sort_order"), Column("name"))
-                .fetchAll(db)
+            try teamIds.flatMap { teamId in
+                try PromptEntity
+                    .filter(Column("team_id") == teamId)
+                    .order(Column("sort_order"), Column("name"))
+                    .fetchAll(db)
+            }
         }
         task = Task { [weak self] in
             do {

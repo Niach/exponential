@@ -241,6 +241,14 @@ interface UserDao {
     )
     fun observeByTeam(teamId: String): Flow<List<UserEntity>>
 
+    // #EXP-2079 (agent-settings.json `assistant.chatTeams`): the members of
+    // the chat teams, one row per person, [observeByTeam]'s order.
+    @Query(
+        "SELECT DISTINCT u.* FROM users u JOIN team_members m ON m.user_id = u.id " +
+            "WHERE m.team_id IN (:teamIds) ORDER BY u.name, u.email"
+    )
+    fun observeByTeams(teamIds: List<String>): Flow<List<UserEntity>>
+
     @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<UserEntity?>
 

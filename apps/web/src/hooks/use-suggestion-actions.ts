@@ -21,13 +21,17 @@ export function useSuggestionActions(input: {
    *  Start with… offers THAT agent's models (a codex chat's children run
    *  codex). Unknown = claude. */
   agentFor?: (sessionId: string) => string | null | undefined
+  /** #EXP-2079 (`assistant.chatTeams` `deviceCases`): the card's
+   *  conversation is the viewer's own in a team they do not sync (the
+   *  Assistant's): Start on lists their OWN machines, no team rule. */
+  ownDevices?: boolean
 }): ChatSuggestionActions | undefined {
-  const { teamId, enabled, agentFor } = input
+  const { teamId, enabled, agentFor, ownDevices = false } = input
   const { data: session } = useSession()
   const { devices } = useSteerDevices({
     enabled,
     currentUserId: session?.user?.id,
-    teamId,
+    ...(ownDevices ? {} : { teamId }),
   })
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set())
 

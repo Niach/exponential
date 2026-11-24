@@ -212,6 +212,27 @@ final class ComposerMenuTests: XCTestCase {
         XCTAssertEqual(McpServers.pickedValue(["a", "c"]), "2")
     }
 
+    // #EXP-2079 (agent-settings.json `assistant.chatTeams`, THE MCP PICK):
+    // the chat teams' servers team by team, each team's in its list order;
+    // more than one chat team = every row names its team.
+    func testMcpChatPickListsTheChatTeamsServers() {
+        func row(_ id: String, _ name: String) -> McpServerRow {
+            McpServerRow(id: id, name: name, connection: .init(status: "connected"))
+        }
+        let names = ["t-a": "Acme", "t-b": "Beta"]
+        let one = McpServers.chatPick([("t-a", [row("2", "Linear"), row("1", "Sentry")])], teamNames: names)
+        XCTAssertEqual(one.servers.map(\.id), ["2", "1"])
+        XCTAssertEqual(one.teamNames, [:], "one chat team: the row as ever")
+        let two = McpServers.chatPick(
+            [("t-a", [row("2", "Linear"), row("1", "Sentry")]), ("t-b", [row("3", "Linear")])], teamNames: names
+        )
+        XCTAssertEqual(two.servers.map(\.id), ["2", "1", "3"])
+        XCTAssertEqual(two.teamNames, ["2": "Acme", "1": "Acme", "3": "Beta"])
+        let empty = McpServers.chatPick([("t-a", [row("1", "Sentry")]), ("t-b", [])], teamNames: names)
+        XCTAssertEqual(empty.teamNames, ["1": "Acme"], "two chat teams, one without a server: still named")
+        XCTAssertEqual(McpServers.chatPick([], teamNames: names), McpServers.ChatPick())
+    }
+
     // #EXP-1795: a row's glyph = the contract `mcpCatalog` mark by exact host
     // (port kept unless default), else a `{host}` template's path; stdio =
     // shell; anything else = plug.
