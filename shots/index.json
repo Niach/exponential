@@ -1025,29 +1025,6 @@
         "sha256": "16cd9c07022df20da156954f57e0b10a5118815a4ac05dd75607133d447ba006"
       }
     },
-    "apps": {
-      "android": {
-        "file": "shots/apps/android.webp",
-        "width": 810,
-        "height": 1800,
-        "bytes": 24266,
-        "sha256": "6d6e9c1e3152b04349a2ba145be9e0b5897aa3ad56903189a259cbdd61dd8e2a"
-      },
-      "ios": {
-        "file": "shots/apps/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 25752,
-        "sha256": "31add17dfd5ee196a31865c6bbfaf0d6e852c5ccb89c02dd2d48c824bfd6f32c"
-      },
-      "web-mobile": {
-        "file": "shots/apps/web-mobile.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 23008,
-        "sha256": "2101662c826684a86812f3205d21e4b5842a2860e4e7f932f0e714b7000d87d1"
-      }
-    },
     "ask-dock": {
       "android": {
         "file": "shots/ask-dock/android.webp",
@@ -6324,43 +6301,6 @@
         "height": 1800,
         "bytes": 34840,
         "sha256": "ccff0493674c191a059dc79454929dccb339c5fec5c54dab8a47ff65bc4d8451"
-      }
-    },
-    "phone-board-menu": {
-      "android": {
-        "file": "shots/phone-board-menu/android.webp",
-        "width": 810,
-        "height": 1800,
-        "bytes": 13432,
-        "sha256": "7aae7249f5e5d008384eb8033b309de3f07ff4f1c9bb40dd730340a2136975d9"
-      },
-      "desktop": {
-        "file": "shots/phone-board-menu/desktop.webp",
-        "width": 1800,
-        "height": 1125,
-        "bytes": 37186,
-        "sha256": "d9d89f96970682bfbbe127644072f9468de95a720a9ccef2a83358ae455b91a6"
-      },
-      "ios": {
-        "file": "shots/phone-board-menu/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 14280,
-        "sha256": "ad811c776894601d0150df125dddc59da22bcc5f2ba37d75002de42e6b40a95d"
-      },
-      "web": {
-        "file": "shots/phone-board-menu/web.webp",
-        "width": 1800,
-        "height": 1200,
-        "bytes": 38100,
-        "sha256": "b8db34d1fd2672908ce5a03b6a77fbf116fccc75f9ad68cc29bbc81b266b98c0"
-      },
-      "web-mobile": {
-        "file": "shots/phone-board-menu/web-mobile.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 12024,
-        "sha256": "9c398e52b62f48773169937a5ffd671a91b5950e872ad62ed41ae99ee9b687e9"
       }
     },
     "phone-page-header": {

@@ -277,7 +277,6 @@ export function PhoneTab({
   selected = false,
   badge,
   asChild = false,
-  lensPreview,
   className,
   style,
   children,
@@ -293,23 +292,10 @@ export function PhoneTab({
   /** Render as the single child (a `Link`/`<a>`); its own children are
    *  replaced by the tab's body. */
   asChild?: boolean
-  /** STATIC drag state for the styleguide specimen (never set by the app,
-   *  which measures the live lens): this tab is the CANDIDATE under the lens,
-   *  the finger `offset` px off its centre. Pair with `data-dragging` on the
-   *  bar so the selected tab's pill lifts. */
-  lensPreview?: { offset?: number }
   children?: React.ReactElement
 }) {
   const body = (
     <>
-      {lensPreview && (
-        <span
-          aria-hidden
-          data-slot="phone-tab-lens"
-          className="pointer-events-none absolute inset-0 -z-[1] rounded-full bg-glass-active"
-          style={{ transform: `translateX(${lensPreview.offset ?? 0}px) scale(${BAR.drag.lensScale})` }}
-        />
-      )}
       <span className="relative flex h-5 items-center justify-center">
         {icon}
         {badge && (
@@ -344,7 +330,6 @@ export function PhoneTab({
       <Slot.Root
         data-slot="phone-tab"
         data-selected={selected}
-        data-candidate={lensPreview ? true : undefined}
         aria-label={label}
         aria-current={selected ? `page` : undefined}
         className={tabClassName}
@@ -361,7 +346,6 @@ export function PhoneTab({
       type="button"
       data-slot="phone-tab"
       data-selected={selected}
-      data-candidate={lensPreview ? true : undefined}
       aria-label={label}
       aria-current={selected ? `page` : undefined}
       className={tabClassName}
