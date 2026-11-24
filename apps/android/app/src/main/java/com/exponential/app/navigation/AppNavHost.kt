@@ -770,6 +770,7 @@ private fun AuthenticatedNav(
                     onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
                     onNewAgent = { teamId -> navController.navigate(Routes.agentNew(teamId)) },
                     onOpenSettings = { teamId -> navController.navigate(Routes.teamSettingsRoot(teamId)) },
+                    onOpenComposer = { navController.navigateDeepLink(AGENT_ROUTE) },
                     chats = chatsVm,
                     folder = pattern == Routes.FOLDER_PATTERN,
                 )

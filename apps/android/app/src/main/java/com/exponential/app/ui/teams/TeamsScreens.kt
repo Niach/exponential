@@ -46,6 +46,7 @@ import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SidebarFolderGlyph
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.TeamAvatar
+import com.exponential.app.ui.gettingstarted.GettingStartedSection
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.CreateBoardSheet
 import com.exponential.app.ui.onboarding.TeamSetupSheet
@@ -217,6 +218,8 @@ fun TeamPageScreen(
     onOpenChat: (rootSessionId: String) -> Unit,
     onNewAgent: (teamId: String) -> Unit,
     onOpenSettings: (teamId: String) -> Unit,
+    /** Getting started's "Start a run". */
+    onOpenComposer: () -> Unit,
     chats: ChatsViewModel,
     folder: Boolean = false,
     viewModel: TeamPageViewModel = hiltViewModel(),
@@ -264,6 +267,7 @@ fun TeamPageScreen(
                 }
             },
             onSettings = { onOpenSettings(viewModel.teamId) },
+            gettingStarted = { GettingStartedSection(onOpenAgent = onOpenComposer, modifier = Modifier.padding(top = 20.dp)) },
             modifier = Modifier.padding(padding),
         )
     }
@@ -287,6 +291,7 @@ fun TeamPageContent(
     onNew: (SidebarTree.Kind) -> Unit,
     onSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    gettingStarted: @Composable () -> Unit = {},
 ) {
     Column(modifier = modifier.fillMaxSize().testTag(TeamsTestIds.TEAM)) {
         PageHeader(
@@ -306,7 +311,26 @@ fun TeamPageContent(
             val rows = state.rows.orEmpty()
             when {
                 !state.loaded -> SkeletonRows()
-                rows.isEmpty() -> EmptyState(EmptyStateCopy.boards)
+                rows.isEmpty() -> if (!folder) {
+                    // Nothing yet: a board is the first step; the member's progress.
+                    EmptyState(
+                        EmptyStateCopy.boards,
+                        action = if (state.owner) {
+                            {
+                                GlassPill(
+                                    EmptyStateCopy.boards.action!!,
+                                    icon = ExpIcons.uiAdd,
+                                    size = PillSize.Md,
+                                    mode = PillMode.Action,
+                                    onClick = { onNew(SidebarTree.Kind.Board) },
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                    )
+                    gettingStarted()
+                }
                 else -> RowGroup {
                     rows.forEach { row -> TeamItemRow(row, badges[row.id] ?: NavBadges.NONE, marks[row.id], onClick = { onOpenRow(row) }) }
                 }

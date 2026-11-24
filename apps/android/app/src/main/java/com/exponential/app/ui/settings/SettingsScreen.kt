@@ -223,7 +223,7 @@ private fun ViewerCard(account: ServerAccount, user: com.exponential.app.data.db
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 name,
-                style = MaterialTheme.typography.titleMedium.copy(letterSpacing = 0.sp),
+                style = MaterialTheme.typography.titleMedium.copy(fontSize = 17.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, letterSpacing = 0.sp),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -232,7 +232,7 @@ private fun ViewerCard(account: ServerAccount, user: com.exponential.app.data.db
             if (!email.isNullOrBlank() && email != name) {
                 Text(
                     email,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
