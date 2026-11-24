@@ -36,7 +36,7 @@ COPY packages/view-catalog/package.json packages/view-catalog/package.json
 COPY packages/shots/package.json packages/shots/package.json
 RUN bun install --frozen-lockfile
 COPY . .
-# Widget + MCP Apps first: they emit loader.js/widget.js and mcp-apps/app.html
+# Widget + MCP Apps first: they emit loader.js/widget.js and mcp-apps/<view>.html
 # into apps/web/public, which the web build then copies into .output/public.
 RUN bun --filter @exp/widget build && bun --filter @exp/mcp-apps build && bun --filter @exp/web build
 
