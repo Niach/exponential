@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-search-by-meaning",
+    date: "2026-11-24",
+    title: "Search finds issues by meaning",
+    summary: "Web, desktop, Android and iOS: the issue search also lists issues that mean what you typed, in German and English, and similar:NEW-12 finds an issue's likely duplicates.",
+    body: r##"- **By meaning**: the issue search also lists issues that mean what you typed without sharing a word with it, for example a German report for an English query. They follow the issues that match your words, a few at most.
+- **Similar issues**: `similar:NEW-12` lists the issues closest in meaning to NEW-12, its likely duplicates, nearest first. Add other filters to narrow them, for example `similar:NEW-12 is:open`.
+- **Everywhere you search issues**: the search, the `#` menu and the issue pickers, and for agents the `search` of the issue list.
+- **Stays on the server**: the search text is read by a model inside your Exponential server and goes nowhere else. Self-hosted servers need the database image with pgvector, the default of the compose file."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_357: ChangelogEntry = ChangelogEntry {
     id: "2026-11-24-search-sentences-and-filters",
     date: "2026-11-24",
     title: "Search understands sentences and filters",
