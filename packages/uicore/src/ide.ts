@@ -52,6 +52,8 @@ export interface IdeTeamInput {
 export interface IdeSidebarInput {
   /** The open screen as `<kind>` or `<kind>:<id>`. */
   screen: string
+  /** #EXP-2124: the viewer's Assistant, the first row (none = no row). */
+  assistant?: { id: string; name: string; unread?: number; needsYou?: boolean } | null
   needsYou: number
   drafts: number
   chats: IdeCount
@@ -230,22 +232,27 @@ const nav = (id: keyof typeof COPY, icon: string, selected: boolean, count: numb
 export const agentCount = (unread: number, needsYou: boolean): IdeCount =>
   needsYou ? { count: Math.max(1, unread), tone: `attention` } : { count: unread, tone: `muted` }
 
-/** The team menu's New entries (sidebar-tree.json `teamMenu`: board, agent and app are the owners'). */
-const newItems = (owner: boolean): IdeMenuEntry[] => [
+/** THE New list (#EXP-2124, domain-contract sidebar-menus.json `newKinds`: a chat for every member, then agent, app, board for owners). */
+export const newItems = (owner: boolean): IdeMenuEntry[] => [
+  { label: COPY.session, value: `session`, icon: `action-chat` },
   ...(owner
     ? [
-        { label: COPY.board, value: `board`, icon: `nav-boards` },
         { label: COPY.agent, value: `agent`, icon: `settings-agents` },
         { label: COPY.app, value: `app`, icon: `nav-apps` },
+        { label: COPY.board, value: `board`, icon: `nav-boards` },
       ]
     : []),
-  { label: COPY.session, value: `session`, icon: `action-chat` },
 ]
 
 export function ideSidebar(input: IdeSidebarInput): IdeSidebar {
   const { screen } = input
   const on = (kind: string, id: string) => screen === `${kind}:${id}`
-  const rows: IdeNavRow[] = [nav(`home`, `nav-home`, screen === `home`, 0, `muted`)]
+  const rows: IdeNavRow[] = []
+  if (input.assistant) {
+    const { count, tone } = agentCount(input.assistant.unread ?? 0, input.assistant.needsYou ?? false)
+    rows.push({ id: `assistant`, title: input.assistant.name, icon: `brand-exponential`, selected: on(`agent`, input.assistant.id), ...badge(count, tone) })
+  }
+  rows.push(nav(`home`, `nav-home`, screen === `home`, 0, `muted`))
   if (input.needsYou > 0 || screen === `needs-you`) rows.push(nav(`needs-you`, `nav-needs-you`, screen === `needs-you`, input.needsYou, `attention`))
   rows.push(nav(`chats`, `nav-chats`, screen === `chats`, input.chats.count, input.chats.tone))
   if (input.drafts > 0 || screen === `drafts`) rows.push(nav(`drafts`, `nav-drafts`, screen === `drafts`, input.drafts, `muted`))

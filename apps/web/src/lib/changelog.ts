@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-24-sidebar-menus`,
+    date: `2026-11-24`,
+    title: `Sidebar menus`,
+    summary: `The Assistant sits on top of the sidebar, every sidebar row has a right-click menu, and the + next to the tabs opens a menu to start a chat, agent, app or board in any team. Boards, apps and devices open as tabs.`,
+    body: `- **The Assistant**: your Assistant is the first row of the sidebar and opens its chat.
+- **Right-click menus**: every sidebar row has one, in the same order everywhere: open, what the row does, arrange, settings.
+- **New tab menu**: the + next to the tabs starts a chat, agent, app or board in any team.
+- **Tabs for every page**: boards, apps, devices, Home, Chats, Needs you and Drafts open as tabs, and Open in new tab adds one in the background.`,
+  },
+  {
     id: `2026-11-24-phones-new-devices-need-your-ok`,
     date: `2026-11-24`,
     title: `New devices need your OK, on your phone`,

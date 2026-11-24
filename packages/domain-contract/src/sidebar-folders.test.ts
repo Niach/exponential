@@ -7,6 +7,7 @@ import {
   sidebarFolderName,
   sidebarFolderOpenKey,
   sidebarMove,
+  sidebarMoveToNewFolder,
   sidebarRows,
   sidebarTree,
   sidebarUngroup,
@@ -60,4 +61,32 @@ describe(`sidebar folders (#EXP-1832)`, () => {
       expect(sidebarFolderOpenKey(c.teamId, c.folderId)).toBe(c.expected)
     })
   }
+})
+
+describe(`#EXP-2124 Move to folder › New folder`, () => {
+  const e = (id: string, kind: `folder` | `item`, targetId: string | null, parentId: string | null, sortOrder: number, name: string | null = null): SidebarEntry => ({ id, kind, targetId, parentId, name, sortOrder })
+
+  test(`a top-level item: the new folder takes its place, holding it`, () => {
+    expect(sidebarMoveToNewFolder([`a`, `b`, `c`], [], `b`, `f`)).toEqual({
+      upserts: [
+        { id: null, kind: `item`, targetId: `a`, parentId: null, name: null, sortOrder: 1 },
+        { id: `f`, kind: `folder`, targetId: null, parentId: null, name: SIDEBAR_FOLDER_DEFAULT_NAME, sortOrder: 2 },
+        { id: null, kind: `item`, targetId: `b`, parentId: `f`, name: null, sortOrder: 1 },
+        { id: null, kind: `item`, targetId: `c`, parentId: null, name: null, sortOrder: 3 },
+      ],
+      deletes: [],
+      createdFolderId: `f`,
+    })
+  })
+
+  test(`the last item of a folder: the new folder follows it and the emptied one goes`, () => {
+    const writes = sidebarMoveToNewFolder([`a`, `b`], [e(`g`, `folder`, null, null, 1, `G`), e(`ea`, `item`, `a`, `g`, 1)], `a`, `f`)
+    expect(writes?.deletes).toEqual([`g`])
+    expect(writes?.upserts).toContainEqual({ id: `f`, kind: `folder`, targetId: null, parentId: null, name: SIDEBAR_FOLDER_DEFAULT_NAME, sortOrder: 1 })
+    expect(writes?.upserts).toContainEqual({ id: `ea`, kind: `item`, targetId: `a`, parentId: `f`, name: null, sortOrder: 1 })
+  })
+
+  test(`an unknown item: nothing`, () => {
+    expect(sidebarMoveToNewFolder([`a`], [], `x`, `f`)).toBeNull()
+  })
 })

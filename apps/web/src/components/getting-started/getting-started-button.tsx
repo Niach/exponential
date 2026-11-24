@@ -5,10 +5,13 @@ import {
   DialogBody,
   DialogContent,
   DialogTitle,
+  MenuGestureHost,
+  menuProps,
   SidebarMenuButton,
   SidebarMenuItem,
   conceptIcon,
 } from "@exp/ui"
+import { sidebarMenuEntries, SidebarPointerMenu } from "@/components/team/sidebar-menus"
 import { useGettingStartedProgressContext } from "@/hooks/use-getting-started-progress"
 import { GETTING_STARTED_TITLE } from "@/components/getting-started/getting-started-copy"
 import { GettingStartedBlock } from "@/components/getting-started/getting-started-section"
@@ -17,6 +20,9 @@ import type { Team } from "@/db/schema"
 // EXP-317: a cross-client CONCEPT, not a raw lucide import — the natives'
 // Getting started entry uses the same glyph.
 const GettingStartedIcon = conceptIcon(`nav-getting-started`)
+
+/** #EXP-2124: the entry's menu kind (`menuProps`). */
+const GETTING_STARTED_MENU_KIND = `sidebar-getting-started`
 
 // The sidebar-footer entry (EXP-88; EXP-1270 / getting-started.json): it
 // opens the SAME block the empty board and the board-less Agent home show,
@@ -34,19 +40,33 @@ export function GettingStartedButton({
 
   if (!visible || !team) return null
 
+  // #EXP-2124 (sidebar-menus.json `getting-started`): its right-click = Open.
   return (
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        onClick={() => setOpen(true)}
-        aria-label={GETTING_STARTED_TITLE}
-        data-testid={spec.testIds.entry}
-        className="text-muted-foreground"
-      >
-        <GettingStartedIcon className="size-4" />
-        <span>{GETTING_STARTED_TITLE}</span>
-      </SidebarMenuButton>
-      <GettingStartedDialog team={team} teamSlug={teamSlug} open={open} onOpenChange={setOpen} />
-    </SidebarMenuItem>
+    <MenuGestureHost
+      menus={{
+        [GETTING_STARTED_MENU_KIND]: (session) => (
+          <SidebarPointerMenu
+            session={session}
+            title={GETTING_STARTED_TITLE}
+            entries={sidebarMenuEntries(`getting-started`, {}, { open: () => setOpen(true) })}
+          />
+        ),
+      }}
+    >
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          onClick={() => setOpen(true)}
+          aria-label={GETTING_STARTED_TITLE}
+          data-testid={spec.testIds.entry}
+          className="text-muted-foreground"
+          {...menuProps(GETTING_STARTED_MENU_KIND, `getting-started`)}
+        >
+          <GettingStartedIcon className="size-4" />
+          <span>{GETTING_STARTED_TITLE}</span>
+        </SidebarMenuButton>
+        <GettingStartedDialog team={team} teamSlug={teamSlug} open={open} onOpenChange={setOpen} />
+      </SidebarMenuItem>
+    </MenuGestureHost>
   )
 }
 
