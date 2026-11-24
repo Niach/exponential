@@ -783,7 +783,7 @@ struct State {
 
 /// #FEED-274: what the agent is told after the quiet guard interrupted its
 /// turn (the CLI's own words for an interrupt name "the user").
-pub const QUIET_INTERRUPT_NOTE: &str = "Note from Exponential: this device ended your last turn, not a person. You had called quiet twice with nothing new in between, and the CLI words that interrupt as the user's. Nobody asked you to stop and nothing was rejected. If work is left, carry on with it now; if not, end this turn without a reply.";
+pub const QUIET_INTERRUPT_NOTE: &str = "Note from Exponential: this device ended your last turn, not a person. You kept calling quiet with nothing new in between, and the CLI words that interrupt as the user rejecting your tool call. Nobody asked you to stop. If work is left, carry on with it now; if not, end this turn without a reply.";
 
 /// EXP-784: what the adapter knows about the plan window, from the CLI's
 /// `rate_limit_event`s and its synthetic "You've hit your…" notices.
@@ -3888,10 +3888,11 @@ impl ClaudeSession {
         if model != Some(wire::SYNTHETIC_MODEL) && wire::is_real_assistant_activity(&blocks) {
             self.clear_rate_limit_notice(cx);
         }
-        // #EXP-1828: `quiet` is final. A second one since the last prompt
-        // means the turn was re-woken without a new message (Claude Code's
-        // silent-turn reminder looped a team agent 17 times): stop the turn
-        // (not a Stop: queued messages still flow, the turn ends normally).
+        // #EXP-1828: `quiet` is final. A run of them since the last prompt
+        // (`wire::QUIET_LOOP`) means the turn keeps being re-woken without a
+        // new message (Claude Code's silent-turn reminder looped a team agent
+        // 17 times): stop the turn (not a Stop: queued messages still flow,
+        // the turn ends normally).
         // #FEED-246: real work in the same message (or before) re-arms it.
         if parent.is_none() && wire::calls_work(&blocks) {
             self.lock().quiet_guard.on_work();
@@ -3902,7 +3903,7 @@ impl ClaudeSession {
                 !state.replaying_history && !state.closed && state.quiet_guard.on_quiet()
             };
             if repeat {
-                log::warn!("engine: claude called quiet again without a new message; interrupting the turn");
+                log::warn!("engine: claude keeps calling quiet without a new message; interrupting the turn");
                 if let Err(error) = self.send(wire::control_request(
                     &wire::new_request_id(),
                     wire::interrupt(false),
