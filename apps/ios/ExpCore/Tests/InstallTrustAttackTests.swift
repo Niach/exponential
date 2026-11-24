@@ -31,6 +31,7 @@ final class InstallTrustAttackTests: XCTestCase {
         let revoked = Locked<[String]>([])
         let requested = Locked(0)
         let claimed = Locked(0)
+        let claimApprovals = Locked<[RootClaimApproval]>([])
 
         func sendTarget(accountId: String, agentId: String?, appId: String?) async throws -> ServerSendTarget { target.value }
         func create(accountId: String, input: CreateTreeKeyInput) async throws { created.mutate { $0.append(input) } }
@@ -49,11 +50,86 @@ final class InstallTrustAttackTests: XCTestCase {
 
         func trust(accountId: String, installId: String) async throws -> TrustAnswer { trustAnswer.value }
         func requestApproval(accountId: String, installId: String) async throws { requested.mutate { $0 += 1 } }
-        func claimRoot(accountId: String, installId: String, signature: String) async throws { claimed.mutate { $0 += 1 } }
+        func claimRoot(accountId: String, installId: String, signature: String, approvals: [RootClaimApproval]?) async throws {
+            claimed.mutate { $0 += 1 }
+            claimApprovals.mutate { $0 += approvals ?? [] }
+        }
         func approve(accountId: String, installId: String, subjectInstallId: String, kind: ApprovalKind, signature: String) async throws {
             approved.mutate { $0.append((kind, subjectInstallId)) }
         }
         func revoke(accountId: String, installId: String) async throws { revoked.mutate { $0.append(installId) } }
+    }
+
+    /// An account's installs as the server stores them (web's
+    /// `accountServer`), honest unless told to lie: `claimRoot` stores the
+    /// root and its approvals in one go (CONFLICT while another install is
+    /// on a chain), `approve` stores one.
+    final class AccountServer: InstallTrustApi, @unchecked Sendable {
+        let installs: Locked<[ServedInstall]>
+        let approvals = Locked<[ServedApproval]>([])
+        let asked = Locked<[String]>([])
+        let claims = Locked<[String]>([])
+        /// Holds every claim until `claimGate` claims arrived (two installs at once).
+        var claimGate = 0
+        private let gate = Locked<(arrived: Int, waiters: [CheckedContinuation<Void, Never>])>((0, []))
+
+        init(_ installs: [ServedInstall]) { self.installs = Locked(installs) }
+
+        private func endpoint(of installId: String) throws -> String {
+            guard let row = installs.value.first(where: { $0.installId == installId }) else { throw URLError(.badServerResponse) }
+            return row.endpointId
+        }
+
+        func trust(accountId: String, installId: String) async throws -> TrustAnswer {
+            let asked = asked.value
+            return TrustAnswer(
+                installs: installs.value.map { row in
+                    var row = row
+                    row.approvalRequested = row.approvalRequested || asked.contains(row.installId)
+                    return row
+                },
+                approvals: approvals.value
+            )
+        }
+
+        func requestApproval(accountId: String, installId: String) async throws { asked.mutate { $0.append(installId) } }
+
+        func claimRoot(accountId: String, installId: String, signature: String, approvals claimed: [RootClaimApproval]?) async throws {
+            claims.mutate { $0.append(installId) }
+            if claimGate > 0 {
+                let needed = claimGate
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    gate.mutate { state in
+                        state.arrived += 1
+                        state.waiters.append(continuation)
+                        guard state.arrived >= needed else { return }
+                        for waiter in state.waiters { waiter.resume() }
+                        state.waiters = []
+                    }
+                }
+            }
+            let me = try endpoint(of: installId)
+            let approves = try (claimed ?? []).map {
+                ServedApproval(kind: .approve, subjectEndpointId: try endpoint(of: $0.subjectInstallId), approverEndpointId: me, signature: $0.signature)
+            }
+            var conflict = false
+            approvals.mutate { stored in
+                if stored.contains(where: { ($0.kind == .root || $0.kind == .approve) && $0.subjectEndpointId != me }) {
+                    conflict = true
+                    return
+                }
+                stored.append(ServedApproval(kind: .root, subjectEndpointId: me, approverEndpointId: me, signature: signature))
+                stored += approves
+            }
+            if conflict { throw TrpcError.httpError(409, #"{"error":{"json":{"message":"CONFLICT","data":{"code":"CONFLICT"}}}}"#) }
+        }
+
+        func approve(accountId: String, installId: String, subjectInstallId: String, kind: ApprovalKind, signature: String) async throws {
+            let subject = try endpoint(of: subjectInstallId), approver = try endpoint(of: installId)
+            approvals.mutate { $0.append(ServedApproval(kind: kind, subjectEndpointId: subject, approverEndpointId: approver, signature: signature)) }
+        }
+
+        func revoke(accountId: String, installId: String) async throws {}
     }
 
     private let account = "acct"
@@ -342,7 +418,7 @@ final class InstallTrustAttackTests: XCTestCase {
                 throw TrpcError.httpError(404, #"{"error":{"json":{"message":"No procedure","data":{"code":"NOT_FOUND"}}}}"#)
             }
             func requestApproval(accountId: String, installId: String) async throws {}
-            func claimRoot(accountId: String, installId: String, signature: String) async throws {}
+            func claimRoot(accountId: String, installId: String, signature: String, approvals: [RootClaimApproval]?) async throws {}
             func approve(accountId: String, installId: String, subjectInstallId: String, kind: ApprovalKind, signature: String) async throws {}
             func revoke(accountId: String, installId: String) async throws {}
         }
@@ -354,6 +430,239 @@ final class InstallTrustAttackTests: XCTestCase {
         XCTAssertEqual(state, .unavailable)
         let verdict = await keeper.target(accountId: account, installId: "install-Z", x25519Public: try fx.keys.text("Z", "x25519Public"), endpointId: nil, userId: nil)
         XCTAssertEqual(verdict, .wrap(record: .legacy))
+    }
+
+    /// Attack 3's gap, now only under a TEAM-MATE's account: a silent install
+    /// there looks like an older build: wrapped and recorded `legacy` now,
+    /// refused once mandatory.
+    func testASilentTeamMatesInstallIsTheLegacyGap() async throws {
+        let fx = try TrustFixture()
+        let t2 = try fx.served(["key": "T2"])
+        for mode in TrustMode.allCases {
+            let v = try await victim(fx, mode: mode, extra: [t2])
+            v.server.pendingRows.mutate {
+                $0 = [PendingTreeKey(
+                    rootId: "01234567-89ab-4def-8123-456789abcdef", epoch: 1, publicKey: TreePublicKeys.of(secret: Data((0x20..<0x40).map { UInt8($0) }))!,
+                    targetInstallId: "install-T2", targetX25519Public: t2.x25519Public, targetEndpointId: t2.endpointId
+                )]
+            }
+            await v.holder.sync(accountId: account)
+            XCTAssertEqual(v.server.wrapped.value.map(\.targetInstallId), mode == .record ? ["install-T2"] : [], "\(mode)")
+            let decided = await v.keeper.decisions.last { $0.rule == .r4 && $0.subject == "install-T2" }
+            XCTAssertEqual(decided?.verdict, mode == .record ? "legacy" : "refused:unapproved", "\(mode)")
+        }
+    }
+
+    // MARK: decision (e): the installs that existed are trusted once
+
+    /// Not started since #3394: served without a stored registration.
+    private func stripped(_ fx: TrustFixture, _ name: String) throws -> ServedInstall { try fx.served(["key": name, "registration": "none"]) }
+
+    private func rootOf(_ fx: TrustFixture, _ name: String) throws -> ServedApproval {
+        let subject = try fx.served(["key": name])
+        return ServedApproval(kind: .root, subjectEndpointId: subject.endpointId, approverEndpointId: subject.endpointId,
+                              signature: try InstallApproval.sign(.root, subject: subject, identity: try fx.keys.identity(name), crypto: fx.crypto))
+    }
+
+    private func approvalOf(_ fx: TrustFixture, _ name: String, by approver: String) throws -> ServedApproval {
+        let subject = try fx.served(["key": name])
+        return ServedApproval(kind: .approve, subjectEndpointId: subject.endpointId, approverEndpointId: try fx.keys.endpoint(approver),
+                              signature: try InstallApproval.sign(.approve, subject: subject, identity: try fx.keys.identity(approver), crypto: fx.crypto))
+    }
+
+    /// An install that EXISTED: its identity is there, its pin store is not yet.
+    private func existingInstall(_ fx: TrustFixture, _ name: String, _ api: InstallTrustApi, mode: TrustMode = .record) async throws -> InstallTrustKeeper {
+        let identity = try fx.keys.identity(name)
+        let keeper = InstallTrustKeeper(api: api, crypto: fx.crypto, persistence: .memory(), identity: { identity }, mode: mode)
+        let existing = await keeper.store(accountId: account)?.existing
+        XCTAssertEqual(existing, true, name)
+        return keeper
+    }
+
+    func testDayOneNoRowNoWaitingTheFirstClaimsWithEveryApprovalTheSecondJoinsOnItsChain() async throws {
+        let fx = try TrustFixture()
+        let server = AccountServer([try fx.served(["key": "A"]), try fx.served(["key": "B"]), try stripped(fx, "L")])
+        let a = try await existingInstall(fx, "A", server)
+        await a.sync(accountId: account, installId: "install-A")
+        let aSnapshot = await a.snapshot(accountId: account)
+        XCTAssertEqual(aSnapshot.state, .trusted)
+        XCTAssertEqual(aSnapshot.rows, [])
+        let stored = server.approvals.value.map { "\($0.kind.rawValue):\(fx.keys.name(of: $0.subjectEndpointId) ?? "?")" }
+        XCTAssertEqual(stored.sorted(), ["approve:B", "approve:L", "root:A"])
+        let b = try await existingInstall(fx, "B", server)
+        await b.sync(accountId: account, installId: "install-B")
+        let bSnapshot = await b.snapshot(accountId: account)
+        XCTAssertEqual(bSnapshot.state, .trusted)
+        XCTAssertEqual(bSnapshot.rows, [])
+        let l = await b.store(accountId: account)?.pins[try fx.keys.endpoint("L")]
+        XCTAssertEqual(l?.via, .approved)
+        XCTAssertEqual(l?.by, try fx.keys.endpoint("A"))
+        XCTAssertEqual(server.asked.value, [])
+        XCTAssertEqual(server.claims.value, ["install-A"])
+    }
+
+    func testTwoExistingInstallsAtOnceTheSecondConflictsAndNeverWaits() async throws {
+        let fx = try TrustFixture()
+        let server = AccountServer([try fx.served(["key": "A"]), try fx.served(["key": "B"])])
+        // Both read "no chain" before either claims.
+        server.claimGate = 2
+        let a = try await existingInstall(fx, "A", server)
+        let b = try await existingInstall(fx, "B", server)
+        let states = Locked<[String]>([])
+        let accountId = account
+        async let first: Void = a.sync(accountId: accountId, installId: "install-A")
+        async let second: Void = b.sync(accountId: accountId, installId: "install-B")
+        _ = await (first, second)
+        for keeper in [a, b] {
+            let snapshot = await keeper.snapshot(accountId: account)
+            states.mutate { $0.append(snapshot.state.rawValue) }
+            XCTAssertEqual(snapshot.rows, [])
+        }
+        XCTAssertEqual(states.value, ["trusted", "trusted"])
+        XCTAssertEqual(server.claims.value.count, 2)
+        // A waiting state would have asked.
+        XCTAssertEqual(server.asked.value, [])
+        XCTAssertEqual(server.approvals.value.filter { $0.kind == .root }.count, 1)
+    }
+
+    func testAZPlantedAfterTheFirstReconcileIsARowNeverWrappedNeverApproved() async throws {
+        let fx = try TrustFixture()
+        let real = Data((0x20..<0x40).map { UInt8($0) })
+        for mode in TrustMode.allCases {
+            let server = AccountServer([try fx.served(["key": "A"]), try fx.served(["key": "B"]), try stripped(fx, "L")])
+            let a = try await existingInstall(fx, "A", server, mode: mode)
+            await a.sync(accountId: account, installId: "install-A")
+            let consumed = await a.store(accountId: account)?.existing
+            XCTAssertEqual(consumed, false, "\(mode)")
+            // The lie: Z silent (never asked, no root), as an install from before the release would be.
+            let z = try fx.served(["key": "Z"])
+            server.installs.mutate { $0.append(z) }
+            await a.sync(accountId: account, installId: "install-A")
+            let pinned = await a.store(accountId: account)?.pins[z.endpointId]
+            XCTAssertNil(pinned, "\(mode)")
+            let rows = await a.snapshot(accountId: account).rows
+            XCTAssertEqual(rows.map { "\($0.kind.rawValue):\($0.installId)" }, ["newInstall:install-Z"], "\(mode)")
+            let keys = LyingServer()
+            keys.pendingRows.mutate {
+                $0 = [PendingTreeKey(
+                    rootId: "01234567-89ab-4def-8123-456789abcdef", epoch: 1, publicKey: TreePublicKeys.of(secret: real)!,
+                    targetInstallId: "install-Z", targetX25519Public: z.x25519Public, targetEndpointId: z.endpointId
+                )]
+            }
+            let ring = SealedKeyRing(persistence: .memory)
+            ring.add([("01234567-89ab-4def-8123-456789abcdef", 1, real)])
+            let identity = try fx.keys.identity("A")
+            let holder = TreeKeyHolder(keys: keys, installs: keys, crypto: sealed, trust: a, ring: ring, identity: { identity }, installId: { _ in "install-A" })
+            await holder.sync(accountId: account)
+            XCTAssertEqual(keys.wrapped.value.map(\.targetInstallId), [], "\(mode)")
+            let decided = await a.decisions.last { $0.rule == .r4 && $0.subject == "install-Z" }
+            XCTAssertEqual(decided?.verdict, "refused:unapproved", "\(mode)")
+            // And it never approved Z by itself.
+            XCTAssertEqual(server.approvals.value.filter { $0.subjectEndpointId == z.endpointId }.count, 0, "\(mode)")
+        }
+    }
+
+    func testAHiddenChainAfterTheFirstReconcileWaits() async throws {
+        let fx = try TrustFixture()
+        let server = AccountServer([try fx.served(["key": "A"]), try fx.served(["key": "B"])])
+        server.approvals.mutate { $0 = [try! self.rootOf(fx, "A")] }
+        let b = try await existingInstall(fx, "B", server)
+        await b.sync(accountId: account, installId: "install-B")
+        // Existing on this install, but not on its account's chain: new.
+        let first = await b.snapshot(accountId: account).state
+        XCTAssertEqual(first, .waiting)
+        let consumed = await b.store(accountId: account)?.existing
+        XCTAssertEqual(consumed, false)
+        server.approvals.mutate { $0 = [] }
+        server.installs.mutate { $0.append(try! fx.served(["key": "Z"])) }
+        await b.sync(accountId: account, installId: "install-B")
+        let state = await b.snapshot(accountId: account).state
+        XCTAssertEqual(state, .waiting)
+        let pins = await b.store(accountId: account)?.pins.keys.sorted()
+        XCTAssertEqual(pins, [try fx.keys.endpoint("B")])
+        XCTAssertEqual(server.claims.value, [])
+    }
+
+    /// A new identity, or a new account signed into the one this install
+    /// holds: its store is written BEFORE it registers (`markNew`), so it
+    /// is a new install: it waits and asks, it adopts nobody.
+    func testANewIdentityOrANewAccountWritesItsStoreFirstAndWaits() async throws {
+        let fx = try TrustFixture()
+        let identity = try fx.keys.identity("N")
+        let persistence = TrustStorePersistence.memory()
+        InstallTrustKeeper.markNew(accountId: account, identity: identity, crypto: fx.crypto, persistence: persistence)
+        let server = AccountServer([try fx.served(["key": "A"]), try fx.served(["key": "B"]), try fx.served(["key": "N"])])
+        server.approvals.mutate { $0 = [try! self.rootOf(fx, "A"), try! self.approvalOf(fx, "B", by: "A")] }
+        let n = InstallTrustKeeper(api: server, crypto: fx.crypto, persistence: persistence, identity: { identity })
+        let existing = await n.store(accountId: account)?.existing
+        XCTAssertEqual(existing, false)
+        await n.sync(accountId: account, installId: "install-N")
+        let state = await n.snapshot(accountId: account).state
+        XCTAssertEqual(state, .waiting)
+        XCTAssertEqual(server.asked.value, ["install-N"])
+        // Next to older builds only (no chain, not alone) it waits too, never adopts.
+        let older = AccountServer([try stripped(fx, "A"), try fx.served(["key": "N"])])
+        let other = TrustStorePersistence.memory()
+        InstallTrustKeeper.markNew(accountId: account, identity: identity, crypto: fx.crypto, persistence: other)
+        let fresh = InstallTrustKeeper(api: older, crypto: fx.crypto, persistence: other, identity: { identity })
+        await fresh.sync(accountId: account, installId: "install-N")
+        let waits = await fresh.snapshot(accountId: account).state
+        XCTAssertEqual(waits, .waiting)
+        XCTAssertEqual(older.claims.value, [])
+    }
+
+    /// `markNew` keeps a store this endpoint already keeps, replaces one kept
+    /// for another endpoint (a rotated identity) and never writes over a
+    /// store it cannot read.
+    func testMarkNewKeepsItsOwnStoreAndNeverWritesOverAnUnreadableOne() throws {
+        let fx = try TrustFixture()
+        let persistence = TrustStorePersistence.memory()
+        var kept = try fx.namedStore("victim").store
+        kept.existing = false
+        persistence.save(account, try JSONEncoder().encode(kept))
+        InstallTrustKeeper.markNew(accountId: account, identity: try fx.keys.identity("A"), crypto: fx.crypto, persistence: persistence)
+        XCTAssertEqual(try JSONDecoder().decode(TrustStore.self, from: try XCTUnwrap(try persistence.load(account))), kept)
+        InstallTrustKeeper.markNew(accountId: account, identity: try fx.keys.identity("N"), crypto: fx.crypto, persistence: persistence)
+        let replaced = try JSONDecoder().decode(TrustStore.self, from: try XCTUnwrap(try persistence.load(account)))
+        XCTAssertEqual(replaced, TrustStore(selfEndpointId: try fx.keys.endpoint("N"), userId: ""))
+        struct Unreadable: Error {}
+        let saved = Locked(0)
+        let unreadable = TrustStorePersistence(load: { _ in throw Unreadable() }, save: { _, _ in saved.mutate { $0 += 1 } }, removeAll: {})
+        InstallTrustKeeper.markNew(accountId: account, identity: try fx.keys.identity("N"), crypto: fx.crypto, persistence: unreadable)
+        XCTAssertEqual(saved.value, 0)
+    }
+
+    /// A store that cannot be read (a locked phone) is never taken for none:
+    /// no adoption, no claim, no ask, nothing written over it.
+    func testAnUnreadableStoreIsNeverTakenForNone() async throws {
+        let fx = try TrustFixture()
+        struct Unreadable: Error {}
+        let saved = Locked(0)
+        let persistence = TrustStorePersistence(load: { _ in throw Unreadable() }, save: { _, _ in saved.mutate { $0 += 1 } }, removeAll: {})
+        let server = AccountServer([try fx.served(["key": "A"]), try fx.served(["key": "B"])])
+        let identity = try fx.keys.identity("A")
+        let keeper = InstallTrustKeeper(api: server, crypto: fx.crypto, persistence: persistence, identity: { identity })
+        let existing = await keeper.store(accountId: account)?.existing
+        XCTAssertEqual(existing, false)
+        await keeper.sync(accountId: account, installId: "install-A")
+        await keeper.record(accountId: account, rootId: "01234567-89ab-4def-8123-456789abcdef", epoch: 1, record: .verified)
+        XCTAssertEqual(server.claims.value, [])
+        XCTAssertEqual(server.asked.value, [])
+        XCTAssertEqual(saved.value, 0)
+    }
+
+    /// A kept store that does not decode, or one kept for another endpoint
+    /// (a rotated identity), is a new install's: never existing.
+    func testAStoreOfAnotherEndpointOrThatDoesNotDecodeIsNew() async throws {
+        let fx = try TrustFixture()
+        let identity = try fx.keys.identity("A")
+        for data in [Data("{".utf8), try JSONEncoder().encode(TrustStore(selfEndpointId: try fx.keys.endpoint("N"), userId: "user-me", existing: true))] {
+            let persistence = TrustStorePersistence.memory()
+            persistence.save(account, data)
+            let keeper = InstallTrustKeeper(api: AccountServer([]), crypto: fx.crypto, persistence: persistence, identity: { identity })
+            let existing = await keeper.store(accountId: account)?.existing
+            XCTAssertEqual(existing, false)
+        }
     }
 }
 #endif

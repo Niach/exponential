@@ -210,7 +210,7 @@ final class InstallTrustFixtureTests: XCTestCase {
         let f = try Self.fixture()
         let keys = try keys()
         let all = try Self.cases(f, "trustCases")
-        XCTAssertEqual(all.count, 21)
+        XCTAssertEqual(all.count, 34)
         for c in all {
             let name = try Self.text(c, "name")
             let answer = TrustAnswer(
@@ -240,7 +240,38 @@ final class InstallTrustFixtureTests: XCTestCase {
                 [try Self.text(r, "kind"), try Self.text(r, "key"), try Self.text(r, "installId"), try Self.text(r, "code"), r["label"] as? String ?? "<nil>"]
             }
             XCTAssertEqual(view.rows.map { [$0.kind.rawValue, keys.name(of: $0.endpointId) ?? $0.endpointId, $0.installId, $0.code, $0.label ?? "<nil>"] }, rows, name)
+            XCTAssertEqual(view.approveExisting.map { keys.name(of: $0) ?? $0 }, c["approveExisting"] as? [String] ?? [], name)
+            if let existing = after["existing"] as? Bool { XCTAssertEqual(view.store.existing, existing, name) }
         }
+    }
+
+    /// Decision (e): on day one no row and no waiting state for an account
+    /// whose installs all existed.
+    func testDayOneNoRowNoWaiting() throws {
+        let dayOne = try Self.cases(try Self.fixture(), "trustCases").filter { $0["dayOne"] as? Bool == true }
+        XCTAssertGreaterThanOrEqual(dayOne.count, 4)
+        for c in dayOne {
+            let name = try Self.text(c, "name")
+            XCTAssertEqual(try Self.cases(c, "rows").count, 0, name)
+            XCTAssertNotEqual(try Self.text(c, "status"), TrustStatus.waiting.rawValue, name)
+            XCTAssertEqual(try Self.object(c, "after")["joined"] as? Bool, true, name)
+        }
+    }
+
+    /// Decision (e): a planted install after the first reconcile is never pinned.
+    func testAPlantedInstallAfterTheFirstReconcileIsNeverPinned() throws {
+        let attacks = try Self.cases(try Self.fixture(), "trustCases").filter { $0["attack"] as? String == "existing" }
+        XCTAssertGreaterThanOrEqual(attacks.count, 3)
+        for c in attacks {
+            let name = try Self.text(c, "name")
+            let before = try Self.object(c, "before")
+            if before["existing"] as? Bool == true { continue } // the accepted moment: the first reconcile
+            let pins = try XCTUnwrap(try Self.object(c, "after")["pins"] as? Object).keys.sorted()
+            XCTAssertFalse(pins.contains("Z"), name)
+            XCTAssertEqual(pins, try XCTUnwrap(before["pins"] as? Object).keys.sorted(), name)
+        }
+        // Its row: a New install (with a registration that binds its key).
+        XCTAssertTrue(try attacks.contains { c in try Self.cases(c, "rows").contains { $0["key"] as? String == "Z" && $0["kind"] as? String == "newInstall" } })
     }
 
     // MARK: the four rules, now and once mandatory
@@ -306,7 +337,9 @@ final class InstallTrustFixtureTests: XCTestCase {
     func testR4WrapTargetEveryCase() throws {
         let keys = try keys()
         let all = try Self.cases(try Self.object(try Self.fixture(), "rules"), "targetCases")
-        XCTAssertEqual(all.count, 11)
+        XCTAssertEqual(all.count, 14)
+        // R4 runs against every named store (`adopted` = one that pinned its account's installs `existing`).
+        XCTAssertEqual(Set(all.compactMap { $0["store"] as? String }), ["victim", "waiting", "adopted"])
         for c in all {
             let name = try Self.text(c, "name")
             let store = try namedStore(try Self.text(c, "store")).store
@@ -435,10 +468,12 @@ struct TrustFixture {
         )
     }
 
-    /// A store spec (`viewer`, `joined`, `pins`, `members`, `declined`, `roots`).
+    /// A store spec (`viewer`, `joined`, `existing`, `pins`, `members`, `declined`, `roots`).
     func store(_ spec: Object) throws -> TrustStore {
         let viewer = try InstallTrustFixtureTests.text(spec, "viewer")
-        var store = TrustStore(selfEndpointId: try keys.endpoint(viewer), userId: try keys.text(viewer, "userId"))
+        var store = TrustStore(
+            selfEndpointId: try keys.endpoint(viewer), userId: try keys.text(viewer, "userId"), existing: spec["existing"] as? Bool ?? false
+        )
         store.joined = try XCTUnwrap(spec["joined"] as? Bool)
         for (name, pin) in try XCTUnwrap(spec["pins"] as? Object) {
             let pair = try XCTUnwrap(pin as? [Any])

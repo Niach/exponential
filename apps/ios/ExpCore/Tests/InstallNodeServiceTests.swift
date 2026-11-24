@@ -117,6 +117,36 @@ final class InstallNodeServiceTests: XCTestCase {
         XCTAssertNotEqual(harness.started[0], harness.started[1])
     }
 
+    /// #EXP-1950 decision (e): a minted identity writes every account's pin
+    /// store BEFORE it registers for them, once.
+    func testAMintedIdentityWritesTheStoresBeforeItRegisters() async {
+        let registry = FakeRegistry(teams: [:])
+        let minted = Locked(true)
+        let events = Locked<[String]>([])
+        let seed = Data(repeating: 7, count: 32)
+        let service = InstallNodeService(
+            registry: registry,
+            crypto: FakeCrypto(),
+            identity: InstallIdentitySource(
+                loadOrMint: { (seed, minted.value) },
+                rotate: {},
+                minted: { identity, accountIds in
+                    XCTAssertEqual(identity, seed)
+                    events.mutate { $0.append("stores \(accountIds.joined(separator: ","))+registered \(registry.registered.count)") }
+                    minted.mutate { $0 = false }
+                }
+            ),
+            label: nil,
+            platform: nil,
+            startNode: { _ in FakeNode(endpointId: "self") }
+        )
+        let accounts = [InstallAccount(accountId: "a1", userId: "u1", teamIds: []), InstallAccount(accountId: "a2", userId: "u2", teamIds: [])]
+        await service.sync(accounts)
+        await service.sync(accounts)
+        XCTAssertEqual(events.value, ["stores a1,a2+registered 0"])
+        XCTAssertEqual(registry.registered.count, 2)
+    }
+
     func testSigningOutTheLastAccountRevokesStopsAndForgets() async {
         let registry = FakeRegistry(teams: ["t1": [entry("peer1")]])
         let harness = Harness(registry: registry)
