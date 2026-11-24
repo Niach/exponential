@@ -39,6 +39,7 @@ const ready = await probeRealDb(`
 if (!ready.ok) console.info(`[wrap-signatures.real-db] skipped: ${ready.reason}`)
 
 const { sessionKeysRouter } = await import(`@/lib/trpc/session-keys`)
+const { installsRouter } = await import(`@/lib/trpc/installs`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
 const { voiceRouter } = await import(`@/lib/trpc/voice`)
 const { mintCallId } = await import(`@/lib/voice-call-id`)
@@ -319,6 +320,43 @@ describe.skipIf(!ready.ok)(`#EXP-1950 pending, wrap and the vouch`, () => {
     // A signer revoked since: its wraps vouch for nothing.
     await db.update(installs).set({ revokedAt: new Date() }).where(eq(installs.id, w.S.id))
     expect((await keys(w.me).publicKeys({ rootIds: [signedRoot] }))[0]!.vouch).toBeNull()
+  })
+})
+
+describe.skipIf(!ready.ok)(`#EXP-1950 x #EXP-1951 signed wraps through a reader drop`, () => {
+  it(`a rotation after a drop stores and serves its signatures; a pending wrap posted signed keeps its signature`, async () => {
+    const w = await world()
+    const rootId = await w.root()
+    const sign = (who: Install) => (statement: Parameters<typeof signWrap>[1]) => signWrap(who.identity, statement)
+    await keys(w.me).create(treeKey(rootId, 1, w.S, [w.S, w.R, w.O], sign(w.S)).input)
+    // O is revoked: its wrap goes and the tree is due (#EXP-1951).
+    await installsRouter.createCaller(ctx(w.me)).revoke({ installId: w.O.id })
+    expect((await rowsOf(rootId)).map((row) => row.installId).sort()).toEqual([w.S.id, w.R.id].sort())
+    expect(await keys(w.me).due({ installId: w.R.id })).toEqual([{ rootId, epoch: 1 }])
+    // R rotates, signed; a wrap for the dropped O is refused, a bad signature too.
+    await expect(keys(w.me).create(treeKey(rootId, 2, w.R, [w.S, w.R], (statement) => signWrap(w.S.identity, statement)).input)).rejects.toMatchObject(refused)
+    const next = treeKey(rootId, 2, w.R, [w.S, w.R], sign(w.R))
+    await keys(w.me).create(next.input)
+    expect(await keys(w.me).due({ installId: w.R.id })).toEqual([])
+    for (const reader of [w.S, w.R]) {
+      const served = (await keys(w.me).mine({ installId: reader.id, rootIds: [rootId] })).find((row) => row.epoch === 2)!
+      const sent = next.input.wraps.find((wrap) => wrap.installId === reader.id)!
+      expect(served).toEqual({ rootId, epoch: 2, wrapped: sent.wrapped, signature: sent.signature, signerEndpointId: w.R.endpointId })
+      expect(acceptWrap(served, { identity: reader.identity, installSecret: reader.installSecret }, [w.R.endpointId], true)).toMatchObject({
+        status: `verified`,
+        treePublicKey: next.tree.publicKey,
+      })
+    }
+    // A new install P reads the rotated key through pending, wrapped and signed by S.
+    const P = await install(w.me)
+    const [pair] = (await keys(w.me).pending({ installId: w.S.id, rootIds: [rootId] })).filter((row) => row.targetInstallId === P.id)
+    expect(pair).toMatchObject({ epoch: 2, publicKey: next.tree.publicKey, targetEndpointId: P.endpointId })
+    const wrapped = wrapTreeKey(pair!.targetX25519Public, next.tree.secret)
+    const signature = signWrap(w.S.identity, { rootId, epoch: 2, treePublicKey: pair!.publicKey, recipientEndpointId: pair!.targetEndpointId, wrapped })
+    expect(await keys(w.me).wrap({ installId: w.S.id, wraps: [{ rootId, epoch: 2, targetInstallId: P.id, wrapped, signature }] })).toEqual({ written: 1, skipped: 0 })
+    const [served] = await keys(w.me).mine({ installId: P.id, rootIds: [rootId] })
+    expect(served).toEqual({ rootId, epoch: 2, wrapped, signature, signerEndpointId: w.S.endpointId })
+    expect(acceptWrap(served!, { identity: P.identity, installSecret: P.installSecret }, [w.S.endpointId], true).status).toBe(`verified`)
   })
 })
 

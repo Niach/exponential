@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1683 ATTACHMENT LINES: the server never appends to a sealed body, so the WRITER names a send's attachments inside the text before sealing (`withAttachmentEmbeds`, `attachmentEmbedCases`, the server's claimAttachments rule): one line per id (once each, in order) the text does not reference yet, a blank line apart, `![name](/api/attachments/<id>)` for an inline image type (`inlineImageTypes`, exact match) and `[name](/api/attachments/<id>)` for anything else, `[` and `]` dropped from the name. So a PDF in a sealed chat is a file row, never a broken image. An upload this process did not record is an image named `image` (the older clients' reading of a bare id). An attachment-only send has no text and is not sealed: the server writes its lines. EXP-1458 (design #EXP-1457): sealed session content, the ONE wire format every platform reads and writes. Replayed x4 through each platform's reference: TS packages/domain-contract/src/sealed-content.ts, Rust enet-core sealed.rs (exported as free functions by exponential-net-ffi, full AND push-only build, and by exponential-net-wasm), Swift + Kotlin through the UniFFI binding. PRIMITIVE: `push_seal(recipient_x25519_public, plaintext)` from enet-core push.rs, byte-exact (fixtures/push-seal.json); secrets are lowercase hex here, everything that travels (public keys, wrapped keys, envelopes) is base64url WITHOUT padding, canonical (a padded, non-alphabet or non-zero-trailing-bits encoding is malformed). TREE KEY: one X25519 keypair per session tree (root) and EPOCH (1-based, <= 2147483647). The ROOT row carries `sessions.seal_public_key` (base64url of 32 bytes, 43 chars) and `sessions.seal_epoch` (int, the current epoch); both NULL until a key exists. `session_keys(root_id, epoch, install_id, wrapped, created_by_install_id, created_at)`, unique (root_id, epoch, install_id): `wrapped` = base64url(push_seal(installs.x25519_public, tree_secret[32])) = 81 bytes. `generateTreeKey()` = 32 random secret bytes + their clamped X25519 public; `wrapTreeKey(installPublic, treeSecret)` / `unwrapTreeKey(installSecret, wrapped)` (fails unless it opens to exactly 32 bytes). READERS of a tree (the server computes them, tRPC sessionKeys): every non-revoked install of the root's starter (`sessions.user_id`) while a member of the root's team; every non-revoked install of every team member when the root is `shared`; the non-revoked installs bound (`installs.device_id`) to the HOST devices row (lib/sessions/host.ts: the starter's own row for the session's `device_id`, else the first row sharing the team) of ANY session in the tree, while its host is a member of the root's team or of that session's team (#EXP-1984: an Assistant's tree roots in its member's personal team, whose one member is its owner, and its children run in the teams of its scope, eagent tree.json `treeTeams`). Nothing else crosses teams. BODY ENVELOPE (`messages.body`, `sessions.sealed_title`, text): `exp-sealed:v1:<epoch>:<b64url push_seal(tree_public, utf8(text))>`. A body without the `exp-sealed:` prefix is plaintext and stays legal (server lines, older rows). Parse: after the prefix, the version runs to the next `:` (or the end); a version other than `v1` = `unsupported` (never an error, never shown as text); for v1 the epoch is decimal without leading zeros, 1..2147483647, then `:` and the payload, which must decode to at least the 49-byte seal overhead; anything else = `malformed`. Open (`openBody(body, keys by epoch)`) gives exactly one status: `plain` (text = the body), `opened` (epoch, text), `noKey` (epoch: this install holds no secret for that epoch yet: show a locked placeholder and wait for the wrap), `unsupported`, `malformed`, `refused` (epoch: the secret did not authenticate it, or the plaintext is not UTF-8). CARD ENVELOPE (`messages.card`, jsonb): `{...clear, \"sealed\": \"v1:<epoch>:<b64url push_seal(tree_public, utf8(JSON(full card)))>\"}` (the same sealed-value grammar as the body after its prefix). CLEAR fields (`cardClearFields`): `kind` plus only what routing needs: messageId, sessionId, issueId, pullRequestId, event, status, final, decision, fresh, answered, pictures, story; each is copied from the full card when set (null/absent = omitted) except `answered`, which is `true` when the card carries `answer` or `answers` (or `answered: true`) and absent otherwise, and `pictures` (addendum 2026-10-30: the attachments a card shows, so the server can claim them and build the PR's attachment list), which is PROJECTED: each entry becomes `{label, attachmentId}` with each only when a string (captions, sizes and everything else stay sealed), entries naming neither dropped, omitted when none is left. Addendum 4 (2026-10-30): an entry with a label and no attachmentId is a picture STILL TO UPLOAD: the server mints its upload (`exponential_show`'s curls) and, when it lands, files it on that CLEAR entry only (`{label, attachmentId}`), never touching `sealed`. Addendum 5 (2026-10-30): `story` (the older name of the results flag, false = chat only) stays in clear, copied only when a boolean (absent otherwise), so the server builds PR pictures from a sealed card without opening it: a sealed card's PR pictures (the PR body and `pr open`'s per-platform picture gate) are its CLEAR `pictures` entries that carry an attachmentId, the label standing in for the caption (captions stay sealed: a PR body is a public export and never carries sealed text), none when the clear `story` is false. EVERYTHING else (question, options, plan, questions, picture captions/sizes, surface, summary, answers, title, caption, items, text, headSha...) exists only inside `sealed`, and the sealed JSON is the FULL card (the clear fields included). `splitCard(card)` = {clear, plaintext}; `card.splits` lists EVERY MessageCard kind (packages/db-schema domain.ts) with its clear part, its plaintext and its envelope. The plaintext's key order and whitespace are NOT part of the contract (readers parse it); the vectors are written with sorted keys and no whitespace so sorting serializers (serde_json, JSONSerialization .sortedKeys) reproduce `plaintext` and `envelope` byte-exact, and every platform must at least open every envelope to `card`. Answering re-seals the FULL card with the answers and sets the clear `decision` / `answered`. `openCard(card, keys)`: no `sealed` field = `plain` (the card as is); `sealed` not a string = `malformed`; otherwise the body statuses; `opened` = the sealed card with the clear fields (except the `pictures` projection: the sealed pictures stay whole, except that a sealed picture WITHOUT an attachmentId takes the attachmentId of the first clear entry with its label and, on a plan, every `](upload:<label>)` embed then points at `/api/attachments/<id>`; a sealed attachmentId is never replaced) laid OVER it (the server may update clear flags such as `decision: superseded` without re-sealing); a sealed card whose `kind` differs from the clear `kind`, or that is not a JSON object, = `refused`; any status but plain/opened returns the clear part alone (show the kind's locked placeholder). ESCALATED ASK (addendum 2026-10-30): an `ask` mirror stays clear `{kind: ask, sessionId, messageId}` (its routing); escalating a sealed card into another tree adds `sealedCard` = that card's envelope sealed to the TARGET tree (`sessions.escalateTarget` -> rootId, then `publicKeys`), opened with `openCard` under that tree's keys. SEALED TITLE: `sessions.sealed_title` = a body envelope; the plaintext `title` stays a neutral fallback. KEY API (tRPC `sessionKeys`, authed; the caller must own the `installId` it names, not revoked): `create {rootId, installId, epoch, publicKey, wraps:[{installId, wrapped}]}` (epoch 1 when the root has no key, or `seal_epoch + 1` by the root's starter or an install of the executing device; the caller's install must be a reader and must be among the wraps; every wrap targets a reader); `mine {installId, rootIds?}` -> [{rootId, epoch, wrapped}]; `pending {installId, limit<=200}` -> [{rootId, epoch, publicKey, targetInstallId, targetX25519Public}] = readers without a wrap for the current epoch on roots where installId holds the current epoch (and is still a reader); automatic, no approval; `wrap {installId, wraps:[{rootId, epoch, targetInstallId, wrapped}]}` only for pairs `pending` lists (a pair another holder wrapped meanwhile is skipped); `publicKeys {rootIds}` -> [{rootId, epoch, publicKey}] for keyed roots the caller may read or send to (keyless or invisible roots are omitted). VECTORS: `tree` (epoch 1) and `rotatedTree` (epoch 2) = fixed secrets and their public keys; `install` = an install's X25519 secret and public; `wrap` = wrapping `wrap.treeSecret` for `wrap.installPublic` with the fixed `wrap.ephemeralSecret` gives exactly `wrapped`, which unwraps with `install.secret`; `body` = sealing `body.text` with `body.ephemeralSecret` (test code only; production draws a fresh ephemeral per seal) gives exactly `body.envelope`; `card.splits` = per kind, `card` splits into `clear` + `plaintext` and seals (with `card.ephemeralSecret`, epoch 1) to exactly `envelope`; `bodyCases` / `cardCases` open with `keys` (epoch -> tree secret hex) to the given status, epoch and text / card. ANSWER CASES (`answerCases`, EXP-1486): which wire a person's `sessions.answer` takes is decided by the STORED card alone, never by whether the tree or this install has a key: a card WITHOUT `sealed` is answered in clear (answer / answers / decision / fresh / feedback as given), even inside a keyed tree (an older row: since #EDE-97 a keyed tree refuses plaintext cards); a card WITH `sealed` that this install opened is answered with `sealedCard` = the opened card answered (card-answer.ts `answeredCard`) and re-sealed to the tree's current key, beside only the clear `decision` / `fresh`; a sealed card this install cannot open (`noKey`, or no current key) is REFUSED locally, no request leaves (a plaintext answer would leak). Each case: `stored` (the card as synced: inline, or `split` = a `card.splits` name whose `envelope` it is), `keys` (`tree` = this install holds `tree`'s key and the tree's current key, `none` = no key at all), `input` (the answer as the card's UI builds it), `wire` (`clear` | `sealed` | `refused`); a `sealed` case lists `clear` (the sealedCard's clear fields) and `opened` (a subset of the opened answered card); `server` = the card the server stamps (card-answer.ts `answeredCard(stored, wire)`, a subset), every non-refused case is accepted. SEALED BY DEFAULT (#EDE-97, the `clearTree` section is its spec): every chat tree is sealed; the one exception is a tree an OUTSIDE MCP client started (`clearTree`).",
+  "$comment": "#EXP-1683 ATTACHMENT LINES: the server never appends to a sealed body, so the WRITER names a send's attachments inside the text before sealing (`withAttachmentEmbeds`, `attachmentEmbedCases`, the server's claimAttachments rule): one line per id (once each, in order) the text does not reference yet, a blank line apart, `![name](/api/attachments/<id>)` for an inline image type (`inlineImageTypes`, exact match) and `[name](/api/attachments/<id>)` for anything else, `[` and `]` dropped from the name. So a PDF in a sealed chat is a file row, never a broken image. An upload this process did not record is an image named `image` (the older clients' reading of a bare id). An attachment-only send has no text and is not sealed: the server writes its lines. EXP-1458 (design #EXP-1457): sealed session content, the ONE wire format every platform reads and writes. Replayed x4 through each platform's reference: TS packages/domain-contract/src/sealed-content.ts, Rust enet-core sealed.rs (exported as free functions by exponential-net-ffi, full AND push-only build, and by exponential-net-wasm), Swift + Kotlin through the UniFFI binding. PRIMITIVE: `push_seal(recipient_x25519_public, plaintext)` from enet-core push.rs, byte-exact (fixtures/push-seal.json); secrets are lowercase hex here, everything that travels (public keys, wrapped keys, envelopes) is base64url WITHOUT padding, canonical (a padded, non-alphabet or non-zero-trailing-bits encoding is malformed). TREE KEY: one X25519 keypair per session tree (root) and EPOCH (1-based, <= 2147483647). The ROOT row carries `sessions.seal_public_key` (base64url of 32 bytes, 43 chars) and `sessions.seal_epoch` (int, the current epoch); both NULL until a key exists. `session_keys(root_id, epoch, install_id, wrapped, created_by_install_id, created_at)`, unique (root_id, epoch, install_id): `wrapped` = base64url(push_seal(installs.x25519_public, tree_secret[32])) = 81 bytes. `generateTreeKey()` = 32 random secret bytes + their clamped X25519 public; `wrapTreeKey(installPublic, treeSecret)` / `unwrapTreeKey(installSecret, wrapped)` (fails unless it opens to exactly 32 bytes). READERS of a tree (the server computes them, tRPC sessionKeys): every non-revoked install of the root's starter (`sessions.user_id`) while a member of the root's team; every non-revoked install of every team member when the root is `shared`; the non-revoked installs bound (`installs.device_id`) to the HOST devices row (lib/sessions/host.ts: the starter's own row for the session's `device_id`, else the first row sharing the team) of ANY session in the tree, while its host is a member of the root's team or of that session's team (#EXP-1984: an Assistant's tree roots in its member's personal team, whose one member is its owner, and its children run in the teams of its scope, eagent tree.json `treeTeams`). Nothing else crosses teams. BODY ENVELOPE (`messages.body`, `sessions.sealed_title`, text): `exp-sealed:v1:<epoch>:<b64url push_seal(tree_public, utf8(text))>`. A body without the `exp-sealed:` prefix is plaintext and stays legal (server lines, older rows). Parse: after the prefix, the version runs to the next `:` (or the end); a version other than `v1` = `unsupported` (never an error, never shown as text); for v1 the epoch is decimal without leading zeros, 1..2147483647, then `:` and the payload, which must decode to at least the 49-byte seal overhead; anything else = `malformed`. Open (`openBody(body, keys by epoch)`) gives exactly one status: `plain` (text = the body), `opened` (epoch, text), `noKey` (epoch: this install holds no secret for that epoch yet: show a locked placeholder and wait for the wrap), `unsupported`, `malformed`, `refused` (epoch: the secret did not authenticate it, or the plaintext is not UTF-8). CARD ENVELOPE (`messages.card`, jsonb): `{...clear, \"sealed\": \"v1:<epoch>:<b64url push_seal(tree_public, utf8(JSON(full card)))>\"}` (the same sealed-value grammar as the body after its prefix). CLEAR fields (`cardClearFields`): `kind` plus only what routing needs: messageId, sessionId, issueId, pullRequestId, event, status, final, decision, fresh, answered, pictures, story; each is copied from the full card when set (null/absent = omitted) except `answered`, which is `true` when the card carries `answer` or `answers` (or `answered: true`) and absent otherwise, and `pictures` (addendum 2026-10-30: the attachments a card shows, so the server can claim them and build the PR's attachment list), which is PROJECTED: each entry becomes `{label, attachmentId}` with each only when a string (captions, sizes and everything else stay sealed), entries naming neither dropped, omitted when none is left. Addendum 4 (2026-10-30): an entry with a label and no attachmentId is a picture STILL TO UPLOAD: the server mints its upload (`exponential_show`'s curls) and, when it lands, files it on that CLEAR entry only (`{label, attachmentId}`), never touching `sealed`. Addendum 5 (2026-10-30): `story` (the older name of the results flag, false = chat only) stays in clear, copied only when a boolean (absent otherwise), so the server builds PR pictures from a sealed card without opening it: a sealed card's PR pictures (the PR body and `pr open`'s per-platform picture gate) are its CLEAR `pictures` entries that carry an attachmentId, the label standing in for the caption (captions stay sealed: a PR body is a public export and never carries sealed text), none when the clear `story` is false. EVERYTHING else (question, options, plan, questions, picture captions/sizes, surface, summary, answers, title, caption, items, text, headSha...) exists only inside `sealed`, and the sealed JSON is the FULL card (the clear fields included). `splitCard(card)` = {clear, plaintext}; `card.splits` lists EVERY MessageCard kind (packages/db-schema domain.ts) with its clear part, its plaintext and its envelope. The plaintext's key order and whitespace are NOT part of the contract (readers parse it); the vectors are written with sorted keys and no whitespace so sorting serializers (serde_json, JSONSerialization .sortedKeys) reproduce `plaintext` and `envelope` byte-exact, and every platform must at least open every envelope to `card`. Answering re-seals the FULL card with the answers and sets the clear `decision` / `answered`. `openCard(card, keys)`: no `sealed` field = `plain` (the card as is); `sealed` not a string = `malformed`; otherwise the body statuses; `opened` = the sealed card with the clear fields (except the `pictures` projection: the sealed pictures stay whole, except that a sealed picture WITHOUT an attachmentId takes the attachmentId of the first clear entry with its label and, on a plan, every `](upload:<label>)` embed then points at `/api/attachments/<id>`; a sealed attachmentId is never replaced) laid OVER it (the server may update clear flags such as `decision: superseded` without re-sealing); a sealed card whose `kind` differs from the clear `kind`, or that is not a JSON object, = `refused`; any status but plain/opened returns the clear part alone (show the kind's locked placeholder). ESCALATED ASK (addendum 2026-10-30): an `ask` mirror stays clear `{kind: ask, sessionId, messageId}` (its routing); escalating a sealed card into another tree adds `sealedCard` = that card's envelope sealed to the TARGET tree (`sessions.escalateTarget` -> rootId, then `publicKeys`), opened with `openCard` under that tree's keys. SEALED TITLE: `sessions.sealed_title` = a body envelope; the plaintext `title` stays a neutral fallback. KEY API (tRPC `sessionKeys`, authed; the caller must own the `installId` it names, not revoked): `create {rootId, installId, epoch, publicKey, wraps:[{installId, wrapped}]}` (epoch 1 when the root has no key, or `seal_epoch + 1` by the root's starter or an install of the executing device, and by any reader while the root is due for rotation (`rotation`); the caller's install must be a reader and must be among the wraps; every wrap targets a reader); `mine {installId, rootIds?}` -> [{rootId, epoch, wrapped}]; `pending {installId, limit<=200}` -> [{rootId, epoch, publicKey, targetInstallId, targetX25519Public}] = readers without a wrap for the current epoch on roots where installId holds the current epoch (and is still a reader); automatic, no approval; `wrap {installId, wraps:[{rootId, epoch, targetInstallId, wrapped}]}` only for pairs `pending` lists (a pair another holder wrapped meanwhile is skipped); `publicKeys {rootIds}` -> [{rootId, epoch, publicKey}] for keyed roots the caller may read or send to (keyless or invisible roots are omitted). `due {installId, limit<=200}` -> [{rootId, epoch}] = the roots a holder rotates (`rotation`). VECTORS: `tree` (epoch 1) and `rotatedTree` (epoch 2) = fixed secrets and their public keys; `install` = an install's X25519 secret and public; `wrap` = wrapping `wrap.treeSecret` for `wrap.installPublic` with the fixed `wrap.ephemeralSecret` gives exactly `wrapped`, which unwraps with `install.secret`; `body` = sealing `body.text` with `body.ephemeralSecret` (test code only; production draws a fresh ephemeral per seal) gives exactly `body.envelope`; `card.splits` = per kind, `card` splits into `clear` + `plaintext` and seals (with `card.ephemeralSecret`, epoch 1) to exactly `envelope`; `bodyCases` / `cardCases` open with `keys` (epoch -> tree secret hex) to the given status, epoch and text / card. ANSWER CASES (`answerCases`, EXP-1486): which wire a person's `sessions.answer` takes is decided by the STORED card alone, never by whether the tree or this install has a key: a card WITHOUT `sealed` is answered in clear (answer / answers / decision / fresh / feedback as given), even inside a keyed tree (an older row: since #EDE-97 a keyed tree refuses plaintext cards); a card WITH `sealed` that this install opened is answered with `sealedCard` = the opened card answered (card-answer.ts `answeredCard`) and re-sealed to the tree's current key, beside only the clear `decision` / `fresh`; a sealed card this install cannot open (`noKey`, or no current key) is REFUSED locally, no request leaves (a plaintext answer would leak). Each case: `stored` (the card as synced: inline, or `split` = a `card.splits` name whose `envelope` it is), `keys` (`tree` = this install holds `tree`'s key and the tree's current key, `none` = no key at all), `input` (the answer as the card's UI builds it), `wire` (`clear` | `sealed` | `refused`); a `sealed` case lists `clear` (the sealedCard's clear fields) and `opened` (a subset of the opened answered card); `server` = the card the server stamps (card-answer.ts `answeredCard(stored, wire)`, a subset), every non-refused case is accepted. SEALED BY DEFAULT (#EDE-97, the `clearTree` section is its spec): every chat tree is sealed; the one exception is a tree an OUTSIDE MCP client started (`clearTree`).",
   "cardClearFields": [
     "kind",
     "messageId",
@@ -2283,6 +2283,606 @@
         "stamps": "full",
         "landed": false,
         "code": "BAD_REQUEST"
+      }
+    ]
+  },
+  "rotation": {
+    "$comment": "ROTATION (#EXP-1951, on #FEED-177's path): a tree's key ROTATES when a reader is DROPPED, so what is sealed afterwards is closed to a reader that kept the old secret (a lost or sold device, a copied keyring file, a removed member). THE SERVER (`dropCases`, lib/sessions/tree-keys.ts `dropNonReaderKeysInTx`) never sees a secret and cannot rotate: in the SAME transaction as the drop it deletes every `session_keys` row of the affected trees whose install is no longer a reader (so `mine` has nothing to hand that install, and `pending`, readers only, never names it again) and, on each keyed root that lost a row, sets `sessions.seal_rotate_epoch` = its current `seal_epoch` (the root is DUE; `create` clears it). The affected trees are the ones in which the dropped installs hold a wrap (an install without a wrap never had the secret); a member with thousands of trees costs a fixed number of queries per 500 roots, never some per root. `event`: `installRevoked` (`installs.revoke`), `memberRemoved` / `memberLeft` (`teamMembers.remove`, by an owner or by the member; their shares of the team end with it), `accountDeleted` (`users.deleteAccount`, `admin.deleteUser`: the installs cascade away, the roots are flagged first), `deviceUnshared` (`devices.setShared`, a team owner's or an admin's `dropShare`, a cleared squat: the installs of that devices row stop reading as the executing device), `deviceRemoved` (`devices.remove`), `shareDropped` and `hostRemoved` (the same rules, named for their case), `treePrivate` (#FEED-177: `shared` true -> false). THE WORLD of `dropCases`: one team, its owner the `starter` (`starterPhone`), a member `mate` (`mateBrowser`) and a member `host` whose server machine is shared into the team (`hostDaemon`, bound to that devices row, and `hostPhone`); the starter's chat runs on the host's machine and every install holds epoch 1 of what it reads. `tree`: `shared` (read by all four) or `private` (read by `starterPhone` and, as the executing device, `hostDaemon`). `event` acts on: `installRevoked` the starter's phone; `memberRemoved` / `memberLeft` / `accountDeleted` the mate; `hostRemoved` the host leaving the team; `deviceUnshared` (by its owner) / `shareDropped` (by the team's owner) / `deviceRemoved` the host's machine. `drops` = whose wraps go (the others keep theirs), `due` = the root is flagged. What a dropped reader could ALREADY read stays readable to it (old epochs are never re-sealed). WHO ROTATES (`rotatorCases`, `sessionKeys.create {epoch: seal_epoch + 1}`): the root's starter or an install of the executing device, at any time; while the root is DUE, ANY reader (the next holder that is online: the starter may be the member who was removed, and a shared chat must not wait for one device). Never a non-reader (NOT_FOUND), and every wrap of a create names a CURRENT reader (`clearTree.wrapRefusal` otherwise). THE HOLDER x4 (`stepCases` + `answerCases` = the pure `rotationEpoch` and `rotationAfter`; `holderCases` = one holder pass against a server double): every holder pass is `mine`, then the rotations, then `pending`. A root is rotated when it is flagged at the epoch this install knows as current, this install HOLDS that epoch's secret, and the server did not refuse it this (root, epoch) before (`left`). The due roots come from the synced root rows on the desktop app and the CLI daemon (`seal_rotate_epoch`), and from `sessionKeys.due {installId, limit<=200}` -> [{rootId, epoch}] on web, iOS and Android (the flagged roots whose current epoch this install holds a wrap of and still reads). The rotation is `sessionKeys.create {epoch + 1}` with a FRESH key and ONE wrap, this install's own; the other CURRENT readers get theirs from `pending`, which the server computes from the readers, so the holder never wraps the new epoch for an install the reader list no longer names (it wraps exactly the pairs `pending` lists). The answer (`answerCases`, `failure` = `createFailure` of the create, null = created): `adopt` (hold the new secret, answer `pending` at once), `reread` (`stale`: another holder rotated first; `mine` for that root, theirs is current), `leave` (`notReader`, `refused`, `wrapRefused`, `clear`: not this install's to rotate; remembered for this (root, epoch), never asked again), `retry` (`transient`: the same root on the next pass). `holderCases`: the holder is `install` (`self`); `held` = the epochs it holds per root before the pass (`tree.secret` at 1, `rotatedTree.secret` at 2); `due` = what the server names as due (it stops naming a root once a create for it was accepted or answered CONFLICT); `create` = the server's answers to the creates, in order (`ok`, a tRPC code, `blip` = no answer; `ok` when the list is used up); `readers` = the installs `pending` names for the new epoch after an accepted create; `serves` = `foreign`: the double's `mine` ALSO hands out `foreignWrap`, a row wrapped for another install (a server that keeps serving a dropped install's rows): it does not open and is never held; on CONFLICT `mine` serves `rotatedWrap` (the other holder's key, `rotatedTree`, wrapped for `install`) at the next epoch; `passes` (default 1). Expected: `creates` (every create sent, `wraps` = the installs it wraps for), `wraps` (every pair sent to `sessionKeys.wrap`), `holds` (the epochs held after the last pass). OLDER BUILDS: a holder that cannot rotate leaves the flag to one that can and follows the new epoch like any reader (`mine`); writers keep sealing to the key the root row names. Calls refuse a root that is due (`sessions.sendTarget` `rotationDue`, #EXP-1941).",
+    "rotatedWrap": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11EqAfHsqTzuacwACYUlnIHNFzTEldiWHlql1GIrCONIS0FyO9DPwtwX1Z3TiAofndu",
+    "foreignWrap": "AdwsyjHo5Du9kd_35HXMozR-tHgQfVvXZaukrkoww11Ec-rzM7mW5j5jflC24xq_M2-lFDmzTHu_Bqce8SCaKymAS-s9xvf9y0f2QFF6iULY",
+    "dropCases": [
+      {
+        "name": "a revoked install loses its wraps; the chat is due",
+        "event": "installRevoked",
+        "tree": "shared",
+        "drops": [
+          "starterPhone"
+        ],
+        "due": true
+      },
+      {
+        "name": "a member removed from the team loses the team's shared chats",
+        "event": "memberRemoved",
+        "tree": "shared",
+        "drops": [
+          "mateBrowser"
+        ],
+        "due": true
+      },
+      {
+        "name": "a member who leaves: the same",
+        "event": "memberLeft",
+        "tree": "shared",
+        "drops": [
+          "mateBrowser"
+        ],
+        "due": true
+      },
+      {
+        "name": "a deleted account: its installs are gone and the chats they read are due",
+        "event": "accountDeleted",
+        "tree": "shared",
+        "drops": [
+          "mateBrowser"
+        ],
+        "due": true
+      },
+      {
+        "name": "a device unshared from the team stops reading the private chats it ran",
+        "event": "deviceUnshared",
+        "tree": "private",
+        "drops": [
+          "hostDaemon"
+        ],
+        "due": true
+      },
+      {
+        "name": "a team owner dropping the share: the same",
+        "event": "shareDropped",
+        "tree": "private",
+        "drops": [
+          "hostDaemon"
+        ],
+        "due": true
+      },
+      {
+        "name": "a removed device: the same",
+        "event": "deviceRemoved",
+        "tree": "private",
+        "drops": [
+          "hostDaemon"
+        ],
+        "due": true
+      },
+      {
+        "name": "a removed member who hosted the chat's device: their installs and the device's",
+        "event": "hostRemoved",
+        "tree": "private",
+        "drops": [
+          "hostDaemon"
+        ],
+        "due": true
+      },
+      {
+        "name": "unsharing a device whose owner still reads the shared chat drops nothing",
+        "event": "deviceUnshared",
+        "tree": "shared",
+        "drops": [],
+        "due": false
+      },
+      {
+        "name": "a chat turned private drops the teammates (#FEED-177)",
+        "event": "treePrivate",
+        "tree": "shared",
+        "drops": [
+          "mateBrowser",
+          "hostPhone"
+        ],
+        "due": true
+      }
+    ],
+    "rotatorCases": [
+      {
+        "name": "the starter rotates at any time",
+        "due": false,
+        "caller": "starter",
+        "allowed": true
+      },
+      {
+        "name": "the executing device rotates at any time",
+        "due": false,
+        "caller": "executing",
+        "allowed": true
+      },
+      {
+        "name": "another reader does not, while nothing is due",
+        "due": false,
+        "caller": "reader",
+        "allowed": false,
+        "code": "FORBIDDEN"
+      },
+      {
+        "name": "a due root: any reader rotates",
+        "due": true,
+        "caller": "reader",
+        "allowed": true
+      },
+      {
+        "name": "a due root: the dropped install never does",
+        "due": true,
+        "caller": "dropped",
+        "allowed": false,
+        "code": "FORBIDDEN"
+      },
+      {
+        "name": "a due root: a removed member's live install neither",
+        "due": true,
+        "caller": "removed",
+        "allowed": false,
+        "code": "NOT_FOUND"
+      }
+    ],
+    "stepCases": [
+      {
+        "name": "flagged at the current epoch, its secret held: the next epoch",
+        "flagged": 1,
+        "current": 1,
+        "held": true,
+        "left": false,
+        "epoch": 2
+      },
+      {
+        "name": "not flagged: nothing",
+        "flagged": null,
+        "current": 1,
+        "held": true,
+        "left": false,
+        "epoch": null
+      },
+      {
+        "name": "already past the flagged epoch (another holder rotated): nothing",
+        "flagged": 1,
+        "current": 2,
+        "held": true,
+        "left": false,
+        "epoch": null
+      },
+      {
+        "name": "the current secret is not held here: not this install's",
+        "flagged": 3,
+        "current": 3,
+        "held": false,
+        "left": false,
+        "epoch": null
+      },
+      {
+        "name": "the server refused this root and epoch before: never asked again",
+        "flagged": 1,
+        "current": 1,
+        "held": true,
+        "left": true,
+        "epoch": null
+      },
+      {
+        "name": "a keyless root has nothing to rotate",
+        "flagged": null,
+        "current": null,
+        "held": false,
+        "left": false,
+        "epoch": null
+      },
+      {
+        "name": "a later flag on a rotated tree rotates again",
+        "flagged": 4,
+        "current": 4,
+        "held": true,
+        "left": false,
+        "epoch": 5
+      }
+    ],
+    "answerCases": [
+      {
+        "name": "created: the new secret is held and pending answered",
+        "failure": null,
+        "then": "adopt"
+      },
+      {
+        "name": "another holder rotated first: its key is read",
+        "failure": "stale",
+        "then": "reread"
+      },
+      {
+        "name": "no longer a reader: left to the others",
+        "failure": "notReader",
+        "then": "leave"
+      },
+      {
+        "name": "not this install's to rotate: left to the others",
+        "failure": "refused",
+        "then": "leave"
+      },
+      {
+        "name": "a wrap refused: left to the others",
+        "failure": "wrapRefused",
+        "then": "leave"
+      },
+      {
+        "name": "a clear tree has no key",
+        "failure": "clear",
+        "then": "leave"
+      },
+      {
+        "name": "no answer: the next pass",
+        "failure": "transient",
+        "then": "retry"
+      }
+    ],
+    "holderCases": [
+      {
+        "name": "a due root: a fresh key at the next epoch with this install's own wrap; the readers get theirs through pending",
+        "held": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ]
+        },
+        "due": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 1
+          }
+        ],
+        "create": [
+          "ok"
+        ],
+        "readers": [
+          "mate"
+        ],
+        "creates": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "wraps": [
+              "self"
+            ]
+          }
+        ],
+        "wraps": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "to": "mate"
+          }
+        ],
+        "holds": {
+          "11111111-1111-4111-8111-111111111111": [
+            1,
+            2
+          ]
+        }
+      },
+      {
+        "name": "a server that keeps serving the dropped install's rows: the new epoch is wrapped for the listed readers only, never for it",
+        "held": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ]
+        },
+        "due": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 1
+          }
+        ],
+        "create": [
+          "ok"
+        ],
+        "readers": [
+          "mate",
+          "phone"
+        ],
+        "serves": "foreign",
+        "creates": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "wraps": [
+              "self"
+            ]
+          }
+        ],
+        "wraps": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "to": "mate"
+          },
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "to": "phone"
+          }
+        ],
+        "holds": {
+          "11111111-1111-4111-8111-111111111111": [
+            1,
+            2
+          ]
+        }
+      },
+      {
+        "name": "nothing due: no key is created",
+        "held": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ]
+        },
+        "due": [],
+        "create": [],
+        "readers": [],
+        "creates": [],
+        "wraps": [],
+        "holds": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ]
+        }
+      },
+      {
+        "name": "a due root whose current secret this install does not hold is not its to rotate",
+        "held": {},
+        "due": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 1
+          }
+        ],
+        "create": [],
+        "readers": [],
+        "creates": [],
+        "wraps": [],
+        "holds": {}
+      },
+      {
+        "name": "a root named due at an epoch this install is already past is left alone",
+        "held": {
+          "11111111-1111-4111-8111-111111111111": [
+            1,
+            2
+          ]
+        },
+        "due": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 1
+          }
+        ],
+        "create": [],
+        "readers": [],
+        "creates": [],
+        "wraps": [],
+        "holds": {
+          "11111111-1111-4111-8111-111111111111": [
+            1,
+            2
+          ]
+        }
+      },
+      {
+        "name": "CONFLICT: another holder rotated first; its key is read, ours is wrapped for nobody",
+        "held": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ]
+        },
+        "due": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 1
+          }
+        ],
+        "create": [
+          "CONFLICT"
+        ],
+        "readers": [
+          "mate"
+        ],
+        "creates": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "wraps": [
+              "self"
+            ]
+          }
+        ],
+        "wraps": [],
+        "holds": {
+          "11111111-1111-4111-8111-111111111111": [
+            1,
+            2
+          ]
+        }
+      },
+      {
+        "name": "FORBIDDEN: left to the holders that may, not asked again on the next pass",
+        "held": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ]
+        },
+        "due": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 1
+          }
+        ],
+        "create": [
+          "FORBIDDEN",
+          "FORBIDDEN"
+        ],
+        "readers": [],
+        "passes": 2,
+        "creates": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "wraps": [
+              "self"
+            ]
+          }
+        ],
+        "wraps": [],
+        "holds": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ]
+        }
+      },
+      {
+        "name": "NOT_FOUND (this install no longer reads the tree): the same",
+        "held": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ]
+        },
+        "due": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 1
+          }
+        ],
+        "create": [
+          "NOT_FOUND",
+          "NOT_FOUND"
+        ],
+        "readers": [],
+        "passes": 2,
+        "creates": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "wraps": [
+              "self"
+            ]
+          }
+        ],
+        "wraps": [],
+        "holds": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ]
+        }
+      },
+      {
+        "name": "no answer: the same root on the next pass",
+        "held": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ]
+        },
+        "due": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 1
+          }
+        ],
+        "create": [
+          "blip",
+          "ok"
+        ],
+        "readers": [
+          "mate"
+        ],
+        "passes": 2,
+        "creates": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "wraps": [
+              "self"
+            ]
+          },
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "wraps": [
+              "self"
+            ]
+          }
+        ],
+        "wraps": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "to": "mate"
+          }
+        ],
+        "holds": {
+          "11111111-1111-4111-8111-111111111111": [
+            1,
+            2
+          ]
+        }
+      },
+      {
+        "name": "two due roots rotate each on its own; one refusal does not stop the other",
+        "held": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ],
+          "22222222-2222-4222-8222-222222222222": [
+            1
+          ]
+        },
+        "due": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 1
+          },
+          {
+            "rootId": "22222222-2222-4222-8222-222222222222",
+            "epoch": 1
+          }
+        ],
+        "create": [
+          "FORBIDDEN",
+          "ok"
+        ],
+        "readers": [
+          "mate"
+        ],
+        "creates": [
+          {
+            "rootId": "11111111-1111-4111-8111-111111111111",
+            "epoch": 2,
+            "wraps": [
+              "self"
+            ]
+          },
+          {
+            "rootId": "22222222-2222-4222-8222-222222222222",
+            "epoch": 2,
+            "wraps": [
+              "self"
+            ]
+          }
+        ],
+        "wraps": [
+          {
+            "rootId": "22222222-2222-4222-8222-222222222222",
+            "epoch": 2,
+            "to": "mate"
+          }
+        ],
+        "holds": {
+          "11111111-1111-4111-8111-111111111111": [
+            1
+          ],
+          "22222222-2222-4222-8222-222222222222": [
+            1,
+            2
+          ]
+        }
       }
     ]
   }
