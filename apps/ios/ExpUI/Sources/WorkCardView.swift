@@ -441,7 +441,7 @@ public struct SessionCardView: View {
                 .stroke(bare ? Color.clear : GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel([card.name, kindWord ?? card.kindWord, card.caption ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
+        .accessibilityLabel([card.name, kindWord ?? card.kindWord, card.caption.map(ChatExpress.plainProse) ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityIdentifier(card.testId)
     }
 
@@ -450,7 +450,9 @@ public struct SessionCardView: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             row
-            if let caption = card.caption, !caption.isEmpty {
+            // #EXP-2076 (chat-express.json PROSE): a caption only READS its
+            // text: the pure prose, never a block.
+            if let caption = card.caption.map(ChatExpress.plainProse), !caption.isEmpty {
                 Text(caption)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .lineLimit(2)

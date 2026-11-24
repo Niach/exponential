@@ -18,6 +18,8 @@ data class SyncedTailMessage(
     val hasCard: Boolean = false,
     /** #EXP-2075: its OPENED card as THE `action` card ([steerTailActionCard]). */
     val action: ChatExpress.ActionCard? = null,
+    /** #EXP-2084: the session that posted it (a child's reply), when not the chat's own. */
+    val authorSessionId: String? = null,
 )
 
 /** Synthetic row ids of the synced tail: far above any feed id, stable per message. */
@@ -75,6 +77,7 @@ fun syncedTailItems(
             createdAtMs = m.createdAtMs,
             body = m.body,
             action = m.action,
+            authorSessionId = m.authorSessionId,
         )
     }
     return picked.map { m ->

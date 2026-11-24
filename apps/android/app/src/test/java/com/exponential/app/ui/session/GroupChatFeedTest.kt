@@ -122,6 +122,25 @@ class GroupChatFeedTest {
         assertEquals("plain", AgentFeedItem.UserMessage(id = 2, text = "plain", at = 5L).tailFeedRow()?.text)
     }
 
+    // #EXP-2084: the feed's own echo of a child's reply holds its synced
+    // row, even when the device's clock is behind the server's.
+    @Test
+    fun `a child's reply the feed holds as that session's input is not drawn twice`() {
+        fun reply(id: String, from: String, body: String) = SyncedTailMessage(
+            id, "agent", "2026-11-23T10:00:00.000Z", "2026-11-23T10:00:00.000Z", 2_000_000L, body, authorSessionId = from,
+        )
+        val feed = listOf(
+            AgentFeedItem.UserMessage(id = 1, text = "Message from Fix the login (session s-child): The PR is open.", at = 1_000L),
+            AgentFeedItem.Narration(id = 2, text = "Noted.", at = 1_000_000L),
+        )
+        val items = syncedTailItems(
+            feed,
+            live = false,
+            messages = listOf(reply("r1", "s-child", "The PR is open."), reply("r2", "s-child", "CI is green."), reply("r3", "s-other", "The PR is open.")),
+        ).map { (it as AgentFeedItem.Narration).messageId }
+        assertEquals(listOf("synced:r2", "synced:r3"), items)
+    }
+
     private fun bubble(key: String, authorId: String?) = MessageDelivery.Bubble(
         key = key, text = key, createdAt = "2026-11-23T10:00:00.000Z", state = MessageDelivery.State.Read,
         stored = true, clientId = null, messageId = key, authorId = authorId,

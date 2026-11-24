@@ -221,6 +221,22 @@ pub trait RunBackend: Send + Sync + 'static {
         Ok(())
     }
 
+    /// #EXP-2058: start the run's engine thread. A host's own never differs;
+    /// a test's fails it here, the one failure between [`Self::attach`] and
+    /// a running connection.
+    fn spawn_thread(
+        &self,
+        builder: std::thread::Builder,
+        body: Box<dyn FnOnce() + Send + 'static>,
+    ) -> std::io::Result<()> {
+        builder.spawn(body).map(drop)
+    }
+
+    /// #EXP-2058: stop what [`Self::attach`] started, for a run whose
+    /// engine thread never did: no connection, so no [`Self::end`] either.
+    /// Writes nothing anywhere: the caller gets the start's error.
+    fn detach(&self, _ctx: &SessionCtx) {}
+
     /// The end sequence, once the connection is gone. MUST finish
     /// [`SessionCtx::exit`] (what `wait()` and `is_done()` read).
     fn end(
@@ -1215,6 +1231,19 @@ pub struct SessionCtx {
     /// for the next input to the agent. Never on the wire, never in the
     /// transcript; gone with the run.
     pub(crate) turn_note: Mutex<Option<String>>,
+    /// #EXP-2085: what the host says once as this run starts
+    /// ([`SessionSpec::start_note`]): a feed notice for the person, and the
+    /// lead of the agent's first input.
+    pub(crate) start_note: Mutex<Option<String>>,
+    /// #EXP-2085: the agent's latest `background_tasks` list (the slot every
+    /// client's Queue draws). The agent going away ends them all: the slot
+    /// is closed then, and the list kept in [`Self::ended_background`].
+    pub(crate) background_list: Mutex<Vec<wire::BackgroundTask>>,
+    /// #EXP-2085: the background tasks this run's end took down with it.
+    pub(crate) ended_background: Mutex<Vec<wire::BackgroundTask>>,
+    /// #FEED-274: an interrupt the DEVICE sent (stall watchdog, quiet
+    /// guard) still owes the agent its line.
+    pub(crate) device_interrupt: Mutex<DeviceInterrupt>,
     /// FEED-25: the reason a watchdog ended this run, surfaced as
     /// `EnginePhase::Failed` ahead of `Ended` (the connection itself did not
     /// error, so nothing else would say why).
@@ -1228,7 +1257,85 @@ pub struct SessionCtx {
     pub child_exit: ChildExitLink,
 }
 
+/// #FEED-274: the CLI words EVERY interrupt as the user's ("The user doesn't
+/// want to proceed … STOP what you are doing and wait for the user"), so an
+/// agent the device interrupted believed a person had stopped it and halted
+/// ("I've stopped as you asked"). After such an interrupt's turn settles the
+/// host says who it was, as the agent's next input. Once per inbound
+/// message: a device interrupt that repeats with nothing new in between
+/// stays silent, so the line can never loop.
+#[derive(Debug, Default)]
+pub(crate) struct DeviceInterrupt {
+    /// The line owed once the interrupted turn has settled.
+    pending: Option<String>,
+    /// Said since the last inbound message.
+    told: bool,
+}
+
 impl SessionCtx {
+    /// #FEED-274: the device itself interrupts the running turn; `note` is
+    /// what the agent is told once that turn has settled.
+    pub fn device_interrupted(&self, note: String) {
+        let mut state = self.device_interrupt.lock().unwrap_or_else(|err| err.into_inner());
+        if !state.told {
+            state.pending = Some(note);
+        }
+    }
+
+    /// #FEED-274: an inbound message (a person's, a report, a wake) re-arms
+    /// the line; `drop_pending` = a person's Stop, which owes the agent
+    /// nothing about an older device interrupt.
+    fn device_interrupt_rearm(&self, drop_pending: bool) {
+        let mut state = self.device_interrupt.lock().unwrap_or_else(|err| err.into_inner());
+        state.told = false;
+        if drop_pending {
+            state.pending = None;
+        }
+    }
+
+    /// #FEED-274: the turn settled: the owed line goes to the agent as the
+    /// host's own prompt (it starts the turn that carries on).
+    fn tell_device_interrupt(&self) {
+        let note = {
+            let mut state = self.device_interrupt.lock().unwrap_or_else(|err| err.into_inner());
+            let note = state.pending.take();
+            state.told |= note.is_some();
+            note
+        };
+        if let (Some(note), Some(commands)) = (note, self.queue_commands.get()) {
+            log::info!("engine: session {} is told its turn was interrupted by the device", self.session_id);
+            let _ = commands.send(EngineCommand::HostSteer(note));
+        }
+    }
+
+    /// #EXP-2085: the background tasks the agent lists right now.
+    pub fn background_tasks(&self) -> Vec<wire::BackgroundTask> {
+        self.background_list.lock().unwrap_or_else(|err| err.into_inner()).clone()
+    }
+
+    /// #EXP-2085: the background tasks this run's end took down.
+    pub fn ended_background_tasks(&self) -> Vec<wire::BackgroundTask> {
+        self.ended_background.lock().unwrap_or_else(|err| err.into_inner()).clone()
+    }
+
+    /// #EXP-2085: the agent is gone and its background tasks with it: the
+    /// `background_tasks` slot closes on every viewer (an EMPTY list; the
+    /// relay's latest-wins slot kept the dead run's "1 to do" card for
+    /// hours), and what it listed is kept for the host to report.
+    pub(crate) fn end_background_tasks(&self) {
+        let ended = std::mem::take(&mut *self.background_list.lock().unwrap_or_else(|err| err.into_inner()));
+        self.background_tasks_live.store(false, Ordering::SeqCst);
+        if ended.is_empty() {
+            return;
+        }
+        *self.ended_background.lock().unwrap_or_else(|err| err.into_inner()) = ended;
+        let event = wire::ActivityEvent::background_tasks(Vec::new());
+        let mut out = MapOut::default();
+        out.local.push(LocalFeedEvent::Activity { event: event.clone(), tool_call_id: None });
+        out.wire.push(event);
+        self.deliver(out);
+    }
+
     /// #EXP-2069: the held turn note, taken (once) for the input `text` the
     /// agent is about to get. A `/` command keeps it for the next real
     /// input; a fresh context or a new conversation drops it (there is no
@@ -1662,10 +1769,15 @@ impl SessionCtx {
         // entry (shell, workflow, agent, other) keeps the run busy past its
         // turn end, not only a subagent.
         let tasks_listed = out.wire.iter().rev().find_map(|event| match event {
-            wire::ActivityEvent::BackgroundTasks { tasks, .. } => Some(!tasks.is_empty()),
+            wire::ActivityEvent::BackgroundTasks { tasks, .. } => Some(tasks),
             _ => None,
         });
-        if let Some(listed) = tasks_listed {
+        if let Some(tasks) = tasks_listed {
+            // #EXP-2085: kept, so the run's end can close the slot and name
+            // what it took down.
+            *self.background_list.lock().unwrap_or_else(|err| err.into_inner()) = tasks.clone();
+        }
+        if let Some(listed) = tasks_listed.map(|tasks| !tasks.is_empty()) {
             let was = self.background_tasks_live.swap(listed, Ordering::SeqCst);
             // The last one finished while the turn is already over: the
             // caption the idle edge kept for them goes now.
@@ -1718,6 +1830,8 @@ impl SessionCtx {
                 if !self.background_tasks_live.load(Ordering::SeqCst) {
                     self.caption_signal.set(None);
                 }
+                // #FEED-274: the turn the device interrupted has settled.
+                self.tell_device_interrupt();
             } else if self.caption_signal.get().as_deref() == Some(wire::activity::RESUMED_IDLE_CAPTION) {
                 // EXP-906: the first prompt after a resume — the run is no
                 // longer waiting (a workflow card re-sets the caption later
@@ -1969,6 +2083,15 @@ where
                         notify_ctx.record_session_ids();
                     }
                 }
+                // #FEED-274: the adapter interrupted the turn itself.
+                if let Some(note) = notification
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get(super::local::DEVICE_INTERRUPT_META_KEY))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    notify_ctx.device_interrupted(note.to_string());
+                }
                 // #FEED-273: the agent answers: what it was handed is read.
                 notify_ctx.agent_began();
                 let mut out = MapOut::default();
@@ -2218,6 +2341,17 @@ where
             // so a resumed run's inherited history would otherwise replay a
             // bar full of lines this engine never held.
             ctx.publish_queue();
+            // #EXP-2085: and the `background_tasks` slot of a RESUMED run,
+            // empty: the tasks its previous engine listed died with that
+            // engine, also when it never got to close the slot itself (a
+            // crash, a killed host). A fresh run inherits no slot.
+            if !ctx.replay && ctx.resume.is_some() {
+                let event = wire::ActivityEvent::background_tasks(Vec::new());
+                let mut out = MapOut::default();
+                out.local.push(LocalFeedEvent::Activity { event: event.clone(), tool_call_id: None });
+                out.wire.push(event);
+                ctx.dispatch(out);
+            }
             // EXP-906: a resumed run with no start prompt spawns its agent
             // only on the next message — say so on the synced row instead of
             // reading as a hung run in every list.
@@ -2243,6 +2377,14 @@ where
             // LAST turn answers, so a steered second prompt cannot end the
             // turn early. EXP-784: it also carries the turn-slot semaphore.
             let turns = Arc::new(TurnGate::new());
+            // #EXP-2085: what the host has to say about this start (a
+            // relaunch that ended background tasks): in the feed for the
+            // person, and (the turn note) ahead of the agent's first input.
+            let start_note = ctx.start_note.lock().unwrap_or_else(|err| err.into_inner()).take();
+            if let Some(note) = start_note {
+                ctx.notice(note.clone());
+                *ctx.turn_note.lock().unwrap_or_else(|err| err.into_inner()) = Some(note);
+            }
             if let Some(prompt) = ctx.prompt.clone() {
                 // EXP-825: a composer prompt may embed images (the shared
                 // steer message shape); the agent gets the localized
@@ -2306,8 +2448,9 @@ where
             });
             ctx.dispatch(out);
             // FEED-44: the agent is gone, and its background tasks with it
-            // — nothing may hold the run busy any more.
-            ctx.background_tasks_live.store(false, Ordering::SeqCst);
+            // — nothing may hold the run busy any more. #EXP-2085: and the
+            // slot that listed them closes on every viewer.
+            ctx.end_background_tasks();
             Ok(())
         })
         .await
@@ -2367,6 +2510,15 @@ fn handle_command(
     turns: &Arc<TurnGate>,
     command: EngineCommand,
 ) -> bool {
+    // #FEED-274: an inbound message re-arms the device-interrupt line.
+    match &command {
+        EngineCommand::Prompt(_)
+        | EngineCommand::Steer(_)
+        | EngineCommand::Deliver { .. }
+        | EngineCommand::Command { .. } => ctx.device_interrupt_rearm(false),
+        EngineCommand::Cancel => ctx.device_interrupt_rearm(true),
+        _ => {}
+    }
     match command {
         // EXP-825: a local composer message with image embeds is localized on
         // the spawned turn path (never a download inline in this loop) —

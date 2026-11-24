@@ -575,6 +575,47 @@ public enum SteerLostBanner {
     }
 }
 
+/// One viewer's drop (EXP-1487 LOST BANNER): when its joined feed dropped
+/// and how many redials since then failed. A successful join clears it.
+public struct SteerDrop: Equatable, Sendable {
+    /// When the feed dropped; nil = no drop pending.
+    public private(set) var since: Date?
+    public private(set) var failedRedials = 0
+
+    public init() {}
+
+    public var pending: Bool { since != nil }
+
+    /// A stale link's redial starts its drop (a pending one keeps its clock).
+    public mutating func begin(now: Date) {
+        guard since == nil else { return }
+        since = now
+        failedRedials = 0
+    }
+
+    /// The feed failed: the first failure after a join stamps the drop,
+    /// every later one is a failed redial. True = `SteerLostBanner.show`.
+    public mutating func failed(now: Date) -> Bool {
+        guard let since else {
+            begin(now: now)
+            return false
+        }
+        failedRedials += 1
+        return SteerLostBanner.show(
+            downMs: Int(now.timeIntervalSince(since) * 1000), failedRedials: failedRedials
+        )
+    }
+
+    /// A join, a shutdown, or NO FEED with no drop pending.
+    public mutating func clear() {
+        since = nil
+        failedRedials = 0
+    }
+
+    /// #EXP-2087: the banner's Reconnect is a FRESH dial (web `reconnect()`).
+    public mutating func reconnect() { clear() }
+}
+
 /// NO FEED, EMPTY TRANSCRIPT (EXP-1487, the fixture's `noFeed` cases +
 /// `noFeedIdle`): what a viewer with nothing to show says while NO FEED
 /// holds, keyed on the synced row. An ended row = the device-offline copy;
@@ -685,10 +726,13 @@ public enum SteerNoFeed {
         /// #EXP-2075: THE `action` card when it reads (opened; nil = none,
         /// another kind or locked; `hasCard` stays any card).
         public let action: ChatExpress.ActionCard?
+        /// #EXP-2084: the session that posted it (a child's reply), when not the chat's own.
+        public let authorSessionId: String?
 
         public init(
             id: String, authorKind: String, hasCard: Bool, consumedAt: String?, createdAt: String,
-            createdAtMs: Int?, body: String, authorId: String? = nil, action: ChatExpress.ActionCard? = nil
+            createdAtMs: Int?, body: String, authorId: String? = nil, action: ChatExpress.ActionCard? = nil,
+            authorSessionId: String? = nil
         ) {
             self.id = id
             self.authorKind = authorKind
@@ -699,6 +743,7 @@ public enum SteerNoFeed {
             self.body = body
             self.authorId = authorId
             self.action = action
+            self.authorSessionId = authorSessionId
         }
     }
 
@@ -768,13 +813,14 @@ public enum SteerNoFeed {
     /// non-blank body, the agent's or a person's CONSUMED input, later than
     /// the feed's newest known row time, not already held by the feed (an
     /// agent line equal to, a prefix of or prefixed by a narration; an input
-    /// equal to a feed input). #EXP-2075: a person's CONSUMED row with THE
-    /// `action` card is an input too, with or without a body; a feed input
-    /// that parses with `parseActionInput` is that press (its body the
-    /// parsed one; a bodiless press compared by its card). An empty feed
-    /// takes the tail only while its live transcript cannot be loaded
-    /// (`unreachable`, the OFFLINE LINE's condition) and only when it holds
-    /// an agent line.
+    /// equal to a feed input; #EXP-2084 another session's line the feed holds
+    /// as that session's input, whatever its time). #EXP-2075: a person's
+    /// CONSUMED row with THE `action` card is an input too, with or without
+    /// a body; a feed input that parses with `parseActionInput` is that press
+    /// (its body the parsed one; a bodiless press compared by its card). An
+    /// empty feed takes the tail only while its live transcript cannot be
+    /// loaded (`unreachable`, the OFFLINE LINE's condition) and only when it
+    /// holds an agent line.
     public static func syncedTail<T>(
         live: Bool, feed: [TailFeedRow], messages: [T], max: Int = syncedTailMax, unreachable: Bool = false,
         row: (T) -> TailMessage
@@ -787,8 +833,14 @@ public enum SteerNoFeed {
         let narrations = feed.filter { $0.author == "agent" && !($0.text ?? "").isEmpty }.map { trimmed($0.text ?? "") }
         var inputs = Set<String>()
         var presses: [ChatExpress.ActionCard] = []
+        // #EXP-2084: the inputs the device worded as another session's
+        // (`Message from <name> (session <id>): <body>`), by session and body.
+        var relays = Set<String>()
         for r in feed where r.author == "user" {
             guard let text = r.text, !text.isEmpty else { continue }
+            if let relay = TranscriptGrouping.crossSessionInput(text) {
+                relays.insert("\(relay.sessionId)\n\(trimmed(relay.body))")
+            }
             let action = ChatExpress.parseActionInput(text)
             let body = trimmed(action?.body ?? text)
             if !body.isEmpty {
@@ -810,6 +862,7 @@ public enum SteerNoFeed {
             } else {
                 switch m.authorKind {
                 case "agent":
+                    if let from = m.authorSessionId, !from.isEmpty, relays.contains("\(from)\n\(body)") { continue }
                     if narrations.contains(where: { !$0.isEmpty && ($0.hasPrefix(body) || body.hasPrefix($0)) }) { continue }
                 case "user":
                     if m.consumedAt == nil || inputs.contains(body) { continue }

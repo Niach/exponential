@@ -49,10 +49,12 @@ describe(`sessionCards`, () => {
 describe(`anchorSessionCards`, () => {
   for (const entry of fixture.anchorCases) {
     test(entry.name, () => {
-      const { anchors, unanchored } = anchorSessionCards(entry.feed, entry.cards as never)
-      expect({ anchors: Object.fromEntries([...anchors].map(([id, cards]) => [String(id), cards])), unanchored }).toEqual(
-        entry.expected
-      )
+      const { anchors, unanchored, tail } = anchorSessionCards(entry.feed, entry.cards as never)
+      expect({
+        anchors: Object.fromEntries([...anchors].map(([id, cards]) => [String(id), cards])),
+        unanchored,
+        tail,
+      }).toEqual(entry.expected)
     })
   }
 })

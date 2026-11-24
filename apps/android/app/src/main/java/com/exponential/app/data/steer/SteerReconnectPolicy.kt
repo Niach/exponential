@@ -203,6 +203,8 @@ data class SteerTailMessage(
     val body: String,
     /** #EXP-2075: the row's `action` card when it reads ([steerTailActionCard]); [hasCard] stays "any card". */
     val action: ChatExpress.ActionCard? = null,
+    /** #EXP-2084: the session that posted it (a child's reply), when not the chat's own. */
+    val authorSessionId: String? = null,
 )
 
 /** #EXP-2075: a stored card as THE `action` card when it reads (kind
@@ -220,12 +222,13 @@ private fun samePress(a: ChatExpress.ActionCard, b: ChatExpress.ActionCard): Boo
  * body, the agent's or a person's CONSUMED input, later than the feed's
  * newest known row time, not already held by the feed (an agent line equal
  * to, a prefix of or prefixed by a narration; an input equal to a feed
- * input). #EXP-2075: a person's CONSUMED row with THE `action` card is an
- * input too, with or without a body; a feed input that parses with
- * [ChatExpress.parseActionInput] is that press (its body the parsed one; a
- * bodiless press compared by its card). An empty feed takes the tail only
- * while its live transcript cannot be loaded ([unreachable], the OFFLINE
- * LINE's condition) and only when it holds an agent line.
+ * input; #EXP-2084 another session's line the feed holds as that session's
+ * input, whatever its time). #EXP-2075: a person's CONSUMED row with THE
+ * `action` card is an input too, with or without a body; a feed input that
+ * parses with [ChatExpress.parseActionInput] is that press (its body the
+ * parsed one; a bodiless press compared by its card). An empty feed takes the
+ * tail only while its live transcript cannot be loaded ([unreachable], the
+ * OFFLINE LINE's condition) and only when it holds an agent line.
  */
 fun <T> steerSyncedTail(
     live: Boolean,
@@ -242,8 +245,12 @@ fun <T> steerSyncedTail(
     val narrations = feed.filter { it.author == "agent" && !it.text.isNullOrEmpty() }.map { it.text!!.trim() }
     val inputs = HashSet<String>()
     val presses = ArrayList<ChatExpress.ActionCard>()
+    // #EXP-2084: the inputs the device worded as another session's
+    // (`Message from <name> (session <id>): <body>`), by session and body.
+    val relays = HashSet<String>()
     for (r in feed) {
         if (r.author != "user" || r.text.isNullOrEmpty()) continue
+        com.exponential.app.domain.TranscriptGrouping.crossSessionInput(r.text)?.let { relays += "${it.sessionId}\n${it.body.trim()}" }
         val action = ChatExpress.parseActionInput(r.text)
         val body = (action?.body ?: r.text).trim()
         if (body.isNotEmpty()) inputs += body else if (action != null) presses += action.card
@@ -258,8 +265,10 @@ fun <T> steerSyncedTail(
                 action != null && body.isEmpty() ->
                     if (m.consumedAt == null || presses.any { samePress(it, action) }) return@filter false
                 body.isEmpty() -> return@filter false
-                m.authorKind == "agent" ->
+                m.authorKind == "agent" -> {
+                    if (!m.authorSessionId.isNullOrEmpty() && "${m.authorSessionId}\n$body" in relays) return@filter false
                     if (narrations.any { it.isNotEmpty() && (it.startsWith(body) || body.startsWith(it)) }) return@filter false
+                }
                 m.authorKind == "user" -> if (m.consumedAt == null || body in inputs) return@filter false
                 else -> return@filter false
             }

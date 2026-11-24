@@ -30,6 +30,7 @@ import { generateTxId } from "@/lib/trpc"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 import { LIVE_PR_STATES } from "@/lib/pr-merge-guard"
 import { fireWatches } from "@/lib/sessions/watches"
+import { mergeOwnChecks } from "@/lib/ci/check-names"
 
 // EXP-1610 (fixtures/pr-checks.json): CI on a PR, provider-neutral. The ONE
 // writer of `pull_request_checks` + `pull_requests.checks_state`: GitHub's
@@ -576,7 +577,8 @@ export async function repairPullRequestChecks(
     const runs = await fetchGithubCheckRuns(row.fullName, opts.headSha || row.head, token)
     const headSha = runs?.headSha ?? opts.headSha ?? null
     // #EXP-1617: our own CI's checks are part of the snapshot (GitHub does
-    // not know them); a GitHub name wins a clash.
+    // not know them); a GitHub name wins a clash (so the checks we plan from
+    // a GitHub repo's workflows are named `ecode <job>`, #EXP-2078).
     const own =
       headSha && runs
         ? await import(`@/lib/ci/own-checks`)
@@ -584,7 +586,7 @@ export async function repairPullRequestChecks(
             .catch(() => [])
         : []
     if (runs && own.length > 0) {
-      runs.checks = [...runs.checks, ...own.filter((check) => !runs.checks.some((c) => c.name === check.name))]
+      runs.checks = mergeOwnChecks(runs.checks, own)
     }
     if (!runs || !headSha || runs.checks.length === 0) {
       lastUnknown.set(row.id, runs ? `no_runs` : checksDenied(token) ? `no_permission` : `unreadable`)

@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/waiting-cards.json" with { type: "json" }
-import { cardState, deepLinkStep, dismissedCard, sessionAnswerVerdict, waitingChips, waitingTarget } from "./waiting-cards"
+import { cardState, deepLinkStep, dismissedCard, expiredCards, sessionAnswerVerdict, waitingChips, waitingTarget } from "./waiting-cards"
 
 describe(`cardState`, () => {
   for (const entry of fixture.stateCases) {
@@ -16,6 +16,15 @@ describe(`dismissedCard`, () => {
   for (const entry of fixture.dismissCases) {
     test(entry.name, () => {
       expect(dismissedCard(entry.card)).toEqual(entry.expected)
+    })
+  }
+})
+
+// #FEED-299: EXPIRY.
+describe(`expiredCards`, () => {
+  for (const entry of fixture.expiryCases) {
+    test(entry.name, () => {
+      expect(expiredCards(entry.messages as never)).toEqual(entry.expected as never)
     })
   }
 })

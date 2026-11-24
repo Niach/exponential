@@ -201,7 +201,7 @@ class AskDockTest {
                 AskDock.SessionCard(
                     id = card.str("id")!!,
                     kind = AskDock.SessionCardKind.entries.first { it.wire == card.str("kind") },
-                    waiting = false,
+                    waiting = card["waiting"]?.jsonPrimitive?.boolean == true,
                 )
             }
             val anchors = AskDock.anchorSessionCards(calls, cards)
@@ -210,6 +210,7 @@ class AskDockTest {
                     for ((id, ids) in anchors.after) put(id.toString(), buildJsonArray { ids.forEach { add(JsonPrimitive(it)) } })
                 })
                 put("unanchored", buildJsonArray { anchors.unanchored.forEach { add(JsonPrimitive(it)) } })
+                put("tail", buildJsonArray { anchors.tail.forEach { add(JsonPrimitive(it)) } })
             }
             assertEquals(case.str("name"), case.getValue("expected"), actual)
         }

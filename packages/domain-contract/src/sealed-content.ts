@@ -594,6 +594,37 @@ export function keylessStep(
   }
 }
 
+// ── rotation (fixtures/sealed-content.json `rotation`, #EXP-1951) ───────────
+
+/** What a holder does with the answer of a rotation's `sessionKeys.create`. */
+export type RotationAfter = `adopt` | `reread` | `leave` | `retry`
+
+/** The epoch a holder creates for a root that is due (`stepCases`), null =
+ *  nothing to rotate here: `flagged` = the root's `seal_rotate_epoch`,
+ *  `current` = its `seal_epoch` as this install knows it, `held` = this
+ *  install holds the current epoch's secret, `left` = the server refused
+ *  this (root, epoch) before. */
+export function rotationEpoch(input: { flagged: number | null; current: number | null; held: boolean; left?: boolean }): number | null {
+  const { flagged, current } = input
+  if (flagged === null || current === null || current !== flagged) return null
+  if (!input.held || input.left || current >= SEAL_EPOCH_MAX) return null
+  return current + 1
+}
+
+/** `answerCases`: `failure` = `createFailure` of the rotation's create, null = created. */
+export function rotationAfter(failure: CreateFailure | null): RotationAfter {
+  switch (failure) {
+    case null:
+      return `adopt`
+    case `stale`:
+      return `reread`
+    case `transient`:
+      return `retry`
+    default:
+      return `leave`
+  }
+}
+
 // ── the locked state (fixtures/sealed-content.json `placeholder`) ───────────
 
 /** Why content stays locked here: `noKey` = waiting for a holder's wrap

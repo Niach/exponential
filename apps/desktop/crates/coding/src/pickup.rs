@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 use api::session_device;
 use api::ApiError;
 
-use crate::launcher::{PrepareRequest, Prepared, ResumeRun, SessionLaunchRequest};
+use crate::launcher::{DisabledReason, PrepareRequest, Prepared, ResumeRun, SessionLaunchRequest};
 use crate::run_registry::RunRecord;
 use domain::contract::{
     SESSION_STATUS_ENDED, SESSION_STATUS_IDLE, SESSION_STATUS_QUEUED,
@@ -1209,8 +1209,19 @@ fn awaits_key(message: &MessageRow) -> bool {
 /// The agent-facing copy of a sealed row ([`crate::sealing::open_message`]:
 /// locked content reads [`crate::sealing::LOCKED_TEXT`]); an opened
 /// question/plan card is remembered for its write-back.
+///
+/// #EXP-2086: a part that stayed shut for want of its key (`noKey`: a pass
+/// right after a daemon start runs before its key holder is up, a new
+/// tree's wrap lands moments later) marks the copy [`SealState::Locked`],
+/// so it waits like a row the desktop's store opened in place
+/// ([`awaits_key`]) and the placeholder is never handed on as the person's
+/// text. Each later pass opens it again (and, with a holder, pulls the
+/// tree's wraps).
 fn open_for_agent(message: &MessageRow) -> MessageRow {
-    let opened = crate::sealing::open_message(message);
+    let (mut opened, no_key) = crate::sealing::open_message_keyed(message);
+    if no_key {
+        opened.seal = Some(SealState::Locked);
+    }
     let was_sealed = message.card.as_ref().is_some_and(|card| card.get("sealed").is_some());
     if let (true, Some(card)) = (was_sealed, opened.card.as_ref()) {
         if card.get("sealed").is_none() && matches!(opened.card_kind(), Some("plan" | "question")) {
@@ -1407,6 +1418,14 @@ fn fetch_brief_waiting(
 ) -> Result<session_device::SessionBrief, ApiError> {
     let mut brief = session_device::brief(trpc, session_id)?;
     let root = || crate::sealing::root_of(session_id).unwrap_or_else(|| session_id.to_string());
+    // #EXP-2086: a pass right after a daemon start runs before its key
+    // holder is up; a COMING holder is waited for (bounded,
+    // `sealing::SERVICE_WAIT`) before anything sealed is opened, so the
+    // request never reads the placeholder for that reason.
+    let sealed_request = brief.sealed_text.as_deref().is_some_and(|t| t.starts_with(crate::sealing::SEALED_BODY_PREFIX));
+    if (sealed_request || brief.brief.contains(crate::sealing::SEALED_BODY_PREFIX)) && crate::sealing::service().is_none() {
+        let _ = crate::sealing::sealer();
+    }
     if brief.brief.contains(crate::sealing::SEALED_BODY_PREFIX) {
         brief.brief = open_embedded_bodies(&root(), &brief.brief);
     }
@@ -1657,6 +1676,11 @@ pub trait LiveEngine: Send + Sync {
     fn model(&self) -> Option<String> {
         None
     }
+    /// #EXP-2085: the background tasks (their descriptions) this run's END
+    /// took down: asked after a suspend, for [`relaunch_note`].
+    fn ended_background_tasks(&self) -> Vec<String> {
+        Vec::new()
+    }
     /// Wait up to `timeout` for the run to end; `true` = it did.
     fn wait_done(&self, timeout: std::time::Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
@@ -1682,10 +1706,11 @@ pub type LaunchFn = std::sync::Arc<
 #[derive(Default)]
 pub struct LiveRegistry {
     entries: std::sync::Mutex<HashMap<String, LiveEntry>>,
-    /// Sessions whose (re)launch was refused → the pending message ids at
-    /// the time, so a refused wake is not retried (and re-explained) every
-    /// pass; a NEW message tries again.
-    refused: std::sync::Mutex<HashMap<String, HashSet<String>>>,
+    /// Sessions whose wake was refused or failed → the pending message ids
+    /// at the time, so the same set is not retried (and re-explained) every
+    /// pass; a NEW message tries again at once, and (#EXP-2081) the same
+    /// set again on a backoff ([`Refusal`]).
+    refused: std::sync::Mutex<HashMap<String, Refusal>>,
     /// Rows this host claimed (or may have — a claim whose answer was lost)
     /// without an engine coming up yet, with the attempts so far: retried
     /// through [`LiveRegistry::retry_launches`] even once the row reads
@@ -1739,6 +1764,26 @@ struct ReviveState {
     /// #EXP-1492: attempts that found the claim held by another process
     /// here ([`LiveRegistry::hold_contended`]).
     contended: u32,
+}
+
+/// #EXP-2081: a wake that was refused or failed, kept per session while
+/// its messages wait: the pending ids it was tried with, the reason said in
+/// the conversation (the same one is not said again for the same set), and
+/// when the same set is tried again ([`refusal_backoff`]) with no new
+/// message: the cause may pass by itself (a key that can be minted again,
+/// a CLI that finished updating, the network).
+#[derive(Debug, Clone)]
+struct Refusal {
+    ids: HashSet<String>,
+    reason: String,
+    attempts: u32,
+    retry_at: std::time::Instant,
+}
+
+/// #EXP-2081: 30 s after the first refusal, doubling, at most 10 min.
+fn refusal_backoff(attempts: u32) -> std::time::Duration {
+    let doubled = 30u64.saturating_mul(1 << attempts.saturating_sub(1).min(8));
+    std::time::Duration::from_secs(doubled.min(600))
 }
 
 /// #EXP-1492: how long a revive/continuation whose claim another process
@@ -2240,18 +2285,47 @@ impl LiveRegistry {
         self.lock().get(session_id).map(|entry| entry.handed.clone()).unwrap_or_default()
     }
 
+    /// Whether a wake of `session_id` with `pending` waits: the same set
+    /// was refused (or failed) and its backoff has not run out. A set
+    /// holding a NEW message drops the memo: it is tried, and explained,
+    /// afresh.
     fn refused_before(&self, session_id: &str, pending: &[&MessageRow]) -> bool {
-        let refused = self.refused.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        refused
-            .get(session_id)
-            .is_some_and(|ids| pending.iter().all(|m| ids.contains(&m.id)))
+        let mut refused = locked(&self.refused);
+        let Some(refusal) = refused.get(session_id) else {
+            return false;
+        };
+        if !pending.iter().all(|m| refusal.ids.contains(&m.id)) {
+            refused.remove(session_id);
+            return false;
+        }
+        std::time::Instant::now() < refusal.retry_at
     }
 
-    fn note_refused(&self, session_id: &str, pending: &[&MessageRow]) {
-        self.refused
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(session_id.to_string(), pending.iter().map(|m| m.id.clone()).collect());
+    /// Remember a refused or failed wake of `pending` and when it is tried
+    /// again ([`refusal_backoff`], counted per unchanged set).
+    fn note_refused(&self, session_id: &str, pending: &[&MessageRow], reason: &str) {
+        let mut refused = locked(&self.refused);
+        let attempts = refused.get(session_id).map_or(0, |refusal| refusal.attempts) + 1;
+        refused.insert(
+            session_id.to_string(),
+            Refusal {
+                ids: pending.iter().map(|m| m.id.clone()).collect(),
+                reason: reason.to_string(),
+                attempts,
+                retry_at: std::time::Instant::now() + refusal_backoff(attempts),
+            },
+        );
+    }
+
+    /// #EXP-2081: `reason` was already said for the set now retried (a
+    /// backoff retry that ends the same way stays quiet).
+    fn refusal_said(&self, session_id: &str, reason: &str) -> bool {
+        locked(&self.refused).get(session_id).is_some_and(|refusal| refusal.reason == reason)
+    }
+
+    /// #EXP-2081: an engine came up: nothing is remembered as refused.
+    fn settle_refused(&self, session_id: &str) {
+        locked(&self.refused).remove(session_id);
     }
 
     /// Take the ids the pickup consumes itself out of `pending`: `owed`
@@ -2717,6 +2791,9 @@ pub enum WakeError {
     Contended,
     /// The wake failed (network, git, the launcher); the message says how.
     Other(String),
+    /// #EXP-2081: the same messages were refused (or failed) before and
+    /// wait out their backoff; the host keeps its retry timer running.
+    Backoff,
 }
 
 impl std::fmt::Display for WakeError {
@@ -2724,6 +2801,7 @@ impl std::fmt::Display for WakeError {
         match self {
             Self::Contended => write!(f, "the session is held by another process on this machine"),
             Self::Other(message) => f.write_str(message),
+            Self::Backoff => write!(f, "a refused wake waits to be tried again"),
         }
     }
 }
@@ -2863,7 +2941,7 @@ fn deliver(
         return Ok(covered);
     };
     if deps.live.refused_before(session_id, &pending) {
-        return Ok(Vec::new());
+        return Err(WakeError::Backoff);
     }
     let Some(claim) = ClaimLock::try_acquire(&deps.coding.data_dir, session_id)? else {
         log::debug!("pickup: session {session_id} runs in another process");
@@ -2953,23 +3031,22 @@ fn deliver(
     // its failure is a failed START — replied, the tried messages consumed,
     // the row idled, and the next message tries the launch again.
     let launching = req.resume.is_none();
-    let refused = |reason: String| {
-        refuse(persistent, session_id, &reason, true, deps);
-        deps.live.note_refused(session_id, &pending);
-        reason
-    };
     // #FEED-183: a resume the launcher failed (git, the worktree, the
     // engine) is said and shown as failed, never left plain idle.
+    // #EXP-2081: said once per pending set; its messages stay pending and
+    // the wake is tried again on a backoff.
     let failed = |reason: String| {
-        fail_wake(session_id, &reason, deps);
-        deps.live.note_refused(session_id, &pending);
+        if !deps.live.refusal_said(session_id, &reason) {
+            fail_wake(session_id, &reason, deps);
+        }
+        deps.live.note_refused(session_id, &pending, &reason);
         reason
     };
     match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
         Ok(Prepared::Ready(prepared)) => {
             let engine =
                 spawn(session_id, persistent, prepared, claim, true, honored, at_hand.then_some(&row), deps)
-                    .inspect_err(|_| deps.live.note_refused(session_id, &pending))?;
+                    .inspect_err(|reason| deps.live.note_refused(session_id, &pending, reason))?;
             let mut delivered = covered;
             let mut rest = pending.clone();
             if seeded {
@@ -2990,14 +3067,17 @@ fn deliver(
             delivered.extend(hand(&*engine, session_id, &rest, deps));
             Ok(delivered)
         }
-        Ok(Prepared::Disabled(reason)) => {
-            refused(reason.message());
-            Ok(Vec::new())
-        }
+        // #EXP-2081: a refusal that answers the messages for good took
+        // them with it (nothing to retry); one whose cause can pass by
+        // itself is an error to the host, whose timer brings the retry.
+        Ok(Prepared::Disabled(reason)) => match refuse_wake(persistent, session_id, &reason, &pending, deps) {
+            RefusedWake::Answered => Ok(Vec::new()),
+            RefusedWake::Retried(reason) => Err(WakeError::Other(reason)),
+        },
         Err(err) if launching => {
             let tried: Vec<String> = pending.iter().map(|m| m.id.clone()).collect();
             fail_start(session_id, &err.to_string(), &tried, deps);
-            deps.live.note_refused(session_id, &pending);
+            deps.live.note_refused(session_id, &pending, &err.to_string());
             Err(WakeError::Other(start_failure(&err.to_string())))
         }
         Err(err) => Err(failed(format!("Couldn't resume this session: {err}")).into()),
@@ -3796,6 +3876,8 @@ pub fn switch_session(
             "account switch for {session_id} refused: the session did not stop in time"
         )));
     }
+    // #EXP-2085: the suspend ended the agent's background tasks with it.
+    let start_note = relaunch_note(&engine.ended_background_tasks());
     // The old entry (and its claim lock) goes; the resume takes a fresh one.
     // What the old engine was handed stays handed — delivered once.
     deps.live.remove(session_id);
@@ -3817,11 +3899,6 @@ pub fn switch_session(
     // Consumed once this switch is through (or failed): never racing the
     // resume's own requests, never stranding an id marked consuming.
     let _settle = SettleOwed { deps, session_id, ids: covered };
-    let refused = |reason: &str| {
-        refuse(row.is_persistent(), session_id, reason, true, deps);
-        // Explained once: the same pending messages never re-post it.
-        deps.live.note_refused(session_id, &pending);
-    };
     let claim = ClaimLock::try_acquire(&deps.coding.data_dir, session_id)
         .map_err(failed)?
         .ok_or_else(|| failed(format!("session {session_id} is held by another process")))?;
@@ -3856,9 +3933,10 @@ pub fn switch_session(
     };
     let persistent = row.is_persistent();
     match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
-        Ok(Prepared::Ready(prepared)) => {
+        Ok(Prepared::Ready(mut prepared)) => {
+            prepared.start_note = start_note;
             let engine = spawn(session_id, persistent, prepared, claim, true, row_account, Some(&launch_row), deps)
-                .inspect_err(|_| deps.live.note_refused(session_id, &pending))
+                .inspect_err(|reason| deps.live.note_refused(session_id, &pending, reason))
                 .map_err(failed)?;
             if let Some(model) = model.filter(|model| Some(model) != row_model(row).as_ref()) {
                 keep_model(deps, session_id, model, prior.and_then(|prior| prior.model_reported));
@@ -3883,9 +3961,11 @@ pub fn switch_session(
             Ok(Switched::Moved)
         }
         Ok(Prepared::Disabled(reason)) => {
-            let reason = reason.message();
-            refused(&reason);
-            Ok(Switched::Refused(reason))
+            // Explained once: the same pending messages never re-post it
+            // (#EXP-2081: answered for good they are consumed, else the
+            // wake that follows retries them on a backoff).
+            refuse_wake(persistent, session_id, &reason, &pending, deps);
+            Ok(Switched::Refused(reason.message()))
         }
         // #FEED-183 (review): a resume the launcher failed is a failed wake
         // like any other (replied once, `start_failed`); the callers only
@@ -3893,10 +3973,38 @@ pub fn switch_session(
         Err(err) => {
             let reason = format!("Couldn't resume this session: {err}");
             fail_wake(session_id, &reason, deps);
-            deps.live.note_refused(session_id, &pending);
+            deps.live.note_refused(session_id, &pending, &reason);
             Err(failed(reason))
         }
     }
+}
+
+/// #EXP-2085: what a between-turn relaunch (changed options, picks or
+/// account: [`switch_session`]) says into the conversation when the agent it
+/// stopped was still running background tasks: they died with it, and
+/// neither the person nor the resumed agent could tell. `None` = none ran.
+/// Said once by the resumed engine: a notice in the feed, and the lead of
+/// the agent's next input.
+pub fn relaunch_note(ended: &[String]) -> Option<String> {
+    if ended.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = ended
+        .iter()
+        .map(|task| match task.trim() {
+            "" => "an unnamed task".to_string(),
+            name => format!("\u{201c}{name}\u{201d}"),
+        })
+        .collect();
+    let (count, them) = match names.len() {
+        1 => ("1 background task".to_string(), "it"),
+        n => (format!("{n} background tasks"), "them"),
+    };
+    Some(format!(
+        "Note from Exponential: this device restarted the agent between turns to apply changed settings. \
+         The restart ended {count}: {}. Nobody stopped {them} on purpose: start {them} again if still needed.",
+        names.join(", ")
+    ))
 }
 
 /// EXP-1281: a shown [`report_switching`] still owed its clear — and the
@@ -4137,12 +4245,16 @@ fn spawn(
             deps.live.set_running_account(session_id, running.clone());
             deps.live.set_options(session_id, options);
             report_running_account(deps, session_id, row_account.as_deref(), running.as_deref());
+            deps.live.settle_refused(session_id);
             Ok(engine)
         }
         Err(err) => {
             let reason = format!("Couldn't start this session: {err}");
             if waking {
-                fail_wake(session_id, &reason, deps);
+                // #EXP-2081: a backoff retry failing the same way stays quiet.
+                if !deps.live.refusal_said(session_id, &reason) {
+                    fail_wake(session_id, &reason, deps);
+                }
             } else {
                 refuse(persistent, session_id, &reason, waking, deps);
             }
@@ -4168,6 +4280,49 @@ fn refuse(persistent: bool, session_id: &str, reason: &str, waking: bool, deps: 
     if let Err(err) = settled {
         log::warn!("pickup: refused session {session_id} not reported: {err}");
     }
+}
+
+/// #EXP-2081: how a refused wake left its pending messages.
+enum RefusedWake {
+    /// The refusal answered them for good: consumed, nothing to retry.
+    Answered,
+    /// They stay pending; the wake is tried again on a backoff.
+    Retried(String),
+}
+
+/// #EXP-2081: a policy refusal of a WAKE ([`Prepared::Disabled`]) and what
+/// becomes of the pending messages it was tried with. The reason is said
+/// ([`refuse`]) once per pending set. A refusal the person has to act on
+/// ([`DisabledReason::passes_by_itself`] `false`) ANSWERED those messages:
+/// they are consumed like a failed start's ([`fail_start`]), so no client
+/// reads them "Sending" after the refusal reply, and the next message tries
+/// again. One whose cause can pass by itself keeps them pending and is
+/// tried again on a backoff ([`LiveRegistry::refused_before`]) with no new
+/// message; a retry that is refused the same way stays quiet.
+fn refuse_wake(
+    persistent: bool,
+    session_id: &str,
+    reason: &DisabledReason,
+    pending: &[&MessageRow],
+    deps: &PickupDeps,
+) -> RefusedWake {
+    let message = reason.message();
+    if !deps.live.refusal_said(session_id, &message) {
+        refuse(persistent, session_id, &message, true, deps);
+    }
+    deps.live.note_refused(session_id, pending, &message);
+    if reason.passes_by_itself() {
+        return RefusedWake::Retried(message);
+    }
+    let tried: Vec<String> =
+        pending.iter().filter(|m| locked(&deps.live.consuming).insert(m.id.clone())).map(|m| m.id.clone()).collect();
+    if !tried.is_empty() {
+        if let Err(err) = session_device::consume(&deps.coding.trpc, session_id, &tried) {
+            log::warn!("pickup: refused messages of session {session_id} not consumed yet: {err}");
+            consume_off_thread(deps, session_id, tried, || {});
+        }
+    }
+    RefusedWake::Answered
 }
 
 /// #FEED-183: a WAKE (a resume, a continuation, a relaunch of a woken row)
@@ -4752,6 +4907,69 @@ mod tests {
         let woke = Pass::new(vec![row], vec![unreadable]).run();
         let [PickupAction::Resume { messages, .. }] = woke.as_slice() else { panic!("{woke:?}") };
         assert_eq!(messages[0].body.as_deref(), Some(crate::sealing::LOCKED_TEXT));
+    }
+
+    /// #EXP-2086: the daemon plans over RAW sealed rows. A pass ~90 ms after
+    /// a daemon start ran before its key holder was up, opened nothing, and
+    /// handed the engine the locked placeholder as the member's message
+    /// (consumed with it). A row that stays shut for want of its KEY waits
+    /// instead, on a wake and on a live delivery alike, and the pass after
+    /// the holder registered hands on the real text.
+    #[test]
+    fn a_raw_sealed_message_waits_for_the_key_holder_never_the_placeholder() {
+        use crate::sealing::{self, test_support};
+        let _serial = test_support::serial();
+        let fake = test_support::install_fake();
+        let row = SessionRow { root_id: Some("sr".to_string()), ..session("sr", "idle", DEV, "2026-10-01T00:00:00Z") };
+        fake.keyring.note_sessions(std::slice::from_ref(&row));
+        let sealed = MessageRow {
+            body: Some(sealing::seal_body("sr", "Ship the fix").unwrap()),
+            ..message("mr", "sr", "2026-10-02T00:00:01Z")
+        };
+        // The daemon just started: no key holder yet.
+        sealing::uninstall();
+        let early = Pass::new(vec![row.clone()], vec![sealed.clone()]).run();
+        let early_live = Pass::new(vec![row.clone()], vec![sealed.clone()]).live("sr", LiveView::default()).run();
+        // The holder registers (it brings the install's keys).
+        sealing::install(fake.clone());
+        let woke = Pass::new(vec![row], vec![sealed]).run();
+        sealing::uninstall();
+        assert!(early.is_empty(), "held until the key holder is up: {early:?}");
+        assert!(early_live.is_empty(), "never delivered locked to a live engine either: {early_live:?}");
+        let [PickupAction::Resume { messages, .. }] = woke.as_slice() else { panic!("{woke:?}") };
+        assert_eq!(messages.iter().map(|m| m.body.as_deref()).collect::<Vec<_>>(), vec![Some("Ship the fix")]);
+    }
+
+    /// #EXP-2086: a wake that fetches its brief before the daemon's key
+    /// holder is up waits for the COMING holder (bounded), so a sealed
+    /// request opens instead of reading the locked placeholder.
+    #[test]
+    fn a_brief_fetched_before_the_key_holder_is_up_waits_for_it() {
+        use crate::sealing::{self, test_support};
+        let _serial = test_support::serial();
+        let fake = test_support::install_fake();
+        let row = SessionRow { root_id: Some("sb".to_string()), ..session("sb", "idle", DEV, "2026-10-01T00:00:00Z") };
+        fake.keyring.note_sessions(std::slice::from_ref(&row));
+        let envelope = sealing::seal_body("sb", "Align the sidebar").unwrap();
+        sealing::uninstall();
+        sealing::note_sessions(std::slice::from_ref(&row));
+        sealing::expect_service(true);
+        sealing::set_service_wait(std::time::Duration::from_secs(10));
+        let (base, _requests) = canned_server_recording(vec![(
+            200,
+            format!(r#"{{"result":{{"data":{{"brief":"Wait for the next message.","sealedText":"{envelope}","teamPrompt":null,"agentInstructions":null,"parentBranch":null}}}}}}"#),
+        )]);
+        let trpc = api::trpc::TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            sealing::install(fake);
+        });
+        let brief = fetch_brief(&trpc, "sb");
+        holder.join().unwrap();
+        sealing::uninstall();
+        sealing::expect_service(false);
+        sealing::set_service_wait(sealing::SERVICE_WAIT);
+        assert_eq!(brief.unwrap().brief, "## Request\n\nAlign the sidebar");
     }
 
     /// FEED-180: a SEALED message's attachments (clear `attachment_ids`, the
@@ -5650,6 +5868,9 @@ mod tests {
         done: AtomicBool,
         /// A turn in flight (`is_idle` = false).
         working: AtomicBool,
+        /// #EXP-2085: the background tasks the run lists; its end takes
+        /// them down.
+        background: Mutex<Vec<String>>,
         /// EXP-1334: live plan-mode switches, in order.
         plan_switches: Mutex<Vec<bool>>,
         /// EXP-1334: the run's current plan mode (`None` = unknown).
@@ -5679,6 +5900,12 @@ mod tests {
     }
 
     impl LiveEngine for FakeEngine {
+        fn ended_background_tasks(&self) -> Vec<String> {
+            match *self.killed.lock().unwrap() {
+                Some(_) => self.background.lock().unwrap().clone(),
+                None => Vec::new(),
+            }
+        }
         fn deliver(&self, message_id: String, text: String) {
             self.delivered.lock().unwrap().push((message_id, text));
         }
@@ -5898,6 +6125,8 @@ mod tests {
         session_id: String,
         prompt: Option<String>,
         seed_message_id: Option<String>,
+        /// #EXP-2085: the relaunch note the spawn carried.
+        start_note: Option<String>,
     }
 
     struct Host {
@@ -5939,6 +6168,7 @@ mod tests {
                 session_id: prepared.session_id.clone(),
                 prompt: prepared.acp.prompt.clone(),
                 seed_message_id: prepared.seed_message_id.clone(),
+                start_note: prepared.start_note.clone(),
             });
             Ok(Arc::clone(&launch_engine) as Arc<dyn LiveEngine>)
         });
@@ -6006,6 +6236,7 @@ mod tests {
                 session_id: "sess-1".to_string(),
                 prompt: Some("Review the login page.".to_string()),
                 seed_message_id: None,
+                start_note: None,
             }]
         );
         assert!(host.deps.live.contains_live("sess-1"));
@@ -6719,7 +6950,7 @@ mod tests {
         let spawned = host.spawned.lock().unwrap().clone();
         assert_eq!(
             spawned,
-            vec![Spawned { session_id: "agent-1".to_string(), prompt: None, seed_message_id: None }]
+            vec![Spawned { session_id: "agent-1".to_string(), prompt: None, seed_message_id: None, start_note: None }]
         );
         assert_eq!(
             procedures(&requests),
@@ -6830,8 +7061,10 @@ mod tests {
         let host = host(&base, &dir.0, |coding| coding.acp_available = false);
         crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
         let rows = vec![message("m1", "sess-1", "t")];
-        assert!(deliver_messages("sess-1", &rows, &host.deps).unwrap().is_empty());
-        assert!(deliver_messages("sess-1", &rows, &host.deps).unwrap().is_empty());
+        // #EXP-2081: a cause that can pass by itself is an error to the
+        // host (its timer retries); the same set then waits out its backoff.
+        assert!(matches!(deliver_messages("sess-1", &rows, &host.deps), Err(WakeError::Other(_))));
+        assert_eq!(deliver_messages("sess-1", &rows, &host.deps), Err(WakeError::Backoff));
         assert_eq!(
             procedures(&requests),
             vec!["sessions.brief", "sessions.reply", "sessions.report"]
@@ -7462,8 +7695,9 @@ mod tests {
         );
         let settled = requests.lock().unwrap()[4].clone();
         assert!(settled.ends_with(r#"{"sessionId":"sess-1","busy":false}"#), "{settled}");
-        // The wake the next pass plans for the same message stays quiet.
-        assert!(resume_session(&row, &pending, &host.deps).unwrap().is_empty());
+        // The wake the next pass plans for the same message stays quiet
+        // (#EXP-2081: it waits out its backoff).
+        assert_eq!(resume_session(&row, &pending, &host.deps), Err(WakeError::Backoff));
         assert_eq!(requests.lock().unwrap().len(), 5);
     }
 
@@ -7692,6 +7926,54 @@ mod tests {
         // The new engine honors the row: nothing more to do.
         let honored = host.deps.live.options("sess-1").expect("options");
         assert_eq!(options_delta(&row, &honored), OptionsDelta::default());
+    }
+
+    /// #EXP-2085 regression: a between-turn relaunch (here: a changed
+    /// effort) stopped the agent and its background shell with it, and said
+    /// nothing: the agent only noticed on a later turn, the person never.
+    /// The resumed run now carries the note naming what the restart ended;
+    /// a relaunch with nothing in the background carries none.
+    #[test]
+    fn a_relaunch_tells_the_conversation_which_background_tasks_it_ended() {
+        let relaunch = |name: &str, background: &[&str]| {
+            let dir = temp_dir(name);
+            let (base, _requests) = canned_server_recording(vec![
+                (200, BRIEF_OK.to_string()),
+                (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
+                (200, REPORT_OK.to_string()),
+            ]);
+            let host = host(&base, &dir.0, |_| {});
+            let mut low = record(&dir.0, "sess-1");
+            low.effort = "low".to_string();
+            crate::run_registry::record(&dir.0, low);
+            let launched = SessionRow {
+                effort: Some("low".to_string()),
+                updated_at: Some("u0".to_string()),
+                ..session("sess-1", "idle", DEV, "t")
+            };
+            let old = Arc::new(FakeEngine::default());
+            *old.background.lock().unwrap() = background.iter().map(|task| task.to_string()).collect();
+            host.deps.live.insert_for("sess-1", old.clone(), None, Some(String::new()));
+            host.deps.live.set_options("sess-1", Some(LaunchedOptions::of(&launched, Some(Vec::new()))));
+            let row = SessionRow { effort: Some("high".to_string()), ..launched.clone() };
+            let pending = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+            assert_eq!(switch_session(&row, "", None, &pending, &host.deps), Ok(Switched::Moved));
+            assert_eq!(*old.killed.lock().unwrap(), Some("suspended"));
+            let spawned = host.spawned.lock().unwrap().clone();
+            assert_eq!(spawned.len(), 1);
+            spawned[0].start_note.clone()
+        };
+        let note = relaunch("pickup-relaunch-note", &["Wait 420 seconds in the background"])
+            .expect("the relaunch says what it ended");
+        assert_eq!(
+            note,
+            "Note from Exponential: this device restarted the agent between turns to apply changed settings. \
+             The restart ended 1 background task: \u{201c}Wait 420 seconds in the background\u{201d}. \
+             Nobody stopped it on purpose: start it again if still needed."
+        );
+        assert_eq!(relaunch("pickup-relaunch-quiet", &[]), None, "nothing ran in the background");
+        let two = relaunch_note(&["bun dev".to_string(), " ".to_string()]).expect("a note");
+        assert!(two.contains("ended 2 background tasks: \u{201c}bun dev\u{201d}, an unnamed task. Nobody stopped them"), "{two}");
     }
 
     /// A cleared effort restarts on this machine's default, never on the
@@ -8159,9 +8441,123 @@ mod tests {
         // The memo the host keeps: refused for {m1}, a wake for {m1, m2} is
         // not "refused before" — the new message gets its attempt.
         let live = LiveRegistry::default();
-        live.note_refused("s1", &[&rows[2]]);
+        live.note_refused("s1", &[&rows[2]], "why");
         assert!(live.refused_before("s1", &[&rows[2]]));
         assert!(!live.refused_before("s1", &[&rows[2], &rows[0]]));
+    }
+
+    /// #EXP-2081: the backoff of a refused wake has run out.
+    fn expire_refusal_backoff(live: &LiveRegistry, session_id: &str) {
+        locked(&live.refused).get_mut(session_id).unwrap().retry_at = std::time::Instant::now();
+    }
+
+    /// #EXP-2081: a refusal the person has to act on (here: an agent's tree
+    /// with no team to scope its key to) ANSWERS the pending messages: they
+    /// are consumed after the refusal reply, like a failed start's, so no
+    /// client reads them "Sending" for ever. The next message tries again
+    /// and is answered (and consumed) in turn.
+    #[test]
+    fn a_wake_refused_for_good_consumes_the_messages_it_answered() {
+        let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
+        let dir = temp_dir("pickup-refused-for-good");
+        let (base, requests) = canned_server_recording(vec![
+            (200, BRIEF_OK.to_string()),
+            (200, REPLY_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+            (200, CONSUME_OK.to_string()),
+            (200, BRIEF_OK.to_string()),
+            (200, REPLY_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+            (200, CONSUME_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        let row = SessionRow { team_id: None, ..agent("agent-1", "idle") };
+        let rows = vec![message("m1", "agent-1", "2026-10-02T00:00:01Z")];
+        assert_eq!(resume_session(&row, &rows, &host.deps), Ok(Vec::new()));
+        assert_eq!(
+            procedures(&requests),
+            vec!["sessions.brief", "sessions.reply", "sessions.report", "sessions.consume"]
+        );
+        {
+            let requests = requests.lock().unwrap();
+            assert!(requests[1].contains("its team is unknown"), "{}", requests[1]);
+            assert!(requests[2].ends_with(r#"{"sessionId":"agent-1","status":"idle","busy":false,"deviceId":"dev-1"}"#), "{}", requests[2]);
+            assert!(requests[3].contains(r#""messageIds":["m1"]"#), "{}", requests[3]);
+        }
+        // A pass before the consume synced: nothing is tried or said again.
+        assert_eq!(resume_session(&row, &rows, &host.deps), Ok(Vec::new()));
+        assert_eq!(requests.lock().unwrap().len(), 4);
+        // The next message gets its own attempt, answer and consume.
+        let rows = vec![rows[0].clone(), message("m2", "agent-1", "2026-10-02T00:00:02Z")];
+        assert_eq!(resume_session(&row, &rows, &host.deps), Ok(Vec::new()));
+        assert_eq!(procedures(&requests)[4..], ["sessions.brief", "sessions.reply", "sessions.report", "sessions.consume"]);
+        let consumed = requests.lock().unwrap()[7].clone();
+        assert!(consumed.contains(r#""messageIds":["m2"]"#), "{consumed}");
+        assert!(host.spawned.lock().unwrap().is_empty());
+    }
+
+    /// #EXP-2081: a refusal whose cause can pass by itself (here: the
+    /// device cannot run the engine yet) keeps the messages pending, is
+    /// said ONCE, and is tried again on a backoff with NO new message: a
+    /// retry refused the same way stays quiet, and once the cause is gone
+    /// the same messages wake the session.
+    #[test]
+    fn a_wake_refused_for_a_passing_cause_is_retried_on_a_backoff_without_a_new_message() {
+        let _serial = crate::sealing::test_support::serial();
+        let _plain = crate::sealing::test_support::allow_plain();
+        let dir = temp_dir("pickup-refused-retry");
+        let (base, requests) = canned_server_recording(vec![
+            (200, BRIEF_OK.to_string()),
+            (200, REPLY_OK.to_string()),
+            (200, REPORT_OK.to_string()),
+            (200, BRIEF_OK.to_string()),
+        ]);
+        let not_ready = host(&base, &dir.0, |coding| coding.acp_available = false);
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let row = session("sess-1", "idle", DEV, "t");
+        let rows = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+        let refused = resume_session(&row, &rows, &not_ready.deps);
+        assert!(matches!(&refused, Err(WakeError::Other(reason)) if reason.contains("cannot run a session")), "{refused:?}");
+        // Said and idled; the messages stay pending (no consume).
+        assert_eq!(procedures(&requests), vec!["sessions.brief", "sessions.reply", "sessions.report"]);
+        // Inside the backoff nothing is tried.
+        let held = resume_session(&row, &rows, &not_ready.deps);
+        assert_eq!(held, Err(WakeError::Backoff));
+        assert_eq!(requests.lock().unwrap().len(), 3);
+        // The backoff ran out, the cause is still there: tried, not said again.
+        expire_refusal_backoff(&not_ready.deps.live, "sess-1");
+        assert!(resume_session(&row, &rows, &not_ready.deps).is_err());
+        assert_eq!(procedures(&requests), vec!["sessions.brief", "sessions.reply", "sessions.report", "sessions.brief"]);
+        assert!(resume_session(&row, &rows, &not_ready.deps).is_err(), "the second refusal backs off again, for longer");
+        assert_eq!(requests.lock().unwrap().len(), 4);
+        // The cause is gone (the same registry, a device that can run it).
+        let base = canned_server(vec![(200, BRIEF_OK.to_string()), (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
+        let mut ready = host(&base, &dir.0, |_| {});
+        ready.deps.live = Arc::clone(&not_ready.deps.live);
+        expire_refusal_backoff(&ready.deps.live, "sess-1");
+        assert_eq!(resume_session(&row, &rows, &ready.deps).unwrap(), vec!["m1"]);
+        assert_eq!(ready.spawned.lock().unwrap().len(), 1);
+        assert!(locked(&ready.deps.live.refused).is_empty(), "an engine came up: nothing is remembered");
+    }
+
+    /// #EXP-2081: the memo's schedule: 30 s, doubling, at most 10 min; the
+    /// same reason counts as said only while its memo stands.
+    #[test]
+    fn a_refused_set_backs_off_longer_each_time() {
+        let secs = |attempts| refusal_backoff(attempts).as_secs();
+        assert_eq!([secs(1), secs(2), secs(3), secs(5), secs(6), secs(40)], [30, 60, 120, 480, 600, 600]);
+        let live = LiveRegistry::default();
+        let m1 = message("m1", "s1", "t");
+        assert!(!live.refusal_said("s1", "why"));
+        live.note_refused("s1", &[&m1], "why");
+        live.note_refused("s1", &[&m1], "why");
+        assert_eq!(locked(&live.refused)["s1"].attempts, 2);
+        assert!(live.refusal_said("s1", "why") && !live.refusal_said("s1", "another reason"));
+        // A new message drops the memo: tried and explained afresh.
+        let m2 = message("m2", "s1", "t");
+        assert!(!live.refused_before("s1", &[&m1, &m2]));
+        assert!(!live.refusal_said("s1", "why"));
     }
 
     /// A reported value keeps the OLD value stale only until it is echoed

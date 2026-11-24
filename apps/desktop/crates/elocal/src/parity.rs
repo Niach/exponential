@@ -384,6 +384,26 @@ pub fn body_with_attachments(text: &str, ids: &[String], attachments: &[Row]) ->
     std::iter::once(text.to_string()).filter(|t| !t.is_empty()).chain(lines).collect::<Vec<_>>().join("\n\n")
 }
 
+/// #EXP-2067 (chat-express.json ACTIONS): a send's `actionCard` (a pressed
+/// surface's THE `action` card) is the message's card; anything else = none.
+fn action_card(input: &Row) -> Value {
+    match input.get("actionCard") {
+        Some(card) if card.get("kind").and_then(Value::as_str) == Some("action") && card.get("name").is_some_and(Value::is_string) => card.clone(),
+        _ => Value::Null,
+    }
+}
+
+/// #EXP-2067 (chat-express.json `inputCases`): what a person's row hands
+/// the agent: an action row = its `[action]` line then the body, any other
+/// its body.
+pub fn input_text(message: &Row) -> String {
+    let body = str_of(message, "body").unwrap_or("");
+    match message.get("card").filter(|card| card.get("kind").and_then(Value::as_str) == Some("action")).and_then(|card| serde_json::from_value::<domain::chat_express::ActionCard>(card.clone()).ok()) {
+        Some(card) => domain::chat_express::action_input(&card, body),
+        None => body.to_string(),
+    }
+}
+
 /// `sessions.send`: the rows written and the answer `(session_id, message_id)`.
 pub fn send_rows(input: &Row, ctx: &SendContext, next_id: &mut dyn FnMut() -> String) -> (Vec<(&'static str, Row)>, (String, String)) {
     let mut rows = Vec::new();
@@ -414,7 +434,7 @@ pub fn send_rows(input: &Row, ctx: &SendContext, next_id: &mut dyn FnMut() -> St
     rows.push(("messages", obj(json!({
         "id": message_id, "conversation_id": conversation_id, "root_id": session_id, "team_id": ctx.team_id,
         "author_kind": "user", "author_id": ctx.identity.user_id, "author_session_id": null,
-        "body": body_with_attachments(str_of(input, "text").unwrap_or(""), &attachment_ids, &ctx.attachments), "card": null,
+        "body": body_with_attachments(str_of(input, "text").unwrap_or(""), &attachment_ids, &ctx.attachments), "card": action_card(input),
         "attachment_ids": attachment_ids,
         "issue_brief": null, "answered_at": null, "delivered_at": null, "consumed_at": null, "created_at": ctx.now, "updated_at": ctx.now,
     }))));

@@ -7,6 +7,7 @@
 
 import fixture from "../fixtures/steer-enet.json" with { type: "json" }
 import { parseActionInput, type ActionCard } from "./chat-express"
+import { crossSessionInput } from "./transcript-grouping"
 
 export const STEER_ENET_TAG = fixture.tag
 export const STEER_ENET_VERSION = fixture.version
@@ -197,7 +198,11 @@ export const STEER_SYNCED_TAIL_MAX = fixture.syncedTailMax
 export type SteerTailFeedRow = { author: `agent` | `user` | null; text: string | null; at: string | null }
 
 /** One synced message of the session, as `steerSyncedTail` reads it. */
-export type SteerSyncedMessage = SteerNoFeedInputRow & { body: string }
+export type SteerSyncedMessage = SteerNoFeedInputRow & {
+  body: string
+  /** #EXP-2084: the session that posted it (a child's reply), when not the chat's own. */
+  authorSessionId?: string | null
+}
 
 /** #EXP-2075: the row's `action` card when it reads (a name and a
  *  surfaceId), as `parseActionInput` shapes a feed input's. */
@@ -239,11 +244,13 @@ function epochMs(iso: string | null): number | null {
  * newest [max]: card-less with a non-blank body, the agent's or a person's
  * CONSUMED input, later than the feed's newest known row time, and not
  * already held by the feed (an agent line equal to, a prefix of or prefixed
- * by a narration; an input equal to a feed input). #EXP-2075: a person's
- * CONSUMED row with THE `action` card is an input too, with or without a
- * body; a feed input that parses with `parseActionInput` is that press (its
- * body the parsed one; a bodiless press compared by its card). An empty feed takes the
- * tail only while its live transcript cannot be loaded (`unreachable`, the
+ * by a narration; an input equal to a feed input; #EXP-2084 another
+ * session's line the feed holds as that session's input, whatever its time).
+ * #EXP-2075: a person's CONSUMED row with THE `action` card is an input too,
+ * with or without a body; a feed input that parses with `parseActionInput`
+ * is that press (its body the parsed one; a bodiless press compared by its
+ * card). An empty feed takes the tail only while its live transcript cannot
+ * be loaded (`unreachable`, the
  * OFFLINE LINE's condition) and only when it holds an agent line (else
  * SENT INPUTS keeps the placeholder). A live feed = none.
  */
@@ -267,8 +274,13 @@ export function steerSyncedTail<T extends SteerSyncedMessage>(input: {
   const narrations = input.feed.filter((row) => row.author === `agent` && row.text).map((row) => (row.text ?? ``).trim())
   const inputs = new Set<string>()
   const presses: ActionCard[] = []
+  // #EXP-2084: the inputs the device worded as another session's
+  // (`Message from <name> (session <id>): <body>`), by session and body.
+  const relays = new Set<string>()
   for (const row of input.feed) {
     if (row.author !== `user` || !row.text) continue
+    const relay = crossSessionInput(row.text)
+    if (relay) relays.add(`${relay.sessionId}\n${relay.body.trim()}`)
     const action = parseActionInput(row.text)
     const body = (action ? action.body : row.text).trim()
     if (body !== ``) inputs.add(body)
@@ -285,6 +297,7 @@ export function steerSyncedTail<T extends SteerSyncedMessage>(input: {
       } else if (body === ``) {
         return false
       } else if (m.authorKind === `agent`) {
+        if (m.authorSessionId && relays.has(`${m.authorSessionId}\n${body}`)) return false
         if (narrations.some((text) => text !== `` && (text.startsWith(body) || body.startsWith(text)))) return false
       } else if (m.authorKind === `user`) {
         if (m.consumedAt === null || inputs.has(body)) return false

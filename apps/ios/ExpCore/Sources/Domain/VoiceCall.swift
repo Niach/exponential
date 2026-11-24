@@ -641,7 +641,9 @@ public enum VoiceCall {
                     .replacingOccurrences(of: "{text}", with: quoted(trimmed(text)))
             )
         case let .replyStarted(text):
-            return ringing ? state : at(.speaking, trimmed(text))
+            // #EXP-2076 (chat-express.json PROSE): the caption only READS the
+            // reply: its pure prose, never an Express block's raw.
+            return ringing ? state : at(.speaking, trimmed(ChatExpress.plainProse(text)))
         case .replyFinished:
             return state.phase == .speaking ? at(.listening, "") : state
         case .mute:

@@ -15,7 +15,9 @@
 //! ChaCha20-Poly1305) for the push relay's `/push` API, and [`sealed`]:
 //! session content sealed to a tree key over the same primitive (EXP-1458),
 //! and [`call_seal`]: a Voice call's audio and events sealed between two
-//! holders of a chat's tree secret (EXP-1941).
+//! holders of a chat's tree secret (EXP-1941). With `node`, [`wrap_sig`]: a
+//! tree key wrap signed by the install that made it (EXP-1950; ed25519 is
+//! the identity's, so it needs iroh).
 //!
 //! Every connection is QUIC/TLS 1.3 authenticated by the peers' ed25519 keys;
 //! a relay only ever forwards ciphertext between endpoint ids. Incoming
@@ -53,6 +55,8 @@ mod records;
 mod ticket;
 #[cfg(feature = "node")]
 mod util;
+#[cfg(feature = "node")]
+pub mod wrap_sig;
 
 #[cfg(feature = "node")]
 pub use access::Access;
@@ -68,7 +72,7 @@ pub use error::{NetError, Result};
 #[cfg(feature = "node")]
 pub use event::{CallEndReason, Event};
 #[cfg(feature = "node")]
-pub use identity::Identity;
+pub use identity::{verify_endpoint_signature, Identity};
 #[cfg(feature = "node")]
 pub use links::PathKind;
 #[cfg(feature = "node")]

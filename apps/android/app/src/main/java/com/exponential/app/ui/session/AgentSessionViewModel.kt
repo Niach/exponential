@@ -1133,6 +1133,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                     authorId = row.authorId,
                     hasCard = card != null || (opened.cardJson != null && opened.cardJson != "null"),
                     action = if (opened.locked == null) com.exponential.app.data.steer.steerTailActionCard(card) else null,
+                    authorSessionId = row.authorSessionId,
                 )
             }
         }.flatMapLatest { (more, messages) ->

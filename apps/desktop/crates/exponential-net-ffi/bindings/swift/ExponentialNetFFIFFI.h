@@ -630,9 +630,39 @@ RustBuffer uniffi_exponential_net_ffi_fn_func_generate_identity(RustCallStatus *
 RustBuffer uniffi_exponential_net_ffi_fn_func_identity_sign(RustBuffer identity, RustBuffer message, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_IDENTITY_VERIFY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_IDENTITY_VERIFY
+int8_t uniffi_exponential_net_ffi_fn_func_identity_verify(RustBuffer endpoint_id, RustBuffer message, RustBuffer signature, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PARSE_TICKET
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PARSE_TICKET
 RustBuffer uniffi_exponential_net_ffi_fn_func_parse_ticket(RustBuffer ticket, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_ACCEPT_VOUCH
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_ACCEPT_VOUCH
+RustBuffer uniffi_exponential_net_ffi_fn_func_accept_vouch(RustBuffer statement, RustBuffer signature, RustBuffer signer_endpoint_id, RustBuffer pins, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_ACCEPT_WRAP
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_ACCEPT_WRAP
+RustBuffer uniffi_exponential_net_ffi_fn_func_accept_wrap(RustBuffer wrap, RustBuffer identity, RustBuffer install_secret, RustBuffer pins, int8_t required, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_SIGN_WRAP
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_SIGN_WRAP
+RustBuffer uniffi_exponential_net_ffi_fn_func_sign_wrap(RustBuffer identity, RustBuffer statement, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_VERIFY_WRAP_SIGNATURE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_VERIFY_WRAP_SIGNATURE
+int8_t uniffi_exponential_net_ffi_fn_func_verify_wrap_signature(RustBuffer statement, RustBuffer signature, RustBuffer signer_endpoint_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_WRAP_SIGNATURE_MESSAGE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_WRAP_SIGNATURE_MESSAGE
+RustBuffer uniffi_exponential_net_ffi_fn_func_wrap_signature_message(RustBuffer statement, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_FFI_EXPONENTIAL_NET_FFI_RUSTBUFFER_ALLOC
@@ -997,9 +1027,45 @@ uint16_t uniffi_exponential_net_ffi_checksum_func_identity_sign(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_IDENTITY_VERIFY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_IDENTITY_VERIFY
+uint16_t uniffi_exponential_net_ffi_checksum_func_identity_verify(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PARSE_TICKET
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_PARSE_TICKET
 uint16_t uniffi_exponential_net_ffi_checksum_func_parse_ticket(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ACCEPT_VOUCH
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ACCEPT_VOUCH
+uint16_t uniffi_exponential_net_ffi_checksum_func_accept_vouch(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ACCEPT_WRAP
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_ACCEPT_WRAP
+uint16_t uniffi_exponential_net_ffi_checksum_func_accept_wrap(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_SIGN_WRAP
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_SIGN_WRAP
+uint16_t uniffi_exponential_net_ffi_checksum_func_sign_wrap(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_VERIFY_WRAP_SIGNATURE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_VERIFY_WRAP_SIGNATURE
+uint16_t uniffi_exponential_net_ffi_checksum_func_verify_wrap_signature(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_WRAP_SIGNATURE_MESSAGE
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_WRAP_SIGNATURE_MESSAGE
+uint16_t uniffi_exponential_net_ffi_checksum_func_wrap_signature_message(void
     
 );
 #endif
