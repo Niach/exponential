@@ -117,6 +117,11 @@ pub struct CallConstants {
     /// EXP-1858: a server's speech worker exits after this long without a
     /// call (its GPU memory is free while idle; a ring loads it again).
     pub server_idle_ms: u64,
+    /// EXP-1859: a turn call not connected (`call_ready`) after this long
+    /// becomes the local turn on the caller.
+    pub turn_dial_ms: u64,
+    /// EXP-1859: a turn call hangs up when no reply started this long after its send.
+    pub turn_reply_wait_ms: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]

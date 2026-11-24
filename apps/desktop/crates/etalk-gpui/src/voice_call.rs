@@ -664,7 +664,7 @@ impl VoiceCall {
                         host.flush();
                     }
                 }
-                HostEffect::Listen { id, language, remote, ring_ms } => {
+                HostEffect::Listen { id, language, remote, ring_ms, .. } => {
                     if let Some(client) = client.as_ref() {
                         client.call(id, language, remote, ring_ms);
                     }
@@ -838,6 +838,7 @@ impl VoiceCall {
             session: None,
             // FEED-276: `ready` waits for the agent's own voice.
             voice: crate::speak_replies::clip_of(&agent_id, cx),
+            turn: None,
         };
         if let Some(active) = self.active.as_mut() {
             active.call = Some(CallHost::new(start));
@@ -1500,6 +1501,7 @@ fn ring_for_test(agent_id: &str, cx: &mut App) -> String {
             fallback: false,
             session: None,
             voice: CallVoice::None,
+            turn: None,
         };
         if let Some(active) = this.active.as_mut() {
             active.call = Some(CallHost::new(start));
@@ -2290,7 +2292,7 @@ mod tests {
                         HostEffect::Event { event } => link.push(format!("event {event}")),
                         HostEffect::Flush => link.push("flush".to_string()),
                         HostEffect::End => link.push("end".to_string()),
-                        HostEffect::Listen { id, language, remote, ring_ms } => worker.push(etalk::Request::Call { id: own_id(id), language, remote, ring_ms }),
+                        HostEffect::Listen { id, language, remote, ring_ms, .. } => worker.push(etalk::Request::Call { id: own_id(id), language, remote, ring_ms }),
                         HostEffect::Mute { id, muted } => worker.push(etalk::Request::CallMute { id: own_id(id), muted }),
                         HostEffect::Speak { id, text } => worker.push(etalk::Request::Speak { id: own_id(id), text }),
                         HostEffect::Stop => worker.push(etalk::Request::Stop),

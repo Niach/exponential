@@ -566,6 +566,7 @@ impl Host {
             fallback: false,
             session: answered.session,
             voice: etalk::call::CallVoice::None,
+            turn: None,
         });
         log::info!("[voice] call {}: answered for agent {} ({language})", answered.call_id, answered.agent.id);
         self.call = Some(Call {
