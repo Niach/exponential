@@ -813,5 +813,6 @@ fn a_start_on_an_exhausted_login_walls_the_run() {
         limits.iter().any(|slot| slot["message"] == "You've hit your weekly limit · resets 8pm (Europe/Berlin)"),
         "{limits:?}"
     );
-    assert!(events_of(&harness.sink, "narration").is_empty(), "the notice is state, never prose");
+    let prose = events_of(&harness.sink, "narration");
+    assert!(prose.is_empty(), "the notice is state, never prose: {prose:?} / {:?}", harness.sink.snapshot().iter().filter_map(|e| serde_json::to_value(e).ok()).map(|e| e.to_string()).collect::<Vec<_>>());
 }
