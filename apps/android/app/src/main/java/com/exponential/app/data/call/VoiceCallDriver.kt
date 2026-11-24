@@ -122,6 +122,76 @@ class VoiceCallDriver(private val platform: CallPlatform, private val scope: Cor
     @Volatile private var alive = false
     @Volatile private var heardAt = 0L
 
+    // #FEED-268: the call's log lines (logcat tag `VoiceCall`): its id, the
+    // stages it passed, counts and the reason it ended. Never a word of the
+    // call, never a name.
+    private var startedAt = 0L
+    private var answered = false
+    @Volatile private var logId: String? = null
+    @Volatile private var upFrames = 0L
+    @Volatile private var downFrames = 0L
+    @Volatile private var lastDownAt = 0L
+
+    private fun say(message: String) = platform.log("call ${logId ?: "(no id yet)"}: $message")
+
+    private fun sinceStart(): Long = platform.nowMs() - startedAt
+
+    /** What an input is in the log (null = not a line: captions, beats, mute, speaker). */
+    private fun logged(input: Input): String? = when (input) {
+        is Input.Start -> "started (fallback ${input.fallback})"
+        is Input.Held -> if (input.ok) "the microphone is held" else "the microphone was refused (${input.code ?: "dropped"})"
+        is Input.Ticket -> null
+        is Input.Refused -> "startCall refused: ${input.message}"
+        is Input.Received -> when (val frame = input.frame) {
+            Frame.Ready -> "call_ready: the host joined after ${sinceStart()} ms"
+            is Frame.End -> "call_end from the other side (reason ${frame.reason ?: "none: it hung up"})"
+            is Frame.Error -> "the relay refused the call (${frame.code})"
+            is Frame.Bye -> "bye from the relay (${frame.outcome})"
+            is Frame.HostEvent -> when (val event = frame.event) {
+                VoiceCall.Event.Rang -> "the host rang"
+                VoiceCall.Event.Ready -> "the host's voice is ready"
+                VoiceCall.Event.NoSound -> "the host hears no sound from this microphone"
+                is VoiceCall.Event.Failed -> "the host failed the call (${event.code})"
+                VoiceCall.Event.End, is VoiceCall.Event.HungUp -> "the host ended the call"
+                else -> null
+            }
+            else -> null
+        }
+        Input.Closed -> "the socket closed without call_end"
+        is Input.Failed -> "failed on this phone (${input.code})"
+        Input.RingTimeout -> "the longest ring passed"
+        Input.End -> "End call here (or the account changed)"
+        else -> null
+    }
+
+    /** One step's lines: what happened, the answer, and ONE line for the end. */
+    private fun log(input: Input, before: VoiceCall.Caller.State, stepped: VoiceCall.Caller.Stepped) {
+        if (stepped.state == before && stepped.effects.isEmpty()) return
+        if (input is Input.Start) {
+            startedAt = platform.nowMs()
+            answered = false
+            logId = null
+            upFrames = 0
+            downFrames = 0
+            lastDownAt = 0
+        }
+        val note = logged(input)
+        val released = Effect.Release in stepped.effects
+        if (released) {
+            val lastDown = if (downFrames == 0L) "never" else "${platform.nowMs() - lastDownAt} ms ago"
+            say(
+                "ended: ${note ?: input::class.simpleName} stage=${before.stage} phase=${before.call.phase} answered=$answered " +
+                    "lasted=${sinceStart()} ms sealed=${before.sealed} up_frames=$upFrames down_frames=$downFrames last_host_audio=$lastDown",
+            )
+            return
+        }
+        note?.let(::say)
+        if (!answered && before.call.phase == VoiceCall.Phase.Ringing && stepped.state.call.phase != VoiceCall.Phase.Ringing && before.stage != VoiceCall.Caller.Stage.Idle) {
+            answered = true
+            say("answered after ${sinceStart()} ms")
+        }
+    }
+
     /** The tap: call [agentId] on the desktop named [device] (EXP-1857 `callTarget`). */
     fun start(agentId: String, device: String, language: String?, fallback: Boolean) {
         synchronized(lock) {
@@ -143,7 +213,11 @@ class VoiceCallDriver(private val platform: CallPlatform, private val scope: Cor
     fun uplink(frame: ByteArray) {
         val socket = uplinkSocket ?: return
         val seal = seal
-        (if (seal == null) frame else seal.uplink(frame, caller.call.muted))?.let(socket::sendBinary)
+        (if (seal == null) frame else seal.uplink(frame, caller.call.muted))?.let {
+            socket.sendBinary(it)
+            upFrames += 1
+            if (upFrames == 1L) say("the first microphone frame went out after ${sinceStart()} ms")
+        }
     }
 
     /** Hands [input] to [VoiceCall.Caller]; an input of an ended call ([gen]) is dropped. */
@@ -154,7 +228,9 @@ class VoiceCallDriver(private val platform: CallPlatform, private val scope: Cor
         stepping = true
         try {
             while (inbox.isNotEmpty()) {
-                val stepped = VoiceCall.Caller.step(caller, inbox.removeFirst())
+                val input = inbox.removeFirst()
+                val stepped = VoiceCall.Caller.step(caller, input)
+                log(input, caller, stepped)
                 caller = stepped.state
                 onState(stepped.state)
                 stepped.effects.forEach(::perform)
@@ -184,7 +260,7 @@ class VoiceCallDriver(private val platform: CallPlatform, private val scope: Cor
             Effect.StartAudio -> try {
                 platform.startAudio(caller.call.muted, caller.call.speaker)
             } catch (t: Throwable) {
-                platform.log("call audio did not start: ${t.javaClass.simpleName}")
+                say("the call audio did not start: ${t.javaClass.simpleName}")
                 send(Input.Failed("dropped"), gen)
             }
             Effect.StopRing -> {
@@ -235,7 +311,9 @@ class VoiceCallDriver(private val platform: CallPlatform, private val scope: Cor
             if (gen != generation) return
             this.ticket = ticket
             this.target = target
+            logId = ticket.callId
         }
+        say("ticket after ${sinceStart()} ms: rings device ${ticket.deviceId ?: "?"} (fallback ${ticket.fallback}, sealed ${ticket.seal == true})")
         // EXP-1857: the server's answer names the device that speaks.
         send(Input.Ticket(ticket.device, ticket.fallback, sealed = ticket.seal == true), gen)
     }
@@ -248,13 +326,14 @@ class VoiceCallDriver(private val platform: CallPlatform, private val scope: Cor
             platform.dial(ticket.url) { gen == generation }
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
-            platform.log("call dial failed: ${t.javaClass.simpleName}")
+            say("the dial failed: ${t.javaClass.simpleName}")
             return send(Input.Failed("dropped"), gen)
         } ?: return
         synchronized(lock) {
             if (gen != generation) return socket.close()
             this.socket = socket
         }
+        say("the relay socket is open after ${sinceStart()} ms")
         val seal = if (ticket.seal == true) {
             runCatching {
                 platform.makeSeal(
@@ -263,7 +342,10 @@ class VoiceCallDriver(private val platform: CallPlatform, private val scope: Cor
                     // The line sent its own `call_end {reason}`.
                     fail = { code -> send(Input.Failed(code, told = true), gen) },
                 )
-            }.getOrNull() ?: return send(Input.Failed("dropped"), gen)
+            }.getOrNull() ?: run {
+                say("the call cannot be sealed here (no key holder or no device id)")
+                return send(Input.Failed("dropped"), gen)
+            }
         } else {
             null
         }
@@ -275,7 +357,7 @@ class VoiceCallDriver(private val platform: CallPlatform, private val scope: Cor
             // EXP-1929: once the relay beat, a path that carries nothing for `idleTimeoutMs` is dead.
             watchTimer = platform.every(LIVENESS_TICK_MS) {
                 if (VoiceCall.callPathDead(alive, platform.nowMs() - heardAt)) {
-                    platform.log("call path went silent")
+                    say("the path went silent: nothing from the relay for ${platform.nowMs() - heardAt} ms")
                     send(Input.Failed("dropped"), gen)
                 }
             }
@@ -294,6 +376,8 @@ class VoiceCallDriver(private val platform: CallPlatform, private val scope: Cor
             )
         } catch (t: Throwable) {
             if (t is CancellationException && gen == generation) throw t
+            // #FEED-268: why the socket went (the class, never a ticket URL).
+            if (gen == generation) say("the socket failed: ${t.javaClass.simpleName}")
         }
         // The socket went away without `call_end` or `bye` (an ended call's is dropped).
         send(Input.Closed, gen)
@@ -319,6 +403,9 @@ class VoiceCallDriver(private val platform: CallPlatform, private val scope: Cor
 
     private fun onBinary(gen: Int, seal: CallSeal?, bytes: ByteArray) {
         if (gen != generation) return
+        downFrames += 1
+        lastDownAt = platform.nowMs()
+        if (downFrames == 1L) say("the host's first audio frame came after ${sinceStart()} ms")
         if (seal != null) {
             // Opened here, in arrival order; a frame with no packet reaches no decoder.
             seal.frame(bytes)?.takeIf { it.isNotEmpty() }?.let(platform::play)
