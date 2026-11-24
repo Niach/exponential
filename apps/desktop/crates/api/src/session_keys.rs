@@ -204,6 +204,32 @@ pub fn public_keys(trpc: &TrpcClient, root_ids: &[String]) -> Result<Vec<RootKey
     trpc.query_with_input("sessionKeys.publicKeys", &RootsInput { root_ids })
 }
 
+/// #EXP-1951 `sessionKeys.due`: a root this install rotates now (`epoch` =
+/// the one to supersede, `create {epoch + 1}`). #EXP-2123 (install-trust.json
+/// `keyMaker`): `stranded` = no approved reader holds its current epoch:
+/// a joined reader rotates it WITHOUT the old secret.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DueRoot {
+    pub root_id: String,
+    pub epoch: u32,
+    #[serde(default)]
+    pub stranded: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DueInput<'a> {
+    install_id: &'a str,
+    limit: usize,
+}
+
+/// `sessionKeys.due`: flagged roots this install holds the current epoch of,
+/// and the stranded ones it reads. NOT_FOUND (404) = an older server.
+pub fn due(trpc: &TrpcClient, install_id: &str) -> Result<Vec<DueRoot>, ApiError> {
+    trpc.query_with_input("sessionKeys.due", &DueInput { install_id, limit: PENDING_MAX })
+}
+
 /// #EXP-1960: `sessionKeys.requestKey`'s answer (`clearTree.requestKeyCases`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
@@ -284,6 +310,14 @@ mod tests {
             serde_json::to_value(ResignInput { install_id: "i", wraps: &wraps }).unwrap(),
             serde_json::json!({"installId":"i","wraps":[{"rootId":"r","epoch":1,"installId":"t","wrapped":"w","signature":"s"}]})
         );
+    }
+
+    #[test]
+    fn due_rows_default_to_not_stranded() {
+        let rows: Vec<DueRoot> = serde_json::from_str(r#"[{"rootId":"r","epoch":1},{"rootId":"s","epoch":3,"stranded":true}]"#).unwrap();
+        assert_eq!(rows[0], DueRoot { root_id: "r".into(), epoch: 1, stranded: false });
+        assert_eq!(rows[1], DueRoot { root_id: "s".into(), epoch: 3, stranded: true });
+        assert_eq!(serde_json::to_value(DueInput { install_id: "i", limit: PENDING_MAX }).unwrap(), serde_json::json!({"installId":"i","limit":200}));
     }
 
     #[test]

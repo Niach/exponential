@@ -242,6 +242,8 @@ impl SealingTransform {
                     // started at all (`clearTree.writerCases` new + none).
                     return Err(match err {
                         SealError::NoService => no_holder("", "a new session", ""),
+                        // #EXP-2123 (`keyMaker` newRoot = `refused`): no root is made.
+                        SealError::KeyMakerWaits => sealing::NO_KEY_REFUSAL.to_string(),
                         err => refused("a new session", &err),
                     });
                 }
@@ -313,6 +315,11 @@ impl SealingTransform {
         let (Some(install_id), Some(public)) = (service.install_id(), service.install_public()) else {
             return Err(SealError::NoKey("this install cannot wrap a tree key yet".into()));
         };
+        // #EXP-2123 (install-trust.json `keyMaker` newRoot): an install that
+        // waits for approval makes no key: the send fails, nothing leaves.
+        if !service.makes_keys() {
+            return Err(SealError::KeyMakerWaits);
+        }
         let readers = target_device.map(|device| service.new_root_readers(device)).unwrap_or_default();
         sealing::seal_new_root(&install_id, &public, &readers)
     }
@@ -731,6 +738,21 @@ impl GatewayTransform for SealingTransform {
 
     fn result(&self, tool: &str, args_sent: &Value, mut result: Value) -> Value {
         let failed = result.get("isError") == Some(&Value::Bool(true));
+        // #EXP-2123 (`keyMaker`): the server refused a new root's inline key
+        // (this install waits for approval): the send failed with the
+        // no-key refusal, never the raw text; its seal is dropped.
+        if failed && tool == SEND_TOOL && args_sent.get("seal").is_some() {
+            if let Some(items) = result.get_mut("content").and_then(Value::as_array_mut) {
+                for item in items.iter_mut() {
+                    if item.get("text").and_then(Value::as_str).is_some_and(enet_core::key_maker::is_key_maker_refusal) {
+                        item["text"] = Value::String(sealing::NO_KEY_REFUSAL.to_string());
+                    }
+                }
+            }
+            if let Some(public) = args_sent.pointer("/seal/publicKey").and_then(Value::as_str) {
+                self.new_roots.lock().unwrap_or_else(|p| p.into_inner()).remove(public);
+            }
+        }
         if let Some(items) = result.get_mut("content").and_then(Value::as_array_mut) {
             for item in items.iter_mut() {
                 if item.get("type").and_then(Value::as_str) != Some("text") {
@@ -814,6 +836,10 @@ fn unsealed(what: &str, err: &SealError) -> Result<(), String> {
     match err {
         SealError::ClearTree => Ok(()),
         SealError::NoService => Err(no_holder("", what, "")),
+        SealError::KeyMakerWaits => {
+            log::warn!("gateway: {what} not sent: this install waits for approval and makes no chat key");
+            Err(sealing::NO_KEY_REFUSAL.to_string())
+        }
         err => Err(refused(what, err)),
     }
 }

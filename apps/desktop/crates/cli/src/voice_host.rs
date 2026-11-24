@@ -938,17 +938,20 @@ struct DaemonNet {
 /// EXP-1930: an utterance's body. Into a known conversation it is sealed at
 /// SEND time with the tree's current key (`seal`, created when the tree has
 /// none and this install may), so a tree keyed after the call's first send
-/// gets the next one sealed; a first send (no conversation yet) and a tree
-/// that cannot be sealed for go out plain (the server takes plaintext only
-/// where it is legal).
-fn utterance_body(root: Option<&str>, text: &str, seal: &dyn Fn(&str, &str) -> Result<String, coding::sealing::SealError>) -> String {
-    let Some(root) = root else { return text.to_string() };
+/// gets the next one sealed; a first send (no conversation yet), a keyless
+/// tree this install may not key (`NotReader`) and no key holder go out
+/// plain (the server takes plaintext only where it is legal). #EXP-2123:
+/// any other failure (a waiting install's no-key refusal, a key that did
+/// not arrive) is `None`: nothing is sent, never plaintext.
+fn utterance_body(root: Option<&str>, text: &str, seal: &dyn Fn(&str, &str) -> Result<String, coding::sealing::SealError>) -> Option<String> {
+    use coding::sealing::SealError;
+    let Some(root) = root else { return Some(text.to_string()) };
     match seal(root, text) {
-        Ok(body) => body,
-        Err(coding::sealing::SealError::NoService) => text.to_string(),
+        Ok(body) => Some(body),
+        Err(SealError::NoService | SealError::NotReader | SealError::ClearTree) => Some(text.to_string()),
         Err(err) => {
-            log::warn!("[voice] the utterance goes out plaintext, sealing failed: {err}");
-            text.to_string()
+            log::warn!("[voice] the utterance was not sent, sealing failed: {err}");
+            None
         }
     }
 }
@@ -1004,7 +1007,10 @@ enum Delivered {
 /// more before the call ends.
 fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgent, root: Option<&str>, session: Option<&str>, text: &str) -> Delivered {
     // The call's own session is in the chat's tree: the chat's key.
-    let body = utterance_body(root, text, &|root, text| wire.seal(root, text));
+    let Some(body) = utterance_body(root, text, &|root, text| wire.seal(root, text)) else {
+        log::warn!("[voice] call {call_id}: the utterance could not be encrypted, it was not sent");
+        return Delivered::Failed;
+    };
     let plain = body == text;
     let input = match session.or(root) {
         Some(target) => api::sessions::SendInput::message(target, &body, Vec::new()),
@@ -1024,7 +1030,7 @@ fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgen
         match wire.target(&agent.id) {
             Ok(Some(found)) => {
                 let body = utterance_body(Some(&found), text, &|root, text| wire.seal(root, text));
-                if body != text {
+                if let Some(body) = body.filter(|body| body != text) {
                     log::info!("[voice] call {call_id}: the conversation {found} exists now: the utterance goes sealed into it");
                     match wire.send(&api::sessions::SendInput::message(&found, &body, Vec::new())) {
                         Ok(out) => return Delivered::Sent(out.session_id),
@@ -2466,11 +2472,15 @@ mod tests {
                 Err(SealError::NotReader)
             }
         };
-        assert_eq!(utterance_body(None, "hello", &seal), "hello", "a new conversation: the send makes it");
-        assert_eq!(utterance_body(Some("root-1"), "hello", &seal), "hello", "a keyless tree nobody may key: plain");
+        assert_eq!(utterance_body(None, "hello", &seal).as_deref(), Some("hello"), "a new conversation: the send makes it");
+        assert_eq!(utterance_body(Some("root-1"), "hello", &seal).as_deref(), Some("hello"), "a keyless tree nobody may key: plain");
         keyed.store(true, Ordering::SeqCst);
-        assert_eq!(utterance_body(Some("root-1"), "and now?", &seal), "sealed(root-1):and now?");
-        assert_eq!(utterance_body(Some("root-1"), "x", &|_: &str, _: &str| Err(SealError::NoService)), "x", "no key holder: plain");
+        assert_eq!(utterance_body(Some("root-1"), "and now?", &seal).as_deref(), Some("sealed(root-1):and now?"));
+        assert_eq!(utterance_body(Some("root-1"), "x", &|_: &str, _: &str| Err(SealError::NoService)).as_deref(), Some("x"), "no key holder: plain");
+        // #EXP-2123: a waiting install's no-key refusal is never plaintext.
+        let no_key = |_: &str, _: &str| Err(SealError::NoKey(coding::sealing::NO_KEY_REFUSAL.into()));
+        assert_eq!(utterance_body(Some("root-1"), "secret", &no_key), None);
+        assert_eq!(utterance_body(Some("root-1"), "secret", &|_: &str, _: &str| Err(SealError::KeyMakerWaits)), None);
     }
 
     /// EXP-1930 (voice-hosts-8): the reply watch reads only the rows since

@@ -261,6 +261,18 @@ impl TrustKeeper {
         TrustSnapshot { state: state.trust, rows: state.rows.clone(), code: install_code(&self.endpoint_id) }
     }
 
+    /// #EXP-2123 (install-trust.json `keyMaker`): whether this install makes
+    /// chat keys: only a JOINED one does (its pin store's `joined`; a server
+    /// without `installs.trust` counts as joined). A store not reconciled
+    /// yet is reconciled first. BLOCKING (only before the first answer).
+    pub fn makes_keys(&self) -> bool {
+        if lock(&self.state).trust == TrustState::Unknown {
+            self.sync();
+        }
+        let state = lock(&self.state);
+        state.trust == TrustState::Unavailable || state.store.joined
+    }
+
     /// The pin store (tests, diagnostics).
     pub fn store(&self) -> TrustStore {
         lock(&self.state).store.clone()

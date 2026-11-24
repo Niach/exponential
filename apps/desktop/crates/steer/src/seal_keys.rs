@@ -51,11 +51,14 @@ use std::time::Duration;
 
 use api::error::ApiError;
 use api::session_keys::{
-    CreateKey, HeldKey, InstallWrap, PairWrap, PendingWrap, RequestedKey, ResignOutput, ResignWrap, RootKey, RESIGN_MAX,
+    CreateKey, DueRoot, HeldKey, InstallWrap, PairWrap, PendingWrap, RequestedKey, ResignOutput, ResignWrap, RootKey, RESIGN_MAX,
 };
 use coding::sealing::{self, CreateFailure, KeylessStep, Keyring, NewRootSeal, RequestKeyAnswer, SealError, SealService};
 use enet_core::sealed::{b64url_encode, generate_tree_key, public_key_from_b64, unwrap_tree_key, wrap_tree_key};
-use enet_core::install_trust::{CallKeyVerdict, KeepVerdict, KeyRecord, NoKey, SealVerdict, TargetVerdict, Vouch};
+use enet_core::install_trust::{
+    is_key_maker_refusal, key_maker_step, stranded_rotation_epoch, CallKeyVerdict, KeepVerdict, KeyMakerStep, KeyRecord, KeyWrite, NoKey,
+    SealVerdict, TargetVerdict, Vouch,
+};
 use enet_core::wrap_sig::{endpoint_id_hex, sign_wrap, ServedWrap, WrapStatement};
 
 use crate::install_trust::TrustKeeper;
@@ -109,6 +112,10 @@ pub trait KeyApi: Send + Sync + 'static {
     fn request_key(&self, _root_id: &str) -> Result<RequestedKey, ApiError> {
         Err(ApiError::Transport { message: "requestKey unsupported".into(), offline: false })
     }
+    /// #EXP-1951/#EXP-2123 `sessionKeys.due` (default: a server without it).
+    fn due(&self, _install_id: &str) -> Result<Vec<DueRoot>, ApiError> {
+        Err(ApiError::Http { status: 404, message: "No procedure found on path \"sessionKeys.due\"".into() })
+    }
 }
 
 impl KeyApi for api::TrpcClient {
@@ -132,6 +139,9 @@ impl KeyApi for api::TrpcClient {
     }
     fn resign(&self, install_id: &str, wraps: &[ResignWrap]) -> Result<ResignOutput, ApiError> {
         api::session_keys::resign(self, install_id, wraps)
+    }
+    fn due(&self, install_id: &str) -> Result<Vec<DueRoot>, ApiError> {
+        api::session_keys::due(self, install_id)
     }
 }
 
@@ -272,6 +282,33 @@ impl KeyHolder {
         lock(&self.inner.trust).clone()
     }
 
+    /// #EXP-2123 (install-trust.json `keyMaker`): whether this install makes
+    /// chat keys: only a JOINED one (no keeper = as before). BLOCKING.
+    pub fn joined(&self) -> bool {
+        self.trust().is_none_or(|trust| trust.makes_keys())
+    }
+
+    /// #EXP-2123: what this install does with `write` (`refused` = the server
+    /// answered `KEY_MAKER_REFUSAL`).
+    fn key_step(&self, write: KeyWrite, refused: bool) -> KeyMakerStep {
+        key_maker_step(refused || self.joined(), write, refused)
+    }
+
+    /// EXP-1458 + #EXP-1950 + #EXP-2123: a NEW root's inline seal (UI and
+    /// voice, `InstallNode::new_root_seal`; the MCP gateway goes through
+    /// [`SealService::new_root_readers`], the same rule): `readers` filtered
+    /// by R4, and none at all while this install waits for approval
+    /// (`keyMaker` newRoot = `refused`: the send fails, no root is made).
+    pub fn new_root_seal(&self, readers: Vec<(String, String)>) -> Result<NewRootSeal, SealError> {
+        if self.key_step(KeyWrite::NewRoot, false) != KeyMakerStep::Make {
+            log::info!("seal-keys: no new chat key: this install waits for approval");
+            return Err(SealError::KeyMakerWaits);
+        }
+        let readers: Vec<(String, String)> =
+            readers.into_iter().filter(|(install_id, x25519)| self.may_wrap(install_id, x25519, None)).collect();
+        sealing::seal_new_root(&self.inner.install_id, &self.inner.install_public, &readers)
+    }
+
     /// #EXP-1950 R4: whether this holder wraps for `install_id` (no keeper = as before).
     fn may_wrap(&self, install_id: &str, x25519_public: &str, endpoint_id: Option<&str>) -> bool {
         match self.trust() {
@@ -404,11 +441,16 @@ impl KeyHolder {
     /// The root's key is read from the server first (the synced rows lag).
     /// `Ok(false)` = not this install's to rotate, or another holder did.
     pub fn rotate_root(&self, root_id: &str, flagged: u32) -> Result<bool, String> {
+        // #EXP-2123 (`keyMaker` rotation = `skip`): never while this install
+        // waits for approval, and nothing is remembered.
+        if self.key_step(KeyWrite::Rotation, false) != KeyMakerStep::Make {
+            return Ok(false);
+        }
         if lock(&self.inner.refused).contains(&(root_id.to_string(), flagged)) {
             return Ok(false);
         }
         self.lookup(root_id)?;
-        self.rotate(root_id, flagged)
+        self.rotate(root_id, flagged, false)
     }
 
     fn answer(&self, root_ids: Option<&[String]>) -> Result<usize, ApiError> {
@@ -455,13 +497,33 @@ impl KeyHolder {
 
     /// #FEED-177: rotates every flagged tree this install may rotate
     /// ([`Keyring::rotations_due`]). Returns how many it rotated. BLOCKING.
+    /// #EXP-2123 (install-trust.json `keyMaker`): nothing while this install
+    /// waits for approval (nothing remembered either); the roots come from
+    /// the synced flags this install holds the secret of AND
+    /// `sessionKeys.due`, whose STRANDED roots (no approved reader holds
+    /// their current epoch) are rotated without the old secret.
     pub fn rotate_due(&self) -> usize {
-        let mut rotated = 0;
-        for (root_id, flagged) in self.inner.keyring.rotations_due() {
-            if lock(&self.inner.refused).contains(&(root_id.clone(), flagged)) {
-                continue;
+        if self.key_step(KeyWrite::Rotation, false) != KeyMakerStep::Make {
+            return 0;
+        }
+        let mut due: Vec<(String, u32, bool)> = self.inner.keyring.rotations_due().into_iter().map(|(root, flagged)| (root, flagged, false)).collect();
+        match self.inner.api.due(&self.inner.install_id) {
+            Ok(rows) => {
+                for row in rows {
+                    match due.iter_mut().find(|(root, flagged, _)| *root == row.root_id && *flagged == row.epoch) {
+                        Some(entry) => entry.2 |= row.stranded,
+                        None if row.stranded => due.push((row.root_id, row.epoch, true)),
+                        // Held but not synced here yet: the synced flag brings it.
+                        None => {}
+                    }
+                }
             }
-            match self.rotate(&root_id, flagged) {
+            Err(ApiError::Http { status: 404, .. }) => {}
+            Err(err) => log::debug!("seal-keys: sessionKeys.due failed: {err}"),
+        }
+        let mut rotated = 0;
+        for (root_id, flagged, stranded) in due {
+            match self.rotate(&root_id, flagged, stranded) {
                 Ok(true) => rotated += 1,
                 Ok(false) => {}
                 Err(err) => log::debug!("seal-keys: rotating {root_id} failed: {err}"),
@@ -470,20 +532,30 @@ impl KeyHolder {
         rotated
     }
 
-    /// One rotation of `root` past `flagged`. `Ok(false)` = not needed or
-    /// not this install's (another holder rotated, or the server refused).
-    fn rotate(&self, root_id: &str, flagged: u32) -> Result<bool, String> {
+    /// One rotation of `root` past `flagged` (`strandedCases`,
+    /// [`stranded_rotation_epoch`]). `Ok(false)` = not needed or not this
+    /// install's (another holder rotated, or the server refused).
+    fn rotate(&self, root_id: &str, flagged: u32, stranded: bool) -> Result<bool, String> {
+        let joined = self.joined();
         let _creating = lock(&self.inner.creating);
         // Re-checked under the lock: a writer of this process may have moved on.
-        let Some((epoch, _)) = self.inner.keyring.current(root_id) else { return Ok(false) };
-        if epoch > flagged {
+        let known = self.inner.keyring.current(root_id).map(|(epoch, _)| epoch);
+        // A stranded root's key may never have reached this install: the
+        // server named its current epoch.
+        let current = if stranded { Some(known.map_or(flagged, |epoch| epoch.max(flagged))) } else { known };
+        let Some(current) = current else { return Ok(false) };
+        if current > flagged {
             self.inner.keyring.rotated(root_id);
             return Ok(false);
         }
-        match self.create_key(root_id, epoch + 1) {
+        let held = self.inner.keyring.secret(root_id, current).is_some();
+        let left = lock(&self.inner.refused).contains(&(root_id.to_string(), flagged));
+        let Some(epoch) = stranded_rotation_epoch(Some(flagged), Some(current), held, stranded, joined, left) else { return Ok(false) };
+        match self.create_key(root_id, epoch) {
             Ok(_) => {
                 self.inner.keyring.rotated(root_id);
-                log::info!("seal-keys: rotated the tree key of {root_id} to epoch {}", epoch + 1);
+                let how = if stranded && !held { " (stranded: without the old secret)" } else { "" };
+                log::info!("seal-keys: rotated the tree key of {root_id} to epoch {epoch}{how}");
                 Ok(true)
             }
             // Someone else rotated (or keyed) first: theirs is current.
@@ -499,6 +571,12 @@ impl KeyHolder {
             // no longer a reader (404): leave it to the holders that are.
             Err(Created::Refused) => {
                 lock(&self.inner.refused).insert((root_id.to_string(), flagged));
+                Ok(false)
+            }
+            // #EXP-2123 (`keyMaker`): the server lists this install as
+            // waiting: skipped, NOT remembered (it rotates once approved).
+            Err(Created::Waits) => {
+                log::info!("seal-keys: the rotation of {root_id} is left to an approved install: the server says this one waits");
                 Ok(false)
             }
             // #EDE-97: a clear tree is never keyed (nor rotated).
@@ -561,6 +639,8 @@ impl KeyHolder {
                 Ok(key.public)
             }
             Err(ApiError::Http { status: 409, .. }) => Err(Created::Conflict),
+            // #EXP-2123: `keyMaker.refusal`: nothing was written.
+            Err(ApiError::Http { status: 403, message }) if is_key_maker_refusal(&message) => Err(Created::Waits),
             Err(ApiError::Http { status: 403 | 404, .. }) => Err(Created::Refused),
             // #EDE-97: the server refuses to key a clear tree (its row may
             // not have synced here yet): remembered, plaintext is its wire.
@@ -804,6 +884,12 @@ impl SealService for KeyHolder {
         if let Some(found) = self.lookup(root_id).map_err(SealError::NoKey)? {
             return Ok(found);
         }
+        // #EXP-2123 (`keyMaker` firstKey = `requestKey`): an install that
+        // waits for approval creates nothing: its writer asks the devices.
+        if self.key_step(KeyWrite::FirstKey, false) != KeyMakerStep::Make {
+            log::info!("seal-keys: {root_id} has no key and this install waits for approval: it makes none");
+            return Err(SealError::KeyMakerWaits);
+        }
         // The root has no key: this install is its first content writer.
         // The other readers (the starter's installs, the team when shared)
         // get their wraps from this install's pending pass.
@@ -818,6 +904,8 @@ impl SealService for KeyHolder {
                 .map_err(SealError::NoKey)?
                 .ok_or_else(|| SealError::NoKey("the tree was keyed concurrently but has no key".to_string())),
             Err(Created::Refused) => Err(SealError::NotReader),
+            // #EXP-2123: the server says this install waits: the same step.
+            Err(Created::Waits) => Err(SealError::KeyMakerWaits),
             Err(Created::Clear) => Err(SealError::ClearTree),
             Err(Created::Failed(err)) => Err(SealError::NoKey(err)),
         }
@@ -867,6 +955,10 @@ impl SealService for KeyHolder {
         }
     }
 
+    fn makes_keys(&self) -> bool {
+        self.joined()
+    }
+
     fn new_root_readers(&self, target_device: &str) -> Vec<(String, String)> {
         let readers = lock(&self.inner.device_readers).clone();
         let readers = readers.map(|readers| readers(target_device)).unwrap_or_default();
@@ -895,6 +987,9 @@ enum Created {
     Conflict,
     /// 403/404: this install may not write this key.
     Refused,
+    /// #EXP-2123: 403 `keyMaker.refusal`: the server lists this install as
+    /// waiting for approval (never remembered).
+    Waits,
     /// #EDE-97: 400 `clearTree.clearRefusal`: a clear tree.
     Clear,
     Failed(String),
