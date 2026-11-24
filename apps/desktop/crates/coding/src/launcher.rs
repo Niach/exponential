@@ -4868,7 +4868,7 @@ mod tests {
         // The wire: mint, branch report, resolve — and never a row creation.
         let requests = captured.lock().unwrap();
         assert_eq!(requests.len(), 4, "{requests:?}");
-        assert!(requests[0].contains("repositories.installationToken"), "{}", requests[0]);
+        assert!(requests[0].contains("repositories.credentials"), "{}", requests[0]);
         assert!(requests[1].starts_with("POST /api/trpc/sessions.report"), "{}", requests[1]);
         assert!(
             requests[1].ends_with(r#"{"sessionId":"sess-1","branch":"exp/EXP-42"}"#),
@@ -6642,7 +6642,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             Some(layout.clone())
         );
         assert_eq!(prepared.repository_id.as_deref(), Some("repo-resume-reclaimed"));
-        assert!(captured.lock().unwrap()[0].contains("repositories.installationToken"));
+        assert!(captured.lock().unwrap()[0].contains("repositories.credentials"));
     }
 
     /// #EXP-1479: a reclaimed worktree resumed by a MESSAGE whose text reads
