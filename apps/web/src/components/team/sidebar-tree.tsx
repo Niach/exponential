@@ -10,7 +10,6 @@ import {
   SIDEBAR_TREE_COPY,
   sidebarRootRows,
   sidebarTeamItems,
-  sidebarTeamMenu,
   sidebarTeamOpenKey,
   type SidebarItemKind,
   type SidebarNewKind,
@@ -22,6 +21,7 @@ import {
   getBoardIcon,
   LiveDot,
   Menu,
+  MenuGestureHost,
   menuProps,
   SidebarGroup,
   SidebarGroupAction,
@@ -63,6 +63,12 @@ import { SidebarAppRow } from "@/components/team/sidebar-apps"
 import { ChatRunMark } from "@/components/team/sidebar-running"
 import { NavCountBadge } from "@/components/team/sidebar-shared"
 import { DRAFTS_LABEL, NavDraftsIcon } from "@/components/team/sidebar-nav-entries"
+import { AssistantMark } from "@/components/team/assistant-mark"
+import { openHandlers, sidebarMenuEntries, SidebarPointerMenu, type SidebarMenuHandlers } from "@/components/team/sidebar-menus"
+import { NEW_TAB_COPY, newTabTeamMenu, type NewTabKind, type SidebarMenuKind } from "@/lib/sidebar-menus"
+import { openNewRunPage } from "@/hooks/use-work-tabs"
+import { useAgents } from "@/hooks/use-session-tree"
+import { useAgentBadges } from "@/components/team/sidebar-agents"
 
 // #EXP-2027 (fixtures/sidebar-tree.json, its `$comment` is the spec): the
 // web md+ main menu as ONE tree, with no active team. The root rows
@@ -84,11 +90,10 @@ const AddIcon = conceptIcon(`ui-add`)
 const MoreIcon = conceptIcon(`ui-more`)
 const FolderIcon = conceptIcon(`ui-folder`)
 const InviteIcon = conceptIcon(`ui-invite`)
-const RemoveIcon = conceptIcon(`ui-minus`)
 const DeviceDefaultIcon = conceptIcon(`ui-device-default`)
 
 /** The New submenu's glyph per kind (the draft: board, agent, app, chat). */
-const NEW_KIND_ICON: Record<SidebarNewKind, ReturnType<typeof conceptIcon>> = {
+export const NEW_KIND_ICON: Record<SidebarNewKind, ReturnType<typeof conceptIcon>> = {
   board: conceptIcon(`nav-boards`),
   agent: conceptIcon(`settings-agents`),
   app: conceptIcon(`nav-apps`),
@@ -100,8 +105,37 @@ const GUIDE_BASE = 8
 
 /** The team menu's kind (`menuProps`), one per team list's host. */
 export const sidebarTeamMenuKind = (teamId: string) => `sidebar-team:${teamId}`
-/** A placed session's menu (Remove from sidebar), one per team list's host. */
-export const sidebarSessionMenuKind = (teamId: string) => `sidebar-session:${teamId}`
+/** #EXP-2124: a team item's menu (board, app, placed session), one per team
+ *  list's host; the id is the item's, its kind resolves like its row. */
+export const sidebarItemMenuKind = (teamId: string) => `sidebar-item:${teamId}`
+/** #EXP-2124: the root rows' menu (the Assistant, Home, Chats, Devices and
+ *  each device); the id is the row's kind, a device's `device:<id>`. */
+export const SIDEBAR_ROOT_MENU_KIND = `sidebar-root`
+const DEVICE_MENU_PREFIX = `device:`
+
+/** New › of a team, the tab strip's + and the team menu alike. */
+export function newTeamEntries(
+  team: Pick<Team, `id` | `slug`>,
+  owner: boolean,
+  go: (href: string) => void
+): MenuEntry[] {
+  return newTabTeamMenu({ owner }).map((kind: NewTabKind) => ({
+    kind: `item` as const,
+    id: kind,
+    label: NEW_TAB_COPY[kind],
+    icon: NEW_KIND_ICON[kind],
+    onSelect: () => go(kind === `session` ? newSessionHref(team.id) : newPagePath(team.slug, kind as NewPageKind)),
+  }))
+}
+
+/** The viewer's Assistant, as the root row and the new-tab menu read it. */
+export interface SidebarAssistant {
+  agentId: string
+  name: string
+  /** The team its chat route runs under. */
+  teamSlug: string
+  badge?: CountBadgeValue
+}
 
 /** Session › New: Home's composer with the team as its Teams pick. */
 export const newSessionHref = (teamId: string) => `/home?team=${encodeURIComponent(teamId)}`
@@ -122,6 +156,22 @@ export function sidebarActive(pathname: string) {
 }
 export type SidebarActive = ReturnType<typeof sidebarActive>
 
+/** The viewer's Assistant under the layout's team (the FAB's own read). */
+export function useSidebarAssistant(
+  team: Pick<Team, `id`> | null | undefined,
+  teamSlug: string,
+  me: string | null | undefined
+): SidebarAssistant | null {
+  const { agents } = useAgents(team?.id, me)
+  const assistant = useMemo(() => agents.find((agent) => agent.assistant) ?? null, [agents])
+  const rows = useMemo(() => (assistant ? [assistant] : []), [assistant])
+  const badge = useAgentBadges(team?.id, rows, me).get(assistant?.agentId ?? ``)
+  return useMemo(
+    () => (assistant ? { agentId: assistant.agentId, name: assistant.name, teamSlug, badge } : null),
+    [assistant, teamSlug, badge]
+  )
+}
+
 /* ─── root rows ─────────────────────────────────────────────────────────── */
 
 export function SidebarRootRows({
@@ -131,9 +181,12 @@ export function SidebarRootRows({
   chatsBadge,
   devices,
   teams,
+  assistant,
   onAddDevice,
 }: {
   active: SidebarActive
+  /** #EXP-2124: the viewer's Assistant, the first row. */
+  assistant: SidebarAssistant | null
   needsYou: number
   drafts: number
   chatsBadge: CountBadgeValue
@@ -143,13 +196,45 @@ export function SidebarRootRows({
   onAddDevice: () => void
 }) {
   const rows = sidebarRootRows({ needsYou, drafts })
+  const navigate = useNavigate()
+  const assistantHref = assistant
+    ? `/t/${encodeURIComponent(assistant.teamSlug)}/agents/${encodeURIComponent(assistant.agentId)}`
+    : null
+  // #EXP-2124: every root row's menu off THE table.
+  const rootMenu = (session: MenuSessionProps): ReactNode => {
+    const id = session.target.id
+    const go = (href: string) => () => void navigate({ href })
+    const newChat = () => openNewRunPage(navigate)
+    if (id.startsWith(DEVICE_MENU_PREFIX)) {
+      const device = devices.find((entry) => entry.id === id.slice(DEVICE_MENU_PREFIX.length))
+      if (!device) return null
+      const href = `/devices/${encodeURIComponent(device.id)}`
+      return (
+        <SidebarPointerMenu
+          session={session}
+          title={device.name}
+          entries={sidebarMenuEntries(`device`, { mine: device.mine }, { ...openHandlers(href, go(href)), settings: go(`${href}/settings`) })}
+        />
+      )
+    }
+    const kind = id as SidebarMenuKind
+    const handlers: SidebarMenuHandlers =
+      kind === `assistant` && assistantHref
+        ? { ...openHandlers(assistantHref, go(assistantHref)), settings: go(`/settings/assistant`) }
+        : kind === `devices`
+          ? { "add-device": onAddDevice }
+          : { ...openHandlers(`/${kind}`, go(`/${kind}`)), "new-chat": newChat }
+    const title =
+      kind === `assistant` ? (assistant?.name ?? ``) : kind === `devices` ? SIDEBAR_TREE_COPY.devices : kind === `chats` ? CHATS_COPY.title : kind
+    return <SidebarPointerMenu session={session} title={title} entries={sidebarMenuEntries(kind, {}, handlers)} />
+  }
   const row = (kind: SidebarRootRow): ReactNode => {
     switch (kind) {
       case `home`:
         return (
           <SidebarMenuItem key={kind}>
             <SidebarMenuButton asChild density="compact" isActive={active.pathname === `/home`}>
-              <Link to="/home" data-testid="sidebar-home">
+              <Link to="/home" data-testid="sidebar-home" {...menuProps(SIDEBAR_ROOT_MENU_KIND, kind)}>
                 <NavHomeIcon className="h-4 w-4" />
                 <span>{SIDEBAR_TREE_COPY.home}</span>
               </Link>
@@ -160,7 +245,7 @@ export function SidebarRootRows({
         return (
           <SidebarMenuItem key={kind}>
             <SidebarMenuButton asChild density="compact" isActive={active.pathname === `/needs-you`}>
-              <Link to="/needs-you" data-testid={NEEDS_YOU_TEST_IDS.entry}>
+              <Link to="/needs-you" data-testid={NEEDS_YOU_TEST_IDS.entry} {...menuProps(SIDEBAR_ROOT_MENU_KIND, kind)}>
                 <NavNeedsYouIcon className="h-4 w-4" />
                 <span>{NEEDS_YOU_COPY.entry}</span>
               </Link>
@@ -174,7 +259,7 @@ export function SidebarRootRows({
         return (
           <SidebarMenuItem key={kind}>
             <SidebarMenuButton asChild density="compact" isActive={active.pathname === `/chats`}>
-              <Link to="/chats" data-testid="nav-chats">
+              <Link to="/chats" data-testid="nav-chats" {...menuProps(SIDEBAR_ROOT_MENU_KIND, kind)}>
                 <NavChatsIcon className="h-4 w-4" />
                 <span>{CHATS_COPY.title}</span>
               </Link>
@@ -186,7 +271,7 @@ export function SidebarRootRows({
         return (
           <SidebarMenuItem key={kind}>
             <SidebarMenuButton asChild density="compact" isActive={active.pathname === `/drafts`}>
-              <Link to="/drafts" data-testid="nav-drafts">
+              <Link to="/drafts" data-testid="nav-drafts" {...menuProps(SIDEBAR_ROOT_MENU_KIND, kind)}>
                 <NavDraftsIcon className="h-4 w-4" />
                 <span>{DRAFTS_LABEL}</span>
               </Link>
@@ -200,7 +285,30 @@ export function SidebarRootRows({
         return <SidebarDevicesRows key={kind} active={active} devices={devices} teams={teams} onAdd={onAddDevice} />
     }
   }
-  return <SidebarMenu>{rows.map(row)}</SidebarMenu>
+  return (
+    <MenuGestureHost menus={{ [SIDEBAR_ROOT_MENU_KIND]: rootMenu }}>
+      <SidebarMenu>
+        {/* #EXP-2124: the Assistant (its name + the brand mark), above Home. */}
+        {assistant && (
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild density="compact" isActive={active.agent === assistant.agentId}>
+              <Link
+                to="/t/$teamSlug/agents/$agentId"
+                params={{ teamSlug: assistant.teamSlug, agentId: assistant.agentId }}
+                data-testid="sidebar-assistant"
+                {...menuProps(SIDEBAR_ROOT_MENU_KIND, `assistant`)}
+              >
+                <AssistantMark />
+                <span className="min-w-0 flex-1 truncate">{assistant.name}</span>
+              </Link>
+            </SidebarMenuButton>
+            {assistant.badge && <NavCountBadge value={assistant.badge} data-testid="sidebar-assistant-badge" />}
+          </SidebarMenuItem>
+        )}
+        {rows.map(row)}
+      </SidebarMenu>
+    </MenuGestureHost>
+  )
 }
 
 /** Devices: an expandable row with no nav target (a press folds it, its
@@ -223,7 +331,12 @@ function SidebarDevicesRows({
   return (
     <>
       <SidebarMenuItem data-testid="sidebar-devices">
-        <SidebarMenuButton density="compact" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <SidebarMenuButton
+          density="compact"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          {...menuProps(SIDEBAR_ROOT_MENU_KIND, `devices`)}
+        >
           <NavDevicesIcon className="h-4 w-4" />
           <span>{SIDEBAR_TREE_COPY.devices}</span>
         </SidebarMenuButton>
@@ -258,7 +371,11 @@ function SidebarDevicesRows({
               isActive={active.device === device.id}
               className={cn(device.muted && `text-muted-foreground`)}
             >
-              <Link to="/devices/$deviceId" params={{ deviceId: device.id }}>
+              <Link
+                to="/devices/$deviceId"
+                params={{ deviceId: device.id }}
+                {...menuProps(SIDEBAR_ROOT_MENU_KIND, `${DEVICE_MENU_PREFIX}${device.id}`)}
+              >
                 <Glyph className="h-4 w-4 shrink-0" />
                 <span className="min-w-0 flex-1 truncate">{device.name}</span>
               </Link>
@@ -412,53 +529,21 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
     boardsById.has(id) ? `board` : agentsById.has(id) ? `agent` : appsById.has(id) ? `app` : `session`
   const here = active.teamSlug === team.slug
 
+  const go = (href: string) => void navigate({ href })
   const teamMenuEntries = (): MenuEntry[] =>
-    sidebarTeamMenu({ owner }).flatMap((item): MenuEntry[] => {
-      if (item.id === `new`) {
-        return [
-          {
-            kind: `submenu`,
-            id: item.id,
-            label: SIDEBAR_TREE_COPY.new,
-            icon: AddIcon,
-            entries: item.children.map((kind) => ({
-              kind: `item` as const,
-              id: kind,
-              label: SIDEBAR_TREE_COPY[kind],
-              icon: NEW_KIND_ICON[kind],
-              onSelect: () =>
-                void navigate({
-                  href: kind === `session` ? newSessionHref(team.id) : newPagePath(team.slug, kind as NewPageKind),
-                }),
-            })),
-          },
-        ]
-      }
-      if (item.id === `new-folder`) {
-        return [
-          {
-            kind: `item`,
-            id: item.id,
-            label: SIDEBAR_TREE_COPY.newFolder,
-            icon: FolderIcon,
-            onSelect: () => {
-              setOpen(true)
-              folders.addFolder()
-            },
-          },
-        ]
-      }
-      return [
-        { kind: `separator`, id: `settings-separator` },
-        {
-          kind: `item`,
-          id: item.id,
-          label: SIDEBAR_TREE_COPY.settings,
-          icon: NavSettingsIcon,
-          onSelect: () => void navigate({ to: `/t/$teamSlug/settings`, params: { teamSlug: team.slug } }),
+    sidebarMenuEntries(
+      `team`,
+      { owner },
+      {
+        new: newTeamEntries(team, owner, go),
+        "new-folder": () => {
+          setOpen(true)
+          folders.addFolder()
         },
-      ]
-    })
+        settings: () => void navigate({ to: `/t/$teamSlug/settings`, params: { teamSlug: team.slug } }),
+        leave: () => void navigate({ to: `/t/$teamSlug/settings/members`, params: { teamSlug: team.slug } }),
+      }
+    )
 
   const teamMenu = ({ target, open: menuOpen, onOpenChange }: MenuSessionProps) => (
     <Menu
@@ -473,26 +558,78 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
     />
   )
 
-  const sessionMenu = ({ target, open: menuOpen, onOpenChange }: MenuSessionProps) => (
-    <Menu
-      mode="pointer"
-      anchor={target.anchor}
-      open={menuOpen}
-      onOpenChange={onOpenChange}
-      returnFocus={target.origin}
-      aria-label={titles.get(target.id) ?? SIDEBAR_TREE_COPY.session}
-      title={titles.get(target.id) ?? SIDEBAR_TREE_COPY.session}
-      entries={[
-        {
-          kind: `item`,
-          id: `remove`,
-          label: SIDEBAR_TREE_COPY.removeFromSidebar,
-          icon: RemoveIcon,
-          onSelect: () => removeFromSidebar(target.id),
-        },
-      ]}
-    />
-  )
+  // #EXP-2124: a board's, an app's and a placed session's menu off THE table.
+  const itemMenu = (session: MenuSessionProps): ReactNode => {
+    const id = session.target.id
+    const kind = kindOf(id)
+    const base = `/t/${encodeURIComponent(team.slug)}`
+    const move: MenuEntry[] = [
+      ...folders.rows
+        .filter((row) => row.group)
+        .map((row) => ({
+          kind: `item` as const,
+          id: row.id,
+          label: row.name ?? SIDEBAR_TREE_COPY.newFolder,
+          icon: FolderIcon,
+          onSelect: () => folders.move({ id, into: row.id }),
+        })),
+      { kind: `separator`, id: `new-folder-separator` },
+      {
+        kind: `item`,
+        id: `new-folder`,
+        label: SIDEBAR_TREE_COPY.newFolder,
+        icon: AddIcon,
+        onSelect: () => void toast(`${SIDEBAR_TREE_COPY.newFolder}: with the build`),
+      },
+    ]
+    if (kind === `board`) {
+      const board = boardsById.get(id)
+      if (!board) return null
+      const href = `${base}/boards/${encodeURIComponent(board.slug)}`
+      return (
+        <SidebarPointerMenu
+          session={session}
+          title={board.name}
+          entries={sidebarMenuEntries(`board`, { owner }, {
+            ...openHandlers(href, () => go(href)),
+            move,
+            settings: () => go(`${base}/settings/boards/${board.id}`),
+          })}
+        />
+      )
+    }
+    if (kind === `app`) {
+      const app = appsById.get(id)
+      if (!app) return null
+      const href = `${base}/apps/${encodeURIComponent(app.slug)}`
+      const editor = `${base}/app-editor/${encodeURIComponent(app.slug)}`
+      return (
+        <SidebarPointerMenu
+          session={session}
+          title={app.name}
+          entries={sidebarMenuEntries(`app`, { owner }, {
+            ...openHandlers(href, () => go(href)),
+            edit: () => go(editor),
+            move,
+            settings: () => go(`${editor}?tab=settings`),
+          })}
+        />
+      )
+    }
+    const href = `${base}/sessions/${id}`
+    const title = titles.get(id) ?? SIDEBAR_TREE_COPY.session
+    return (
+      <SidebarPointerMenu
+        session={session}
+        title={title}
+        entries={sidebarMenuEntries(`session`, { canDelete: true }, {
+          ...openHandlers(href, () => go(href)),
+          move,
+          "remove-from-sidebar": () => removeFromSidebar(id),
+        })}
+      />
+    )
+  }
 
   const renderTeamRow = (itemProps: SidebarRowItemProps) => (
     <SidebarMenuItem {...itemProps} data-testid="sidebar-team-row">
@@ -548,6 +685,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
             board={board}
             teamSlug={team.slug}
             owner={owner}
+            teamId={team.id}
             active={here && active.board === board.slug}
             itemProps={itemProps}
             guides={guides}
@@ -575,6 +713,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
             key={id}
             app={app}
             teamSlug={team.slug}
+            menu={menuProps(sidebarItemMenuKind(team.id), app.id)}
             active={here && active.app === app.slug}
             itemProps={itemProps}
             guides={guides}
@@ -605,7 +744,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
       section="team"
       team={{ open, render: renderTeamRow }}
       renderItem={renderItem}
-      menus={{ [sidebarTeamMenuKind(team.id)]: teamMenu, [sidebarSessionMenuKind(team.id)]: sessionMenu }}
+      menus={{ [sidebarTeamMenuKind(team.id)]: teamMenu, [sidebarItemMenuKind(team.id)]: itemMenu }}
       testId="sidebar-team-items"
       listProps={{ [SIDEBAR_TEAM_LIST_ATTR]: team.id }}
     />
@@ -624,6 +763,7 @@ function removeFromSidebar(targetId: string) {
 function SidebarBoardRow({
   board,
   teamSlug,
+  teamId,
   owner,
   active,
   itemProps,
@@ -631,6 +771,7 @@ function SidebarBoardRow({
 }: {
   board: Board
   teamSlug: string
+  teamId: string
   owner: boolean
   active: boolean
   itemProps: SidebarRowItemProps
@@ -641,7 +782,11 @@ function SidebarBoardRow({
     <SidebarMenuItem {...itemProps} data-testid="sidebar-board-row">
       {guides}
       <SidebarMenuButton asChild density="compact" isActive={active}>
-        <Link to="/t/$teamSlug/boards/$boardSlug" params={{ teamSlug, boardSlug: board.slug }}>
+        <Link
+          to="/t/$teamSlug/boards/$boardSlug"
+          params={{ teamSlug, boardSlug: board.slug }}
+          {...menuProps(sidebarItemMenuKind(teamId), board.id)}
+        >
           <TypeIcon className="h-4 w-4 shrink-0" style={{ color: board.color }} />
           <span className="min-w-0 flex-1 truncate">{board.name}</span>
         </Link>
@@ -689,7 +834,7 @@ function SidebarSessionRow({
         <Link
           to="/t/$teamSlug/sessions/$sessionId"
           params={{ teamSlug, sessionId }}
-          {...menuProps(sidebarSessionMenuKind(teamId), sessionId)}
+          {...menuProps(sidebarItemMenuKind(teamId), sessionId)}
         >
           <ChatRunMark row={{ sessionId, needsYou: row?.needsYou ?? false, busy: row?.busy ?? false }} />
           <span

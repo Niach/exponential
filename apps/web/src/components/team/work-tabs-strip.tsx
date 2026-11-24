@@ -14,8 +14,15 @@ import {
   menuProps,
   StripChip,
   StripOverflowButton,
+  TeamAvatar,
+  type MenuEntry,
   type MenuSessionProps,
 } from "@exp/ui"
+import { sidebarTeams } from "@exp/domain-contract/sidebar-tree"
+import type { Team } from "@/db/schema"
+import { useTeamMemberships } from "@/hooks/use-team-data"
+import { AssistantMark } from "@/components/team/assistant-mark"
+import { newTeamEntries, useSidebarAssistant } from "@/components/team/sidebar-tree"
 import {
   closeTabs,
   isNewRunPath,
@@ -27,7 +34,6 @@ import {
   type WorkTab,
 } from "@/lib/work-tabs"
 import {
-  openNewRunPage,
   updateWorkTabs,
   useWorkTabs,
 } from "@/hooks/use-work-tabs"
@@ -78,6 +84,8 @@ const NewRunIcon = conceptIcon(`action-chat`)
 
 /** EXP-1255: the New session chip's title. */
 export const NEW_RUN_TAB_TITLE = `New session`
+/** #EXP-2124: the + of the strip opens THE new-tab menu. */
+export const NEW_TAB_MENU_TITLE = `New tab`
 
 interface ChipModel {
   key: string
@@ -104,7 +112,12 @@ function ChipTitle({ title }: { title: string | null }) {
 export function WorkTabsStrip({
   teams,
   boards,
+  team,
+  teamSlug,
 }: {
+  /** The layout's team: the Assistant's chat route runs under it. */
+  team: Team | null | undefined
+  teamSlug: string
   /** Every member team. */
   teams: readonly WorkTabsTeam[]
   /** Every member team's boards. */
@@ -408,7 +421,48 @@ export function WorkTabsStrip({
     if (href) void navigate(href as never)
   }
 
-  const openNewRun = () => openNewRunPage(navigate)
+  // #EXP-2124: THE new-tab menu: the Assistant, then New › per team in the
+  // sidebar's order (a chat for every member; agent, app, board for owners).
+  const me = authSession?.user?.id
+  const assistant = useSidebarAssistant(team, teamSlug, me)
+  const { myTeams, memberships } = useTeamMemberships(me)
+  const newTabEntries = useMemo((): MenuEntry[] => {
+    const byId = new Map(myTeams.map((row) => [row.id, row as Team]))
+    const owners = new Set(memberships.filter((m) => m.role === `owner`).map((m) => m.teamId))
+    const order = sidebarTeams(
+      myTeams.map((row) => ({ id: row.id, name: row.name, kind: (row as { kind?: string }).kind ?? `team` }))
+    )
+    const go = (href: string) => void navigate({ href })
+    return [
+      ...(assistant
+        ? [
+            {
+              kind: `item` as const,
+              id: `assistant`,
+              label: assistant.name,
+              icon: <AssistantMark />,
+              onSelect: () =>
+                go(`/t/${encodeURIComponent(assistant.teamSlug)}/agents/${encodeURIComponent(assistant.agentId)}`),
+            },
+            { kind: `separator` as const, id: `teams-separator` },
+          ]
+        : []),
+      ...order.flatMap((id): MenuEntry[] => {
+        const row = byId.get(id)
+        return row
+          ? [
+              {
+                kind: `submenu`,
+                id: `team-${id}`,
+                label: row.name,
+                icon: <TeamAvatar iconUrl={row.iconUrl} size={16} />,
+                entries: newTeamEntries(row, owners.has(id), go),
+              },
+            ]
+          : []
+      }),
+    ]
+  }, [assistant, myTeams, memberships, navigate])
 
   const allKeys = chips.map((chip) => chip.key)
   const renderChip = (chip: ChipModel, interactive: boolean) => {
@@ -555,18 +609,26 @@ export function WorkTabsStrip({
               }
             />
           )}
-          <Button
-            ref={plusRef}
-            variant="ghost"
-            size="icon-xs"
-            className="shrink-0 text-muted-foreground hover:text-foreground"
-            aria-label={NEW_RUN_TAB_TITLE}
-            title={NEW_RUN_TAB_TITLE}
-            data-testid="work-tabs-new-run"
-            onClick={openNewRun}
-          >
-            <UiAddIcon />
-          </Button>
+          <Menu
+            align="start"
+            aria-label={NEW_TAB_MENU_TITLE}
+            title={NEW_TAB_MENU_TITLE}
+            data-testid="work-tabs-new-menu"
+            entries={newTabEntries}
+            trigger={
+              <Button
+                ref={plusRef}
+                variant="ghost"
+                size="icon-xs"
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+                aria-label={NEW_TAB_MENU_TITLE}
+                title={NEW_TAB_MENU_TITLE}
+                data-testid="work-tabs-new-run"
+              >
+                <UiAddIcon />
+              </Button>
+            }
+          />
         </div>
       </div>
     </MenuGestureHost>

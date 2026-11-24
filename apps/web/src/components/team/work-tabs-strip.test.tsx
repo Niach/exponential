@@ -75,6 +75,8 @@ function renderStrip() {
         { id: `t2`, slug: `beta` },
       ]}
       boards={[{ id: `b1`, slug: `web`, teamId: `t1` }] as never}
+      team={null}
+      teamSlug="acme"
     />
   )
 }

@@ -41,7 +41,7 @@ import { JoinTeamDialog } from "@/components/join-team-dialog"
 import { AddDeviceDialog } from "@/components/add-device-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { SidebarRunningSection, type SidebarChats, type SidebarRunningTeam } from "@/components/team/sidebar-running"
-import { SidebarRootRows, SidebarTeamsGroup, sidebarActive } from "@/components/team/sidebar-tree"
+import { SidebarRootRows, SidebarTeamsGroup, sidebarActive, useSidebarAssistant } from "@/components/team/sidebar-tree"
 import { mainPanelEdge } from "@/components/team/app-shell"
 import { UserAvatar, UserMenuItems } from "@/components/team/sidebar-shared"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
@@ -153,6 +153,7 @@ export function TeamSidebar({
   const needsYou = useMemberNeedsYouCounts()
   const draftCount = useCrossTeamDraftCount(myTeamIds)
   const devices = useSidebarDevices(me, teamOrder)
+  const assistant = useSidebarAssistant(team, teamSlug, me)
   // EXP-1293: ONE Chats list read for the sidebar — the Chats row's badge,
   // the placed sessions' marks and the Active band.
   const chatsList = useChatsList(myTeamIds)
@@ -296,6 +297,7 @@ export function TeamSidebar({
                       <SidebarGroupContent>
                         <SidebarRootRows
                           active={active}
+                          assistant={assistant}
                           needsYou={needsYou.total}
                           drafts={draftCount}
                           chatsBadge={chatsCount}

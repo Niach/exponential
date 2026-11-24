@@ -9689,7 +9689,7 @@
       "id": "sidebar-team-menu",
       "group": "coding",
       "title": "Sidebar · team menu",
-      "blurb": "#EXP-2027 (sidebar-tree.json `teamMenu`): a team row's … (or a right-click): New › Board, Agent, App (owners) and Session, New folder, Settings.",
+      "blurb": "#EXP-2124 (draft): a team row's … (or a right-click), THE sidebar menu table's `team`: New › Chat, Agent, App, Board (the last three for owners), New folder, Settings, Leave team.",
       "order": 90,
       "web": {
         "route": "/home",
@@ -9715,6 +9715,72 @@
           "EXP_DEV_TEAM_MENU": "1"
         },
         "anchorDelayMs": 1200
+      }
+    },
+    {
+      "id": "new-tab-menu",
+      "group": "coding",
+      "title": "Tab strip · new-tab menu",
+      "blurb": "#EXP-2124 (draft): the tab strip's + opens THE new-tab menu: the Assistant (its name + the brand mark), then one row per team in sidebar order, each a submenu: Chat for every member, Agent, App, Board for an owner.",
+      "order": 99,
+      "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "sidebar-team-row",
+          "timeoutMs": 30000
+        },
+        "recipe": "openNewTabMenu",
+        "settleMs": 800
+      },
+      "notes": {
+        "web-mobile": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "desktop": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "ios": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "android": "#EXP-2124: a web draft; lands here with the build once the plan is approved."
+      }
+    },
+    {
+      "id": "sidebar-device-menu",
+      "group": "coding",
+      "title": "Sidebar · device menu",
+      "blurb": "#EXP-2124 (draft): a device row's right-click, THE sidebar menu table's `device`: Open, Open in new tab, Rename and Copy link, Settings, Remove device last.",
+      "order": 100,
+      "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "sidebar-team-row",
+          "timeoutMs": 30000
+        },
+        "recipe": "openSidebarDeviceMenu",
+        "settleMs": 800
+      },
+      "notes": {
+        "web-mobile": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "desktop": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "ios": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "android": "#EXP-2124: a web draft; lands here with the build once the plan is approved."
+      }
+    },
+    {
+      "id": "sidebar-board-menu",
+      "group": "coding",
+      "title": "Sidebar · board menu",
+      "blurb": "#EXP-2124 (draft): a board row's right-click, THE sidebar menu table's `board`: Open, Open in new tab, New issue, Copy link, Move to folder ›, Settings, Archive last.",
+      "order": 101,
+      "web": {
+        "route": "/home",
+        "anchor": {
+          "testId": "sidebar-team-row",
+          "timeoutMs": 30000
+        },
+        "recipe": "openSidebarBoardMenu",
+        "settleMs": 800
+      },
+      "notes": {
+        "web-mobile": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "desktop": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "ios": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "android": "#EXP-2124: a web draft; lands here with the build once the plan is approved."
       }
     },
     {

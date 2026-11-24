@@ -938,8 +938,37 @@ async function recipeOpenSidebarTeamMenu(page: Page): Promise<void> {
   const next = page.getByRole(`menuitem`, { name: `New`, exact: true }).first()
   await next.waitFor({ timeout: 15_000 })
   await next.hover()
-  await page.getByRole(`menuitem`, { name: `Session`, exact: true }).first().waitFor({ timeout: 15_000 })
+  const chat = page.getByRole(`menuitem`, { name: `Chat`, exact: true }).first()
+  await chat.waitFor({ timeout: 15_000 })
+  await chat.hover()
 }
+
+/**
+ * #EXP-2124 (draft): the tab strip's + opens THE new-tab menu; hovering the
+ * first team opens its submenu (Chat, Agent, App, Board).
+ */
+async function recipeOpenNewTabMenu(page: Page): Promise<void> {
+  const plus = page.getByTestId(`work-tabs-new-run`).first()
+  await plus.waitFor({ timeout: 30_000 })
+  await plus.click()
+  const team = page.locator(`[role="menu"] [aria-haspopup="menu"]`).first()
+  await team.waitFor({ timeout: 15_000 })
+  await team.hover()
+  const chat = page.getByRole(`menuitem`, { name: `Chat`, exact: true }).first()
+  await chat.waitFor({ timeout: 15_000 })
+  await chat.hover()
+}
+
+/** #EXP-2124 (draft): a right-click on a sidebar row opens its menu. */
+async function openSidebarRowMenu(page: Page, testId: string): Promise<void> {
+  const row = page.getByTestId(testId).first().locator(`[data-menu]`).first()
+  await row.waitFor({ timeout: 30_000 })
+  await row.click({ button: `right` })
+  await page.getByTestId(`sidebar-item-menu`).first().waitFor({ timeout: 15_000 })
+}
+
+const recipeOpenSidebarDeviceMenu = (page: Page) => openSidebarRowMenu(page, `sidebar-device-row`)
+const recipeOpenSidebarBoardMenu = (page: Page) => openSidebarRowMenu(page, `sidebar-board-row`)
 
 // ---------------------------------------------------------------- actions
 // --------------------------------------------------------------- settings
@@ -1063,7 +1092,12 @@ async function recipeWaitForMcpActivity(page: Page): Promise<void> {
 /** EXP-1558: recipes whose photographed state IS a hover; the capturer
  *  parks the pointer after every other recipe. */
 // #EXP-1659: openComposerSkillsMenu: a hover holds the Skills submenu open.
-export const KEEPS_POINTER: ReadonlySet<string> = new Set([`previewDeviceLimits`, `openComposerSkillsMenu`, `openComposerTeamsMenu`])
+export const KEEPS_POINTER: ReadonlySet<string> = new Set([`previewDeviceLimits`, `openComposerSkillsMenu`,
+  `openComposerTeamsMenu`,
+  // #EXP-2124: the open submenu IS the view.
+  `openSidebarTeamMenu`,
+  `openNewTabMenu`,
+])
 
 /**
  * The registry itself. Keys are the names `views.json` uses; the view-catalog
@@ -1097,6 +1131,9 @@ export const RECIPES: Record<string, Recipe> = {
   previewDeviceLimits: recipePreviewDeviceLimits,
   openAddServer: recipeOpenAddServer,
   openSidebarTeamMenu: recipeOpenSidebarTeamMenu,
+  openNewTabMenu: recipeOpenNewTabMenu,
+  openSidebarDeviceMenu: recipeOpenSidebarDeviceMenu,
+  openSidebarBoardMenu: recipeOpenSidebarBoardMenu,
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,
   openGettingStartedPhone: recipeOpenGettingStartedPhone,

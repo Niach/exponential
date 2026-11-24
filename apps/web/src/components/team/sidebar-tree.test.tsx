@@ -99,6 +99,7 @@ function renderRoot(needsYou: number, drafts: number, devices: SidebarDevice[] =
   return wrap(
     <SidebarRootRows
       active={sidebarActive(`/home`)}
+      assistant={null}
       needsYou={needsYou}
       drafts={drafts}
       chatsBadge={{ count: 0, tone: `muted` }}
