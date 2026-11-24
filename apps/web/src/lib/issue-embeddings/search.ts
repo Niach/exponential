@@ -22,8 +22,9 @@
 // broken, or any failure in this branch leaves exactly the lexical result
 // (and `similar:` empty). The embedding of a query is awaited for at most
 // `ISSUE_SEARCH_EMBED_BUDGET_MS`, counted from the start of the search, so
-// the model can never slow a keystroke down; a vector that arrives late is
-// kept for the next keystroke.
+// the model can never hold lexical hits back; a vector that arrives late is
+// kept for the next keystroke. Only a search with NO lexical hit (nothing to
+// hold back) and an agent's listing wait `ISSUE_SEARCH_EMBED_PATIENT_BUDGET_MS`.
 //
 // PRIVACY: the query text and its vector stay in this process (the embedder
 // is a local worker, lib/issue-embeddings/embedder.ts); nothing here opens a
@@ -85,6 +86,11 @@ export const ISSUE_SEARCH_SIMILAR_MAX_DISTANCE = 0.2
 export const ISSUE_SEARCH_SIMILAR_MAX_HITS = 10
 /** How long a search waits for its query's embedding, from its start. */
 export const ISSUE_SEARCH_EMBED_BUDGET_MS = 150
+/** The same wait when it can delay nothing: the lexical branches found no
+ *  issue (the person is looking at "no match" either way), or the caller is
+ *  an agent's listing. Long enough for a cold model to load (about a second
+ *  after five idle minutes), so a pasted sentence still gets its answer. */
+export const ISSUE_SEARCH_EMBED_PATIENT_BUDGET_MS = 2000
 /** Query words shorter than this in total never reach the model. */
 export const ISSUE_SEARCH_SEMANTIC_MIN_CHARS = 3
 
@@ -318,7 +324,7 @@ function before<T>(promise: Promise<T>, deadline: number): Promise<T | null> {
 
 export interface IssueSearchOptions {
   readonly backend?: IssueSearchBackend
-  /** Overrides `ISSUE_SEARCH_EMBED_BUDGET_MS` (tests). */
+  /** Overrides both embed budgets (tests). */
   readonly budgetMs?: number
 }
 
@@ -388,7 +394,7 @@ export async function searchIssues(
 
   // The embedding starts NOW, beside the lexical query, and is awaited only
   // until the budget that started with it runs out.
-  const deadline = Date.now() + (options.budgetMs ?? ISSUE_SEARCH_EMBED_BUDGET_MS)
+  const started = Date.now()
   const text = issueSearchSemanticText(query)
   const vector: Promise<Float32Array | null> =
     text === null
@@ -401,7 +407,9 @@ export async function searchIssues(
   const lexical = await backend.lexical(query, scope, limit)
   if (text === null || lexical.length >= limit) return lexical
   try {
-    const found = await before(vector, deadline)
+    const budget =
+      options.budgetMs ?? (lexical.length === 0 ? ISSUE_SEARCH_EMBED_PATIENT_BUDGET_MS : ISSUE_SEARCH_EMBED_BUDGET_MS)
+    const found = await before(vector, started + budget)
     if (!found) return lexical
     const listed =
       lexical.length === 0
@@ -463,7 +471,7 @@ export async function issueSearchIdsSql(
   const text = issueSearchSemanticText(query)
   if (text === null) return lexical
   try {
-    const deadline = Date.now() + (options.budgetMs ?? ISSUE_SEARCH_EMBED_BUDGET_MS)
+    const deadline = Date.now() + (options.budgetMs ?? ISSUE_SEARCH_EMBED_PATIENT_BUDGET_MS)
     if (!(await backend.available())) return lexical
     const found = await before(cachedVector(text, backend.embed), deadline)
     if (!found) return lexical

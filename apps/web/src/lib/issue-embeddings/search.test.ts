@@ -6,6 +6,8 @@ import type { SQL } from "drizzle-orm"
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
 import {
+  ISSUE_SEARCH_EMBED_BUDGET_MS,
+  ISSUE_SEARCH_EMBED_PATIENT_BUDGET_MS,
   ISSUE_SEARCH_SEMANTIC_MAX_DISTANCE,
   ISSUE_SEARCH_SEMANTIC_MAX_HITS,
   ISSUE_SEARCH_SIMILAR_MAX_HITS,
@@ -210,6 +212,18 @@ describe(`searchIssues: a worded query`, () => {
     await slow
     expect(ids(await searchIssues(`login broken`, scope, 20, { backend, budgetMs: 5 }))).toEqual([1, 7])
     expect(calls.embed).toEqual([`login broken`])
+  })
+
+  it(`waits longer when no word matched (nothing to hold back), never when lexical hits are waiting`, async () => {
+    const late = () => new Promise<Float32Array>((resolve) => setTimeout(() => resolve(VECTOR), ISSUE_SEARCH_EMBED_BUDGET_MS + 150))
+    expect(ISSUE_SEARCH_EMBED_PATIENT_BUDGET_MS).toBeGreaterThan(ISSUE_SEARCH_EMBED_BUDGET_MS + 300)
+    const empty = fake({ lexical: [], nearest: [7], embed: late })
+    expect(ids(await searchIssues(`cold model sentence`, scope, 20, { backend: empty.backend }))).toEqual([7])
+    resetIssueSearchVectors()
+    const some = fake({ lexical: [1], nearest: [7], embed: late })
+    const started = Date.now()
+    expect(ids(await searchIssues(`cold model sentence`, scope, 20, { backend: some.backend }))).toEqual([1])
+    expect(Date.now() - started).toBeLessThan(ISSUE_SEARCH_EMBED_BUDGET_MS + 120)
   })
 
   it(`the budget counts from the start of the search: a slow lexical query leaves none`, async () => {
