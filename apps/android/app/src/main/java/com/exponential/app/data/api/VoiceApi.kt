@@ -23,6 +23,10 @@ private data class StartCallInput(val agentId: String, val platform: String, val
 @Serializable
 private data class StartMeetingInput(val consent: Boolean)
 
+/** #EXP-1859: `voice.wakeAgent`'s input (a team agent's Wake word row). */
+@Serializable
+private data class WakeAgentInput(val agentId: String, val on: Boolean)
+
 /** NEW-69: the caller's relay ticket; [url] is dialled as-is. */
 @Serializable
 data class StartCallResult(
@@ -97,6 +101,20 @@ class VoiceApi @Inject constructor(private val trpc: TrpcClient) {
             path = "voice.stopMeeting",
             input = VoiceEmptyInput,
             inputSerializer = VoiceEmptyInput.serializer(),
+            outputSerializer = Voice.Settings.serializer(),
+        )
+
+    /**
+     * #EXP-1859: a team agent's Wake word row flipped (`AgentWake.toggle` on
+     * the server, one write); refusals = BAD_REQUEST with the copy,
+     * NOT_FOUND. Answers the row.
+     */
+    suspend fun wakeAgent(accountId: String, agentId: String, on: Boolean): Voice.Settings =
+        trpc.mutation(
+            accountId,
+            path = "voice.wakeAgent",
+            input = WakeAgentInput(agentId = agentId, on = on),
+            inputSerializer = WakeAgentInput.serializer(),
             outputSerializer = Voice.Settings.serializer(),
         )
 }

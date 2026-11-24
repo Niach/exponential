@@ -118,7 +118,8 @@
           "language",
           "clip",
           "transcript",
-          "wake-phrase"
+          "wake-phrase",
+          "wake-word"
         ]
       },
       {
@@ -383,7 +384,8 @@
       "language",
       "clip",
       "transcript",
-      "wake-phrase"
+      "wake-phrase",
+      "wake-word"
     ],
     "copy": {
       "label": "Voice",

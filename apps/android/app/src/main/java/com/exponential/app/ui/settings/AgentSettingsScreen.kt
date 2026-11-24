@@ -9,6 +9,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import com.exponential.app.data.api.AgentVoicePatch
 import com.exponential.app.domain.AgentVoiceSection
+import com.exponential.app.domain.AgentWake
 import com.exponential.app.domain.MemberVoiceLike
 import com.exponential.app.domain.Voice
 import com.exponential.app.domain.agentVoiceOf
@@ -62,6 +63,7 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.theme.glassGroup
 import com.exponential.app.ui.components.FieldError
+import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.GlassPill
@@ -1077,6 +1079,27 @@ private fun AgentVoiceSectionBlock(
     var transcript by remember(agent.id, resolved.transcript) { mutableStateOf(resolved.transcript) }
     var wakePhrase by remember(agent.id, resolved.wakePhrase) { mutableStateOf(resolved.wakePhrase) }
     var wakePhraseError by remember(agent.id) { mutableStateOf<String?>(null) }
+    // #EXP-1859: a TEAM agent's Wake word row (`wakeRow`; the Assistant's
+    // page keeps the member row below).
+    val teamAgent = !AgentSettings.Assistant.isAssistant(agent.role)
+    val wakeAgents by voiceModel.wakeAgents.collectAsStateWithLifecycle()
+    val wakeInput = settings?.let { voiceModel.wakeInput(it, wakeAgents) }
+    val wakeRow = wakeInput?.let { AgentWake.row(it, agent.id) } ?: AgentWake.Row(on = false, error = null)
+    val wakeError = voiceModel.wakeRefusals[agent.id] ?: wakeRow.error
+    val listening = wakeInput != null && AgentWake.listeners(wakeInput).any { it.agentId == agent.id }
+    // While it listens: the Assistant's Wake word detail, read the same way.
+    val wakeDetail = if (!listening || settings == null) null else settings.voiceDeviceId?.let { deviceId ->
+        Voice.wakeRowDetail(
+            vocabulary.doctors[deviceId],
+            Voice.WakeDetailContext(
+                wakeWord = true,
+                agent = settings.agentId != null,
+                online = deviceId in vocabulary.online,
+                device = vocabulary.deviceNames[deviceId] ?: Voice.Copy.ELLIPSIS,
+                state = null,
+            ),
+        )
+    }
 
     // A save equal to the resolved value sends nothing; a cleared row sends
     // null (the agent falls back to the member's / none).
@@ -1179,9 +1202,24 @@ private fun AgentVoiceSectionBlock(
                 onFocusLost = ::commitWakePhrase,
                 modifier = Modifier.testTag(AgentVoiceSection.TestIds.WAKE_PHRASE),
             )
+            if (teamAgent) {
+                // #EXP-1859 (`voice.wake`): THE Wake word switch row (the
+                // Assistant's), the MEMBER's own setting: every member flips it.
+                GroupDivider()
+                SwitchRow(
+                    title = AgentWake.Copy.WAKE_WORD,
+                    checked = wakeRow.on,
+                    onCheckedChange = { voiceModel.wakeAgent(agent.id, it) },
+                    enabled = settings != null,
+                    description = wakeDetail,
+                    modifier = Modifier.testTag(AgentVoiceSection.TestIds.WAKE_WORD),
+                )
+            }
         }
         // #NEW-56: invalid input, inline under the field (never a toast).
         FieldError(wakePhraseError, modifier = Modifier.padding(start = 20.dp, top = 6.dp))
+        // #EXP-1859: why a switched-on agent does not listen, or a refused flip.
+        if (teamAgent) FieldError(wakeError, modifier = Modifier.padding(start = 20.dp, top = 6.dp))
         if (memberRows && settings != null) {
             // S-3: the voice.json member rows, below the agent's own rows.
             VoiceSettingsForm(

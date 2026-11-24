@@ -8,7 +8,8 @@
 //! servers); Triggers (THE reusable list, [`super::agent_triggers`]: Check
 //! in, then the other triggers); Voice (#EXP-1847: EVERY agent's own
 //! voice, `agent-settings.json` `voice`: Language, the clip, Transcript,
-//! Wake phrase; the Assistant's member rows follow it); the
+//! Wake phrase; #EXP-1859: a team agent's Wake word switch, the member's
+//! own `wakeAgentIds`; the Assistant's member rows follow it); the
 //! Instructions card (team agents only; server-only, `agents.get`, saved on
 //! blur); the owner-only "Delete agent" (team agents only). A team agent's
 //! editors are its team's owners, the Assistant's its member.
@@ -378,6 +379,11 @@ pub struct AgentDetailPane {
     /// (the settings this IDE last received stand in).
     member_voice: Option<etalk::voice::VoiceSettings>,
     member_voice_requested: bool,
+    /// #EXP-1859: the Wake word row's refusal (`voice.wakeAgent`'s
+    /// BAD_REQUEST, or `wake_toggle`'s own), inline until the next flip, and
+    /// the newest flip (last write wins).
+    wake_word_error: Option<String>,
+    wake_word_write: u64,
     /// #EXP-1849 (apps.json `agentSlot`): THE app agent's slot, the App
     /// settings' Agent group (`Some(editor)`): only the Runs on rows, the
     /// device = `Each member's own device` or a team-shared one.
@@ -416,7 +422,7 @@ impl AgentDetailPane {
         let binding = cx.new(|_| {
             let mut binding = Binding::new(PATH, Value::Null, |state: &Value, _| state.clone());
             binding.set_toasts(Rc::new(super::doc::IdeToasts));
-            for name in ["icon", "color", "device", "account", "skills", "mcpServers", TEAM_SKILLS, TEAM_MCP_SERVERS, "model", "retry", "delete", "voiceLanguage", "voiceClip", "voiceClipRemove"].into_iter().chain(agent_triggers::ACTIONS) {
+            for name in ["icon", "color", "device", "account", "skills", "mcpServers", TEAM_SKILLS, TEAM_MCP_SERVERS, "model", "retry", "delete", "voiceLanguage", "voiceClip", "voiceClipRemove", "voiceWakeWord"].into_iter().chain(agent_triggers::ACTIONS) {
                 let pane = pane.clone();
                 binding.on_action(name, move |_, event, cx| {
                     let context = event.context.clone();
@@ -462,6 +468,8 @@ impl AgentDetailPane {
             wake_placeholder,
             member_voice: None,
             member_voice_requested: false,
+            wake_word_error: None,
+            wake_word_write: 0,
             slot: slot.then_some(false),
             binding,
             view,
@@ -595,6 +603,7 @@ impl AgentDetailPane {
         // A new agent (the Assistant after the move too) re-reads every
         // team's MCP servers.
         self.mcp_requested.clear();
+        self.wake_word_error = None;
         self.fetch_instructions(window, cx);
     }
 
@@ -883,6 +892,87 @@ impl AgentDetailPane {
         domain::agent_settings::agent_voice_of(Some(&agent.role), agent.name.as_deref().unwrap_or_default(), &agent.voice, &member)
     }
 
+    /// The member's voice settings (`voice.get`; until it landed, the
+    /// settings this IDE last received).
+    fn member_settings(&self, cx: &App) -> etalk::voice::VoiceSettings {
+        self.member_voice.clone().unwrap_or_else(|| etalk_gpui::speak_replies::settings(cx))
+    }
+
+    /// #EXP-1859 (`voice.wake` `wakeRow`): the `wake-word` row of `agent`
+    /// and its detail while it listens (the Assistant's row's `wakeDetail`).
+    fn wake_word_row(&self, agent: &AgentDefRow, cx: &App) -> (domain::agent_settings::WakeRow, Option<String>) {
+        let settings = self.member_settings(cx);
+        let rows = synced_agents(cx);
+        let agents: Vec<domain::agent_settings::WakeAgent<'_>> = rows.iter().map(domain::agent_settings::WakeAgent::of).collect();
+        let input = wake_input(&settings);
+        let row = domain::agent_settings::wake_row(&input, &agents, &agent.id);
+        let listening = row.on && domain::agent_settings::wake_listeners(&input, &agents).iter().any(|listener| listener.agent_id == agent.id);
+        let detail = listening.then(|| super::voice_prefs::wake_word_detail(&settings, cx)).flatten();
+        (row, detail)
+    }
+
+    /// #EXP-1859: a flip of the `wake-word` row = `voice.wakeAgent`, through
+    /// `wake_toggle` first: its refusal shows inline and is never sent; else
+    /// the flip shows at once, the stored settings adopt (and reach this
+    /// IDE's voice), a BAD_REQUEST reverts with its copy inline, any other
+    /// failure reverts and toasts.
+    fn flip_wake_word(&mut self, agent_id: String, on: bool, cx: &mut gpui::Context<Self>) {
+        use domain::agent_settings::{wake_toggle, WakeAgent, WakeRefusal};
+        let previous = self.member_settings(cx);
+        let rows = synced_agents(cx);
+        let agents: Vec<WakeAgent<'_>> = rows.iter().map(WakeAgent::of).collect();
+        let toggle = wake_toggle(&wake_input(&previous), &agents, &agent_id, on);
+        match toggle.error {
+            Some(WakeRefusal::Invalid(message)) => {
+                self.wake_word_error = Some(message);
+                cx.notify();
+                return;
+            }
+            Some(WakeRefusal::NotFound) => {
+                crate::action_error::failed_action("change", "the wake word", None, cx);
+                return;
+            }
+            None => {}
+        }
+        let Some(trpc) = queries::trpc_client(cx) else {
+            return;
+        };
+        let mut next = previous.clone();
+        next.wake_word = toggle.wake_word;
+        next.wake_agent_ids = toggle.wake_agent_ids;
+        self.member_voice = Some(next);
+        self.wake_word_error = None;
+        self.wake_word_write += 1;
+        let write = self.wake_word_write;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move { api::voice::voice_wake_agent(&trpc, &agent_id, on) }).await;
+            let _ = this.update(cx, |this, cx| {
+                let newest = this.wake_word_write == write;
+                match result {
+                    Ok(stored) => {
+                        if newest {
+                            this.member_voice = Some(stored.clone());
+                            crate::talk_host::set_voice_settings(stored, cx);
+                        }
+                    }
+                    Err(err) => {
+                        if newest {
+                            this.member_voice = Some(previous);
+                        }
+                        if err.trpc_code() == Some("BAD_REQUEST") {
+                            this.wake_word_error = Some(err.user_message());
+                        } else {
+                            crate::action_error::failed_action_err("change", "the wake word", &err, cx);
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// #EXP-1847: a Transcript / Wake phrase edit (THE input rule ×4 as it
     /// is typed); a commit saves a change (`agents.update {voice}`, blank =
     /// null), a too-short wake phrase stays inline and is never sent.
@@ -1089,6 +1179,14 @@ impl AgentDetailPane {
             agent_triggers::handle(self, |pane| &mut pane.triggers, name, agent_triggers::ListTarget::Agent(agent_id), editor, context, payload, window, cx);
             return;
         }
+        // #EXP-1859: the Wake word row is the MEMBER's own setting: every
+        // member flips it, on a team agent's page.
+        if name == "voiceWakeWord" {
+            if let Some(on) = payload.get("checked").and_then(Value::as_bool).filter(|_| !agent.is_assistant()) {
+                self.flip_wake_word(agent_id, on, cx);
+            }
+            return;
+        }
         // A member reads every row.
         if !editor && name != "retry" {
             return;
@@ -1250,6 +1348,13 @@ impl AgentDetailPane {
         let wake_phrase = self.wake_draft.clone().unwrap_or_else(|| voice.wake_phrase.clone());
         let read_text = |text: &str, placeholder: String| if text.is_empty() { json!({"shown": placeholder, "empty": true}) } else { json!({"shown": text, "empty": false}) };
         let agent_name = agent.name.clone().unwrap_or_default();
+        // #EXP-1859: the team agent's Wake word (the Assistant's page keeps
+        // its member row); off and disabled while the member has no voice
+        // device or voice agent, as the Assistant's row.
+        let (wake_row, wake_detail) = if assistant { (domain::agent_settings::WakeRow { on: false, error: None }, None) } else { self.wake_word_row(agent, cx) };
+        let member = self.member_settings(cx);
+        let wake_ready = member.voice_device_id.is_some() && member.agent_id.is_some();
+        let wake_error = self.wake_word_error.clone().or(wake_row.error);
         json!({
             "assistant": assistant,
             "agentPage": !assistant,
@@ -1265,6 +1370,8 @@ impl AgentDetailPane {
                 "voiceWakePhrase": read_text(&wake_phrase, domain::agent_settings::agent_wake_phrase_placeholder(&agent_name)),
                 "wakeInvalid": self.wake_invalid.clone().unwrap_or_default(),
                 "hasWakeInvalid": self.wake_invalid.is_some(),
+                "wakeWord": {"checked": wake_row.on && wake_ready, "disabled": !wake_ready, "detail": wake_detail, "hint": wake_detail.is_some(),
+                    "error": wake_error.clone().unwrap_or_default(), "hasError": !assistant && wake_error.is_some()},
             },
             "device": {"value": device_value, "options": device_options},
             "hasDevice": has_device,
@@ -1353,6 +1460,28 @@ impl Render for AgentDetailPane {
             column = column.child(div().pt_4().child(crate::action_error::field_error(message, cx).px_1()));
         }
         column.into_any_element()
+    }
+}
+
+/// #EXP-1859: the agents of the member's teams as synced (the agents shape
+/// is member-only), the wake rules' `agents`.
+fn synced_agents(cx: &App) -> Vec<AgentDefRow> {
+    Store::try_global(cx).map(|store| store.collections().agents.read(cx).iter().cloned().collect()).unwrap_or_default()
+}
+
+/// #EXP-1859: the member's voice settings as the wake rules read them.
+fn wake_input(settings: &etalk::voice::VoiceSettings) -> domain::agent_settings::WakeSettings<'_> {
+    domain::agent_settings::WakeSettings {
+        voice_device_id: settings.voice_device_id.as_deref(),
+        agent_id: settings.agent_id.as_deref(),
+        wake_word: settings.wake_word,
+        wake_agent_ids: &settings.wake_agent_ids,
+        member: domain::agent_settings::MemberVoice {
+            language: settings.language(),
+            voice_file: &settings.voice_file,
+            voice_transcript: &settings.voice_transcript,
+            wake_phrase: &settings.wake_phrase,
+        },
     }
 }
 
@@ -1589,8 +1718,10 @@ fn document(ink: &Ink, chrome: &Chrome, wake_placeholder: &str, teams: &[(String
     let runs_on = runs_on_rows(ink);
     let voice_copy = &domain::agent_settings::AGENT_VOICE.copy;
     let wake_invalid = field_error(ink, chrome, "voice_wake_invalid", path("/pane/voice/wakeInvalid"), path("/pane/voice/hasWakeInvalid"));
+    // #EXP-1859: why a team agent that is on does not listen, inline.
+    let wake_word_error = field_error(ink, chrome, "voice_wake_word_error", path("/pane/voice/wakeWord/error"), path("/pane/voice/wakeWord/hasError"));
     let voice = json!({"id": "voice", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
-        "children": [ink.band("voice_band", &voice_copy.label, None), ink.group("voice_group", voice_rows(ink, chrome, wake_placeholder)), wake_invalid]});
+        "children": [ink.band("voice_band", &voice_copy.label, None), ink.group("voice_group", voice_rows(ink, chrome, wake_placeholder)), wake_invalid, wake_word_error]});
     let error = field_error(ink, chrome, "error", path("/pane/error"), path("/pane/hasError"));
     let size = ink.r(SM);
     let delete = json!({"id": "delete", "component": "Box", "visible": path("/pane/canDelete"), "props": {"pressable": true}, "accessibility": {"label": field_label("delete")}, "on": {"press": {"event": {"name": "delete"}}},
@@ -1667,7 +1798,7 @@ mod tests {
         ids(&tree, &mut found);
         let voice = tree["children"].as_array().unwrap().iter().find(|node| node["id"] == "voice").expect("the voice section");
         assert!(voice.get("visible").is_none(), "shown for every agent");
-        let order: Vec<usize> = ["voice_band", "voice_language", "voice_clip", "voice_transcript", "voice_wake_phrase"]
+        let order: Vec<usize> = ["voice_band", "voice_language", "voice_clip", "voice_transcript", "voice_wake_phrase", "voice_wake_word", "voice_wake_word_error"]
             .iter()
             .map(|id| found.iter().position(|found| found == id).unwrap_or_else(|| panic!("{id}")))
             .collect();
@@ -1676,6 +1807,10 @@ mod tests {
         let wake = serde_json::to_string(&tree).unwrap();
         assert!(wake.contains("\"placeholder\":\"Hey Sloppy\""));
         assert!(wake.contains(&domain::agent_settings::AGENT_VOICE.copy.transcript_placeholder));
+        // #EXP-1859: the Wake word switch shows on a team agent's page only.
+        let wake_word = voice["children"][1]["children"].as_array().unwrap().iter().find(|node| node["id"] == "voice_wake_word").expect("the wake word row");
+        assert!(wake_word["visible"].to_string().contains("/pane/agentPage"), "{}", wake_word["visible"]);
+        assert!(wake.contains(&format!("\"{}\"", domain::agent_settings::AGENT_VOICE.wake.copy.wake_word)));
     }
 
     /// #EXP-1849: the App settings' Agent group raises none either, and

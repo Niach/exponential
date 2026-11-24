@@ -122,6 +122,23 @@ final class VoiceSettingsModel {
         return Meeting.who(settings.desktopAudio, apps: settings.desktopAudioApps, capability: doctorAudio.capability)
     }
 
+    /// S-3: the Wake word row's detail: the voice device's doctor row
+    /// `wake` (its own `wakeDetail` text) verbatim, else `wakeDetail` with
+    /// no worker state (noAgent / offline / starting). #EXP-1859: a team
+    /// agent's Wake word row shows the same while it listens.
+    static func wakeDetail(_ settings: Voice.Settings, devices: [DeviceEntity], armed: Bool) -> String? {
+        let device = settings.voiceDeviceId.flatMap { id in devices.first { $0.deviceId == id } }
+        let context = Voice.WakeDetailContext(
+            wakeWord: armed && settings.wakeWord,
+            agent: settings.agentId != nil,
+            online: DeviceLiveness.isOnline(lastSeenAt: device?.lastSeenAt, now: Date()),
+            device: device?.label ?? "",
+            state: nil
+        )
+        guard context.wakeWord, context.agent, context.online else { return Voice.wakeDetail(context) }
+        return Voice.wakeDoctorDetail(ofJSON: device?.doctor) ?? Voice.wakeDetail(context)
+    }
+
     // MARK: - Drafts
 
     func draft(_ input: VoiceTextInput) -> String {
@@ -490,20 +507,8 @@ struct VoiceSettingsBlock: View {
         .listRowBackground(glassFormRowFill)
     }
 
-    /// S-3: the Wake word row's detail: the voice device's doctor row
-    /// `wake` (its own `wakeDetail` text) verbatim, else `wakeDetail` with
-    /// no worker state (noAgent / offline / starting).
     private func wakeDetail(_ settings: Voice.Settings, armed: Bool) -> String? {
-        let device = settings.voiceDeviceId.flatMap { id in model.devices.first { $0.deviceId == id } }
-        let context = Voice.WakeDetailContext(
-            wakeWord: armed && settings.wakeWord,
-            agent: settings.agentId != nil,
-            online: DeviceLiveness.isOnline(lastSeenAt: device?.lastSeenAt, now: Date()),
-            device: device?.label ?? "",
-            state: nil
-        )
-        guard context.wakeWord, context.agent, context.online else { return Voice.wakeDetail(context) }
-        return Voice.wakeDoctorDetail(ofJSON: device?.doctor) ?? Voice.wakeDetail(context)
+        VoiceSettingsModel.wakeDetail(settings, devices: model.devices, armed: armed)
     }
 
     // MARK: - Meeting mode (#NEW-57)

@@ -2209,7 +2209,7 @@ mod tests {
     fn voice_of_cases_match_the_fixture() {
         let fixture = fixture();
         let block = &fixture["voice"];
-        assert_eq!(AGENT_VOICE.rows, vec!["language", "clip", "transcript", "wake-phrase"]);
+        assert_eq!(AGENT_VOICE.rows, vec!["language", "clip", "transcript", "wake-phrase", "wake-word"]);
         assert_eq!(AGENT_VOICE.copy.label, block["copy"]["label"].as_str().unwrap());
         assert_eq!(AGENT_VOICE.limits.wake_phrase, 64);
         assert_eq!(AGENT_VOICE.clip_upload.max_bytes, 5 * 1024 * 1024);
@@ -2330,7 +2330,7 @@ mod tests {
 
     #[test]
     fn wake_spec_reads_the_fixture() {
-        assert_eq!(AGENT_VOICE.rows, vec!["language", "clip", "transcript", "wake-phrase"]);
+        assert_eq!(AGENT_VOICE.rows, vec!["language", "clip", "transcript", "wake-phrase", "wake-word"]);
         assert_eq!(AGENT_VOICE.wake.max_listeners, 5);
         assert_eq!(AGENT_VOICE.wake.max_ids, 32);
         assert_eq!(AGENT_VOICE.wake.copy.wake_word, "Wake word");
