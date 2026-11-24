@@ -244,6 +244,8 @@ let shareExtensionSources: SourceFilesList = [
     "ExpCore/Sources/Sealed/SealedContent.swift",
     "ExpCore/Sources/Sealed/SealedKeyRing.swift",
     "ExpCore/Sources/Sealed/TreeKeyHolder.swift",
+    // #EXP-1950: the holder's signer type; the extension has none (unsigned).
+    "ExpCore/Sources/Sealed/WrapSigning.swift",
     "ExpCore/Sources/Sealed/SendSealing.swift",
     // THE composer card and agent row, ExpUI's own files: the extension links
     // no ExpUI, these compile under `SHARE_EXTENSION` (no `import ExpCore`).

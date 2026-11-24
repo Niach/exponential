@@ -168,7 +168,8 @@ final class WrapSignatureFixtureTests: XCTestCase {
             case .verified: result = "verified"
             case let .refused(reason): result = spelled(reason)
             }
-            XCTAssertEqual(result, try text(c, "result"), try text(c, "name"))
+            let name = try text(c, "name")
+            XCTAssertEqual(result, try text(c, "result"), name)
         }
     }
     #else

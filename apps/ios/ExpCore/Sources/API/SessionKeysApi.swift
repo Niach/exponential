@@ -7,10 +7,14 @@ import Foundation
 public struct TreeKeyWrap: Codable, Equatable, Sendable {
     public let installId: String
     public let wrapped: String
+    /// #EXP-1950 (wrap-signature.json): this install's signature over the
+    /// wrap; nil = unsigned (no full eNet, or the recipient's key unknown).
+    public var signature: String?
 
-    public init(installId: String, wrapped: String) {
+    public init(installId: String, wrapped: String, signature: String? = nil) {
         self.installId = installId
         self.wrapped = wrapped
+        self.signature = signature
     }
 }
 
@@ -19,11 +23,16 @@ public struct HeldTreeKey: Decodable, Equatable, Sendable {
     public let rootId: String
     public let epoch: UInt32
     public let wrapped: String
+    /// #EXP-1950: who signed it; both nil = unsigned (an older build made it).
+    public let signature: String?
+    public let signerEndpointId: String?
 
-    public init(rootId: String, epoch: UInt32, wrapped: String) {
+    public init(rootId: String, epoch: UInt32, wrapped: String, signature: String? = nil, signerEndpointId: String? = nil) {
         self.rootId = rootId
         self.epoch = epoch
         self.wrapped = wrapped
+        self.signature = signature
+        self.signerEndpointId = signerEndpointId
     }
 }
 
@@ -34,13 +43,17 @@ public struct PendingTreeKey: Decodable, Equatable, Sendable {
     public let publicKey: String
     public let targetInstallId: String
     public let targetX25519Public: String
+    /// #EXP-1950: the target's ed25519 key, the recipient a signature names
+    /// (nil from an older server: the wrap goes unsigned).
+    public let targetEndpointId: String?
 
-    public init(rootId: String, epoch: UInt32, publicKey: String, targetInstallId: String, targetX25519Public: String) {
+    public init(rootId: String, epoch: UInt32, publicKey: String, targetInstallId: String, targetX25519Public: String, targetEndpointId: String? = nil) {
         self.rootId = rootId
         self.epoch = epoch
         self.publicKey = publicKey
         self.targetInstallId = targetInstallId
         self.targetX25519Public = targetX25519Public
+        self.targetEndpointId = targetEndpointId
     }
 }
 
@@ -49,12 +62,44 @@ public struct PendingTreeKeyWrap: Encodable, Equatable, Sendable {
     public let epoch: UInt32
     public let targetInstallId: String
     public let wrapped: String
+    public var signature: String?
 
-    public init(rootId: String, epoch: UInt32, targetInstallId: String, wrapped: String) {
+    public init(rootId: String, epoch: UInt32, targetInstallId: String, wrapped: String, signature: String? = nil) {
         self.rootId = rootId
         self.epoch = epoch
         self.targetInstallId = targetInstallId
         self.wrapped = wrapped
+        self.signature = signature
+    }
+}
+
+/// #EXP-1950 decision (c): one wrap of a root's CURRENT epoch made again and
+/// signed by this install (`sessionKeys.resign`): the server replaces an
+/// unsigned row of that pair with it and never touches a signed one.
+public struct ResignedTreeKeyWrap: Encodable, Equatable, Sendable {
+    public let rootId: String
+    public let epoch: UInt32
+    /// The recipient install.
+    public let installId: String
+    public let wrapped: String
+    public let signature: String
+
+    public init(rootId: String, epoch: UInt32, installId: String, wrapped: String, signature: String) {
+        self.rootId = rootId
+        self.epoch = epoch
+        self.installId = installId
+        self.wrapped = wrapped
+        self.signature = signature
+    }
+}
+
+public struct ResignResult: Decodable, Equatable, Sendable {
+    public let replaced: Int
+    public let skipped: Int
+
+    public init(replaced: Int, skipped: Int) {
+        self.replaced = replaced
+        self.skipped = skipped
     }
 }
 
@@ -155,10 +200,16 @@ public protocol SessionKeysRegistry: Sendable {
     func requestKey(accountId: String, rootId: String) async throws -> RequestKeyResult
     /// `sessionKeys.due {installId}` (#EXP-1951, sealed-content.json `rotation`).
     func due(accountId: String, installId: String) async throws -> [DueTreeKey]
+    /// `sessionKeys.resign {installId, wraps}` (#EXP-1950 decision (c)); an
+    /// older server answers NOT_FOUND for the procedure.
+    func resign(accountId: String, installId: String, wraps: [ResignedTreeKeyWrap]) async throws -> ResignResult
 }
 
 public extension SessionKeysRegistry {
     func due(accountId: String, installId: String) async throws -> [DueTreeKey] { [] }
+    func resign(accountId: String, installId: String, wraps: [ResignedTreeKeyWrap]) async throws -> ResignResult {
+        throw TreeKeyError.unavailable
+    }
 }
 
 private struct MineInput: Encodable {
@@ -169,6 +220,10 @@ private struct PendingInput: Encodable { let installId: String }
 private struct WrapInput: Encodable {
     let installId: String
     let wraps: [PendingTreeKeyWrap]
+}
+private struct ResignInput: Encodable {
+    let installId: String
+    let wraps: [ResignedTreeKeyWrap]
 }
 private struct PublicKeysInput: Encodable { let rootIds: [String] }
 private struct RequestKeyInput: Encodable { let rootId: String }
@@ -214,5 +269,9 @@ public final class SessionKeysApi: SessionKeysRegistry {
 
     public func due(accountId: String, installId: String) async throws -> [DueTreeKey] {
         try await trpc.query(accountId: accountId, path: "sessionKeys.due", input: PendingInput(installId: installId))
+    }
+
+    public func resign(accountId: String, installId: String, wraps: [ResignedTreeKeyWrap]) async throws -> ResignResult {
+        try await trpc.mutation(accountId: accountId, path: "sessionKeys.resign", input: ResignInput(installId: installId, wraps: wraps))
     }
 }

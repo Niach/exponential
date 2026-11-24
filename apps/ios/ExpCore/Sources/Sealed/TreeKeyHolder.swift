@@ -11,6 +11,11 @@ import os
 // reader was dropped). As a WRITER it seals to a
 // tree's key, creating the key when an existing root has none yet, or hands
 // a new chat its inline `seal`.
+// #EXP-1950: every wrap it makes is signed by this install's identity
+// (`WrapSigner`; none = unsigned). A new root's inline seal cannot be (its id
+// is unknown before the send): its wraps are made and signed again once the
+// root exists, as are the keys held from before (decision (c),
+// `sessionKeys.resign`, a bounded batch of roots per pass).
 
 private let logger = Logger(subsystem: "at.exponential", category: "TreeKeys")
 
@@ -86,8 +91,9 @@ public actor TreeKeyHolder {
     static let requestCooldown: TimeInterval = 30
 
     private let keys: SessionKeysRegistry
-    private let installs: InstallsApi?
+    private let installs: TreeReaderDirectory?
     private let crypto: SealedCrypto
+    private let signer: WrapSigner?
     private let ring: SealedKeyRing
     private let identity: @Sendable () -> Data?
     private let installId: @Sendable (String) async -> String?
@@ -100,11 +106,23 @@ public actor TreeKeyHolder {
     private var cachedKey: (identity: Data, secret: Data, publicKey: String)?
     /// #EXP-1951: rotations the server refused this install, `root\nepoch`.
     private var left: Set<String> = []
+    /// #EXP-1950: this identity's endpoint id (the own wrap's recipient).
+    private var cachedEndpoint: (identity: Data, endpointId: String)?
+    /// Roots to sign again: the epoch held and the readers known for it
+    /// (a new root's inline seal: the ones it wrapped for; else none known).
+    private var resignQueue: [String: (epoch: UInt32, readers: [InstallEntry])] = [:]
+    /// The readers of inline seals not adopted yet, by their tree public key.
+    private var unsignedSeals: [String: [InstallEntry]] = [:]
+    /// `root\nepoch` signed again (or refused): never asked twice.
+    private var resigned: Set<String> = []
+    /// Roots signed again per pass at most.
+    static let resignBatch = 20
 
     public init(
         keys: SessionKeysRegistry,
-        installs: InstallsApi?,
+        installs: TreeReaderDirectory?,
         crypto: SealedCrypto,
+        signer: WrapSigner? = nil,
         ring: SealedKeyRing,
         identity: @escaping @Sendable () -> Data?,
         installId: @escaping @Sendable (String) async -> String?,
@@ -115,6 +133,7 @@ public actor TreeKeyHolder {
         self.keys = keys
         self.installs = installs
         self.crypto = crypto
+        self.signer = signer
         self.ring = ring
         self.identity = identity
         self.installId = installId
@@ -131,6 +150,29 @@ public actor TreeKeyHolder {
         return key
     }
 
+    /// #EXP-1950: this install's signature over a wrap it just made; nil =
+    /// unsigned (no full binding, no identity, the recipient's key unknown).
+    private func signature(rootId: String, epoch: UInt32, treePublicKey: String, recipientEndpointId: String?, wrapped: String) -> String? {
+        guard let signer, let seed = identity(), let recipient = recipientEndpointId, !recipient.isEmpty else { return nil }
+        do {
+            return try signer.sign(identity: seed, statement: WrapStatement(
+                rootId: rootId.lowercased(), epoch: epoch, treePublicKey: treePublicKey, recipientEndpointId: recipient, wrapped: wrapped
+            ))
+        } catch {
+            logger.error("Signing a tree key wrap failed (root \(rootId, privacy: .public)): it goes unsigned")
+            return nil
+        }
+    }
+
+    /// This identity's endpoint id (a signature's recipient for our own wrap).
+    private func ownEndpointId() -> String? {
+        guard let signer, let seed = identity() else { return nil }
+        if let cachedEndpoint, cachedEndpoint.identity == seed { return cachedEndpoint.endpointId }
+        guard let id = try? signer.endpointId(identity: seed) else { return nil }
+        cachedEndpoint = (seed, id)
+        return id
+    }
+
     /// One holder pass for an account: every wrap this install holds (the
     /// first pass) and the pending wraps it owes others.
     /// False while this account has no registered install (nothing ran).
@@ -142,6 +184,7 @@ public actor TreeKeyHolder {
         }
         await rotateDue(accountId: accountId, installId: install)
         await answerPending(accountId: accountId, installId: install)
+        await resignHeld(accountId: accountId, installId: install)
         return true
     }
 
@@ -150,6 +193,9 @@ public actor TreeKeyHolder {
         synced.removeAll()
         requested.removeAll()
         left.removeAll()
+        resignQueue.removeAll()
+        unsignedSeals.removeAll()
+        resigned.removeAll()
         cachedKey = nil
         ring.removeAll()
     }
@@ -189,6 +235,15 @@ public actor TreeKeyHolder {
                 }
             }
             ring.add(entries)
+            // #EXP-1950 (c): a root whose newest wrap here is unsigned (an
+            // older build made it) is signed again, own wrap at least.
+            var newest: [String: HeldTreeKey] = [:]
+            for wrap in held where (newest[wrap.rootId]?.epoch ?? 0) < wrap.epoch { newest[wrap.rootId] = wrap }
+            for (rootId, wrap) in newest where wrap.signature == nil {
+                let root = rootId.lowercased()
+                guard resignQueue[root] == nil, !resigned.contains("\(root)\n\(wrap.epoch)") else { continue }
+                resignQueue[root] = (wrap.epoch, [])
+            }
             return true
         } catch {
             logger.error("sessionKeys.mine failed: \(error.localizedDescription)")
@@ -216,11 +271,12 @@ public actor TreeKeyHolder {
             ) else { continue }
             let key = crypto.generateTreeKey()
             guard let wrapped = try? crypto.wrap(installPublic: own.publicKey, treeSecret: key.secret) else { continue }
+            let signed = signature(rootId: root.rootId, epoch: epoch, treePublicKey: key.publicKey, recipientEndpointId: ownEndpointId(), wrapped: wrapped)
             var failure: CreateFailure?
             do {
                 try await keys.create(accountId: accountId, input: CreateTreeKeyInput(
                     rootId: root.rootId, installId: installId, epoch: epoch, publicKey: key.publicKey,
-                    wraps: [TreeKeyWrap(installId: installId, wrapped: wrapped)]
+                    wraps: [TreeKeyWrap(installId: installId, wrapped: wrapped, signature: signed)]
                 ))
             } catch {
                 let body: TrpcErrorBody? = if case let .httpError(_, raw) = error as? TrpcError { TrpcErrorBody.parse(raw) } else { nil }
@@ -249,7 +305,13 @@ public actor TreeKeyHolder {
             for pair in pending {
                 guard let secret = ring.keys(rootId: pair.rootId)[pair.epoch],
                       let wrapped = try? crypto.wrap(installPublic: pair.targetX25519Public, treeSecret: secret) else { continue }
-                wraps.append(PendingTreeKeyWrap(rootId: pair.rootId, epoch: pair.epoch, targetInstallId: pair.targetInstallId, wrapped: wrapped))
+                // Signed over the key of the secret held, never the server's
+                // word for it: a pair naming another key goes unsigned.
+                let held = TreePublicKeys.of(secret: secret)
+                let signed = held == pair.publicKey
+                    ? signature(rootId: pair.rootId, epoch: pair.epoch, treePublicKey: pair.publicKey, recipientEndpointId: pair.targetEndpointId, wrapped: wrapped)
+                    : nil
+                wraps.append(PendingTreeKeyWrap(rootId: pair.rootId, epoch: pair.epoch, targetInstallId: pair.targetInstallId, wrapped: wrapped, signature: signed))
             }
             guard !wraps.isEmpty else { return }
             try await keys.wrap(accountId: accountId, installId: installId, wraps: wraps)
@@ -293,13 +355,83 @@ public actor TreeKeyHolder {
         guard crypto.isAvailable else { throw TreeKeyError.unavailable }
         guard let install = await installId(accountId) else { throw TreeKeyError.noInstall }
         let key = crypto.generateTreeKey()
-        let wraps = try await readerWraps(accountId: accountId, installId: install, teamId: teamId, deviceIds: deviceIds, shared: shared, secret: key.secret)
+        // Its root id is unknown until the server answers: unsigned now,
+        // signed again for the same readers once adopted.
+        let readers = try await readers(accountId: accountId, installId: install, teamId: teamId, deviceIds: deviceIds, shared: shared)
+        let wraps = try readers.map { TreeKeyWrap(installId: $0.installId, wrapped: try crypto.wrap(installPublic: $0.x25519Public, treeSecret: key.secret)) }
+        unsignedSeals[key.publicKey] = readers
         return (NewChatSeal(installId: install, publicKey: key.publicKey, epoch: 1, wraps: wraps), key)
     }
 
     /// The server created `rootId` with the key from `newChatSeal`.
     public func adopt(rootId: String, key: GeneratedTreeKey, epoch: UInt32 = 1) {
         ring.add([(rootId, epoch, key.secret)])
+        if let readers = unsignedSeals.removeValue(forKey: key.publicKey) {
+            resignQueue[rootId.lowercased()] = (epoch, readers)
+        }
+    }
+
+    /// #EXP-1950 decision (c): fresh wraps of the current epoch, made and
+    /// signed by this install, replace the unsigned ones (`sessionKeys.resign`;
+    /// the server never touches a signed row and skips a stale epoch): for a
+    /// new root's inline seal its readers, for a key held from before this
+    /// install's own wrap and its account's other installs. Once per root, at
+    /// most `resignBatch` roots per pass; an older server (NOT_FOUND) = not
+    /// yet, tried again on a later pass.
+    @discardableResult
+    func resignHeld(accountId: String, installId: String) async -> Int {
+        guard signer != nil, !resignQueue.isEmpty, let own = installKey(), let endpoint = ownEndpointId() else { return 0 }
+        let batch = resignQueue.keys.sorted().prefix(Self.resignBatch)
+        var accountInstalls: [InstallEntry]?
+        var replaced = 0
+        for root in batch {
+            guard let entry = resignQueue[root] else { continue }
+            let mark = "\(root)\n\(entry.epoch)"
+            guard let secret = ring.keys(rootId: root)[entry.epoch], let treePublic = TreePublicKeys.of(secret: secret) else {
+                resignQueue[root] = nil
+                continue
+            }
+            var readers = entry.readers
+            if readers.isEmpty {
+                if accountInstalls == nil, let installs { accountInstalls = (try? await installs.mine(accountId: accountId)) ?? [] }
+                readers = (accountInstalls ?? []).filter { $0.revokedAt == nil && $0.installId != installId }
+            }
+            readers.removeAll { $0.installId == installId }
+            readers.insert(InstallEntry(installId: installId, userId: nil, kind: InstallEntry.iosKind, endpointId: endpoint, x25519Public: own.publicKey), at: 0)
+            let wraps = Array(resignWraps(rootId: root, epoch: entry.epoch, treePublic: treePublic, secret: secret, readers: readers).prefix(resignMaxWraps))
+            guard !wraps.isEmpty else {
+                resignQueue[root] = nil
+                continue
+            }
+            do {
+                replaced += try await keys.resign(accountId: accountId, installId: installId, wraps: wraps).replaced
+            } catch {
+                // wrap-signature.json `resign.failureCases`.
+                switch (error as? TreeKeyError) == .unavailable ? .notYet : resignAfter(code: error.trpcErrorCode) {
+                case .notYet: return replaced
+                case .retry: continue
+                case .refused:
+                    // A target that is no reader refuses the call: our own wrap alone.
+                    if wraps.count > 1 {
+                        replaced += (try? await keys.resign(accountId: accountId, installId: installId, wraps: Array(wraps.prefix(1))).replaced) ?? 0
+                    }
+                }
+            }
+            resignQueue[root] = nil
+            resigned.insert(mark)
+        }
+        if replaced > 0 { logger.info("Signed \(replaced) tree key wraps again") }
+        return replaced
+    }
+
+    private func resignWraps(rootId: String, epoch: UInt32, treePublic: String, secret: Data, readers: [InstallEntry]) -> [ResignedTreeKeyWrap] {
+        readers.compactMap { reader in
+            guard !reader.x25519Public.isEmpty,
+                  let wrapped = try? crypto.wrap(installPublic: reader.x25519Public, treeSecret: secret),
+                  let signed = signature(rootId: rootId, epoch: epoch, treePublicKey: treePublic, recipientEndpointId: reader.endpointId, wrapped: wrapped)
+            else { return nil }
+            return ResignedTreeKeyWrap(rootId: rootId, epoch: epoch, installId: reader.installId, wrapped: wrapped, signature: signed)
+        }
     }
 
     /// The key to seal to on an EXISTING root: its synced key when this
@@ -348,10 +480,16 @@ public actor TreeKeyHolder {
         let key = crypto.generateTreeKey()
         let wraps: [TreeKeyWrap]
         do {
-            wraps = try await readerWraps(
+            let readers = try await readers(
                 accountId: accountId, installId: install, teamId: ownOnly ? nil : teamId,
-                deviceIds: ownOnly ? [] : deviceIds, shared: ownOnly ? false : shared, secret: key.secret
+                deviceIds: ownOnly ? [] : deviceIds, shared: ownOnly ? false : shared
             )
+            wraps = try readers.map { reader in
+                let wrapped = try crypto.wrap(installPublic: reader.x25519Public, treeSecret: key.secret)
+                return TreeKeyWrap(installId: reader.installId, wrapped: wrapped, signature: signature(
+                    rootId: rootId, epoch: 1, treePublicKey: key.publicKey, recipientEndpointId: reader.endpointId, wrapped: wrapped
+                ))
+            }
         } catch {
             return .unavailable
         }
@@ -397,14 +535,13 @@ public actor TreeKeyHolder {
         return TreeSealKey(publicKey: remote.publicKey, epoch: remote.epoch)
     }
 
-    private func readerWraps(
+    private func readers(
         accountId: String,
         installId: String,
         teamId: String?,
         deviceIds: [String],
-        shared: Bool,
-        secret: Data
-    ) async throws -> [TreeKeyWrap] {
+        shared: Bool
+    ) async throws -> [InstallEntry] {
         var own: [InstallEntry] = []
         var team: [InstallEntry] = []
         if let installs {
@@ -418,9 +555,8 @@ public actor TreeKeyHolder {
         // own wrap, from our own derived key.
         if !readers.contains(where: { $0.installId == installId }) {
             guard let key = installKey() else { throw TreeKeyError.noInstall }
-            readers.insert(InstallEntry(installId: installId, userId: nil, kind: InstallEntry.iosKind, endpointId: "", x25519Public: key.publicKey), at: 0)
+            readers.insert(InstallEntry(installId: installId, userId: nil, kind: InstallEntry.iosKind, endpointId: ownEndpointId() ?? "", x25519Public: key.publicKey), at: 0)
         }
-        readers = readers.filter { !$0.x25519Public.isEmpty }
-        return try readers.map { TreeKeyWrap(installId: $0.installId, wrapped: try crypto.wrap(installPublic: $0.x25519Public, treeSecret: secret)) }
+        return readers.filter { !$0.x25519Public.isEmpty }
     }
 }
