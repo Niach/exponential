@@ -7,7 +7,7 @@ enough for one heavy-lane take each, a few processes wide:
 
   generate-fast   `generate` in 2,500-clip pieces, STAGED_WORKERS at a time; a rerun
                   goes on after the clips that exist
-  augment-clips   `augment`'s first half, one process per split
+  augment-clips   `augment`'s first half, one process per split; a finished split is kept
   features        `augment`'s second half, one process per split; a finished split is kept
   train-resume    `train`, its state saved every 5,000 steps and on SIGTERM: a later
                   call goes on from there; the last one writes <name>.pt
@@ -100,7 +100,8 @@ def _augment(job: tuple[str, str]) -> None:
     from livekit.wakeword.data.augment import AudioAugmentor, _augment_directory
 
     clip_dir = config.model_output_dir / split
-    if not clip_dir.exists():
+    finished = config.model_output_dir / f".augmented-{split}"
+    if finished.exists() or not clip_dir.exists():
         return
     augmented = re.compile(r"^clip_\d{6}_r\d+\.wav$")
     for stale in [p for p in clip_dir.glob("*.wav") if augmented.match(p.name)]:
@@ -111,6 +112,7 @@ def _augment(job: tuple[str, str]) -> None:
     )
     for round_idx in range(config.augmentation.rounds):
         _augment_directory(clip_dir, augmentor, is_positive="positive" in split, round_idx=round_idx, target_duration_s=config.augmentation.clip_duration)
+    finished.touch()
 
 
 def _features(job: tuple[str, str, str]) -> None:
