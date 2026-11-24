@@ -130,6 +130,18 @@ public struct RequestKeyResult: Decodable, Equatable, Sendable {
     }
 }
 
+/// #EXP-1951: a root this install rotates (`sessionKeys.due`); `epoch` =
+/// the one to supersede.
+public struct DueTreeKey: Decodable, Equatable, Sendable {
+    public let rootId: String
+    public let epoch: UInt32
+
+    public init(rootId: String, epoch: UInt32) {
+        self.rootId = rootId
+        self.epoch = epoch
+    }
+}
+
 /// The key calls a holder makes (a fake in the tests).
 public protocol SessionKeysRegistry: Sendable {
     /// `sessions.sendTarget {agentId | appId}` (#FEED-250).
@@ -141,6 +153,12 @@ public protocol SessionKeysRegistry: Sendable {
     func publicKeys(accountId: String, rootIds: [String]) async throws -> [TreePublicKey]
     /// `sessionKeys.requestKey {rootId}` (#EXP-1960).
     func requestKey(accountId: String, rootId: String) async throws -> RequestKeyResult
+    /// `sessionKeys.due {installId}` (#EXP-1951, sealed-content.json `rotation`).
+    func due(accountId: String, installId: String) async throws -> [DueTreeKey]
+}
+
+public extension SessionKeysRegistry {
+    func due(accountId: String, installId: String) async throws -> [DueTreeKey] { [] }
 }
 
 private struct MineInput: Encodable {
@@ -192,5 +210,9 @@ public final class SessionKeysApi: SessionKeysRegistry {
 
     public func requestKey(accountId: String, rootId: String) async throws -> RequestKeyResult {
         try await trpc.mutation(accountId: accountId, path: "sessionKeys.requestKey", input: RequestKeyInput(rootId: rootId))
+    }
+
+    public func due(accountId: String, installId: String) async throws -> [DueTreeKey] {
+        try await trpc.query(accountId: accountId, path: "sessionKeys.due", input: PendingInput(installId: installId))
     }
 }

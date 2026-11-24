@@ -52,6 +52,7 @@ import { invalidateSessionCache } from "@/lib/auth/resolve-bearer"
 import { isCloudInstance } from "@/lib/bootstrap-cloud"
 import { guardAndCleanupTeamsForUserDeletion } from "@/lib/account-deletion"
 import { relayKillSessionsBestEffort } from "@/lib/sessions/lifecycle"
+import { dropAccountKeysInTx } from "@/lib/sessions/tree-keys"
 import {
   captureOAuthTokens,
   revokeOAuthTokensBestEffort,
@@ -320,6 +321,8 @@ export const adminRouter = router({
         storageKeys = cleanup.storageKeys
         doomedSubscriptions = cleanup.doomedTeamSubscriptions
         endedSessionIds = cleanup.endedSessionIds
+        // #EXP-1951: the trees their installs read are due for rotation.
+        await dropAccountKeysInTx(tx, input.userId)
         await tx.delete(users).where(eq(users.id, input.userId))
       })
       // Post-commit: the users-row cascade dropped memberships (and possibly

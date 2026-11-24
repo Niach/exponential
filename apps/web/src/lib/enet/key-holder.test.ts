@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest"
 import pushFixture from "@exp/domain-contract/fixtures/push-seal.json"
 import fixture from "@exp/domain-contract/fixtures/sealed-content.json"
-import { b64urlEncode, openBody, pushPublicKey, unwrapTreeKey } from "@exp/domain-contract/sealed-content"
+import { b64urlEncode, openBody, pushPublicKey, treeKeyFromSecret, unwrapTreeKey } from "@exp/domain-contract/sealed-content"
 import { deriveInstallSecret } from "./install-key"
 import { CachedKeys, KeyHolder, MISSING_RETRY_MS, type PendingPair, type SessionKeysApi } from "./key-holder"
 import { currentKeyHolder, currentKeySource, keyVersion, setCachedKeys, setCurrentKeyHolder } from "./current-key-holder"
@@ -36,6 +36,7 @@ function fakeApi(over: Partial<SessionKeysApi> = {}): SessionKeysApi & { calls: 
       calls.create!.push(input)
       return {}
     },
+    due: async () => [],
     ...over,
   }
 }
@@ -141,6 +142,89 @@ describe(`KeyHolder`, () => {
 // fixtures/sealed-content.json `coldStart`: the keys cached on the last run
 // open content on the first render, before the install is resolved (no
 // network), and a key landing later re-opens the locked row.
+// #EXP-1951 (sealed-content.json `rotation.holderCases`): one holder pass
+// against a SERVER DOUBLE that answers what each case says. The double may
+// keep serving rows of a dropped install (`serves: foreign`); the holder
+// wraps a new epoch for itself and for the pairs `pending` lists, nobody else.
+describe(`rotation (#EXP-1951)`, () => {
+  type Case = (typeof fixture.rotation.holderCases)[number] & { passes?: number; serves?: string }
+  const SELF = INSTALL
+  const idOf = (name: string) => (name === `self` ? SELF : `00000000-0000-4000-8000-${Buffer.from(name).toString(`hex`).padEnd(12, `0`).slice(0, 12)}`)
+  const nameOf = (id: string, readers: string[]) => (id === SELF ? `self` : (readers.find((name) => idOf(name) === id) ?? id))
+  const secretAt = (epoch: number) => hex(epoch === 1 ? fixture.tree.secret : fixture.rotatedTree.secret)
+  const trpcError = (code: string) => Object.assign(new Error(code), { data: { code } })
+
+  function double(c: Case) {
+    const answers = [...c.create]
+    const done = new Set<string>()
+    const conflicted = new Map<string, number>()
+    const created: Array<{ rootId: string; epoch: number; publicKey: string }> = []
+    const wrapped = new Set<string>()
+    const sent = { creates: [] as Array<{ rootId: string; epoch: number; wraps: string[] }>, wraps: [] as Array<{ rootId: string; epoch: number; to: string }> }
+    const api: SessionKeysApi = {
+      mine: async ({ rootIds }) => [
+        ...(c.serves === `foreign` ? Object.keys(c.held).map((rootId) => ({ rootId, epoch: 1, wrapped: fixture.rotation.foreignWrap })) : []),
+        ...[...conflicted].map(([rootId, epoch]) => ({ rootId, epoch, wrapped: fixture.rotation.rotatedWrap })),
+      ].filter((row) => !rootIds || rootIds.includes(row.rootId)),
+      due: async () => c.due.filter((root) => !done.has(root.rootId)),
+      create: async (input) => {
+        sent.creates.push({ rootId: input.rootId, epoch: input.epoch, wraps: input.wraps.map((wrap) => nameOf(wrap.installId, c.readers)) })
+        // Its own wrap really is for this install.
+        expect(treeKeyFromSecret(unwrapTreeKey(hex(fixture.install.secret), input.wraps[0]!.wrapped)).publicKey).toBe(input.publicKey)
+        const answer = answers.shift() ?? `ok`
+        if (answer === `blip`) throw new Error(`Failed to fetch`)
+        if (answer === `CONFLICT`) {
+          done.add(input.rootId)
+          conflicted.set(input.rootId, input.epoch)
+        }
+        if (answer !== `ok`) throw trpcError(answer)
+        done.add(input.rootId)
+        created.push({ rootId: input.rootId, epoch: input.epoch, publicKey: input.publicKey })
+        return {}
+      },
+      pending: async () =>
+        created.flatMap((key) =>
+          c.readers
+            .filter((name) => !wrapped.has(`${key.rootId}\n${name}`))
+            .map((name) => ({ ...key, targetInstallId: idOf(name), targetX25519Public: fixture.tree.publicKey }))
+        ),
+      wrap: async (input) => {
+        for (const wrap of input.wraps) {
+          const to = nameOf(wrap.targetInstallId, c.readers)
+          wrapped.add(`${wrap.rootId}\n${to}`)
+          sent.wraps.push({ rootId: wrap.rootId, epoch: wrap.epoch, to })
+        }
+        return {}
+      },
+    }
+    return { api, sent }
+  }
+
+  for (const c of fixture.rotation.holderCases as Case[]) {
+    it(c.name, async () => {
+      const store = memoryTreeKeyStore()
+      for (const [rootId, epochs] of Object.entries(c.held)) for (const epoch of epochs as number[]) await store.put(`u1`, { rootId, epoch, secret: secretAt(epoch) })
+      const { api, sent } = double(c)
+      const holder = new KeyHolder(`u1`, SELF, hex(fixture.install.secret), { api, store })
+      await holder.start()
+      for (let pass = 0; pass < (c.passes ?? 1); pass++) await holder.pass()
+      expect(sent.creates).toEqual(c.creates)
+      expect(sent.wraps).toEqual(c.wraps)
+      const holds = Object.fromEntries(Object.keys({ ...c.held, ...c.holds }).map((rootId) => [rootId, [...holder.keysFor(rootId).keys()].sort()]).filter(([, epochs]) => (epochs as number[]).length > 0))
+      expect(holds).toEqual(c.holds)
+    })
+  }
+
+  it(`an older server without \`due\` still gets its pending wraps answered`, async () => {
+    const api = fakeApi({ due: async () => Promise.reject(Object.assign(new Error(`No procedure`), { data: { code: `NOT_FOUND` } })) })
+    const holder = new KeyHolder(`u1`, SELF, hex(fixture.install.secret), { api, store: memoryTreeKeyStore() })
+    await holder.start()
+    await holder.pass()
+    expect(api.calls.pending).toHaveLength(1)
+    expect(api.calls.create).toHaveLength(0)
+  })
+})
+
 describe(`cold start`, () => {
   for (const c of fixture.coldStart.cases) {
     it(c.name, async () => {

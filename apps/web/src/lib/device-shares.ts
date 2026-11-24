@@ -3,6 +3,7 @@ import { devices } from "@/db/schema"
 import type { Tx } from "@/lib/sessions/tx"
 import { firstSharerTeams } from "@/lib/sessions/host"
 import { foreignHostedSessionIds, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
+import { dropReaderKeysInTx } from "@/lib/sessions/tree-keys"
 
 export type ShareTarget = { id: string; userId: string; deviceId: string }
 
@@ -40,6 +41,8 @@ export async function withdrawShareInTx(
       updatedAt: new Date(),
     })
     .where(eq(devices.id, target.id))
+  // #EXP-1951: its installs no longer read these teams' trees as the device.
+  await dropReaderKeysInTx(tx, { deviceRowIds: [target.id] }, teamIds)
   if (pause.length > 0) {
     await pauseDeviceAgents(tx, pause, target.deviceId)
   }
