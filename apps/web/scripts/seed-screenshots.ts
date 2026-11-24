@@ -103,7 +103,6 @@ import {
   DEMO_LIVE_SESSIONS,
   demoLiveRow,
   DEMO_SERVER_AWAY_MINUTES,
-  demoNeedsInput,
 } from "./lib/demo-live-sessions"
 import { DEMO_CLOCK_ANCHOR } from "./lib/demo-reclock"
 import { parseFreezeNow } from "./lib/freeze-now"
