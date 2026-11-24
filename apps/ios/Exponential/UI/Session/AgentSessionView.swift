@@ -1134,6 +1134,10 @@ struct AgentSessionView: View {
                                     feedCallCard(callId, caption: nil)
                                 }
                             }
+                            // #EXP-2087 (ask-dock.json `tail`): an open card
+                            // with no call in the feed draws after the last
+                            // row, never above the first.
+                            inlineToolCards(toolCardAnchors.tail, model: model)
                             // EXP-1323 / #EXP-1732: the root's suggested
                             // tasks with nothing open left (or for a reader).
                             inlineSuggestionCards(model)
@@ -1737,7 +1741,8 @@ struct AgentSessionView: View {
     /// synced rows + `fromStart` (the window holds the feed's first row)
     /// go to the grouping, which reads the first prompt as the origin's.
     private func feedGrouping(
-        _ entries: [TranscriptEntry], anchors: (anchors: [Int: [String]], unanchored: [String]), model: AgentSessionModel
+        _ entries: [TranscriptEntry], anchors: (anchors: [Int: [String]], unanchored: [String], tail: [String]),
+        model: AgentSessionModel
     ) -> FeedGrouping {
         let viewerId = deps.auth.userId
         var items: [TranscriptGrouping.Item] = anchors.unanchored.map { TranscriptGrouping.Item(id: "card:\($0)", kind: .full) }
@@ -2033,13 +2038,14 @@ struct AgentSessionView: View {
     }
 
     /// waiting-cards.json DEEP LINKS `found`: the card draws in the main
-    /// transcript now, at the head (`unanchored`) or after a rendered row.
+    /// transcript now, at the head (`unanchored`), after a rendered row or
+    /// at the tail (#EXP-2087).
     private func drawsCard(_ id: String, model: AgentSessionModel) -> Bool {
         guard agentTab == nil, toolAsks.contains(where: { $0.id == id }) || surfaceRows[id] != nil else {
             return false
         }
         let placed = AskDock.anchorSessionCards(model.feedCalls, cards: sessionCards)
-        if placed.unanchored.contains(id) { return true }
+        if placed.unanchored.contains(id) || placed.tail.contains(id) { return true }
         return model.transcript.contains { entry in
             Self.rowItemIds(entry.row).contains { placed.anchors[$0]?.contains(id) == true }
         }
