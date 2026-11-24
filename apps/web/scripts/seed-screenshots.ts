@@ -101,6 +101,8 @@ import { seedSampleApps } from "./lib/demo-sample-apps"
 import {
   assertDemoLiveSessions,
   DEMO_LIVE_SESSIONS,
+  demoLiveRow,
+  DEMO_SERVER_AWAY_MINUTES,
   demoNeedsInput,
 } from "./lib/demo-live-sessions"
 import { DEMO_CLOCK_ANCHOR } from "./lib/demo-reclock"
@@ -628,15 +630,8 @@ async function seedSessionTree(ctx: {
   const liveState = (id: string) => {
     const spec = live.get(id)
     if (!spec) throw new Error(`no live spec for session ${id}`)
-    return {
-      status: spec.status,
-      busy: spec.busy,
-      needsInput: demoNeedsInput(spec),
-      startedAt: minutesAgo(spec.startedMinutesAgo),
-      createdAt: minutesAgo(spec.startedMinutesAgo),
-      lastTurnAt: new Date(now),
-      updatedAt: new Date(now),
-    }
+    const row = demoLiveRow(spec, now)
+    return { ...row, createdAt: row.startedAt }
   }
   /** A root: a chat on the demo user's desktop unless told otherwise. */
   const root = (
@@ -1532,13 +1527,15 @@ async function seedSessionTree(ctx: {
         sessionId: ids.sortReports,
         author: `agent`,
         body: `#${issue(`FB-9`).identifier}: screenshots attached from Android lose their bottom third. Reproduce with a Pixel-sized capture, fix the crop and open a PR.`,
-        at: minutesAgo(8),
+        at: minutesAgo(DEMO_SERVER_AWAY_MINUTES + 12),
       },
       // #EXP-2075 (steer-enet.json SYNCED TAIL, the `session-synced-tail`
       // view): the build server is offline, so this transcript is NOT live
       // and draws its synced messages: the agent's line with a view, then a
       // teammate's presses on it (a `reply` = his bubble, any other event =
       // THE inline marker).
+      // #EXP-2105: the agent wrote before its server's last beat; the
+      // teammate pressed just now, while it is away.
       {
         sessionId: ids.sortReports,
         author: `agent`,
@@ -1551,7 +1548,7 @@ async function seedSessionTree(ctx: {
           `later = Button(label="Add a test first", on={press: Event("add_test")})`,
           `</a2ui>`,
         ].join(`\n`),
-        at: minutesAgo(6),
+        at: minutesAgo(DEMO_SERVER_AWAY_MINUTES + 10),
       },
       {
         sessionId: ids.sortReports,
@@ -1878,7 +1875,7 @@ async function seedSessionTree(ctx: {
       sessionId,
       // #EXP-2075: read up to its brief, so its ONE unread stays the agent's
       // newest line (the seeded view the teammate pressed).
-      readAt: sessionId === ids.sortReports ? minutesAgo(7) : new Date(now),
+      readAt: sessionId === ids.sortReports ? minutesAgo(DEMO_SERVER_AWAY_MINUTES + 11) : new Date(now),
     }))
   )
 
@@ -2995,7 +2992,7 @@ async function main() {
     // the login (brand mark + email) like every phone specimen does.
     agentAccounts: demoAgentReport(hoursAgo(5)).agentAccounts,
     sharedTeamIds: [ws.id],
-    lastSeenAt: hoursAgo(5),
+    lastSeenAt: minutesAgo(DEMO_SERVER_AWAY_MINUTES),
     createdAt: daysAgo(45),
   })
 
