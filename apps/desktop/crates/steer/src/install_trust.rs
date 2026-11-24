@@ -542,12 +542,6 @@ impl TrustKeeper {
                 Some(known) if known.x25519_public != x25519_public && !state.store.pins.contains_key(&served.endpoint_id) => {
                     TargetVerdict::Refuse(enet_core::install_trust::TargetRefusal::KeyMismatch)
                 }
-                // `installs.trust` answered and does not list it: no pin, no
-                // registration to check, no account to place it in. Not
-                // wrapped until an answer lists it (the next pass).
-                None if matches!(state.trust, TrustState::Trusted | TrustState::Waiting | TrustState::ClaimRoot) => {
-                    TargetVerdict::Refuse(enet_core::install_trust::TargetRefusal::Unapproved)
-                }
                 _ => wrap_target(&served, &state.store, self.mode, &state.roots),
             }
         };
