@@ -204,8 +204,9 @@ export interface TrustStore {
   /** Placed in its account's chain (a root, approved, or existing). */
   joined: boolean
   /** Decision (e): this install existed before approval shipped (its store
-   *  was made for an identity an earlier build had made; a build that MAKES
-   *  an identity makes its store with it, `false`). Consumed (`false`) by
+   *  was made for an install an earlier build had registered for this
+   *  account; a build that makes an identity, or signs a new account into
+   *  one, writes that account's store first, `false`). Consumed (`false`) by
    *  the first reconcile that serves this install. */
   existing: boolean
   pins: Record<string, Pin>
