@@ -12,6 +12,9 @@
 import { buildRegistration, type InstallCrypto, type InstallRegistration } from "./install-registration"
 import { relayTicket } from "./relay-ticket"
 import { forgetIdentity, loadOrCreateIdentity, type IdentityStore } from "./identity-store"
+import type { TrustStoreIO } from "./trust-store"
+import { emptyTrustStore } from "@exp/domain-contract/install-trust"
+import { endpointIdOf } from "@exp/domain-contract/wrap-signature"
 
 export const ENET_RELAY_URL = `https://relay.exponential.at`
 export const ALLOWLIST_REFRESH_MS = 10 * 60 * 1000
@@ -64,6 +67,8 @@ export type WebInstallDeps = {
   loadEnet: () => Promise<EnetModule>
   api: InstallsApi
   store?: IdentityStore
+  /** #EXP-1950: a new identity gets its pin store first (`existing` false). */
+  trustStore?: TrustStoreIO
   relayUrl?: string
 }
 
@@ -96,7 +101,9 @@ export class WebInstall {
   /** Starts the node and registers; teams come from `setTeams`. */
   async start(): Promise<void> {
     const enet = await this.deps.loadEnet()
-    const identity = await loadOrCreateIdentity(this.userId, enet.generateIdentity, this.deps.store)
+    const identity = await loadOrCreateIdentity(this.userId, enet.generateIdentity, this.deps.store, async (minted) => {
+      await this.deps.trustStore?.put(this.userId, emptyTrustStore(endpointIdOf(minted), this.userId, false))
+    })
     if (this.stopped) return
     const node = await enet.startNode(this.deps.relayUrl ?? ENET_RELAY_URL, identity)
     if (this.stopped) {

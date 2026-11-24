@@ -285,14 +285,27 @@ describe(`#EXP-1950 attack 3: a false reader (pending / installs.list name the s
     }
   })
 
-  it(`a silent Z looks like an older build: wrapped and recorded legacy now (the gap), refused once mandatory`, async () => {
-    const now = maliciousServer({ mine: [wrapOf(ROOT1, 1, REAL, `A`, `B`)], pending: [pair(`Z`)], trust: trustWith(served(`Z`)) })
+  it(`a silent Z under the victim's own account looks like an older build: a New install (decision e), no wrap in every mode`, async () => {
+    for (const mode of [`record`, `mandatory`] as const) {
+      for (const z of [served(`Z`), served(`Z`, { registrationSignature: null, registrationSignedAt: null })]) {
+        const server = maliciousServer({ mine: [wrapOf(ROOT1, 1, REAL, `A`, `B`)], pending: [pair(`Z`)], trust: trustWith(z) })
+        const { holder, trust } = await victim(server, mode)
+        await holder.refresh()
+        await holder.answerPending()
+        expect(server.calls.wrap).toEqual([])
+        expect(trust.decisions.find((d) => d.rule === `R4`)).toMatchObject({ subject: installId(`Z`), verdict: `refused:unapproved` })
+      }
+    }
+  })
+
+  it(`a silent install under a team-mate's account still looks like an older build: wrapped and recorded legacy now (the gap), refused once mandatory`, async () => {
+    const now = maliciousServer({ mine: [wrapOf(ROOT1, 1, REAL, `A`, `B`)], pending: [pair(`T2`)], trust: trustWith(served(`T2`)) })
     const a = await victim(now, `record`)
     await a.holder.refresh()
     await a.holder.answerPending()
-    expect(now.calls.wrap.map((wrap) => wrap.targetInstallId)).toEqual([installId(`Z`)])
-    expect(a.trust.decisions.find((d) => d.rule === `R4`)).toMatchObject({ subject: installId(`Z`), verdict: `legacy` })
-    const later = maliciousServer({ mine: [wrapOf(ROOT1, 1, REAL, `A`, `B`)], pending: [pair(`Z`)], trust: trustWith(served(`Z`)) })
+    expect(now.calls.wrap.map((wrap) => wrap.targetInstallId)).toEqual([installId(`T2`)])
+    expect(a.trust.decisions.find((d) => d.rule === `R4`)).toMatchObject({ subject: installId(`T2`), verdict: `legacy` })
+    const later = maliciousServer({ mine: [wrapOf(ROOT1, 1, REAL, `A`, `B`)], pending: [pair(`T2`)], trust: trustWith(served(`T2`)) })
     const b = await victim(later, `mandatory`)
     await b.holder.refresh()
     await b.holder.answerPending()
@@ -428,5 +441,144 @@ describe(`#EXP-1950 the negative: an honest holder`, () => {
       expect(verdict.status).toBe(`verified`)
     }
     expect(b64urlDecode(created[0]!.wraps[0]!.signature!)?.length).toBe(64)
+  })
+})
+
+/** An account's installs as the server stores them, honest unless told to
+ *  lie: `claimRoot` stores the root and its approvals in one go (CONFLICT
+ *  while another install is on a chain), `approve` stores one. */
+function accountServer(installs: ServedInstall[]) {
+  const state = { installs, approvals: [] as ServedApproval[], asked: [] as string[], claims: [] as string[] }
+  const endpointOf = (id: string) => state.installs.find((row) => row.installId === id)!.endpointId
+  const api: TrustApi = {
+    trust: async () => ({ installs: state.installs.map((row) => ({ ...row, approvalRequested: row.approvalRequested || state.asked.includes(row.installId) })), approvals: [...state.approvals] }),
+    requestApproval: async (input) => {
+      state.asked.push(input.installId)
+      return {}
+    },
+    claimRoot: async (input) => {
+      state.claims.push(input.installId)
+      const me = endpointOf(input.installId)
+      if (state.approvals.some((a) => (a.kind === `root` || a.kind === `approve`) && a.subjectEndpointId !== me)) throw Object.assign(new Error(`CONFLICT`), { data: { code: `CONFLICT` } })
+      state.approvals.push({ kind: `root`, subjectEndpointId: me, approverEndpointId: me, signature: input.signature })
+      for (const approval of input.approvals ?? []) state.approvals.push({ kind: `approve`, subjectEndpointId: endpointOf(approval.subjectInstallId), approverEndpointId: me, signature: approval.signature })
+      return {}
+    },
+    approve: async (input) => {
+      state.approvals.push({ kind: input.kind, subjectEndpointId: endpointOf(input.subjectInstallId), approverEndpointId: endpointOf(input.installId), signature: input.signature })
+      return {}
+    },
+    revoke: async () => ({}),
+  }
+  return { state, api }
+}
+
+/** An install that EXISTED (decision e): its identity is there, its pin store is not yet. */
+async function existingInstall(name: Name, api: TrustApi, mode: TrustMode = `record`) {
+  const trust = new InstallTrust(key(name).userId, installId(name), identity(name), { api, io: memoryTrustStore(), mode })
+  await trust.load()
+  expect(trust.store.existing).toBe(true)
+  return trust
+}
+
+describe(`#EXP-1950 decision (e): the installs that existed are trusted once`, () => {
+  const L = () => served(`L`, { registrationSignature: null, registrationSignedAt: null }) // not started since #3394
+
+  it(`day one: no row and no waiting state anywhere; the first claims the root with every existing install's approval; the second, later, joins on that chain`, async () => {
+    const account = accountServer([served(`A`), served(`B`), L()])
+    const a = await existingInstall(`A`, account.api)
+    await a.sync()
+    expect(a.status).toBe(`trusted`)
+    expect(a.rows).toEqual([])
+    expect(account.state.approvals.map((x) => [x.kind, x.subjectEndpointId]).sort()).toEqual(
+      [[`root`, key(`A`).endpointId], [`approve`, key(`B`).endpointId], [`approve`, key(`L`).endpointId]].sort()
+    )
+    const b = await existingInstall(`B`, account.api)
+    await b.sync()
+    expect(b.status).toBe(`trusted`)
+    expect(b.rows).toEqual([])
+    expect(b.store.pins[key(`L`).endpointId]).toMatchObject({ via: `approved`, by: key(`A`).endpointId })
+    expect(account.state.asked).toEqual([])
+    expect(account.state.claims).toEqual([installId(`A`)])
+  })
+
+  it(`two existing installs at once: the second one's claim CONFLICTs, it never waits or asks, and is on the first one's chain`, async () => {
+    const account = accountServer([served(`A`), served(`B`)])
+    const a = await existingInstall(`A`, account.api)
+    const b = await existingInstall(`B`, account.api)
+    // Both read "no chain" before either claims.
+    const claim = account.api.claimRoot
+    let gate!: () => void
+    const both = new Promise<void>((resolve) => (gate = resolve))
+    let waiting = 0
+    account.api.claimRoot = async (input) => {
+      if (++waiting === 2) gate()
+      await both
+      return claim(input)
+    }
+    const statuses: string[] = []
+    for (const t of [a, b]) t.subscribe(() => statuses.push(`${t.endpointId === key(`A`).endpointId ? `A` : `B`}:${t.status}`))
+    await Promise.all([a.sync(), b.sync()])
+    expect([a.status, b.status]).toEqual([`trusted`, `trusted`])
+    expect(statuses).not.toContain(`A:waiting`)
+    expect(statuses).not.toContain(`B:waiting`)
+    expect(account.state.asked).toEqual([])
+    expect(a.rows).toEqual([])
+    expect(b.rows).toEqual([])
+  })
+
+  it(`the attack: AFTER the first reconcile the server slips its install Z in as one that existed: never pinned, a New install row, no wrap in every mode`, async () => {
+    for (const mode of [`record`, `mandatory`] as const) {
+      const account = accountServer([served(`A`), served(`B`), L()])
+      const a = await existingInstall(`A`, account.api, mode)
+      await a.sync()
+      expect(a.store.existing).toBe(false)
+      // The lie: Z silent (never asked, no root), as an install from before the release would be.
+      account.state.installs.push(served(`Z`))
+      await a.sync()
+      expect(a.store.pins[key(`Z`).endpointId]).toBeUndefined()
+      expect(a.rows.map((row) => [row.kind, row.installId])).toEqual([[`newInstall`, installId(`Z`)]])
+      const holder = new KeyHolder(key(`A`).userId, installId(`A`), secretOf(`A`), {
+        api: maliciousServer({
+          mine: [wrapOf(ROOT1, 1, REAL, `A`, `B`)],
+          pending: [{ rootId: ROOT1, epoch: 1, publicKey: REAL.publicKey, targetInstallId: installId(`Z`), targetX25519Public: key(`Z`).x25519Public, targetEndpointId: key(`Z`).endpointId }],
+        }).keys,
+        store: memoryTreeKeyStore(),
+        identity: identity(`A`),
+        trust: a,
+      })
+      await holder.refresh()
+      await holder.answerPending()
+      expect(a.decisions.find((d) => d.rule === `R4`)).toMatchObject({ subject: installId(`Z`), verdict: `refused:unapproved` })
+      // And the holder never approved it by itself.
+      expect(account.state.approvals.filter((x) => x.subjectEndpointId === key(`Z`).endpointId)).toEqual([])
+    }
+  })
+
+  it(`the server hides the chain from an install whose first reconcile is past: it adopts nothing, it waits`, async () => {
+    const account = accountServer([served(`A`), served(`B`)])
+    account.state.approvals.push(approval(`root`, `A`, `A`))
+    const b = await existingInstall(`B`, account.api)
+    await b.sync()
+    expect(b.status).toBe(`waiting`) // existing on this install, but not on its account's chain: new
+    expect(b.store.existing).toBe(false)
+    account.state.approvals = []
+    account.state.installs.push(served(`Z`))
+    await b.sync()
+    expect(b.status).toBe(`waiting`)
+    expect(Object.keys(b.store.pins)).toEqual([key(`B`).endpointId])
+  })
+
+  it(`a new identity (a browser that lost its IndexedDB) is a new install: its store is written first, it waits`, async () => {
+    const io = memoryTrustStore()
+    await io.put(key(`N`).userId, { ...(await import(`@exp/domain-contract/install-trust`)).emptyTrustStore(key(`N`).endpointId, key(`N`).userId, false) })
+    const account = accountServer([served(`A`), served(`B`), served(`N`)])
+    account.state.approvals.push(approval(`root`, `A`, `A`), approval(`approve`, `B`, `A`))
+    const n = new InstallTrust(key(`N`).userId, installId(`N`), identity(`N`), { api: account.api, io })
+    await n.load()
+    expect(n.store.existing).toBe(false)
+    await n.sync()
+    expect(n.status).toBe(`waiting`)
+    expect(account.state.asked).toEqual([installId(`N`)])
   })
 })

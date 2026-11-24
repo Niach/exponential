@@ -2,11 +2,13 @@
 // install approval and the four acceptance rules, around the pure reference
 // `@exp/domain-contract/install-trust`. It follows `installs.trust` into
 // the pin store (trust-store.ts), claims its account's root when there is no
-// chain, asks once to be approved when there is one, and answers for the key
+// chain (an EXISTING install, decision e, with an approval of every install
+// it adopted), asks once to be approved while it waits, and answers for the key
 // holder (key-holder.ts) whether a wrap is kept (R1), a key sealed to (R2,
 // R3) and a target wrapped for (R4). Release 1 is RECORD-ONLY (`TRUST_MODE`)
 // for keys; an install that asked and is not approved gets no wraps from it.
-// It APPROVES only when a person presses Approve (`approve`), never by itself.
+// It APPROVES only when a person presses Approve (`approve`), and the installs
+// that existed with it once (`approveExisting`), never a new one by itself.
 // An older server without `installs.trust` (NOT_FOUND): `unavailable`, every
 // target is wrapped as before and recorded `legacy`.
 
@@ -38,7 +40,7 @@ import type { TrustStoreIO } from "./trust-store"
 export type TrustApi = {
   trust: (input: { installId: string }) => Promise<{ installs: ServedInstall[]; approvals: ServedApproval[] }>
   requestApproval: (input: { installId: string }) => Promise<unknown>
-  claimRoot: (input: { installId: string; signature: string }) => Promise<unknown>
+  claimRoot: (input: { installId: string; signature: string; approvals?: { subjectInstallId: string; signature: string }[] }) => Promise<unknown>
   approve: (input: { installId: string; subjectInstallId: string; kind: `approve` | `reset` | `decline`; signature: string }) => Promise<unknown>
   revoke: (input: { installId: string }) => Promise<unknown>
 }
@@ -80,10 +82,19 @@ export class InstallTrust {
     return this.deps.mode ?? TRUST_MODE
   }
 
-  /** The pin store this install kept (its own endpoint's; another is ignored). */
+  /** The pin store this install kept (its own endpoint's; another is
+   *  ignored). None at all = decision (e): the identity predates the store
+   *  (the build that mints an identity writes its store first, `existing`
+   *  false), so this install EXISTED and may adopt at its first reconcile.
+   *  A store that cannot be read is never taken for none. */
   async load(): Promise<void> {
-    const kept = await this.deps.io.get(this.userId).catch(() => undefined)
-    if (kept?.self === this.endpointId && kept.userId === this.userId) this.store = kept
+    const kept = await this.deps.io.get(this.userId).then(
+      (store) => ({ store }),
+      () => null
+    )
+    if (!kept) return
+    if (kept.store?.self === this.endpointId && kept.store.userId === this.userId) this.store = { ...kept.store, existing: kept.store.existing ?? false }
+    else if (!kept.store) this.store = emptyTrustStore(this.endpointId, this.userId, true)
   }
 
   subscribe(listener: () => void): () => void {
@@ -92,7 +103,8 @@ export class InstallTrust {
   }
 
   /** Follows `installs.trust` once (one at a time): claims the root when the
-   *  account has no chain, asks once to be approved when it is not on it. */
+   *  account has no chain (with the existing installs' approvals), approves
+   *  the existing ones its chain does not reach yet, asks once while it waits. */
   sync(): Promise<void> {
     this.syncing ??= this.syncOnce().finally(() => {
       this.syncing = undefined
@@ -101,7 +113,7 @@ export class InstallTrust {
   }
 
   private async syncOnce(): Promise<void> {
-    for (let round = 0; round < 2; round++) {
+    for (let round = 0; round < 3; round++) {
       let answer: Awaited<ReturnType<TrustApi[`trust`]>>
       try {
         answer = await this.deps.api.trust({ installId: this.installId })
@@ -120,14 +132,18 @@ export class InstallTrust {
         const me = this.served.get(this.endpointId)
         if (!me) return
         const signature = signApproval(this.identity, `root`, me)
-        const claimed = await this.deps.api.claimRoot({ installId: this.installId, signature }).then(
-          () => true,
-          () => false
-        )
-        if (claimed) continue
-        // CONFLICT: another install started the chain meantime: ask instead.
+        const approvals = this.existingApprovals(view.approveExisting)
+        // A CONFLICT (another install started the chain meantime) is read next round.
+        await this.deps.api.claimRoot({ installId: this.installId, signature, approvals }).catch(() => {})
+        continue
       }
-      if (view.status !== `trusted` && !this.asked && !this.served.get(this.endpointId)?.approvalRequested) {
+      if (view.status === `trusted`) {
+        for (const approval of this.existingApprovals(view.approveExisting)) {
+          await this.deps.api.approve({ installId: this.installId, kind: `approve`, ...approval }).catch(() => {})
+        }
+        return
+      }
+      if (view.status === `waiting` && !this.asked && !this.served.get(this.endpointId)?.approvalRequested) {
         this.asked = await this.deps.api.requestApproval({ installId: this.installId }).then(
           () => true,
           () => false
@@ -135,6 +151,17 @@ export class InstallTrust {
       }
       return
     }
+  }
+
+  /** The `approve`s of the installs that existed with this one (decision e),
+   *  over the key it pinned them with. */
+  private existingApprovals(endpointIds: string[]): { subjectInstallId: string; signature: string }[] {
+    return endpointIds.flatMap((endpointId) => {
+      const row = this.served.get(endpointId)
+      const pin = this.store.pins[endpointId]
+      if (!row || !pin) return []
+      return [{ subjectInstallId: row.installId, signature: signApproval(this.identity, `approve`, { userId: pin.userId, endpointId, x25519Public: pin.x25519Public }) }]
+    })
   }
 
   /** A person pressed Approve on a row. */

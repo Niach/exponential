@@ -85,11 +85,15 @@ export async function openSecret(value: SealedIdentity): Promise<Uint8Array> {
   return new Uint8Array(plain)
 }
 
-/** This account's identity in this profile; `generate` mints it the first time. */
+/** This account's identity in this profile; `generate` mints it the first
+ *  time, and `minted` runs BEFORE it is stored (#EXP-1950 decision e: the
+ *  pin store is written with a new identity, so a store missing beside an
+ *  identity means the identity predates it: an install that existed). */
 export async function loadOrCreateIdentity(
   userId: string,
   generate: () => Uint8Array,
-  store: IdentityStore = indexedDbIdentityStore
+  store: IdentityStore = indexedDbIdentityStore,
+  minted?: (identity: Uint8Array) => Promise<void>
 ): Promise<Uint8Array> {
   const existing = await store.get(userId)
   if (existing) {
@@ -98,6 +102,7 @@ export async function loadOrCreateIdentity(
   }
   const identity = generate()
   if (identity.length !== 32) throw new Error(`identity must be 32 bytes`)
+  await minted?.(identity)
   await store.put(userId, await sealSecret(identity))
   return identity
 }
