@@ -938,6 +938,15 @@ pub fn assistant_own_devices(session_team_synced: bool, starter_is_viewer: bool)
     !session_team_synced && starter_is_viewer
 }
 
+/// TS `assistantChatMembers` (#EXP-2095, `assistant.chatTeams.memberCases`):
+/// the `@` list's ONE order ×4 as a sort key: the shown name (the name, else
+/// the email) lowercased, then the email lowercased, then the id.
+pub fn chat_member_sort_key(name: Option<&str>, email: Option<&str>, id: &str) -> (String, String, String) {
+    let email = email.unwrap_or_default();
+    let shown = name.filter(|name| !name.is_empty()).unwrap_or(email);
+    (shown.to_lowercase(), email.to_lowercase(), id.to_string())
+}
+
 /// THE CHAT TEAMS AS ONE KEY. The desktop threads "the team a chat's lists
 /// read" as one string through its resolvers, completion sources, pickers and
 /// link openers. A chat of one team carries that team's id, unchanged; the
@@ -1418,6 +1427,14 @@ mod tests {
                 "{}",
                 case["name"]
             );
+        }
+        let members = fixture["assistant"]["chatTeams"]["memberCases"].as_array().unwrap();
+        assert!(members.len() >= 5);
+        for case in members {
+            let mut rows: Vec<&Value> = case["members"].as_array().unwrap().iter().collect();
+            rows.sort_by_key(|row| chat_member_sort_key(row["name"].as_str(), row["email"].as_str(), row["id"].as_str().unwrap()));
+            let ids: Vec<String> = rows.iter().map(|row| row["id"].as_str().unwrap().to_string()).collect();
+            assert_eq!(ids, strings(&case["expected"]), "{}", case["name"]);
         }
         let devices = fixture["assistant"]["chatTeams"]["deviceCases"].as_array().unwrap();
         assert!(devices.len() >= 3);
