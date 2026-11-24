@@ -105,6 +105,31 @@ final class MessageDeliveryTests: XCTestCase {
         }
     }
 
+    // #EXP-2089: `pendingCases`.
+    func testReplaysEveryPendingCase() throws {
+        let cases = try XCTUnwrap(try fixture()["pendingCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? ""
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let rows = try XCTUnwrap(input["rows"] as? [[String: Any]]).map { row in
+                MessageDelivery.HandoffRow(
+                    id: try XCTUnwrap(row["id"] as? String),
+                    authorKind: try XCTUnwrap(row["authorKind"] as? String),
+                    authorId: row["authorId"] as? String,
+                    body: try XCTUnwrap(row["body"] as? String),
+                    createdAt: try XCTUnwrap(row["createdAt"] as? String),
+                    consumedAt: row["consumedAt"] as? String,
+                    hasCard: row["card"].map { !($0 is NSNull) } ?? false
+                )
+            }
+            let got = MessageDelivery.pendingRows(viewerId: input["viewerId"] as? String, rows: rows)
+            let expected = try XCTUnwrap(testCase["expected"] as? [[String: Any]])
+            XCTAssertEqual(got.map(\.id), expected.map { $0["id"] as? String ?? "" }, name)
+            XCTAssertEqual(got.map(\.own), expected.map { $0["own"] as? Bool ?? false }, name)
+        }
+    }
+
     func testReplaysEveryHandoffCase() throws {
         let cases = try XCTUnwrap(try fixture()["handoffCases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)

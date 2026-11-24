@@ -126,6 +126,41 @@ class MessageDeliveryTest {
         }
     }
 
+    // #EXP-2089: `pendingCases`, and the tail's one list built from them.
+    @Test
+    fun `every pending case matches the fixture`() {
+        val cases = fixture.getValue("pendingCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val input = case.getValue("input").jsonObject
+            val viewer = input.str("viewerId")
+            val rows = input.getValue("rows").jsonArray.map { it.jsonObject }.map { r ->
+                MessageDelivery.Row(
+                    id = r.str("id")!!,
+                    authorKind = r.str("authorKind")!!,
+                    authorId = r.str("authorId"),
+                    body = r.str("body")!!,
+                    createdAt = r.str("createdAt")!!,
+                    consumedAt = r.str("consumedAt"),
+                    hasCard = r["card"]?.let { it !is JsonNull } == true,
+                )
+            }
+            val expected = case.getValue("expected").jsonArray.map { it.jsonObject }
+                .map { it.str("id")!! to (it.str("own") == "true") }
+            assertEquals(case.str("name"), expected, MessageDelivery.pendingRows(viewer, rows))
+            // What the screen draws: the viewer's tail and the teammates' as ONE list.
+            val own = MessageDelivery.tail(viewer, emptyList(), rows.filter { it.authorId == viewer && !it.hasCard && it.body.isNotBlank() }).bubbles
+            val teammates = rows
+                .filter { it.authorKind == "user" && it.authorId != null && it.authorId != viewer && it.consumedAt == null && !it.hasCard && it.body.isNotBlank() }
+                .map { MessageDelivery.Bubble("member-row-${it.id}", it.body, it.createdAt, MessageDelivery.State.Sending, true, null, it.id, it.authorId) }
+            assertEquals(
+                case.str("name"),
+                expected,
+                MessageDelivery.pendingTail(teammates, own).map { it.messageId!! to (it.authorId == null) },
+            )
+        }
+    }
+
     @Test
     fun `every handoff case matches the fixture`() {
         val cases = fixture.getValue("handoffCases").jsonArray.map { it.jsonObject }
