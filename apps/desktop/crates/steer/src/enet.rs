@@ -697,6 +697,7 @@ async fn run_node(inner: &Arc<Inner>) {
                 Some(holder) => {
                     holder.set_direct_sender(direct_sender(&inner));
                     holder.set_device_readers(device_readers(&inner));
+                    holder.set_install_lookup(install_lookup(&inner));
                 }
                 // No key API on this registry: no holder will come.
                 None => coding::sealing::holder_off(coding::sealing::HolderOff::NoKeyApi),
@@ -735,7 +736,8 @@ fn start_holder(inner: &Arc<Inner>, identity: &Identity) {
     let Some(install_id) = lock(&inner.install_id).clone() else { return };
     let Some(api) = Arc::clone(&inner.registry).keys() else { return };
     let keyring = coding::sealing::preload(keyring_path(&inner.spec));
-    let holder = KeyHolder::new(install_id, &PushKeypair::derive(identity), api, keyring);
+    // #EXP-1950: every wrap it makes carries this install's signature.
+    let holder = KeyHolder::signing(install_id, identity, api, keyring);
     coding::sealing::install(Arc::new(holder.clone()));
     holder.spawn(&tokio::runtime::Handle::current(), Arc::clone(&inner.holder_wake));
     *lock(&inner.holder) = Some(holder);
@@ -759,6 +761,18 @@ fn device_readers(inner: &Arc<Inner>) -> crate::seal_keys::DeviceReaders {
         let Some(inner) = weak.upgrade() else { return Vec::new() };
         let entries = lock(&inner.entries);
         target_device_installs(&entries, &inner.spec.user_id, device)
+    })
+}
+
+/// #EXP-1950: an install's `(endpoint_id, x25519_public)` off the last
+/// allowlist pass, for the holder's re-signed wraps.
+fn install_lookup(inner: &Arc<Inner>) -> crate::seal_keys::InstallLookup {
+    let weak = Arc::downgrade(inner);
+    Arc::new(move |install_id: &str| {
+        let inner = weak.upgrade()?;
+        let found = lock(&inner.entries).iter().find(|e| e.install_id == install_id).cloned();
+        let found = found.or_else(|| lock(&inner.team_entries).values().flatten().find(|e| e.install_id == install_id).cloned());
+        found.map(|e| (e.endpoint_id, e.x25519_public))
     })
 }
 

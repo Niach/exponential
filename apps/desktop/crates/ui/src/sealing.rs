@@ -692,7 +692,7 @@ mod tests {
                 install_id: "me".into(),
                 public_key: self.key.public_key(),
                 epoch: 1,
-                wraps: vec![api::session_keys::InstallWrap { install_id: "me".into(), wrapped: "w".into() }],
+                wraps: vec![api::session_keys::InstallWrap { install_id: "me".into(), wrapped: "w".into(), signature: None }],
                 secret: self.key.secret,
             })
         }

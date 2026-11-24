@@ -353,7 +353,8 @@ pub trait SealService: Send + Sync {
     /// `deliverTo` for: deliver it over eNet chat to that install (the
     /// device executing the target session). Fire and forget.
     fn deliver_direct(&self, _deliver_to: &DeliverTo, _message: &DirectMessage) {}
-    /// Keeps a new root's secret once `sessions.send {seal}` returned its id.
+    /// Keeps a new root's secret once `sessions.send {seal}` returned its id
+    /// (#EXP-1950: a key holder then re-signs the seal's wraps, `resign`).
     fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
         adopt_into(self.keyring(), root_id, seal);
     }
@@ -1225,7 +1226,9 @@ pub fn open_sessions(rows: &[SessionRow]) -> Vec<SessionRow> {
 // --- new roots -----------------------------------------------------------
 
 /// `sessions.send {seal}` for a root that does not exist yet (addendum 2):
-/// the key travels with the first message in one transaction.
+/// the key travels with the first message in one transaction. #EXP-1950:
+/// its wraps go UNSIGNED (a signature names the root, unknown until the
+/// server answers); the holder re-signs them once adopted ([`SealService::adopt`]).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewRootSeal {
@@ -1244,6 +1247,7 @@ pub fn seal_new_root(own_install_id: &str, own_public: &[u8; 32], readers: &[(St
     let mut wraps = vec![api::session_keys::InstallWrap {
         install_id: own_install_id.to_string(),
         wrapped: wrap_tree_key(own_public, &key.secret).map_err(|e| SealError::Invalid(e.to_string()))?,
+        signature: None,
     }];
     for (install_id, public) in readers {
         if wraps.iter().any(|w| &w.install_id == install_id) {
@@ -1251,7 +1255,7 @@ pub fn seal_new_root(own_install_id: &str, own_public: &[u8; 32], readers: &[(St
         }
         let Ok(public) = public_key_from_b64(public) else { continue };
         if let Ok(wrapped) = wrap_tree_key(&public, &key.secret) {
-            wraps.push(api::session_keys::InstallWrap { install_id: install_id.clone(), wrapped });
+            wraps.push(api::session_keys::InstallWrap { install_id: install_id.clone(), wrapped, signature: None });
         }
     }
     Ok(NewRootSeal { install_id: own_install_id.to_string(), public_key: key.public_key(), epoch: 1, wraps, secret: key.secret })
@@ -1262,7 +1266,8 @@ pub fn adopt_new_root(root_id: &str, seal: &NewRootSeal) {
     with_keyring(|keyring| adopt_into(keyring, root_id, seal));
 }
 
-fn adopt_into(keyring: &Keyring, root_id: &str, seal: &NewRootSeal) {
+/// [`SealService::adopt`]'s keyring half.
+pub fn adopt_into(keyring: &Keyring, root_id: &str, seal: &NewRootSeal) {
     keyring.insert_secret(root_id, seal.epoch, seal.secret);
     if let Ok(public) = public_key_from_b64(&seal.public_key) {
         keyring.set_current(root_id, seal.epoch, public);
