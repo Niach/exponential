@@ -5,7 +5,8 @@
 //! WORKER. The same speech worker as the IDE (`exponential __speech-worker`,
 //! `etalk::SpeechClient`; CrispASR is a pinned runtime download, nothing is
 //! linked), but only while one of the member's agents runs here (`agents.list`
-//! of the synced teams, Runs on = this device). It is PROBED once (no CUDA
+//! of the synced teams and the member's own Assistant, #EXP-2080; Runs on =
+//! this device). It is PROBED once (no CUDA
 //! driver = nothing downloads, `speech` missing at once; else the voice
 //! downloads, loads and warms up), then exits: an idle server holds no GPU
 //! memory. A ring brings it up again (the ring hides the load) and it exits
@@ -1272,25 +1273,43 @@ fn clip_file(deps: &Deps, clip_id: &str) -> Option<PathBuf> {
     }
 }
 
-/// The agents of the synced teams whose Runs on is this device.
+/// The agents whose Runs on is this device: the synced teams' and the
+/// member's own Assistant.
 fn hosted_agents(deps: &Deps) -> Option<Vec<HostedAgent>> {
-    hosted_from(&(deps.teams)(), &deps.device_id, |team_id| api::agents::list(&deps.trpc, team_id), || Ok(None))
+    hosted_from(
+        &(deps.teams)(),
+        &deps.device_id,
+        |team_id| api::agents::list(&deps.trpc, team_id),
+        || api::agents::ensure_assistant(&deps.trpc, None),
+    )
 }
 
 /// The agents that run on `device_id` as the server names them: every synced
-/// team's list. `None` = a read failed (the last answer stands).
+/// team's list, and the member's own Assistant (#EXP-2080: after the move,
+/// #EXP-1984, it lives in their personal team, never a synced one, and no
+/// team's list names it; before the move it is a row of a team's list too:
+/// one entry per agent). `None` = a read did not reach the server (the last
+/// answer stands). A server that REFUSES the Assistant ask (an older one)
+/// hosts the teams' agents as before.
 fn hosted_from(
     teams: &[String],
     device_id: &str,
     list: impl Fn(&str) -> Result<Vec<api::agents::Agent>, api::ApiError>,
     assistant: impl Fn() -> Result<Option<api::agents::Agent>, api::ApiError>,
 ) -> Option<Vec<HostedAgent>> {
-    let _ = &assistant;
     let mut hosted = Vec::new();
     for team_id in teams {
         hosted.extend(hosted_of(&list(team_id).ok()?, device_id));
     }
+    match assistant() {
+        Ok(assistant) => hosted.extend(hosted_of(assistant.as_slice(), device_id)),
+        Err(api::ApiError::Http { status, message }) => {
+            log::debug!("[voice] the Assistant was not named (HTTP {status}: {message}): the teams' agents only")
+        }
+        Err(_) => return None,
+    }
     hosted.sort_by(|a, b| a.id.cmp(&b.id));
+    hosted.dedup_by(|a, b| a.id == b.id);
     Some(hosted)
 }
 
@@ -1320,7 +1339,8 @@ pub fn spawn(deps: Deps) -> Option<VoiceHost> {
     let agents_deps = Arc::clone(&deps);
     let stopped = Arc::new(AtomicBool::new(false));
     let agents_stopped = Arc::clone(&stopped);
-    // The agents that run here, read off the loop (a request per team).
+    // The agents that run here, read off the loop (a request per team and
+    // one for the Assistant).
     let _ = std::thread::Builder::new().name("voice-agents".into()).spawn(move || {
         while !agents_stopped.load(Ordering::SeqCst) {
             if let Some(agents) = hosted_agents(&agents_deps) {
