@@ -1,3 +1,9 @@
+- An agent's views draw in the chat, in subagent tabs and in calls
+- A new install of your account asks for approval in Needs you, with its whole code
+- An open question or plan card sits after the chat's last message
+- A subagent's reply no longer shows twice after reopening the app
+- A teammate's message the agent has not picked up yet shows as waiting
+- One tap on Reconnect dials a dropped call afresh
 - Messages that arrive late show up in their place in the chat, find and search
 - Find in chat reaches your own unsent messages and lands on every hit
 - A chat no device has picked up yet stays quiet
@@ -46,10 +52,3 @@
 - Home screen widgets: Board, My issues and Needs you
 - Ask Siri or Shortcuts to open an agent's chat; agent chat links open from a cold start
 - Owners set an app's Everyone else access in Settings › MCP › Access
-- A smaller download: the app ships one native library instead of three
-- Notifications clear when you read them on another device, and show as a short notice while the app is open
-- Sent messages show delivery ticks
-- Agent replies span the full column on phones
-- Shared items land in the team you pick
-- What you type in a composer stays as a draft, on every device
-- Notification and deep links open right at their card

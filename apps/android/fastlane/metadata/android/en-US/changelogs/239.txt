@@ -1,0 +1,4 @@
+- An agent's views draw in the chat, in subagent tabs and in calls
+- Calls are end-to-end encrypted between up-to-date apps
+- An open question or plan card sits after the chat's last message
+- A subagent's reply no longer shows twice after reopening the app
