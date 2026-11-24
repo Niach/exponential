@@ -42,6 +42,11 @@ scripts/lanes/lane.sh <ios|android|heavy> <owner> [--own-target] -- <command...>
   under `cargoSweep.freeDiskGb` (settings.json, default 20) it deletes stale
   build output from the shared target (#EXP-1865, the daemon's rule), else
   nothing.
+  It takes the first CLI that knows `sweep-target`: `$LANE_SWEEP_CLI`, each
+  `exponential` on `PATH`, then the target's own `release/` or `debug/`
+  build (`sweep.sh`, #EXP-1996). With none, the lane says
+  `lane.sh: NOT sweeping …` and names the binary that is too old: install a
+  current CLI (`curl -fsSL https://exponential.at/install.sh | sh`).
 
 ## Screen captures: `capture.sh` only (#EXP-2022)
 
