@@ -9,8 +9,8 @@
 //! in-surface) and talks to the host through [`EmbedHost`]: icons, media,
 //! the URL policy, `open_url`, text links and the markdown hooks are the
 //! host's; an inner `event` action re-fires on the host's Embed node as
-//! `action` `{name, context}` (merged over `on.action`'s context like any
-//! component payload); an inner host function call is DENIED (never
+//! `action` `{name, context}` plus its resolved `userMessage` when it has
+//! one (merged over `on.action`'s context like any component payload); an inner host function call is DENIED (never
 //! forwarded, its event does not follow). Inner text edits, uploads, hovers,
 //! the camera and task toggles stay inside.
 //!
@@ -230,10 +230,11 @@ impl SurfaceView {
     }
 
     /// An inner `event` action: the host's Embed `id` fires `action`
-    /// `{name, context}` through the host surface (no `on.action` = nothing).
-    pub(crate) fn embed_action(&mut self, id: &str, name: &str, context: &Value, cx: &mut Context<Self>) {
+    /// `{name, context}` (+ the inner `userMessage`, #EXP-2104) through the
+    /// host surface (no `on.action` = nothing).
+    pub(crate) fn embed_action(&mut self, id: &str, name: &str, context: &Value, user_message: Option<&str>, cx: &mut Context<Self>) {
         if let Some(index) = self.cache.index_of(id) {
-            self.fire(index, EMBED_EVENT, Some(embed_payload(name, Some(context))), cx);
+            self.fire(index, EMBED_EVENT, Some(embed_payload(name, Some(context), user_message)), cx);
         }
     }
 
@@ -311,11 +312,11 @@ impl HostPlugin for EmbedHost {
     }
 
     fn on_action(&self, event: &ActionEvent, cx: &mut App) {
-        let (host, id, name, context) = (self.host_view.clone(), self.embed_id.clone(), event.name.clone(), event.context.clone());
+        let (host, id, name, context, said) = (self.host_view.clone(), self.embed_id.clone(), event.name.clone(), event.context.clone(), event.user_message.clone());
         // Deferred: the inner press runs inside the child's update, and the
         // host may be mid-update itself.
         cx.defer(move |cx| {
-            let _ = host.update(cx, |v, cx| v.embed_action(&id, &name, &context, cx));
+            let _ = host.update(cx, |v, cx| v.embed_action(&id, &name, &context, said.as_deref(), cx));
         });
     }
 

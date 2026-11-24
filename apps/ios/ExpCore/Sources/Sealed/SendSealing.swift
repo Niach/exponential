@@ -349,7 +349,7 @@ public struct SendSealing: Sendable {
         if fresh, conversation == nil, let sessionId {
             // A session the store does not have: its key, when it is keyed
             // (or keyed by its device's claim within the wait).
-            guard let key = await arrivingKey(accountId: accountId, rootId: sessionId) else { return try refuse() }
+            guard let key = await holder.arrivingKey(accountId: accountId, rootId: sessionId, wait: keyWait) else { return try refuse() }
             return try await sealed(key, sessionId)
         }
         // A root that does not exist yet: it starts with our key, inline.
@@ -364,9 +364,8 @@ public struct SendSealing: Sendable {
                 input, to: TreeSealKey(publicKey: key.publicKey, epoch: 1), mentions: mentions, seal: seal, actionCard: actionCard
             )
             return PreparedSend(input: sealed, newKey: key, accountId: accountId)
-        } catch let refusal as SealRefusal {
-            throw refusal
         } catch {
+            // #EXP-2123: also an install that waits for approval (it makes none).
             logger.error("No key for a new root (\(String(describing: error), privacy: .public))")
             return try refuse()
         }
@@ -428,22 +427,8 @@ public struct SendSealing: Sendable {
         case .wait: break
         default: return .refused
         }
-        return await arrivingKey(accountId: accountId, rootId: rootId).map(TreeKeyOutcome.key) ?? .refused
+        return await holder.arrivingKey(accountId: accountId, rootId: rootId, wait: keyWait).map(TreeKeyOutcome.key) ?? .refused
     }
-
-    /// The server's key of a keyless tree this install may not key, polled
-    /// until its device's claim keys it (`keyWait`); nil = none came.
-    private func arrivingKey(accountId: String, rootId: String) async -> TreeSealKey? {
-        let clock = ContinuousClock()
-        let deadline = clock.now + keyWait
-        while true {
-            if let key = await holder.serverKey(accountId: accountId, rootId: rootId) { return key }
-            if clock.now >= deadline || Task.isCancelled { return nil }
-            try? await Task.sleep(for: min(Self.keyPoll, deadline - clock.now))
-        }
-    }
-
-    static let keyPoll: Duration = .seconds(1)
 
     /// The server answered a send: a root started with our key holds it now.
     public func completed(_ prepared: PreparedSend, result: SessionsSendResult) async {
@@ -491,6 +476,8 @@ public struct SendSealing: Sendable {
 /// is re-resolved from the server, re-sealed and re-sent ONCE by itself, the
 /// first refusal never surfaced; a second one throws (its description = the
 /// refusal, `TrpcErrorBody.presentableMessage`).
+/// #EXP-2123 (install-trust.json `keyMaker`): the server refused a new root's
+/// key from this install (it waits for approval) = `SealRefusal`.
 public enum StaleTreeResend {
     /// `attempt(fresh)` prepares and sends; `fresh` = resolve from the server.
     /// It runs in the caller's isolation (a main-actor submitter's closure
@@ -500,11 +487,22 @@ public enum StaleTreeResend {
         _ attempt: (_ fresh: Bool) async throws -> R
     ) async throws -> R {
         do {
-            return try await attempt(false)
+            return try await sealed(attempt, fresh: false, isolation: isolation)
         } catch {
             guard isStaleTreeRefusal((error as? LocalizedError)?.errorDescription) else { throw error }
             logger.info("The tree moved on behind this store: re-sealing once")
-            return try await attempt(true)
+            return try await sealed(attempt, fresh: true, isolation: isolation)
+        }
+    }
+
+    private static func sealed<R>(
+        _ attempt: (_ fresh: Bool) async throws -> R, fresh: Bool, isolation: isolated (any Actor)?
+    ) async throws -> R {
+        do {
+            return try await attempt(fresh)
+        } catch {
+            guard isKeyMakerRefusal((error as? LocalizedError)?.errorDescription) else { throw error }
+            throw SealRefusal()
         }
     }
 }

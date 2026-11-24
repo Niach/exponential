@@ -188,10 +188,23 @@ public struct RequestKeyResult: Decodable, Equatable, Sendable {
 public struct DueTreeKey: Decodable, Equatable, Sendable {
     public let rootId: String
     public let epoch: UInt32
+    /// #EXP-2123: no approved reader holds its current epoch: it is rotated
+    /// without the old secret. Absent = not.
+    public let stranded: Bool
 
-    public init(rootId: String, epoch: UInt32) {
+    public init(rootId: String, epoch: UInt32, stranded: Bool = false) {
         self.rootId = rootId
         self.epoch = epoch
+        self.stranded = stranded
+    }
+
+    private enum CodingKeys: String, CodingKey { case rootId, epoch, stranded }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rootId = try c.decode(String.self, forKey: .rootId)
+        epoch = try c.decode(UInt32.self, forKey: .epoch)
+        stranded = try c.decodeIfPresent(Bool.self, forKey: .stranded) ?? false
     }
 }
 

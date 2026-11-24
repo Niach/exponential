@@ -50,7 +50,11 @@ services:
         condition: service_started
 
   postgres:
-    image: postgres:18-alpine
+    # postgres:18-alpine + the pgvector extension (semantic issue search).
+    # Same data directory as the stock image: an install that still runs
+    # `postgres:18-alpine` may keep it (search then stays lexical) or switch
+    # to this one without a dump (INSTALL.md, "Semantic issue search").
+    image: ghcr.io/niach/exponential-postgres:18-pgvector0.8.7
     restart: unless-stopped
     environment:
       POSTGRES_DB: exponential

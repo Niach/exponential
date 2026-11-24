@@ -123,17 +123,17 @@ public enum IssueSearchPhrase {
         return value
     }
 
-    private static func pad(_ value: Int, _ width: Int) -> String {
+    static func pad(_ value: Int, _ width: Int) -> String {
         let digits = String(value)
         return String(repeating: "0", count: max(0, width - digits.count)) + digits
     }
 
-    private static func floorDiv(_ a: Int, _ b: Int) -> Int {
+    static func floorDiv(_ a: Int, _ b: Int) -> Int {
         Int((Double(a) / Double(b)).rounded(.down))
     }
 
     /// The UTC civil date of a day number (Howard Hinnant's civil_from_days).
-    private static func civilFromDays(_ days: Int) -> (year: Int, month: Int, day: Int) {
+    static func civilFromDays(_ days: Int) -> (year: Int, month: Int, day: Int) {
         let z = days + 719_468
         let era = floorDiv(z, 146_097)
         let doe = z - era * 146_097

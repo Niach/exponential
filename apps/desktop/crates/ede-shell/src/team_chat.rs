@@ -213,9 +213,11 @@ fn session_chat<'a>(rows: &'a TeamRows, chat: &TeamChat, now_ms: i64) -> Option<
 /// Lane Q, #EXP-2077: what an Embed's inner event on chat row `message_id`
 /// asks (`domain::chat_document::card_reply` over the open session's rows:
 /// a show card, an Express block's surface).
-pub fn card_reply(rows: &TeamRows, chat: &TeamChat, message_id: &str, name: &str, context: &serde_json::Value, now_ms: i64) -> Option<crate::chat::CardReply> {
+/// `event` = the Embed's `action` payload `{name, context, userMessage?}`
+/// (#EXP-2104: the inner event's `userMessage` is the message's body).
+pub fn card_reply(rows: &TeamRows, chat: &TeamChat, message_id: &str, event: &serde_json::Value, now_ms: i64) -> Option<crate::chat::CardReply> {
     let (root, view, _) = session_chat(rows, chat, now_ms)?;
-    crate::chat::card_reply(&view.rows, &root.id, message_id, Some(name), Some(context))
+    crate::chat::card_reply(&view.rows, &root.id, message_id, event["name"].as_str(), event.get("context"), event.get("userMessage"))
 }
 
 /// A card reply's send (chat-express.json ACTIONS): the body (blank =
@@ -862,15 +864,15 @@ mod tests {
         assert_eq!((title.as_str(), &surface["data"]["new"]), ("Reports", &json!("2")));
         // chat-express.json ACTIONS: the reply's text is the body, THE
         // action card rides with it; every other event is forwarded too.
-        let reply = card_reply(&rows, &open, "m4", "reply", &json!({"text": "Label the rest too"}), 0).expect("a reply");
+        let reply = card_reply(&rows, &open, "m4", &json!({"name": "reply", "context": {"text": "Label the rest too"}}), 0).expect("a reply");
         let (send, card) = reply_input(&open, &reply).expect("a send");
         assert_eq!((send.team_id.as_deref(), send.session_id.as_deref(), send.text.as_deref()), (Some("t1"), Some("s1"), Some("Label the rest too")));
         assert_eq!(card, json!({"kind": "action", "name": "reply", "context": {"text": "Label the rest too"}, "surfaceId": "show:m4", "block": null, "messageId": "m4"}));
         assert_eq!(send.action_card.as_ref(), Some(&card));
-        let picked = card_reply(&rows, &open, "m4", "picked", &json!({"id": 7}), 0).expect("every event is forwarded");
+        let picked = card_reply(&rows, &open, "m4", &json!({"name": "picked", "context": {"id": 7}}), 0).expect("every event is forwarded");
         let (send, card) = reply_input(&open, &picked).unwrap();
         assert_eq!((send.text, &card["name"], &card["context"]), (None, &json!("picked"), &json!({"id": 7})));
-        assert!(card_reply(&rows, &open, "m2", "reply", &json!({"text": "x"}), 0).is_none(), "a message is no card");
+        assert!(card_reply(&rows, &open, "m2", &json!({"name": "reply", "context": {"text": "x"}}), 0).is_none(), "a message is no card");
         assert!(reply_input(&open, &crate::chat::CardReply::TooLarge).is_none(), "too large: nothing is sent");
     }
 
@@ -912,10 +914,17 @@ mod tests {
         assert_eq!((&frame["kind"], &frame["title"], &frame["indent"], &frame["gap"]), (&json!("card"), &json!(""), &json!(lead.indent), &json!(8)));
         assert_eq!(frame["surface"]["version"], eui_core::catalog::A2UI_VERSION);
         // The frame's press: into the chat's root, naming its block and message.
-        let press = card_reply(&rows, &open, "m:m7#1@m:m7#1", "reply", &json!({"text": "Ship it"}), 0).expect("a block's event is forwarded");
+        let press = card_reply(&rows, &open, "m:m7#1@m:m7#1", &json!({"name": "reply", "context": {"text": "Ship it"}}), 0).expect("a block's event is forwarded");
         let (send, card) = reply_input(&open, &press).unwrap();
         assert_eq!((send.session_id.as_deref(), send.text.as_deref()), (Some("s1"), Some("Ship it")));
         assert_eq!(card, json!({"kind": "action", "name": "reply", "context": {"text": "Ship it"}, "surfaceId": "m:m7#1", "block": "m:m7#1", "messageId": "m7"}));
+        // #EXP-2104: the fixture's own button, `Event("reply", userMessage="Ship it")`,
+        // as its Embed hands it: the userMessage is the body, no context.
+        let said = eui_core::embed::embed_payload("reply", None, Some(" Ship it "));
+        let press = card_reply(&rows, &open, "m:m7#1@m:m7#1", &said, 0).expect("a block's event is forwarded");
+        let (send, card) = reply_input(&open, &press).unwrap();
+        assert_eq!(send.text.as_deref(), Some("Ship it"));
+        assert_eq!(card, json!({"kind": "action", "name": "reply", "context": null, "surfaceId": "m:m7#1", "block": "m:m7#1", "messageId": "m7"}));
     }
 
     /// #EXP-2067: into a keyed tree THE action card leaves as its envelope

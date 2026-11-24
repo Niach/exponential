@@ -206,7 +206,8 @@ fn trimmed(v: Option<&Value>) -> String {
 pub fn surface_action(name: Option<&str>, context: Option<&Value>, user_message: Option<&Value>, origin: &ActionOrigin) -> Option<ActionPost> {
     let name = name.filter(|n| !n.is_empty())?;
     let limits = &CHAT_EXPRESS.limits;
-    let context = context.and_then(Value::as_object).cloned();
+    // An empty object is none: what a renderer hands for an event without one.
+    let context = context.and_then(Value::as_object).filter(|c| !c.is_empty()).cloned();
     if name.chars().count() > limits.action_name_max {
         return Some(ActionPost::TooLarge);
     }

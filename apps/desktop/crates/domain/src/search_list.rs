@@ -72,6 +72,19 @@ pub struct SearchListSuggestionSpec {
     /// The row's name, `{query}` = the translated query.
     pub label: String,
     pub test_id: String,
+    /// #NEW-136: the same row offering the model fallback.
+    pub translate: SearchListTranslateSpec,
+}
+
+/// The fixture's `suggestion.translate` (#NEW-136): the row's name, the
+/// failure toast, its test id and the platforms that show it.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchListTranslateSpec {
+    pub label: String,
+    pub failed: String,
+    pub test_id: String,
+    pub platforms: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

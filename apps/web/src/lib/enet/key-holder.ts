@@ -16,19 +16,21 @@
 // R4 allows (an install that asked and is not approved gets nothing) and
 // follows `installs.trust` on every pass. Release 1 records, refuses only
 // what the fixture refuses now.
+// #EXP-2123 (install-trust.json `keyMaker`): only a JOINED install makes a
+// key (a first key, a rotation); one that waits for approval wraps for
+// itself only, so its key would exist nowhere else.
 
 import {
   createFailure,
   generateTreeKey,
   rotationAfter,
-  rotationEpoch,
   treeKeyFromSecret,
   unwrapTreeKey,
   wrapTreeKey,
   type CreateFailure,
   type TreeKeys,
 } from "@exp/domain-contract/sealed-content"
-import { callKey } from "@exp/domain-contract/install-trust"
+import { callKey, isKeyMakerRefusal, keyMakerStep, strandedRotationEpoch } from "@exp/domain-contract/install-trust"
 import { resignAfter, signWrap } from "@exp/domain-contract/wrap-signature"
 import type { InstallTrust } from "./install-trust"
 import type { TreeKeyStore } from "./tree-key-store"
@@ -65,7 +67,7 @@ export type SessionKeysApi = {
   }) => Promise<unknown>
   create: (input: { rootId: string; installId: string; epoch: number; publicKey: string; wraps: TreeWrap[] }) => Promise<unknown>
   /** #EXP-1951: the roots this install rotates (`epoch` = the one to supersede). */
-  due: (input: { installId: string; limit?: number }) => Promise<Array<{ rootId: string; epoch: number }>>
+  due: (input: { installId: string; limit?: number }) => Promise<Array<{ rootId: string; epoch: number; stranded?: boolean }>>
   /** #EXP-1950 (wrap-signature.json `resign`): signed wraps replace unsigned rows. */
   resign?: (input: {
     installId: string
@@ -113,6 +115,12 @@ export class KeyHolder {
   /** #EXP-1950: this install's trust (none = the rules are off, as before). */
   get trust(): InstallTrust | undefined {
     return this.deps.trust
+  }
+
+  /** #EXP-2123 (install-trust.json `keyMaker`): whether this install makes
+   *  chat keys: only once it is joined (no trust = the rules are off). */
+  async makesKeys(): Promise<boolean> {
+    return this.deps.trust ? this.deps.trust.makesKeys() : true
   }
 
   /** The signature of a wrap this install makes; undefined without an identity or the recipient's key. */
@@ -269,8 +277,14 @@ export class KeyHolder {
   /** #EXP-1951 (sealed-content.json `rotation`): a fresh key at the next
    *  epoch for every root the server names as due whose current secret this
    *  install holds, wrapped for THIS install only: the current readers get
-   *  theirs from `pending`, which lists readers and nobody else. */
+   *  theirs from `pending`, which lists readers and nobody else.
+   *  #EXP-2123 (install-trust.json `keyMaker`): never while this install
+   *  waits for approval (its key would exist nowhere else); a STRANDED root
+   *  (no approved reader holds its current epoch) is rotated without the
+   *  old secret. */
   async rotateDue(): Promise<number> {
+    const joined = await this.makesKeys()
+    if (keyMakerStep({ joined, write: `rotation` }) !== `make`) return 0
     const due = await this.deps.api.due({ installId: this.installId, limit: PENDING_LIMIT })
     if (this.stopped || due.length === 0) return 0
     // The server holds a wrap of each for this install: unwrap what is missing.
@@ -280,15 +294,18 @@ export class KeyHolder {
     for (const root of due) {
       if (this.stopped) break
       const epochs = this.keys.get(root.rootId)
-      const epoch = rotationEpoch({
+      const epoch = strandedRotationEpoch({
         flagged: root.epoch,
         current: Math.max(root.epoch, ...(epochs?.keys() ?? [])),
         held: epochs?.has(root.epoch) ?? false,
+        stranded: root.stranded === true,
+        joined,
         left: this.left.has(`${root.rootId}\n${root.epoch}`),
       })
       if (epoch === null) continue
       const key = generateTreeKey()
       let failure: CreateFailure | null = null
+      let waits = false
       try {
         const wrapped = wrapTreeKey(own, key.secret)
         const signature = this.sign({ rootId: root.rootId, epoch, publicKey: key.publicKey }, this.deps.trust?.endpointId, wrapped)
@@ -302,7 +319,10 @@ export class KeyHolder {
       } catch (error) {
         const data = (error as { data?: { code?: unknown } } | null)?.data
         failure = createFailure({ code: typeof data?.code === `string` ? data.code : undefined, message: error instanceof Error ? error.message : undefined })
+        waits = isKeyMakerRefusal(error instanceof Error ? error.message : undefined)
       }
+      // The server lists this install as waiting: nothing is remembered.
+      if (waits) continue
       switch (rotationAfter(failure)) {
         case `adopt`:
           await this.keep(root.rootId, epoch, key.secret)
@@ -407,7 +427,8 @@ export class KeyHolder {
     await this.deps.store.put(this.userId, { rootId, epoch, secret }).catch(() => {})
   }
 
-  /** The first key of an EXISTING keyless root (`sessionKeys.create`). */
+  /** The first key of an EXISTING keyless root (`sessionKeys.create`). A
+   *  writer asks `makesKeys` first (#EXP-2123). */
   async createTree(rootId: string, readers: ReaderInstall[]): Promise<{ epoch: number; publicKey: string }> {
     const key = this.newTreeKey(readers)
     await this.deps.api.create({

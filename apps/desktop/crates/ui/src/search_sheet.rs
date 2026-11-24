@@ -46,6 +46,13 @@
 //! a sentence the phrase grammar recognises puts ONE action row
 //! `Search: <query>` on top (above the rows and any section header, never
 //! counted, instead of the empty state); picking it rewrites the field.
+//!
+//! #NEW-136 (search-list.json TRANSLATE; issue-search-translation.json): a
+//! sentence the grammar does NOT recognise (4+ words, no filter token) puts
+//! the same row there named `Translate to a search`, only while this device
+//! has a signed-in claude login. Picking it runs ONE print-mode call of that
+//! CLI (`coding::search_translate`, never while typing); the sanitized answer
+//! rewrites the field, anything else is the failed-action toast.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -57,7 +64,8 @@ use domain::search_list::{
     GlobalSectionKey, GlobalSections,
 };
 use gpui::{
-    div, px, size, App, AppContext as _, InteractiveElement as _, StatefulInteractiveElement as _,
+    div, prelude::FluentBuilder as _, px, size, App, AppContext as _, InteractiveElement as _,
+    StatefulInteractiveElement as _,
     IntoElement, KeyBinding, ParentElement, Pixels, Render, Styled, Task, Window,
 };
 use gpui_component::{
@@ -95,6 +103,10 @@ const SEARCH_EMPTY_HINT: &str = "Search issues across all your boards.";
 const SEARCH_EMPTY_DETAIL: &str =
     "Matches identifiers, titles and full text. Filter with by:, is:, status:, created: and updated:.";
 const SEARCH_NO_RESULTS: &str = "No issues match";
+/// #NEW-136: the model fallback's row and its failure toast (search-list.json
+/// `suggestion.translate`; the same gate greps these).
+const SEARCH_TRANSLATE_LABEL: &str = "Translate to a search";
+const SEARCH_TRANSLATE_FAILED: &str = "Couldn't translate this search";
 
 /// #EDE-99: a section header's height (the band + its gap).
 const SECTION_HEADER_HEIGHT: f32 = 32.;
@@ -181,15 +193,40 @@ struct ChatHitRow {
 /// One row of the list, in display order (issues, then chats).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Entry {
-    /// #NEW-133: the `Search: <query>` row (always the top one).
+    /// #NEW-133: the `Search: <query>` row, or #NEW-136's `Translate to a
+    /// search` in its place (always the top one, never both).
     Suggestion,
     Issue(usize),
     Chat(usize),
 }
 
-/// #NEW-133: the suggestion row for the typed text: the phrase grammar over
-/// the synced users (the rows that feed the creator names) at the clock.
-fn suggestion_for(query: &str, cx: &App) -> Option<global::SearchSuggestion> {
+/// The top action row of the typed text.
+enum Lead {
+    /// #NEW-133: a recognised sentence.
+    Search(global::SearchSuggestion),
+    /// #NEW-136: an unrecognised one the model may translate; `busy` while
+    /// the call runs.
+    Translate { busy: bool },
+}
+
+/// The top row for the typed text: the phrase grammar over the synced users
+/// (the rows that feed the creator names) at the clock (#NEW-133), else the
+/// model fallback's offer while this device has a login for it (#NEW-136).
+fn lead_for(query: &str, cx: &mut App) -> Option<Lead> {
+    let (suggestion, wanted) = with_members(cx, |members| {
+        let now = domain::issue_search::now_ms();
+        let suggestion = global::suggestion(query, members, now);
+        let wanted = suggestion.is_none() && domain::issue_search_translation::wants(query, members, now);
+        (suggestion, wanted)
+    });
+    match suggestion {
+        Some(suggestion) => Some(Lead::Search(suggestion)),
+        None => (wanted && translator_for(cx).is_some()).then_some(Lead::Translate { busy: false }),
+    }
+}
+
+/// The grammar's members: the synced users.
+fn with_members<T>(cx: &App, run: impl FnOnce(&[domain::issue_search_phrase::PhraseMember<'_>]) -> T) -> T {
     let users = Store::global(cx).collections().users.read(cx);
     let members: Vec<domain::issue_search_phrase::PhraseMember<'_>> = users
         .iter()
@@ -198,7 +235,16 @@ fn suggestion_for(query: &str, cx: &App) -> Option<global::SearchSuggestion> {
             email: user.email.as_deref(),
         })
         .collect();
-    global::suggestion(query, &members, domain::issue_search::now_ms())
+    run(&members)
+}
+
+/// #NEW-136: the signed-in claude login a translate call runs on, from the
+/// app's cached doctor report (`None` = no row).
+fn translator_for(cx: &mut App) -> Option<coding::search_translate::Translator> {
+    let hub = crate::coding_flow::CodingHub::global(cx);
+    let hub = hub.read(cx);
+    let report = hub.doctor.report.as_ref()?;
+    coding::search_translate::Translator::resolve(report, &hub.settings, &crate::coding_flow::coding_data_dir(cx))
 }
 
 /// The Chats rows of a store answer (`globalChatRows`): the active team's
@@ -263,8 +309,11 @@ struct SearchSheetView {
     hits: Vec<IssueHit>,
     /// The query `hits` answer.
     searched: String,
-    /// #NEW-133: the suggestion row of `searched` (`None` = no sentence).
-    suggestion: Option<global::SearchSuggestion>,
+    /// #NEW-133 + #NEW-136: the top action row of `searched` (`None` = none).
+    lead: Option<Lead>,
+    /// #NEW-136: the running translate call; dropping it cancels the call
+    /// (a new text, the sheet closing).
+    translating: Option<(coding::search_translate::CancelOnDrop, Task<()>)>,
     server: Option<Task<()>>,
     /// #EDE-99: this desktop's chat store (`None` = no Chats section).
     store: Option<Arc<SqliteStore>>,
@@ -280,6 +329,9 @@ struct SearchSheetView {
     /// resize (the viewport follows a frame later) is not re-requested.
     last_requested_height: Option<Pixels>,
     _subscription: gpui::Subscription,
+    /// #NEW-136: the doctor's report (the claude login) landing or changing
+    /// re-reads the top row.
+    _doctor: gpui::Subscription,
 }
 
 impl SearchSheetView {
@@ -314,13 +366,35 @@ impl SearchSheetView {
                 }
             },
         );
+        let hub = crate::coding_flow::CodingHub::global(cx);
+        let doctor = cx.observe(&hub, |this: &mut Self, _, cx| {
+            if this.translating.is_some() {
+                return;
+            }
+            let had = this.lead.is_some();
+            let searched = this.searched.clone();
+            this.lead = lead_for(&searched, cx);
+            if had != this.lead.is_some() {
+                cx.notify();
+            }
+        });
+        // DEV-ONLY (the EXP_DEV_* family): `EXP_DEV_SEARCH_PICK=<ms>` picks
+        // the top row that long after the palette opened, as Enter would.
+        if let Some(delay) = std::env::var("EXP_DEV_SEARCH_PICK").ok().and_then(|ms| ms.trim().parse::<u64>().ok()) {
+            cx.spawn_in(window, async move |this, cx| {
+                cx.background_executor().timer(Duration::from_millis(delay)).await;
+                let _ = this.update_in(cx, |this, window, cx| this.open_selected(window, cx));
+            })
+            .detach();
+        }
         let mut this = Self {
             team_id,
             teams: Store::global(cx).collections().teams_sorted(cx).into_iter().map(|team| team.id).collect(),
             list,
             hits: Vec::new(),
             searched: String::new(),
-            suggestion: None,
+            lead: None,
+            translating: None,
             server: None,
             store,
             chats: Vec::new(),
@@ -329,6 +403,7 @@ impl SearchSheetView {
             max_height,
             last_requested_height: None,
             _subscription: subscription,
+            _doctor: doctor,
         };
         this.search(window, cx);
         this
@@ -341,7 +416,9 @@ impl SearchSheetView {
         let query = self.list.query(cx);
         self.list.sync_query(&query);
         self.searched = query.clone();
-        self.suggestion = suggestion_for(&query, cx);
+        // #NEW-136: a changed text ends a running translate call.
+        self.translating = None;
+        self.lead = lead_for(&query, cx);
         if query.is_empty() {
             self.hits.clear();
             self.server = None;
@@ -410,7 +487,7 @@ impl SearchSheetView {
 
     /// The rows in display order (headers are not rows).
     fn entries(&self) -> Vec<Entry> {
-        self.suggestion
+        self.lead
             .iter()
             .map(|_| Entry::Suggestion)
             .chain((0..self.hits.len()).map(Entry::Issue))
@@ -420,7 +497,7 @@ impl SearchSheetView {
 
     /// How many rows lead the results (the suggestion row: 1 or 0).
     fn lead(&self) -> usize {
-        usize::from(self.suggestion.is_some())
+        usize::from(self.lead.is_some())
     }
 
     fn entry_key(&self, entry: Entry) -> Option<String> {
@@ -478,7 +555,7 @@ impl SearchSheetView {
                 })
                 .sum();
             px(lead + rows + sections.sections.len() as f32 * SECTION_HEADER_HEIGHT + ROWS_INSET)
-        } else if self.hits.is_empty() && self.suggestion.is_none() {
+        } else if self.hits.is_empty() && self.lead.is_none() {
             px(EMPTY_HEIGHT)
         } else {
             // The suggestion row is a row of the list (never the empty state).
@@ -504,15 +581,16 @@ impl SearchSheetView {
         match self.entries().get(position).copied() {
             // #NEW-133: the suggestion rewrites the field; the focus stays
             // in it, the search re-runs, nothing navigates.
-            Some(Entry::Suggestion) => {
-                let Some(suggestion) = self.suggestion.clone() else { return };
-                self.list.input.update(cx, |state, cx| {
-                    state.set_value(suggestion.query, window, cx);
-                    state.focus(window, cx);
-                });
-                self.search(window, cx);
-                self.list.hover(0);
-            }
+            Some(Entry::Suggestion) => match &self.lead {
+                Some(Lead::Search(suggestion)) => {
+                    let query = suggestion.query.clone();
+                    self.rewrite(query, window, cx);
+                }
+                // #NEW-136: the one place a model is called; a second pick
+                // while it runs does nothing.
+                Some(Lead::Translate { busy: false }) => self.translate(window, cx),
+                Some(Lead::Translate { busy: true }) | None => {}
+            },
             Some(Entry::Issue(ix)) => {
                 let Some(hit) = self.hits.get(ix) else { return };
                 let issue_id = hit.issue_id.clone();
@@ -531,6 +609,61 @@ impl SearchSheetView {
             }
             None => {}
         }
+    }
+
+    /// Replace the field's text with `query`: the focus stays in the field
+    /// and the search re-runs.
+    fn rewrite(&mut self, query: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.list.input.update(cx, |state, cx| {
+            state.set_value(query, window, cx);
+            state.focus(window, cx);
+        });
+        self.search(window, cx);
+        self.list.hover(0);
+    }
+
+    /// #NEW-136: translate the typed sentence with ONE call on the user's own
+    /// claude login, off the UI thread. The answer goes through the sanitizer
+    /// (never trusted); no query = the failed-action toast, the text stays.
+    fn translate(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let Some(translator) = translator_for(cx) else { return };
+        let text = self.searched.clone();
+        let prompt = with_members(cx, |members| {
+            domain::issue_search_translation::prompt(&text, members, domain::issue_search::now_ms())
+        });
+        let cancel = coding::search_translate::Cancel::new();
+        let stop = cancel.clone();
+        self.lead = Some(Lead::Translate { busy: true });
+        let task = cx.spawn_in(window, async move |this, cx| {
+            let answer = cx
+                .background_executor()
+                .spawn(async move { coding::search_translate::run(&translator, &prompt, &stop) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                if this.searched != text || !matches!(this.lead, Some(Lead::Translate { busy: true })) {
+                    return;
+                }
+                // The call is over: let its handle go without cancelling this task.
+                if let Some((_, task)) = this.translating.take() {
+                    task.detach();
+                }
+                let query = answer.and_then(|answer| {
+                    with_members(cx, |members| {
+                        domain::issue_search_translation::sanitize(&answer, &text, members, domain::issue_search::now_ms())
+                    })
+                });
+                match query {
+                    Some(query) => this.rewrite(query, window, cx),
+                    None => {
+                        this.lead = Some(Lead::Translate { busy: false });
+                        crate::toast::show(crate::toast::Toast::error(SEARCH_TRANSLATE_FAILED), window, cx);
+                        cx.notify();
+                    }
+                }
+            });
+        });
+        self.translating = Some((coding::search_translate::CancelOnDrop(cancel), task));
+        cx.notify();
     }
 
     fn open_selected(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -736,12 +869,19 @@ impl Render for SearchSheetView {
                 })
         };
         let lead = self.lead();
-        // #NEW-133: the suggestion = an ACTION row (icon by concept + name).
-        let suggestion_row = self.suggestion.as_ref().map(|suggestion| {
+        // #NEW-133: the suggestion = an ACTION row (icon by concept + name);
+        // #NEW-136: the same row named `Translate to a search`, THE inline
+        // spinner trailing while its call runs.
+        let suggestion_row = self.lead.as_ref().map(|lead| {
             let spec = global::suggestion_spec();
             let icon = registry::concept_by_name(&spec.icon).unwrap_or(registry::NAV_SEARCH);
-            shell(gpui::SharedString::from(spec.test_id.clone()).into(), 0, cx)
-                .child(search_list::action_row_body(Icon::new(icon), suggestion.label.clone(), cx))
+            let (test_id, label, busy) = match lead {
+                Lead::Search(suggestion) => (spec.test_id.clone(), suggestion.label.clone(), false),
+                Lead::Translate { busy } => (spec.translate.test_id.clone(), SEARCH_TRANSLATE_LABEL.to_string(), *busy),
+            };
+            shell(gpui::SharedString::from(test_id).into(), 0, cx)
+                .child(search_list::action_row_body(Icon::new(icon), label, cx))
+                .when(busy, |row| row.child(crate::feedback::inline_spinner(cx)))
                 .into_any_element()
         });
         let issue_rows: Vec<gpui::AnyElement> = self
