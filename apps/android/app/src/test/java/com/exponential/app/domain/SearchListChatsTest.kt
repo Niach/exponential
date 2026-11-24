@@ -41,6 +41,7 @@ class SearchListChatsTest {
         snippet = o.str("snippet")!!,
         matchStart = o.getValue("matchStart").jsonPrimitive.int,
         matchLen = o.getValue("matchLen").jsonPrimitive.int,
+        system = o["system"]?.jsonPrimitive?.boolean == true,
     )
 
     @Test
