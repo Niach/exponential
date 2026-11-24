@@ -187,6 +187,7 @@ import {
   loadSessionForUser,
 } from "@/lib/sessions/access"
 import { getSessionTree, listSessions } from "@/lib/sessions/tree"
+import { ownAssistantTeam } from "@/lib/sessions/tree-teams"
 import { markTreesReadBy } from "@/lib/sessions/reads"
 import { endSession, stopSession, SUMMARY_DROPPED_WARNING } from "@/lib/sessions/lifecycle"
 import { AGENT_CONVERSATION_LINK_MESSAGE, linkIssues, unlinkIssue } from "@/lib/sessions/issues"
@@ -2483,8 +2484,16 @@ export function registerExponentialTools(
    * actions). Visibility itself is `loadSessionForUser`'s. */
   async function loadGrantedSession(id: string) {
     const session = await loadSessionForUser(user.id, id)
-    if (!access.full) assertTeamFullyGranted(access, session.teamId)
+    if (!access.full && !(await ownAssistantSession(session.teamId))) assertTeamFullyGranted(access, session.teamId)
     return session
+  }
+
+  /** #EXP-2107: a plain chat's session addresses its member's own
+   *  Assistant conversation (personal team) past its tree clamp. */
+  async function ownAssistantSession(teamId: string): Promise<boolean> {
+    if (access.origin !== `session`) return false
+    const own = await loadCallerSession()
+    return !!own && (await ownAssistantTeam(own, user.id)) === teamId
   }
 
   /** The session a link tool writes on (NEW-1: the row sits on the session
@@ -2624,7 +2633,7 @@ export function registerExponentialTools(
                 ? (await loadAppForUser(user.id, rest.appId)).teamId
                 : (rest.teamId ?? own?.teamId)
           if (!teamId) throw new Error(`Pass teamId: this connection is confined to chosen teams.`)
-          assertTeamFullyGranted(access, teamId)
+          if (!(rest.sessionId && (await ownAssistantSession(teamId)))) assertTeamFullyGranted(access, teamId)
         }
         const issueIds = issueRefs
           ? await Promise.all(
