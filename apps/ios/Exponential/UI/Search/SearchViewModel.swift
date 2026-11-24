@@ -37,6 +37,18 @@ final class SearchViewModel {
     /// sentence puts on top, computed with the rank (off the main actor).
     private(set) var suggestion: SearchList.Suggestion?
 
+    /// #NEW-136 (search-list.json TRANSLATE): the same row offering the model
+    /// fallback for a sentence the grammar does not recognise. Never both:
+    /// `offered`/`running` only while `suggestion` is nil.
+    enum TranslateRow: Equatable {
+        case hidden
+        case offered
+        /// The one call is running (the row's trailing spinner).
+        case running
+    }
+
+    private(set) var translateRow: TranslateRow = .hidden
+
     /// A rank is still owed for the typed query (the debounce, the detached
     /// rank, or the index not built yet): the page keeps its rows and never
     /// shows the empty state meanwhile (feedback-states.json: no false
@@ -87,11 +99,20 @@ final class SearchViewModel {
     private var statusTask: Task<Void, Never>?
     private var rankTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
+    /// #NEW-136: the on-device model and its one running call.
+    private let translator: any IssueSearchTranslating
+    private var translateTask: Task<Void, Never>?
 
-    init(accountId: String, db: DatabaseManager, issuesApi: IssuesApi) {
+    init(
+        accountId: String,
+        db: DatabaseManager,
+        issuesApi: IssuesApi,
+        translator: any IssueSearchTranslating = SearchTranslator.make()
+    ) {
         self.accountId = accountId
         self.db = db
         self.issuesApi = issuesApi
+        self.translator = translator
     }
 
     /// Points the page at `teamId` (the shell's active team) and observes its
@@ -107,6 +128,7 @@ final class SearchViewModel {
             serverHitsQuery = ""
             results = []
             suggestion = nil
+            endTranslation()
             members = []
             teamStatuses = []
             chatHits = []
@@ -192,6 +214,8 @@ final class SearchViewModel {
         chatTask?.cancel()
         chatTask = nil
         chatsLoading = false
+        // #NEW-136: leaving the search ends a running translate call.
+        endTranslation()
     }
 
     /// The view calls this on every keystroke. Both the rank and the server
@@ -212,8 +236,11 @@ final class SearchViewModel {
             serverHitsQuery = ""
             results = []
             suggestion = nil
+            endTranslation()
             return
         }
+        // #NEW-136: a changed text ends a running translate call.
+        if translateRow == .running { endTranslation() }
         scheduleRank(debounce: true)
 
         // ONE request, scoped to the active team (`issues.search` takes the
@@ -304,6 +331,32 @@ final class SearchViewModel {
         )
     }
 
+    /// #NEW-136: a pick of `Translate to a search`, the ONE place the model
+    /// is called (typing never does). `done` gets the query the answer means
+    /// (the view puts it in the field), or nil when there is none (the view
+    /// toasts; the text stays as typed and the row is offered again).
+    func translate(done: @escaping @MainActor (String?) -> Void) {
+        guard translateRow == .offered else { return }
+        let text = query
+        let members = members
+        let translator = translator
+        translateRow = .running
+        translateTask = Task { [weak self] in
+            let translated = await IssueSearchTranslator.translate(text, members: members, translator: translator)
+            guard let self, !Task.isCancelled, self.query == text, self.translateRow == .running else { return }
+            self.translateTask = nil
+            self.translateRow = translated == nil ? .offered : .hidden
+            done(translated)
+        }
+    }
+
+    /// Ends a running translate call and takes the row away.
+    private func endTranslation() {
+        translateTask?.cancel()
+        translateTask = nil
+        translateRow = .hidden
+    }
+
     /// Ranks the current query over the prepared pool in a detached task
     /// (off the main actor), cancelling the previous rank.
     private func scheduleRank(debounce: Bool) {
@@ -317,15 +370,22 @@ final class SearchViewModel {
                 try? await Task.sleep(for: Self.rankDebounce)
                 guard !Task.isCancelled else { return }
             }
-            let (ranked, suggestion) = await Task.detached(priority: .userInitiated) {
+            let (ranked, suggestion, translatable) = await Task.detached(priority: .userInitiated) {
                 let now = Date()
+                let suggestion = SearchList.suggestion(text: query, members: members, now: now)
                 return (
                     index.rank(query: query, limit: Self.resultLimit, now: now),
-                    SearchList.suggestion(text: query, members: members, now: now)
+                    suggestion,
+                    suggestion == nil && IssueSearchTranslation.wants(query, members: members, now: now)
                 )
             }.value
             guard let self, !Task.isCancelled, self.query == query, self.index === index else { return }
             self.suggestion = suggestion
+            // #NEW-136: offered only where the on-device model can answer;
+            // a call already running for this text keeps its row.
+            if self.translateRow != .running {
+                self.translateRow = translatable && self.translator.isAvailable ? .offered : .hidden
+            }
             self.local = ranked
             self.localQuery = query
             self.publish()

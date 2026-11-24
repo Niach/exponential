@@ -1,0 +1,91 @@
+name: Build Postgres image
+
+# #NEW-134: publishes Exponential's database image, the stock
+# postgres:<major>-alpine plus pgvector (infra/postgres/Dockerfile), multi-arch
+# (amd64 + arm64), to
+#
+#   ghcr.io/niach/exponential-postgres:<major>-pgvector<version>
+#
+# for PG 18 (the compose files) and PG 17 (databases not yet on 18). Deploys
+# pin the DIGEST this run prints, never the tag: the tag moves when the stock
+# base image gets a patch release and this workflow runs again.
+#
+# Triggers: a push to master that touches the image, a `postgres-v*` tag (to
+# build from a branch before it merges), or by hand. The ghcr package must
+# stay PUBLIC: the self-host compose pulls it anonymously.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - infra/postgres/**
+      - .github/workflows/build-postgres.yml
+    tags:
+      - "postgres-v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/niach/exponential-postgres
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: ['17', '18']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read the pinned pgvector version
+        id: v
+        run: echo "pgvector=$(sed -n 's/^ARG PGVECTOR_VERSION=//p' infra/postgres/Dockerfile | head -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # The image is smoked BEFORE anything is pushed: the stock server, musl,
+      # the flags the compose files pass, CREATE EXTENSION, an HNSW search.
+      - name: Build for the smoke
+        uses: docker/build-push-action@v6
+        with:
+          context: infra/postgres
+          build-args: PG_MAJOR=${{ matrix.pg }}
+          load: true
+          tags: exponential-postgres:smoke
+          cache-from: type=gha,scope=postgres-${{ matrix.pg }}
+
+      - name: Smoke the image
+        run: infra/postgres/smoke.sh exponential-postgres:smoke ${{ matrix.pg }} ${{ steps.v.outputs.pgvector }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: infra/postgres
+          build-args: PG_MAJOR=${{ matrix.pg }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:${{ matrix.pg }}-pgvector${{ steps.v.outputs.pgvector }}
+          cache-from: type=gha,scope=postgres-${{ matrix.pg }}
+          cache-to: type=gha,mode=max,scope=postgres-${{ matrix.pg }}
+
+      - name: The digest to pin
+        run: |
+          echo "### \`${IMAGE}:${{ matrix.pg }}-pgvector${{ steps.v.outputs.pgvector }}@${{ steps.push.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "${IMAGE}:${{ matrix.pg }}-pgvector${{ steps.v.outputs.pgvector }}@${{ steps.push.outputs.digest }}"

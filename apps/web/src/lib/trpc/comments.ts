@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server"
+import { scheduleIssueEmbedding } from "@/lib/issue-embeddings/recompute"
 import { z } from "zod"
 import { eq, inArray } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
@@ -429,6 +430,9 @@ export const commentsRouter = router({
           })
         : null
 
+      // #NEW-134: the issue's embedding covers its comments.
+      scheduleIssueEmbedding(input.issueId)
+
       return { ...result, reporterEmailed }
     }),
 
@@ -574,6 +578,8 @@ export const commentsRouter = router({
         })
       }
 
+      scheduleIssueEmbedding(existing.issueId)
+
       return { txId: result.txId, comment: result.comment }
     }),
 
@@ -657,6 +663,8 @@ export const commentsRouter = router({
       })
 
       await deleteStorageObjects(result.storageKeys)
+
+      scheduleIssueEmbedding(existing.issueId)
 
       return { txId: result.txId }
     }),

@@ -52,8 +52,18 @@ describe(`bootstrap-cloud`, () => {
     const errorSpy = vi.spyOn(console, `error`).mockImplementation(() => {})
     const mod = await importModule()
     await mod.bootstrapCloud()
-    expect(execute).toHaveBeenCalledTimes(1)
+    // The triggers, then the optional embeddings SQL (#NEW-134).
+    expect(execute).toHaveBeenCalledTimes(2)
     expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it(`applies the embeddings SQL after the triggers and names it when it fails (#NEW-134)`, async () => {
+    // The file itself never raises on a Postgres without pgvector (it checks
+    // pg_available_extensions and catches its own errors); what reaches here
+    // is a real failure (a dropped connection), retried like any other.
+    execute.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error(`connection reset`))
+    const mod = await importModule()
+    await expect(mod.runBootstrapPass()).rejects.toThrow(`applying 0002_issue_embeddings.sql failed`)
   })
 
   it(`retries a failed custom-SQL pass with backoff until it applies cleanly`, async () => {
@@ -71,7 +81,8 @@ describe(`bootstrap-cloud`, () => {
     expect(execute).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(10_000)
     await promise
-    expect(execute).toHaveBeenCalledTimes(3)
+    // Two failed first statements, then the clean pass's two files.
+    expect(execute).toHaveBeenCalledTimes(4)
     expect(errorSpy).toHaveBeenCalledTimes(2)
   })
 
@@ -88,7 +99,7 @@ describe(`bootstrap-cloud`, () => {
     await promise
     // Promotion twice (the failed pass + the clean one), the grant strip once.
     expect(updateWhere).toHaveBeenCalledTimes(3)
-    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute).toHaveBeenCalledTimes(4)
   })
 
   // FEED-159: a deploy that made an action owner-only strips the stored

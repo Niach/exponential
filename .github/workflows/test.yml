@@ -4,7 +4,7 @@ name: test
 # Only the cheap checks that catch real breakage run here: the typecheck, the
 # web unit tests (four shards), and behind path filters
 # (#EXP-1708: run less): actionlint when workflows change, the migration chain against a real Postgres
-# (order, drift, custom triggers) plus the real-DB suites, the merge-train engine, the web production build when the PR touches web or a
+# (order, drift, custom triggers) plus the real-DB suites, the issue embeddings on Postgres 17 + pgvector with the real model (#NEW-134), the merge-train engine, the web production build when the PR touches web or a
 # workspace package (#EXP-1677), and `cargo check` of the desktop workspace
 # plus the eagent, coding, engine and ui tests when the PR touches it, the eDE compositor's headless tests (and ePilot's live tests against it) when it touches apps/ede or what it builds from, packages/uicore's TS tests + typecheck when it touches the eDE shell, packages/domain-contract's suite when it touches the contract, the Android
 # debug assemble (Kotlin, resource + manifest merge, dex; no cargo-ndk .so) + JVM unit tests when it touches what the app builds or reads (#EXP-1544), plus the
@@ -69,6 +69,7 @@ jobs:
       web_build: ${{ steps.f.outputs.web_build }}
       db: ${{ steps.f.outputs.db }}
       real_db: ${{ steps.f.outputs.real_db }}
+      embeddings: ${{ steps.f.outputs.embeddings }}
       workflows: ${{ steps.f.outputs.workflows }}
       gaps: ${{ steps.f.outputs.gaps }}
       merge_train: ${{ steps.f.outputs.merge_train }}
@@ -96,7 +97,7 @@ jobs:
             files="$(git diff --name-only "$BASE_SHA" HEAD)"
             printf 'Train diff from %s:\n%s\n' "$BASE_SHA" "$files"
           else
-            printf 'desktop=true\neui=true\nswift=true\nios_runner=true\nede=true\nede_shell=true\nede_goldens=true\nshots=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\ncontract_ts=true\nrelease_scripts=true\nplugins=true\n' >> "$GITHUB_OUTPUT"
+            printf 'desktop=true\neui=true\nswift=true\nios_runner=true\nede=true\nede_shell=true\nede_goldens=true\nshots=true\nios=true\nios_app=true\nandroid=true\nrunner_android=true\nsite=true\nweb_build=true\ndb=true\nreal_db=true\nembeddings=true\nworkflows=true\ngaps=true\nmerge_train=true\nengine_ts=true\ncontract_ts=true\nrelease_scripts=true\nplugins=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # The Rust legs (desktop, eUI, eDE, Android) skip prose: a package's
@@ -167,6 +168,9 @@ jobs:
           # packages the sessions and eMCP servers replay).
           real_db='^(packages/(db-schema|eagent|emcp)/|apps/web/src/(db|lib)/|apps/web/package\.json$|bun\.lock$|\.github/workflows/test\.yml$)'
           echo "real_db=$(grep -qE "$real_db" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # #NEW-134: the embedder, its table and search SQL, the Postgres image they need.
+          embeddings='^(apps/web/(embedder/|src/lib/issue-embeddings/|src/lib/issue-search-sql\.ts$|src/db/out/custom/|package\.json$)|infra/postgres/|bun\.lock$|\.github/workflows/(test|issue-embeddings)\.yml$)'
+          echo "embeddings=$(grep -qE "$embeddings" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           workflows='^\.github/'
           echo "workflows=$(grep -qE "$workflows" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # The rewrite-gap list against the view catalog (the train serializes
@@ -289,6 +293,12 @@ jobs:
           fi
       - name: Apply custom triggers
         run: docker exec -i ${{ job.services.postgres.id }} psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0001_triggers.sql
+      # #NEW-134: this Postgres has no pgvector, like every existing install:
+      # the embeddings boot SQL must apply cleanly and create nothing.
+      - name: Apply the optional embeddings SQL (a no-op without pgvector)
+        run: |
+          docker exec -i ${{ job.services.postgres.id }} psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0002_issue_embeddings.sql
+          [ "$(docker exec ${{ job.services.postgres.id }} psql -U postgres -d exponential -tAc "select to_regclass('public.issue_embeddings') is null")" = t ]
       # #EXP-1708: the real-DB suites join the gate behind their path filter,
       # on this hosted runner's Postgres (release-suite.yml keeps the full run).
       - name: Real-DB tests
@@ -297,6 +307,12 @@ jobs:
           BETTER_AUTH_SECRET: ci-only-real-db-secret
           REAL_DB_REQUIRED: '1'
         run: cd apps/web && bunx vitest run real-db.test
+
+  # #NEW-134: Postgres 17 + pgvector, the real model: issue-embeddings.yml.
+  embeddings:
+    needs: [pick, changes]
+    if: needs.changes.outputs.embeddings == 'true'
+    uses: ./.github/workflows/issue-embeddings.yml
 
   desktop:
     needs: [pick, changes]
@@ -1026,7 +1042,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, web-build, migrations, desktop, desktop-scope, ede, ede-scope, ede-shell, ede-goldens-lite, shots, uicore-ts, android, runner-android, eui, gpui-revs, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, plugins, eui-swift]
+    needs: [pick, changes, web, web-build, migrations, embeddings, desktop, desktop-scope, ede, ede-scope, ede-shell, ede-goldens-lite, shots, uicore-ts, android, runner-android, eui, gpui-revs, rewrite-gaps, actionlint, site, merge-train, engine-ts, contract-ts, release-scripts, plugins, eui-swift]
     if: always()
     runs-on: ubuntu-latest
     steps:

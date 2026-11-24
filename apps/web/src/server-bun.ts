@@ -62,6 +62,7 @@ import { startEmcpSchedulers } from "@/lib/emcp/schedulers"
 import { importLegacyMcpOAuthAtBoot } from "@/lib/auth/legacy-mcp-oauth"
 import { startSessionAttachmentSweepScheduler } from "@/lib/session-attachment-sweep"
 import { startAttachmentSizeBackfillScheduler } from "@/lib/attachment-size-backfill"
+import { startIssueEmbeddingScheduler } from "@/lib/issue-embeddings"
 import {
   captureLanding,
   captureReturnVisit,
@@ -120,6 +121,12 @@ startSessionAttachmentSweepScheduler()
 // `size_bytes = 0` (legacy rows, signed uploads that never finalized) against
 // their stored object, through the one finalize function.
 startAttachmentSizeBackfillScheduler()
+
+// Issue embeddings (#NEW-134): periodic pass embedding the issues whose
+// vector is missing or older than the issue, in small batches, inside this
+// process (a worker thread, no third party). A no-op without pgvector, the
+// model on disk, or with ISSUE_EMBEDDINGS=off.
+startIssueEmbeddingScheduler()
 
 // FCM tokens: periodic sweep deleting token rows not re-registered within the
 // staleness window — the server-side backstop for sign-outs whose best-effort

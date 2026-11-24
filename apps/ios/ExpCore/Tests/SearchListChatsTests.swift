@@ -134,6 +134,12 @@ final class SearchListChatsTests: XCTestCase {
         XCTAssertEqual(spec["icon"] as? String, SearchList.SuggestionSpec.icon)
         XCTAssertEqual(spec["label"] as? String, SearchList.SuggestionSpec.label)
         XCTAssertEqual(spec["testId"] as? String, SearchList.SuggestionSpec.testId)
+        // #NEW-136: the model fallback's row, on desktop and iOS only.
+        let translate = try XCTUnwrap(spec["translate"] as? [String: Any])
+        XCTAssertEqual(translate["label"] as? String, SearchList.TranslateSpec.label)
+        XCTAssertEqual(translate["failed"] as? String, SearchList.TranslateSpec.failed)
+        XCTAssertEqual(translate["testId"] as? String, SearchList.TranslateSpec.testId)
+        XCTAssertEqual(translate["platforms"] as? [String], ["desktop", "ios"])
         let cases = try XCTUnwrap(spec["cases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)
         for c in cases {
