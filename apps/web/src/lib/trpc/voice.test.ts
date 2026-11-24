@@ -78,6 +78,7 @@ vi.mock(`@/lib/steer`, async () => ({
 
 import callFixture from "@exp/etalk/fixtures/voice-call.json" with { type: "json" }
 import meetingFixture from "@exp/etalk/fixtures/meeting.json" with { type: "json" }
+import agentSettingsFixture from "@exp/domain-contract/fixtures/agent-settings.json" with { type: "json" }
 import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
 import { verifySteerTicket } from "@exp/steer-ticket"
 import { callSpeechOf, voiceRouter, withClearOnNone, withMeetingScope } from "@/lib/trpc/voice"
@@ -106,8 +107,10 @@ const stored = {
   desktopAudioApps: [] as { id: string; name: string }[],
   meetingStartedAt: null as string | null,
   meetingAutoStopHours: 4,
+  wakeAgentIds: [] as string[],
 }
-const MEETING_DEFAULTS = { desktopAudio: `off`, desktopAudioApps: [], meetingStartedAt: null, meetingAutoStopHours: 4 }
+// NEW-57's meeting defaults and #EXP-1859's wake agents (beyond voice.json's).
+const MEETING_DEFAULTS = { desktopAudio: `off`, desktopAudioApps: [], meetingStartedAt: null, meetingAutoStopHours: 4, wakeAgentIds: [] }
 
 const OTHER_AGENT = `4f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
 const FOREIGN_AGENT = `5f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
@@ -161,6 +164,63 @@ describe(`voice.get`, () => {
   it(`returns the stored row`, async () => {
     h.state.selectQueue = [[{ userId: `me`, ...stored, createdAt: new Date(), updatedAt: new Date() }]]
     expect(await caller.get()).toEqual(stored)
+  })
+})
+
+describe(`#EXP-1859 voice.wakeAgent`, () => {
+  const OPS = `6f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
+  const OOPS = `7f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
+  const MAJA = `8f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d`
+  const wakeAgents = [
+    { id: AGENT, role: `assistant`, name: `Bro`, voice: {}, ownerId: `me` },
+    { id: MAJA, role: `assistant`, name: `Maja`, voice: {}, ownerId: `maja` },
+    { id: OPS, role: `agent`, name: `Ops`, voice: {}, ownerId: `owner` },
+    { id: OOPS, role: `agent`, name: `Oops`, voice: {}, ownerId: `owner` },
+  ]
+  const errors = agentSettingsFixture.voice.wake.copy.errors
+
+  it(`get answers the stored ids`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, wakeAgentIds: [OPS, 7, OOPS] }]]
+    expect(await caller.get()).toMatchObject({ wakeAgentIds: [OPS, OOPS] })
+  })
+
+  it(`switching on appends the agent, turns Wake word on and nudges the voice device`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored }], wakeAgents]
+    const next = await caller.wakeAgent({ agentId: OPS, on: true })
+    expect(next).toMatchObject({ wakeWord: true, wakeAgentIds: [OPS] })
+    expect(h.state.upserts[0]?.set).toMatchObject({ wakeWord: true, wakeAgentIds: [OPS] })
+    // The meeting stamp is never this write's.
+    expect(h.state.upserts[0]?.set).not.toHaveProperty(`meetingStartedAt`)
+    expect(h.relayPostNudge).toHaveBeenCalledWith(expect.anything(), `me`, `d-mint`)
+  })
+
+  it(`switching off drops it and keeps Wake word`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, wakeWord: true, wakeAgentIds: [OPS, OOPS] }], wakeAgents]
+    expect(await caller.wakeAgent({ agentId: OPS, on: false })).toMatchObject({ wakeWord: true, wakeAgentIds: [OOPS] })
+  })
+
+  it(`a clash is refused with its copy and nothing is written`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, wakeWord: true, wakeAgentIds: [OPS] }], wakeAgents]
+    await expect(caller.wakeAgent({ agentId: OOPS, on: true })).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: errors.wakeClash.replace(`{agent}`, `Ops`),
+    })
+    expect(h.state.upserts).toHaveLength(0)
+  })
+
+  it(`an Assistant or an agent outside the member's teams is NOT_FOUND`, async () => {
+    for (const agentId of [MAJA, AGENT, FOREIGN_AGENT]) {
+      h.state.selectQueue = [[{ userId: `me`, ...stored }], wakeAgents]
+      await expect(caller.wakeAgent({ agentId, on: true })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    }
+    expect(h.state.upserts).toHaveLength(0)
+  })
+
+  it(`voice.update keeps the ids and never writes them`, async () => {
+    h.state.selectQueue = [[{ userId: `me`, ...stored, wakeAgentIds: [OPS] }]]
+    const next = await caller.update({ wakeWord: true, wakeAgentIds: [] } as never)
+    expect(next).toMatchObject({ wakeWord: true, wakeAgentIds: [OPS] })
+    expect(h.state.upserts[0]?.set).toMatchObject({ wakeAgentIds: [OPS] })
   })
 })
 
@@ -621,6 +681,35 @@ describe(`voice.startCall`, () => {
   it(`refuses an agent outside the member's teams`, async () => {
     h.state.selectQueue = [[]]
     await expect(caller.startCall({ agentId: AGENT, platform: `web` })).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  // EXP-1859: a wake turn dialled to the agent's device.
+  it(`a desktop's turn call carries its mode and phrase in the caller ticket`, async () => {
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MAC(), MINT()]]
+    const out = await caller.startCall({ agentId: AGENT, platform: `desktop`, deviceId: `d-mac`, mode: `turn`, phrase: ` Hey Studio ` })
+    expect(claimsOf(out.ticket)).toMatchObject({ role: `caller`, deviceId: `d-mint`, mode: `turn`, phrase: `Hey Studio` })
+  })
+
+  it(`an ordinary call's ticket names no mode`, async () => {
+    h.state.selectQueue = [agentOn(`d-mint`), [{ userId: `me`, ...stored }], [MAC(), MINT()]]
+    const out = await caller.startCall({ agentId: AGENT, platform: `desktop`, deviceId: `d-mac`, mode: `call` })
+    const claims = claimsOf(out.ticket)
+    expect(claims).not.toHaveProperty(`mode`)
+    expect(claims).not.toHaveProperty(`phrase`)
+  })
+
+  it(`a turn call only from a desktop; a phrase only with a turn`, async () => {
+    for (const platform of [`phone`, `web`] as const) {
+      await expect(caller.startCall({ agentId: AGENT, platform, mode: `turn`, phrase: `Hey Studio` })).rejects.toMatchObject({
+        code: `BAD_REQUEST`,
+      })
+    }
+    await expect(
+      caller.startCall({ agentId: AGENT, platform: `desktop`, deviceId: `d-mac`, phrase: `Hey Studio` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await expect(
+      caller.startCall({ agentId: AGENT, platform: `desktop`, deviceId: `d-mac`, mode: `turn`, phrase: `x`.repeat(65) })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 
   it(`S-3: refuses another member's Assistant, takes the caller's own`, async () => {

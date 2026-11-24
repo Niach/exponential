@@ -5,6 +5,10 @@
 
 import fixture from "../fixtures/agent-settings.json" with { type: "json" }
 import contractJson from "../contract.json" with { type: "json" }
+// #EXP-1859: the wake rules live in eTalk's fixtures (JSON only: @exp/etalk
+// depends on this package).
+import voiceFixture from "../../etalk/fixtures/voice.json" with { type: "json" }
+import talkListenFixture from "../../etalk/fixtures/talk-listen.json" with { type: "json" }
 import { scheduleSummary } from "./schedule-picker"
 import { DEVICES_LIST_COPY } from "./devices-list"
 
@@ -751,4 +755,213 @@ export function agentVoiceOf(
     }
   }
   return { language, clip: null, clipLabel: AGENT_VOICE_COPY.clipBuiltIn, transcript: voice.transcript ?? ``, wakePhrase }
+}
+
+// #EXP-1859 (`voice.wake`): WAKE PHRASES PER AGENT. The member's voice
+// device listens for `wakeListeners`; the team agent page's `wake-word` row
+// reads `wakeRow` and flips through `wakeToggle` (tRPC `voice.wakeAgent`);
+// `agents.update` refuses a phrase `wakePhraseClash` names. Letters and the
+// edit tolerance are talk-listen.json `wake.words` / `maxEditRatio`, the
+// minimum voice.json `limits.wakePhraseMinLetters` (`wakePhraseError`).
+export const AGENT_VOICE_WAKE = fixture.voice.wake
+export const AGENT_VOICE_WAKE_COPY = fixture.voice.wake.copy
+export const WAKE_MAX_LISTENERS = fixture.voice.wake.maxListeners
+export const WAKE_MAX_IDS = fixture.voice.wake.maxIds
+/** talk-listen.json `wake.constants.maxEditRatio`. */
+export const WAKE_MAX_EDIT_RATIO = talkListenFixture.wake.constants.maxEditRatio
+/** voice.json `limits.wakePhraseMinLetters`. */
+export const WAKE_PHRASE_MIN_LETTERS = voiceFixture.limits.wakePhraseMinLetters
+
+export interface WakeAgentLike {
+  id: string
+  role?: string | null
+  name: string
+  voice?: AgentVoiceLike | null
+}
+
+export interface WakeSettingsLike extends MemberVoiceLike {
+  voiceDeviceId: string | null
+  /** The voice agent (the member's Assistant). */
+  agentId: string | null
+  wakeWord: boolean
+  wakeAgentIds: readonly string[]
+}
+
+export interface WakeInput {
+  settings: WakeSettingsLike
+  /** The agents of the member's teams, as synced. */
+  agents: readonly WakeAgentLike[]
+}
+
+export interface WakeListener {
+  agentId: string
+  phrase: string
+  language: string
+}
+
+// The same table as the desktop's `wake_words` (etalk-engine wake.rs).
+const WAKE_FOLD: Record<string, string> = {
+  ä: `a`, á: `a`, à: `a`, â: `a`, å: `a`,
+  ö: `o`, ó: `o`, ò: `o`, ô: `o`,
+  ü: `u`, ú: `u`, ù: `u`, û: `u`,
+  é: `e`, è: `e`, ê: `e`, ë: `e`,
+  í: `i`, ì: `i`, î: `i`, ï: `i`,
+  ç: `c`, ñ: `n`, ß: `ss`,
+}
+
+/** A phrase's letters (talk-listen.json `wake.words` joined without
+ *  spaces): letters and digits, lower case, accents folded. */
+export function wakeLetters(phrase: string): string {
+  let out = ``
+  for (const char of phrase) {
+    if (!/[\p{L}\p{N}]/u.test(char)) continue
+    for (const lower of char.toLowerCase()) out += WAKE_FOLD[lower] ?? lower
+  }
+  return out
+}
+
+function levenshtein(a: readonly string[], b: readonly string[]): number {
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index)
+  for (let i = 0; i < a.length; i++) {
+    let diagonal = row[0]!
+    row[0] = i + 1
+    for (let j = 0; j < b.length; j++) {
+      const above = row[j + 1]!
+      row[j + 1] = Math.min(above + 1, row[j]! + 1, diagonal + (a[i] === b[j] ? 0 : 1))
+      diagonal = above
+    }
+  }
+  return row[b.length]!
+}
+
+/** `clashCases`: two phrases alike enough for the matcher to take one for
+ *  the other, or one starting with the other. */
+export function wakeClash(a: string, b: string): boolean {
+  const left = [...wakeLetters(a)]
+  const right = [...wakeLetters(b)]
+  const [short, long] = right.length < left.length ? [right, left] : [left, right]
+  const tolerance = Math.floor(short.length * WAKE_MAX_EDIT_RATIO)
+  return Math.min(levenshtein(short, long), levenshtein(short, long.slice(0, short.length))) <= tolerance
+}
+
+/** The phrase an agent wakes with: its voice's (agentVoiceOf), else
+ *  `Hey {name}`. */
+export function wakePhraseOf(agent: WakeAgentLike, member: MemberVoiceLike): string {
+  const phrase = agentVoiceOf(agent, member).wakePhrase
+  return phrase.trim() ? phrase : voiceFixture.copy.wakePhrasePlaceholder.replace(`{agent}`, agent.name)
+}
+
+/** voice.json `wakePhraseError` for a resolved phrase: too few letters. */
+function wakeTooShort(phrase: string): boolean {
+  return [...phrase.trim()].filter((char) => /\p{L}/u.test(char)).length < WAKE_PHRASE_MIN_LETTERS
+}
+
+const isTeamAgent = (agent: { role?: string | null }) => agent.role !== `assistant`
+
+type WakeRefusal = { kind: `tooShort` } | { kind: `clash`; agent: string } | { kind: `cap` }
+
+function refusalText(refusal: WakeRefusal | null): string | null {
+  if (!refusal) return null
+  const errors = AGENT_VOICE_WAKE_COPY.errors
+  if (refusal.kind === `tooShort`) return errors.wakeTooShort
+  if (refusal.kind === `clash`) return errors.wakeClash.replace(`{agent}`, refusal.agent)
+  return errors.wakeCap
+}
+
+/** Why `agent` would not listen beside `listeners`: too short, a clash
+ *  (the first listener it sounds like), the cap; null = it listens. */
+function wakeRefusal(
+  agent: WakeAgentLike,
+  input: WakeInput,
+  listeners: readonly (WakeListener & { name: string })[]
+): WakeRefusal | null {
+  const phrase = wakePhraseOf(agent, input.settings)
+  if (wakeTooShort(phrase)) return { kind: `tooShort` }
+  const clash = listeners.find((listener) => wakeClash(listener.phrase, phrase))
+  if (clash) return { kind: `clash`, agent: clash.name }
+  if (listeners.length >= WAKE_MAX_LISTENERS) return { kind: `cap` }
+  return null
+}
+
+function namedListeners(input: WakeInput): (WakeListener & { name: string })[] {
+  const { settings, agents } = input
+  if (!settings.wakeWord || !settings.voiceDeviceId || !settings.agentId) return []
+  const voiceAgent = agents.find((agent) => agent.id === settings.agentId)
+  if (!voiceAgent) return []
+  const out: (WakeListener & { name: string })[] = [
+    {
+      agentId: voiceAgent.id,
+      phrase: wakePhraseOf(voiceAgent, settings),
+      language: agentVoiceOf(voiceAgent, settings).language,
+      name: voiceAgent.name,
+    },
+  ]
+  for (const id of settings.wakeAgentIds) {
+    const agent = agents.find((candidate) => candidate.id === id)
+    if (!agent || !isTeamAgent(agent) || out.some((listener) => listener.agentId === id)) continue
+    if (wakeRefusal(agent, input, out)) continue
+    out.push({
+      agentId: agent.id,
+      phrase: wakePhraseOf(agent, settings),
+      language: agentVoiceOf(agent, settings).language,
+      name: agent.name,
+    })
+  }
+  return out
+}
+
+/** `listenersCases`: who the voice device listens for, in order: the voice
+ *  agent, then the switched-on team agents that fit (at most 5). */
+export function wakeListeners(input: WakeInput): WakeListener[] {
+  return namedListeners(input).map(({ agentId, phrase, language }) => ({ agentId, phrase, language }))
+}
+
+/** `rowCases`: a team agent's Wake word row: on, and why it does not listen
+ *  (null = it does, or it is off). */
+export function wakeRow(input: WakeInput, agentId: string): { on: boolean; error: string | null } {
+  const { settings } = input
+  const on = settings.wakeWord && settings.wakeAgentIds.includes(agentId)
+  if (!on) return { on, error: null }
+  const agent = input.agents.find((candidate) => candidate.id === agentId)
+  if (!agent || !isTeamAgent(agent)) return { on, error: null }
+  const index = settings.wakeAgentIds.indexOf(agentId)
+  const before = namedListeners({ ...input, settings: { ...settings, wakeAgentIds: settings.wakeAgentIds.slice(0, index) } })
+  if (before.some((listener) => listener.agentId === agentId)) return { on, error: null }
+  return { on, error: refusalText(wakeRefusal(agent, input, before)) }
+}
+
+/** `toggleCases`: a flip of the row. Off drops the id (Wake word as it
+ *  was); on appends it once and turns Wake word on, unless refused (the
+ *  settings unchanged, `error` = the copy). An agent that is not a team
+ *  agent in `agents` is the caller's NOT_FOUND (never reached here). */
+export function wakeToggle(
+  input: WakeInput,
+  agentId: string,
+  on: boolean
+): { wakeWord: boolean; wakeAgentIds: string[]; error: string | null } {
+  const { settings } = input
+  const ids = [...settings.wakeAgentIds]
+  if (!on) return { wakeWord: settings.wakeWord, wakeAgentIds: ids.filter((id) => id !== agentId), error: null }
+  const unchanged = (error: string) => ({ wakeWord: settings.wakeWord, wakeAgentIds: ids, error })
+  const agent = input.agents.find((candidate) => candidate.id === agentId)
+  // Not a team agent of the member's teams: the server's NOT_FOUND first.
+  if (!agent || !isTeamAgent(agent)) return { wakeWord: settings.wakeWord, wakeAgentIds: ids, error: null }
+  const others = ids.filter((id) => id !== agentId)
+  const listeners = namedListeners({ ...input, settings: { ...settings, wakeWord: true, wakeAgentIds: others } }).filter(
+    (listener) => listener.agentId !== agentId
+  )
+  const error = refusalText(wakeRefusal(agent, input, listeners))
+  if (error) return unchanged(error)
+  return { wakeWord: true, wakeAgentIds: ids.includes(agentId) ? ids : [...ids, agentId], error: null }
+}
+
+/** `phraseClashCases`: the first OTHER team agent (an Assistant never
+ *  counts) whose phrase `phrase` sounds like; null = none. */
+export function wakePhraseClash(phrase: string, agentId: string, agents: readonly WakeAgentLike[]): string | null {
+  // A team agent's phrase is its own or `Hey {name}`: no member field counts.
+  const member: MemberVoiceLike = { language: ``, voiceFile: ``, voiceTranscript: ``, wakePhrase: `` }
+  const clash = agents.find(
+    (agent) => agent.id !== agentId && isTeamAgent(agent) && wakeClash(wakePhraseOf(agent, member), phrase)
+  )
+  return clash?.name ?? null
 }
