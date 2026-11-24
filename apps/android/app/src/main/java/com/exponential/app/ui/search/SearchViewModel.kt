@@ -14,6 +14,7 @@ import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.IssueSearch
+import com.exponential.app.domain.IssueSearchPhrase
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.FindInChat
 import com.exponential.app.domain.SearchList
@@ -88,6 +89,11 @@ data class SearchState(
     val sections: SearchList.Sections = SearchList.Sections(false, emptyList(), null, false),
     /** #EDE-99: this client has a chat store (the placeholder names chats). */
     val store: Boolean = false,
+    /**
+     * #NEW-133 (search-list.json SUGGESTION): the `Search: <query>` row a
+     * recognised sentence puts on top (never counted); null = no sentence.
+     */
+    val suggestion: SearchList.SearchSuggestion? = null,
 )
 
 /** EXP-922: the ONE limit every search surface on every client uses. */
@@ -126,6 +132,8 @@ private class SearchPool(
     val rows: List<PreparedRow> = emptyList(),
     val boardsById: Map<String, BoardEntity> = emptyMap(),
     val statuses: List<ResolvedIssueStatus> = emptyList(),
+    /** #NEW-133: the synced users (the creator names' rows) the phrase grammar turns into `by:`. */
+    val members: List<IssueSearchPhrase.Member> = emptyList(),
 ) {
     val byId: Map<String, PreparedRow> = rows.associateBy { it.id }
 }
@@ -183,6 +191,7 @@ class SearchViewModel @Inject constructor(
                     },
                     boardsById = boardsById,
                     statuses = statuses,
+                    members = users.map { IssueSearchPhrase.Member(name = it.name, email = it.email) },
                 )
             }
         }
@@ -366,7 +375,7 @@ class SearchViewModel @Inject constructor(
             localMatches.map { it.result }
         }
         // EXP-922: ONE flat list in the ranked order — no board bands.
-        return SearchState(query = query, results = matches)
+        return SearchState(query = query, results = matches, suggestion = SearchList.suggestion(query, pool.members))
     }
 }
 

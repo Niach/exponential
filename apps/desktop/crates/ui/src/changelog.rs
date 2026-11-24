@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-search-sentences-and-filters",
+    date: "2026-11-24",
+    title: "Search understands sentences and filters",
+    summary: "Web, desktop, Android and iOS: the issue search takes filters such as is:open or created:7d, and a sentence in English or German becomes those filters with one pick.",
+    body: r##"- **Filters**: narrow the issue search with `is:open` or `is:closed`, `status:` and a status name, and `created:` or `updated:` with a time such as `7d`, `today`, `2026-11` or `>=2026-11-01`, next to `by:` and plain words.
+- **Sentences**: type what you are looking for, in English or German, for example "open issues by Lukas about the editor from last week". The top row then reads `Search: is:open by:lukas created:7d editor`, and picking it puts those filters into the field.
+- **Teammates by name**: a name after "by" or "von" becomes `by:` when it is one of your teammates, and stays a plain word otherwise."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_356: ChangelogEntry = ChangelogEntry {
     id: "2026-11-24-desktop-cli-0-14-177",
     date: "2026-11-24",
     title: "Sessions keep going, and calls are end-to-end encrypted",
