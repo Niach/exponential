@@ -401,28 +401,27 @@ abstract class SessionDao(private val db: RoomDatabase) {
     abstract suspend fun appConversation(appId: String, userId: String): SessionEntity?
 
     // Every visible session (the Chats list derives groups per tree off it).
-    // EXP-1635: a team's newest chats (the sharing shortcuts): roots that are
+    // EXP-1635: the newest chats of every team (the sharing shortcuts): roots that are
     // neither an agent's conversation nor an app's editor nor encrypted, unarchived.
     @Query(
-        """SELECT * FROM sessions WHERE team_id = :teamId AND parent_id IS NULL
+        """SELECT * FROM sessions WHERE parent_id IS NULL
         AND agent_id IS NULL AND app_id IS NULL AND seal_public_key IS NULL AND sealed_title IS NULL
         AND id NOT IN (SELECT session_id FROM session_reads WHERE archived_at IS NOT NULL)
         ORDER BY updated_at DESC LIMIT :limit""",
     )
-    abstract fun observeRecentChats(teamId: String, limit: Int): Flow<List<SessionEntity>>
+    abstract fun observeRecentChats(limit: Int): Flow<List<SessionEntity>>
 
     // #EXP-1830 (app-shortcuts.json): the long-press chat entries' candidates:
-    // a team's newest roots that are a plain chat or the viewer's OWN agent
+    // every team's newest roots that are a plain chat or the viewer's OWN agent
     // conversation (never an app's editor, never archived). Encrypted plain
     // chats are filtered by the model (an agent conversation's entry reads the agent's name).
     @Query(
         """SELECT * FROM sessions WHERE parent_id IS NULL AND app_id IS NULL
         AND (agent_id IS NULL OR user_id = :me)
         AND id NOT IN (SELECT session_id FROM session_reads WHERE archived_at IS NOT NULL)
-        AND team_id = :teamId
         ORDER BY updated_at DESC LIMIT :limit""",
     )
-    abstract fun observeShortcutChats(teamId: String, me: String, limit: Int): Flow<List<SessionEntity>>
+    abstract fun observeShortcutChats(me: String, limit: Int): Flow<List<SessionEntity>>
 
     // #EXP-1642 (system-search.json): every team's newest plain chats, the same
     // filter (never an agent's conversation, an app's editor or an encrypted chat).

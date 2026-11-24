@@ -25,10 +25,11 @@ import XCTest
 ///   sg_settings-account · sg_onboarding · sg_onboarding-create-team ·
 ///   sg_invite-accept · sg_onboarding-invite ·
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
+///   sg_teams · sg_team · sg_assistant-tab ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
 ///   sg_script-card · sg_comment-call-card · sg_chat-screen · sg_agent-channel ·
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_record-form-field-states · sg_plan-card ·
-///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header · sg_chat-header ·
+///   sg_chat-list · sg_phone-tab-bar · sg_phone-page-header · sg_chat-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
 ///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_device-readiness ·
 ///   sg_plan-page · sg_team-avatar ·
@@ -91,7 +92,8 @@ import XCTest
 /// newcomer's wizard page (Create a team pushed off the choice page), the
 /// full-screen step card web draws, beside `sg_onboarding-join`.
 /// #EXP-1384 retired `sg_board-switcher` with the sheet it
-/// photographed (the board menu is `sg_phone-board-menu`).
+/// photographed. #EXP-2109 retired the board menu and added the live
+/// `sg_teams`, `sg_team` and `sg_assistant-tab`.
 ///
 /// EXP-642 reshuffled the front of the set: the old `sg_instance-picker` shot
 /// IS the cloud Apple/Google chooser a first-run user meets, so it took over
@@ -231,13 +233,15 @@ final class StyleguideScreenshots: XCTestCase {
         // login UI only as the fallback).
         let injected = launchSignedIn(app)
 
-        // ── sg_agent-home: the home the app lands on (EXP-1253/1295) ────────
+        // ── sg_agent-home: the composer page (EXP-1253/1295; #EXP-2109: the
+        // New popup's Chat) ─────────────────────────────────────────────────
         // EXP-1316: the column pinned to the bottom, the dawn standing on the
         // composer card, its options line under it; no Running band.
+        openNewChat(app)
         expect(
             anyElement(app, identified: "agent-page"),
             within: Wait.firstSync,
-            "The app did not land on the home"
+            "New › Chat opened no composer page"
         )
         expect(
             anyElement(app, identified: "agent-composer"),
@@ -245,8 +249,31 @@ final class StyleguideScreenshots: XCTestCase {
             "The home drew no composer"
         )
         snapshot("sg_agent-home", settle: 2)
+        goBack(app)
 
-        // ── sg_apps · sg_app: the team's Apps off the Chats header, then
+        // ── sg_assistant-tab · sg_teams · sg_team (#EXP-2109, live) ────────
+        if ScreenshotShots.isWanted("sg_assistant-tab") {
+            showTab(app, "tab-assistant", root: "assistant-tab")
+            expect(anyElement(app, identified: "session-tabs"), within: Wait.sync, "The Assistant tab drew no chat")
+            snapshot("sg_assistant-tab", settle: 3)
+        }
+        if ScreenshotShots.isWanted("sg_teams") {
+            showTab(app, "tab-teams", root: "teams-page")
+            expect(
+                app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'team-row-'")).firstMatch,
+                within: Wait.firstSync, "Teams drew no team"
+            )
+            snapshot("sg_teams", settle: 2)
+        }
+        if ScreenshotShots.isWanted("sg_team") {
+            showTeam(app)
+            expect(
+                app.buttons.matching(identifier: "tree-row-board").firstMatch, within: Wait.sync, "The team page drew no board"
+            )
+            snapshot("sg_team", settle: 2)
+        }
+
+        // ── sg_app: the team page's app rows, then
         // the Team dashboard editor (VAPP-110, DEMO_APP_SLUG) on its Chat tab.
         // Gated: opening the editor and leaving it ENDS the seeded editor
         // session, so only a run that wants these shots visits.
@@ -255,29 +282,22 @@ final class StyleguideScreenshots: XCTestCase {
         // VAPP-177: sg_app-versions · sg_app-settings (the editor's … menu).
         // VAPP-178: sg_app-data (the editor's Data segment).
         // VAPP-242: sg_app-run (a row tap RUNS the app; the editor = … › Edit app).
-        if ["sg_apps", "sg_app-run", "sg_app", "sg_app-export", "sg_app-import", "sg_app-draft", "sg_app-versions", "sg_app-settings", "sg_app-data"]
+        if ["sg_app-run", "sg_app", "sg_app-export", "sg_app-import", "sg_app-draft", "sg_app-versions", "sg_app-settings", "sg_app-data"]
             .map(ScreenshotShots.isWanted).contains(true) || Self.richAppShots.map(ScreenshotShots.isWanted).contains(true) {
             walkApps(app)
         }
         // The rich demo apps (CRM, Leave planner, Ops desk) + Team dashboard's
-        // publish states: walkRichApps ends on the Apps list.
+        // publish states: walkRichApps ends on the team page.
         if Self.richAppShots.map(ScreenshotShots.isWanted).contains(true) {
             walkRichApps(app)
+            returnToTeam(app)
         }
 
-        // Switch to the Board tab for the board.
-        let issuesTab = app.buttons["tab-board"]
-        expect(issuesTab, within: Wait.sync, "Tab bar never appeared")
-        issuesTab.tap()
+        // Teams › Acme › the board.
+        showBoard(app)
 
         // The FIRST sync after sign-in: the one long wait of the run.
         let showcaseRowTitle = app.staticTexts[Self.showcaseTitle]
-        // The board tab opens the viewer's LAST board (server-side): another
-        // lane's walk may have left it on another board; land on the seeded one.
-        if !showcaseRowTitle.waitForExistence(timeout: Wait.sync),
-           !app.buttons["tab-board"].label.contains(Self.seededBoardName) {
-            switchBoard(app, to: Self.seededBoardName)
-        }
         expect(
             showcaseRowTitle,
             within: Wait.firstSync,
@@ -288,14 +308,14 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_board-empty: a board with no issues on it ─────────────────────
         // The seed's second board ("Launch Marketing") is created empty for
         // exactly this shot, so nothing has to be deleted to reach the state.
-        switchBoard(app, to: Self.emptyBoardName)
+        showBoard(app, Self.emptyBoardName)
         expect(
             app.staticTexts["No issues yet"],
             within: Wait.sync,
             "\(Self.emptyBoardName) did not render its empty state"
         )
         snapshot("sg_board-empty", settle: 2)
-        switchBoard(app, to: Self.seededBoardName)
+        showBoard(app, Self.seededBoardName)
         expect(
             showcaseRowTitle,
             within: Wait.sync,
@@ -416,17 +436,14 @@ final class StyleguideScreenshots: XCTestCase {
         }
 
         // ── sg_issue-create: the new-issue page ─────────────────────────────
-        // The compose button is only mounted on board routes (AppNavigator
-        // `composeTarget`), so come back to the issues tab first. The title
+        // The bar's New › Issue, from the board it files into. The title
         // field takes focus on appear; EXP-1558: the shot lowers the keyboard,
         // the state the other clients photograph. EXP-1654: nothing is typed
         // — every other platform shows the EMPTY form (placeholder title,
         // Create disabled), and an untyped page autosaves no draft.
         showBoard(app)
         expect(showcaseRowTitle, within: Wait.nav, "Board did not come back for the compose shot")
-        let composeButton = app.buttons["compose-button"]
-        expect(composeButton, within: Wait.nav, "Compose button missing on the board")
-        composeButton.tap()
+        openNewMenu(app, "Issue")
         let titleField = app.textFields["issue-title-field"]
         expect(titleField, within: Wait.nav, "Create-issue page did not open")
         dismissKeyboard(app)
@@ -443,9 +460,10 @@ final class StyleguideScreenshots: XCTestCase {
         _ = titleField.waitForNonExistence(timeout: Wait.nav)
 
         // ── sg_search: the search view with seeded results ───────────────────
-        // EXP-686: Search lost its tab — it is a push off the board header.
+        // EXP-686: Search is a push off a root page's header.
+        showTab(app, "tab-chats", root: "chats-inbox")
         let searchButton = app.buttons["header-search"]
-        expect(searchButton, within: Wait.nav, "Board search button missing")
+        expect(searchButton, within: Wait.nav, "Search button missing")
         searchButton.tap()
         let searchField = app.textFields["search-field"]
         expect(searchField, within: Wait.nav, "Search field missing")
@@ -550,17 +568,11 @@ final class StyleguideScreenshots: XCTestCase {
 
         // ── sg_chat / sg_chat-issues: the home composer ─────────────────────
         // EXP-825: the ONE launcher. EXP-909: a device row starts nothing any
-        // more (its one control is the settings gear), so the bar's Chat
-        // arm opens the home on the default device: an empty composer
+        // more (its one control is the settings gear), so the bar's New ›
+        // Chat opens the composer on the default device: an empty composer
         // starts a free request; Implement issue › chips two issues.
         // Nothing is ever submitted — a session would land on a real machine.
-        let chatButton = app.buttons["chat-button"].firstMatch
-        expect(
-            chatButton,
-            within: Wait.sync,
-            "The bar offers no Chat arm — is the demo team's device online with an agent?"
-        )
-        chatButton.tap()
+        openNewChat(app)
         let composer = anyElement(app, identified: "agent-composer")
         expect(composer, within: Wait.nav, "Agent page did not open")
         // S-3: the agent row stands over the card, the viewer's Assistant
@@ -695,9 +707,8 @@ final class StyleguideScreenshots: XCTestCase {
                 .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
             usleep(600_000)
         }
-        // The Agent page is a bar root now (the chat arm switches to it) —
-        // back to Devices through the Team tab (its pushes are parked).
-        app.buttons["tab-team"].tap()
+        // The composer page was pushed over Devices.
+        goBack(app)
         expect(
             app.navigationBars["Devices"],
             within: Wait.nav,
@@ -823,30 +834,14 @@ final class StyleguideScreenshots: XCTestCase {
             settle(1)
         }
 
-        // ── sg_settings-root: the TEAM tab (EXP-1373: the settings root moved
-        // here) — the active team's header, the teams group, the team's
-        // settings rows, the account rows.
-        let teamTab = app.buttons["tab-team"]
-        expect(teamTab, within: Wait.nav, "Team tab missing")
-        teamTab.tap()
-        // #EXP-1384: the Team tab parked the Devices page pushed earlier; a
-        // re-tap pops back to its root.
-        if !anyElement(app, identified: "team-tab-header").waitForExistence(timeout: 2) {
-            teamTab.tap()
-        }
+        // ── sg_settings-root: the SETTINGS tab (#EXP-2109): the viewer's
+        // card, the account rows, Devices, About.
+        showTab(app, "tab-settings", root: "settings-tab")
         expect(
-            anyElement(app, identified: "team-tab-header"),
+            app.buttons["settings-devices-row"],
             within: Wait.nav,
-            "The Team tab never drew its team header"
+            "The Settings tab has no Devices row"
         )
-        // The teams group has no band (web-mobile): gate on its New team row.
-        expect(
-            anyElement(app, identified: "board-switcher-new-team"),
-            within: Wait.nav,
-            "The Team tab never showed its teams group"
-        )
-        let teamRow = teamSettingsRow(app, "Boards")
-        expect(teamRow, within: Wait.nav, "The Team tab has no Boards row")
         snapshot("sg_settings-root", settle: 2)
 
         // ── sg_getting-started: the block behind Settings' entry (EXP-1270) ─
@@ -870,8 +865,11 @@ final class StyleguideScreenshots: XCTestCase {
         _ = gettingStartedSheet.waitForNonExistence(timeout: Wait.nav)
 
         // ── sg_settings-team: team settings ─────────────────────────────────
-        // #EXP-1381: every Team row opens its OWN page; the Boards page,
-        // anchored on the seeded board it lists.
+        // Teams › Acme › … › Settings. #EXP-1381: every row opens its OWN
+        // page; the Boards page, anchored on the seeded board it lists.
+        showTeamSettings(app)
+        let teamRow = teamSettingsRow(app, "Boards")
+        expect(teamRow, within: Wait.nav, "The team's settings have no Boards row")
         teamRow.tap()
         expect(
             app.staticTexts[Self.seededBoardName],
@@ -900,7 +898,7 @@ final class StyleguideScreenshots: XCTestCase {
         ] where ScreenshotShots.isWanted(shot) || (shot == "sg_settings-repositories" && ScreenshotShots.isWanted("sg_repo")) {
             let row = teamSettingsRow(app, label)
             scrollUntilVisible(app, row, attempts: 4)
-            expect(row, within: Wait.nav, "The Team tab has no \(label) row")
+            expect(row, within: Wait.nav, "The team settings have no \(label) row")
             row.tap()
             expect(anyElement(app, identified: "team-settings-page"), within: Wait.nav, "\(label) opened no settings page")
             let content = label == "General" ? anyElement(app, identified: gate) : anyElement(app, containing: gate)
@@ -935,7 +933,7 @@ final class StyleguideScreenshots: XCTestCase {
                 }
             }
             goBack(app)
-            expect(teamSettingsRow(app, "Boards"), within: Wait.nav, "Did not return to the Team tab")
+            expect(teamSettingsRow(app, "Boards"), within: Wait.nav, "Did not return to the team settings")
         }
 
         // ── sg_settings-team-agent: Settings → Agents, one agent's page ─────
@@ -1001,6 +999,7 @@ final class StyleguideScreenshots: XCTestCase {
         // page ensures it): identity, Runs on, Check in, the Voice block. A
         // detour: nothing is edited.
         if ScreenshotShots.isWanted("sg_settings-assistant") || ScreenshotShots.isWanted("sg_settings-assistant-meeting") {
+            showTab(app, "tab-settings", root: "settings-tab")
             let assistantRow = app.buttons["assistant-settings-row"]
             scrollUntilVisible(app, assistantRow, attempts: 8)
             expect(assistantRow, within: Wait.sync, "Settings has no Personal › Assistant row")
@@ -1027,7 +1026,7 @@ final class StyleguideScreenshots: XCTestCase {
             }
             goBack(app)
             expect(assistantRow, within: Wait.nav, "Did not return to Settings")
-            for _ in 0..<4 { app.swipeDown() }
+            showTeamSettings(app)
         }
 
         // ── sg_settings-prompts · sg_settings-prompt: Settings → Prompts ────
@@ -1075,20 +1074,10 @@ final class StyleguideScreenshots: XCTestCase {
         // identity, sign out and delete account live on the server row's
         // detail view. The row is titled by the SERVER, with the email below,
         // so match on the email.
-        // #EXP-1815: the account rows sit in settings-nav's Personal group.
-        expect(
-            app.staticTexts["Personal"],
-            within: Wait.nav,
-            "Did not return to the Team tab"
-        )
-        let serverRow = app.buttons.containing(.staticText, identifier: ScreenshotSeed.demoEmail).firstMatch
-        scrollUntilVisible(app, serverRow, attempts: 4)
-        expect(
-            serverRow,
-            within: Wait.nav,
-            "No server row for \(ScreenshotSeed.demoEmail) in Settings"
-        )
-        serverRow.tap()
+        // #EXP-2109: the Settings tab's viewer card opens it.
+        showTab(app, "tab-settings", root: "settings-tab")
+        app.buttons["settings-viewer"].tap()
+        scrollUntilVisible(app, app.buttons["Sign out"], attempts: 4)
         expect(
             app.buttons["Sign out"],
             within: Wait.nav,
@@ -1272,7 +1261,7 @@ final class StyleguideScreenshots: XCTestCase {
 
     // MARK: - Helpers
 
-    /// #EXP-1381: a Team page row (`team-settings-row`, settings-nav.json)
+    /// #EXP-1381: a team settings row (`team-settings-row`, settings-nav.json)
     /// by its label.
     @MainActor
     private func teamSettingsRow(_ app: XCUIApplication, _ label: String) -> XCUIElement {
@@ -1282,25 +1271,46 @@ final class StyleguideScreenshots: XCTestCase {
             .firstMatch
     }
 
-    /// #EXP-1384: the Team tab → its Devices row (the page it pushes).
+    /// The bar's New popup › `item` (Issue, Chat).
+    @MainActor
+    private func openNewMenu(_ app: XCUIApplication, _ item: String) {
+        let new = app.buttons["tab-new"]
+        expect(new, within: Wait.sync, "The bar has no New")
+        new.tap()
+        let row = app.buttons.matching(NSPredicate(format: "identifier == 'new-menu-row' AND label == %@", item)).firstMatch
+        expect(row, within: Wait.nav, "The New popup has no \(item)")
+        row.tap()
+    }
+
+    @MainActor
+    private func openNewChat(_ app: XCUIApplication) {
+        openNewMenu(app, "Chat")
+    }
+
+    /// Teams › Acme › … › Settings.
+    @MainActor
+    private func showTeamSettings(_ app: XCUIApplication) {
+        showTeam(app)
+        app.buttons["team-actions"].tap()
+        let item = anyElement(app, identified: "team-menu-settings")
+        expect(item, within: Wait.nav, "The team menu has no Settings")
+        item.tap()
+        expect(anyElement(app, identified: "team-settings"), within: Wait.nav, "The team's settings never opened")
+    }
+
+    /// Settings › Devices.
     @MainActor
     private func openDevices(_ app: XCUIApplication) {
-        let teamTab = app.buttons["tab-team"]
-        expect(teamTab, within: Wait.nav, "Team tab missing")
-        teamTab.tap()
-        let devicesRow = teamSettingsRow(app, "Devices")
-        scrollUntilVisible(app, devicesRow, attempts: 4)
-        expect(devicesRow, within: Wait.nav, "The Team page has no Devices row")
-        // The last row can sit under the floating tab bar, where a tap lands
-        // on the bar (the board tab) instead: lift it clear first.
-        app.swipeUp()
-        devicesRow.tap()
+        showTab(app, "tab-settings", root: "settings-tab")
+        let row = app.buttons["settings-devices-row"]
+        expect(row, within: Wait.nav, "Settings has no Devices row")
+        row.tap()
     }
 
     /// The styleguide entries photographed as capture-only specimens
     /// (`-uiTestingStyleguide <entry>`, signed out): no account, no seed.
     static let specimenEntries = [
-        "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-header", "chat-transcript",
+        "chat-list", "phone-tab-bar", "phone-page-header", "chat-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "call-pill", "device-readiness",
         "sealed-locked", "plan-page", "pr-row", "pr-checks", "ci-run", "runner-settings", "repo-runs", "repo-ci", "session-row",
@@ -1333,7 +1343,6 @@ final class StyleguideScreenshots: XCTestCase {
             switch entry {
             case "chat-list": snapshot("sg_chat-list", settle: 2)
             case "phone-tab-bar": snapshot("sg_phone-tab-bar", settle: 2)
-            case "phone-board-menu": snapshot("sg_phone-board-menu", settle: 2)
             case "phone-page-header": snapshot("sg_phone-page-header", settle: 2)
             case "chat-header": snapshot("sg_chat-header", settle: 2)
             case "chat-transcript": snapshot("sg_chat-transcript", settle: 2)
@@ -1417,7 +1426,7 @@ final class StyleguideScreenshots: XCTestCase {
         "sg_app-csv-import", "sg_app-record-history", "sg_app-record-undo",
     ]
 
-    /// From the Apps list, back to it: CRM's RecordTable + RecordForm, Leave
+    /// From the team page, back to it: CRM's RecordTable + RecordForm, Leave
     /// planner's Calendar + Timeline, Ops desk's Connect banner + Settings,
     /// Team dashboard's Publish + sweep + version preview (Publish is never
     /// pressed: it would supersede the seeded sweep), then CRM's Data tab:
@@ -1602,20 +1611,31 @@ final class StyleguideScreenshots: XCTestCase {
     /// An Apps list row's tap: the app's run view.
     @MainActor
     private func openAppRun(_ app: XCUIApplication, slug: String) {
-        let row = anyElement(app, identified: "apps-row-\(slug)")
-        expect(row, within: Wait.sync, "The Apps list has no \(slug) row: reseed with `bun run seed:screenshots`")
+        returnToTeam(app)
+        let name = ["crm": "CRM", "leave-planner": "Leave planner", "ops-desk": "Ops desk", "team-dashboard": "Team dashboard"][slug] ?? slug
+        let row = treeRow(app, "app", name)
+        expect(row, within: Wait.sync, "The team page has no \(slug) row: reseed with `bun run seed:screenshots`")
         row.tap()
         expect(anyElement(app, identified: "app-run"), within: Wait.sync, "The \(slug) row opened no run view")
     }
 
-    /// An Apps list row's … › Edit app: the app's editor.
+    /// Back to the team page from whatever is pushed over it.
+    @MainActor
+    private func returnToTeam(_ app: XCUIApplication) {
+        for _ in 0..<3 where !anyElement(app, identified: "team-page").waitForExistence(timeout: 2) {
+            goBack(app)
+        }
+    }
+
+    /// An app's run view › … › Edit app: the app's editor.
     @MainActor
     private func openAppEditor(_ app: XCUIApplication, slug: String) {
-        let menu = anyElement(app, identified: "apps-row-menu-\(slug)")
-        expect(menu, within: Wait.sync, "The Apps list has no \(slug) row: reseed with `bun run seed:screenshots`")
+        openAppRun(app, slug: slug)
+        let menu = anyElement(app, identified: "app-run-menu")
+        expect(menu, within: Wait.sync, "The \(slug) run view has no … menu")
         menu.tap()
         let edit = anyElement(app, identified: "app-menu-edit")
-        expect(edit, within: Wait.nav, "The \(slug) row's menu has no Edit app")
+        expect(edit, within: Wait.nav, "The \(slug) run view's menu has no Edit app")
         edit.tap()
         expect(anyElement(app, identified: "session-tabs"), within: Wait.sync, "The \(slug) editor drew no tabs")
     }
@@ -1628,26 +1648,17 @@ final class StyleguideScreenshots: XCTestCase {
         tab.tap()
     }
 
-    /// VAPP-110: the Apps TAB (#EXP-1384) → the list (gated on the seeded
-    /// Working hours row) → VAPP-242: the row RUNS it (sg_app-run, gated on
+    /// VAPP-110: the team page (#EXP-2109) → VAPP-242: the app's row RUNS it (sg_app-run, gated on
     /// the run view) → its … › Edit app → the editor → the Preview tab (VAPP-122: the app
     /// rendered through the host over its records, gated on the preview
     /// frame) → VAPP-178: the Data tab (the records list) → back on the
     /// Chat segment (#EXP-1650: web-mobile opens the menu sheets over Chat)
     /// → VAPP-177: the header's … → Versions, then … → Settings (each a
     /// sheet, dismissed) → … → Export (VAPP-121) → back to the run view → back
-    /// to the Apps list.
+    /// to the team page.
     @MainActor
     private func walkApps(_ app: XCUIApplication) {
-        let appsTab = app.buttons["tab-apps"]
-        expect(appsTab, within: Wait.nav, "Apps tab missing")
-        appsTab.tap()
-        let appRow = anyElement(app, identified: "apps-row-\(Self.appSlug)")
-        // #EXP-1757: the first tab tap right after launch sometimes lands
-        // before the bar takes taps (the home stays up): tap it again.
-        if !appRow.waitForExistence(timeout: Wait.nav) { appsTab.tap() }
-        expect(appRow, within: Wait.sync, "The Apps list has no \(Self.appName) row — reseed with `bun run seed:screenshots`")
-        snapshot("sg_apps", settle: 2)
+        showTeam(app)
         if ScreenshotShots.isWanted("sg_app-import") {
             walkAppImport(app)
         }
@@ -1655,6 +1666,8 @@ final class StyleguideScreenshots: XCTestCase {
             walkAppDraft(app)
         }
         guard ["sg_app-run", "sg_app", "sg_app-versions", "sg_app-settings", "sg_app-data", "sg_app-export"].map(ScreenshotShots.isWanted).contains(true) else { return }
+        let appRow = treeRow(app, "app", Self.appName)
+        expect(appRow, within: Wait.sync, "The team page has no \(Self.appName) row — reseed with `bun run seed:screenshots`")
         appRow.tap()
         expect(anyElement(app, identified: "app-run"), within: Wait.sync, "The \(Self.appName) row opened no run view")
         if ScreenshotShots.isWanted("sg_app-run") {
@@ -1782,8 +1795,11 @@ final class StyleguideScreenshots: XCTestCase {
     /// pills, the composer → sg_app-draft → back to the Apps list.
     @MainActor
     private func walkAppDraft(_ app: XCUIApplication) {
-        let menu = anyElement(app, identified: "apps-row-menu-\(Self.draftAppSlug)")
-        expect(menu, within: Wait.sync, "The Apps list has no \(Self.draftAppName) row — reseed with `bun run seed:screenshots`")
+        let row = treeRow(app, "app", Self.draftAppName)
+        expect(row, within: Wait.sync, "The team page has no \(Self.draftAppName) row — reseed with `bun run seed:screenshots`")
+        row.tap()
+        let menu = anyElement(app, identified: "app-run-menu")
+        expect(menu, within: Wait.sync, "The draft's run view has no … menu")
         menu.tap()
         let editItem = anyElement(app, identified: "app-menu-edit")
         expect(editItem, within: Wait.nav, "The row's menu has no Edit app")
@@ -1799,6 +1815,8 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_app-draft", settle: 2)
         goBack(app)
         settle(1)
+        goBack(app)
+        settle(1)
     }
 
     /// VAPP-121 + VAPP-242: Apps list → the band's New app pill → THE NEW
@@ -1807,9 +1825,12 @@ final class StyleguideScreenshots: XCTestCase {
     /// → dismissed.
     @MainActor
     private func walkAppImport(_ app: XCUIApplication) {
-        let newPill = anyElement(app, identified: "apps-new")
-        expect(newPill, within: Wait.nav, "The Apps band has no New app pill")
-        newPill.tap()
+        app.buttons["team-actions"].tap()
+        for id in ["team-menu-new", "team-menu-new-app"] {
+            let item = anyElement(app, identified: id)
+            expect(item, within: Wait.nav, "The team menu has no \(id)")
+            item.tap()
+        }
         let importItem = anyElement(app, identified: "apps-import")
         expect(importItem, within: Wait.nav, "THE NEW MENU has no Import…")
         importItem.tap()
@@ -2085,21 +2106,5 @@ final class StyleguideScreenshots: XCTestCase {
             .matching(identifier: "chat-row")
             .matching(NSPredicate(format: "label CONTAINS %@", fragment))
             .firstMatch
-    }
-
-    /// #EXP-1384: the board menu → the named board (on the board view the
-    /// Board tab opens the menu; its rows are labelled with the board names).
-    @MainActor
-    private func switchBoard(_ app: XCUIApplication, to name: String) {
-        showBoard(app)
-        app.buttons["tab-board"].tap()
-        let menu = anyElement(app, identified: "board-menu")
-        expect(menu, within: Wait.nav, "The board menu did not open")
-        let row = app.buttons.matching(identifier: "board-menu-row")
-            .matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch
-        expect(row, within: Wait.nav, "Board \"\(name)\" missing from the board menu")
-        row.tap()
-        _ = menu.waitForNonExistence(timeout: Wait.nav)
-        settle(1)
     }
 }

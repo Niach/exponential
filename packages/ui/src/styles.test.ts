@@ -138,11 +138,9 @@ describe(`@exp/ui styles.css`, () => {
       "apps/web/src/components/team/sidebar.tsx": { count: 1, why: `the sidebar, outside <main>` },
       "apps/web/src/routes/support/$token.tsx": { count: 1, why: `the support page, outside the team <main>` },
       "packages/ui/src/chat-list.tsx": { count: 1, why: `a row's trailing fade, not a pane foot` },
-      "packages/ui/src/chat-specimens.tsx": { count: 1, why: `a catalogue specimen (no FAB on specimens)` },
       "packages/ui/src/detail-chrome.tsx": { count: 3, why: `glass edge fades, no control` },
       "packages/ui/src/dock.tsx": { count: 1, why: `THE Dock's band: its column wears FAB_LANE_CLASS` },
       "packages/ui/src/mobile-work-bar.tsx": { count: 1, why: `phones: no FAB` },
-      "packages/ui/src/phone-board-menu.tsx": { count: 1, why: `phones: no FAB` },
       "packages/ui/src/pr-row.tsx": { count: 1, why: `a tree guide line, no control` },
       "packages/ui/src/session-results-view.tsx": { count: 2, why: `a tile's scrim + badge inside the tile` },
     }

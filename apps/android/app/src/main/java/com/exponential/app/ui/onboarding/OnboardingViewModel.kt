@@ -6,7 +6,7 @@ import com.exponential.app.data.api.OFFLINE_MESSAGE
 import com.exponential.app.data.api.isOfflineError
 import com.exponential.app.data.api.isPlanLimitError
 import com.exponential.app.ui.components.FailedAction
-import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.ShellState
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.OnboardingApi
 import com.exponential.app.data.api.TeamInvitesApi
@@ -49,7 +49,7 @@ class OnboardingViewModel @Inject constructor(
     private val teamsApi: TeamsApi,
     private val invitesApi: TeamInvitesApi,
     private val holder: DatabaseHolder,
-    private val selection: TeamSelection,
+    private val shell: ShellState,
     private val sessionInvalidator: SessionInvalidator,
     private val ownDevices: OwnDevices,
 ) : ViewModel() {
@@ -169,7 +169,6 @@ class OnboardingViewModel @Inject constructor(
                 val team = teamsApi.getDefault(accountId)
                 if (team != null) {
                     holder.database(forAccountId = accountId).teamDao().upsert(team)
-                    if (selection.selectedId.value == null) selection.select(team.id)
                 }
                 team?.id
             }
@@ -196,7 +195,6 @@ class OnboardingViewModel @Inject constructor(
                 // Local head-start (idempotent REPLACE — Electric re-delivers
                 // the same row) so downstream screens see the team immediately.
                 runCatching { holder.database(forAccountId = accountId).teamDao().upsert(team) }
-                selection.select(team.id)
                 team.id
             }.onSuccess { _teamId.value = it }
                 .onFailure {
@@ -236,7 +234,6 @@ class OnboardingViewModel @Inject constructor(
                 runCatching {
                     holder.database(forAccountId = accountId).teamDao().upsert(result.team)
                 }
-                selection.select(result.team.id)
             }.onSuccess {
                 if (ownDevices.needsJoinDeviceStep()) {
                     _joined.value = true
@@ -269,7 +266,7 @@ class OnboardingViewModel @Inject constructor(
             val accountId = auth.activeAccountId.value
             if (accountId != null) {
                 runCatching { onboardingApi.complete(accountId) }
-                selection.rememberLastBoard(accountId, boardId)
+                shell.rememberLastBoard(accountId, boardId)
             }
         }
     }

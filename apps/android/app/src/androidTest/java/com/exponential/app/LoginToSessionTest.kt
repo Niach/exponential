@@ -59,9 +59,8 @@ class LoginToSessionTest {
     fun loginThenOpenATemporarySessionAndAChatTranscript() {
         flow.signIn(ScreenshotFlow.instanceUrl())
 
-        // Home: the Agent page under the tab bar (the crash killed the app here).
-        flow.waitFor(hasTestTag(AgentHome.HOME_TEST_ID), ScreenshotFlow.FIRST_SYNC_TIMEOUT)
-        flow.waitFor(hasTestTag(Chats.TestIds.TAB_BOARD), ScreenshotFlow.SYNC_TIMEOUT)
+        // Home: Chats over the docked bar (the crash killed the app here).
+        flow.waitFor(hasTestTag(Chats.TestIds.TAB_TEAMS), ScreenshotFlow.FIRST_SYNC_TIMEOUT)
 
         // Chats → the temporary session.
         composeRule.onNode(hasTestTag("tab-chats")).performClick()

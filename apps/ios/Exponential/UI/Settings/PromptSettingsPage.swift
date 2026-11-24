@@ -152,9 +152,7 @@ struct PromptSettingsPage: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
-        .navigationTitle(creating ? TeamPromptsSection.newPrompt : (prompt?.name ?? TeamPromptsSection.title))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .pageHeader(creating ? TeamPromptsSection.newPrompt : (prompt?.name ?? TeamPromptsSection.title), pushed: true)
         .task { await start() }
         .onDisappear {
             observation?.cancel()
