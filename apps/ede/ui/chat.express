@@ -79,6 +79,15 @@
 # /chatting/find/counter, previous / next (ede_chat findStep {step}), close (ede_chat findClose), the
 # status line /chatting/find/status; the host counts the synced bubbles (their MessageBubble
 # `highlight`, bound per row) with domain::find_in_chat and scrolls the current one to the centre.
+# #EXP-2077 EXPRESS BLOCKS (chat-express.json DRAW, the IDE's main lane): an agent's row that holds
+# `<a2ui>` blocks arrives split into its segments, ONE sender group: each prose run a bubble row
+# (the name, avatar and tail on the first segment only, the time on the last prose), each surface of
+# a block a `card` row with a surface and NO title (`chat_row_surface`: the same 12 px frame as a
+# show card's, on an `indent`ed row right of the 32 px avatar column, the sender's `avatar` there
+# when the frame is the row's first segment), a failed block THE marker `This view could not be
+# drawn` on the same indent; their `gap` is 8. A frame's inner events go out like a show card's
+# (ede_chat card {messageId: its row id, name, context}); the host posts EVERY one as the person's
+# message with THE action card (a reply's text as its body), a too-large one is the toast.
 surface("chat", extensions={ede: {layer: "top", anchor: ["top", "bottom", "left", "right"], margin: {top: 10, right: 10, bottom: 10, left: 10}, keyboard: "on-demand", onDemand: true, functions: ["ede_chat"]}})
 $/chat/draft = ""
 $/chatFind/query = ""
@@ -192,7 +201,8 @@ chat_agent_prose = Markdown(text=$body, visible=not(value=cond(if=$bubble, then=
 chat_row_line = Stack(direction="horizontal", gap="sm", align="center", children=[chat_line_icon, chat_line_text], visible=eq(a=$kind, b="line"))
 chat_line_icon = Icon(name=$icon, size="sm", style={color: "$color.mutedForeground"})
 chat_line_text = Text(text=$text, variant="caption", style={color: "$color.mutedForeground"})
-chat_row_marker = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%"}, children=[chat_marker_rule_start, chat_marker_text, chat_marker_rule_end], visible=eq(a=$kind, b="marker"))
+chat_row_marker = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%"}, children=[chat_marker_indent, chat_marker_rule_start, chat_marker_text, chat_marker_rule_end], visible=eq(a=$kind, b="marker"))
+chat_marker_indent = Box(style={width: 32, flexShrink: 0}, visible=cond(if=$indent, then=true, else=false))
 chat_marker_rule_start = Separator(style={flexGrow: 1, flexShrink: 1, minWidth: 0, alignSelf: "center"})
 chat_marker_text = Text(text=$text, variant="caption", lines=1, style={color: "$color.mutedForeground", flexShrink: 1, minWidth: 0})
 chat_marker_rule_end = Separator(style={flexGrow: 1, flexShrink: 1, minWidth: 0, alignSelf: "center"})
@@ -201,8 +211,11 @@ chat_pill = Box(style={display: "flex", flexDirection: "row", alignItems: "cente
 chat_pill_icon = Icon(name=$icon, size="sm", style={color: "$color.mutedForeground"})
 chat_pill_text = Text(text=$text, variant="caption", style={color: "$color.mutedForeground"})
 chat_row_card = Row(title=$title, meta=$text, icon=$icon, chevron="right", surface="card", pressable=true, on={press: ede_chat(action="open", sessionId=$target)}, visible=and(values=[eq(a=$kind, b="card"), or(values=[not(value=cond(if=$surface, then=true, else=false)), cond(if=$text, then=true, else=false)])]))
-chat_row_surface = Box(style={display: "flex", flexDirection: "column", gap: 6}, children=[chat_surface_title, chat_surface_frame], visible=and(values=[eq(a=$kind, b="card"), cond(if=$surface, then=true, else=false)]))
-chat_surface_title = Text(text=$title, variant="caption", style={color: "$color.mutedForeground", fontWeight: 500}, visible=not(value=cond(if=$text, then=true, else=false)))
+chat_row_surface = Box(style={display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 8, width: "100%"}, children=[chat_surface_avatar, chat_surface_column], visible=and(values=[eq(a=$kind, b="card"), cond(if=$surface, then=true, else=false)]))
+chat_surface_avatar = Box(style={width: 32, height: 32, flexShrink: 0}, children=[chat_surface_avatar_icon], visible=cond(if=$indent, then=true, else=false))
+chat_surface_avatar_icon = Icon(name=$avatar, style={width: 32, height: 32}, visible=not(value=eq(a=$avatar, b="")))
+chat_surface_column = Box(style={display: "flex", flexDirection: "column", gap: 6, flexGrow: 1, flexShrink: 1, minWidth: 0}, children=[chat_surface_title, chat_surface_frame])
+chat_surface_title = Text(text=$title, variant="caption", style={color: "$color.mutedForeground", fontWeight: 500}, visible=and(values=[not(value=cond(if=$text, then=true, else=false)), not(value=eq(a=$title, b=""))]))
 chat_surface_frame = Box(style={padding: 12, borderRadius: 12, borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.card", overflow: "hidden"}, children=[chat_surface_frame_embed], visible=cond(if=$surface, then=true, else=false))
 chat_surface_frame_embed = Embed(surface=$surface, on={action: Event("ede_chat", {action: "card", messageId: $id})})
 chat_row_question = Box(style={display: "flex", flexDirection: "column", gap: 8, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: "$color.border", backgroundColor: "$color.card"}, children=[chat_question_head, chat_question_surface, chat_question_options, chat_option, chat_question_answer], visible=eq(a=$kind, b="question"))

@@ -38,6 +38,15 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **No leftover to-do**: a run that restarts between turns no longer leaves its old background task card above the message field.`,
   },
   {
+    id: `2026-11-24-views-in-subagents-and-calls`,
+    date: `2026-11-24`,
+    title: `Views in subagent tabs and calls`,
+    summary: `An agent's views now show in a subagent's tab and in a call's transcript, and a call only speaks the words around them.`,
+    body: `- **Subagent tabs**: when a subagent writes a view into its message, its tab now shows the view in place, and its buttons work like they do in the chat.
+- **Calls**: a call's transcript shows the agent's views in place; pressing a button posts into the call while it runs.
+- **Spoken and summed up in words only**: the call reads out and captions only the agent's words, never the view's code, and a call's summary line shows only its words.`,
+  },
+  {
     id: `2026-11-23-desktop-cli-0-14-176`,
     date: `2026-11-23`,
     title: `Screen memory keeps working when your displays change`,

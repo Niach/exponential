@@ -16,7 +16,9 @@ import { devices, installs, sessionKeys, sessions, teamMembers, teams } from "@/
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import { loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
+import { dropReaderKeysInTx, ownInstall } from "@/lib/sessions/tree-keys"
 import { nudgeDevice } from "@/lib/trpc/devices"
+import { approveInstall, claimRoot, trustAnswer, waitingInstalls } from "@/lib/install-approvals"
 import { CLIENT_VERSION_HEADER, parseClientVersionHeader, parseVersionTuple } from "@/lib/client-version"
 
 /**
@@ -209,7 +211,7 @@ export const installsRouter = router({
           // Serializes one user's registrations, so the cap holds under races.
           await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`installs:${userId}`}))`)
           const [existing] = await tx
-            .select({ id: installs.id, userId: installs.userId, revokedAt: installs.revokedAt })
+            .select({ id: installs.id, userId: installs.userId, revokedAt: installs.revokedAt, deviceId: installs.deviceId })
             .from(installs)
             .where(eq(installs.endpointId, input.endpointId))
             .limit(1)
@@ -224,6 +226,10 @@ export const installsRouter = router({
               .update(installs)
               .set({ ...fields, lastSeenAt: new Date() })
               .where(eq(installs.id, existing.id))
+            // #EXP-1951: off its device, it no longer reads that device's trees.
+            if (existing.deviceId && existing.deviceId !== deviceRowId) {
+              await dropReaderKeysInTx(tx, { installIds: [existing.id] })
+            }
             return { installId: existing.id, fresh: false }
           }
 
@@ -355,6 +361,48 @@ export const installsRouter = router({
     }))
   }),
 
+  // #EXP-1950 (fixtures/install-trust.json): install approval. The server
+  // stores and relays; every client judges the signatures itself.
+
+  /** Every live install of the caller's account and its team-mates, with
+   *  every approval about them (`reconcileTrust`'s input). */
+  trust: authedProcedure.input(z.object({ installId: z.string().uuid() })).query(async ({ ctx, input }) => {
+    await ownInstall(ctx.db, ctx.session.user.id, input.installId)
+    return trustAnswer(ctx.db, ctx.session.user.id)
+  }),
+
+  /** A build that follows the trust rule and is not trusted yet asks once. */
+  requestApproval: authedProcedure.input(z.object({ installId: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    const row = await ownInstall(ctx.db, ctx.session.user.id, input.installId)
+    if (!row.approvalRequestedAt) {
+      await ctx.db
+        .update(installs)
+        .set({ approvalRequestedAt: new Date() })
+        .where(and(eq(installs.id, row.id), eq(installs.userId, ctx.session.user.id), isNull(installs.approvalRequestedAt)))
+    }
+    return { ok: true }
+  }),
+
+  /** The install starts its account's chain (`root`, signed by itself). */
+  claimRoot: authedProcedure
+    .input(z.object({ installId: z.string().uuid(), signature: z.string().regex(SIGNATURE_RE, `base64url of 64 bytes`) }))
+    .mutation(({ ctx, input }) => claimRoot(ctx.db, ctx.session.user.id, input)),
+
+  /** `approve` an own install, confirm (`reset`) or turn down (`decline`) a team-mate's new root. */
+  approve: authedProcedure
+    .input(
+      z.object({
+        installId: z.string().uuid(),
+        subjectInstallId: z.string().uuid(),
+        kind: z.enum([`approve`, `reset`, `decline`]),
+        signature: z.string().regex(SIGNATURE_RE, `base64url of 64 bytes`),
+      })
+    )
+    .mutation(({ ctx, input }) => approveInstall(ctx.db, ctx.session.user.id, input)),
+
+  /** The Needs-you source: installs waiting for this account's approval. */
+  waiting: authedProcedure.query(({ ctx }) => waitingInstalls(ctx.db, ctx.session.user.id)),
+
   revoke: authedProcedure
     .input(z.object({ installId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
@@ -365,12 +413,18 @@ export const installsRouter = router({
         .where(and(eq(installs.id, input.installId), eq(installs.userId, userId)))
         .limit(1)
       if (!row) throw new TRPCError({ code: `NOT_FOUND`, message: `Install not found` })
-      if (!row.revokedAt) {
-        await ctx.db
-          .update(installs)
-          .set({ revokedAt: new Date() })
-          .where(and(eq(installs.id, row.id), eq(installs.userId, userId)))
-      }
+      // #EXP-1951 (sealed-content.json `rotation`): in the same transaction
+      // its wraps go and every tree it read is due for rotation. An install
+      // revoked before that rule keeps its rows until it is revoked again.
+      await ctx.db.transaction(async (tx) => {
+        if (!row.revokedAt) {
+          await tx
+            .update(installs)
+            .set({ revokedAt: new Date() })
+            .where(and(eq(installs.id, row.id), eq(installs.userId, userId)))
+        }
+        await dropReaderKeysInTx(tx, { installIds: [row.id] })
+      })
       return { ok: true }
     }),
 })

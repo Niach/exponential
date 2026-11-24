@@ -950,8 +950,11 @@ pub enum DisabledReason {
     /// #EXP-1383: a session of an agent's conversation tree could not get
     /// its TEAM-scoped agent key (the server refused the mint, or answered
     /// with a key not confined to the team). It never falls back to the
-    /// device's full key, so it does not run.
-    AgentKeyUnavailable { message: String },
+    /// device's full key, so it does not run. #EXP-2081 `retry`: the mint
+    /// failed in a way that can pass by itself (an answer this build could
+    /// not read, the local key store), as opposed to the server refusing it
+    /// (an HTTP 4xx) or a tree with no team.
+    AgentKeyUnavailable { message: String, retry: bool },
 }
 
 impl DisabledReason {
@@ -965,11 +968,29 @@ impl DisabledReason {
             }
             DisabledReason::TokenDenied { message } => message.clone(),
             DisabledReason::AccountSwitchRefused { message } => message.clone(),
-            DisabledReason::AgentKeyUnavailable { message } => message.clone(),
+            DisabledReason::AgentKeyUnavailable { message, .. } => message.clone(),
             DisabledReason::AcpUnavailable { label, note } => match note {
                 Some(note) => format!("{label} cannot run a session here: {note}"),
                 None => format!("{label} cannot run a session on this machine."),
             },
+        }
+    }
+
+    /// #EXP-2081: whether the cause can pass WITHOUT the person writing
+    /// again, so a refused wake keeps its messages pending and the pickup
+    /// tries again on a backoff: the device is not ready (the agent CLI or
+    /// git missing or mid-update, a CLI too old for the engine) or a key
+    /// could not be minted yet. `false` = the refusal answers the messages
+    /// for good (a policy the person has to act on: the GitHub App, a
+    /// denied token, an account the run cannot move to, a mint the server
+    /// refused), and they are consumed with it.
+    pub fn passes_by_itself(&self) -> bool {
+        match self {
+            DisabledReason::DoctorFailed(_) | DisabledReason::AcpUnavailable { .. } => true,
+            DisabledReason::AgentKeyUnavailable { retry, .. } => *retry,
+            DisabledReason::GithubAppMissing { .. }
+            | DisabledReason::TokenDenied { .. }
+            | DisabledReason::AccountSwitchRefused { .. } => false,
         }
     }
 }
@@ -1071,6 +1092,10 @@ pub struct PreparedLaunch {
     /// message), consumed by the engine once that turn is sent. `None` for a
     /// fresh session (its brief is no message) and a device-started resume.
     pub seed_message_id: Option<String>,
+    /// #EXP-2085: one line the host says as this run starts (the pickup's
+    /// relaunch note: the background tasks the restart ended), a feed notice
+    /// and the lead of the agent's first input. `None` from [`prepare`].
+    pub start_note: Option<String>,
     /// EXP-275/EXP-690: the spawn runs with permissions bypassed
     /// (`--dangerously-skip-permissions` / codex bypass — mirrors
     /// `permission_args`: every claude/codex run bypasses, and plan mode
@@ -1962,6 +1987,7 @@ pub fn session_key_scope(
         Some(team) => Ok(SessionKeyScope::AgentTeam(team.to_string())),
         None => Err(DisabledReason::AgentKeyUnavailable {
             message: AGENT_KEY_NO_TEAM.to_string(),
+            retry: false,
         }),
     }
 }
@@ -2016,6 +2042,9 @@ fn join_session_key(
         (Err(err), SessionKeyScope::AgentTeam(_)) if transient_api_error(&err) => Err(err.into()),
         (Err(err), SessionKeyScope::AgentTeam(_)) => Ok(Err(DisabledReason::AgentKeyUnavailable {
             message: agent_key_refusal(&err.user_message()),
+            // The server REFUSING the mint is final; anything else (an
+            // answer this build cannot read, the key store) may pass.
+            retry: !matches!(err, ApiError::Http { .. } | ApiError::Unauthorized | ApiError::UpgradeRequired),
         })),
     }
 }
@@ -2555,6 +2584,7 @@ fn prepare_session(
             computer_space: computer_use == crate::computer_place::Placed::Space,
         },
         seed_message_id: None,
+        start_note: None,
         bypass_permissions: true,
         plan_mode: options.plan_mode,
         agent,
@@ -3269,6 +3299,7 @@ fn prepare_resume(
             computer_space: computer_use == crate::computer_place::Placed::Space,
         },
         seed_message_id: resume.message_id.clone(),
+        start_note: None,
         bypass_permissions: true,
         plan_mode: options.plan_mode,
         agent,
@@ -5370,7 +5401,8 @@ mod tests {
         let refused = r#"{"error":{"message":"Not a member of this team","code":-32603,"data":{"code":"FORBIDDEN","httpStatus":403}}}"#;
         let deps = make_deps(&canned_server(vec![(403, refused.to_string())]), &dir.0, fake_worktrees(&dir.0.join("unused")));
         match launch(session_request(agent_row("agent-1"), &[]), &deps).unwrap() {
-            Prepared::Disabled(DisabledReason::AgentKeyUnavailable { message }) => {
+            Prepared::Disabled(DisabledReason::AgentKeyUnavailable { message, retry }) => {
+                assert!(!retry, "a mint the server refused is final");
                 assert!(message.contains("Not a member of this team"), "{message}");
                 assert!(message.contains("team key"), "{message}");
             }

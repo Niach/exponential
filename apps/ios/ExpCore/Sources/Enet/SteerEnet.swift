@@ -585,6 +585,47 @@ public enum SteerLostBanner {
     }
 }
 
+/// One viewer's drop (EXP-1487 LOST BANNER): when its joined feed dropped
+/// and how many redials since then failed. A successful join clears it.
+public struct SteerDrop: Equatable, Sendable {
+    /// When the feed dropped; nil = no drop pending.
+    public private(set) var since: Date?
+    public private(set) var failedRedials = 0
+
+    public init() {}
+
+    public var pending: Bool { since != nil }
+
+    /// A stale link's redial starts its drop (a pending one keeps its clock).
+    public mutating func begin(now: Date) {
+        guard since == nil else { return }
+        since = now
+        failedRedials = 0
+    }
+
+    /// The feed failed: the first failure after a join stamps the drop,
+    /// every later one is a failed redial. True = `SteerLostBanner.show`.
+    public mutating func failed(now: Date) -> Bool {
+        guard let since else {
+            begin(now: now)
+            return false
+        }
+        failedRedials += 1
+        return SteerLostBanner.show(
+            downMs: Int(now.timeIntervalSince(since) * 1000), failedRedials: failedRedials
+        )
+    }
+
+    /// A join, a shutdown, or NO FEED with no drop pending.
+    public mutating func clear() {
+        since = nil
+        failedRedials = 0
+    }
+
+    /// #EXP-2087: the banner's Reconnect is a FRESH dial (web `reconnect()`).
+    public mutating func reconnect() { clear() }
+}
+
 /// NO FEED, EMPTY TRANSCRIPT (EXP-1487, the fixture's `noFeed` cases +
 /// `noFeedIdle`): what a viewer with nothing to show says while NO FEED
 /// holds, keyed on the synced row. An ended row = the device-offline copy;

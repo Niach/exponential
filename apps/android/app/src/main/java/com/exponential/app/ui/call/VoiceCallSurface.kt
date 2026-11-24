@@ -194,8 +194,10 @@ fun VoiceCallScreen(
             )
         }
         Spacer(Modifier.height(32.dp))
+        // #EXP-2076 (chat-express.json PROSE): the caption only READS the
+        // reply's sentence: its pure prose, never a block's raw.
         Text(
-            view.caption,
+            remember(view.caption) { com.exponential.app.domain.ChatExpress.plainProse(view.caption) },
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,

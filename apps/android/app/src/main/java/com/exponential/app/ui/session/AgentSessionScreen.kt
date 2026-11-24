@@ -723,6 +723,11 @@ private fun RunFaceContent(
     val ownTail by viewModel.ownTail.collectAsStateWithLifecycle()
     // #EXP-1990: the teammates' inputs the device has not consumed yet.
     val teammateTail by viewModel.teammateTail.collectAsStateWithLifecycle()
+    // #EXP-2089 (message-delivery.json ORDER): every person's not-consumed
+    // rows in ONE list, oldest first, between the held rows and the outbox.
+    val pendingTail = remember(teammateTail, ownTail) {
+        com.exponential.app.domain.MessageDelivery.pendingTail(teammateTail, ownTail)
+    }
     // #FEED-260 (steer-enet.json SYNCED TAIL): a NOT-live feed (the stored
     // tail painted at open, a dropped feed's cache, an empty feed) is
     // followed by the session's synced messages after it, so the agent's
@@ -1299,10 +1304,10 @@ private fun RunFaceContent(
                 // rows = the sent inputs above it, then the own tail; find
                 // counts and paints them (no transcript to page in).
                 // #EXP-1990: + the teammates' inputs still waiting for the device.
-                val placeholderInputs = remember(sessionEnded, noFeedInputs, teammateTail) {
-                    (if (!sessionEnded) noFeedInputs else emptyList()) + teammateTail
+                val placeholderInputs = remember(sessionEnded, noFeedInputs) {
+                    if (!sessionEnded) noFeedInputs else emptyList()
                 }
-                val placeholderBubbles = remember(placeholderInputs, ownTail) { placeholderInputs + ownTail }
+                val placeholderBubbles = remember(placeholderInputs, pendingTail) { placeholderInputs + pendingTail }
                 // #EXP-1998: the sent inputs are the synced messages drawn
                 // here (a live or an ended placeholder draws none); an older
                 // one pages in by widening them and loading older messages.
@@ -1400,11 +1405,13 @@ private fun RunFaceContent(
                             members = tailMembers,
                         )
                     }
-                    if (ownTail.isNotEmpty()) {
+                    if (pendingTail.isNotEmpty()) {
                         com.exponential.app.ui.chat.OwnTailBubbles(
-                            ownTail,
+                            pendingTail,
                             viewModel::ownBubbleAction,
                             modifier = Modifier.padding(top = 8.dp),
+                            viewerId = tailViewerId,
+                            members = tailMembers,
                             // #EXP-1876: below the sent inputs = the same own group
                             // (#EXP-1990: unless a teammate's input ends them).
                             startsGroup = placeholderInputs.isEmpty() ||
@@ -1543,7 +1550,7 @@ private fun RunFaceContent(
                     sessionCards = cardSlots,
                     renderCard = renderSessionCard,
                     calls = feedCalls,
-                    ownTail = if (teammateTail.isEmpty()) ownTail else teammateTail + ownTail,
+                    ownTail = pendingTail,
                     onOwnAction = viewModel::ownBubbleAction,
                 )
                 }
@@ -2218,12 +2225,18 @@ private fun ActivityFeed(
                     lead + head
                 } else {
                     val at = rows.indexOfFirst { row -> sessionCards.after(row).any { it.id == id } }
-                    if (at < 0) null else lead + sessionCards.head.size + at
+                    val tail = sessionCards.tail.indexOfFirst { it.id == id }
+                    when {
+                        at >= 0 -> lead + sessionCards.head.size + at
+                        // #EXP-2087: an open card after the last row.
+                        tail >= 0 -> lead + sessionCards.head.size + rows.size + orphanWorkflows.size + tail
+                        else -> null
+                    }
                 }
             }
         },
         more = { canLoadEarlier || chatMessagesMore },
-        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size).hashCode() },
+        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size, sessionCards.tail.size).hashCode() },
         page = loadEarlier,
         onTake = {
             onFollowChange(false)
@@ -2395,7 +2408,8 @@ private fun ActivityFeed(
         val visible = if (focused != null) {
             focused.items.size + 1
         } else {
-            rows.size + orphanWorkflows.size + (if (working) 1 else 0) + (if (ownTail.isNotEmpty()) 1 else 0)
+            rows.size + orphanWorkflows.size + sessionCards.tail.size + (if (working) 1 else 0) +
+                (if (ownTail.isNotEmpty()) 1 else 0)
         }
         if (following && visible > 0) {
             listState.scrollToItem(visible - 1)
@@ -2413,7 +2427,8 @@ private fun ActivityFeed(
         firstPin[0] = true
         if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
             val count = (if (canLoadEarlier) 1 else 0) + sessionCards.head.size + rows.size +
-                orphanWorkflows.size + (if (working) 1 else 0) + (if (ownTail.isNotEmpty()) 1 else 0) +
+                orphanWorkflows.size + sessionCards.tail.size + (if (working) 1 else 0) +
+                (if (ownTail.isNotEmpty()) 1 else 0) +
                 (if (feedFooter != null) 1 else 0)
             listState.requestScrollToItem(count - 1, Int.MAX_VALUE / 2)
         }
@@ -2484,14 +2499,7 @@ private fun ActivityFeed(
                         EmptyState(EmptyStateCopy.transcript)
                     }
                 } else {
-                    // EXP-916: the lane's own projection — its consecutive
-                    // edits fold into ONE edited-files card, exactly as they
-                    // do in the main transcript.
-                    // #FEED-256: a blank narration (a lone U+200B) draws no bubble.
-                    val laneRows = projectLaneRows(
-                        focused.items.filter { it !is AgentFeedItem.Narration || !TranscriptGrouping.isBlankText(it.text) },
-                        workflowIds,
-                    )
+                    val laneRows = subagentLaneRows(focused, workflowIds)
                     // #EXP-1736: the same grouping as the main stream, the
                     // subagent as the chat's own sender.
                     val laneLayouts = laneTranscriptLayout(laneRows, focused)
@@ -2499,26 +2507,8 @@ private fun ActivityFeed(
                         laneRows,
                         key = { _, laneRow -> laneRow.id },
                         contentType = { _, laneRow -> laneRow.contentType },
-                    ) { index, laneRow ->
-                        val laneLayout = laneLayouts[laneRow.id]
-                        val layout = laneLayout?.layout
-                        // The same ladder as the main feed, over the rows a
-                        // subagent's conversation is made of; two bubbles in
-                        // a row take the group's gaps.
-                        TranscriptRow(
-                            if (laneLayout?.groupGap == true) {
-                                layout?.gap?.dp ?: 0.dp
-                            } else {
-                                transcriptGap(laneRows.getOrNull(index - 1)?.rowClass, laneRow.rowClass).dp
-                            },
-                        ) {
-                            TranscriptBubbleRow(
-                                layout = layout?.copy(gap = 0),
-                                avatar = { layout?.sender?.let { SenderAvatar(it) } },
-                            ) {
-                                LaneRow(laneRow, liveItemId = liveRowId, live = live, author = layout.authorLine(), tail = layout.hasTail())
-                            }
-                        }
+                    ) { index, _ ->
+                        SubagentLaneItem(laneRows, index, laneLayouts, focused, liveRowId = liveRowId, live = live, working = working)
                     }
                 }
             } else {
@@ -2760,6 +2750,11 @@ private fun ActivityFeed(
                         )
                     }
                 }
+            }
+            // #EXP-2087 (ask-dock.json `tail`): an open card with no call
+            // in the feed draws after the last row, never above the first.
+            items(sessionCards.tail, key = { "session-card-${it.id}" }, contentType = { "session-card" }) { card ->
+                SessionCardRow(card, ringCard)
             }
             // #EXP-1943: a RUNNING call with no report in the loaded feed
             // draws its card after the feed's last row.
@@ -3102,6 +3097,73 @@ internal fun feedTranscriptLayout(
 }
 
 /**
+ * EXP-916: a subagent lane's own projection: its consecutive edits fold into
+ * ONE edited-files card, exactly as they do in the main transcript.
+ * #FEED-256: a blank narration (a lone U+200B) draws no bubble.
+ */
+internal fun subagentLaneRows(run: AgentFeedRow.SubagentRun, workflowIds: Set<String>): List<AgentFeedRow> =
+    projectLaneRows(
+        run.items.filter { it !is AgentFeedItem.Narration || !TranscriptGrouping.isBlankText(it.text) },
+        workflowIds,
+    )
+
+/**
+ * EXP-356: one row of the focused subagent's tab ([subagentLaneRows],
+ * [laneTranscriptLayout]): the same gap ladder as the main feed (two bubbles
+ * in a row take the group's gaps), the grouping's avatar and name, the row.
+ * #EXP-2074: its narration takes THE main lane's Express path
+ * ([ExpressNarration] under the feed's [com.exponential.app.ui.chat.LocalExpressSession]
+ * / [com.exponential.app.ui.chat.LocalExpressActions]), FINAL by
+ * [laneNarrationFinal].
+ */
+@Composable
+internal fun SubagentLaneItem(
+    laneRows: List<AgentFeedRow>,
+    index: Int,
+    laneLayouts: Map<Long, FeedRowLayout>,
+    run: AgentFeedRow.SubagentRun,
+    liveRowId: Long?,
+    live: Boolean,
+    working: Boolean,
+) {
+    val laneRow = laneRows[index]
+    val laneLayout = laneLayouts[laneRow.id]
+    val layout = laneLayout?.layout
+    TranscriptRow(
+        if (laneLayout?.groupGap == true) {
+            layout?.gap?.dp ?: 0.dp
+        } else {
+            transcriptGap(laneRows.getOrNull(index - 1)?.rowClass, laneRow.rowClass).dp
+        },
+    ) {
+        TranscriptBubbleRow(
+            layout = layout?.copy(gap = 0),
+            avatar = { layout?.sender?.let { SenderAvatar(it) } },
+        ) {
+            LaneRow(
+                laneRow,
+                liveItemId = liveRowId,
+                live = live,
+                author = layout.authorLine(),
+                tail = layout.hasTail(),
+                final = laneNarrationFinal(index, laneRows.size, working, run.completed),
+            )
+        }
+    }
+}
+
+/**
+ * #EXP-2074 (chat-express.json STREAMING): a lane narration row is FINAL by
+ * the main lane's rule, per lane: another row of its OWN lane follows it
+ * ([index] < [count] - 1), or its turn ended (the session not [working]) or
+ * the subagent is [done]. (The old `!live` held every row of a live
+ * transcript's lane open forever: an unclosed block never read `Unclosed`,
+ * a trailing `<a2ui` prefix line stayed hidden.)
+ */
+internal fun laneNarrationFinal(index: Int, count: Int, working: Boolean, done: Boolean): Boolean =
+    index < count - 1 || !working || done
+
+/**
  * #EXP-1736: a subagent's own tab as transcript items, the subagent as the
  * chat's own sender (its label, the session avatar): its prose = its
  * bubbles, the turns addressed to it = the viewer's own, its calls and
@@ -3174,6 +3236,10 @@ internal class SessionCardSlots(
 ) {
     /** The cards with no call in the feed, at the transcript's head. */
     val head: List<SessionTree.SessionChatRow> get() = anchors.unanchored.mapNotNull(rows::get)
+
+    /** #EXP-2087: the WAITING cards with no call in the feed, after the
+     *  transcript's last row. */
+    val tail: List<SessionTree.SessionChatRow> get() = anchors.tail.mapNotNull(rows::get)
 
     /** The cards a feed row's calls posted, oldest first. */
     fun after(row: AgentFeedRow): List<SessionTree.SessionChatRow> {
@@ -5247,11 +5313,13 @@ private fun LaneRow(
     author: String? = null,
     /** #EXP-1876: the bubble's tail (a group's first message). */
     tail: Boolean = false,
+    /** #EXP-2074: a narration's Express FINAL ([laneNarrationFinal]). */
+    final: Boolean = !live,
 ) {
     when (row) {
         is AgentFeedRow.Edits -> EditedFilesCard(items = row.items, liveItemId = liveItemId)
         is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items, nested = nested)
-        is AgentFeedRow.Single -> SubagentItemRow(row.item, live = live, nested = nested, author = author, tail = tail)
+        is AgentFeedRow.Single -> SubagentItemRow(row.item, live = live, nested = nested, author = author, tail = tail, final = final)
         else -> Unit
     }
 }
@@ -5261,12 +5329,23 @@ private fun LaneRow(
 // renders nothing rather than breaking the feed. `live` = the RUN still
 // lives: an ended session's open reasoning never shimmers (main-site rule).
 @Composable
-private fun SubagentItemRow(item: AgentFeedItem, live: Boolean, nested: Boolean = false, author: String? = null, tail: Boolean = false) {
+private fun SubagentItemRow(
+    item: AgentFeedItem,
+    live: Boolean,
+    nested: Boolean = false,
+    author: String? = null,
+    tail: Boolean = false,
+    /** #EXP-2074: the narration's Express FINAL ([laneNarrationFinal]). */
+    final: Boolean = !live,
+) {
     when (item) {
         is AgentFeedItem.Tool -> ToolRow(item, nested = nested)
+        // #EXP-2074 (chat-express.json WHICH ROWS): a subagent's narration
+        // is agent text: THE main lane's path (key `n:<session>:<messageId>`,
+        // one sender group, presses through the feed's handler).
         is AgentFeedItem.Narration -> ExpressNarration(
             item,
-            final = !live,
+            final = final,
             author = author,
             tail = tail,
             modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,

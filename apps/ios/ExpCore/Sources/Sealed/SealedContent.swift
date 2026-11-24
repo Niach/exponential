@@ -220,6 +220,31 @@ public func keylessStep(answer: RequestKeyAnswer) -> KeylessStep {
     }
 }
 
+// ── rotation (sealed-content.json `rotation`, #EXP-1951) ──────────────────
+
+/// What a holder does with the answer of a rotation's `sessionKeys.create`.
+public enum RotationAfter: String, Sendable, CaseIterable { case adopt, reread, leave, retry }
+
+/// The epoch a holder creates for a root that is due (`stepCases`), nil =
+/// nothing to rotate here: `flagged` = the root's `seal_rotate_epoch`,
+/// `current` = its `seal_epoch` as this install knows it, `held` = this
+/// install holds the current epoch's secret, `left` = the server refused
+/// this (root, epoch) before.
+public func rotationEpoch(flagged: UInt32?, current: UInt32?, held: Bool, left: Bool = false) -> UInt32? {
+    guard let flagged, let current, current == flagged, held, !left, current < 2_147_483_647 else { return nil }
+    return current + 1
+}
+
+/// `answerCases`: `failure` = `createFailure` of the rotation's create, nil = created.
+public func rotationAfter(_ failure: CreateFailure?) -> RotationAfter {
+    switch failure {
+    case nil: .adopt
+    case .stale: .reread
+    case .transient: .retry
+    default: .leave
+    }
+}
+
 public enum SealedCryptoError: Error, Equatable {
     case unavailable
 }

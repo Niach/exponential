@@ -45,9 +45,10 @@ export interface ChatGroup {
 /** A row without a group's gap: the document's old `lg` list gap. */
 const DEFAULT_GAP = 16
 
-/** The space above row `index`: a grouped message's own, a host row none (it paints its own), else 16 below the row before it. */
+/** The space above row `index`: a grouped message's own (a grouped card's or marker's too, #EXP-2077), a host row none (it paints its own), else 16 below the row before it. */
 function gap(input: ChatRowInput, index: number): number {
   if (input.type === `message` && input.group && (input.author === `user` || input.author === `agent`)) return input.group.gap ?? 0
+  if ((input.type === `card` || input.type === `marker`) && input.group) return input.group.gap ?? 0
   if (input.type === `host`) return 0
   return index === 0 ? 0 : DEFAULT_GAP
 }
@@ -59,8 +60,9 @@ export type ChatRowInput =
   | { id: string; type: `pill`; icon: string; label: string }
   | { id: string; type: `line`; icon: string; text: string }
   /** #EXP-1772: THE inline marker (an event line, a system note): a centred muted label between two hairlines. */
-  | { id: string; type: `marker`; label: string }
-  | { id: string; type: `card`; icon: string; title: string; text: string; target: string | null; surface?: ChatSurface | null }
+  | { id: string; type: `marker`; label: string; group?: ChatGroup | null }
+  /** #EXP-2077 (chat-express.json DRAW): `group` = a segment of a sender's row (an Express block's frame, its failed marker): its avatar, indent and gap. */
+  | { id: string; type: `card`; icon: string; title: string; text: string; target: string | null; surface?: ChatSurface | null; group?: ChatGroup | null }
   | { id: string; type: `question`; question: string; options: ChatOptionInput[]; custom: boolean; multi: boolean; waiting: boolean; answer: string | null; surface?: ChatSurface | null }
   | { id: string; type: `picture`; attachmentId: string; caption: string | null }
 
@@ -269,6 +271,9 @@ const blank = (id: string, kind: ChatRowKind): ChatRow => ({
 const caption = (...parts: (string | null)[]): string =>
   parts.map((part) => (part ?? ``).trim()).filter((part) => part !== ``).join(` · `)
 
+/** #EXP-2077: a card or marker that is a segment of a sender's row sits in that sender's column. */
+const segment = (group: ChatGroup | null | undefined): Partial<ChatRow> => (group ? { avatar: group.avatar ?? ``, indent: group.indent ?? false } : {})
+
 function row(input: ChatRowInput, bubbles: boolean): ChatRow {
   switch (input.type) {
     case `message`: {
@@ -304,9 +309,9 @@ function row(input: ChatRowInput, bubbles: boolean): ChatRow {
     case `line`:
       return { ...blank(input.id, `line`), icon: input.icon, text: input.text }
     case `marker`:
-      return { ...blank(input.id, `marker`), text: input.label }
+      return { ...blank(input.id, `marker`), text: input.label, ...segment(input.group) }
     case `card`:
-      return { ...blank(input.id, `card`), icon: input.icon, title: input.title, text: input.text, target: input.target, surface: input.surface ?? null }
+      return { ...blank(input.id, `card`), icon: input.icon, title: input.title, text: input.text, target: input.target, surface: input.surface ?? null, ...segment(input.group) }
     case `question`:
       return {
         ...blank(input.id, `question`),

@@ -187,8 +187,10 @@ struct ChatsView: View {
         let agentRows = agentRows
         let appRows = appRows
         let archivedEntry = view == .list && list.archived > 0
+        // #EXP-1950: installs waiting for approval count as Needs you rows.
         let needsYouCount = view == .list
             ? lists.needsYou(teamId: teamState.activeTeamId, me: deps.auth.userId, now: now).count
+                + deps.installTrust.snapshot(accountId).rows.count
             : 0
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {

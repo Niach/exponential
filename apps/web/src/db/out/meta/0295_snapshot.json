@@ -1,5 +1,5 @@
 {
-  "id": "dc1d4784-39bc-430d-bbc1-9f92ab6fc709",
+  "id": "b5ea1ce9-75f9-4f5b-a95f-258ca86ecab9",
   "prevId": "b9fc9c6b-f5e6-4dcb-8226-782b7c0e3fdc",
   "version": "7",
   "dialect": "postgresql",
@@ -6211,6 +6211,139 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.install_approvals": {
+      "name": "install_approvals",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject_install_id": {
+          "name": "subject_install_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject_endpoint_id": {
+          "name": "subject_endpoint_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "approver_install_id": {
+          "name": "approver_install_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "approver_endpoint_id": {
+          "name": "approver_endpoint_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signature": {
+          "name": "signature",
+          "type": "varchar(86)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "uniq_install_approvals_subject_approver_kind": {
+          "name": "uniq_install_approvals_subject_approver_kind",
+          "columns": [
+            {
+              "expression": "subject_install_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "approver_endpoint_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "idx_install_approvals_approver": {
+          "name": "idx_install_approvals_approver",
+          "columns": [
+            {
+              "expression": "approver_endpoint_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "install_approvals_subject_install_id_installs_id_fk": {
+          "name": "install_approvals_subject_install_id_installs_id_fk",
+          "tableFrom": "install_approvals",
+          "tableTo": "installs",
+          "columnsFrom": [
+            "subject_install_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "install_approvals_approver_install_id_installs_id_fk": {
+          "name": "install_approvals_approver_install_id_installs_id_fk",
+          "tableFrom": "install_approvals",
+          "tableTo": "installs",
+          "columnsFrom": [
+            "approver_install_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.installs": {
       "name": "installs",
       "schema": "",
@@ -6248,12 +6381,6 @@
         },
         "platform": {
           "name": "platform",
-          "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "app_version": {
-          "name": "app_version",
           "type": "varchar(32)",
           "primaryKey": false,
           "notNull": false
@@ -6299,6 +6426,12 @@
         "registration_signed_at": {
           "name": "registration_signed_at",
           "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "approval_requested_at": {
+          "name": "approval_requested_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         }

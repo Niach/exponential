@@ -173,6 +173,84 @@ class ExpressBlocksDeviceTest {
         assertEquals("a3", card.messageId)
     }
 
+    @Test
+    fun aSubagentTabDrawsItsBlocks() {
+        // #EXP-2074: the focused subagent's tab (THE lane rows, the real
+        // SubagentLaneItem) under the feed's Express locals: the narration's
+        // prose bubbles around its block's surface card, one sender group,
+        // and a press posts THE action into the feed's session.
+        val run = com.exponential.app.domain.AgentFeedRow.SubagentRun(
+            id = 1L,
+            subagentId = "sa1",
+            agentType = "Explore",
+            completed = true,
+            detail = null,
+            items = listOf(
+                com.exponential.app.domain.AgentFeedItem.UserMessage(10L, "Check the three lanes", subagentId = "sa1", seq = 10L),
+                com.exponential.app.domain.AgentFeedItem.Narration(
+                    11L,
+                    com.exponential.app.ui.styleguide.EXPRESS_SAMPLE_TEXT,
+                    messageId = "msg_sa1",
+                    subagentId = "sa1",
+                    seq = 11L,
+                    at = 1_763_456_520_000L,
+                ),
+            ),
+            title = "Check the three lanes",
+        )
+        var posted: ChatExpress.ActionResult.Post? = null
+        show {
+            val sink = rememberExpressActionSink { posted = it }
+            CompositionLocalProvider(
+                com.exponential.app.ui.chat.LocalExpressSession provides "s1",
+                com.exponential.app.ui.chat.LocalExpressActions provides sink,
+            ) {
+                val rows = remember { com.exponential.app.ui.session.subagentLaneRows(run, emptySet()) }
+                val layouts = remember(rows) { com.exponential.app.ui.session.laneTranscriptLayout(rows, run) }
+                androidx.compose.foundation.lazy.LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
+                ) {
+                    items(rows.size) { index ->
+                        com.exponential.app.ui.session.SubagentLaneItem(rows, index, layouts, run, liveRowId = null, live = true, working = false)
+                    }
+                }
+            }
+        }
+        waitFor(hasTestTag(com.exponential.app.domain.Chats.TestIds.SURFACE_CARD))
+        waitFor(hasText("Build 1482 is green"))
+        waitFor(hasText("Checked the three lanes."))
+        waitFor(hasText("All green."))
+        shot("subagent-tab")
+        compose.onAllNodes(hasText("Ship it"), useUnmergedTree = true)[0].performClick()
+        compose.waitUntil(5_000) { posted != null }
+        val card = posted!!.card
+        assertEquals("Ship it", posted!!.body)
+        assertEquals("n:s1:msg_sa1#1", card.block)
+        assertEquals(null, card.messageId)
+    }
+
+    @Test
+    fun aCallViewTurnDrawsItsBlock() {
+        // #EXP-2076: THE call view (session-card.json `callViewCases[0]` +
+        // the Express turn): the agent turn splits like the chat (`m:v-express`).
+        var posted: ChatExpress.ActionResult.Post? = null
+        show {
+            com.exponential.app.ui.styleguide.CallViewExpressSpecimen(
+                modifier = Modifier.fillMaxSize(),
+                onSurfaceAction = rememberExpressActionSink { posted = it },
+            )
+        }
+        waitFor(hasTestTag(com.exponential.app.domain.Chats.TestIds.SURFACE_CARD))
+        waitFor(hasText("Build 1482 is green"))
+        waitFor(hasText("All green."))
+        shot("call-view")
+        compose.onAllNodes(hasText("Ship it"), useUnmergedTree = true)[0].performClick()
+        compose.waitUntil(5_000) { posted != null }
+        assertEquals("m:v-express#1", posted!!.card.block)
+        assertEquals("v-express", posted!!.card.messageId)
+    }
+
     private companion object {
         const val VIEWER = "viewer"
         val TIMES = mapOf("u1" to "09:40", "a1" to "09:41", "a2" to "09:41", "a3" to "09:41", "p2" to "09:42", "p3" to "09:42")

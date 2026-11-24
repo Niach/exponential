@@ -265,7 +265,10 @@ fun SessionCard(
     ) {
         SessionCardHeader(card, chevron, expanded)
         // #EXP-1943: a call card's summary, the muted second line.
-        card.caption?.let { caption ->
+        // #EXP-2076 (chat-express.json PROSE): a caption only READS the call
+        // agent's text: its pure prose, never a block.
+        val captionText = card.caption?.let { remember(it) { com.exponential.app.domain.ChatExpress.plainProse(it) } }
+        captionText?.takeIf { it.isNotEmpty() }?.let { caption ->
             Text(
                 caption,
                 style = chatCardTextStyle(),
@@ -588,13 +591,24 @@ fun ChatConversation(
                                 if (layout.isRelay()) {
                                     // #EXP-1772: a relay: its name above the
                                     // bubble, only the name opens the session.
-                                    RelayBubble(
-                                        author = layout.authorLine(),
-                                        time = rowMeta?.time,
-                                        onOpen = if (link != null && open != null) ({ open(link) }) else null,
-                                        queued = row.queued,
-                                        tail = layout.hasTail(),
-                                    ) { MarkdownView(markdown = row.body, softBreaksAsNewlines = true) }
+                                    // #EXP-2076: an agent's relay is agent text
+                                    // too (web ExpressMessage): its segments,
+                                    // the name on the first, the time on the
+                                    // last prose bubble.
+                                    val relayBubble: @Composable (String, Boolean, Boolean) -> Unit = { text, first, last ->
+                                        RelayBubble(
+                                            author = if (first) layout.authorLine() else null,
+                                            time = if (last) rowMeta?.time else null,
+                                            onOpen = if (first && link != null && open != null) ({ open(link) }) else null,
+                                            queued = row.queued,
+                                            tail = first && layout.hasTail(),
+                                        ) { MarkdownView(markdown = text, softBreaksAsNewlines = true) }
+                                    }
+                                    if (row.author == "agent") {
+                                        ExpressSyncedText(row.id, row.body, arrivals(row.id), relayBubble)
+                                    } else {
+                                        relayBubble(row.body, true, true)
+                                    }
                                 } else {
                                     // #EXP-2067: an agent's text with Express
                                     // blocks = its segments, one sender group.
@@ -725,14 +739,19 @@ fun ChatConversation(
                             answered = false,
                         )
                         val open = onOpenXref?.takeIf { action.action != ChatRowAction.Kind.None }
-                        RelayBubble(
-                            author = layout.authorLine(),
-                            // #EXP-1864: a child's report wears its time too.
-                            time = row.at?.let(clock),
-                            onOpen = open?.let { { it(row.sessionId) } },
-                        ) {
-                            val text = row.summary.ifEmpty { row.text }
-                            MarkdownView(markdown = text, softBreaksAsNewlines = true)
+                        // #EXP-2076: a child's report is the child agent's
+                        // text (web ExpressMessage, `m:<id>`, final): its
+                        // segments, the name on the first, the time on the
+                        // last prose bubble.
+                        ExpressSyncedText(row.id, row.summary.ifEmpty { row.text }, arrivals(row.id)) { text, first, last ->
+                            RelayBubble(
+                                author = if (first) layout.authorLine() else null,
+                                // #EXP-1864: a child's report wears its time too.
+                                time = if (last) row.at?.let(clock) else null,
+                                onOpen = if (first) open?.let { { it(row.sessionId) } } else null,
+                            ) {
+                                MarkdownView(markdown = text, softBreaksAsNewlines = true)
+                            }
                         }
                     }
                     is SessionTree.SessionChatRow.Suggestions -> ChatSuggestionsCard(
@@ -771,6 +790,28 @@ fun ChatConversation(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = jumpBottomInset + 4.dp),
         )
         }
+    }
+}
+
+/**
+ * #EXP-2067 / #EXP-2076 (web `ExpressMessage`): a SYNCED agent text (a relay,
+ * a child's report): row key `m:<id>`, final; a text without a block =
+ * [bubble] once (first + last), else its segments, [bubble] per prose run
+ * (`first` = the row's first segment, `last` = its last prose run).
+ */
+@Composable
+private fun ExpressSyncedText(
+    rowId: String,
+    text: String,
+    arrived: Boolean,
+    bubble: @Composable (text: String, first: Boolean, last: Boolean) -> Unit,
+) {
+    val key = com.exponential.app.domain.ChatExpress.syncedRowKey(rowId)
+    val segments = rememberExpressSegments(key, text, final = true)
+    if (segments == null) {
+        bubble(text, true, true)
+    } else {
+        ExpressSegments(rowKey = key, segments = segments, arrived = arrived, prose = bubble)
     }
 }
 

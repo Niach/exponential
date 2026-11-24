@@ -176,7 +176,8 @@ struct TeamTabView: View {
                         .foregroundStyle(.white)
                 } else if accountId == activeAccountId {
                     CountBadge(
-                        count: lists.needsYou(teamId: team.id, me: deps.auth.userId, now: Date()).count,
+                        count: lists.needsYou(teamId: team.id, me: deps.auth.userId, now: Date()).count
+                            + deps.installTrust.snapshot(accountId).rows.count,
                         tone: .attention
                     )
                 }

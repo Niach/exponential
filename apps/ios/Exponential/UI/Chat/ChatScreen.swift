@@ -832,6 +832,9 @@ struct ChatScreen: View {
         )
         // #EDE-99: find searches ONE transcript, a child's while scoped to it.
         .environment(\.chatFind, find.sessionId == nil ? find : nil)
+        // #EXP-1950: an install waiting for approval, where this encrypted
+        // chat would open: the waiting state instead of locked rows.
+        .overlay { InstallWaitingGate(rootId: rows.root.id, sealed: rows.root.sealEpoch != nil) }
         .id(rows.root.id)
     }
 

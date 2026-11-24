@@ -15,6 +15,7 @@ import { TRPCError } from "@trpc/server"
 import { assertTeamMember } from "@/lib/team-membership"
 import { invalidateMembershipCaches } from "@/lib/auth/membership-cache"
 import { endHostedSessions, foreignHostedSessionIds } from "@/lib/sessions/lifecycle"
+import { dropReaderKeysInTx } from "@/lib/sessions/tree-keys"
 import { lockDeviceShares } from "@/lib/sessions/host"
 import { syncVoiceMirror } from "@/lib/agents/assistant"
 import {
@@ -379,6 +380,10 @@ export const teamMembersRouter = router({
               arrayContains(devices.sharedTeamIds, [target.teamId])
             )
           )
+        // Membership end = reading end (#EXP-1951, sealed-content.json
+        // `rotation`): the ex-member's installs (their devices' too) lose
+        // their wraps of this team's trees, which are due for rotation.
+        await dropReaderKeysInTx(tx, { userId: target.userId }, [target.teamId])
         // EXP-630: an unclaimed placeholder nothing references any more has
         // no reason to exist once it is off its last roster (its invites
         // cascade with it). A referenced one stays, like any former member.

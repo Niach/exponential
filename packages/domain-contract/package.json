@@ -87,6 +87,7 @@
     "./sealed-content": "./src/sealed-content.ts",
     "./call-seal": "./src/call-seal.ts",
     "./wrap-signature": "./src/wrap-signature.ts",
+    "./install-trust": "./src/install-trust.ts",
     "./question-push": "./src/question-push.ts",
     "./steer-enet": "./src/steer-enet.ts",
     "./fixtures/*": "./fixtures/*",

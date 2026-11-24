@@ -66,7 +66,7 @@ final class AgentSessionModel {
         case .connecting: return .connecting
         // EXP-1487: a live feed that dropped holds `.live` on screen while it
         // redials silently; to the revival rule it is a reconnecting close.
-        case .live: return dropAt == nil ? .live : .closedReconnecting
+        case .live: return drop.pending ? .closedReconnecting : .live
         case .starting: return .starting
         case .ended: return .final
         case let .closed(_, reconnecting): return reconnecting ? .closedReconnecting : .final
@@ -1307,11 +1307,10 @@ final class AgentSessionModel {
     /// next NO FEED then redials at once, the backoff from n = 0).
     @ObservationIgnored private var wakeRow: SteerNoFeed.WakeRow?
     @ObservationIgnored private var rowWoke = false
-    /// EXP-1487 LOST BANNER: when a feed that was joined dropped (nil = no
-    /// drop pending), and how many redials since then failed. A successful
-    /// join resets both (`attachFeed`).
-    private var dropAt: Date?
-    private var failedRedialsSinceDrop = 0
+    /// EXP-1487 LOST BANNER: when a feed that was joined dropped and how
+    /// many redials since then failed (`SteerDrop`). A successful join
+    /// (`attachFeed`) and the banner's Reconnect (#EXP-2087) clear it.
+    private var drop = SteerDrop()
     /// Monotonic dial id — each dial() invalidates the ones before it, so a
     /// dial that was superseded mid-await (a foreground connect() racing a
     /// fired backoff retry, EXP-243) can't install a second socket or stomp
@@ -1511,6 +1510,9 @@ final class AgentSessionModel {
         retryTask?.cancel()
         retryTask = nil
         reconnectAttempts = 0
+        // #EXP-2087: a fresh dial, never one more failed redial of the old
+        // drop (that flipped a tapped Reconnect straight back to the banner).
+        drop.reconnect()
         resetDialState()
         phase = .connecting
         Task { await dial() }
@@ -1610,8 +1612,7 @@ final class AgentSessionModel {
         retryTask = nil
         dialInFlight = false
         lastFrameAt = nil
-        dropAt = nil
-        failedRedialsSinceDrop = 0
+        drop.clear()
         cancelAnswerExpiries()
         clearLiveWork()
         sessionObservationTask?.cancel()
@@ -1902,14 +1903,20 @@ final class AgentSessionModel {
 
     private var ownTail: [OwnPendingBubble] {
         guard ownPending.contains(where: { $0.stored }) else { return ownPending }
-        var echoes: [(text: String, at: Double)] = []
+        // #EXP-2089: `member` = the teammate a group chat's line names (nil =
+        // the viewer's, or an unworded line: anyone's).
+        var echoes: [(text: String, at: Double, member: String?)] = []
         for item in feed.suffix(40) {
             if case let .userMessage(_, text, _, at) = item {
-                // #EXP-1990: a group chat's echo of the viewer's own line
+                // #EXP-1990: a group chat's echo of a member's line
                 // (`Message from <name> (member <id>): <body>`) = its body.
                 var own = text
-                if case let .member(_, userId, body) = TranscriptGrouping.feedInput(text), userId == currentUserId { own = body }
-                echoes.append((own.trimmingCharacters(in: .whitespacesAndNewlines), Double(at ?? 0) / 1000))
+                var member: String?
+                if case let .member(_, userId, body) = TranscriptGrouping.feedInput(text) {
+                    own = body
+                    member = userId == currentUserId ? nil : userId
+                }
+                echoes.append((own.trimmingCharacters(in: .whitespacesAndNewlines), Double(at ?? 0) / 1000, member))
             }
         }
         var used = Set<Int>()
@@ -1918,6 +1925,7 @@ final class AgentSessionModel {
             let since = (bubble.at?.timeIntervalSince1970 ?? 0) - 5
             guard let index = echoes.indices.first(where: {
                 !used.contains($0) && echoes[$0].text == bubble.text && echoes[$0].at >= since
+                    && (echoes[$0].member == nil || echoes[$0].member == bubble.memberId)
             }) else { return true }
             used.insert(index)
             return false
@@ -2029,7 +2037,8 @@ final class AgentSessionModel {
             let rows = try MessageEntity
                 .filter(Column("session_id") == id)
                 .filter(Column("author_kind") == "user")
-                .filter(Column("author_id") == viewerId)
+                // #EXP-2089: + every teammate's row the device has not consumed.
+                .filter(Column("author_id") == viewerId || Column("consumed_at") == nil)
                 .filter(Column("card") == nil || Column("card").like("%\"action\"%"))
                 .order(Column("created_at").desc)
                 .limit(50)
@@ -2531,12 +2540,12 @@ final class AgentSessionModel {
             carriers = nil
             dialInFlight = false
             logger.info("no feed on either carrier (eNet \(reason?.rawValue ?? "-", privacy: .public))")
-            if dropAt != nil, !sessionEnded {
+            if drop.pending, !sessionEnded {
                 // EXP-1487: a redial of a dropped feed that failed — silent
                 // until the lost-banner rule says otherwise.
                 feedDown()
             } else {
-                dropAt = nil
+                drop.clear()
                 applyNoFeed()
             }
         case .closed:
@@ -3694,8 +3703,7 @@ final class AgentSessionModel {
     private func attachFeed(generation: Int) {
         connected = true
         // EXP-1487: a successful join ends any drop (and its backoff curve).
-        dropAt = nil
-        failedRedialsSinceDrop = 0
+        drop.clear()
         reconnectAttempts = 0
         startingRetries = 0
         rowWoke = false
@@ -3798,16 +3806,10 @@ final class AgentSessionModel {
     /// `SteerLostBanner.show`; then the reconnecting close with its banner.
     /// Either way the backoff redials.
     private func feedDown() {
-        let now = Date()
-        if let since = dropAt {
-            failedRedialsSinceDrop += 1
-            let downMs = Int(now.timeIntervalSince(since) * 1000)
-            if SteerLostBanner.show(downMs: downMs, failedRedials: failedRedialsSinceDrop) {
-                phase = .closed(detail: endDetail ?? "Connection lost.", reconnecting: true)
-            }
-        } else {
-            dropAt = now
-            failedRedialsSinceDrop = 0
+        let dropped = !drop.pending
+        if drop.failed(now: Date()) {
+            phase = .closed(detail: endDetail ?? "Connection lost.", reconnecting: true)
+        } else if dropped {
             logger.info("feed dropped, redialing silently")
         }
         scheduleReconnect()
@@ -3822,10 +3824,7 @@ final class AgentSessionModel {
         reconnectAttempts = 0
         // EXP-1487: the stale link is a drop; a failed redial counts toward
         // the lost banner instead of flipping to `starting`.
-        if dropAt == nil {
-            dropAt = Date()
-            failedRedialsSinceDrop = 0
-        }
+        drop.begin(now: Date())
         retryTask = Task { [weak self] in
             guard let self, !self.stopped, !Task.isCancelled else { return }
             self.resetDialState()

@@ -185,8 +185,13 @@ object AskDock {
 
     /** Where each session card draws: right after the SETTLED, unfailed call
      *  that posted it, paired newest back PER KIND; a card with no call left =
-     *  [Anchors.unanchored] (card order, the transcript's head). */
-    data class Anchors(val after: Map<Long, List<String>>, val unanchored: List<String>)
+     *  [Anchors.unanchored] (card order, the transcript's head), a WAITING
+     *  one = [Anchors.tail] (#EXP-2087: after the transcript's last row). */
+    data class Anchors(
+        val after: Map<Long, List<String>>,
+        val unanchored: List<String>,
+        val tail: List<String> = emptyList(),
+    )
 
     /** S-3: THE call that posts every kind now (`exponential_show`). */
     const val SHOW_CARD_CALL = "show"
@@ -226,11 +231,16 @@ object AskDock {
         }
         val after = LinkedHashMap<Long, MutableList<String>>()
         val unanchored = ArrayList<String>()
+        val tail = ArrayList<String>()
         for (card in cards.asReversed()) {
             val call = named[card.id] ?: take(card.kind.postingCall) ?: take(SHOW_CARD_CALL)
-            if (call == null) unanchored.add(0, card.id) else after.getOrPut(call) { mutableListOf() }.add(0, card.id)
+            when {
+                call != null -> after.getOrPut(call) { mutableListOf() }.add(0, card.id)
+                card.waiting -> tail.add(0, card.id)
+                else -> unanchored.add(0, card.id)
+            }
         }
-        return Anchors(after, unanchored)
+        return Anchors(after, unanchored, tail)
     }
 
     /** The feed's tool calls, as [anchorSessionCards] reads them. */

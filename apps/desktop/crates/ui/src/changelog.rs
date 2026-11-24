@@ -61,6 +61,18 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_353: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-views-in-subagents-and-calls",
+    date: "2026-11-24",
+    title: "Views in subagent tabs and calls",
+    summary: "An agent's views now show in a subagent's tab and in a call's transcript, and a call only speaks the words around them.",
+    body: r##"- **Subagent tabs**: when a subagent writes a view into its message, its tab now shows the view in place, and its buttons work like they do in the chat.
+- **Calls**: a call's transcript shows the agent's views in place; pressing a button posts into the call while it runs.
+- **Spoken and summed up in words only**: the call reads out and captions only the agent's words, never the view's code, and a call's summary line shows only its words."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_352: ChangelogEntry = ChangelogEntry {
     id: "2026-11-23-desktop-cli-0-14-176",
     date: "2026-11-23",

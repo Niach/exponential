@@ -32,6 +32,7 @@ struct AgentsView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var viewModel: AgentsViewModel?
     /// The `⋯` menu's Device settings — the sheet it opens (name, default
     /// device, sharing, launch defaults, update + remove).
@@ -230,6 +231,10 @@ struct AgentsView: View {
         // decides the grid's columns.
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
+                // #EXP-1950: phones also list the installs waiting for approval here.
+                if sizeClass == .compact {
+                    LivePendingInstalls()
+                }
                 VStack(alignment: .leading, spacing: 0) {
                     // EXP-1169 (web + desktop parity): "Add device" rides
                     // the band and opens the ONE device setup block.

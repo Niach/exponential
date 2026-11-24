@@ -889,6 +889,9 @@ fn woke(session_id: &str, result: Result<Vec<String>, pickup::WakeError>) -> Ste
             );
             StepOutcome::Failed
         }
+        // #EXP-2081: a refused wake waits out its backoff: the retry timer
+        // keeps running, nothing is logged every time.
+        Err(pickup::WakeError::Backoff) => StepOutcome::Failed,
         Err(err) => {
             log::warn!("[pickup] delivering to {session_id} failed: {err}");
             StepOutcome::Failed
