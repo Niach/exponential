@@ -873,8 +873,9 @@ async fn a_suspended_runs_viewer_holds_its_transcript_and_comes_back() {
     let runtime: &SteerRuntime = Box::leak(Box::new(SteerRuntime::new().unwrap()));
     let here = vec![enet::endpoint_hex(&d.endpoint_id())];
 
-    for restart in [false, true] {
-        let session_id = format!("sess-suspend-{restart}-{}", std::process::id());
+    // A restart may take the agent down first: its exit, on a persistent row.
+    for (restart, outcome) in [(false, steer::viewer::SUSPENDED), (true, steer::viewer::SUSPENDED), (true, "exit:143")] {
+        let session_id = format!("sess-suspend-{restart}-{outcome}-{}", std::process::id()).replace(':', "-");
         let run = || {
             steer::publish(
                 runtime,
@@ -903,12 +904,13 @@ async fn a_suspended_runs_viewer_holds_its_transcript_and_comes_back() {
         };
         let (events_tx, events) = flume::unbounded();
         let handle = steer::spawn_viewer_with(runtime, Some(source.clone()), session_id.clone(), events_tx, timings);
+        handle.note_persistent(true);
         while !matches!(next_event(&events).await, ViewerEvent::Synced { .. }) {}
 
         if restart {
             source.endpoints.lock().unwrap().clear();
         }
-        first.shutdown(Some(steer::viewer::SUSPENDED.into()));
+        first.shutdown(Some(outcome.into()));
         while next_event(&events).await != ViewerEvent::Phase(ViewerPhase::Ended { outcome: Some(steer::viewer::SUSPENDED.into()) }) {}
         assert!(handle.is_active(), "a suspended run's viewer keeps its loop");
         wait_until(|| !enet_steer::has_room(&session_id)).await;

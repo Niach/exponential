@@ -342,6 +342,7 @@ pub struct ViewerHandle {
     session_ended: Arc<AtomicBool>,
     /// #EXP-1703: the host device is offline in presence.
     host_offline: Arc<AtomicBool>,
+    persistent: Arc<AtomicBool>,
     carrier: Arc<AtomicU8>,
 }
 
@@ -493,6 +494,13 @@ impl ViewerHandle {
         self.host_offline.store(offline, Ordering::SeqCst);
     }
 
+    /// #EXP-2119: the session is PERSISTENT (an agent's conversation): its
+    /// run's `bye` (a restart that took the agent down with it, `exit:143`)
+    /// is not its end while the row lives.
+    pub fn note_persistent(&self, persistent: bool) {
+        self.persistent.store(persistent, Ordering::SeqCst);
+    }
+
     /// Close the connection for good (the tab closed, the app is signing
     /// out). Idempotent.
     pub fn shutdown(&self) {
@@ -601,6 +609,7 @@ pub fn spawn_viewer_with(
     let connected = Arc::new(AtomicBool::new(false));
     let session_ended = Arc::new(AtomicBool::new(false));
     let host_offline = Arc::new(AtomicBool::new(false));
+    let persistent = Arc::new(AtomicBool::new(false));
     let carrier = Arc::new(AtomicU8::new(0));
     let handle = ViewerHandle {
         cmd_tx,
@@ -609,6 +618,7 @@ pub fn spawn_viewer_with(
         running: running.clone(),
         session_ended: session_ended.clone(),
         host_offline: host_offline.clone(),
+        persistent: persistent.clone(),
         carrier: carrier.clone(),
     };
     runtime.handle().spawn(run_viewer_loop(
@@ -621,6 +631,7 @@ pub fn spawn_viewer_with(
         connected,
         session_ended,
         host_offline,
+        persistent,
         carrier,
     ));
     handle
@@ -776,6 +787,8 @@ struct Run {
     session_ended: Arc<AtomicBool>,
     /// #EXP-1703: [`ViewerHandle::note_host_offline`].
     host_offline: Arc<AtomicBool>,
+    /// #EXP-2119: [`ViewerHandle::note_persistent`].
+    persistent: Arc<AtomicBool>,
     carrier_flag: Arc<AtomicU8>,
     phases: Phases,
     backoff: Backoff,
@@ -813,6 +826,7 @@ async fn run_viewer_loop(
     connected: Arc<AtomicBool>,
     session_ended: Arc<AtomicBool>,
     host_offline: Arc<AtomicBool>,
+    persistent: Arc<AtomicBool>,
     carrier_flag: Arc<AtomicU8>,
 ) {
     let (legs_tx, legs_rx) = flume::unbounded();
@@ -827,6 +841,7 @@ async fn run_viewer_loop(
         connected,
         session_ended,
         host_offline,
+        persistent,
         carrier_flag,
         carriers: CarrierState::INITIAL,
         enet_leg: None,
@@ -873,7 +888,7 @@ async fn run_viewer_loop(
                 // `run` holds a sender: the channel never closes.
                 let Ok(msg) = msg else { continue };
                 if let Some(outcome) = run.leg_msg(msg) {
-                    if outcome.as_deref() == Some(SUSPENDED) {
+                    if run.comes_back(outcome.as_deref()) {
                         run.suspend();
                         continue;
                     }
@@ -956,7 +971,17 @@ impl Run {
         apply
     }
 
-    /// #EXP-2119: the active carrier's `bye suspended`: both legs go, the
+    /// #EXP-2119: whether a `bye` says the RUN is over, not the session: a
+    /// suspended run, or a persistent session's whose row still lives (a
+    /// person's kill and a served journal are ends).
+    fn comes_back(&self, outcome: Option<&str>) -> bool {
+        outcome == Some(SUSPENDED)
+            || (self.persistent.load(Ordering::SeqCst)
+                && !self.session_ended.load(Ordering::SeqCst)
+                && !matches!(outcome, Some("killed") | Some(crate::history::HISTORY_OUTCOME)))
+    }
+
+    /// #EXP-2119: the active carrier's `bye` of a run that comes back: both legs go, the
     /// transcript holds under [`ViewerPhase::is_suspended`] (no lost banner),
     /// ONE redial per stale beat, sooner on a kick or a row wake.
     fn suspend(&mut self) {
