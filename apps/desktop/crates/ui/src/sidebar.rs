@@ -1410,7 +1410,7 @@ mod tests {
         });
         let items = (0..40).map(|n| IdeItemInput { kind: "board".into(), id: format!("b{n}"), name: format!("Board {n}"), icon: "ui-file".into(), ..Default::default() }).collect();
         let input = IdeSidebarInput { screen: "home".into(), teams: vec![IdeTeamInput { id: "t1".into(), name: "Acme".into(), mark: "ui-team".into(), open: true, owner: true, items, ..Default::default() }], ..Default::default() };
-        cx.update(|_, cx| region.update(cx, |region, cx| region.show(input, None, cx)));
+        cx.update(|_, cx| region.update(cx, |region, cx| region.show(input.clone(), None, cx)));
         settle(cx);
 
         let extent = |cx: &mut gpui::VisualTestContext| surface.read_with(cx, |view, _| view.scroll_extent("scroll")).expect("the rows' ScrollArea laid out");
@@ -1443,6 +1443,20 @@ mod tests {
         let last = painted(&surface, "ide_item_row.b39", cx);
         let scroll = painted(&surface, "scroll", cx);
         assert!(last.top() >= scroll.top() && f32::from(last.bottom()) <= f32::from(scroll.bottom()) + 0.5, "the last row is in view: {last:?} in {scroll:?}");
+
+        // The rows change under the scrolled list (a synced board, then a
+        // pull request): the list stays where the wheel left it.
+        let mut grown = input.clone();
+        grown.teams[0].items.push(IdeItemInput { kind: "board".into(), id: "b40".into(), name: "Board 40".into(), icon: "ui-file".into(), ..Default::default() });
+        cx.update(|_, cx| region.update(cx, |region, cx| region.show(grown.clone(), None, cx)));
+        settle(cx);
+        let (after_row, _, _) = extent(cx);
+        grown.repos = vec![uicore_model::ide::IdeRepoInput { id: "repo1".into(), name: "engine".into(), prs: vec![uicore_model::ide::IdePrInput { id: "p1".into(), identifier: "#1".into(), title: "Faster sync".into(), subtitle: "sync → main".into(), depth: 0, session: None }] }];
+        cx.update(|_, cx| region.update(cx, |region, cx| region.show(grown.clone(), None, cx)));
+        settle(cx);
+        let (after_pr, _, _) = extent(cx);
+        assert!(after_row >= offset - 0.5, "a synced row keeps the scroll: {after_row} (was {offset})");
+        assert!(after_pr >= offset - 0.5, "a synced pull request keeps the scroll: {after_pr} (was {offset})");
     }
 
 }
