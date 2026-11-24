@@ -55,6 +55,46 @@ final class InstallTrustFixtureTests: XCTestCase {
         XCTAssertEqual(kinds.count, ApprovalKind.allCases.count)
     }
 
+    // MARK: who makes a chat key (`keyMaker`, #EXP-2123)
+
+    func testKeyMakerCases() throws {
+        let f = try Self.object(try Self.fixture(), "keyMaker")
+        XCTAssertEqual(keyMakerRefusal, try Self.text(f, "refusal"))
+        XCTAssertTrue(isKeyMakerRefusal(keyMakerRefusal))
+        XCTAssertFalse(isKeyMakerRefusal("Session not found"))
+        XCTAssertFalse(isKeyMakerRefusal(nil))
+        let server = try Self.cases(f, "serverCases")
+        XCTAssertGreaterThanOrEqual(server.count, 6)
+        for c in server {
+            XCTAssertEqual(keyMakerWaits(
+                chained: c["chained"] as? Bool ?? false, asked: c["asked"] as? Bool ?? false,
+                accountChain: c["accountChain"] as? Bool ?? false, registration: c["registration"] as? Bool ?? false
+            ), try XCTUnwrap(c["waits"] as? Bool), try Self.text(c, "name"))
+        }
+        let maker = try Self.cases(f, "makerCases")
+        XCTAssertGreaterThanOrEqual(maker.count, 12)
+        for c in maker {
+            XCTAssertEqual(keyMakerStep(
+                joined: try XCTUnwrap(c["joined"] as? Bool), write: try XCTUnwrap(KeyWrite(rawValue: try Self.text(c, "write"))),
+                refused: c["refused"] as? Bool ?? false
+            ).rawValue, try Self.text(c, "step"), try Self.text(c, "name"))
+        }
+        let stranded = try Self.cases(f, "strandedCases")
+        XCTAssertGreaterThanOrEqual(stranded.count, 7)
+        for c in stranded {
+            XCTAssertEqual(strandedRotationEpoch(
+                flagged: (c["flagged"] as? Int).map(UInt32.init), current: (c["current"] as? Int).map(UInt32.init),
+                held: try XCTUnwrap(c["held"] as? Bool), stranded: try XCTUnwrap(c["stranded"] as? Bool),
+                joined: try XCTUnwrap(c["joined"] as? Bool), left: try XCTUnwrap(c["left"] as? Bool)
+            ), (c["epoch"] as? Int).map(UInt32.init), try Self.text(c, "name"))
+        }
+    }
+
+    func testDueDecodesStranded() throws {
+        let due = try JSONDecoder().decode([DueTreeKey].self, from: Data(#"[{"rootId":"a","epoch":1},{"rootId":"b","epoch":2,"stranded":true}]"#.utf8))
+        XCTAssertEqual(due, [DueTreeKey(rootId: "a", epoch: 1), DueTreeKey(rootId: "b", epoch: 2, stranded: true)])
+    }
+
     func testTheCodeVectorsAndEveryKeysCode() throws {
         let f = try Self.fixture()
         let code = try Self.object(f, "code")
