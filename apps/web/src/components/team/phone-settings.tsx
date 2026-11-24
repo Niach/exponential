@@ -233,7 +233,7 @@ export function PhoneSettingsRoot({ teamSlug }: { teamSlug: string }) {
   const [gettingStartedOpen, setGettingStartedOpen] = useState(false)
   const personal = settingsNav.nav.phone.settings.flatMap((id) => {
     const item = PERSONAL_ITEMS.find((entry) => entry.id === id)
-    return item && id !== `account` ? [item] : []
+    return item ? [item] : []
   })
   return (
     <div className="h-full overflow-y-auto" data-testid="phone-settings">

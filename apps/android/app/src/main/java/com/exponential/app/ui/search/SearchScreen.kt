@@ -151,7 +151,7 @@ fun SearchScreen(
                     )
                 }
                 state.query.isEmpty() -> EmptyState(
-                    title = "Search issues across this team's boards.",
+                    title = "Search issues across all your boards.",
                     description = "Matches identifiers, titles, full text, and by:creator.",
                     icon = ExpIcons.navSearch,
                 )

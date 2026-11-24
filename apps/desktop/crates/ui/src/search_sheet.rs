@@ -86,7 +86,7 @@ const EMPTY_HEIGHT: f32 = 132.;
 /// `lib/issue-search.ts`, iOS `SearchView`, Android `SearchScreen`. Same words
 /// everywhere; the web `issue-search-surfaces.test.ts` greps THIS file for them.
 const SEARCH_PLACEHOLDER: &str = "Search issues";
-const SEARCH_EMPTY_HINT: &str = "Search issues across this team's boards.";
+const SEARCH_EMPTY_HINT: &str = "Search issues across all your boards.";
 const SEARCH_EMPTY_DETAIL: &str = "Matches identifiers, titles, full text, and by:creator.";
 const SEARCH_NO_RESULTS: &str = "No issues match";
 

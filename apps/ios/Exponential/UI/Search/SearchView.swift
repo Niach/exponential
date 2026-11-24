@@ -216,7 +216,7 @@ struct SearchView: View {
 
     private var searchHint: some View {
         EmptyState(
-            title: "Search issues across this team's boards.",
+            title: "Search issues across all your boards.",
             description: "Matches identifiers, titles, full text, and by:creator.",
             icon: AppIcons.navSearch
         )
