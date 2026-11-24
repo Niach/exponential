@@ -241,6 +241,15 @@ const ANTICIPATED_CONTINUATION_GRACE: Duration = Duration::from_secs(30);
 /// until it finished. Only while no title is known yet.
 const TITLE_EARLY_POLLS: [Duration; 2] = [Duration::from_secs(8), Duration::from_secs(30)];
 
+/// #FEED-305: clears the session's `starting` mark however the start ends.
+struct StartUnderWay<'a>(&'a AtomicBool);
+
+impl Drop for StartUnderWay<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// #FEED-296: how the startup `initialize` wait ended.
 enum Startup {
     Answered(Result<wire::ControlResp, Error>),
@@ -519,6 +528,13 @@ struct ClaudeSession {
     /// between them), so two prompts racing on a loaded session used to spawn
     /// two CLIs, the second silently orphaning the first.
     start_gate: tokio::sync::Mutex<()>,
+    /// #FEED-305: a start is under way: `state.child` is an attempt's child
+    /// that has not answered `initialize` yet and may still be retired.
+    starting: AtomicBool,
+    /// #FEED-305: how many starts failed, and the last one's reason. A
+    /// prompt that waited at `start_gate` through a failed start fails with
+    /// that reason instead of spawning a round of its own.
+    start_failed: Mutex<(u64, Option<Value>)>,
     /// EXP-909: the LOGIN this run spends (`coding::profile_id` of the
     /// launch's `account`). Every live usage publish is keyed by it, so a run
     /// on one account never moves another's numbers.
@@ -1372,6 +1388,8 @@ impl ClaudeSession {
             gone,
             gone_gate: Mutex::new(Some(gone_gate)),
             start_gate: tokio::sync::Mutex::new(()),
+            starting: AtomicBool::new(false),
+            start_failed: Mutex::new((0, None)),
             account_profile,
             live_usage: Mutex::new(live_usage),
             state: Mutex::new(state),
@@ -1425,7 +1443,9 @@ impl ClaudeSession {
     /// resumes with: the native id, never the public one.
     fn lazy_resume_handle(&self) -> Option<String> {
         let state = self.lock();
-        state.child.is_none().then(|| {
+        // #FEED-305: a child still starting may be retired; the caller that
+        // then starts one itself resumes the same conversation.
+        (state.child.is_none() || self.starting.load(Ordering::SeqCst)).then(|| {
             state
                 .native_session_id
                 .clone()
@@ -1486,15 +1506,30 @@ impl ClaudeSession {
         cx: &ConnectionTo<Client>,
         resume: Option<&str>,
     ) -> Result<(), Error> {
-        if self.lock().child.is_some() {
+        // #FEED-305: a child that has not answered `initialize` yet is not
+        // a started one. A second prompt used to take it for one, skip the
+        // gate and queue its turn on a process that was then retired: the
+        // turn never settled, and the session read busy with no process
+        // until the stall watchdog ended it 25 minutes later.
+        if self.lock().child.is_some() && !self.starting.load(Ordering::SeqCst) {
             return Ok(());
         }
+        let failed_before = self.start_failures().0;
         let _starting = self.start_gate.lock().await;
         // Re-checked under the gate: the caller we queued behind may have
         // spawned the child while we waited.
         if self.lock().child.is_some() {
             return Ok(());
         }
+        // #FEED-305: or its start failed while we waited: the same reason,
+        // now, never a second round of silent spawns.
+        if let (failed, Some(reason)) = self.start_failures() {
+            if failed != failed_before {
+                return Err(Error::internal_error().data(reason));
+            }
+        }
+        self.starting.store(true, Ordering::SeqCst);
+        let _under_way = StartUnderWay(&self.starting);
         // #FEED-253: a CLI that answers NOTHING to `initialize` (not one
         // stdout line in the whole control timeout) is wedged at startup:
         // it never runs the prompt either, and the run used to sit silent
@@ -1516,8 +1551,9 @@ impl ClaudeSession {
         let child = loop {
             let timeout = start_timeout(&self.spec.spawn.env, attempt);
             let child = Arc::new(self.spawn_child(resume).map_err(|error| {
-                Error::internal_error()
-                    .data(json!({ "reason": format!("could not start claude: {error}") }))
+                let reason = json!({ "reason": format!("could not start claude: {error}") });
+                self.start_failed_with(&reason);
+                Error::internal_error().data(reason)
             })?);
             {
                 let mut state = self.lock();
@@ -1561,7 +1597,9 @@ impl ClaudeSession {
                     if attempt >= START_ATTEMPTS {
                         let reason = silent_start_reason(timeout, attempt, starved_by.as_deref(), pressure.as_ref());
                         log::warn!("engine: {reason}");
-                        return Err(Error::internal_error().data(json!({ "reason": reason })));
+                        let reason = json!({ "reason": reason });
+                        self.start_failed_with(&reason);
+                        return Err(Error::internal_error().data(reason));
                     }
                     let backoff = start_backoff(&self.spec.spawn.env, attempt);
                     log::warn!(
@@ -1585,6 +1623,18 @@ impl ClaudeSession {
         };
         child.forward_exit(&self.spec.exit);
         Ok(())
+    }
+
+    /// #FEED-305: (how many starts failed, the last one's reason).
+    fn start_failures(&self) -> (u64, Option<Value>) {
+        self.start_failed.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+    }
+
+    /// #FEED-305: this start failed for `reason`; whoever waits at the gate
+    /// behind it fails with the same.
+    fn start_failed_with(&self, reason: &Value) {
+        let mut failed = self.start_failed.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        *failed = (failed.0 + 1, Some(reason.clone()));
     }
 
     /// #FEED-296: the startup `initialize`, raced against [`StartClock`]:
