@@ -16,6 +16,14 @@ use domain::rows::{AgentDefRow, MessageRow, SessionRow};
 use serde_json::Value;
 use uicore_model::chat::{ChatAgentInput, ChatInput, ChatRowInput};
 
+/// Why a card's press did not go out ([`LocalChat::card`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CardError {
+    /// chat-express.json `copy.actionTooLarge`: nothing was sent.
+    TooLarge,
+    Send(String),
+}
+
 pub struct LocalChat {
     pub desktop: Arc<elocal::LocalDesktop>,
     pub runs: Option<Arc<LocalRuns>>,
@@ -81,8 +89,14 @@ impl LocalChat {
 
     /// [`Self::send_to`] with the attachments' ids (their lines join the body, local-parity.json).
     pub fn send_with(&mut self, text: &str, agent_id: Option<&str>, attachment_ids: Vec<String>) -> Result<(), String> {
+        self.send_message(text, agent_id, attachment_ids, None)
+    }
+
+    /// [`Self::send_with`]; `action_card` = a pressed surface's `action`
+    /// card (#EXP-2077: it goes without text too).
+    fn send_message(&mut self, text: &str, agent_id: Option<&str>, attachment_ids: Vec<String>, action_card: Option<Value>) -> Result<(), String> {
         let text = text.trim();
-        if text.is_empty() && attachment_ids.is_empty() {
+        if text.is_empty() && attachment_ids.is_empty() && action_card.is_none() {
             return Ok(());
         }
         let client = self.desktop.client();
@@ -102,6 +116,7 @@ impl LocalChat {
         }
         input.text = (!text.is_empty()).then(|| text.to_string());
         input.attachment_ids = Some(attachment_ids).filter(|ids| !ids.is_empty());
+        input.action_card = action_card;
         let out = api::sessions::send(&client, &input).map_err(|e| e.user_message())?;
         self.session_id = Some(out.session_id);
         Ok(())
@@ -126,7 +141,7 @@ impl LocalChat {
         }
         input.session_id = Some(session);
         input.busy = root.busy;
-        input.rows = crate::chat::rows(&view.rows, &by_id, |id| (id == Some(me.user_id.as_str()) || id.is_none()).then(|| me.name.clone()));
+        input.rows = crate::chat::rows(&view.rows, &by_id, |id| (id == Some(me.user_id.as_str()) || id.is_none()).then(|| me.name.clone()), Some(me.user_id.as_str()));
         // #EDE-65 lane O: the IDE transcript's grouping (avatars, names, gaps).
         let transcript = domain::transcript_grouping::TranscriptInput {
             viewer_id: Some(me.user_id.clone()),
@@ -137,6 +152,8 @@ impl LocalChat {
         };
         let icons: HashMap<String, String> = input.agents.iter().map(|a| (a.id.clone(), a.icon.clone())).collect();
         crate::chat::group(&mut input.rows, &view.rows, transcript, |sender| Some(crate::team_chat::avatar_icon(sender, &icons)));
+        // #EXP-2077: an agent's row with Express blocks = its segments.
+        input.rows = crate::chat::express(std::mem::take(&mut input.rows), &view.rows, &mut crate::chat_express::split);
         input
     }
 
@@ -166,12 +183,18 @@ impl LocalChat {
         Some((session.clone(), root, view, messages))
     }
 
-    /// Lane Q: an Embed's inner event on card `message_id`
-    /// (`domain::chat_document::card_reply`); a reply goes as the next message.
-    pub fn card(&mut self, message_id: &str, name: &str, context: &Value) -> Result<(), String> {
-        let Some((_, _, view, _)) = self.session_chat() else { return Ok(()) };
-        match crate::chat::card_reply(&view.rows, message_id, Some(name), Some(context)) {
-            Some(crate::chat::CardReply::Send { text, .. }) => self.send(&text),
+    /// Lane Q, #EXP-2077: an Embed's inner event on chat row `message_id`
+    /// (`domain::chat_document::card_reply`: a show card, an Express
+    /// block's surface): ONE message with THE `action` card, a reply's text
+    /// as its body.
+    pub fn card(&mut self, message_id: &str, name: &str, context: &Value) -> Result<(), CardError> {
+        let Some((session, _, view, _)) = self.session_chat() else { return Ok(()) };
+        match crate::chat::card_reply(&view.rows, &session, message_id, Some(name), Some(context)) {
+            Some(crate::chat::CardReply::Send { text, card, .. }) => {
+                let card = serde_json::to_value(&card).map_err(|e| CardError::Send(e.to_string()))?;
+                self.send_message(&text, None, Vec::new(), Some(card)).map_err(CardError::Send)
+            }
+            Some(crate::chat::CardReply::TooLarge) => Err(CardError::TooLarge),
             None => Ok(()),
         }
     }
@@ -266,9 +289,9 @@ pub fn demo_input() -> ChatInput {
             message("m2", "agent", "Two are open on **General**: GEN-1 Set up the printer, GEN-2 Back up the photos.", "09:14"),
             // #EXP-1772: a busy agent chat: a schedule firing the agent
             // answered (THE marker above the reply), a merge line, a relay.
-            ChatRowInput::Marker { id: "e1".into(), label: "Schedule".into() },
+            ChatRowInput::Marker { id: "e1".into(), label: "Schedule".into(), group: None },
             message("m4", "agent", "PR #412 merged overnight; the iPad sign-in reports stopped.", "07:00"),
-            ChatRowInput::Marker { id: "e2".into(), label: "Merged PR #412".into() },
+            ChatRowInput::Marker { id: "e2".into(), label: "Merged PR #412".into(), group: None },
             message("x2", "agent", "Verified on the iPad: sign-in keeps the return URL, and the redirect loop is gone on Safari too.", "08:41"),
         ],
         ..assistant_home()
