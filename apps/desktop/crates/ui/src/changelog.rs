@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-phones-new-devices-need-your-ok",
+    date: "2026-11-24",
+    title: "New devices need your OK, on your phone",
+    summary: "Android 0.14.157 and iOS 0.14.145: a new install waits until you approve it on a device you already use, and the issue search takes filters and whole sentences.",
+    body: r##"- **New devices need your OK**: a new install shows a short code and waits until you approve it on a device you already use. Devices you already have are trusted automatically.
+- **Search with filters and sentences**: the issue search takes filters such as `is:open`, `status:` or `created:7d`, and a sentence in English or German becomes those filters when you pick the `Search:` row.
+- **One order in the @ list**: the people in a composer's @ list come in the same order on every device.
+- **Android**: the + › Issue list shows each issue's own status, previews of boards, prompts, labels and people work in your Assistant's chat, and a reply that arrives together with a subagent's report no longer goes missing."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_360: ChangelogEntry = ChangelogEntry {
     id: "2026-11-24-search-by-meaning",
     date: "2026-11-24",
     title: "Search finds issues by meaning",
