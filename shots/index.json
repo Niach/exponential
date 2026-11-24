@@ -5683,6 +5683,13 @@
       }
     },
     "install-approval": {
+      "desktop": {
+        "file": "shots/install-approval/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 59032,
+        "sha256": "a70e24ec2a8339bc27647ba7795f12022296495adba73c5a9c2904073445bcc8"
+      },
       "ios": {
         "file": "shots/install-approval/ios.webp",
         "width": 828,
@@ -5706,6 +5713,13 @@
       }
     },
     "install-waiting": {
+      "desktop": {
+        "file": "shots/install-waiting/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 53776,
+        "sha256": "49d2fb8c6bb71a360bfe53700c9614734869a897b000a0610a3fd08f633ce63b"
+      },
       "ios": {
         "file": "shots/install-waiting/ios.webp",
         "width": 828,
