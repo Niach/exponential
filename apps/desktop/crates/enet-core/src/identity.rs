@@ -52,6 +52,23 @@ impl Identity {
     }
 }
 
+/// #EXP-1950 (install-trust.json: install approvals, registrations):
+/// whether `signature` (64 bytes) is `endpoint_id`'s (64 lowercase hex)
+/// ed25519 signature over `msg`, verified strictly (iroh's `verify_strict`:
+/// a small-order key or R and a non-canonical S fail). False for anything
+/// malformed; never panics.
+pub fn verify_endpoint_signature(endpoint_id: &str, msg: &[u8], signature: &[u8]) -> bool {
+    if endpoint_id.len() != 64 {
+        return false;
+    }
+    let Ok(key) = data_encoding::HEXLOWER.decode(endpoint_id.as_bytes()) else { return false };
+    let (Ok(key), Ok(sig)) = (<[u8; 32]>::try_from(key.as_slice()), <[u8; 64]>::try_from(signature)) else {
+        return false;
+    };
+    let Ok(key) = EndpointId::from_bytes(&key) else { return false };
+    key.verify(msg, &iroh::Signature::from_bytes(&sig)).is_ok()
+}
+
 /// Verifies an ed25519 signature by `author` over `msg`.
 pub(crate) fn verify(author: &EndpointId, msg: &[u8], sig: &[u8; 64]) -> bool {
     author.verify(msg, &iroh::Signature::from_bytes(sig)).is_ok()

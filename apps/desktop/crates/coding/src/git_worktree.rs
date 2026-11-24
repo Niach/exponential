@@ -29,8 +29,9 @@ use std::path::{Path, PathBuf};
 /// The token-embedded remote URL. Construct once per launch from the freshly
 /// minted token; `Display`/`Debug` NEVER show the token. #EXP-1615: a thin
 /// wrapper over eCode's provider-neutral [`ecode::Credentials`], so any https
-/// host works ([`TokenUrl::from_credentials`], the server's
-/// `repositories.credentials`); [`TokenUrl::new`] keeps the GitHub form.
+/// remote works ([`TokenUrl::for_repository`], the server's
+/// `repositories.credentials`: https on any host, or eCode's `exp://`);
+/// [`TokenUrl::new`] keeps the GitHub form.
 #[derive(Clone)]
 pub struct TokenUrl {
     credentials: ecode::Credentials,
@@ -50,6 +51,14 @@ impl TokenUrl {
     pub fn from_credentials(credentials: ecode::Credentials) -> Self {
         let full_name = credentials.path();
         Self { credentials, full_name }
+    }
+
+    /// The server's answer for a repository (`repositories.credentials`):
+    /// its remote and its `full_name`, which names the clone on disk. An
+    /// `exp://<team>/<repo>` remote carries the team as its host, so the URL
+    /// path alone would drop it (#EXP-2019).
+    pub fn for_repository(credentials: ecode::Credentials, full_name: impl Into<String>) -> Self {
+        Self { credentials, full_name: full_name.into() }
     }
 
     /// The raw URL — crate-private: it exists only to be handed to git argv.

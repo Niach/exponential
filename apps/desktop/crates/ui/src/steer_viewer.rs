@@ -277,7 +277,7 @@ fn synthetic_row_id(at: usize) -> Option<FeedItemId> {
 fn own_bubble_fingerprint(bubble: &crate::session_outbox::OwnBubble) -> u64 {
     use std::hash::{Hash as _, Hasher as _};
     let mut hasher = std::hash::DefaultHasher::new();
-    (&bubble.key, &bubble.text, &bubble.created_at, bubble.state, bubble.stored).hash(&mut hasher);
+    (&bubble.key, &bubble.text, &bubble.created_at, bubble.state, bubble.stored, &bubble.member_id).hash(&mut hasher);
     hasher.finish()
 }
 
@@ -899,6 +899,9 @@ pub(crate) struct SteerSessionView {
     conv_prints: Vec<u64>,
     conv_anchors: HashMap<FeedItemId, Vec<usize>>,
     conv_unanchored: Vec<usize>,
+    /// #EXP-2087 (ask-dock.json `tail`): the WAITING cards with no call in
+    /// the feed, after the last row ([`Self::conv_tail`]).
+    conv_open: Vec<usize>,
     /// #EXP-1732: a ROOT's view (its chat's Chat tab) also paints the tree's
     /// suggested-tasks cards: every one (`tree_suggestions`, the Dock's
     /// source while an item is open), and the settled ones INLINE at the
@@ -1235,6 +1238,7 @@ impl SteerSessionView {
             conv_prints: Vec::new(),
             conv_anchors: HashMap::new(),
             conv_unanchored: Vec::new(),
+            conv_open: Vec::new(),
             tree_suggestions: Vec::new(),
             conv_trailing: Vec::new(),
             own_tail: Vec::new(),
@@ -2322,6 +2326,8 @@ impl SteerSessionView {
             - synced
             - self.orphan_workflows.len()
             - if self.rows.is_empty() { self.conv_unanchored.len() } else { 0 };
+        self.conv_open.truncate(room);
+        let room = room - self.conv_open.len();
         self.conv_trailing.truncate(room);
         // §3: the orphan cards, in feed order, keyed above every feed id and
         // below the working row's so the list sync keeps its ascending order.
@@ -4083,6 +4089,7 @@ impl SteerSessionView {
             self.conv_prints.clear();
             self.conv_anchors.clear();
             self.conv_unanchored.clear();
+            self.conv_open.clear();
             self.tree_suggestions.clear();
             self.conv_trailing.clear();
             self.conv_memo = None;
@@ -4136,9 +4143,10 @@ impl SteerSessionView {
                 _ => None,
             })
             .collect();
-        let (anchors, tail) = crate::surface_card::anchor_cards(&calls, &self.conv_cards);
+        let (anchors, head, open) = crate::surface_card::anchor_cards(&calls, &self.conv_cards);
         self.conv_anchors = anchors;
-        self.conv_unanchored = tail;
+        self.conv_unanchored = head;
+        self.conv_open = open;
         // #EXP-1732: a ROOT's view = its chat's Chat tab: the tree's
         // suggested tasks too (dock.json: an open item docks; a settled
         // card stays inline, at the tail).
@@ -4183,10 +4191,13 @@ impl SteerSessionView {
 
     /// …and with no row at all they are synthetic rows of their own, after
     /// the orphan workflow cards and before the working row.
+    /// #EXP-2087: then the WAITING cards with no call in the feed (an open
+    /// card never sits above the transcript).
     /// #EXP-1732: then a root's settled suggested-tasks cards, always the
     /// last cards.
     fn conv_tail(&self) -> Vec<usize> {
         let mut tail = if self.rows.is_empty() { self.conv_unanchored.clone() } else { Vec::new() };
+        tail.extend(self.conv_open.iter().copied());
         tail.extend(self.conv_trailing.iter().copied());
         tail
     }
@@ -6261,7 +6272,8 @@ impl SteerSessionView {
                 .enumerate()
                 .map(|(index, bubble)| {
                     let row_id = ORPHAN_ROW_BASE.saturating_sub(512).saturating_add(index as FeedItemId);
-                    self.render_own_bubble(row_id, bubble, lead && index == 0, window, cx)
+                    let avatar = if index == 0 { lead } else { self.own_tail_avatar(index) };
+                    self.render_own_bubble(row_id, bubble, avatar, window, cx)
                 })
                 .collect();
             // #EXP-1998 (find-in-chat.json): ONE scrolling column (the sent
@@ -6714,6 +6726,29 @@ impl SteerSessionView {
     ) -> AnyElement {
         use domain::message_delivery::{bubble_actions, BubbleAction};
         let sizes = crate::session_chat::transcript_sizes();
+        // #EXP-2089: a teammate's not-consumed row = THEIR bubble (left,
+        // their avatar and name, its time, no mark, no menu).
+        if bubble.member_id.is_some() {
+            let layout = self.own_tail_layout(&bubble.key, cx);
+            let width = self.user_bubble_width(&bubble.text, sizes.avatar + sizes.avatar_gap, false, window);
+            let at = domain::instant::parse_instant(&bubble.created_at);
+            let element = crate::session_chat::message_bubble(
+                crate::session_chat::MessageBubble {
+                    id: SharedString::from(format!("steer-member-bubble-{}", bubble.key)),
+                    body: self.render_user_message(row_id, &bubble.text, Some(&chat_find::own_bubble_key(bubble)), cx),
+                    time: at.map(crate::session_chat::clock_ms).unwrap_or_default(),
+                    own: false,
+                    name: layout.as_ref().filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
+                    link: None,
+                    status: None,
+                    menu: None,
+                    width: Some(width),
+                    tail: layout.as_ref().is_none_or(|layout| layout.tail).into(),
+                },
+                cx,
+            );
+            return crate::session_chat::sender_row(layout.as_ref(), element, cx);
+        }
         let width = self.user_bubble_width(&bubble.text, sizes.avatar + sizes.avatar_gap, true, window);
         let session_id = self.session_id.clone();
         let target = bubble.clone();
@@ -6746,12 +6781,27 @@ impl SteerSessionView {
         crate::session_chat::own_row(avatar, element, cx)
     }
 
+    /// #EXP-2089: the grouping of the tail's bubble `key` (a teammate's row
+    /// sits under their avatar and name, a group's first only), through THE
+    /// grouping the SENT INPUTS use.
+    fn own_tail_layout(&self, key: &str, cx: &App) -> Option<domain::transcript_grouping::TranscriptRowLayout> {
+        let inputs: Vec<(String, String, String, Option<String>)> = self
+            .own_tail
+            .iter()
+            .map(|bubble| (bubble.key.clone(), String::new(), String::new(), bubble.member_id.clone()))
+            .collect();
+        let at = inputs.iter().position(|(id, ..)| id == key)?;
+        self.no_feed_layouts(&inputs, cx).into_iter().nth(at)
+    }
+
     /// #FEED-239: whether own-tail bubble `index` starts the own group (the
     /// viewer's avatar): the first one, unless the transcript's last row
     /// right above it is the viewer's own.
     fn own_tail_avatar(&self, index: usize) -> bool {
         if index > 0 {
-            return false;
+            // #EXP-2089: an own bubble right after a teammate's opens the
+            // own group again.
+            return self.own_tail.get(index - 1).is_some_and(|before| before.member_id.is_some());
         }
         let between = !self.orphan_workflows.is_empty() || !self.conv_tail().is_empty();
         // #FEED-260: the synced tail's last row, when there is one.
@@ -11233,6 +11283,7 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
             consumed_at: m.consumed_at.as_deref().filter(|at| !at.is_empty()),
             created_at: m.created_at.as_deref().unwrap_or_default(),
             body: &bodies[i],
+            author_session_id: m.author_session_id.as_deref().filter(|id| !id.is_empty()),
         }
     })
     .into_iter()
@@ -11520,6 +11571,40 @@ mod tests {
         let tail = synced_tail_rows(false, false, &recorded, &synced);
         assert_eq!(tail.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m2"]);
         assert_eq!(tail[0].author_id.as_deref(), Some("u-mira"));
+    }
+
+    /// #EXP-2084: a child's reply the device consumed is in the feed as that
+    /// session's input; a not-live feed (a cold start) never draws its
+    /// synced row a second time, even when the device's clock is behind the
+    /// server's.
+    #[test]
+    fn a_childs_reply_the_feed_echoes_never_draws_twice() {
+        let recorded = [
+            FeedItem {
+                id: 1,
+                kind: FeedKind::UserMessage {
+                    text: "Message from Fix the login (session s-child): The PR is open.".into(),
+                    subagent_id: None,
+                    at: Some(1_000),
+                },
+                seq: Some(1),
+            },
+            FeedItem { id: 2, kind: FeedKind::Narration { text: "Noted.".into(), message_id: None, subagent_id: None, at: Some(2_000) }, seq: Some(2) },
+        ];
+        let reply = |id: &str, from: &str, body: &str| -> domain::rows::MessageRow {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "session_id": "p1", "root_id": "p1", "author_kind": "agent", "author_session_id": from, "body": body,
+                "created_at": "2026-11-23T20:30:00.000Z", "consumed_at": "2026-11-23T20:35:00.000Z"
+            }))
+            .unwrap()
+        };
+        let synced = [
+            reply("r1", "s-child", "The PR is open."),
+            reply("r2", "s-child", "CI is green."),
+            reply("r3", "s-other", "The PR is open."),
+        ];
+        let tail = synced_tail_rows(false, false, &recorded, &synced);
+        assert_eq!(tail.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["r2", "r3"]);
     }
 
     /// EXP-1294 rfix: a card's row is the one carrying ITS question id —

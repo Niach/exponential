@@ -14,17 +14,19 @@
 // Every procedure names an `installId` the caller owns (not revoked).
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { deviceCommands, devices, installs, sessionKeys, sessions, type Session } from "@/db/schema"
 import { nudgeDevice } from "@/lib/trpc/devices"
 import { sessionVisibleTo } from "@/lib/sessions/access"
 import { teamMemberPairs } from "@/lib/auth/membership"
 import { resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
+import type { Tx } from "@/lib/sessions/tx"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import {
   createTreeKeyInTx,
   loadRoot,
+  lockTreeKeys,
   ownInstall,
   PUBLIC_KEY_RE,
   treeReaders,
@@ -32,6 +34,8 @@ import {
   WRAPPED_RE,
   type Reader,
 } from "@/lib/sessions/tree-keys"
+import { RESIGN_MAX_WRAPS } from "@exp/domain-contract/wrap-signature"
+import { checkWrapSignatures, resignWrapsInTx, vouchesFor, wrapSignatureInput, type SignedColumns, type Vouch } from "@/lib/sessions/wrap-signatures"
 
 export { createTreeKeyInTx, treeReaders, type TreeKeyInput, type TreeReader } from "@/lib/sessions/tree-keys"
 
@@ -89,6 +93,8 @@ type PendingPair = {
   publicKey: string
   targetInstallId: string
   targetX25519Public: string
+  /** #EXP-1950: the target's ed25519 key, the recipient a wrap signature names. */
+  targetEndpointId: string
 }
 
 /** What `installId` should wrap on `root`: readers without a wrap for the
@@ -106,6 +112,7 @@ async function pendingFor(database: Reader, root: Session, installId: string, ho
       publicKey: root.sealPublicKey!,
       targetInstallId: reader.installId,
       targetX25519Public: reader.x25519Public,
+      targetEndpointId: reader.endpointId,
     }))
 }
 
@@ -232,9 +239,77 @@ export async function requestTreeKey(
 
 const notFoundError = () => new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
 
+/** `sessionKeys.wrap` inside its transaction. */
+async function writeWraps(
+  tx: Tx,
+  input: { installId: string; wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string }> },
+  rootIds: string[],
+  /** #EXP-1950: the signed wraps' columns (`checkWrapSignatures`), by `root\nepoch\ntarget`. */
+  signed: ReadonlyMap<string, SignedColumns>
+): Promise<{ written: number; skipped: number }> {
+  for (const rootId of rootIds) await lockTreeKeys(tx, rootId)
+  const held = await heldEpochs(tx, input.installId, rootIds)
+  const listable = new Set<string>()
+  const already = new Set<string>()
+  for (const rootId of rootIds) {
+    let root: Session
+    try {
+      root = await loadRoot(tx, rootId)
+    } catch {
+      throw new TRPCError({ code: `FORBIDDEN`, message: `Not a pending pair` })
+    }
+    const holds = held.some((row) => row.rootId === root.id && row.epoch === root.sealEpoch)
+    for (const pair of await pendingFor(tx, root, input.installId, holds)) {
+      listable.add(`${pair.rootId}\n${pair.epoch}\n${pair.targetInstallId}`)
+    }
+    if (holds && root.sealEpoch !== null) {
+      for (const done of await wrappedInstalls(tx, root.id, root.sealEpoch)) {
+        already.add(`${root.id}\n${root.sealEpoch}\n${done}`)
+      }
+    }
+  }
+  const seen = new Set<string>()
+  const toWrite: typeof input.wraps = []
+  let skipped = 0
+  for (const wrap of input.wraps) {
+    const key = `${wrap.rootId}\n${wrap.epoch}\n${wrap.targetInstallId}`
+    if (seen.has(key)) {
+      throw new TRPCError({ code: `BAD_REQUEST`, message: `One wrap per pair` })
+    }
+    seen.add(key)
+    if (already.has(key)) {
+      skipped++
+    } else if (listable.has(key)) {
+      toWrite.push(wrap)
+    } else {
+      throw new TRPCError({ code: `FORBIDDEN`, message: `Not a pending pair` })
+    }
+  }
+  let written = 0
+  for (const wrap of toWrite) {
+    try {
+      await tx.insert(sessionKeys).values({
+        rootId: wrap.rootId,
+        epoch: wrap.epoch,
+        installId: wrap.targetInstallId,
+        wrapped: wrap.wrapped,
+        createdByInstallId: input.installId,
+        ...signed.get(`${wrap.rootId}\n${wrap.epoch}\n${wrap.targetInstallId}`),
+      })
+      written++
+    } catch (err) {
+      // Another holder wrapped the same pair concurrently.
+      if (!isUniqueViolation(err)) throw err
+      skipped++
+    }
+  }
+  return { written, skipped }
+}
+
 export const sessionKeysRouter = router({
   /** A tree's first key (epoch 1) or a rotation (`seal_epoch + 1`, by the
-   *  starter or the executing device), with wraps for readers. */
+   *  starter or the executing device, by any reader while the root is due),
+   *  with wraps for readers. */
   create: authedProcedure
     .input(
       z.object({
@@ -242,7 +317,7 @@ export const sessionKeysRouter = router({
         installId: uuid,
         epoch,
         publicKey: z.string().regex(PUBLIC_KEY_RE, `base64url of 32 bytes`),
-        wraps: z.array(z.object({ installId: uuid, wrapped })).min(1).max(BATCH_MAX),
+        wraps: z.array(z.object({ installId: uuid, wrapped, signature: wrapSignatureInput })).min(1).max(BATCH_MAX),
       })
     )
     .mutation(({ ctx, input }) =>
@@ -261,7 +336,14 @@ export const sessionKeysRouter = router({
       if (input.rootIds?.length === 0) return []
       const rows = await heldEpochs(ctx.db, input.installId, input.rootIds)
       if (input.rootIds) void nudgeMissingWraps(ctx.db, input.installId, input.rootIds, rows).catch(() => {})
-      return rows.map((row) => ({ rootId: row.rootId, epoch: row.epoch, wrapped: row.wrapped }))
+      // #EXP-1950: who signed each wrap (both null = unsigned, an older build made it).
+      return rows.map((row) => ({
+        rootId: row.rootId,
+        epoch: row.epoch,
+        wrapped: row.wrapped,
+        signature: row.signature,
+        signerEndpointId: row.signerEndpointId,
+      }))
     }),
 
   /** Readers still missing the current epoch's wrap, on trees whose current
@@ -311,12 +393,35 @@ export const sessionKeysRouter = router({
               publicKey: root.sealPublicKey!,
               targetInstallId: reader.installId,
               targetX25519Public: reader.x25519Public,
+              targetEndpointId: reader.endpointId,
             })
           }
           if (out.length >= input.limit) break
         }
       }
       return out.slice(0, input.limit)
+    }),
+
+  /** #EXP-1951 (sealed-content.json `rotation`): the roots this install
+   *  rotates now: flagged (`seal_rotate_epoch`: a reader was dropped), their
+   *  current epoch held by this install, which still reads them. `epoch` =
+   *  the one to supersede (`create {epoch + 1}`). */
+  due: authedProcedure
+    .input(z.object({ installId: uuid, limit: z.number().int().min(1).max(SESSION_KEYS_PENDING_MAX).default(SESSION_KEYS_PENDING_MAX) }))
+    .query(async ({ ctx, input }) => {
+      await ownInstall(ctx.db, ctx.session.user.id, input.installId)
+      const rows = await ctx.db
+        .select({ root: sessions })
+        .from(sessionKeys)
+        .innerJoin(sessions, and(eq(sessions.id, sessionKeys.rootId), eq(sessions.sealEpoch, sessionKeys.epoch)))
+        .where(and(eq(sessionKeys.installId, input.installId), isNotNull(sessions.sealRotateEpoch), isNull(sessions.parentId)))
+        .orderBy(asc(sessions.id))
+        .limit(input.limit)
+      const roots = rows.map((row) => row.root).filter((root) => root.sealEpoch !== null && root.sealRotateEpoch !== null && !root.clearTree)
+      const readersOf = await treeReadersMany(ctx.db, roots)
+      return roots
+        .filter((root) => readersOf.get(root.id)?.has(input.installId))
+        .map((root) => ({ rootId: root.id, epoch: root.sealEpoch! }))
     }),
 
   /** Wraps for pairs `pending` lists. A pair another holder wrapped
@@ -326,70 +431,34 @@ export const sessionKeysRouter = router({
       z.object({
         installId: uuid,
         wraps: z
-          .array(z.object({ rootId: uuid, epoch, targetInstallId: uuid, wrapped }))
+          .array(z.object({ rootId: uuid, epoch, targetInstallId: uuid, wrapped, signature: wrapSignatureInput }))
           .min(1)
           .max(SESSION_KEYS_PENDING_MAX),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const signed = await checkWrapSignatures(ctx.db, ctx.session.user.id, input)
       await ownInstall(ctx.db, ctx.session.user.id, input.installId)
-      const rootIds = [...new Set(input.wraps.map((wrap) => wrap.rootId))]
-      const held = await heldEpochs(ctx.db, input.installId, rootIds)
-      const listable = new Set<string>()
-      const already = new Set<string>()
-      for (const rootId of rootIds) {
-        let root: Session
-        try {
-          root = await loadRoot(ctx.db, rootId)
-        } catch {
-          throw new TRPCError({ code: `FORBIDDEN`, message: `Not a pending pair` })
-        }
-        const holds = held.some((row) => row.rootId === root.id && row.epoch === root.sealEpoch)
-        for (const pair of await pendingFor(ctx.db, root, input.installId, holds)) {
-          listable.add(`${pair.rootId}\n${pair.epoch}\n${pair.targetInstallId}`)
-        }
-        if (holds && root.sealEpoch !== null) {
-          for (const done of await wrappedInstalls(ctx.db, root.id, root.sealEpoch)) {
-            already.add(`${root.id}\n${root.sealEpoch}\n${done}`)
-          }
-        }
-      }
-      const seen = new Set<string>()
-      const toWrite: typeof input.wraps = []
-      let skipped = 0
-      for (const wrap of input.wraps) {
-        const key = `${wrap.rootId}\n${wrap.epoch}\n${wrap.targetInstallId}`
-        if (seen.has(key)) {
-          throw new TRPCError({ code: `BAD_REQUEST`, message: `One wrap per pair` })
-        }
-        seen.add(key)
-        if (already.has(key)) {
-          skipped++
-        } else if (listable.has(key)) {
-          toWrite.push(wrap)
-        } else {
-          throw new TRPCError({ code: `FORBIDDEN`, message: `Not a pending pair` })
-        }
-      }
-      let written = 0
-      for (const wrap of toWrite) {
-        try {
-          await ctx.db.insert(sessionKeys).values({
-            rootId: wrap.rootId,
-            epoch: wrap.epoch,
-            installId: wrap.targetInstallId,
-            wrapped: wrap.wrapped,
-            createdByInstallId: input.installId,
-          })
-          written++
-        } catch (err) {
-          // Another holder wrapped the same pair concurrently.
-          if (!isUniqueViolation(err)) throw err
-          skipped++
-        }
-      }
-      return { written, skipped }
+      const rootIds = [...new Set(input.wraps.map((wrap) => wrap.rootId))].sort()
+      // #EXP-1951: under the trees' key locks, in one transaction: a reader
+      // dropped meanwhile (`dropNonReaderKeysInTx`) is never wrapped for late.
+      return ctx.db.transaction((tx) => writeWraps(tx, input, rootIds, signed))
     }),
+
+  /** #EXP-1950 decision (c) (wrap-signature.json `resign`): a holder of a
+   *  root's current epoch replaces each reader's UNSIGNED wrap of it with
+   *  its own signed one; a signed row is never touched. */
+  resign: authedProcedure
+    .input(
+      z.object({
+        installId: uuid,
+        wraps: z
+          .array(z.object({ rootId: uuid, epoch, installId: uuid, wrapped, signature: z.string().min(1).max(128) }))
+          .min(1)
+          .max(RESIGN_MAX_WRAPS),
+      })
+    )
+    .mutation(({ ctx, input }) => ctx.db.transaction((tx) => resignWrapsInTx(tx, ctx.session.user.id, input))),
 
   /** #EXP-1960: a keyless tree this install may not key: its devices key it. */
   requestKey: authedProcedure
@@ -415,13 +484,15 @@ export const sessionKeysRouter = router({
           .filter((row) => row.userId === userId)
           .map((row) => row.teamId)
       )
-      const out: Array<{ rootId: string; epoch: number; publicKey: string }> = []
+      const out: Array<{ rootId: string; epoch: number; publicKey: string; vouch: Vouch | null }> = []
       for (const row of rows) {
         const readable = teams.has(row.teamId) && sessionVisibleTo(row, userId)
         // The host of the tree's device acts as its sessions (MCP principal).
         const principal = !readable && (await sessionDeviceOwner(row, ctx.db)) === userId
-        if (readable || principal) out.push({ rootId: row.id, epoch: row.sealEpoch!, publicKey: row.sealPublicKey! })
+        if (readable || principal) out.push({ rootId: row.id, epoch: row.sealEpoch!, publicKey: row.sealPublicKey!, vouch: null })
       }
-      return out
+      // #EXP-1950: a signed wrap of that epoch vouches for the key (`acceptVouch`).
+      const vouches = await vouchesFor(ctx.db, out.map((key) => ({ id: key.rootId, sealEpoch: key.epoch })))
+      return out.map((key) => ({ ...key, vouch: vouches.get(key.rootId) ?? null }))
     }),
 })

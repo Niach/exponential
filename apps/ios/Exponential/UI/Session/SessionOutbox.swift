@@ -128,6 +128,9 @@ struct OwnPendingBubble: Identifiable, Equatable {
     let messageId: String?
     /// #EXP-2067: a press's row: its event name (nil = a plain message).
     var actionName: String? = nil
+    /// #EXP-2089: the TEAMMATE who wrote a not-consumed row (their bubble
+    /// left under their avatar and name, no mark, no menu); nil = the viewer's.
+    var memberId: String? = nil
 
     /// #EXP-2067: a row's `action` card's event name (opened when sealed);
     /// nil = another card or none.
@@ -143,7 +146,8 @@ struct OwnPendingBubble: Identifiable, Equatable {
     }
 
     /// The bottom of the transcript (message-delivery.json ORDER): the
-    /// viewer's own synced rows the device has not consumed, oldest first,
+    /// synced person rows the device has not consumed (#EXP-2089
+    /// `pendingCases`: every person's, a teammate's as theirs), oldest first,
     /// then the kept outbox entries; `drop` = the entries a row replaced.
     /// `bodies` = the rows' opened bodies by id (#EXP-1954, never an envelope).
     static func build(
@@ -159,21 +163,31 @@ struct OwnPendingBubble: Identifiable, Equatable {
                 )
             }
         )
-        let pending = rows
-            .filter { $0.authorKind == "user" && $0.authorId == viewerId && $0.consumedAt == nil }
-            .sorted { a, b in
-                let at = WireTimestamps.parse(a.createdAt) ?? .distantPast
-                let bt = WireTimestamps.parse(b.createdAt) ?? .distantPast
-                return at != bt ? at < bt : a.id < b.id
+        let byId = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let pending = MessageDelivery.pendingRows(
+            viewerId: viewerId,
+            rows: rows.map { row in
+                // The viewer's own press (#EXP-2067) draws with no body too;
+                // a teammate's row only card-less.
+                let own = row.authorId == viewerId
+                let body = bodies[row.id] ?? row.body
+                return MessageDelivery.HandoffRow(
+                    id: row.id, authorKind: row.authorKind, authorId: row.authorId,
+                    body: own && body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "-" : body,
+                    createdAt: row.createdAt, consumedAt: row.consumedAt, hasCard: !own && row.card != nil
+                )
             }
-            .map { row in
+        )
+            .compactMap { pending in byId[pending.id].map { ($0, pending.own) } }
+            .map { row, own in
                 OwnPendingBubble(
                     id: row.id, text: bodies[row.id] ?? row.body, at: WireTimestamps.parse(row.createdAt),
                     state: MessageDelivery.deliveryState(MessageDelivery.StateInput(
                         local: nil, stored: true, deliveredAt: row.deliveredAt, consumedAt: row.consumedAt, echoed: false
                     )),
                     stored: true, clientId: nil, messageId: row.id,
-                    actionName: actionName(row)
+                    actionName: own ? actionName(row) : nil,
+                    memberId: own ? nil : (row.authorId ?? "")
                 )
             }
         let byClientId = Dictionary(outbox.map { ($0.clientId, $0) }, uniquingKeysWith: { first, _ in first })

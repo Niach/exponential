@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
 import {
   ASSISTANT_FAB,
@@ -21,6 +21,7 @@ import {
   ChatDock,
   conceptIcon,
   ExponentialLogo,
+  FAB_CORNER_ATTR,
   FabButton,
   MessageBubble,
   Popover,
@@ -163,6 +164,14 @@ function AssistantFabButton({
   useToastLift(ASSISTANT_FAB.toastLift)
   useToastLift(speech.lift)
   const [anchor, setAnchor] = useState<HTMLDivElement | null>(null)
+  // #EXP-1860/#EXP-1999: the layout's <main> reserves the corner while the
+  // FAB shows (styles.css `main[data-fab-corner]`).
+  useLayoutEffect(() => {
+    const main = anchor?.parentElement
+    if (!main) return
+    main.setAttribute(FAB_CORNER_ATTR, ``)
+    return () => main.removeAttribute(FAB_CORNER_ATTR)
+  }, [anchor])
   const card = useCardSize(anchor)
   const [stored, setStored] = useState<WidgetSize | null>(() => readWidgetSize(me))
   const drag = useRef<{ x: number; y: number; start: WidgetSize; axes: ResizeAxes; next: WidgetSize | null } | null>(null)
@@ -210,9 +219,9 @@ function AssistantFabButton({
   }
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      {/* #EXP-1860: `data-assistant-fab` reserves the corner (@exp/ui
-          styles.css): page scroll content ends clear of it, THE Dock keeps
-          its composer beside it. */}
+      {/* #EXP-1860: the FAB reserves the corner (@exp/ui styles.css, on its
+          <main>): page scroll content ends clear of it, THE Dock keeps its
+          composer beside it. */}
       <div
         ref={setAnchor}
         data-assistant-fab=""

@@ -108,7 +108,7 @@ vi.mock(`@/components/entity-preview/use-entity-ref-target`, async (importOrigin
 }))
 
 const { AgentSessionView } = await import(`./agent-session`)
-const { FEED_WINDOW } = await import(`@/lib/agent-feed`)
+const { FEED_MOUNT_SLICE, FEED_WINDOW } = await import(`@/lib/agent-feed`)
 const { openChat, realJournal, replay, REPLAY_TAIL, syntheticJournal } = await import(`@/lib/perf/large-chat`)
 const { TooltipProvider } = await import(`@exp/ui`)
 
@@ -213,13 +213,27 @@ describe(`large chat render`, () => {
     }
 
     const button = screen.getByRole(`button`, { name: /load earlier/i })
-    const page = measure(() => fireEvent.click(button))
-    // One more window mounts; the rows already there keep their element
-    // but the seam's (re-rendering every row = ~200).
-    expect(page.mounted).toBeGreaterThan(0)
-    expect(page.mounted).toBeLessThanOrEqual(FEED_WINDOW)
-    expect(page.rerendered).toBeLessThanOrEqual(4)
-    if (path) process.stderr.write(`${JSON.stringify({ streamedMs: streamed.map((step) => Math.round(step.ms)), loadEarlierMs: Math.round(page.ms) })}\n`)
+    const press = measure(() => fireEvent.click(button))
+    // #EXP-1999: the press mounts nothing itself; the page lands in slices
+    // of at most FEED_MOUNT_SLICE items, one task each, the rows already
+    // there keeping their element but the seam's (every row = ~200).
+    expect(press.mounted).toBe(0)
+    const slices: { ms: number; mounted: number; rerendered: number }[] = []
+    for (let n = 0; n < FEED_WINDOW; n++) {
+      const slice = measure(() => vi.advanceTimersToNextTimer())
+      if (slice.mounted === 0 && slice.rerendered === 0) break
+      slices.push(slice)
+    }
+    expect(slices.length).toBeGreaterThan(1)
+    for (const slice of slices) {
+      expect(slice.mounted).toBeLessThanOrEqual(FEED_MOUNT_SLICE)
+      expect(slice.rerendered).toBeLessThanOrEqual(4)
+    }
+    // One more window mounted in all.
+    const mounted = slices.reduce((sum, slice) => sum + slice.mounted, 0)
+    expect(mounted).toBeGreaterThan(FEED_MOUNT_SLICE)
+    expect(mounted).toBeLessThanOrEqual(FEED_WINDOW)
+    if (path) process.stderr.write(`${JSON.stringify({ streamedMs: streamed.map((step) => Math.round(step.ms)), sliceMs: slices.map((slice) => Math.round(slice.ms)) })}\n`)
     view.unmount()
   }, HANG_GUARD_MS)
 })

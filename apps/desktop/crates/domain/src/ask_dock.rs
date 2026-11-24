@@ -291,15 +291,18 @@ pub fn card_call_row(name: &str) -> Option<&'static str> {
 /// winning, and never joins the count pool. The rest pair newest back PER
 /// KIND over the legacy calls, then over the shared `show` calls (S-3),
 /// counting only calls with no card id (an older device); a card with no
-/// call left is unanchored (card order, the transcript's head). `calls` =
+/// call left is unanchored (card order, the transcript's head), a WAITING
+/// one the tail (#EXP-2087: after the transcript's last row). `calls` =
 /// the feed's settled, unfailed Exponential calls in feed order: (feed item
-/// id, display row, card id). Returns card INDICES into `cards` (id, kind).
+/// id, display row, card id). Returns card INDICES into `cards` (id, kind,
+/// waiting): (anchors, unanchored, tail).
 pub fn anchor_session_cards(
     calls: &[(u64, &str, Option<&str>)],
-    cards: &[(&str, SessionCardKind)],
-) -> (HashMap<u64, Vec<usize>>, Vec<usize>) {
+    cards: &[(&str, SessionCardKind, bool)],
+) -> (HashMap<u64, Vec<usize>>, Vec<usize>, Vec<usize>) {
     let mut anchors: HashMap<u64, Vec<usize>> = HashMap::new();
     let mut unanchored = Vec::new();
+    let mut tail = Vec::new();
     let mut named: HashMap<&str, u64> = HashMap::new();
     let mut pool: Vec<(u64, &str)> = Vec::new();
     for &(id, row, card) in calls {
@@ -319,14 +322,15 @@ pub fn anchor_session_cards(
         }
         call.map(|(id, _)| *id)
     };
-    for (index, (card, kind)) in cards.iter().enumerate().rev() {
+    for (index, (card, kind, waiting)) in cards.iter().enumerate().rev() {
         let call = named.get(card).copied().or_else(|| take(kind.posting_call())).or_else(|| take(SHOW_CARD_CALL));
         match call {
             Some(id) => anchors.entry(id).or_default().insert(0, index),
+            None if *waiting => tail.insert(0, index),
             None => unanchored.insert(0, index),
         }
     }
-    (anchors, unanchored)
+    (anchors, unanchored, tail)
 }
 
 #[cfg(test)]
@@ -504,17 +508,21 @@ mod tests {
                 })
                 .collect();
             let cards = case["cards"].as_array().unwrap();
-            let kinds: Vec<(&str, SessionCardKind)> = cards
+            let kinds: Vec<(&str, SessionCardKind, bool)> = cards
                 .iter()
-                .map(|card| (card["id"].as_str().unwrap(), kind_of(card["kind"].as_str().unwrap())))
+                .map(|card| (card["id"].as_str().unwrap(), kind_of(card["kind"].as_str().unwrap()), card["waiting"] == true))
                 .collect();
-            let (anchors, unanchored) = anchor_session_cards(&calls, &kinds);
+            let (anchors, unanchored, tail) = anchor_session_cards(&calls, &kinds);
             let id = |index: &usize| cards[*index]["id"].clone();
             let anchors: serde_json::Map<String, Value> = anchors
                 .iter()
                 .map(|(call, indices)| (call.to_string(), Value::Array(indices.iter().map(id).collect())))
                 .collect();
-            let actual = serde_json::json!({"anchors": anchors, "unanchored": unanchored.iter().map(id).collect::<Vec<_>>()});
+            let actual = serde_json::json!({
+                "anchors": anchors,
+                "unanchored": unanchored.iter().map(id).collect::<Vec<_>>(),
+                "tail": tail.iter().map(id).collect::<Vec<_>>(),
+            });
             assert_eq!(actual, case["expected"], "{}", case["name"]);
         }
     }

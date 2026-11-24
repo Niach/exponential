@@ -46,10 +46,13 @@ extension SearchList {
         public var snippet: String
         public var matchStart: Int
         public var matchLen: Int
+        /// #FEED-300 (chat-store.json SYSTEM INPUTS): not a person's own words.
+        public var system: Bool
 
         public init(
             rootId: String, sessionId: String, deviceId: String? = nil, kind: String, at: Double,
-            seq: Int? = nil, messageId: String? = nil, snippet: String, matchStart: Int = 0, matchLen: Int = 0
+            seq: Int? = nil, messageId: String? = nil, snippet: String, matchStart: Int = 0, matchLen: Int = 0,
+            system: Bool = false
         ) {
             self.rootId = rootId
             self.sessionId = sessionId
@@ -61,6 +64,7 @@ extension SearchList {
             self.snippet = snippet
             self.matchStart = matchStart
             self.matchLen = matchLen
+            self.system = system
         }
 
         public init?(_ object: [String: Any]) {
@@ -71,7 +75,8 @@ extension SearchList {
                 seq: (object["seq"] as? NSNumber)?.intValue, messageId: object["messageId"] as? String,
                 snippet: object["snippet"] as? String ?? "",
                 matchStart: (object["matchStart"] as? NSNumber)?.intValue ?? 0,
-                matchLen: (object["matchLen"] as? NSNumber)?.intValue ?? 0
+                matchLen: (object["matchLen"] as? NSNumber)?.intValue ?? 0,
+                system: object["system"] as? Bool ?? false
             )
         }
     }
@@ -189,8 +194,11 @@ extension SearchList {
             if rows.count >= limit { break }
             guard let root = roots[chat.rootId] else { continue }
             let hit = chat.hit
-            let person = hit.kind == "user_message"
-                || (hit.kind == "message" && hit.messageId.flatMap { messageAuthors[$0] } == "user")
+            // #FEED-300: a system input (a schedule tick, a relay, a
+            // teammate's line) is never the person's own words.
+            let person = !hit.system
+                && (hit.kind == "user_message"
+                    || (hit.kind == "message" && hit.messageId.flatMap { messageAuthors[$0] } == "user"))
             rows.append(GlobalChatRow(
                 key: "chat:\(chat.rootId)",
                 rootId: chat.rootId,

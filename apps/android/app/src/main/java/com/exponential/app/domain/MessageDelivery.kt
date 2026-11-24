@@ -211,6 +211,28 @@ object MessageDelivery {
         return Tail(held + pending + kept, merge.drop)
     }
 
+    /** #EXP-2089 (ORDER, `pendingCases`, TS `pendingRows`): the synced person
+     *  rows the device has not consumed, EVERY person's, oldest first
+     *  (createdAt, then id); `second` = the viewer's own (their bubble with
+     *  its mark), else that member's bubble. */
+    fun pendingRows(viewerId: String?, rows: List<Row>): List<Pair<String, Boolean>> = rows
+        .filter { it.authorKind == DomainContract.messageAuthorKindUser && !it.hasCard && it.consumedAt.isNullOrEmpty() && it.body.isNotBlank() }
+        .sortedWith(compareBy<Row>({ ms(it.createdAt) }, { it.id }))
+        .map { it.id to (viewerId != null && it.authorId == viewerId) }
+
+    /** #EXP-2089 (ORDER): the transcript's bottom as ONE list: the viewer's
+     *  held rows ([own]'s consumed ones), then every person's not-consumed
+     *  rows oldest first ([teammates]' among the viewer's, createdAt then
+     *  message id), then the outbox entries. */
+    fun pendingTail(teammates: List<Bubble>, own: List<Bubble>): List<Bubble> {
+        if (teammates.isEmpty()) return own
+        val held = own.filter { it.clientId == null && it.state == State.Read }
+        val entries = own.filter { it.clientId != null }
+        val pending = (own.filter { it.clientId == null && it.state != State.Read } + teammates)
+            .sortedWith(compareBy<Bubble>({ ms(it.createdAt) }, { it.messageId.orEmpty() }))
+        return held + pending + entries
+    }
+
     data class Merge(val drop: List<String>, val keep: List<String>)
 
     private fun ms(wire: String): Long = WireTimestamps.parseEpochMs(wire) ?: 0L

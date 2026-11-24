@@ -820,3 +820,20 @@ describe(`subagent lane Express blocks`, () => {
     expect(onAction.mock.calls[0]![1]).toEqual({ surfaceId: `e:s1:9#1`, block: `e:s1:9#1`, messageId: null })
   })
 })
+
+// #EXP-2089 (message-delivery.json `pendingCases`): the not-consumed person
+// rows the chat draws are every person's, in the reference's order.
+describe(`pending rows`, () => {
+  it(`replays pendingCases through the chat's own rows`, async () => {
+    const { chatExtraRows } = await import(`./agent-session`)
+    const fixture = (await import(`@exp/domain-contract/fixtures/message-delivery.json`)).default
+    for (const c of fixture.pendingCases) {
+      const messages = c.input.rows.map((row) => ({ ...row, sessionId: `s1`, rootId: `s1`, updatedAt: row.createdAt }))
+      const rows = chatExtraRows(session, messages as never, [], [])
+      expect(
+        rows.map((row) => ({ id: row.id, own: row.type === `message` && row.authorId === c.input.viewerId })),
+        c.name
+      ).toEqual(c.expected)
+    }
+  })
+})

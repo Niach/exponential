@@ -57,6 +57,7 @@ import { writeCommitCheck } from "@/lib/merge-train/commit-checks"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { jobDiff, rollupOf, runState, runnerLabels } from "@/lib/ci/state"
 import { withRepoRequired } from "@/lib/ci/required"
+import { prefixWorkflowChecks } from "@/lib/ci/check-names"
 
 /** The device cap of a build that runs `ci_job` commands. */
 export const CI_RUNNER_CAP = `ci-runner`
@@ -196,9 +197,11 @@ function parseJson(text: string): unknown {
   }
 }
 
-/** What to plan at a commit: `.exponential/ci.json`, else (an ecode repo
- *  without one) every GitHub workflow in `.github/workflows` through the
- *  workflow reader (packages/ecode fixtures/workflow.json). A read that
+/** What to plan at a commit: `.exponential/ci.json`, else every GitHub
+ *  workflow in `.github/workflows` through the workflow reader
+ *  (packages/ecode fixtures/workflow.json). On a GitHub repo (#EXP-2078:
+ *  Actions runs the same workflows there) their checks are named
+ *  `ecode <job>`, so a GitHub check of the same job never hides ours. A read that
  *  fails (the forge, no device for the job) is a source that FAILS (#EXP-1807):
  *  a push never plans silently. [] = no pipeline at all. */
 async function pipelineSources(repo: RepoRow, sha: string): Promise<PipelineSource[]> {
@@ -206,7 +209,7 @@ async function pipelineSources(repo: RepoRow, sha: string): Promise<PipelineSour
     const forge = await forgeFor(forgeRepo(repo))
     const text = await forge.readFile(forgeRepo(repo), PIPELINE_FILE, sha)
     if (text !== null) return [{ fallbackName: `ci`, file: parseJson(text) }]
-    if (repo.provider !== `ecode`) return []
+    const ours = repo.provider === `ecode`
     const names = ((await forge.listFiles(forgeRepo(repo), WORKFLOW_DIR, sha)) ?? [])
       .filter((name) => /\.ya?ml$/.test(name))
       .sort()
@@ -218,7 +221,7 @@ async function pipelineSources(repo: RepoRow, sha: string): Promise<PipelineSour
       const read = readWorkflowText(workflowText)
       sources.push(
         read.file
-          ? { fallbackName, file: read.file }
+          ? { fallbackName, file: ours ? read.file : prefixWorkflowChecks(read.file) }
           : { fallbackName, failure: read.errors.map((e) => `${WORKFLOW_DIR}/${name}${e.path || ``}: ${e.code}`) }
       )
     }
