@@ -111,20 +111,19 @@ export function agentVoicePatchSql(patch: z.infer<typeof agentVoicePatchSchema>)
 const NO_MEMBER_VOICE = { language: ``, voiceFile: ``, voiceTranscript: ``, wakePhrase: `` }
 
 /** #EXP-1859 (agent-settings.json `voice.wake`, OWNERS' PHRASE): the refusal
- *  of a team agent's write whose resulting wake phrase (a cleared one =
- *  `Hey {name}`, a rename counts) CHANGED and sounds like another team
- *  agent's of the same team; null = fine. Assistants never count. */
+ *  of a team agent's PHRASE write whose resulting wake phrase (a cleared one
+ *  = `Hey {name}`) CHANGED and sounds like another team agent's of the same
+ *  team; null = fine. Assistants never count. A rename is never refused
+ *  (owner's plan: a clash it causes is settled at the match, the closest
+ *  phrase wins and a tie wakes nobody). */
 export function agentWakeClash(
   agent: WakeAgentLike,
-  change: { name?: string; voice?: AgentVoice },
+  change: { voice: AgentVoice },
   teamAgents: readonly WakeAgentLike[]
 ): string | null {
   if (agent.role === `assistant`) return null
   const before = wakePhraseOf(agent, NO_MEMBER_VOICE)
-  const after = wakePhraseOf(
-    { ...agent, name: change.name ?? agent.name, voice: change.voice ?? agent.voice },
-    NO_MEMBER_VOICE
-  )
+  const after = wakePhraseOf({ ...agent, voice: change.voice }, NO_MEMBER_VOICE)
   if (after === before) return null
   const clash = wakePhraseClash(after, agent.id, teamAgents)
   return clash ? AGENT_VOICE_WAKE_COPY.errors.wakeClash.replace(`{agent}`, clash) : null
@@ -472,15 +471,14 @@ export const agentsRouter = router({
       if (agent.role === `assistant` && input.instructions !== undefined && input.instructions !== agent.instructions) {
         throw new TRPCError({ code: `BAD_REQUEST`, message: ASSISTANT_COPY.promptFixed })
       }
-      // #EXP-1859: a team agent's new wake phrase (or a rename's) may not
-      // sound like another team agent's of the same team.
-      if (agent.role !== `assistant` && (voice !== undefined || (input.name !== undefined && input.name !== agent.name))) {
+      // #EXP-1859: a team agent's new wake phrase may not sound like another
+      // team agent's of the same team (only a write of the phrase is checked).
+      if (agent.role !== `assistant` && input.voice?.wakePhrase !== undefined) {
         const teamAgents = await db
           .select({ id: agents.id, role: agents.role, name: agents.name, voice: agents.voice })
           .from(agents)
           .where(eq(agents.teamId, agent.teamId))
-        const nextVoice = input.voice === undefined ? undefined : mergeAgentVoice(agent.voice ?? {}, input.voice)
-        const clash = agentWakeClash(agent, { name: input.name, voice: nextVoice }, teamAgents)
+        const clash = agentWakeClash(agent, { voice: mergeAgentVoice(agent.voice ?? {}, input.voice) }, teamAgents)
         if (clash) throw new TRPCError({ code: `BAD_REQUEST`, message: clash })
       }
       const cli = input.cli ?? agent.cli ?? undefined

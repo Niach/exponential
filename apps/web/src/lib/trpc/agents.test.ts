@@ -71,11 +71,9 @@ describe(`agentWakeClash`, () => {
   it(`refuses a phrase that sounds like another team agent's, naming it`, () => {
     expect(agentWakeClash(tri, { voice: { wakePhrase: `Hey Oops` } }, team)).toBe(`Sounds like Ops's wake phrase`)
   })
-  it(`checks a cleared phrase as Hey {name} and a rename the same way`, () => {
+  it(`checks a cleared phrase as Hey {name}`, () => {
     const oops = { id: `a-oops`, role: `agent`, name: `Oops`, voice: { wakePhrase: `Hey Studio` } }
     expect(agentWakeClash(oops, { voice: {} }, [...team, oops])).toBe(`Sounds like Ops's wake phrase`)
-    const studio = { id: `a-stu`, role: `agent`, name: `Studio`, voice: {} }
-    expect(agentWakeClash(studio, { name: `Oops` }, [...team, studio])).toBe(`Sounds like Ops's wake phrase`)
   })
   it(`lets an unchanged phrase, an Assistant and a distinct phrase through`, () => {
     expect(agentWakeClash(ops, { voice: {} }, team)).toBeNull()
