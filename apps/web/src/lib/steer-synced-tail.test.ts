@@ -75,6 +75,32 @@ describe(`#FEED-260 synced tail`, () => {
     expect(syncedTailMessages({ live: false, feed: held, messages })).toEqual([])
   })
 
+  // #EXP-2084: the device's clock behind the server's (a stalled host), the
+  // feed not live (a cold start): the feed's own echo holds the reply.
+  it(`a child's reply the feed holds as that session's input is not drawn twice`, () => {
+    const held: FeedItem[] = [
+      ...feed,
+      {
+        id: 5,
+        seq: 5,
+        kind: `user_message`,
+        text: `Message from Fix the login (session s-child): The PR is open.`,
+        at: ms(`2026-11-16T14:33:30.000Z`),
+      },
+    ]
+    const reply = (id: string, authorSessionId: string, body: string) => ({
+      id,
+      authorKind: `agent`,
+      authorSessionId,
+      card: null,
+      consumedAt: `2026-11-16T14:58:31.000Z`,
+      createdAt: `2026-11-16T14:58:30.000Z`,
+      body,
+    })
+    const replies = [reply(`r1`, `s-child`, `The PR is open.`), reply(`r2`, `s-child`, `CI is green.`), reply(`r3`, `s-other`, `The PR is open.`)]
+    expect(syncedTailMessages({ live: false, feed: held, messages: replies }).map((m) => m.id)).toEqual([`r2`, `r3`])
+  })
+
   it(`an empty feed of an unreachable device takes the tail with its agent line`, () => {
     expect(syncedTailMessages({ live: false, feed: [], messages, unreachable: true }).map((m) => m.id)).toEqual([`u1`, `a1`])
   })
