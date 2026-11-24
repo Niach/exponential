@@ -22,6 +22,10 @@ pub const PENDING_MAX: usize = 200;
 pub struct InstallWrap {
     pub install_id: String,
     pub wrapped: String,
+    /// #EXP-1950: the maker's install's signature over the wrap
+    /// (`enet_core::wrap_sig`); omitted = unsigned (old servers strip it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 /// `sessionKeys.create` input: a tree's first key (epoch 1) or a rotation.
@@ -42,6 +46,11 @@ pub struct HeldKey {
     pub root_id: String,
     pub epoch: u32,
     pub wrapped: String,
+    /// #EXP-1950: who signed it (both None = unsigned; old servers omit both).
+    #[serde(default)]
+    pub signature: Option<String>,
+    #[serde(default)]
+    pub signer_endpoint_id: Option<String>,
 }
 
 /// A reader still missing the current epoch's wrap (`pending`).
@@ -53,6 +62,10 @@ pub struct PendingWrap {
     pub public_key: String,
     pub target_install_id: String,
     pub target_x25519_public: String,
+    /// #EXP-1950: the target's ed25519 key, the recipient a wrap signature
+    /// names (None from a server older than #3394: the wrap goes unsigned).
+    #[serde(default)]
+    pub target_endpoint_id: Option<String>,
 }
 
 /// One answer to a [`PendingWrap`] (`wrap`).
@@ -63,7 +76,31 @@ pub struct PairWrap {
     pub epoch: u32,
     pub target_install_id: String,
     pub wrapped: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
+
+/// #EXP-1950 (wrap-signature.json `resign`): a fresh signed wrap of a root's
+/// current epoch for `install_id` (the TARGET), replacing its unsigned row.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResignWrap {
+    pub root_id: String,
+    pub epoch: u32,
+    pub install_id: String,
+    pub wrapped: String,
+    pub signature: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResignOutput {
+    pub replaced: u32,
+    pub skipped: u32,
+}
+
+/// `resign`'s ceiling per call (`resign.maxWraps`).
+pub const RESIGN_MAX: usize = 200;
 
 /// A keyed root's current public key (`publicKeys`).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -109,6 +146,13 @@ struct WrapInput<'a> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ResignInput<'a> {
+    install_id: &'a str,
+    wraps: &'a [ResignWrap],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct RootsInput<'a> {
     root_ids: &'a [String],
 }
@@ -138,6 +182,13 @@ pub fn pending(trpc: &TrpcClient, install_id: &str, root_ids: Option<&[String]>)
 /// `sessionKeys.wrap`: only pairs `pending` lists.
 pub fn wrap(trpc: &TrpcClient, install_id: &str, wraps: &[PairWrap]) -> Result<WrapOutput, ApiError> {
     trpc.mutation("sessionKeys.wrap", &WrapInput { install_id, wraps })
+}
+
+/// #EXP-1950 `sessionKeys.resign`: replaces readers' UNSIGNED rows of a
+/// root's current epoch with these signed wraps (a signed row is never
+/// touched). NOT_FOUND (404) = a server without the procedure.
+pub fn resign(trpc: &TrpcClient, install_id: &str, wraps: &[ResignWrap]) -> Result<ResignOutput, ApiError> {
+    trpc.mutation("sessionKeys.resign", &ResignInput { install_id, wraps })
 }
 
 /// `sessionKeys.publicKeys`: the current key of each keyed root the caller
@@ -184,12 +235,16 @@ mod tests {
             install_id: "i".into(),
             epoch: 1,
             public_key: "k".into(),
-            wraps: vec![InstallWrap { install_id: "i".into(), wrapped: "w".into() }],
+            wraps: vec![
+                InstallWrap { install_id: "i".into(), wrapped: "w".into(), signature: None },
+                InstallWrap { install_id: "j".into(), wrapped: "v".into(), signature: Some("s".into()) },
+            ],
         };
         let json = serde_json::to_value(&input).unwrap();
+        // #EXP-1950: an unsigned wrap carries no `signature` key at all.
         assert_eq!(
             json,
-            serde_json::json!({"rootId":"r","installId":"i","epoch":1,"publicKey":"k","wraps":[{"installId":"i","wrapped":"w"}]})
+            serde_json::json!({"rootId":"r","installId":"i","epoch":1,"publicKey":"k","wraps":[{"installId":"i","wrapped":"w"},{"installId":"j","wrapped":"v","signature":"s"}]})
         );
     }
 
@@ -209,6 +264,22 @@ mod tests {
         .unwrap();
         assert_eq!(rows[0].epoch, 2);
         assert_eq!(rows[0].target_install_id, "t");
+        // #EXP-1950: an older server names no endpoint; a newer one does.
+        assert_eq!(rows[0].target_endpoint_id, None);
+        let rows: Vec<PendingWrap> = serde_json::from_str(
+            r#"[{"rootId":"r","epoch":2,"publicKey":"k","targetInstallId":"t","targetX25519Public":"x","targetEndpointId":"e"}]"#,
+        )
+        .unwrap();
+        assert_eq!(rows[0].target_endpoint_id.as_deref(), Some("e"));
+        let held: Vec<HeldKey> = serde_json::from_str(r#"[{"rootId":"r","epoch":1,"wrapped":"w"},{"rootId":"r","epoch":2,"wrapped":"w","signature":"s","signerEndpointId":"e"}]"#).unwrap();
+        assert_eq!((held[0].signature.as_deref(), held[1].signature.as_deref()), (None, Some("s")));
+        let pair = PairWrap { root_id: "r".into(), epoch: 1, target_install_id: "t".into(), wrapped: "w".into(), signature: None };
+        assert_eq!(serde_json::to_value(&pair).unwrap(), serde_json::json!({"rootId":"r","epoch":1,"targetInstallId":"t","wrapped":"w"}));
+        let wraps = [ResignWrap { root_id: "r".into(), epoch: 1, install_id: "t".into(), wrapped: "w".into(), signature: "s".into() }];
+        assert_eq!(
+            serde_json::to_value(ResignInput { install_id: "i", wraps: &wraps }).unwrap(),
+            serde_json::json!({"installId":"i","wraps":[{"rootId":"r","epoch":1,"installId":"t","wrapped":"w","signature":"s"}]})
+        );
     }
 
     #[test]
