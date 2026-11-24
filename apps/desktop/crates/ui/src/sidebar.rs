@@ -1371,4 +1371,78 @@ mod tests {
         crate::duty_cycle::enable_for_test(false);
     }
 
+    /// #FEED-291: a rail with more rows than its window is tall scrolls: the
+    /// rows' ScrollArea is laid out inside the window (not as tall as its
+    /// rows), a wheel over it reaches the last row, and the footer stays in
+    /// the window under it.
+    #[gpui::test]
+    async fn a_rail_taller_than_its_window_scrolls_to_its_last_row(cx: &mut gpui::TestAppContext) {
+        use gpui::{px, size};
+        use sync::Store;
+        use uicore_model::ide::{IdeItemInput, IdeSidebarInput, IdeTeamInput};
+
+        use super::RailView;
+
+        const WINDOW: (f32, f32) = (272., 420.);
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+        });
+        let (rail, cx) = cx.add_window_view(|window, cx| {
+            let nav = crate::navigation::nav_for_window(window, cx);
+            let _ = &nav;
+            RailView::new(window, cx)
+        });
+        cx.simulate_resize(size(px(WINDOW.0), px(WINDOW.1)));
+        let settle = |cx: &mut gpui::VisualTestContext| {
+            for _ in 0..4 {
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                cx.run_until_parked();
+            }
+        };
+        let region = rail.read_with(cx, |rail, _| rail.region());
+        let (surface, footer) = region.read_with(cx, |region, _| (region.surface(), region.footer()));
+        cx.update(|_, cx| {
+            surface.update(cx, |view, _| view.record_bounds(true));
+            footer.update(cx, |view, _| view.record_bounds(true));
+        });
+        let items = (0..40).map(|n| IdeItemInput { kind: "board".into(), id: format!("b{n}"), name: format!("Board {n}"), icon: "ui-file".into(), ..Default::default() }).collect();
+        let input = IdeSidebarInput { screen: "home".into(), teams: vec![IdeTeamInput { id: "t1".into(), name: "Acme".into(), mark: "ui-team".into(), open: true, owner: true, items, ..Default::default() }], ..Default::default() };
+        cx.update(|_, cx| region.update(cx, |region, cx| region.show(input, None, cx)));
+        settle(cx);
+
+        let extent = |cx: &mut gpui::VisualTestContext| surface.read_with(cx, |view, _| view.scroll_extent("scroll")).expect("the rows' ScrollArea laid out");
+        let painted = |view: &gpui::Entity<eui_gpui::view::SurfaceView>, id: &str, cx: &mut gpui::VisualTestContext| view.read_with(cx, |view, _| view.painted_bounds(id)).unwrap_or_else(|| panic!("{id} painted"));
+        let (offset, viewport, content) = extent(cx);
+        assert_eq!(offset, 0., "at rest the rows start at their top");
+        assert!(viewport < WINDOW.1, "the rows' viewport ({viewport}) fits the {} px window", WINDOW.1);
+        assert!(content > viewport + 200., "forty rows ({content}) overflow it ({viewport})");
+        let corner = painted(&footer, "corner", cx);
+        assert!(f32::from(corner.bottom()) <= WINDOW.1, "the footer stays in the window: {corner:?}");
+
+        // A wheel over the rows, far past their end.
+        let scroll = painted(&surface, "scroll", cx);
+        assert!(f32::from(scroll.bottom()) <= f32::from(corner.top()) + 0.5, "the rows end above the footer: {scroll:?} / {corner:?}");
+        // The pointer rests on a row (the row under it is the hover the host
+        // feeds back into the document's data).
+        cx.simulate_mouse_move(scroll.center(), None, gpui::Modifiers::default());
+        settle(cx);
+        let event = gpui::ScrollWheelEvent { position: scroll.center(), delta: gpui::ScrollDelta::Pixels(gpui::point(px(0.), px(-content))), ..Default::default() };
+        #[allow(deprecated)]
+        cx.update(|window, cx| {
+            window.dispatch_event(gpui::InputEvent::to_platform_input(event), cx);
+        });
+        settle(cx);
+        // Another row is under the resting pointer now: its hover lands.
+        cx.simulate_mouse_move(scroll.center() + gpui::point(px(1.), px(0.)), None, gpui::Modifiers::default());
+        settle(cx);
+        let (offset, viewport, content) = extent(cx);
+        assert!((offset - (content - viewport)).abs() < 0.5, "the wheel reaches the end: {offset} of {content} in {viewport}");
+        let last = painted(&surface, "ide_item_row.b39", cx);
+        let scroll = painted(&surface, "scroll", cx);
+        assert!(last.top() >= scroll.top() && f32::from(last.bottom()) <= f32::from(scroll.bottom()) + 0.5, "the last row is in view: {last:?} in {scroll:?}");
+    }
+
 }
