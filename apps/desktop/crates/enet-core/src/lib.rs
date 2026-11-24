@@ -72,7 +72,7 @@ pub use error::{NetError, Result};
 #[cfg(feature = "node")]
 pub use event::{CallEndReason, Event};
 #[cfg(feature = "node")]
-pub use identity::Identity;
+pub use identity::{verify_endpoint_signature, Identity};
 #[cfg(feature = "node")]
 pub use links::PathKind;
 #[cfg(feature = "node")]

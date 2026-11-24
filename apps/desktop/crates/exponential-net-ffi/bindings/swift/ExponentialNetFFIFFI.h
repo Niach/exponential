@@ -630,6 +630,11 @@ RustBuffer uniffi_exponential_net_ffi_fn_func_generate_identity(RustCallStatus *
 RustBuffer uniffi_exponential_net_ffi_fn_func_identity_sign(RustBuffer identity, RustBuffer message, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_IDENTITY_VERIFY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_IDENTITY_VERIFY
+int8_t uniffi_exponential_net_ffi_fn_func_identity_verify(RustBuffer endpoint_id, RustBuffer message, RustBuffer signature, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PARSE_TICKET
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_FN_FUNC_PARSE_TICKET
 RustBuffer uniffi_exponential_net_ffi_fn_func_parse_ticket(RustBuffer ticket, RustCallStatus *_Nonnull out_status
@@ -1019,6 +1024,12 @@ uint16_t uniffi_exponential_net_ffi_checksum_func_generate_identity(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_IDENTITY_SIGN
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_IDENTITY_SIGN
 uint16_t uniffi_exponential_net_ffi_checksum_func_identity_sign(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_IDENTITY_VERIFY
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_NET_FFI_CHECKSUM_FUNC_IDENTITY_VERIFY
+uint16_t uniffi_exponential_net_ffi_checksum_func_identity_verify(void
     
 );
 #endif

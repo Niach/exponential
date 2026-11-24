@@ -1008,8 +1008,10 @@ struct MainNavigator: View {
     /// #FEED-232: the app icon's number (`NavBadges.appIconBadge` over every
     /// team's needs-you rows).
     private var appIconBadgeCount: Int {
-        NavBadges.appIconBadge(teamState.teams.map {
-            sessionLists.needsYou(teamId: $0.id, me: deps.auth.userId, now: Date()).count
+        // #EXP-1950: installs waiting for approval are rows of every team's Needs you.
+        let pendingInstalls = deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").rows.count
+        return NavBadges.appIconBadge(teamState.teams.map {
+            sessionLists.needsYou(teamId: $0.id, me: deps.auth.userId, now: Date()).count + pendingInstalls
         })
     }
 

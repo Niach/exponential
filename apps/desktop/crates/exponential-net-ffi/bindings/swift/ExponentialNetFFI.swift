@@ -4363,6 +4363,21 @@ public func identitySign(identity: Data, message: Data)throws  -> Data  {
 })
 }
 /**
+ * #EXP-1950 (install-trust.json): whether `signature` (64 bytes) is
+ * `endpoint_id`'s strict ed25519 signature over `message` (an install
+ * approval, a registration). False for a malformed key or signature.
+ */
+public func identityVerify(endpointId: String, message: Data, signature: Data) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_identity_verify(
+        FfiConverterString.lower(endpointId),
+        FfiConverterData.lower(message),
+        FfiConverterData.lower(signature),uniffiCallStatus
+    )
+})
+}
+/**
  * Parses (validates) an `enet1…` ticket.
  */
 public func parseTicket(ticket: String)throws  -> EnetTicket  {
@@ -4513,6 +4528,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_func_identity_sign() != 52273) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_identity_verify() != 1023) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_func_parse_ticket() != 60060) {

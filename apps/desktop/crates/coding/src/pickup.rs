@@ -1676,6 +1676,11 @@ pub trait LiveEngine: Send + Sync {
     fn model(&self) -> Option<String> {
         None
     }
+    /// #EXP-2085: the background tasks (their descriptions) this run's END
+    /// took down: asked after a suspend, for [`relaunch_note`].
+    fn ended_background_tasks(&self) -> Vec<String> {
+        Vec::new()
+    }
     /// Wait up to `timeout` for the run to end; `true` = it did.
     fn wait_done(&self, timeout: std::time::Duration) -> bool {
         let deadline = std::time::Instant::now() + timeout;
@@ -3871,6 +3876,8 @@ pub fn switch_session(
             "account switch for {session_id} refused: the session did not stop in time"
         )));
     }
+    // #EXP-2085: the suspend ended the agent's background tasks with it.
+    let start_note = relaunch_note(&engine.ended_background_tasks());
     // The old entry (and its claim lock) goes; the resume takes a fresh one.
     // What the old engine was handed stays handed — delivered once.
     deps.live.remove(session_id);
@@ -3926,7 +3933,8 @@ pub fn switch_session(
     };
     let persistent = row.is_persistent();
     match crate::prepare(&PrepareRequest::Session(req), &deps.coding) {
-        Ok(Prepared::Ready(prepared)) => {
+        Ok(Prepared::Ready(mut prepared)) => {
+            prepared.start_note = start_note;
             let engine = spawn(session_id, persistent, prepared, claim, true, row_account, Some(&launch_row), deps)
                 .inspect_err(|reason| deps.live.note_refused(session_id, &pending, reason))
                 .map_err(failed)?;
@@ -3969,6 +3977,34 @@ pub fn switch_session(
             Err(failed(reason))
         }
     }
+}
+
+/// #EXP-2085: what a between-turn relaunch (changed options, picks or
+/// account: [`switch_session`]) says into the conversation when the agent it
+/// stopped was still running background tasks: they died with it, and
+/// neither the person nor the resumed agent could tell. `None` = none ran.
+/// Said once by the resumed engine: a notice in the feed, and the lead of
+/// the agent's next input.
+pub fn relaunch_note(ended: &[String]) -> Option<String> {
+    if ended.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = ended
+        .iter()
+        .map(|task| match task.trim() {
+            "" => "an unnamed task".to_string(),
+            name => format!("\u{201c}{name}\u{201d}"),
+        })
+        .collect();
+    let (count, them) = match names.len() {
+        1 => ("1 background task".to_string(), "it"),
+        n => (format!("{n} background tasks"), "them"),
+    };
+    Some(format!(
+        "Note from Exponential: this device restarted the agent between turns to apply changed settings. \
+         The restart ended {count}: {}. Nobody stopped {them} on purpose: start {them} again if still needed.",
+        names.join(", ")
+    ))
 }
 
 /// EXP-1281: a shown [`report_switching`] still owed its clear — and the
@@ -5832,6 +5868,9 @@ mod tests {
         done: AtomicBool,
         /// A turn in flight (`is_idle` = false).
         working: AtomicBool,
+        /// #EXP-2085: the background tasks the run lists; its end takes
+        /// them down.
+        background: Mutex<Vec<String>>,
         /// EXP-1334: live plan-mode switches, in order.
         plan_switches: Mutex<Vec<bool>>,
         /// EXP-1334: the run's current plan mode (`None` = unknown).
@@ -5861,6 +5900,12 @@ mod tests {
     }
 
     impl LiveEngine for FakeEngine {
+        fn ended_background_tasks(&self) -> Vec<String> {
+            match *self.killed.lock().unwrap() {
+                Some(_) => self.background.lock().unwrap().clone(),
+                None => Vec::new(),
+            }
+        }
         fn deliver(&self, message_id: String, text: String) {
             self.delivered.lock().unwrap().push((message_id, text));
         }
@@ -6080,6 +6125,8 @@ mod tests {
         session_id: String,
         prompt: Option<String>,
         seed_message_id: Option<String>,
+        /// #EXP-2085: the relaunch note the spawn carried.
+        start_note: Option<String>,
     }
 
     struct Host {
@@ -6121,6 +6168,7 @@ mod tests {
                 session_id: prepared.session_id.clone(),
                 prompt: prepared.acp.prompt.clone(),
                 seed_message_id: prepared.seed_message_id.clone(),
+                start_note: prepared.start_note.clone(),
             });
             Ok(Arc::clone(&launch_engine) as Arc<dyn LiveEngine>)
         });
@@ -6188,6 +6236,7 @@ mod tests {
                 session_id: "sess-1".to_string(),
                 prompt: Some("Review the login page.".to_string()),
                 seed_message_id: None,
+                start_note: None,
             }]
         );
         assert!(host.deps.live.contains_live("sess-1"));
@@ -6901,7 +6950,7 @@ mod tests {
         let spawned = host.spawned.lock().unwrap().clone();
         assert_eq!(
             spawned,
-            vec![Spawned { session_id: "agent-1".to_string(), prompt: None, seed_message_id: None }]
+            vec![Spawned { session_id: "agent-1".to_string(), prompt: None, seed_message_id: None, start_note: None }]
         );
         assert_eq!(
             procedures(&requests),
@@ -7877,6 +7926,54 @@ mod tests {
         // The new engine honors the row: nothing more to do.
         let honored = host.deps.live.options("sess-1").expect("options");
         assert_eq!(options_delta(&row, &honored), OptionsDelta::default());
+    }
+
+    /// #EXP-2085 regression: a between-turn relaunch (here: a changed
+    /// effort) stopped the agent and its background shell with it, and said
+    /// nothing: the agent only noticed on a later turn, the person never.
+    /// The resumed run now carries the note naming what the restart ended;
+    /// a relaunch with nothing in the background carries none.
+    #[test]
+    fn a_relaunch_tells_the_conversation_which_background_tasks_it_ended() {
+        let relaunch = |name: &str, background: &[&str]| {
+            let dir = temp_dir(name);
+            let (base, _requests) = canned_server_recording(vec![
+                (200, BRIEF_OK.to_string()),
+                (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
+                (200, REPORT_OK.to_string()),
+            ]);
+            let host = host(&base, &dir.0, |_| {});
+            let mut low = record(&dir.0, "sess-1");
+            low.effort = "low".to_string();
+            crate::run_registry::record(&dir.0, low);
+            let launched = SessionRow {
+                effort: Some("low".to_string()),
+                updated_at: Some("u0".to_string()),
+                ..session("sess-1", "idle", DEV, "t")
+            };
+            let old = Arc::new(FakeEngine::default());
+            *old.background.lock().unwrap() = background.iter().map(|task| task.to_string()).collect();
+            host.deps.live.insert_for("sess-1", old.clone(), None, Some(String::new()));
+            host.deps.live.set_options("sess-1", Some(LaunchedOptions::of(&launched, Some(Vec::new()))));
+            let row = SessionRow { effort: Some("high".to_string()), ..launched.clone() };
+            let pending = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+            assert_eq!(switch_session(&row, "", None, &pending, &host.deps), Ok(Switched::Moved));
+            assert_eq!(*old.killed.lock().unwrap(), Some("suspended"));
+            let spawned = host.spawned.lock().unwrap().clone();
+            assert_eq!(spawned.len(), 1);
+            spawned[0].start_note.clone()
+        };
+        let note = relaunch("pickup-relaunch-note", &["Wait 420 seconds in the background"])
+            .expect("the relaunch says what it ended");
+        assert_eq!(
+            note,
+            "Note from Exponential: this device restarted the agent between turns to apply changed settings. \
+             The restart ended 1 background task: \u{201c}Wait 420 seconds in the background\u{201d}. \
+             Nobody stopped it on purpose: start it again if still needed."
+        );
+        assert_eq!(relaunch("pickup-relaunch-quiet", &[]), None, "nothing ran in the background");
+        let two = relaunch_note(&["bun dev".to_string(), " ".to_string()]).expect("a note");
+        assert!(two.contains("ended 2 background tasks: \u{201c}bun dev\u{201d}, an unnamed task. Nobody stopped them"), "{two}");
     }
 
     /// A cleared effort restarts on this machine's default, never on the

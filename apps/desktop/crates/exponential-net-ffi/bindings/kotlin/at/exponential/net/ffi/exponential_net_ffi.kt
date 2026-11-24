@@ -761,6 +761,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_identity_sign(
     ): Int
+    external fun uniffi_exponential_net_ffi_checksum_func_identity_verify(
+    ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_parse_ticket(
     ): Int
     external fun uniffi_exponential_net_ffi_checksum_func_accept_vouch(
@@ -1017,6 +1019,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_exponential_net_ffi_fn_func_identity_sign(`identity`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_exponential_net_ffi_fn_func_identity_verify(`endpointId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`signature`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
     external fun uniffi_exponential_net_ffi_fn_func_parse_ticket(`ticket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_net_ffi_fn_func_accept_vouch(`statement`: RustBuffer.ByValue,`signature`: RustBuffer.ByValue,`signerEndpointId`: RustBuffer.ByValue,`pins`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -6031,6 +6035,24 @@ public object FfiConverterSequenceTypeEnetRecord: FfiConverterRustBuffer<List<En
         
         FfiConverterByteArray.lower(`identity`),
         FfiConverterByteArray.lower(`message`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * #EXP-1950 (install-trust.json): whether `signature` (64 bytes) is
+         * `endpoint_id`'s strict ed25519 signature over `message` (an install
+         * approval, a registration). False for a malformed key or signature.
+         */ fun `identityVerify`(`endpointId`: kotlin.String, `message`: kotlin.ByteArray, `signature`: kotlin.ByteArray): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_net_ffi_fn_func_identity_verify(
+    
+        
+        FfiConverterString.lower(`endpointId`),
+        FfiConverterByteArray.lower(`message`),
+        FfiConverterByteArray.lower(`signature`),_status)
 }
     )
     }

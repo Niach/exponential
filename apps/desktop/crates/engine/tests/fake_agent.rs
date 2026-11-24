@@ -778,6 +778,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
         tab_title: "claude · EXP-746".to_string(),
         tab_title_prefix: "EXP-746".to_string(),
         seed_message_id: None,
+        start_note: None,
         bypass_permissions: true,
         plan_mode: false,
         agent: coding::CodingAgent::Claude,

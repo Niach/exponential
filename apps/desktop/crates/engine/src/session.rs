@@ -245,6 +245,7 @@ impl EngineSession {
             // fresh `session/new` would show an empty transcript.
             resume: Some(resume),
             prompt: None,
+            start_note: None,
             aside: false,
             child_exit,
             attachments: None,
@@ -428,6 +429,7 @@ where
         replay: false,
         resume: acp.resume.clone().map(ResumeHandle::from),
         prompt: acp.prompt.clone(),
+        start_note: prepared.start_note.clone(),
         aside,
         child_exit: parts.child_exit,
         attachments: Some(attachments),
@@ -501,6 +503,12 @@ impl coding::pickup::LiveEngine for EngineSession {
 
     fn open_cards(&self) -> std::collections::HashMap<String, String> {
         self.0.open_cards()
+    }
+
+    /// #EXP-2085: what the run's end took down, as the relaunch note names
+    /// them.
+    fn ended_background_tasks(&self) -> Vec<String> {
+        self.0.ended_background_tasks().into_iter().map(|task| task.description).collect()
     }
 
     /// EXP-1292: the row ended on the server — the agent's own
