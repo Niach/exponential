@@ -256,7 +256,7 @@ fun ChatListSpecimenScreen() {
                     modifier = Modifier.padding(padding),
                 )
             }
-            SpecimenTabBar(selected = "chats", modifier = Modifier.align(Alignment.BottomCenter))
+            SpecimenDock("chats", modifier = Modifier.align(Alignment.BottomCenter))
         }
     }
 }
