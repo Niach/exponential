@@ -440,6 +440,26 @@ final class SteerEnetTests: XCTestCase {
 
     // EXP-1487 LOST BANNER: a dropped feed redials silently; "Connection
     // lost" only after `graceMs` down AND `failedRedials` failed redials.
+    /// #EXP-2087: the banner's Reconnect starts a fresh dial: the drop it
+    /// answered is over, so one more failure is not "Connection lost" again
+    /// (web `reconnect()` clears `droppedAt` + `failedRedials`).
+    func testReconnectClearsTheDrop() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        var drop = SteerDrop()
+        XCTAssertFalse(drop.failed(now: start))
+        XCTAssertFalse(drop.failed(now: start.addingTimeInterval(2)))
+        XCTAssertTrue(drop.failed(now: start.addingTimeInterval(9)), "down past the grace after two failed redials")
+        drop.reconnect()
+        XCTAssertFalse(drop.pending)
+        XCTAssertFalse(drop.failed(now: start.addingTimeInterval(10)), "the manual dial's failure starts a new drop")
+        XCTAssertEqual(drop.failedRedials, 0)
+        // A stale redial keeps a pending drop's clock; a join ends it.
+        drop.begin(now: start.addingTimeInterval(60))
+        XCTAssertEqual(drop.since, start.addingTimeInterval(10))
+        drop.clear()
+        XCTAssertNil(drop.since)
+    }
+
     func testLostBannerCases() throws {
         let rule = try XCTUnwrap(try fixture()["lostBanner"] as? [String: Any])
         XCTAssertEqual(rule["graceMs"] as? Int, SteerLostBanner.graceMs)
