@@ -1024,6 +1024,21 @@ pub fn send_wire(tree: SendTree, holder: Holder, reader: bool, key_arrives: bool
     }
 }
 
+/// #EXP-2120 (`clearTree.sealErrorCases`): what leaves when sealing failed:
+/// a clear tree's plaintext (its legal wire), nothing on every other error.
+pub fn seal_error_wire(err: &SealError) -> SendWire {
+    match err {
+        SealError::ClearTree => SendWire::Plain,
+        SealError::NoService
+        | SealError::NotReady
+        | SealError::UnknownRoot
+        | SealError::NoKey(_)
+        | SealError::NotReader
+        | SealError::NoHolder
+        | SealError::Invalid(_) => SendWire::Failed,
+    }
+}
+
 // --- a keyless tree's key (`clearTree.keylessCases`, #EXP-1960) ----------
 
 /// `sealed-content.json` `clearTree.createAttempts` / `createRetryMs`.
@@ -1275,6 +1290,22 @@ pub struct NewRootSeal {
     pub wraps: Vec<api::session_keys::InstallWrap>,
     #[serde(skip)]
     pub secret: [u8; 32],
+}
+
+impl NewRootSeal {
+    /// As `sessions.send {seal}` carries it.
+    pub fn send_seal(&self) -> api::sessions::SendSeal {
+        api::sessions::SendSeal {
+            install_id: self.install_id.clone(),
+            public_key: self.public_key.clone(),
+            epoch: self.epoch,
+            wraps: self
+                .wraps
+                .iter()
+                .map(|wrap| api::sessions::SealWrap { install_id: wrap.install_id.clone(), wrapped: wrap.wrapped.clone() })
+                .collect(),
+        }
+    }
 }
 
 /// A fresh tree key wrapped for this install plus `readers`
@@ -1734,6 +1765,21 @@ mod tests {
         assert_eq!(SEND_KEY_WAIT.as_millis() as u64, clear["keyWaitMs"].as_u64().unwrap());
         assert_eq!(CLEAR_REFUSAL, clear["clearRefusal"].as_str().unwrap());
         assert_eq!(NO_KEY_REFUSAL, clear["noKeyRefusal"].as_str().unwrap());
+        for case in clear["sealErrorCases"].as_array().unwrap() {
+            let err = match case["error"].as_str().unwrap() {
+                "noService" => SealError::NoService,
+                "notReady" => SealError::NotReady,
+                "unknownRoot" => SealError::UnknownRoot,
+                "noKey" => SealError::NoKey("no answer".into()),
+                "notReader" => SealError::NotReader,
+                "noHolder" => SealError::NoHolder,
+                "invalid" => SealError::Invalid("bad key".into()),
+                "clearTree" => SealError::ClearTree,
+                other => panic!("no seal error {other}"),
+            };
+            let wire = if case["wire"] == "plain" { SendWire::Plain } else { SendWire::Failed };
+            assert_eq!(seal_error_wire(&err), wire, "{}", case["name"]);
+        }
         for case in clear["writerCases"].as_array().unwrap() {
             let name = case["name"].as_str().unwrap();
             let tree = match case["tree"].as_str().unwrap() {
