@@ -28,6 +28,7 @@ import {
   type CreateFailure,
   type TreeKeys,
 } from "@exp/domain-contract/sealed-content"
+import { callKey } from "@exp/domain-contract/install-trust"
 import { resignAfter, signWrap } from "@exp/domain-contract/wrap-signature"
 import type { InstallTrust } from "./install-trust"
 import type { TreeKeyStore } from "./tree-key-store"
@@ -165,6 +166,18 @@ export class KeyHolder {
     if (!epochs || epochs.size === 0) return undefined
     const epoch = Math.max(...epochs.keys())
     return { epoch, publicKey: treeKeyFromSecret(epochs.get(epoch)!).publicKey }
+  }
+
+  /** #EXP-1950 (install-trust.json `callCases`): a sealed call's key, from
+   *  this install's keyring only (one pull when missing); null = `no_key`.
+   *  Release 1 takes any kept key, its record says what it is. */
+  async callSecret(rootId: string, epoch: number): Promise<Uint8Array | null> {
+    if (!this.keysFor(rootId).has(epoch)) await this.refresh([rootId]).catch(() => {})
+    const secret = this.keysFor(rootId).get(epoch)
+    const trust = this.deps.trust
+    if (!trust) return secret ?? null
+    const verdict = callKey({ rootId, epoch }, secret ? { secret, record: trust.recordOf(rootId, epoch) } : null, trust.store, trust.mode)
+    return `key` in verdict ? verdict.key : null
   }
 
   /** Loads the wraps this install holds (every root, or `rootIds`). */
