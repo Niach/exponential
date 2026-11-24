@@ -6,12 +6,13 @@
 // a bug catcher, not the protection: an install keeps a wrap only when an
 // install it PINNED signed it (`acceptWrap`, on the clients). A wrap without
 // a signature is stored unsigned, as every released client writes it.
-import { verifyWrapSignature } from "@exp/domain-contract/wrap-signature"
+import { resignOutcome, verifyWrapSignature } from "@exp/domain-contract/wrap-signature"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm"
 import { z } from "zod"
 import { installs, sessionKeys, sessions } from "@/db/schema"
-import { ownInstall, type Reader } from "@/lib/sessions/tree-keys"
+import { loadRoot, lockTreeKeys, ownInstall, treeReaders, type Reader } from "@/lib/sessions/tree-keys"
+import type { Tx } from "@/lib/sessions/tx"
 
 export const WRAP_SIGNATURE_REFUSAL = `A wrap's signature is not your install's over this key`
 
@@ -140,3 +141,103 @@ export async function vouchesFor(
   }
   return out
 }
+
+/** One wrap of `sessionKeys.resign`: `installId` = the TARGET install. */
+export interface ResignWrap {
+  rootId: string
+  epoch: number
+  installId: string
+  wrapped: string
+  signature: string
+}
+
+/** `sessionKeys.resign` inside its transaction (wrap-signature.json
+ *  `resign`, decision c): the caller, a holder of a root's current epoch,
+ *  replaces each reader's UNSIGNED wrap of that epoch with its own signed
+ *  one. Per wrap `resignOutcome` decides; one refusal refuses the call
+ *  before anything is written. A signed row is never touched. */
+export async function resignWrapsInTx(
+  tx: Tx,
+  userId: string,
+  input: { installId: string; wraps: readonly ResignWrap[] }
+): Promise<{ replaced: number; skipped: number }> {
+  const signer = await ownInstall(tx, userId, input.installId)
+  const seen = new Set<string>()
+  for (const wrap of input.wraps) {
+    const key = `${wrap.rootId}\n${wrap.epoch}\n${wrap.installId}`
+    if (seen.has(key)) throw new TRPCError({ code: `BAD_REQUEST`, message: `One wrap per pair` })
+    seen.add(key)
+  }
+  const rootIds = [...new Set(input.wraps.map((wrap) => wrap.rootId))].sort()
+  const toReplace: Array<ResignWrap> = []
+  let skipped = 0
+  for (const rootId of rootIds) {
+    await lockTreeKeys(tx, rootId)
+    let root: Awaited<ReturnType<typeof loadRoot>>
+    try {
+      root = await loadRoot(tx, rootId)
+    } catch {
+      throw new TRPCError({ code: `FORBIDDEN`, message: RESIGN_NOT_READER })
+    }
+    const readers = await treeReaders(tx, root)
+    const wraps = input.wraps.filter((wrap) => wrap.rootId === rootId)
+    const current = wraps.filter((wrap) => wrap.epoch === root.sealEpoch)
+    const rows = new Map(
+      current.length === 0
+        ? []
+        : (
+            await tx
+              .select({ installId: sessionKeys.installId, epoch: sessionKeys.epoch, rootId: sessionKeys.rootId, signature: sessionKeys.signature })
+              .from(sessionKeys)
+              .where(and(eq(sessionKeys.rootId, rootId), eq(sessionKeys.epoch, root.sealEpoch!), inArray(sessionKeys.installId, current.map((wrap) => wrap.installId))))
+          )
+            .filter((row) => row.rootId === rootId && row.epoch === root.sealEpoch)
+            .map((row) => [row.installId, row.signature === null ? (`unsigned` as const) : (`signed` as const)])
+    )
+    for (const wrap of wraps) {
+      const target = readers.get(wrap.installId)
+      const currentEpoch = wrap.epoch === root.sealEpoch && !!root.sealPublicKey
+      const { rule, outcome } = resignOutcome({
+        callerReader: readers.has(input.installId),
+        currentEpoch,
+        targetReader: !!target,
+        signatureValid:
+          currentEpoch &&
+          !!target &&
+          verifyWrapSignature(
+            { rootId, epoch: wrap.epoch, treePublicKey: root.sealPublicKey!, recipientEndpointId: target.endpointId, wrapped: wrap.wrapped },
+            wrap.signature,
+            signer.endpointId
+          ),
+        row: rows.get(wrap.installId) ?? `none`,
+      })
+      if (outcome === `refused`) {
+        throw rule === `badSignature`
+          ? new TRPCError({ code: `BAD_REQUEST`, message: WRAP_SIGNATURE_REFUSAL })
+          : new TRPCError({ code: `FORBIDDEN`, message: RESIGN_NOT_READER })
+      }
+      if (outcome === `replaced`) toReplace.push(wrap)
+      else skipped++
+    }
+  }
+  let replaced = 0
+  for (const wrap of toReplace) {
+    const updated = await tx
+      .update(sessionKeys)
+      .set({ wrapped: wrap.wrapped, signature: wrap.signature, signerEndpointId: signer.endpointId, createdByInstallId: signer.id })
+      .where(
+        and(
+          eq(sessionKeys.rootId, wrap.rootId),
+          eq(sessionKeys.epoch, wrap.epoch),
+          eq(sessionKeys.installId, wrap.installId),
+          isNull(sessionKeys.signature)
+        )
+      )
+      .returning({ id: sessionKeys.id })
+    if (updated.length > 0) replaced++
+    else skipped++
+  }
+  return { replaced, skipped }
+}
+
+export const RESIGN_NOT_READER = `Not a reader of this tree`

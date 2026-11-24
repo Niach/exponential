@@ -1,5 +1,5 @@
 {
-  "$comment": "#EXP-1950: SIGNED TREE KEY WRAPS, the one byte format every platform signs and checks. Replayed by the TS reference packages/domain-contract/src/wrap-signature.ts and by Rust enet-core wrap_sig.rs (the crate every platform's crypto goes through; Swift, Kotlin and the browser follow through its bindings). CONTRACT ONLY: no platform signs or checks a wrap yet, and how an install comes to be PINNED is not decided here. WHY: a wrap (`session_keys.wrapped`, fixtures/sealed-content.json `wrap`) is a sealed box to an install's public key, which the server stores; an install that keeps any wrap that opens can be handed a key the server made itself. SIGNER: the install that made the wrap signs it with its eNet identity, the ed25519 key whose public half is `installs.endpoint_id` (fixtures/install-register.json; `signer.identity` here is that fixture's identity). MESSAGE (186 bytes, `layout`): `label` = the ASCII of `label` and one 0x00; `rootId` = the root UUID's 16 bytes (so its casing never matters); `epoch` = u32 big endian; `treePublic` = the 32 bytes of that epoch's X25519 public key; `recipient` = the recipient install's ed25519 public key (its endpoint id, never the row id: the server assigns row ids); `wrapped` = the 81 bytes of the wrap. SIGNATURE = ed25519 (RFC 8032, deterministic, so `vector` is byte-exact) over the message, 64 bytes; it travels as base64url WITHOUT padding (86 chars), endpoint ids as lowercase hex, secrets here as lowercase hex. VERIFICATION IS STRICT (iroh `verify_strict`): canonical S, a low-order signer key or R is refused. ACCEPTING A WRAP (`accepted`, `refused`; `acceptWrap`): the recipient (`recipient`: its identity and the X25519 secret derived from it, fixtures/push-seal.json `derive`) builds the message ITSELF from the root and epoch it asked for, the public key of the secret it just unwrapped, its own endpoint id and the wrapped bytes. Checks in this order, first failure wins: `malformed` (a field the wire does not allow; a signature without its signer or the reverse) > `unsigned` (no signature and `required`) > `unpinned` (the signer is not in `pins`) > `unopened` (the wrap does not open with the install secret) > `signature` (not the signer's signature over this message). A wrap that CARRIES a signature must pass with it also where `required` is false: `unsigned` is only ever the status of a wrap with no signature at all. So a wrong signer, recipient, root, epoch or tree public key and a re-sealed wrap all read `signature`. VOUCH (`vouchCases`; `acceptVouch`): an install that holds no secret of (root, epoch) may seal to a tree public key only when a pinned install's signed wrap of that epoch, made for ANOTHER install, names that key; it verifies the same message without opening the wrap (never `unopened`). Each case carries every input, so a replay needs no state.",
+  "$comment": "#EXP-1950: SIGNED TREE KEY WRAPS, the one byte format every platform signs and checks. Replayed by the TS reference packages/domain-contract/src/wrap-signature.ts and by Rust enet-core wrap_sig.rs (the crate every platform's crypto goes through; Swift, Kotlin and the browser follow through its bindings). CONTRACT ONLY: no platform signs or checks a wrap yet, and how an install comes to be PINNED is not decided here. WHY: a wrap (`session_keys.wrapped`, fixtures/sealed-content.json `wrap`) is a sealed box to an install's public key, which the server stores; an install that keeps any wrap that opens can be handed a key the server made itself. SIGNER: the install that made the wrap signs it with its eNet identity, the ed25519 key whose public half is `installs.endpoint_id` (fixtures/install-register.json; `signer.identity` here is that fixture's identity). MESSAGE (186 bytes, `layout`): `label` = the ASCII of `label` and one 0x00; `rootId` = the root UUID's 16 bytes (so its casing never matters); `epoch` = u32 big endian; `treePublic` = the 32 bytes of that epoch's X25519 public key; `recipient` = the recipient install's ed25519 public key (its endpoint id, never the row id: the server assigns row ids); `wrapped` = the 81 bytes of the wrap. SIGNATURE = ed25519 (RFC 8032, deterministic, so `vector` is byte-exact) over the message, 64 bytes; it travels as base64url WITHOUT padding (86 chars), endpoint ids as lowercase hex, secrets here as lowercase hex. VERIFICATION IS STRICT (iroh `verify_strict`): canonical S, a low-order signer key or R is refused. ACCEPTING A WRAP (`accepted`, `refused`; `acceptWrap`): the recipient (`recipient`: its identity and the X25519 secret derived from it, fixtures/push-seal.json `derive`) builds the message ITSELF from the root and epoch it asked for, the public key of the secret it just unwrapped, its own endpoint id and the wrapped bytes. Checks in this order, first failure wins: `malformed` (a field the wire does not allow; a signature without its signer or the reverse) > `unsigned` (no signature and `required`) > `unpinned` (the signer is not in `pins`) > `unopened` (the wrap does not open with the install secret) > `signature` (not the signer's signature over this message). A wrap that CARRIES a signature must pass with it also where `required` is false: `unsigned` is only ever the status of a wrap with no signature at all. So a wrong signer, recipient, root, epoch or tree public key and a re-sealed wrap all read `signature`. VOUCH (`vouchCases`; `acceptVouch`): an install that holds no secret of (root, epoch) may seal to a tree public key only when a pinned install's signed wrap of that epoch, made for ANOTHER install, names that key; it verifies the same message without opening the wrap (never `unopened`). Each case carries every input, so a replay needs no state. RE-SIGNING (`resign`, decision c): holders sign the current epoch again through `sessionKeys.resign`; its own `$comment` is the rule.",
   "label": "exp/enet/tree-wrap/1",
   "messageBytes": 186,
   "signatureBytes": 64,
@@ -465,5 +465,137 @@
       ],
       "result": "malformed"
     }
-  ]
+  ],
+  "resign": {
+    "$comment": "#EXP-1950 decision (c), 2026-11-24: keys an install already holds stay trusted (`legacy`), and HOLDERS SIGN THE CURRENT EPOCH AGAIN: a holder that holds a root's current epoch makes a fresh wrap of it for each reader whose stored wrap of that epoch is UNSIGNED and replaces that row with its signed wrap. Also the way a seal whose root the same send creates gets its signature (the root id is unknown while sealing, so the inline `seal` goes unsigned and its maker signs it on its next holder pass). WIRE `sessionKeys.resign` (mutation, one for every platform): input `{installId, wraps: [{rootId, epoch, installId, wrapped, signature}]}` (1..`maxWraps` wraps; `wraps[].installId` = the TARGET install, `wrapped` 108 base64url chars, `signature` REQUIRED), answer `{replaced, skipped}`. SERVER, under each tree's key lock in ONE transaction (`resignOutcome` per wrap, `order` = the checks in order, first one that applies wins; `cases` replay it): the caller's `installId` is its own non-revoked install (else FORBIDDEN, the whole call) and a CURRENT reader of every root it names (`callerNotReader`: FORBIDDEN, the whole call); a wrap whose `epoch` is not the root's current `seal_epoch` is `skipped` (`staleEpoch`; its signature is not checked: the server keeps no public key of an old epoch); a target that is not a current reader REFUSES the whole call (`targetNotReader`: FORBIDDEN, as `wrap` refuses a pair `pending` does not list; a dropped reader gets nothing); the signature is checked exactly like `create`'s (signer = the caller's install; over root, epoch, the root's STORED tree public key, the target's endpoint id and the wrapped bytes) and a bad one REFUSES the whole call (`badSignature`: BAD_REQUEST `A wrap's signature is not your install's over this key`, nothing written); a pair without a row is `skipped` (`noRow`: that is `wrap`'s job via `pending`); a row already signed is never touched, `skipped` (`signedRow`); a row whose `signature` is null is `replaced` (`unsignedRow`: wrapped, signature, signer_endpoint_id, created_by_install_id). One pair twice in a call = BAD_REQUEST. HOLDER (`failureCases`, `resignAfter`): an older server answers NOT_FOUND for the unknown procedure: `notYet`, tried again quietly on a later pass; a refusal (FORBIDDEN, BAD_REQUEST) = `refused`, the pass goes on without it; anything else = `retry` on the next pass. Never an error the person sees.",
+    "procedure": "sessionKeys.resign",
+    "maxWraps": 200,
+    "order": [
+      "callerNotReader",
+      "staleEpoch",
+      "targetNotReader",
+      "badSignature",
+      "noRow",
+      "signedRow",
+      "unsignedRow"
+    ],
+    "outcomes": {
+      "callerNotReader": "refused",
+      "staleEpoch": "skipped",
+      "targetNotReader": "refused",
+      "badSignature": "refused",
+      "noRow": "skipped",
+      "signedRow": "skipped",
+      "unsignedRow": "replaced"
+    },
+    "cases": [
+      {
+        "name": "an unsigned row of the current epoch is replaced",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": true,
+        "row": "unsigned",
+        "outcome": "replaced",
+        "rule": "unsignedRow"
+      },
+      {
+        "name": "a signed row is never touched",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": true,
+        "row": "signed",
+        "outcome": "skipped",
+        "rule": "signedRow"
+      },
+      {
+        "name": "no row: wrap's job, skipped",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": true,
+        "row": "none",
+        "outcome": "skipped",
+        "rule": "noRow"
+      },
+      {
+        "name": "an older epoch is skipped, its signature unchecked",
+        "callerReader": true,
+        "currentEpoch": false,
+        "targetReader": true,
+        "signatureValid": false,
+        "row": "unsigned",
+        "outcome": "skipped",
+        "rule": "staleEpoch"
+      },
+      {
+        "name": "a target that is no reader (a dropped reader) refuses the call",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": false,
+        "signatureValid": true,
+        "row": "unsigned",
+        "outcome": "refused",
+        "rule": "targetNotReader"
+      },
+      {
+        "name": "a bad signature refuses the call",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": false,
+        "row": "unsigned",
+        "outcome": "refused",
+        "rule": "badSignature"
+      },
+      {
+        "name": "a bad signature refuses even where the row is signed",
+        "callerReader": true,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": false,
+        "row": "signed",
+        "outcome": "refused",
+        "rule": "badSignature"
+      },
+      {
+        "name": "a caller that no longer reads the root refuses the call",
+        "callerReader": false,
+        "currentEpoch": true,
+        "targetReader": true,
+        "signatureValid": true,
+        "row": "unsigned",
+        "outcome": "refused",
+        "rule": "callerNotReader"
+      }
+    ],
+    "failureCases": [
+      {
+        "name": "an older server: no such procedure",
+        "code": "NOT_FOUND",
+        "after": "notYet"
+      },
+      {
+        "name": "a refused batch",
+        "code": "BAD_REQUEST",
+        "after": "refused"
+      },
+      {
+        "name": "no longer a reader or not this account's install",
+        "code": "FORBIDDEN",
+        "after": "refused"
+      },
+      {
+        "name": "a blip",
+        "code": "INTERNAL_SERVER_ERROR",
+        "after": "retry"
+      },
+      {
+        "name": "no answer at all",
+        "code": null,
+        "after": "retry"
+      }
+    ]
+  }
 }

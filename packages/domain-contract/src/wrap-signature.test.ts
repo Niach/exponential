@@ -10,6 +10,9 @@ import {
   acceptVouch,
   acceptWrap,
   endpointIdOf,
+  RESIGN_MAX_WRAPS,
+  resignAfter,
+  resignOutcome,
   signWrap,
   verifyWrapSignature,
   WRAP_SIGNATURE,
@@ -102,5 +105,17 @@ describe(`wrap-signature.json`, () => {
     for (const c of fixture.vouchCases) {
       expect(acceptVouch(c, c.signature, c.signerEndpointId, c.pins), c.name).toBe(c.result as ReturnType<typeof acceptVouch>)
     }
+  })
+
+  test(`resign: every case, the order and the holder's answer`, () => {
+    const r = fixture.resign
+    expect(r.maxWraps).toBe(RESIGN_MAX_WRAPS)
+    for (const c of r.cases) {
+      expect(resignOutcome(c as Parameters<typeof resignOutcome>[0]), c.name).toEqual({ rule: c.rule, outcome: c.outcome } as ReturnType<typeof resignOutcome>)
+      expect(r.outcomes[c.rule as keyof typeof r.outcomes], c.name).toBe(c.outcome)
+    }
+    // Every rule is exercised, in the fixture's order.
+    expect([...new Set(r.cases.map((c) => c.rule))].sort()).toEqual([...r.order].sort())
+    for (const c of r.failureCases) expect(resignAfter({ code: c.code }), c.name).toBe(c.after as ReturnType<typeof resignAfter>)
   })
 })
