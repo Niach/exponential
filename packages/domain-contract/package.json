@@ -86,6 +86,7 @@
     "./app-templates": "./src/app-templates.ts",
     "./sealed-content": "./src/sealed-content.ts",
     "./call-seal": "./src/call-seal.ts",
+    "./wrap-signature": "./src/wrap-signature.ts",
     "./question-push": "./src/question-push.ts",
     "./steer-enet": "./src/steer-enet.ts",
     "./fixtures/*": "./fixtures/*",

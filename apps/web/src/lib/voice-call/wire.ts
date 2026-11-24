@@ -4,9 +4,9 @@
 // (`up` caller → host, `down` host → caller), bytes 1-2 = a u16 big-endian
 // sequence that wraps, then ONE Opus packet of `frameMs`. JSON text frames
 // carry the control. That is TODAY'S wire, which the relay can read: it is
-// spoken whenever `voice.startCall` does not answer `seal: true`, which is
-// every call until the hosts are released and the server turns sealing on
-// (#EXP-1941). A sealed call's wire is seal.ts (`seal` in the fixture).
+// spoken whenever `voice.startCall` does not answer `seal: true`: this tab
+// holds no key holder, the host is an older build or has none, or the
+// server has not switched this platform on (`VOICE_CALL_SEAL`, #EXP-1941). A sealed call's wire is seal.ts (`seal` in the fixture).
 // #EXP-2017: what a control frame MEANS (the host's events, the codes, the
 // ends) is `callerStep`'s (@exp/etalk `callerFrame`): here it is only parsed.
 

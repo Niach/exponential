@@ -125,6 +125,8 @@ object SearchList {
         val snippet: String,
         val matchStart: Int = 0,
         val matchLen: Int = 0,
+        /** #FEED-300 (chat-store.json SYSTEM INPUTS): not a person's own words. */
+        val system: Boolean = false,
     )
 
     /** One chat of `searchAll`'s answer: its root, its hit count, its newest hit. */
@@ -183,8 +185,12 @@ object SearchList {
             if (rows.size >= limit) break
             val root = roots[chat.rootId] ?: continue
             val hit = chat.hit
-            val person = hit.kind == "user_message" ||
-                (hit.kind == "message" && !hit.messageId.isNullOrEmpty() && messageAuthors[hit.messageId] == "user")
+            // #FEED-300: a system input (a schedule tick, a relay, a
+            // teammate's line) is never the person's own words.
+            val person = !hit.system && (
+                hit.kind == "user_message" ||
+                    (hit.kind == "message" && !hit.messageId.isNullOrEmpty() && messageAuthors[hit.messageId] == "user")
+                )
             rows += ChatRow(
                 key = "chat:${chat.rootId}",
                 rootId = chat.rootId,

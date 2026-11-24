@@ -5,7 +5,9 @@
 // presence, control (check_in, kill, interrupt, compact routed down a
 // device's control socket) and eTalk calls; it carries no session content
 // (viewers read sessions over eNet from the device), EXCEPT a voice call's
-// events and audio, which the relay can read until #EXP-1941 seals them. The
+// events and audio when the call is not sealed: a call between updated apps
+// is sealed end to end, a call from or to an older app still crosses readable,
+// and until sealing is mandatory the server decides which (#EXP-1941). The
 // wire truth is
 // apps/steer-relay/src/protocol.ts + the ticket format in
 // packages/steer-ticket.

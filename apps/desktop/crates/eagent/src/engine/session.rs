@@ -587,9 +587,11 @@ where
     let _ = ctx.backend.set(Arc::clone(&backend));
     backend.attach(&ctx, &commands)?;
     let thread_ctx = Arc::clone(&ctx);
-    let spawned = std::thread::Builder::new()
-        .name(thread_name(&ctx.session_id))
-        .spawn(move || {
+    let end_backend = Arc::clone(&backend);
+    let spawned = backend.spawn_thread(
+        std::thread::Builder::new().name(thread_name(&ctx.session_id)),
+        Box::new(move || {
+            let backend = end_backend;
             // The exit slot is flipped by the backend's `end` alone, so a
             // PANIC under `run_session` would leave `is_done()` false forever
             // — the daemon's `LiveSession` never leaves its map and a
@@ -617,14 +619,20 @@ where
             let child = thread_ctx.child_exit.get();
             backend.end(&thread_ctx, &outcome, child, error);
             guard.disarm();
-        });
+        }),
+    );
     match spawned {
-        Ok(_) => Ok(EngineSession(Arc::new(Inner {
+        Ok(()) => Ok(EngineSession(Arc::new(Inner {
             ctx,
             agent,
             commands,
         }))),
-        Err(err) => Err(EngineError::Spawn(err)),
+        Err(err) => {
+            // #EXP-2058: no thread, so no `end`: the side-car `attach`
+            // brought up stops here, or it outlives a run that never was.
+            backend.detach(&ctx);
+            Err(EngineError::Spawn(err))
+        }
     }
 }
 

@@ -89,7 +89,14 @@ pub(crate) struct RunLifecycle {
     space_run: bool,
     /// #EXP-1514 (D 10): a turn of this run is open as ePilot heard it.
     turn_open: Mutex<bool>,
+    /// #EXP-2058: starts the engine thread; `None` = a plain OS thread.
+    thread: Option<EngineThread>,
 }
+
+/// #EXP-2058: how a run's engine thread starts (`EngineParts::thread`): a
+/// test's refuses, the way the OS does when it is out of threads.
+pub type EngineThread =
+    Arc<dyn Fn(std::thread::Builder, Box<dyn FnOnce() + Send + 'static>) -> std::io::Result<()> + Send + Sync>;
 
 /// #EXP-1514: what a run's lifecycle tells the device's computer use
 /// (ePilot, `coding::computer`); a test's recorder in its place
@@ -140,6 +147,8 @@ pub(crate) struct LifecycleSpec {
     /// `None` = [`Epilot`].
     pub(crate) computer: Option<Arc<dyn RunComputer>>,
     pub(crate) space_run: bool,
+    /// `None` = a plain OS thread.
+    pub(crate) thread: Option<EngineThread>,
 }
 
 impl RunLifecycle {
@@ -163,6 +172,7 @@ impl RunLifecycle {
             computer: spec.computer.unwrap_or_else(|| Arc::new(Epilot)),
             space_run: spec.space_run,
             turn_open: Mutex::new(false),
+            thread: spec.thread,
         }
     }
 
@@ -210,6 +220,26 @@ impl RunBackend for RunLifecycle {
             *slot = Some(attached);
         }
         Ok(())
+    }
+
+    fn spawn_thread(
+        &self,
+        builder: std::thread::Builder,
+        body: Box<dyn FnOnce() + Send + 'static>,
+    ) -> std::io::Result<()> {
+        match &self.thread {
+            Some(spawn) => spawn(builder, body),
+            None => builder.spawn(body).map(drop),
+        }
+    }
+
+    /// #EXP-2058: the engine thread never started, so [`Self::end`] never
+    /// runs: the side-car stops here.
+    fn detach(&self, ctx: &SessionCtx) {
+        let attached = self.attached.lock().ok().and_then(|mut slot| slot.take());
+        if let Some(attached) = attached {
+            attached.detach(ctx, self);
+        }
     }
 
     fn end(
@@ -395,6 +425,26 @@ impl Attached {
         })
     }
 
+    /// #EXP-2058: stop the side-car of a run that never got its engine
+    /// thread, in the end sequence's order minus everything a connection
+    /// leaves behind: no row write, no run record, no phases, no exit (the
+    /// start's caller holds the error and no session).
+    fn detach(mut self, ctx: &SessionCtx, life: &RunLifecycle) {
+        // The kill watch first (dropping unwatches, EXP-283).
+        drop(self.kill.take());
+        // The Esc hook `attach` registered goes with the run's token.
+        life.computer.revoke(&ctx.session_id);
+        if let Some(publisher) = &self.publisher {
+            publisher.shutdown(Some(DETACHED_OUTCOME.to_string()));
+        }
+        // The kill pump and the tickers stop.
+        self.active.store(false, Ordering::SeqCst);
+        // Nothing was ever queued: the writers just stop.
+        if let Some(outbox) = life.outbox.get() {
+            outbox.close(crate::outbox::FLUSH_GRACE);
+        }
+    }
+
     /// The D14 end sequence. Consumes the side-car so the order cannot be
     /// re-entered.
     fn end(
@@ -483,15 +533,25 @@ impl Attached {
                 ctx.outcome.lock().map(|slot| slot.is_some()).unwrap_or(true),
                 ctx.turns_started.load(Ordering::SeqCst),
             );
+        // #EXP-2058: `row_ended` = the last write's reply says the row
+        // reads ended (a child's end; never a root chat's, a lost run's or
+        // a failed start's, which the server keeps).
+        let mut row_ended = false;
         let end = (!ctx.replay).then(|| {
             if released {
                 Ok(())
             } else if failed_start {
                 report_failed_start(ctx, &life.trpc, &failed_start_reason(error.as_deref(), outcome))
             } else {
-                finish_row(ctx, &life.trpc, outcome, lost)
+                finish_row(ctx, &life.trpc, outcome, lost).map(|reply| row_ended = reply.ended)
             }
         });
+        // #EXP-2058: an end this device reported and the server confirmed
+        // closes the session's agent space now, like a server-decided one
+        // above; unconfirmed, it stays the sweep's.
+        if row_ended && !closes_space(ctx.replay, ctx.persistent, outcome) {
+            life.computer.close_space(&ctx.session_id);
+        }
         // 6. EXP-758: this run's child (if it had one) is gone with the
         //    connection, so the record must stop naming it: a pid left here
         //    would make the next start's reaper sweep hunt a dead process,
@@ -521,8 +581,8 @@ impl Attached {
         // (its scopes: vite, gradle/kotlin daemons, emulators; the compose
         // stacks of its worktree). An idle, suspended or released run keeps
         // everything (`ends_row`), as does a replay, and (#EXP-1909) every
-        // end the server did not decide.
-        if tears_down(ctx.replay, ctx.persistent, outcome) {
+        // end the server did not decide or (#EXP-2058) confirm.
+        if tears_down(ctx.replay, ctx.persistent, outcome, row_ended) {
             coding::session_teardown::end_session_processes_soon(
                 ctx.data_dir.clone(),
                 ctx.session_id.clone(),
@@ -534,6 +594,10 @@ impl Attached {
         life.host.on_exit(exit);
     }
 }
+
+/// #EXP-2058: the publisher's `bye` for a run that never got its engine
+/// thread.
+const DETACHED_OUTCOME: &str = "ended";
 
 /// EXP-1292: the outcome of a shutdown that stops the PROCESS but not the
 /// session — the host re-spawns the same row right after (the EXP-849/1005
@@ -582,7 +646,7 @@ fn finish_row(
     trpc: &api::TrpcClient,
     outcome: &str,
     lost: Option<api::session_device::LostReason>,
-) -> Result<(), api::ApiError> {
+) -> Result<api::session_device::ReportReply, api::ApiError> {
     // A turn the agent never closed (the slot stays open on a death).
     let mid_turn = ctx.busy_at_shutdown.load(Ordering::SeqCst) || !ctx.turn_signal.is_idle();
     if !ends_row(ctx.persistent, outcome) {
@@ -591,7 +655,7 @@ fn finish_row(
             mid_turn: lost.map(|_| mid_turn),
             ..agent_idle_report()
         };
-        return api::session_device::report(trpc, &ctx.session_id, &report);
+        return api::session_device::report_reply(trpc, &ctx.session_id, &report);
     }
     match lost {
         Some(lost) => coding::end_session_lost(trpc, &ctx.session_id, lost, mid_turn),
@@ -713,11 +777,13 @@ fn ends_row(persistent: bool, outcome: &str) -> bool {
 /// ended before the kill reached this run). An end this device reports (the
 /// CLI went away, a failed start, the stall watchdog) is the server's to
 /// answer: it keeps a lost run, a failed start and a root chat idle
-/// (`watchdog.json`: "a lost process never ends the session"). Whatever
-/// then does end is the sweep's (`coding::session_teardown::sweep_ended`),
-/// which reads the row.
-fn tears_down(replay: bool, persistent: bool, outcome: &str) -> bool {
-    !replay && ends_row(persistent, outcome) && outcome == coding::pickup::KILL_OUTCOME
+/// (`watchdog.json`: "a lost process never ends the session").
+/// #EXP-2058: its answer is in the report's reply: `row_ended` = the row
+/// reads ended now, and the run tears down at once. Without that word (an
+/// older server, a write that failed) whatever then does end is the
+/// sweep's (`coding::session_teardown::sweep_ended`), which reads the row.
+fn tears_down(replay: bool, persistent: bool, outcome: &str, row_ended: bool) -> bool {
+    !replay && ends_row(persistent, outcome) && (outcome == coding::pickup::KILL_OUTCOME || row_ended)
 }
 
 /// #EXP-1514 (row 14): does this exit close the session's agent space? An
@@ -1656,11 +1722,11 @@ mod tests {
     /// idle (agent root), a suspend, a release and a replay keep them.
     #[test]
     fn only_an_end_tears_the_sessions_processes_down() {
-        assert!(tears_down(false, false, "killed"));
-        assert!(!tears_down(false, false, SUSPEND_OUTCOME));
-        assert!(!tears_down(false, false, RELEASED_OUTCOME));
-        assert!(!tears_down(false, true, "ended"));
-        assert!(!tears_down(true, false, "ended"));
+        assert!(tears_down(false, false, "killed", false));
+        assert!(!tears_down(false, false, SUSPEND_OUTCOME, false));
+        assert!(!tears_down(false, false, RELEASED_OUTCOME, false));
+        assert!(!tears_down(false, true, "ended", false));
+        assert!(!tears_down(true, false, "ended", false));
     }
 
     /// #EXP-1909: only a row the SERVER ended tears down here. A lost run
@@ -1670,10 +1736,24 @@ mod tests {
     /// row.
     #[test]
     fn a_run_the_server_may_keep_alive_keeps_its_processes() {
-        assert!(!tears_down(false, false, "exit:-1"), "the CLI was OOM-killed");
-        assert!(!tears_down(false, false, "exit:0"));
-        assert!(!tears_down(false, false, "ended"), "the stall watchdog, a failed handshake");
-        assert!(tears_down(false, false, "killed"));
+        assert!(!tears_down(false, false, "exit:-1", false), "the CLI was OOM-killed");
+        assert!(!tears_down(false, false, "exit:0", false));
+        assert!(!tears_down(false, false, "ended", false), "the stall watchdog, a failed handshake");
+        assert!(tears_down(false, false, "killed", false));
+    }
+
+    /// #EXP-2058: an end this device reported tears down at once when the
+    /// report's reply says the row reads ended (the CLI's own exit, a
+    /// stall: a child's); never an agent root's idle, a suspend or a replay,
+    /// whatever a reply said.
+    #[test]
+    fn an_end_the_server_confirmed_tears_down_at_once() {
+        for outcome in ["exit:0", "exit:-1", "ended"] {
+            assert!(tears_down(false, false, outcome, true), "{outcome}");
+        }
+        assert!(!tears_down(false, true, "ended", true), "an agent root idles");
+        assert!(!tears_down(false, false, SUSPEND_OUTCOME, true));
+        assert!(!tears_down(true, false, "ended", true), "a replay owns no row");
     }
 
     /// #EXP-1514 (row 14): the session's agent space closes with an end the

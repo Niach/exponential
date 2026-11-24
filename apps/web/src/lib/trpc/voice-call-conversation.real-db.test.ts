@@ -3,8 +3,8 @@
 // #EXP-1941: the chat of a first call (`voice.callConversation`), the pending
 // wraps of ONE root (`sessionKeys.pending {rootIds}`) and `sendTarget`'s
 // `rotationDue`, through the routers against the REAL migrated Postgres.
-// Until sealing is turned on `startCall` mints only clear ids, so the sealed
-// ids here come from the lib's mint.
+// The sealed ids come from the lib's mint; the Enable case takes its id
+// from `startCall` (a claim and the device's `call-seal` cap).
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -147,7 +147,42 @@ describe.skipIf(!ready.ok)(`#EXP-1941 voice.callConversation`, () => {
       brief: null,
       clearTree: false,
       rotationDue: false,
+      vouch: null,
     })
+  })
+
+  it(`Enable: startCall seals for a claim and the device's call-seal cap, and only that id opens the chat of a first call`, async () => {
+    const w = await world()
+    const doctor = { checkedAt: NOW.toISOString(), items: [{ key: `speech`, group: `voice`, state: `ok` }] } as never
+    const row = and(eq(devices.userId, w.me), eq(devices.deviceId, w.deviceId))
+    const call = (callId: string) => voice(w.me).callConversation({ agentId: w.agentId, callId, deviceId: w.deviceId, seal: w.mine.seal() })
+    // The caller is the web app (no client header); the switch names it below.
+    process.env.VOICE_CALL_SEAL = ``
+    await db.update(devices).set({ doctor, caps: [`voice`, `call-seal`] }).where(row)
+    const off = await voice(w.me).startCall({ agentId: w.agentId, platform: `web`, seal: true })
+    expect(off.seal).toBe(false)
+    await expect(call(off.callId)).rejects.toMatchObject(refusedCall)
+    process.env.VOICE_CALL_SEAL = `web`
+
+    // A host without a key holder advertises no cap: a claiming caller gets a clear call.
+    await db.update(devices).set({ doctor, caps: [`voice`] }).where(row)
+    const clear = await voice(w.me).startCall({ agentId: w.agentId, platform: `web`, seal: true })
+    expect(clear.seal).toBe(false)
+    await expect(call(clear.callId)).rejects.toMatchObject(refusedCall)
+    await expect(voice(w.me).callHostTicket({ callId: clear.callId, deviceId: w.deviceId, agentId: w.agentId })).resolves.toMatchObject({ seal: false })
+
+    await db.update(devices).set({ caps: [`voice`, `call-seal`] }).where(row)
+    // An older caller claims nothing: clear, whatever the host can do.
+    const old = await voice(w.me).startCall({ agentId: w.agentId, platform: `web` })
+    expect(old.seal).toBe(false)
+    await expect(call(old.callId)).rejects.toMatchObject(refusedCall)
+
+    const sealed = await voice(w.me).startCall({ agentId: w.agentId, platform: `web`, seal: true })
+    expect(sealed.seal).toBe(true)
+    await expect(voice(w.me).callHostTicket({ callId: sealed.callId, deviceId: w.deviceId, agentId: w.agentId })).resolves.toMatchObject({ seal: true })
+    const out = await call(sealed.callId)
+    expect((await rootRow(out.rootId)).sealEpoch).toBe(1)
+    delete process.env.VOICE_CALL_SEAL
   })
 
   it(`a second call answers the stored key and writes none: the host's own seal is not adopted`, async () => {
@@ -262,7 +297,7 @@ describe.skipIf(!ready.ok)(`#EXP-1941 sessionKeys.pending {rootIds} and sendTarg
     const all = await keys(w.me).pending({ installId: w.mine.id })
     expect(all.map((pair) => pair.rootId).sort()).toEqual([a.rootId, b.rootId].sort())
     const one = await keys(w.me).pending({ installId: w.mine.id, rootIds: [b.rootId] })
-    expect(one).toEqual([{ rootId: b.rootId, epoch: 1, publicKey: b.publicKey, targetInstallId: phone.id, targetX25519Public: phone.publicKey }])
+    expect(one).toEqual([{ rootId: b.rootId, epoch: 1, publicKey: b.publicKey, targetInstallId: phone.id, targetX25519Public: phone.publicKey, targetEndpointId: expect.any(String) }])
     expect(await keys(w.me).pending({ installId: w.mine.id, rootIds: [] })).toEqual([])
     // A root this install holds no wrap of is not answered, whoever asks for it.
     expect(await keys(w.me).pending({ installId: phone.id, rootIds: [a.rootId] })).toEqual([])

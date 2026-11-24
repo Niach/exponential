@@ -8,6 +8,7 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { devices, installs, sessionKeys, sessions, type Session } from "@/db/schema"
 import { teamMemberPairs } from "@/lib/auth/membership"
 import type { Tx } from "@/lib/sessions/tx"
+import { signedWrapColumns } from "@/lib/sessions/wrap-signatures"
 
 // 32 bytes as unpadded base64url (43 chars; the last carries 4 bits).
 export const PUBLIC_KEY_RE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/
@@ -21,6 +22,8 @@ export interface TreeReader {
   installId: string
   userId: string
   x25519Public: string
+  /** #EXP-1950: the install's ed25519 key (`installs.endpoint_id`), the recipient a wrap signature names. */
+  endpointId: string
   /** An install of the device executing a session in the tree. */
   executing: boolean
 }
@@ -143,6 +146,7 @@ export async function treeReadersMany(database: Reader, roots: readonly Root[]):
           installId: row.id,
           userId: row.userId,
           x25519Public: row.x25519Public,
+          endpointId: row.endpointId,
           executing: executing || (known?.executing ?? false),
         })
       }
@@ -187,7 +191,8 @@ export interface TreeKeyInput {
   installId: string
   epoch: number
   publicKey: string
-  wraps: Array<{ installId: string; wrapped: string }>
+  /** #EXP-1950: `signature` = the caller's install's over the wrap (optional). */
+  wraps: Array<{ installId: string; wrapped: string; signature?: string | null }>
 }
 
 /** `sessionKeys.create` inside the caller's transaction: a tree's first key
@@ -202,7 +207,7 @@ export async function createTreeKeyInTx(
   if (!PUBLIC_KEY_RE.test(input.publicKey) || !input.wraps.every((wrap) => WRAPPED_RE.test(wrap.wrapped))) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Malformed tree key` })
   }
-  await ownInstall(tx, userId, input.installId)
+  const signer = await ownInstall(tx, userId, input.installId)
   const targets = input.wraps.map((wrap) => wrap.installId)
   if (new Set(targets).size !== targets.length) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `One wrap per install` })
@@ -242,13 +247,20 @@ export async function createTreeKeyInTx(
       throw new TRPCError({ code: `BAD_REQUEST`, message: WRAP_REFUSAL })
     }
   }
-  for (const wrap of input.wraps) {
+  // #EXP-1950: a signed wrap is the caller's install's over exactly this row.
+  const signed = signedWrapColumns(
+    signer.endpointId,
+    { rootId: root.id, epoch: input.epoch, treePublicKey: input.publicKey },
+    input.wraps.map((wrap) => ({ ...wrap, recipientEndpointId: readers.get(wrap.installId)!.endpointId }))
+  )
+  for (const [at, wrap] of input.wraps.entries()) {
     await tx.insert(sessionKeys).values({
       rootId: root.id,
       epoch: input.epoch,
       installId: wrap.installId,
       wrapped: wrap.wrapped,
       createdByInstallId: input.installId,
+      ...signed[at],
     })
   }
   await tx

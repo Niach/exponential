@@ -10,7 +10,10 @@
 //! viewer's `session_reads` mark, from `partition_chats` itself.
 //! `uicore_model::chats::chat_rows` orders and marks them.
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use domain::rows::{MessageRow, SessionReadRow, SessionRow};
 use domain::session_tree::{partition_chats, session_state, SessionState, ChatsListInput};
@@ -76,6 +79,30 @@ pub fn chat_inputs(sessions: &[SessionRow], team_id: &str, unread: &HashSet<Stri
             }
         })
         .collect()
+}
+
+/// Where the rail's chats are read: the current entry's sessions.
+pub enum Source {
+    /// A Local desktop's own store.
+    Local { store: Arc<elocal::LocalStore>, team_id: String },
+    /// The team's account's synced store.
+    Team { store: Arc<sync::store::ShapeStore>, team_id: String },
+}
+
+impl Source {
+    /// The rail's chats: BLOCKING (SQLite, every row of `sessions` and
+    /// `session_reads`). #EDE-204: off the main loop on the deltas' path.
+    pub fn read(&self) -> Vec<ChatInput> {
+        match self {
+            Source::Local { store, team_id } => chat_inputs(&sessions(store.rows("sessions").unwrap_or_default()), team_id, &HashSet::new()),
+            Source::Team { store, team_id } => {
+                let read = |shape: &str| sync::shapes::shape_by_name(shape).and_then(|spec| store.read_all(spec).ok()).unwrap_or_default();
+                let sessions = sessions(read("sessions"));
+                let unread = unread_roots(&sessions, &rows(read("session_reads")), team_id);
+                chat_inputs(&sessions, team_id, &unread)
+            }
+        }
+    }
 }
 
 /// `/shell/chats`: the rail's rows with the glyph the document binds (the

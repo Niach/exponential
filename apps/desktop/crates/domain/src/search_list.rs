@@ -154,6 +154,9 @@ pub struct GlobalChatHit {
     pub match_start: usize,
     #[serde(default)]
     pub match_len: usize,
+    /// #FEED-300 (chat-store.json SYSTEM INPUTS): not a person's own words.
+    #[serde(default)]
+    pub system: bool,
 }
 
 /// One chat of the store's `search_all` answer.
@@ -216,14 +219,17 @@ pub fn global_chat_rows(input: GlobalChatRowsInput<'_>) -> Vec<GlobalChatRow> {
         }
         let Some(root) = input.roots.get(&chat.root_id) else { continue };
         let hit = &chat.hit;
-        let person = hit.kind == "user_message"
-            || (hit.kind == "message"
-                && hit
-                    .message_id
-                    .as_deref()
-                    .filter(|id| !id.is_empty())
-                    .and_then(|id| input.message_authors.get(id))
-                    .is_some_and(|author| author == "user"));
+        // #FEED-300: a system input (a schedule tick, a relay, a teammate's
+        // line) is never the person's own words.
+        let person = !hit.system
+            && (hit.kind == "user_message"
+                || (hit.kind == "message"
+                    && hit
+                        .message_id
+                        .as_deref()
+                        .filter(|id| !id.is_empty())
+                        .and_then(|id| input.message_authors.get(id))
+                        .is_some_and(|author| author == "user")));
         rows.push(GlobalChatRow {
             key: format!("chat:{}", chat.root_id),
             root_id: chat.root_id.clone(),

@@ -34,6 +34,7 @@ import {
   WRAPPED_RE,
   type Reader,
 } from "@/lib/sessions/tree-keys"
+import { checkWrapSignatures, vouchesFor, wrapSignatureInput, type SignedColumns, type Vouch } from "@/lib/sessions/wrap-signatures"
 
 export { createTreeKeyInTx, treeReaders, type TreeKeyInput, type TreeReader } from "@/lib/sessions/tree-keys"
 
@@ -91,6 +92,8 @@ type PendingPair = {
   publicKey: string
   targetInstallId: string
   targetX25519Public: string
+  /** #EXP-1950: the target's ed25519 key, the recipient a wrap signature names. */
+  targetEndpointId: string
 }
 
 /** What `installId` should wrap on `root`: readers without a wrap for the
@@ -108,6 +111,7 @@ async function pendingFor(database: Reader, root: Session, installId: string, ho
       publicKey: root.sealPublicKey!,
       targetInstallId: reader.installId,
       targetX25519Public: reader.x25519Public,
+      targetEndpointId: reader.endpointId,
     }))
 }
 
@@ -238,7 +242,9 @@ const notFoundError = () => new TRPCError({ code: `NOT_FOUND`, message: `Session
 async function writeWraps(
   tx: Tx,
   input: { installId: string; wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string }> },
-  rootIds: string[]
+  rootIds: string[],
+  /** #EXP-1950: the signed wraps' columns (`checkWrapSignatures`), by `root\nepoch\ntarget`. */
+  signed: ReadonlyMap<string, SignedColumns>
 ): Promise<{ written: number; skipped: number }> {
   for (const rootId of rootIds) await lockTreeKeys(tx, rootId)
   const held = await heldEpochs(tx, input.installId, rootIds)
@@ -287,6 +293,7 @@ async function writeWraps(
         installId: wrap.targetInstallId,
         wrapped: wrap.wrapped,
         createdByInstallId: input.installId,
+        ...signed.get(`${wrap.rootId}\n${wrap.epoch}\n${wrap.targetInstallId}`),
       })
       written++
     } catch (err) {
@@ -309,7 +316,7 @@ export const sessionKeysRouter = router({
         installId: uuid,
         epoch,
         publicKey: z.string().regex(PUBLIC_KEY_RE, `base64url of 32 bytes`),
-        wraps: z.array(z.object({ installId: uuid, wrapped })).min(1).max(BATCH_MAX),
+        wraps: z.array(z.object({ installId: uuid, wrapped, signature: wrapSignatureInput })).min(1).max(BATCH_MAX),
       })
     )
     .mutation(({ ctx, input }) =>
@@ -328,7 +335,14 @@ export const sessionKeysRouter = router({
       if (input.rootIds?.length === 0) return []
       const rows = await heldEpochs(ctx.db, input.installId, input.rootIds)
       if (input.rootIds) void nudgeMissingWraps(ctx.db, input.installId, input.rootIds, rows).catch(() => {})
-      return rows.map((row) => ({ rootId: row.rootId, epoch: row.epoch, wrapped: row.wrapped }))
+      // #EXP-1950: who signed each wrap (both null = unsigned, an older build made it).
+      return rows.map((row) => ({
+        rootId: row.rootId,
+        epoch: row.epoch,
+        wrapped: row.wrapped,
+        signature: row.signature,
+        signerEndpointId: row.signerEndpointId,
+      }))
     }),
 
   /** Readers still missing the current epoch's wrap, on trees whose current
@@ -378,6 +392,7 @@ export const sessionKeysRouter = router({
               publicKey: root.sealPublicKey!,
               targetInstallId: reader.installId,
               targetX25519Public: reader.x25519Public,
+              targetEndpointId: reader.endpointId,
             })
           }
           if (out.length >= input.limit) break
@@ -415,17 +430,18 @@ export const sessionKeysRouter = router({
       z.object({
         installId: uuid,
         wraps: z
-          .array(z.object({ rootId: uuid, epoch, targetInstallId: uuid, wrapped }))
+          .array(z.object({ rootId: uuid, epoch, targetInstallId: uuid, wrapped, signature: wrapSignatureInput }))
           .min(1)
           .max(SESSION_KEYS_PENDING_MAX),
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const signed = await checkWrapSignatures(ctx.db, ctx.session.user.id, input)
       await ownInstall(ctx.db, ctx.session.user.id, input.installId)
       const rootIds = [...new Set(input.wraps.map((wrap) => wrap.rootId))].sort()
       // #EXP-1951: under the trees' key locks, in one transaction: a reader
       // dropped meanwhile (`dropNonReaderKeysInTx`) is never wrapped for late.
-      return ctx.db.transaction((tx) => writeWraps(tx, input, rootIds))
+      return ctx.db.transaction((tx) => writeWraps(tx, input, rootIds, signed))
     }),
 
   /** #EXP-1960: a keyless tree this install may not key: its devices key it. */
@@ -452,13 +468,15 @@ export const sessionKeysRouter = router({
           .filter((row) => row.userId === userId)
           .map((row) => row.teamId)
       )
-      const out: Array<{ rootId: string; epoch: number; publicKey: string }> = []
+      const out: Array<{ rootId: string; epoch: number; publicKey: string; vouch: Vouch | null }> = []
       for (const row of rows) {
         const readable = teams.has(row.teamId) && sessionVisibleTo(row, userId)
         // The host of the tree's device acts as its sessions (MCP principal).
         const principal = !readable && (await sessionDeviceOwner(row, ctx.db)) === userId
-        if (readable || principal) out.push({ rootId: row.id, epoch: row.sealEpoch!, publicKey: row.sealPublicKey! })
+        if (readable || principal) out.push({ rootId: row.id, epoch: row.sealEpoch!, publicKey: row.sealPublicKey!, vouch: null })
       }
-      return out
+      // #EXP-1950: a signed wrap of that epoch vouches for the key (`acceptVouch`).
+      const vouches = await vouchesFor(ctx.db, out.map((key) => ({ id: key.rootId, sealEpoch: key.epoch })))
+      return out.map((key) => ({ ...key, vouch: vouches.get(key.rootId) ?? null }))
     }),
 })
