@@ -509,8 +509,9 @@ final class InstallTrustAttackTests: XCTestCase {
         let a = try await existingInstall(fx, "A", server)
         let b = try await existingInstall(fx, "B", server)
         let states = Locked<[String]>([])
-        async let first: Void = a.sync(accountId: account, installId: "install-A")
-        async let second: Void = b.sync(accountId: account, installId: "install-B")
+        let accountId = account
+        async let first: Void = a.sync(accountId: accountId, installId: "install-A")
+        async let second: Void = b.sync(accountId: accountId, installId: "install-B")
         _ = await (first, second)
         for keeper in [a, b] {
             let snapshot = await keeper.snapshot(accountId: account)
