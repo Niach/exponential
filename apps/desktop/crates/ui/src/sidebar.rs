@@ -903,20 +903,6 @@ impl RailView {
         )
     }
 
-    /// The Getting-started entry (EXP-470): sits at the BOTTOM of the rail,
-    /// under the What's-new card and above the account row, MUTED (EXP-723),
-    /// and rendered only while the block is incomplete. EXP-1270: it opens
-    /// the block in a centred dialog ([`crate::getting_started::open_dialog`]).
-    fn rail_getting_started_entry(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let icon = Icon::from(icons::registry::NAV_GETTING_STARTED);
-        rail_row("getting-started-entry", icon, "Getting started", false, None, cx)
-            .text_color(cx.theme().muted_foreground)
-            .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
-                crate::getting_started::open_dialog(window, cx);
-            }))
-            .into_any_element()
-    }
-
 }
 
 /// The left column's section rule — full width, like the web sidebar's. The
@@ -1062,10 +1048,6 @@ impl Render for RailView {
             #[cfg(test)]
             RAIL_DERIVES.with(|n| n.set(n.get() + 1));
         }
-        // Getting-started entry (EXP-470/548): pinned to the rail's bottom
-        // (below), rendered until every checklist entry is done.
-        let getting_started_icon = crate::getting_started::getting_started_visible(&self.nav, cx)
-            .then(|| self.rail_getting_started_entry(cx));
 
         // #NEW-97: no tray host = the voice button beside the Computer one.
         let voice_entry = self.rail_voice_entry(cx);
@@ -1100,29 +1082,15 @@ impl Render for RailView {
             // ground the Shell ROOT paints under the whole window, with no
             // edge where it meets the content.
             .text_color(cx.theme().sidebar_foreground)
-            // #EXP-1725: the rows are the shared sidebar document; right-click
-            // on the row under the pointer = THE agent or chat menu.
+            // #EXP-1725: the rows are the shared sidebar document; #EXP-2124:
+            // every row's right-click is its own genUI Menu (the table).
             .child(
                 div()
                     .id("rail-region")
                     .w_full()
                     .flex_1()
                     .min_h_0()
-                    .child(self.region.clone())
-                    .pointer_context_menu({
-                        let region = self.region.clone();
-                        move |menu, _, cx| {
-                            let region = region.read(cx);
-                            let Some(id) = region.hovered() else { return menu };
-                            if region.is_agent(&id) {
-                                crate::chat_actions::agent_menu_items(menu.min_w(px(220.)), &id, cx)
-                            } else if let Some(root) = region.active_root(&id) {
-                                crate::chat_actions::chat_menu_items(menu, &root, false, cx)
-                            } else {
-                                menu
-                            }
-                        }
-                    }),
+                    .child(self.region.clone()),
             )
             // Under the scrolling rows, what still needs a person (the
             // Getting-started entry, the sync spinner, the voice button), then
@@ -1136,7 +1104,6 @@ impl Render for RailView {
                         .flex_shrink_0()
                         .px_2()
                         .gap_1()
-                        .children(getting_started_icon)
                         .children(self.render_sync_indicator(cx))
                         .children(voice_entry),
                 )

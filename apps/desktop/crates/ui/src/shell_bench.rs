@@ -920,6 +920,32 @@ fn shell_sidebar_tree_pages() {
     })
     .unwrap();
     settle(&mut cx);
+    // #EXP-2124: the row menus (`EXP_DEV_SIDEBAR_MENU`) and the tab strip's
+    // new-tab menu (`EXP_DEV_NEW_TAB_MENU`), each drive on the next derive.
+    let escape = |cx: &mut HeadlessAppContext| {
+        cx.update_window(window, |_, window, cx| {
+            window.dispatch_event(gpui::PlatformInput::KeyDown(gpui::KeyDownEvent { keystroke: gpui::Keystroke::parse("escape").unwrap(), is_held: false, prefer_character_input: false }), cx);
+        })
+        .unwrap();
+    };
+    for (kind, name) in [("device", "desktop-sidebar-device-menu.png"), ("board", "desktop-sidebar-board-menu.png")] {
+        std::env::set_var("EXP_DEV_SIDEBAR_MENU", kind);
+        go(&mut cx, Screen::Drafts);
+        settle(&mut cx);
+        go(&mut cx, Screen::Home);
+        settle(&mut cx);
+        shoot(&mut cx, name);
+        std::env::remove_var("EXP_DEV_SIDEBAR_MENU");
+        escape(&mut cx);
+        settle(&mut cx);
+    }
+    std::env::set_var("EXP_DEV_NEW_TAB_MENU", "1");
+    go(&mut cx, Screen::Chats);
+    settle(&mut cx);
+    shoot(&mut cx, "desktop-new-tab-menu.png");
+    std::env::remove_var("EXP_DEV_NEW_TAB_MENU");
+    escape(&mut cx);
+    settle(&mut cx);
     go(&mut cx, Screen::Device { device_id: "d1".into() });
     settle(&mut cx);
     shoot(&mut cx, "desktop-device.png");

@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-sidebar-menus",
+    date: "2026-11-24",
+    title: "Sidebar menus",
+    summary: "The Assistant sits on top of the sidebar, every sidebar row has a right-click menu, and the + next to the tabs opens a menu to start a chat, agent, app or board in any team. Boards, apps and devices open as tabs.",
+    body: r##"- **The Assistant on top**: your Assistant is the first row of the sidebar, with its unread count. The floating button stays.
+- **A right-click menu on every row**: Home, Chats, devices, teams, folders, boards, apps, agents and chats each have the same kind of menu: open, open in a new tab, what only that row does, copy link, move to folder, settings.
+- **The + next to the tabs**: it opens a menu with your Assistant and every team, each with New chat, agent, app or board.
+- **More pages as tabs**: Home, Needs you, Chats, Drafts, a device, a board and an app open as tabs like issues and chats. Open in new tab adds one without leaving the page you are on."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_358: ChangelogEntry = ChangelogEntry {
     id: "2026-11-24-search-translate-on-your-device",
     date: "2026-11-24",
     title: "Translate a sentence into a search",

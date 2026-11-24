@@ -9673,7 +9673,7 @@
       "notes": {
         "web": "md+ only: phones keep their tab bar until their own redesign.",
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
-        "desktop": "#EXP-2027: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json).",
+        "desktop": "#EXP-2027 / #EXP-2124: the IDE draws the same tree from the same fixtures (uicore ide-sidebar.json), the viewer's Assistant first; every row's right-click is its kind's menu of sidebar-menus.json.",
         "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
         "android": "#EXP-2027: phones keep today's navigation until their own redesign."
       },
@@ -9702,7 +9702,7 @@
       },
       "notes": {
         "web-mobile": "#EXP-2027: md+ only; phones (web-mobile) keep today's navigation until their own redesign.",
-        "desktop": "#EXP-2027: `EXP_DEV_TEAM_MENU` hovers the first team row and presses its `…`, the menu the right-click opens too.",
+        "desktop": "#EXP-2124: `EXP_DEV_TEAM_MENU` hovers the first team row and presses its `…`, the menu the right-click opens too (THE table's `team` row, New › THE New list).",
         "ios": "#EXP-2027: phones keep today's navigation until their own redesign.",
         "android": "#EXP-2027: phones keep today's navigation until their own redesign."
       },
@@ -9734,9 +9734,19 @@
       },
       "notes": {
         "web-mobile": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
-        "desktop": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "desktop": "#EXP-2124: `EXP_DEV_NEW_TAB_MENU` presses the tab strip's +: the Assistant, then each team with THE New list as its submenu.",
         "ios": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
         "android": "#EXP-2124: a web draft; lands here with the build once the plan is approved."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "home"
+        },
+        "env": {
+          "EXP_DEV_NEW_TAB_MENU": "1"
+        },
+        "anchorDelayMs": 1200
       }
     },
     {
@@ -9756,9 +9766,19 @@
       },
       "notes": {
         "web-mobile": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
-        "desktop": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "desktop": "#EXP-2124: `EXP_DEV_SIDEBAR_MENU=device` right-clicks the first device row (THE table's `device` row).",
         "ios": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
         "android": "#EXP-2124: a web draft; lands here with the build once the plan is approved."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "home"
+        },
+        "env": {
+          "EXP_DEV_SIDEBAR_MENU": "device"
+        },
+        "anchorDelayMs": 1200
       }
     },
     {
@@ -9778,9 +9798,19 @@
       },
       "notes": {
         "web-mobile": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
-        "desktop": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
+        "desktop": "#EXP-2124: `EXP_DEV_SIDEBAR_MENU=board` right-clicks the first board row (THE table's `board` row, Move to folder › the team's folders).",
         "ios": "#EXP-2124: a web draft; lands here with the build once the plan is approved.",
         "android": "#EXP-2124: a web draft; lands here with the build once the plan is approved."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "home"
+        },
+        "env": {
+          "EXP_DEV_SIDEBAR_MENU": "board"
+        },
+        "anchorDelayMs": 1200
       }
     },
     {

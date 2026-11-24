@@ -114,6 +114,14 @@ pub(crate) fn restore_origin_for_screen(window: &Window, cx: &mut App, screen: &
     }
 }
 
+/// #EXP-2124: "Open in new tab" — `screen`'s tab in the BACKGROUND of
+/// `window`'s strip ([`ScreensPanel::open_in_background`]).
+pub(crate) fn open_tab_in_background(window: &mut Window, cx: &mut App, screen: Screen) {
+    if let Some(panel) = screens_for_window(window, cx) {
+        panel.update(cx, |panel, cx| panel.open_in_background(screen, cx));
+    }
+}
+
 /// Drop a closed window's entry (called from the `Shell` release hook,
 /// mirroring `sidebar::remove_window`).
 pub(crate) fn remove_window(window_id: WindowId, cx: &mut App) {
@@ -275,6 +283,11 @@ impl TabEntry {
             Screen::Chat { session_id } | Screen::Agent { agent_id: session_id } => {
                 self.holds_root(session_id)
             }
+            // #EXP-2124: an app's run view and its editor are ONE tab.
+            Screen::AppRun { app } | Screen::App { app } => matches!(
+                &self.screen,
+                Screen::AppRun { app: held } | Screen::App { app: held } if held == app
+            ),
             _ => false,
         }
     }
@@ -345,10 +358,66 @@ fn opens_no_tab(
         }
 }
 
+/// #EXP-2124 (sidebar-menus.json `tabs`): the screen a page's tab holds —
+/// a loose page named outright, so one page is one tab: an empty device id
+/// = this device's row (`this_device`), an empty board id = the window's
+/// active board. `None` = no tab while that is unresolved. Pure.
+fn tab_screen(screen: &Screen, this_device: Option<&str>, active_board: Option<&str>) -> Option<Screen> {
+    match screen {
+        Screen::Device { device_id } if device_id.is_empty() => this_device.map(|id| Screen::Device { device_id: id.to_string() }),
+        Screen::BoardIssues { board_id } if board_id.is_empty() => active_board.map(|id| Screen::BoardIssues { board_id: id.to_string() }),
+        screen => Some(screen.clone()),
+    }
+}
+
+/// The tab holding `screen`: by screen, then (EXP-1294) by its tree
+/// `root`. Pure.
+fn find_tab(tabs: &[TabEntry], screen: &Screen, root: Option<&str>) -> Option<usize> {
+    tabs.iter().position(|tab| tab.holds(screen)).or_else(|| {
+        root.and_then(|root| tabs.iter().position(|tab| tab.holds_root(root)))
+    })
+}
+
+/// #EXP-2124 (`tabs.background`): append `screen`'s tab LAST without
+/// touching which tab is active; a screen some tab already holds adds
+/// nothing (never twice). Whether a tab was added. Pure.
+fn push_background_tab(tabs: &mut Vec<TabEntry>, screen: Screen, root: Option<String>) -> bool {
+    if find_tab(tabs, &screen, root.as_deref()).is_some() {
+        return false;
+    }
+    tabs.push(TabEntry::new(screen, None, root));
+    true
+}
+
+/// #EXP-2124 (owner): Home's tab and the new session composer are ONE tab —
+/// a chat (or an agent's conversation) started from Home REPLACES Home, and
+/// takes the Home tab's place: the index of that tab. Pure.
+fn home_tab_taken_over(tabs: &[TabEntry], replaced: Option<&Screen>, screen: &Screen) -> Option<usize> {
+    if replaced != Some(&Screen::Home) || !screen.is_detail() {
+        return None;
+    }
+    tabs.iter().position(|tab| tab.screen == Screen::Home)
+}
+
+/// #EXP-2124: the pages that are not one team's (EXP-769's terminals too):
+/// they stay in the strip across a team swap.
+fn stays_across_teams(screen: &Screen) -> bool {
+    matches!(
+        screen,
+        Screen::Terminal { .. }
+            | Screen::Home
+            | Screen::NeedsYou
+            | Screen::Chats
+            | Screen::Drafts
+            | Screen::Device { .. }
+    )
+}
+
 /// EXP-1250 — swap the strip to another team's tabs, never dropping any: the
 /// leaving team's non-terminal tabs are PARKED under its id, the arriving
 /// team's parked tabs come back in their order, and terminals (EXP-769: a PTY
-/// is not team-scoped) stay in the strip throughout. Pure.
+/// is not team-scoped) stay in the strip throughout, like (#EXP-2124) the
+/// pages of no one team ([`stays_across_teams`]). Pure.
 /// `from_alive = false` = the leaving team's row is GONE (left or deleted,
 /// [`crate::navigation::tabs_team_id`] fell back): its tabs are dropped, not
 /// parked — nothing could ever switch back to it.
@@ -361,7 +430,7 @@ fn swap_team_tabs(
 ) -> Vec<TabEntry> {
     let (terminals, team_tabs): (Vec<TabEntry>, Vec<TabEntry>) = tabs
         .into_iter()
-        .partition(|tab| matches!(tab.screen, Screen::Terminal { .. }));
+        .partition(|tab| stays_across_teams(&tab.screen));
     if let Some(from) = from {
         if team_tabs.is_empty() || !from_alive {
             parked.remove(from);
@@ -479,6 +548,11 @@ enum ChipLead {
     /// chip carrying only a title read as a nameless tab next to the issue
     /// chips' status glyphs).
     Shell,
+    /// #EXP-2124: a page's own glyph, untinted (Home, Needs you, Chats,
+    /// Drafts: their nav icons; a device: its device glyph).
+    Glyph(ExpIcon),
+    /// #EXP-2124: an app page's rail glyph (the app's icon in its colour).
+    App(crate::apps_view::AppEntry),
 }
 
 impl ChipLead {
@@ -490,6 +564,8 @@ impl ChipLead {
             ChipLead::Status(status) => Some(crate::icons::resolved_status_icon(status, cx)),
             ChipLead::Tinted(icon, tint) => Some(Icon::new(icon.clone()).text_color(*tint)),
             ChipLead::Shell => Some(Icon::new(registry::SESSION_SHELL)),
+            ChipLead::Glyph(icon) => Some(Icon::new(icon.clone())),
+            ChipLead::App(app) => Some(app.rail_icon()),
         }
     }
 }
@@ -627,12 +703,49 @@ fn terminal_chip_content(tab: terminal::TabId, cx: &App) -> ChipContent {
     content
 }
 
+/// #EXP-2124 — a page tab's chip: the page's own icon and its title
+/// ([`screen_title`]): the nav icon of Home / Needs you / Chats / Drafts, a
+/// device's glyph, a board's icon in its colour, an app's rail glyph.
+fn page_chip_content(screen: &Screen, cx: &App) -> ChipContent {
+    let lead = match screen {
+        Screen::Home => ChipLead::Glyph(registry::NAV_HOME),
+        Screen::NeedsYou => ChipLead::Glyph(registry::NAV_NEEDS_YOU),
+        Screen::Chats => ChipLead::Glyph(registry::NAV_CHATS),
+        Screen::Drafts => ChipLead::Glyph(registry::NAV_DRAFTS),
+        Screen::Device { device_id } => {
+            let id = if device_id.is_empty() { crate::device_page::this_device_row_id(cx) } else { Some(device_id.clone()) };
+            match id.and_then(|id| crate::entity_preview::find_device(&id, cx)) {
+                Some(row) => ChipLead::Glyph(crate::icons::device_icon(row.icon.as_deref(), row.is_server())),
+                None => ChipLead::Glyph(registry::UI_DEVICE),
+            }
+        }
+        Screen::BoardIssues { board_id } => {
+            let store = Store::global(cx);
+            let boards = store.collections().boards.read(cx);
+            match boards.get(board_id) {
+                Some(board) => ChipLead::Tinted(
+                    crate::icons::board_glyph(board),
+                    board.color.as_deref().and_then(crate::issue_header::parse_hex_color).unwrap_or(cx.theme().muted_foreground),
+                ),
+                None => ChipLead::None,
+            }
+        }
+        Screen::AppRun { app } | Screen::App { app } => match crate::apps_view::find_app(app, None, cx) {
+            Some(entry) => ChipLead::App(entry),
+            None => ChipLead::None,
+        },
+        _ => ChipLead::None,
+    };
+    ChipContent { lead, ..ChipContent::plain(screen_title(screen, cx)) }
+}
+
 fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
     match screen {
         Screen::Session { session_id } => return session_chip_content(session_id, cx),
         Screen::Chat { session_id } => return chat_chip_content(session_id, cx),
         Screen::Agent { agent_id } => return agent_chip_content(agent_id, cx),
         Screen::Terminal { tab } => return terminal_chip_content(*tab, cx),
+        screen if screen.is_tab_page() => return page_chip_content(screen, cx),
         _ => {}
     }
     if let Screen::IssueDetail { issue_id } = screen {
@@ -743,7 +856,7 @@ pub struct ScreensPanel {
     /// The window's shared rail state (EXP-288): the file selection
     /// re-points the viewer, and the SC selection the diff.
     rail: Entity<RailShared>,
-    /// Open tabs in strip order — detail screens only, deduped by `screen`
+    /// Open tabs in strip order — detail screens and (#EXP-2124) pages, deduped by `screen`
     /// and (EXP-1294) by tree root (re-opening focuses + refreshes the
     /// origin).
     tabs: Vec<TabEntry>,
@@ -1236,6 +1349,8 @@ impl ScreensPanel {
         // never set it) — consumed HERE, unconditionally, so a marker left by
         // a navigation that never reached its tab can't survive to the next.
         let mut pending_origin = crate::navigation::take_pending_origin(&self.nav, cx);
+        // #EXP-2124: consumed here too (Home → its chat takes the Home tab).
+        let replaced = crate::navigation::take_replaced_screen(&self.nav, cx);
         // EXP-1250: the window's CHOSEN team — `screen_team_id`'s fallback
         // (its row still syncing) never counts as a switch.
         let team = crate::navigation::tabs_team_id(&self.nav, cx);
@@ -1291,10 +1406,19 @@ impl ScreensPanel {
         let Some(screen) = resolved_screen(&self.nav, cx) else {
             return;
         };
-        // EXP-851: only a detail gets a tab — a list screen and every full
-        // page own none (EXP-1192: and carry no list either).
-        if !screen.is_detail() {
+        // EXP-851: a detail gets a tab; #EXP-2124: so does every page with
+        // an Open (`Screen::holds_tab`). The rest own none (EXP-1192: and
+        // carry no list either).
+        if !screen.holds_tab() {
             return;
+        }
+        // #EXP-2124: a loose page (this device, the active board) is named
+        // outright, on screen too, so it is one tab and one key.
+        let Some(screen) = self.tab_screen_of(&screen, cx) else {
+            return;
+        };
+        if let Some(shown) = resolved_screen(&self.nav, cx).filter(|shown| *shown != screen) {
+            crate::navigation::retarget_current_screen(&self.nav, cx, &shown, screen.clone());
         }
         // Only an explicit marker names a list (#FEED-191: no list lends one).
         let previous = self.nav.read(cx).previous_screen().cloned();
@@ -1302,10 +1426,9 @@ impl ScreensPanel {
         // EXP-1294: a session lands on its ROOT's tab (one tab per tree), so
         // the lookup is by screen and then by tree root.
         let root = screen_root(&screen, cx);
-        let existing = self.tabs.iter().position(|tab| tab.holds(&screen)).or_else(|| {
-            root.as_deref()
-                .and_then(|root| self.tabs.iter().position(|tab| tab.holds_root(root)))
-        });
+        let existing = self
+            .find_tab(&screen, root.as_deref())
+            .or_else(|| home_tab_taken_over(&self.tabs, replaced.as_ref(), &screen));
         // EXP-923: a live chat opened from the rail's Running section gets
         // NO tab of its own, and that decision outlives the click: a step
         // INSIDE the tree (a session card, Back to the chat) stays
@@ -1407,30 +1530,65 @@ impl ScreensPanel {
                     cx.new(|cx| crate::agent_screen::AgentScreenView::new(agent_id, window, cx))
                 });
             }
+            // #EXP-2124: a page tab's view is the panel's shared one (the
+            // render and `sync_app_editor` point it): nothing per tab.
             Screen::BoardIssues { .. }
-                | Screen::Files
-            | Screen::SourceControl
             | Screen::Device { .. }
-            | Screen::DeviceSettings { .. }
-            | Screen::NewItem { .. }
             | Screen::Drafts
             | Screen::NeedsYou
-            | Screen::IssueDraft { .. }
             | Screen::Home
             | Screen::Chats
             | Screen::AppRun { .. }
-            | Screen::App { .. }
+            | Screen::App { .. } => {}
+            Screen::Files
+            | Screen::SourceControl
+            | Screen::DeviceSettings { .. }
+            | Screen::NewItem { .. }
+            | Screen::IssueDraft { .. }
             | Screen::ExponentialUiKitchenSink
             | Screen::ExponentialUiSpecimen { .. }
             | Screen::Specimen { .. }
             | Screen::CiRun { .. }
             | Screen::Settings => {
-                unreachable!("filtered by is_detail")
+                unreachable!("filtered by holds_tab")
             }
         }
         // A back-navigation can re-open a tab for an issue deleted while its
         // screen sat on the stack — prune it right away (EXP-493).
         self.prune_missing_issue_tabs(window, cx);
+    }
+
+    /// #EXP-2124: the screen `screen`'s tab holds ([`tab_screen`] over this
+    /// device's row and the window's active board).
+    fn tab_screen_of(&self, screen: &Screen, cx: &App) -> Option<Screen> {
+        let this_device = matches!(screen, Screen::Device { device_id } if device_id.is_empty())
+            .then(|| crate::device_page::this_device_row_id(cx))
+            .flatten();
+        let active_board = matches!(screen, Screen::BoardIssues { board_id } if board_id.is_empty())
+            .then(|| crate::navigation::active_board_id(&self.nav, cx))
+            .flatten();
+        tab_screen(screen, this_device.as_deref(), active_board.as_deref())
+    }
+
+    fn find_tab(&self, screen: &Screen, root: Option<&str>) -> Option<usize> {
+        find_tab(&self.tabs, screen, root)
+    }
+
+    /// #EXP-2124 (sidebar-menus.json `tabs.background`): a row's "Open in
+    /// new tab" — `screen`'s tab is APPENDED without navigating (the
+    /// current tab stays); a screen already held by a tab adds nothing, and
+    /// a screen that holds no tab is ignored.
+    pub(crate) fn open_in_background(&mut self, screen: Screen, cx: &mut gpui::Context<Self>) {
+        if !screen.holds_tab() {
+            return;
+        }
+        let Some(screen) = self.tab_screen_of(&screen, cx) else {
+            return;
+        };
+        let root = screen_root(&screen, cx);
+        if push_background_tab(&mut self.tabs, screen, root) {
+            cx.notify();
+        }
     }
 
     /// EXP-1294: tab `ix` now shows `screen`. A session it showed before
@@ -1528,6 +1686,12 @@ impl ScreensPanel {
         crate::navigation::leave_held(window, cx, Some(&target), move |window, cx| {
             if let Some(origin) = &entry.origin {
                 crate::sidebar::apply_origin(window, cx, origin);
+            }
+            // #EXP-2124: a board's tab puts its board back as the scope.
+            if let Screen::BoardIssues { board_id } = &entry.screen {
+                if !board_id.is_empty() {
+                    crate::navigation::set_active_board(window, cx, board_id.clone());
+                }
             }
             set_screen(window, cx, Some(entry.screen));
         });
@@ -2908,7 +3072,8 @@ mod tests {
     }
 
     use super::{
-        opens_no_tab, swap_team_tabs, TabEntry, TablessWork,
+        find_tab, home_tab_taken_over, opens_no_tab, push_background_tab, swap_team_tabs, tab_screen,
+        TabEntry, TablessWork,
     };
     use std::collections::HashMap;
     use crate::navigation::{PendingOrigin, Screen, TabOrigin};
@@ -3069,6 +3234,100 @@ mod tests {
         let issue = issue_tab("i1", None);
         assert_eq!(issue.root_id, None);
         assert_eq!(issue.issue_id(), Some("i1"));
+    }
+
+    /// #EXP-2124 (sidebar-menus.json `tabs`): a page opens its tab ONCE —
+    /// a second visit finds the tab it has (an app's run view and its
+    /// editor are one tab), never a second.
+    #[test]
+    fn a_page_opens_its_tab_once() {
+        let mut tabs = vec![issue_tab("i1", None)];
+        for page in [Screen::Home, Screen::Chats, Screen::NeedsYou, Screen::Drafts] {
+            assert_eq!(find_tab(&tabs, &page, None), None);
+            assert!(push_background_tab(&mut tabs, page.clone(), None));
+            assert_eq!(find_tab(&tabs, &page, None), Some(tabs.len() - 1));
+            assert!(!push_background_tab(&mut tabs, page, None), "never twice");
+        }
+        let run = Screen::AppRun { app: "a1".into() };
+        assert!(push_background_tab(&mut tabs, run.clone(), None));
+        assert_eq!(find_tab(&tabs, &Screen::App { app: "a1".into() }, None), find_tab(&tabs, &run, None));
+        assert_eq!(find_tab(&tabs, &Screen::AppRun { app: "a2".into() }, None), None);
+        assert_eq!(tabs.len(), 6);
+    }
+
+    /// #EXP-2124 (`tabs.background`): Open in new tab APPENDS the page's tab
+    /// and leaves the strip's order (and so the active tab) alone; a page
+    /// already open is not opened twice; a chat is found by its root.
+    #[test]
+    fn a_background_open_appends_and_never_twice() {
+        let mut tabs = vec![issue_tab("i1", None), issue_tab("i2", None)];
+        let board = Screen::BoardIssues { board_id: "b1".into() };
+        assert!(push_background_tab(&mut tabs, board.clone(), None));
+        assert_eq!(tab_ids(&tabs[..2]), ["i1", "i2"], "the open tabs stay where they are");
+        assert_eq!(tabs[2].screen, board);
+        assert_eq!(tabs[2].origin, None);
+        assert!(!push_background_tab(&mut tabs, board, None));
+        let chat = Screen::Chat { session_id: "c1".into() };
+        assert!(push_background_tab(&mut tabs, chat.clone(), Some("c1".into())));
+        assert!(!push_background_tab(&mut tabs, Screen::Session { session_id: "s9".into() }, Some("c1".into())), "its tree's tab");
+        assert_eq!(tabs.len(), 4);
+    }
+
+    /// #EXP-2124: "this device" (an empty id) and its row id are ONE tab;
+    /// an empty board id is the active board; unresolved = no tab yet.
+    #[test]
+    fn this_device_and_its_row_are_one_tab() {
+        let this = Screen::Device { device_id: String::new() };
+        let row = Screen::Device { device_id: "row-1".into() };
+        assert_eq!(tab_screen(&this, Some("row-1"), None), Some(row.clone()));
+        assert_eq!(tab_screen(&this, None, None), None);
+        assert_eq!(tab_screen(&row, Some("row-2"), None), Some(row.clone()));
+        let mut tabs = Vec::new();
+        assert!(push_background_tab(&mut tabs, tab_screen(&this, Some("row-1"), None).unwrap(), None));
+        assert!(!push_background_tab(&mut tabs, tab_screen(&row, Some("row-1"), None).unwrap(), None));
+        assert_eq!(tabs.len(), 1);
+        let board = Screen::BoardIssues { board_id: String::new() };
+        assert_eq!(tab_screen(&board, None, Some("b1")), Some(Screen::BoardIssues { board_id: "b1".into() }));
+        assert_eq!(tab_screen(&board, None, None), None);
+        assert_eq!(tab_screen(&Screen::Home, None, None), Some(Screen::Home));
+    }
+
+    /// #EXP-2124 (owner): a chat started from Home REPLACES it and takes the
+    /// Home tab's place — the same tab, not a second one; nothing else
+    /// (a plain navigation, a non-Home replace, a page) does.
+    #[test]
+    fn a_chat_from_home_takes_the_home_tab() {
+        let tabs = vec![issue_tab("i1", None), TabEntry::new(Screen::Home, None, None), issue_tab("i2", None)];
+        let chat = Screen::Chat { session_id: "c1".into() };
+        assert_eq!(home_tab_taken_over(&tabs, Some(&Screen::Home), &chat), Some(1));
+        let agent = Screen::Agent { agent_id: "a1".into() };
+        assert_eq!(home_tab_taken_over(&tabs, Some(&Screen::Home), &agent), Some(1));
+        assert_eq!(home_tab_taken_over(&tabs, None, &chat), None);
+        assert_eq!(home_tab_taken_over(&tabs, Some(&Screen::Chats), &chat), None);
+        assert_eq!(home_tab_taken_over(&tabs, Some(&Screen::Home), &Screen::Chats), None);
+        assert_eq!(home_tab_taken_over(&tabs[..1], Some(&Screen::Home), &chat), None);
+        // The tab then rebinds in place: the chat at the Home tab's index.
+        let mut tabs = tabs;
+        tabs[1].screen = chat.clone();
+        tabs[1].root_id = Some("c1".into());
+        assert_eq!(find_tab(&tabs, &chat, Some("c1")), Some(1));
+        assert_eq!(find_tab(&tabs, &Screen::Home, None), None, "Home has no second tab");
+    }
+
+    /// #EXP-2124: a team swap keeps the pages of no one team in the strip
+    /// (like terminals); a board's tab parks with its team.
+    #[test]
+    fn a_team_swap_keeps_the_teamless_pages() {
+        let mut parked = HashMap::new();
+        let tabs = vec![
+            TabEntry::new(Screen::Home, None, None),
+            TabEntry::new(Screen::BoardIssues { board_id: "b1".into() }, None, None),
+            TabEntry::new(Screen::Device { device_id: "d1".into() }, None, None),
+        ];
+        let on_b = swap_team_tabs(tabs, &mut parked, Some("A"), true, Some("B"));
+        let screens: Vec<Screen> = on_b.iter().map(|tab| tab.screen.clone()).collect();
+        assert_eq!(screens, [Screen::Home, Screen::Device { device_id: "d1".into() }]);
+        assert_eq!(parked["A"].len(), 1);
     }
 
     /// EXP-781: closing the active tab activates its neighbour in the ONE
