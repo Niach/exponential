@@ -34,6 +34,15 @@ public enum SearchList {
         public static let testId = "search-list-suggestion"
     }
 
+    /// #NEW-136 (search-list.json TRANSLATE): the same row offering the model
+    /// fallback (`IssueSearchTranslation`): its name, the failure toast and
+    /// its test id. iOS 26+ with Apple Intelligence available only.
+    public enum TranslateSpec {
+        public static let label = "Translate to a search"
+        public static let failed = "Couldn't translate this search"
+        public static let testId = "search-list-translate"
+    }
+
     /// The suggestion row: the query a recognised sentence means and the
     /// row's name.
     public struct Suggestion: Equatable, Sendable {

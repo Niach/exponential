@@ -114,7 +114,7 @@ fn count_of(token: Option<&str>) -> Option<i64> {
 }
 
 /// The UTC civil date of a day number (Howard Hinnant's civil_from_days).
-fn civil_from_days(days: i64) -> (i64, i64, i64) {
+pub(crate) fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let doe = z - era * 146_097;

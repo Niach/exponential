@@ -25,6 +25,12 @@
 //! it. #ERR-29: the hook is ours ([`install_panic_hook`]) and sends through
 //! the MAIN hub, whatever thread panicked.
 //!
+//! Stalls (#EXP-2091, [`stall`]): the main thread or the device heartbeat
+//! silent for two minutes = the thread stacks in `crashes/stall-*.txt`,
+//! written by a watchdog that uses neither the logger nor Sentry (both may
+//! be what is stuck). The next start names the file in the log, and its
+//! event waits beside the panics for the next client ([`watch_stalls`]).
+//!
 //! Never a dependency of `crates/eagent` or the Engine runner.
 
 pub mod config;
@@ -38,6 +44,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Once, OnceLock};
 use std::time::Duration;
 
+/// #EXP-2091: the watched loops call `stall::beat`.
+pub use stall_watch as stall;
 pub use transport::HttpClient;
 
 use config::RemoteConfig;
@@ -460,6 +468,67 @@ fn apply(remote: RemoteConfig) {
     // The lag data feeds Sentry's hang and long-frame transactions too.
     set_levels(true);
     lag::activate(frame_stats_requested());
+}
+
+/// How much of a stall's sample its event carries (the file has all of it).
+const STALL_EVENT_SAMPLE: usize = 48 * 1024;
+
+/// #EXP-2091: once, after [`init`], in the process whose loops beat (the
+/// desktop app): the last run's stall files are named in the log, then the
+/// stall watchdog starts on a thread of its own.
+pub fn watch_stalls() {
+    let Some((data_dir, release)) = state().map(|state| (state.data_dir.clone(), format!("{}@{}", state.product.release_name(), state.version))) else { return };
+    let crashes = crashes_dir(&data_dir);
+    report_stalls(&crashes);
+    // The environment is read here: the watchdog thread never takes its lock.
+    let opted_out = config::env_opt_out();
+    let home = std::env::var("HOME").ok().filter(|home| home.len() > 1);
+    let watch = stall::Watch::new(crashes, release, stall::SystemClock::new(), stall::PlatformSampler, stall::beats())
+        .on_stall(Box::new(move |report| keep_stall_event(&data_dir, opted_out, home.as_deref(), report)));
+    let _ = std::thread::Builder::new().name("exp-stall-watchdog".into()).spawn(move || watch.run());
+}
+
+/// The next start's log line for every stall file no start reported yet;
+/// how many.
+pub fn report_stalls(crashes: &std::path::Path) -> usize {
+    let reports = stall::take_unreported(crashes);
+    for report in &reports {
+        log::warn!(
+            target: "observability",
+            "{} stalled at {} UTC ({}): its thread stacks are in {}",
+            report.release,
+            report.at_utc,
+            report.stalled,
+            report.path.display()
+        );
+    }
+    reports.len()
+}
+
+/// The stall as an event waiting in the crash directory, like a panic the
+/// tunnel did not take: the next client sends it and deletes it once
+/// delivered ([`crash_monitor::send_pending`]), or discards it unsent when
+/// diagnostics are off. Runs on the stall watchdog: no logger, no Sentry
+/// hub, no lock; the consent is read from its file. `home` (the person's
+/// home directory, its name is theirs) reads `~` in the event.
+pub fn keep_stall_event(data_dir: &std::path::Path, opted_out: bool, home: Option<&str>, report: &stall::Report) {
+    if opted_out || !config::load(data_dir).send_diagnostics {
+        return;
+    }
+    let mut event = sentry::protocol::Event {
+        level: sentry::Level::Error,
+        message: Some(format!("Stalled: {}", report.stalled)),
+        logger: Some("stall".into()),
+        release: Some(report.release.clone().into()),
+        timestamp: std::time::UNIX_EPOCH + Duration::from_secs(report.at),
+        // One issue per set of stalled sources, whatever the seconds.
+        fingerprint: vec!["stall".into(), report.stalled.split(", ").map(|part| part.trim_end_matches(|c: char| c.is_ascii_digit() || c == ' ' || c == 's')).collect::<Vec<_>>().join("+").into()].into(),
+        ..Default::default()
+    };
+    event.extra.insert("file".into(), report.path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default().into());
+    let sample = report.sample(STALL_EVENT_SAMPLE);
+    event.extra.insert("sample".into(), home.map_or(sample.clone(), |home| sample.replace(home, "~")).into());
+    let _ = crash_monitor::write_panic(&crashes_dir(data_dir), &event);
 }
 
 fn apply_user() {

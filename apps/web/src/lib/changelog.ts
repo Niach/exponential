@@ -35,6 +35,16 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Stays on the server**: the search text is read by a model inside your Exponential server and goes nowhere else. Self-hosted servers need the database image with pgvector, the default of the compose file.`,
   },
   {
+    id: `2026-11-24-search-translate-on-your-device`,
+    date: `2026-11-24`,
+    title: `Translate a sentence into a search`,
+    summary: `Desktop and iOS: when the issue search does not understand a sentence, Translate to a search turns it into filters with a model on your own device or login.`,
+    body: `- **Translate to a search**: type a longer sentence the search does not recognise and pick the top row. The field is rewritten into filters and words you can still edit.
+- **Desktop**: it uses the Claude login you are already signed in with on this device. One short request, no session, nothing stored.
+- **iPhone and iPad**: it uses Apple Intelligence on the device, on iOS 26 or later. Nothing leaves the phone.
+- **Only when you ask**: typing never calls a model. Without a signed-in Claude on the desktop, or without Apple Intelligence on the phone, the row does not appear.`,
+  },
+  {
     id: `2026-11-24-search-sentences-and-filters`,
     date: `2026-11-24`,
     title: `Search understands sentences and filters`,

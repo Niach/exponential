@@ -290,7 +290,7 @@ fun IssueDraftScreen(
         // to the caret (EXP-423).
         IssueRefHandler(issueRefCandidates, canOpen = false, searchServer = viewModel::searchIssueRefs) { }
     }
-    val mentionMembers = remember(teamUsers) { teamUsers.map { MentionMember(it.name ?: it.email, it.email) } }
+    val mentionMembers = remember(teamUsers) { com.exponential.app.ui.markdown.mentionMembers(teamUsers) }
     val mentionResolver = remember(mentionMembers) { MentionResolver(mentionMembers) }
 
     // The Work screen's detail chrome: one blurred backdrop + the title collapse.

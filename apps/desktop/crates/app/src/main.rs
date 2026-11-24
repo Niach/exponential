@@ -111,6 +111,9 @@ fn main() {
         native_crashes: true,
     });
     observability::lag::mark_main_thread();
+    // #EXP-2091: the last run's stall files into the log, then the watchdog
+    // that writes the thread stacks when this thread or the heartbeat stops.
+    observability::watch_stalls();
 
     // Build the app's ONE HTTP client here, first, on the foreground thread
     // (EXP-304). `reqwest::blocking` must not be constructed from inside an

@@ -511,13 +511,8 @@ pub fn team_users(cx: &App, team_id: &str) -> Vec<domain::rows::User> {
         .filter(|user| member_ids.contains(user.id.as_str()))
         .cloned()
         .collect();
-    out.sort_by_key(|user| {
-        user.name
-            .clone()
-            .or_else(|| user.email.clone())
-            .unwrap_or_default()
-            .to_lowercase()
-    });
+    // #EXP-2095 (agent-settings.json `assistant.chatTeams` (2)): ONE order ×4.
+    out.sort_by_key(|user| domain::agent_settings::chat_member_sort_key(user.name.as_deref(), user.email.as_deref(), &user.id));
     out
 }
 

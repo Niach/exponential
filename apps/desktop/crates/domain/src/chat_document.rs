@@ -444,7 +444,8 @@ pub fn mention_menu(draft: &str, members: &[Member], issues: &[MentionIssue]) ->
         CompletionTrigger::Mention => {
             let needle = token.query.to_lowercase();
             let mut picks: Vec<&Member> = members.iter().filter(|m| mention_matches(&m.name, &m.email, &needle)).collect();
-            picks.sort_by(|a, b| a.name.cmp(&b.name));
+            // #EXP-2095 (agent-settings.json `assistant.chatTeams` (2)): ONE order ×4.
+            picks.sort_by_key(|m| crate::agent_settings::chat_member_sort_key(Some(&m.name), Some(&m.email), ""));
             picks.dedup_by(|a, b| a.email == b.email);
             picks
                 .into_iter()
@@ -650,6 +651,17 @@ mod tests {
         assert_eq!(commit_emoji("nice :tada:").as_deref(), Some("nice 🎉"));
         assert_eq!(commit_emoji("nice :tad"), None);
         assert!(mention_menu("at 12:30", &[], &[]).is_none(), "times never open it");
+    }
+
+    // #EXP-2095 (agent-settings.json `assistant.chatTeams` (2)): the `@`
+    // list's ONE order ×4, whatever the roster order or the case.
+    #[test]
+    fn at_lists_members_by_name_case_insensitively_then_email() {
+        let member = |name: &str, email: &str| Member { name: name.into(), email: email.into(), image: None };
+        let members = vec![member("Zoe", "zoe@x.com"), member("bob", "bob@x.com"), member("Sam", "sam@b.x.com"), member("alice", "alice@x.com"), member("sam", "sam@a.x.com")];
+        let menu = mention_menu("ping @", &members, &[]).expect("@");
+        let names: Vec<&str> = menu["rows"].as_array().unwrap().iter().map(|row| row["hint"].as_str().unwrap()).collect();
+        assert_eq!(names, ["alice@x.com", "bob@x.com", "sam@a.x.com", "sam@b.x.com", "zoe@x.com"]);
     }
 
     #[test]

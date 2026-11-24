@@ -15,7 +15,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.IssueSearch
-import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.ui.components.GlassSheetDefaults
 import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.SearchListPanel
@@ -83,7 +82,7 @@ internal fun AgentIssuePickerPage(
                     IssueSearchRowBody(
                         option.identifier,
                         option.title,
-                        remember(option.status) { IssueStatusResolver.resolve(null, option.status, emptyList()) },
+                        option.glyph,
                     )
                 }
             },
@@ -142,7 +141,7 @@ internal fun AgentIssueInsertPage(
                     IssueSearchRowBody(
                         option.identifier,
                         option.title,
-                        remember(option.status) { IssueStatusResolver.resolve(null, option.status, emptyList()) },
+                        option.glyph,
                     )
                 }
             },

@@ -119,12 +119,16 @@ public struct SearchListAction {
     let icon: String
     let label: String
     let identifier: String
+    /// #NEW-136: the action is running: THE inline spinner in the row's
+    /// trailing slot.
+    let busy: Bool
     let pick: () -> Void
 
-    public init(icon: String, label: String, identifier: String, pick: @escaping () -> Void) {
+    public init(icon: String, label: String, identifier: String, busy: Bool = false, pick: @escaping () -> Void) {
         self.icon = icon
         self.label = label
         self.identifier = identifier
+        self.busy = busy
         self.pick = pick
     }
 }
@@ -311,6 +315,11 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
                         action: action.pick
                     )
                     .background(GlassTokens.fillActive, in: RoundedRectangle(cornerRadius: GlassPickerTokens.rowRadius))
+                    .overlay(alignment: .trailing) {
+                        if action.busy {
+                            InlineSpinner().padding(.trailing, GlassPickerTokens.rowHPadding)
+                        }
+                    }
                     .accessibilityIdentifier(action.identifier)
                     .accessibilityAddTraits(.isSelected)
                 }
