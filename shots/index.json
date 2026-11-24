@@ -5701,8 +5701,8 @@
         "file": "shots/install-approval/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 14400,
-        "sha256": "ed526865c7d5b2ce116850c514bfbbdea500b4adca4247c582b3ecaa8d43430e"
+        "bytes": 17362,
+        "sha256": "59d78828dbbcc1e59a4dc0912450ae6b57494fa2701fc373a5ed124dc75cacd7"
       },
       "web": {
         "file": "shots/install-approval/web.webp",
@@ -5738,8 +5738,8 @@
         "file": "shots/install-waiting/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 9232,
-        "sha256": "ddfc74c6033b77e67eebd6ece2b168d0cd08834077e3c88650fb4e52f5a07922"
+        "bytes": 12574,
+        "sha256": "2082703a26795050688433b9d2888b9e2af64d8985f6cc97d17970d55d00a988"
       },
       "web": {
         "file": "shots/install-waiting/web.webp",
