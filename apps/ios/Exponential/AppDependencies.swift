@@ -267,6 +267,7 @@ final class AppDependencies: @unchecked Sendable {
             keys: SessionKeysApi(trpc: trpc),
             installs: InstallsApi(trpc: trpc),
             crypto: opener.crypto,
+            signer: WrapSignerFactory.make(),
             ring: keyRing,
             identity: { identityStore.load() },
             installId: { accountId in await installNode?.installId(accountId: accountId) },
