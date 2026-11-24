@@ -8,7 +8,7 @@
 // the voice mirror re-derived).
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { afterAll, describe, expect, it, onTestFinished as onAfterTest, vi } from "vitest"
+import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, sql } from "drizzle-orm"
 import { ASSISTANT, ASSISTANT_COPY } from "@exp/domain-contract/agent-settings"
 import { db } from "@/db/connection"
@@ -117,26 +117,7 @@ describe.skipIf(!ready.ok)(`ensureAssistant (S-3)`, () => {
     expect(voice).toMatchObject({ agentId: a!.id, voiceDeviceId: desktop })
   })
 
-  it(`#EXP-1986 switch off (the default): one Assistant per team, no personal team`, async () => {
-    const w = await world()
-    await w.device(w.owner, `desktop`, 1)
-    const [other] = await db.insert(teams).values({ name: `Second`, slug: `assistant-${id8()}` }).returning({ id: teams.id })
-    made.teams.push(other!.id)
-    await db.insert(teamMembers).values({ teamId: other!.id, userId: w.owner, role: `owner` })
-    const a = (await ensureAssistant(w.owner, w.teamId))!
-    const b = (await ensureAssistant(w.owner, other!.id))!
-    expect([a.teamId, b.teamId]).toEqual([w.teamId, other!.id])
-    expect(a.id).not.toBe(b.id)
-    // No team given (a client after #EXP-1987): their oldest one.
-    expect((await ensureAssistant(w.owner))!.id).toBe(a.id)
-    expect(await db.select().from(teams).where(and(eq(teams.ownerId, w.owner), eq(teams.kind, `personal`)))).toHaveLength(0)
-  })
-
   it(`#EXP-1984: ONE Assistant across the member's teams, in their hidden personal team`, async () => {
-    process.env.ASSISTANT_MOVE = `on`
-    onAfterTest(() => {
-      delete process.env.ASSISTANT_MOVE
-    })
     const w = await world()
     await w.device(w.owner, `desktop`, 1)
     const [other] = await db.insert(teams).values({ name: `Second`, slug: `assistant-${id8()}` }).returning({ id: teams.id })
