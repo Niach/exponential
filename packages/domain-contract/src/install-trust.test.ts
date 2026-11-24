@@ -14,17 +14,23 @@ import {
   INSTALL_TRUST_COPY,
   installCode,
   installX25519Of,
+  isKeyMakerRefusal,
+  KEY_MAKER_REFUSAL,
   keepWrap,
+  keyMakerStep,
+  keyMakerWaits,
   reconcileTrust,
   registrationValid,
   sealTo,
   signApproval,
   signRegistration,
+  strandedRotationEpoch,
   TRUST_MODE,
   verifyApproval,
   wrapTarget,
   type ApprovalKind,
   type KeyRecord,
+  type KeyWrite,
   type PinVia,
   type ServedInstall,
   type TrustMode,
@@ -247,5 +253,18 @@ describe(`install-trust.json`, () => {
   test(`the new root rule`, () => {
     expect(fixture.newRoot.makerRecord).toBe(`verified`)
     expect(fixture.newRoot.readerRecordBeforeResign).toEqual({ now: `unsigned`, mandatory: `refused` })
+  })
+  test(`keyMaker (#EXP-2123): only a joined install makes a chat key`, () => {
+    const maker = fixture.keyMaker
+    expect(KEY_MAKER_REFUSAL).toBe(maker.refusal)
+    expect(isKeyMakerRefusal(maker.refusal)).toBe(true)
+    expect(isKeyMakerRefusal(`Only the session's starter or its device rotates the key`)).toBe(false)
+    for (const c of maker.serverCases) expect(keyMakerWaits(c), c.name).toBe(c.waits)
+    for (const c of maker.makerCases as Array<{ name: string; joined: boolean; refused?: boolean; write: string; step: string }>) {
+      expect(keyMakerStep({ joined: c.joined, write: c.write as KeyWrite, refused: c.refused }), c.name).toBe(c.step as never)
+    }
+    // A waiting install makes nothing, whatever the write.
+    for (const write of [`firstKey`, `newRoot`, `rotation`, `deviceKey`] as const) expect(keyMakerStep({ joined: false, write })).not.toBe(`make`)
+    for (const c of maker.strandedCases) expect(strandedRotationEpoch(c), c.name).toBe(c.epoch)
   })
 })

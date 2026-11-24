@@ -3876,5 +3876,210 @@
     "topOffset": 0.2,
     "maxWidth": 448,
     "listGap": 12
+  },
+  "keyMaker": {
+    "$comment": "#EXP-2123: WHO MAKES A CHAT KEY. Only an install that is JOINED (on its account's chain, `reconcileTrust`) creates a tree's first key or rotates one. An install that waits wraps for itself only (R4 `notTrusted`), so a key it made would exist nowhere else: no approved install, no device could ever open the chat. THE CLIENT (`makerCases`, `keyMakerStep`; `joined` = the pin store's, an older server without `installs.trust` counts as joined; a store not reconciled yet is reconciled first; `refused` = the server answered `refusal` to an install that took itself for joined: the same steps): `firstKey` (an EXISTING keyless root, `sessionKeys.create {epoch 1}`) = `requestKey`: nothing is created, the tree's devices are asked (`sessionKeys.requestKey`, sealed-content.json `clearTree.keylessCases` from `requestKey` on) and the send seals to the key they make (R3) or fails with the no-key refusal; `newRoot` (a root the same send creates: `sessions.send {seal}`, `voice.callConversation {seal}`) = `refused`: the send fails with sealed-content.json's `noKeyRefusal` (the failed-send toast), no root is made, nothing leaves in clear; `rotation` (a root `sessionKeys.due` names) and `deviceKey` (the `tree_key` device command, a claim that keys its tree) = `skip`: nothing is created and nothing is remembered, an approved holder does it, and this install does once it is approved. THE SERVER (`serverCases`, `keyMakerWaits`; it protects every build): every key write (`sessionKeys.create`, the inline `seal` of `sessions.send` and `voice.callConversation`) by an install the server lists as waiting is refused `code` with the message `refusal`, nothing written. Waiting = `installs.waiting`'s New install rule over what the server stores: NOT `chained` (no `root` and no `approve` names it) and (`asked` (`approvalRequested`) or its account has a chain (`accountChain`: a `root` or `approve` names another live install of it) while its row stores a `registration`). `sessionKeys.due` answers such an install nothing. A released build reads the refusal as any FORBIDDEN (`createFailure` `refused`): the send fails with the failed-send toast, a rotation is left; never plaintext. A STRANDED ROOT (`strandedCases`, `strandedRotationEpoch`): a root flagged for rotation whose current epoch NO reader install that is not waiting holds a wrap of (its maker waited when it made the key, before this rule; or was removed). `sessionKeys.due` names it to every joined reader with `stranded: true`, and that reader rotates it WITHOUT the old secret (`create {epoch + 1}`, its own wrap, the readers through `pending`): the chat opens again for every approved reader. What was sealed at the stranded epoch stays readable only where its secret is (the install that made it, if it still exists). A stranded root is flagged by `apps/web/scripts/repair-stranded-keys.ts`, never by a client.",
+    "refusal": "An install waiting for approval makes no chat key",
+    "code": "FORBIDDEN",
+    "serverCases": [
+      {
+        "name": "on its account's chain (a root or an approve names it): it makes keys",
+        "chained": true,
+        "asked": true,
+        "accountChain": true,
+        "registration": true,
+        "waits": false
+      },
+      {
+        "name": "asked and not approved: refused",
+        "chained": false,
+        "asked": true,
+        "accountChain": true,
+        "registration": true,
+        "waits": true
+      },
+      {
+        "name": "asked, its account has no chain yet (its other installs run older builds): refused",
+        "chained": false,
+        "asked": true,
+        "accountChain": false,
+        "registration": true,
+        "waits": true
+      },
+      {
+        "name": "never asked, its account has a chain without it (a New install row, any build): refused",
+        "chained": false,
+        "asked": false,
+        "accountChain": true,
+        "registration": true,
+        "waits": true
+      },
+      {
+        "name": "never asked, no chain in its account (nobody runs this release yet, or the first install before its root claim): it makes keys",
+        "chained": false,
+        "asked": false,
+        "accountChain": false,
+        "registration": true,
+        "waits": false
+      },
+      {
+        "name": "never asked, no stored registration (it has not started since #3394): never a row, it makes keys",
+        "chained": false,
+        "asked": false,
+        "accountChain": true,
+        "registration": false,
+        "waits": false
+      }
+    ],
+    "makerCases": [
+      {
+        "name": "joined: the first key of a keyless root",
+        "joined": true,
+        "write": "firstKey",
+        "step": "make"
+      },
+      {
+        "name": "joined: a new root's inline key",
+        "joined": true,
+        "write": "newRoot",
+        "step": "make"
+      },
+      {
+        "name": "joined: a due rotation",
+        "joined": true,
+        "write": "rotation",
+        "step": "make"
+      },
+      {
+        "name": "joined: the device keys its tree",
+        "joined": true,
+        "write": "deviceKey",
+        "step": "make"
+      },
+      {
+        "name": "waiting, a keyless root: nothing is created, its devices are asked",
+        "joined": false,
+        "write": "firstKey",
+        "step": "requestKey"
+      },
+      {
+        "name": "waiting, the first message of a new chat: the send is refused, no root is made",
+        "joined": false,
+        "write": "newRoot",
+        "step": "refused"
+      },
+      {
+        "name": "waiting, a due rotation: left to an approved holder, not remembered",
+        "joined": false,
+        "write": "rotation",
+        "step": "skip"
+      },
+      {
+        "name": "waiting, a device asked to key its tree: left to an approved holder",
+        "joined": false,
+        "write": "deviceKey",
+        "step": "skip"
+      },
+      {
+        "name": "the server refused a keyless root's key: its devices are asked",
+        "joined": true,
+        "refused": true,
+        "write": "firstKey",
+        "step": "requestKey"
+      },
+      {
+        "name": "the server refused a new root's key: the send is refused",
+        "joined": true,
+        "refused": true,
+        "write": "newRoot",
+        "step": "refused"
+      },
+      {
+        "name": "the server refused a rotation: not remembered (rotation `left` is for the other refusals)",
+        "joined": true,
+        "refused": true,
+        "write": "rotation",
+        "step": "skip"
+      },
+      {
+        "name": "the server refused a device's key: left",
+        "joined": true,
+        "refused": true,
+        "write": "deviceKey",
+        "step": "skip"
+      }
+    ],
+    "strandedCases": [
+      {
+        "name": "a stranded root: a joined reader rotates it without the old secret",
+        "flagged": 1,
+        "current": 1,
+        "held": false,
+        "stranded": true,
+        "joined": true,
+        "left": false,
+        "epoch": 2
+      },
+      {
+        "name": "not stranded and its secret not held: not this install's (as before)",
+        "flagged": 1,
+        "current": 1,
+        "held": false,
+        "stranded": false,
+        "joined": true,
+        "left": false,
+        "epoch": null
+      },
+      {
+        "name": "held and joined: the next epoch (as before)",
+        "flagged": 1,
+        "current": 1,
+        "held": true,
+        "stranded": false,
+        "joined": true,
+        "left": false,
+        "epoch": 2
+      },
+      {
+        "name": "held, but this install waits: never",
+        "flagged": 1,
+        "current": 1,
+        "held": true,
+        "stranded": false,
+        "joined": false,
+        "left": false,
+        "epoch": null
+      },
+      {
+        "name": "stranded, but this install waits: never",
+        "flagged": 1,
+        "current": 1,
+        "held": false,
+        "stranded": true,
+        "joined": false,
+        "left": false,
+        "epoch": null
+      },
+      {
+        "name": "stranded, already rotated by another holder: nothing",
+        "flagged": 1,
+        "current": 2,
+        "held": false,
+        "stranded": true,
+        "joined": true,
+        "left": false,
+        "epoch": null
+      },
+      {
+        "name": "stranded, the server refused this root and epoch before: never asked again",
+        "flagged": 3,
+        "current": 3,
+        "held": false,
+        "stranded": true,
+        "joined": true,
+        "left": true,
+        "epoch": null
+      }
+    ]
   }
 }
