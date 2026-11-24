@@ -76,12 +76,14 @@ COPY --from=builder /app/packages packages
 # #NEW-134: + drop what of onnxruntime-web the server never loads. The embedder
 # (apps/web/embedder/worker.mjs) runs its Node build on the plain WASM backend
 # (ort.node.min.mjs + ort-wasm-simd-threaded.{mjs,wasm}); the WebGPU / WebGL /
-# JSPI / asyncify builds and the source maps are ~125 MB of browser code.
+# JSPI / asyncify builds and the source maps are ~125 MB of browser code
+# (deleted from bun's install cache too: node_modules hard-links into it).
 # apps/web/embedder/bench.mjs (build-web.yml's smoke) proves what is left loads.
 RUN bun install --frozen-lockfile --filter '@exp/web' \
- && cd node_modules/onnxruntime-web/dist \
- && rm -f *.map ort-wasm-simd-threaded.jsep.* ort-wasm-simd-threaded.asyncify.* ort-wasm-simd-threaded.jspi.* \
-      ort.all.* ort.webgl.* ort.webgpu.* ort.jspi.* ort.bundle.* ort.wasm.* ort.js ort.mjs ort.min.*
+ && for dist in node_modules/onnxruntime-web/dist "$HOME"/.bun/install/cache/onnxruntime-web@*/dist; do \
+      (cd "$dist" && rm -f *.map ort-wasm-simd-threaded.jsep.* ort-wasm-simd-threaded.asyncify.* ort-wasm-simd-threaded.jspi.* \
+        ort.all.* ort.webgl.* ort.webgpu.* ort.jspi.* ort.bundle.* ort.wasm.* ort.js ort.mjs ort.min.*); \
+    done
 # #NEW-134: the embedding worker runs unbundled next to the server bundle, with
 # the model beside it (see the first stage).
 COPY --from=builder /app/apps/web/embedder apps/web/embedder
