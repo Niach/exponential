@@ -20,6 +20,11 @@ export const SEARCH_LIST_SUGGESTION = {
   testId: fixture.suggestion.testId,
 } as const
 
+/** #NEW-136 (search-list.json TRANSLATE): the same row offering the model
+ *  fallback: its name, the failure toast, its test id and the platforms
+ *  that show it (web and Android never do). */
+export const SEARCH_LIST_TRANSLATE = fixture.suggestion.translate
+
 /** The suggestion row's name for a translated query (`Search: <query>`). */
 export function searchSuggestionLabel(query: string): string {
   return fixture.suggestion.label.replace(`{query}`, query)
