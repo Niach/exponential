@@ -247,7 +247,8 @@ internal fun transcriptFindRows(
                         SlashCommands.commandFor(item.text, agent) != null
                     val input = if (skip) null else TranscriptGrouping.feedInput(item.text)
                     // #EXP-2067: an action input = its body (a marker without one).
-                    val action = ChatExpress.parseActionInput(item.text)
+                    // #EXP-2075: a teammate's (member-worded) one too.
+                    val action = ChatExpress.parseActionInput(TranscriptGrouping.memberInputOf(item.text)?.body ?: item.text)
                     if (action != null) {
                         if (action.body.isNotBlank()) {
                             out += TranscriptFindRow(FindInChat.Row(keys.getValue(item.id), countMarkdown(action.body)), item.id, 0)

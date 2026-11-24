@@ -3,6 +3,9 @@ package com.exponential.app.data.enet
 import android.content.Context
 import com.exponential.app.data.push.KeystoreSealer
 import com.exponential.app.data.push.SecretSealer
+import com.exponential.app.data.sealed.EnetTrustCrypto
+import com.exponential.app.data.sealed.InstallTrustKeeper
+import com.exponential.app.data.sealed.TreeKeyStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Base64
 import javax.inject.Inject
@@ -28,6 +31,13 @@ class EnetIdentityVault(
     private val slots: IdentitySlots,
     private val sealer: SecretSealer,
     private val generate: () -> ByteArray,
+    /**
+     * #EXP-1950 decision (e) (install-trust.json EXISTING INSTALLS): called
+     * with every identity this build MINTS for an account, after it is
+     * stored and before anything registers it: the account's pin store is
+     * written first (`existing` false), so a new install never adopts.
+     */
+    private val minted: (accountId: String, identity: ByteArray) -> Unit = { _, _ -> },
 ) {
     private val lock = Any()
     private val cached = mutableMapOf<String, ByteArray>()
@@ -51,6 +61,7 @@ class EnetIdentityVault(
             // restart would register a new install every launch.
             val sealed = sealer.seal(fresh) ?: return null
             if (!slots.put(key, Base64.getEncoder().encodeToString(sealed))) return null
+            minted(accountId, fresh)
             fresh
         }
         cached[accountId] = identity
@@ -71,7 +82,7 @@ class EnetIdentityVault(
 }
 
 @Singleton
-class EnetIdentityStore @Inject constructor(@ApplicationContext context: Context) {
+class EnetIdentityStore @Inject constructor(@ApplicationContext context: Context, treeKeys: TreeKeyStore) {
     private val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
 
     val vault = EnetIdentityVault(
@@ -85,6 +96,8 @@ class EnetIdentityStore @Inject constructor(@ApplicationContext context: Context
         sealer = KeystoreSealer(KEY_ALIAS),
         // Off the main thread only: the first call loads JNA + the eNet `.so`.
         generate = { EnetFfi.generateIdentity() },
+        // #EXP-1950 (e): a minted identity is a NEW install: its pin store first.
+        minted = { accountId, identity -> InstallTrustKeeper.markNew(accountId, identity, EnetTrustCrypto, treeKeys.trust) },
     )
 
     companion object {

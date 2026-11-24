@@ -1,6 +1,7 @@
 package com.exponential.app.ui.agent
 
-import com.exponential.app.data.browseTeamIdFlow
+import com.exponential.app.data.chatTeamIdsFlow
+import com.exponential.app.data.routeSubject
 import com.exponential.app.data.routeTeamIdFlow
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
@@ -24,7 +25,6 @@ import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueRelationEntity
-import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -35,7 +35,6 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ComposerAgentRow
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueGraph
-import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.steerAttachmentRefusal
 import com.exponential.app.domain.uploadedImageIds
@@ -51,7 +50,6 @@ import com.exponential.app.ui.components.agentSeed
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.components.defaultAgentFor
 import com.exponential.app.ui.markdown.IssueRefTarget
-import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerLaunchDelegate
@@ -248,12 +246,20 @@ class AgentComposerViewModel @Inject constructor(
         routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId)
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
 
-    /** #EXP-1714: the team the `#` issues, `@` members and skills read —
-     *  [teamId] unless that is the unsynced personal team (a resumed global
-     *  Assistant chat), then the selected team. Uploads/starts keep [teamId]. */
-    private val browseTeamId: StateFlow<String?> =
-        browseTeamIdFlow(dbFlow, teamId, selection.selectedId)
-            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
+    /** #EXP-2079 (agent-settings.json `assistant.chatTeams`): the teams the
+     *  `#` issues and `@` members read: [teamId] unless that is the unsynced
+     *  personal team (a start into the global Assistant's chat), then the
+     *  turn's teams (that chat root's Teams pick, else every synced team).
+     *  Uploads/starts keep [teamId]. */
+    private val chatTeamIds: StateFlow<List<String>> =
+        chatTeamIdsFlow(
+            dbFlow,
+            teamId,
+            (routeSubject { savedStateHandle.get<String>(it) } as? com.exponential.app.data.RouteSubject.Chat)?.let { chat ->
+                dbFlow.scopedQuery<List<String>?>(null) { db -> db.sessionDao().observeById(chat.id).map { it?.scopeTeamIdList } }
+            } ?: flowOf(null),
+        ).flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, listOfNotNull(selection.selectedId.value))
 
     // ── The shared launch rails ─────────────────────────────────────────────
     val steerEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
@@ -559,29 +565,9 @@ class AgentComposerViewModel @Inject constructor(
      * typed `#APP-3` renders as (the AgentSessionViewModel shape, status
      * glyph precomputed).
      */
-    val issueRefCandidates: StateFlow<List<IssueRefTarget>> = browseTeamId
-        .flatMapLatest { teamId ->
-            if (teamId == null) {
-                flowOf(emptyList())
-            } else {
-                combine(
-                    allIssues,
-                    dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
-                    dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) {
-                        it.issueStatusDao().observeByTeam(teamId)
-                    },
-                ) { issues, boards, statusRows ->
-                    val statuses =
-                        if (statusRows.isEmpty()) IssueStatusResolver.builtinDefaults
-                        else IssueStatusResolver.teamStatuses(statusRows)
-                    val teamBoardIds = boards.filter { it.teamId == teamId }.map { it.id }.toSet()
-                    issues
-                        .filter { it.boardId in teamBoardIds }
-                        .sortedByDescending { it.createdAt }
-                        .map { issueRefTarget(it, statuses) }
-                }
-            }
-        }
+    val issueRefCandidates: StateFlow<List<IssueRefTarget>> =
+        // #EXP-2079: the issues of the chat teams, each glyph its own team's.
+        com.exponential.app.ui.markdown.chatTeamIssueRefsFlow(dbFlow, chatTeamIds, allIssues)
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
@@ -590,9 +576,9 @@ class AgentComposerViewModel @Inject constructor(
      */
     suspend fun searchIssueRefs(query: String): List<IssueRefTarget> {
         val accountId = auth.activeAccountId.value ?: return emptyList()
-        val team = browseTeamId.value ?: return emptyList()
+        val teams = chatTeamIds.value.ifEmpty { return emptyList() }
         return try {
-            issuesApi.search(accountId, team, query).map(::issueRefTarget)
+            com.exponential.app.ui.markdown.searchChatTeamIssueRefs(issuesApi, accountId, teams, query)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -601,12 +587,13 @@ class AgentComposerViewModel @Inject constructor(
     }
 
     /** The team's members — the `@` vocabulary (stored as the plain `@email`). */
-    val mentionMembers: StateFlow<List<MentionMember>> = browseTeamId
-        .flatMapLatest { teamId ->
-            if (teamId == null) {
+    val mentionMembers: StateFlow<List<MentionMember>> = chatTeamIds
+        .flatMapLatest { teamIds ->
+            if (teamIds.isEmpty()) {
                 flowOf(emptyList())
             } else {
-                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(teamId) }
+                // #EXP-2079: the chat teams' members, one row per person.
+                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeams(teamIds) }
             }
         }
         .map { users -> users.map { MentionMember(it.name ?: it.email, it.email) } }

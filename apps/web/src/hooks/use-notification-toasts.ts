@@ -17,6 +17,7 @@ import {
   teamCollection,
 } from "@/lib/collections"
 import type { Notification } from "@/db/schema"
+import { chatTeamSlug } from "@/lib/chat-teams"
 
 // #EXP-1815 (notification-delivery.json PRESENTATION): web has no system
 // channel; a NEW unread inbox row raises THE toast (kind info, the row's
@@ -44,6 +45,12 @@ export function viewingThread(pathname: string): string | null {
     return issue ? `issue:${issue.id}` : `issue-ref:${identifier}`
   }
   return null
+}
+
+/** The team slug of a `/t/<slug>/…` path (a team-less page has none). */
+function routeTeamSlug(pathname: string): string | null {
+  const parts = pathname.split(`/`).filter(Boolean)
+  return parts[0] === `t` && parts[1] ? decodeURIComponent(parts[1]) : null
 }
 
 export function rowThread(row: Notification): string {
@@ -123,7 +130,9 @@ export function useNotificationToasts(userId: string | null | undefined): void {
       }
       // #EXP-1987: a session of a team the viewer does not sync (the
       // Assistant's chat in their personal team) opens from the current team.
-      const slug = teamSlug ?? pathRef.current.split(`/`)[2]
+      // #EXP-2079 (`assistant.chatTeams` (7)): on a team page that team, on
+      // a team-less page (Home, the account settings) the first chat team.
+      const slug = teamSlug ?? routeTeamSlug(pathRef.current) ?? chatTeamSlug(target.kind === `session` ? target.sessionId : null)
       if (target.kind === `session` && slug) {
         void navigate({ to: `/t/$teamSlug/sessions/$sessionId`, params: { teamSlug: slug, sessionId: target.sessionId } })
         return

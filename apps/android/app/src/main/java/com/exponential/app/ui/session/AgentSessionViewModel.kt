@@ -25,14 +25,12 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.agentUsageRefreshCommand
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
-import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.MessageEntity
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.SessionIssueEntity
-import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.accountDatabaseFlow
@@ -54,7 +52,6 @@ import com.exponential.app.domain.DeviceFreshness
 import com.exponential.app.domain.DeviceLiveness
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.HistoryState
-import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.QueuedMessage
 import com.exponential.app.domain.AskDock
@@ -74,7 +71,6 @@ import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.markdown.AttachmentDims
 import com.exponential.app.ui.steer.steerDeviceFlow
 import com.exponential.app.ui.markdown.IssueRefTarget
-import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.MentionMember
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
@@ -183,7 +179,6 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val promptsApi: com.exponential.app.data.api.PromptsApi,
     private val store: SteerConnectionStore,
     stats: SyncStats,
-    selection: com.exponential.app.data.TeamSelection,
     // #FEED-219: the composer's synced draft.
     composerDrafts: ComposerDrafts,
     // #FEED-237: the persisted session outbox (message-delivery.json).
@@ -211,16 +206,17 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  the connection, which needs it eagerly for its redial loop. */
     val session: StateFlow<SessionEntity?> = connection.session
 
-    /** #EXP-1714: the team the composer's `/` prompts, `#` issues and `@`
-     *  members read — the session's team unless that is the unsynced
-     *  personal team (the global Assistant's chat), then the selected team.
-     *  Uploads, MCP and sends keep the session's team. */
-    private val browseTeamId: StateFlow<String?> =
-        com.exponential.app.data.browseTeamIdFlow(
+    /** #EXP-2079 (agent-settings.json `assistant.chatTeams`): the teams the
+     *  composer's `/` prompts, `#` issues, `@` members and MCP servers read:
+     *  the session's team unless that is the unsynced personal team (the
+     *  Assistant's chat), then the turn's teams (the root's Teams pick, else
+     *  every synced team). Uploads and sends keep the session's team. */
+    val chatTeamIds: StateFlow<List<String>> =
+        com.exponential.app.data.chatTeamIdsFlow(
             dbFlow,
             session.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } },
-            selection.selectedId,
-        ).flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+            com.exponential.app.data.rootTeamsPickFlow(dbFlow, session),
+        ).flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** #EXP-1383 (chats.json `agentHint`): an agent chat ROOT's definition
      *  row, whose `instructions_updated_at` the "Instructions changed" Dock
@@ -458,7 +454,9 @@ class AgentSessionViewModel @AssistedInject constructor(
     @OptIn(ExperimentalCoroutinesApi::class)
     val deviceMove: StateFlow<SessionDeviceMoveState> = combine(
         session,
-        steerDeviceFlow(dbFlow, session.map { it?.teamId }.distinctUntilChanged(), auth.userId),
+        // #EXP-2079: the Assistant's conversation lists its member's OWN
+        // machines (its personal team is shared with no device).
+        steerDeviceFlow(dbFlow, com.exponential.app.ui.steer.sessionDeviceTeamFlow(dbFlow, session, auth.userId), auth.userId),
         auth.userId,
         // #EXP-1541: a session under this row (the queued-root exception needs none).
         session.map { it?.id }.distinctUntilChanged().flatMapLatest { id ->
@@ -567,32 +565,9 @@ class AgentSessionViewModel @AssistedInject constructor(
      * precomputed here too (EXP-423).
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val issueRefCandidates: StateFlow<List<IssueRefTarget>> = browseTeamId
-        .flatMapLatest { teamId ->
-            if (teamId == null) {
-                flowOf(emptyList())
-            } else {
-                combine(
-                    dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
-                    dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
-                    dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) {
-                        it.issueStatusDao().observeByTeam(teamId)
-                    },
-                ) { issues, boards, statusRows ->
-                    val statuses =
-                        if (statusRows.isEmpty()) IssueStatusResolver.builtinDefaults
-                        else IssueStatusResolver.teamStatuses(statusRows)
-                    val teamBoardIds = boards
-                        .filter { it.teamId == teamId }
-                        .map { it.id }
-                        .toSet()
-                    issues
-                        .filter { it.boardId in teamBoardIds }
-                        .sortedByDescending { it.createdAt }
-                        .map { issueRefTarget(it, statuses) }
-                }
-            }
-        }
+    val issueRefCandidates: StateFlow<List<IssueRefTarget>> =
+        // #EXP-2079: the issues of the chat teams, each glyph its own team's.
+        com.exponential.app.ui.markdown.chatTeamIssueRefsFlow(dbFlow, chatTeamIds)
         // EXP-1521: filtering + sorting every issue is off the main thread.
         .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -603,9 +578,9 @@ class AgentSessionViewModel @AssistedInject constructor(
      */
     suspend fun searchIssueRefs(query: String): List<IssueRefTarget> {
         val accountId = auth.activeAccountId.value ?: return emptyList()
-        val teamId = browseTeamId.value ?: return emptyList()
+        val teamIds = chatTeamIds.value.ifEmpty { return emptyList() }
         return try {
-            issuesApi.search(accountId, teamId, query).map(::issueRefTarget)
+            com.exponential.app.ui.markdown.searchChatTeamIssueRefs(issuesApi, accountId, teamIds, query)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -623,12 +598,13 @@ class AgentSessionViewModel @AssistedInject constructor(
      * display name only ever labels the row.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val mentionMembers: StateFlow<List<MentionMember>> = browseTeamId
-        .flatMapLatest { teamId ->
-            if (teamId == null) {
+    val mentionMembers: StateFlow<List<MentionMember>> = chatTeamIds
+        .flatMapLatest { teamIds ->
+            if (teamIds.isEmpty()) {
                 flowOf(emptyList())
             } else {
-                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(teamId) }
+                // #EXP-2079: the chat teams' members, one row per person.
+                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeams(teamIds) }
             }
         }
         .map { users -> users.map { MentionMember(it.name ?: it.email, it.email) } }
@@ -658,12 +634,12 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     /** #FEED-239: the viewer's own synced user row (the own bubbles' avatar). */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val viewer: StateFlow<UserEntity?> = combine(browseTeamId, auth.userId) { team, me -> team to me }
-        .flatMapLatest { (teamId, me) ->
-            if (teamId == null || me == null) {
+    val viewer: StateFlow<UserEntity?> = combine(chatTeamIds, auth.userId) { teams, me -> teams to me }
+        .flatMapLatest { (teamIds, me) ->
+            if (teamIds.isEmpty() || me == null) {
                 flowOf(null)
             } else {
-                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(teamId) }
+                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeams(teamIds) }
                     .map { users -> users.firstOrNull { it.id == me } }
             }
         }
@@ -673,12 +649,12 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  team members by id: a teammate's line in a team agent's group chat
      *  sits under THEIR avatar and name. */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val teamMembers: StateFlow<Map<String, UserEntity>> = browseTeamId
-        .flatMapLatest { teamId ->
-            if (teamId == null) {
+    val teamMembers: StateFlow<Map<String, UserEntity>> = chatTeamIds
+        .flatMapLatest { teamIds ->
+            if (teamIds.isEmpty()) {
                 flowOf(emptyList())
             } else {
-                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(teamId) }
+                dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeams(teamIds) }
             }
         }
         .map { users -> users.associateBy { it.id } }
@@ -1101,8 +1077,8 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
 
     /** #EXP-1998: the session's LOADED synced messages, ONE consistent read:
-     *  [messages] = its newest card-less agent lines and person inputs,
-     *  OPENED, oldest first (#FEED-260, steer-enet.json SYNCED TAIL: the
+     *  [messages] = its newest card-less agent lines and person inputs
+     *  (#EXP-2075: and a person's carded rows), OPENED, oldest first (#FEED-260, steer-enet.json SYNCED TAIL: the
      *  screen picks the ones after its not-live feed, [steerSyncedTail]);
      *  [loaded] = every message id from the oldest of them on, as find in
      *  chat reads them; [more] = the query hit its limit, so older ones
@@ -1119,6 +1095,10 @@ class AgentSessionViewModel @AssistedInject constructor(
         tailRows.map { (limit, rows) ->
             (rows.size >= limit) to rows.map { row ->
                 val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row)
+                // #EXP-2075: a person's OPENED action card (a locked one = a card, no action).
+                val card = opened.cardJson?.let { json ->
+                    runCatching { kotlinx.serialization.json.Json.parseToJsonElement(json) as? kotlinx.serialization.json.JsonObject }.getOrNull()
+                }
                 com.exponential.app.data.steer.SyncedTailMessage(
                     id = row.id,
                     authorKind = row.authorKind,
@@ -1127,6 +1107,8 @@ class AgentSessionViewModel @AssistedInject constructor(
                     createdAtMs = com.exponential.app.domain.WireTimestamps.parseEpochMs(row.createdAt),
                     body = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body,
                     authorId = row.authorId,
+                    hasCard = card != null || (opened.cardJson != null && opened.cardJson != "null"),
+                    action = if (opened.locked == null) com.exponential.app.data.steer.steerTailActionCard(card) else null,
                     authorSessionId = row.authorSessionId,
                 )
             }
@@ -1328,16 +1310,8 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  builtins (the synced, body-less `prompts`). */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val teamPrompts: Flow<List<com.exponential.app.domain.SlashPrompt>> =
-        browseTeamId
-            .flatMapLatest { team ->
-                if (team == null) {
-                    flowOf(emptyList())
-                } else {
-                    dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.PromptEntity>()) {
-                        it.promptDao().observeByTeam(team)
-                    }
-                }
-            }
+        // #EXP-2079: the chat teams' prompts, team by team.
+        com.exponential.app.data.teamByTeamFlow(dbFlow, chatTeamIds) { db, team -> db.promptDao().observeByTeam(team) }
             .map { rows -> rows.map { com.exponential.app.domain.SlashPrompt(it.id, it.name, it.icon) } }
 
     /** #EXP-1434: the "+" menu's Prompts › rows = the team's prompts in the
@@ -1451,15 +1425,17 @@ class AgentSessionViewModel @AssistedInject constructor(
     }
 
     private val _mcpServers = MutableStateFlow<List<com.exponential.app.domain.McpServerOption>>(emptyList())
-    /** The team's MCP servers (`mcpServers.list`, fetched once per team). */
+    /** The chat teams' MCP servers (`mcpServers.list`, fetched once per
+     *  team list; #EXP-2079: team by team in order). */
     val mcpServers: StateFlow<List<com.exponential.app.domain.McpServerOption>> = _mcpServers
-    private var mcpTeam: String? = null
+    private var mcpTeam: List<String>? = null
 
-    /** Fetch the session's team MCP servers once (the "+" menu's row) and,
+    /** Fetch the chat teams' MCP servers once (the "+" menu's row) and,
      *  independently, the session's OWN MCP picks (the row's seed). A failed
      *  list releases the latch, so the next call retries. */
     fun loadMcpServers() {
-        val team = session.value?.teamId?.takeIf { it.isNotEmpty() } ?: return
+        if (session.value?.teamId.isNullOrEmpty()) return
+        val team = chatTeamIds.value.ifEmpty { return }
         if (mcpTeam == team) return
         mcpTeam = team
         viewModelScope.launch {
@@ -1467,7 +1443,9 @@ class AgentSessionViewModel @AssistedInject constructor(
                 mcpTeam = null
                 return@launch
             }
-            val servers = runCatching { mcpServersApi.list(accountId, team) }
+            val servers = runCatching {
+                mcpServersApi.listForTeams(accountId, team) { id -> dbFlow.first()?.teamDao()?.observeById(id)?.first()?.name }
+            }
                 .onFailure { if (it is CancellationException) throw it }
                 .getOrNull()
             if (servers != null) _mcpServers.value = servers else mcpTeam = null

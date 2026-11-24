@@ -1719,9 +1719,16 @@ impl SteerSessionView {
 
     /// EXP-760: the team whose issues this feed's `#IDENT` / bare `EXP-1`
     /// tokens resolve against — the session row's own `team_id` (EXP-1294:
-    /// every session carries it). `None` before the row syncs.
-    fn ref_team_id(&self, _cx: &App) -> Option<String> {
-        self.row.as_ref()?.team_id.clone().filter(|id| !id.is_empty())
+    /// every session carries it). `None` before the row syncs. #EXP-2079
+    /// (agent-settings.json `assistant.chatTeams`): the session's CHAT TEAMS
+    /// key (`crate::chat_teams`): its own team while that is synced, the
+    /// turn's teams for the Assistant's conversation. Every list of the chat
+    /// reads it (`#` refs and chips, `@` members, `/` prompts, links); what
+    /// needs one real team takes the row's own.
+    pub(crate) fn ref_team_id(&self, cx: &App) -> Option<String> {
+        let row = self.row.as_ref()?;
+        row.team_id.as_deref().filter(|id| !id.is_empty())?;
+        crate::chat_teams::session_key(row, cx)
     }
 
     /// EXP-760: the feed's chip resolver — BARE mode, because agents narrate
@@ -4206,7 +4213,7 @@ impl SteerSessionView {
     /// own row painter (the inline plan / question answers while the reader
     /// may message the session).
     fn render_conversation_cards(&self, indices: &[usize], window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
+        let team_id = self.ref_team_id(cx);
         let text = crate::session_chat::ChatText::team(team_id.as_deref()).answering(self.may_message);
         let cards: Vec<AnyElement> = indices
             .iter()
@@ -4512,13 +4519,12 @@ impl SteerSessionView {
         self.slash_dismissed_for = None;
         // NEW-2: the contract catalog, then the team's prompts; the agent's
         // own commands stay hidden.
+        // #EXP-2079 (`assistant.chatTeams` (4)): the chat teams' prompts.
         let prompts: Vec<slash_commands::SlashPrompt> = self
-            .row
-            .as_ref()
-            .and_then(|row| row.team_id.as_deref())
+            .ref_team_id(cx)
             .filter(|_| sync::Store::try_global(cx).is_some())
             .map(|team_id| {
-                crate::queries::team_prompts(cx, team_id)
+                crate::queries::team_prompts(cx, &team_id)
                     .0
                     .iter()
                     .map(slash_commands::SlashPrompt::from)
@@ -6418,14 +6424,15 @@ impl SteerSessionView {
             // is empty while these show).
             let item = ORPHAN_ROW_BASE - count + index as FeedItemId;
             let sizes = crate::session_chat::transcript_sizes();
-            let width = self.user_bubble_width(&text, sizes.avatar + sizes.avatar_gap, own, window);
+            let name = layout.filter(|layout| !own && layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name());
+            let width = self.user_bubble_width(&text, name.as_deref(), sizes.avatar + sizes.avatar_gap, own, window);
             let bubble = crate::session_chat::message_bubble(
                 crate::session_chat::MessageBubble {
                     id: SharedString::from(format!("steer-sent-input-{id}")),
                     body: self.render_user_message(item, &text, Some(&domain::find_in_chat::message_key(&id)), cx),
                     time,
                     own,
-                    name: layout.filter(|layout| !own && layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
+                    name,
                     link: None,
                     // #FEED-237: a consumed input = processed into the
                     // session (message-delivery.json `read`); the
@@ -6674,11 +6681,18 @@ impl SteerSessionView {
             let element = self.render_narration(row_id, row.text, row.at, false, Some(&key), express, window, cx);
             return crate::session_chat::sender_row(layout.as_ref(), element, cx);
         }
-        // #EXP-2071: a press = the viewer's bubble with its body, else THE
-        // inline marker.
+        // #EXP-2071: a press = its author's bubble with its body, else THE
+        // inline marker; #EXP-2075: a teammate's marker names them (a full
+        // row carries no sender: their synced name, as the grouping's
+        // members), the viewer's own reads `you`.
         let row = match domain::chat_express::parse_action_input(&row.text) {
             Some((card, body)) if body.trim().is_empty() => {
-                let label = domain::chat_express::action_marker(&card.name, None);
+                let viewer = crate::queries::active_account(cx).map(|account| account.user_id).filter(|id| !id.is_empty());
+                let author = row.author_id.as_deref().filter(|id| viewer.as_deref() != Some(*id)).map(|id| {
+                    let user = sync::Store::try_global(cx).and_then(|store| store.collections().users.read(cx).get(id).cloned());
+                    crate::comments::user_label(id, user.as_ref())
+                });
+                let label = domain::chat_express::action_marker(&card.name, author.as_deref());
                 return crate::surface_card::transcript_marker(SharedString::from(format!("steer-action-{}", row.id)), &label, None, cx);
             }
             Some((_, body)) => SyncedTailRow { text: body, ..row },
@@ -6689,14 +6703,15 @@ impl SteerSessionView {
         // name), never the viewer's.
         let own = layout.as_ref().is_none_or(|layout| layout.side == domain::transcript_grouping::TranscriptSide::Own);
         let sizes = crate::session_chat::transcript_sizes();
-        let width = self.user_bubble_width(&row.text, sizes.avatar + sizes.avatar_gap, own, window);
+        let name = layout.as_ref().filter(|layout| !own && layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name());
+        let width = self.user_bubble_width(&row.text, name.as_deref(), sizes.avatar + sizes.avatar_gap, own, window);
         let bubble = crate::session_chat::message_bubble(
             crate::session_chat::MessageBubble {
                 id: SharedString::from(format!("steer-synced-tail-{}", row.id)),
                 body: self.render_user_message(row_id, &row.text, Some(&domain::find_in_chat::message_key(&row.id)), cx),
                 time: row.at.map(crate::session_chat::clock_ms).unwrap_or_default(),
                 own,
-                name: layout.as_ref().filter(|layout| !own && layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
+                name,
                 link: None,
                 // A consumed input = processed into the session
                 // (message-delivery.json `read`).
@@ -6730,7 +6745,8 @@ impl SteerSessionView {
         // their avatar and name, its time, no mark, no menu).
         if bubble.member_id.is_some() {
             let layout = self.own_tail_layout(&bubble.key, cx);
-            let width = self.user_bubble_width(&bubble.text, sizes.avatar + sizes.avatar_gap, false, window);
+            let name = layout.as_ref().filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name());
+            let width = self.user_bubble_width(&bubble.text, name.as_deref(), sizes.avatar + sizes.avatar_gap, false, window);
             let at = domain::instant::parse_instant(&bubble.created_at);
             let element = crate::session_chat::message_bubble(
                 crate::session_chat::MessageBubble {
@@ -6738,7 +6754,7 @@ impl SteerSessionView {
                     body: self.render_user_message(row_id, &bubble.text, Some(&chat_find::own_bubble_key(bubble)), cx),
                     time: at.map(crate::session_chat::clock_ms).unwrap_or_default(),
                     own: false,
-                    name: layout.as_ref().filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
+                    name,
                     link: None,
                     status: None,
                     menu: None,
@@ -6749,7 +6765,7 @@ impl SteerSessionView {
             );
             return crate::session_chat::sender_row(layout.as_ref(), element, cx);
         }
-        let width = self.user_bubble_width(&bubble.text, sizes.avatar + sizes.avatar_gap, true, window);
+        let width = self.user_bubble_width(&bubble.text, None, sizes.avatar + sizes.avatar_gap, true, window);
         let session_id = self.session_id.clone();
         let target = bubble.clone();
         let actions = if self.may_message { bubble_actions(bubble.state, bubble.stored) } else { Vec::new() };
@@ -7171,7 +7187,9 @@ impl SteerSessionView {
                 // #FEED-239: the own avatar narrows the own column too.
                 let sizes = crate::session_chat::transcript_sizes();
                 let inset = sizes.avatar + sizes.avatar_gap;
-                let width = self.user_bubble_width(body, inset, own, window);
+                let name = layout.filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name());
+                // A relay's name sits above the bubble, never inside it.
+                let width = self.user_bubble_width(body, name.as_deref().filter(|_| !relay && !own), inset, own, window);
                 crate::session_chat::message_bubble(
                     crate::session_chat::MessageBubble {
                         id: SharedString::from(format!("steer-bubble-{}", item.id)),
@@ -7183,7 +7201,7 @@ impl SteerSessionView {
                         // #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json).
                         time: at.map(crate::session_chat::clock_ms).unwrap_or_default(),
                         own,
-                        name: layout.filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
+                        name,
                         link: layout.and_then(|layout| layout.sender.as_ref()).and_then(|sender| sender.link.clone()),
                         // #FEED-237: the echo of the viewer's own turn = two checks.
                         status: own.then_some(domain::message_delivery::DeliveryState::Read),
@@ -7390,33 +7408,36 @@ impl SteerSessionView {
     /// bubble `maxWidth.own`) of the transcript column. A bubble
     /// sized to its content wrapped every word once the EXP-787 column gave
     /// it a min-content measure; a definite width is the recorded-px
-    /// pattern every wrapped text in this crate ends up on.
-    fn user_bubble_width(&self, text: &str, inset: f32, own: bool, window: &Window) -> Pixels {
+    /// pattern every wrapped text in this crate ends up on. #EXP-2075: a
+    /// teammate's bubble also fits its author line (`name`, drawn inside it).
+    fn user_bubble_width(&self, text: &str, name: Option<&str>, inset: f32, own: bool, window: &Window) -> Pixels {
         let parsed = steer::image_message::parse_steer_message(text);
         let font = window.text_style().font();
+        let shape = |line: &str, font: gpui::Font, size: f32| {
+            let run = gpui::TextRun {
+                len: line.len(),
+                font,
+                color: gpui::black(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            window.text_system().shape_line(SharedString::from(line.to_string()), px(size), &[run], None).width
+        };
         let mut longest = px(0.);
         for line in parsed.text.lines() {
             let line = line.trim_end();
             if line.is_empty() {
                 continue;
             }
-            let run = gpui::TextRun {
-                len: line.len(),
-                font: font.clone(),
-                color: gpui::black(),
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            };
-            let width = window
-                .text_system()
-                .shape_line(
-                    SharedString::from(line.to_string()),
-                    px(transcript::BODY_SIZE),
-                    &[run],
-                    None,
-                )
-                .width;
+            let width = shape(line, font.clone(), transcript::BODY_SIZE);
+            if width > longest {
+                longest = width;
+            }
+        }
+        if let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) {
+            let medium = gpui::Font { weight: gpui::FontWeight::MEDIUM, ..font.clone() };
+            let width = shape(name, medium, crate::session_chat::transcript_sizes().name_size);
             if width > longest {
                 longest = width;
             }
@@ -7435,8 +7456,9 @@ impl SteerSessionView {
         let sizes = crate::session_chat::transcript_sizes();
         let share = if own { sizes.max_width.own } else { sizes.max_width.wide };
         let cap = px((column * share).max(USER_BUBBLE_MIN_W));
-        // px_3 both sides + the 1px stroke each side.
-        let padded = longest + px(2. * 12. + 2.);
+        // The bubble's 14 px both sides (`message_bubble`) + the 1px stroke
+        // each side, plus 1 px so a shaped line that rounds up never wraps.
+        let padded = longest + px(2. * 14. + 2. + 1.);
         if padded > cap {
             cap
         } else if padded < px(USER_BUBBLE_MIN_W) {
@@ -10042,9 +10064,26 @@ impl SteerSessionView {
         if self.mcp_requested || self.mcp_attempts >= MCP_LOAD_ATTEMPTS || !(self.configurable() || agent_pick) {
             return;
         }
-        let Some(team_id) = self.row.as_ref().and_then(|row| row.team_id.clone()) else {
-            return;
+        // #EXP-2079 (agent-settings.json `assistant.chatTeams` (3)): the
+        // servers of the CHAT TEAMS, team by team; with more than one each
+        // row names its team.
+        let teams: Vec<(String, Option<String>)> = {
+            let Some(row) = self.row.as_ref().filter(|row| row.team_id.is_some()) else {
+                return;
+            };
+            let ids = crate::chat_teams::session_team_ids(row, cx);
+            let named = ids.len() > 1;
+            let rows = sync::Store::try_global(cx).map(|store| store.collections().teams.read(cx));
+            ids.into_iter()
+                .map(|id| {
+                    let name = rows.as_ref().filter(|_| named).and_then(|rows| rows.get(&id)).map(|team| team.name.clone());
+                    (id, name)
+                })
+                .collect()
         };
+        if teams.is_empty() {
+            return;
+        }
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             return;
         };
@@ -10054,15 +10093,20 @@ impl SteerSessionView {
             let loaded = cx
                 .background_executor()
                 .spawn(async move {
-                    let servers = api::mcp_servers::list(&trpc, &team_id)
-                        .inspect_err(|err| log::debug!("[steer] mcpServers.list: {err}"))
-                        .ok()?;
+                    let mut servers = Vec::new();
+                    for (team_id, team_name) in teams {
+                        let listed = api::mcp_servers::list(&trpc, &team_id)
+                            .inspect_err(|err| log::debug!("[steer] mcpServers.list: {err}"))
+                            .ok()?;
+                        servers.extend(listed.into_iter().map(|entry| (entry, team_name.clone())));
+                    }
                     let picks = api::session_device::mcp_picks(&trpc, &session_id)
                         .inspect_err(|err| log::debug!("[steer] sessions.mcpPicks: {err}"))
                         .ok()?;
                     let options: Vec<crate::launch_options::McpServerOption> = servers
                         .into_iter()
-                        .map(|entry| crate::launch_options::McpServerOption {
+                        .map(|(entry, team_name)| crate::launch_options::McpServerOption {
+                            team_name,
                             blocked: crate::launch_options::mcp_block_reason(&entry.connection),
                             enabled_by_default: entry.config.enabled_by_default,
                             id: entry.config.id,
@@ -11260,26 +11304,32 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
             _ => Some(TailFeedRow { author: None, text: None, at_ms: None }),
         })
         .collect();
-    // #EXP-2071: a press (a person's row with THE `action` card) reads as
-    // the input line the device delivers (`inputCases`), drawn like it.
-    let action = |m: &domain::rows::MessageRow| -> Option<domain::chat_express::ActionCard> {
-        (m.locked().is_none() && m.card_kind() == Some("action")).then(|| serde_json::from_value(m.card.clone()?).ok()).flatten()
-    };
-    let body = |m: &domain::rows::MessageRow| -> String {
-        match (m.locked(), action(m)) {
-            (Some(reason), _) => domain::sealed::PLACEHOLDER.text(reason).to_string(),
-            (None, Some(card)) => domain::chat_express::action_input(&card, m.body_text().trim()),
-            (None, None) => m.body_text().to_string(),
-        }
-    };
-    let bodies: Vec<String> = messages.iter().map(body).collect();
+    // #EXP-2075: the reference decides on a press (a person's row with THE
+    // `action` card, opened); the drawn row reads as the input line the
+    // device delivers (#EXP-2071 `inputCases`), drawn like it.
+    let actions: Vec<Option<domain::chat_express::ActionCard>> = messages
+        .iter()
+        .map(|m| {
+            (m.locked().is_none() && m.card_kind() == Some("action"))
+                .then(|| serde_json::from_value(m.card.clone()?).ok())
+                .flatten()
+        })
+        .collect();
+    let bodies: Vec<String> = messages
+        .iter()
+        .map(|m| match m.locked() {
+            Some(reason) => domain::sealed::PLACEHOLDER.text(reason).to_string(),
+            None => m.body_text().to_string(),
+        })
+        .collect();
     let indexed: Vec<usize> = (0..messages.len()).collect();
     synced_tail(live, &rows, &indexed, usize::MAX, unreachable, |&i| {
         let m = &messages[i];
         Row {
             id: &m.id,
             author_kind: m.author_kind.as_deref().unwrap_or_default(),
-            has_card: m.card.as_ref().is_some_and(|card| !card.is_null()) && action(m).is_none(),
+            has_card: m.card.as_ref().is_some_and(|card| !card.is_null()),
+            action: actions[i].clone(),
             consumed_at: m.consumed_at.as_deref().filter(|at| !at.is_empty()),
             created_at: m.created_at.as_deref().unwrap_or_default(),
             body: &bodies[i],
@@ -11293,7 +11343,10 @@ fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: 
             id: m.id.clone(),
             agent: m.author_kind.as_deref() == Some(domain::contract::MESSAGE_AUTHOR_KIND_AGENT),
             author_id: m.author_id.clone().filter(|id| !id.is_empty()),
-            text: bodies[i].clone(),
+            text: match &actions[i] {
+                Some(card) => domain::chat_express::action_input(card, bodies[i].trim()),
+                None => bodies[i].clone(),
+            },
             at: m.created_at.as_deref().and_then(domain::session_tree::iso_ms),
         }
     })
@@ -11571,6 +11624,50 @@ mod tests {
         let tail = synced_tail_rows(false, false, &recorded, &synced);
         assert_eq!(tail.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m2"]);
         assert_eq!(tail[0].author_id.as_deref(), Some("u-mira"));
+    }
+
+    /// #EXP-2075 (steer-enet.json SYNCED TAIL): a teammate's consumed press,
+    /// bodied or bodiless, follows a not-live feed as its input line (their
+    /// author kept); once the feed holds its `[action]` line it is not
+    /// drawn twice.
+    #[test]
+    fn a_teammates_consumed_press_follows_the_feed_once() {
+        let item = |id: u64, text: &str| FeedItem {
+            id,
+            kind: FeedKind::UserMessage { text: text.into(), subagent_id: None, at: Some(1_000) },
+            seq: None,
+        };
+        let press = |id: &str, name: &str, body: &str| -> domain::rows::MessageRow {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "session_id": "g1", "root_id": "g1", "author_kind": "user", "author_id": "u-mira", "body": body,
+                "card": { "kind": "action", "name": name, "context": null, "surfaceId": "n:g1:msg_01#1", "block": "n:g1:msg_01#1", "messageId": null },
+                "created_at": "2026-11-23T10:00:05.000Z", "consumed_at": "2026-11-23T10:00:06.000Z"
+            }))
+            .unwrap()
+        };
+        let synced = [press("p1", "reply", "Ship it"), press("p2", "refresh", "")];
+        let tail = synced_tail_rows(false, false, &[item(1, "Cut the release?")], &synced);
+        assert_eq!(tail.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["p1", "p2"]);
+        assert!(tail.iter().all(|row| row.author_id.as_deref() == Some("u-mira")));
+        let (_, body) = domain::chat_express::parse_action_input(&tail[0].text).expect("a press reads as its input line");
+        assert_eq!(body, "Ship it");
+        let (card, body) = domain::chat_express::parse_action_input(&tail[1].text).expect("a press reads as its input line");
+        assert_eq!((card.name.as_str(), body.as_str()), ("refresh", ""));
+        // The feed holds both `[action]` lines: none again.
+        let card = |name: &str| domain::chat_express::ActionCard {
+            kind: "action".into(),
+            name: name.into(),
+            context: None,
+            surface_id: "n:g1:msg_01#1".into(),
+            block: Some("n:g1:msg_01#1".into()),
+            message_id: None,
+        };
+        let recorded = [
+            item(1, "Cut the release?"),
+            item(2, &domain::chat_express::action_input(&card("reply"), "Ship it")),
+            item(3, &domain::chat_express::action_input(&card("refresh"), "")),
+        ];
+        assert!(synced_tail_rows(false, false, &recorded, &synced).is_empty());
     }
 
     /// #EXP-2084: a child's reply the device consumed is in the feed as that

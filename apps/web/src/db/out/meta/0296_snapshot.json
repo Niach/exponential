@@ -1,5 +1,5 @@
 {
-  "id": "232a76f6-5f02-4690-b6b4-89eb91ace28b",
+  "id": "4dc791f0-9c67-43e0-97ee-b9980e38f09a",
   "prevId": "b5ea1ce9-75f9-4f5b-a95f-258ca86ecab9",
   "version": "7",
   "dialect": "postgresql",
@@ -194,6 +194,12 @@
         "uniq_agents_assistant": {
           "name": "uniq_agents_assistant",
           "columns": [
+            {
+              "expression": "team_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "owner_id",
               "isExpression": false,
@@ -6375,6 +6381,12 @@
         },
         "platform": {
           "name": "platform",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "app_version": {
+          "name": "app_version",
           "type": "varchar(32)",
           "primaryKey": false,
           "notNull": false

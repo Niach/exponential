@@ -25,7 +25,8 @@ import { DeepLinkContext, useDeepLinkHost } from "@/hooks/use-deep-link"
 import { useSessionNav } from "@/hooks/use-session-nav"
 import type { SessionXref as SessionXrefModel } from "@exp/domain-contract/session-tree"
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
-import { useTeamUsers } from "@/hooks/use-team-data"
+import { ChatTeamsScope } from "@/components/chat/chat-teams-scope"
+import { useSessionChatTeams } from "@/hooks/use-chat-teams"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { CHAT_COPY, type SessionRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
@@ -82,31 +83,24 @@ function SessionReply({
   row,
   opaque = false,
   surface,
-  browseTeamId,
 }: {
   row: SessionRow
   opaque?: boolean
-  /** The team the viewer browses (the `/` prompts; the Assistant's lives in
-   *  their personal team). */
-  browseTeamId?: string
   /** The + menu's surface (an agent's conversation: `agent`). */
   surface?: `agent` | `session`
 }) {
-  const { users } = useTeamUsers(row.teamId)
   const live = row.status !== `ended`
   return (
     <SessionComposer
       teamId={row.teamId}
       sessionId={row.id}
       placeholder={REPLY_PLACEHOLDER}
-      users={users}
       busy={row.busy}
       canStop={live}
       opaque={opaque}
       hideReplies={opaque}
       testId="session-composer"
       {...(surface ? { surface } : {})}
-      {...(browseTeamId ? { browseTeamId } : {})}
     />
   )
 }
@@ -129,10 +123,8 @@ export function InPlaceSession({
   onOpenXref,
   surface,
   composer,
-  browseTeamId,
   chat,
 }: {
-  browseTeamId?: string
   /** #EXP-1732: the Chat tab's extras (the ROOT's view): the tree, its
    *  issues, the Dock's children, the suggestions' actions. */
   chat?: Pick<ComponentProps<typeof AgentSessionView>, `tree` | `issues` | `dockChildren` | `suggestions` | `renderIssueRef`>
@@ -152,6 +144,9 @@ export function InPlaceSession({
   onOpenXref?: (sessionId: string) => void
 }) {
   useOpenedSessionRead(row.id)
+  // #EXP-2079: the feed's chips and pills and the reply box read the chat
+  // teams (the Assistant's conversation: its turn's teams).
+  const chatTeams = useSessionChatTeams(row)
   let header: ReactNode = topInset ? <div aria-hidden className="shrink-0" style={{ height: topInset }} /> : undefined
   if (row.viaAppId) {
     header = (
@@ -162,6 +157,7 @@ export function InPlaceSession({
     )
   }
   return (
+    <ChatTeamsScope chatTeams={chatTeams}>
     <div className="min-h-0 flex-1" data-testid="chat-session-body">
       <AgentSessionView
         key={row.id}
@@ -177,16 +173,17 @@ export function InPlaceSession({
               placeholder={REPLY_PLACEHOLDER}
               above={<SessionComposerReplies sessionId={row.id} />}
             >
-              {composer ? composer(true) : <SessionReply row={row} opaque surface={surface} browseTeamId={browseTeamId} />}
+              {composer ? composer(true) : <SessionReply row={row} opaque surface={surface} />}
             </FloatingComposer>
           ) : composer ? (
             composer(false)
           ) : (
-            <SessionReply row={row} surface={surface} browseTeamId={browseTeamId} />
+            <SessionReply row={row} surface={surface} />
           )
         }
       />
     </div>
+    </ChatTeamsScope>
   )
 }
 

@@ -233,6 +233,7 @@ mod source_control;
 mod steer_viewer;
 // #EDE-105: the chat store (every chat on disk, its search index).
 mod chat_store;
+mod chat_teams;
 mod transcript_rows;
 // EXP-965: the nested lists' connector lines.
 mod tree_guides;
@@ -251,6 +252,8 @@ mod code_block;
 mod account_rotation_host;
 pub mod steer_wiring;
 pub mod enet_wiring;
+// #EXP-1950: install approval (Needs you's rows, the waiting state).
+mod install_approval;
 // EXP-1459: sealed session content (open at ingest, seal sends + answers).
 pub mod sealing;
 // EXP-1259 / #EXP-1779: the dev-only specimen screens behind the desktop

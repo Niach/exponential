@@ -631,4 +631,28 @@ class MarkdownAnnotateTest {
         assertNull(issueTextLinks("#VAPP-203", "acme", setOf("VAPP-202")))
         assertNull(issueTextLinks("#VAPP-202", null, setOf("VAPP-202")))
     }
+
+    /** #EXP-2079 (agent-settings.json `assistant.chatTeams`): over a chat's
+     *  teams a ref links in the team that holds it, the first one in order. */
+    @Test
+    fun aChatTeamsRefLinksInTheFirstTeamThatHoldsIt() {
+        val known = issueTeamSlugs(
+            listOf(
+                "acme" to listOf("VAPP-202", "EXP-1"),
+                // A team whose row has not synced names nothing.
+                null to listOf("EXP-9"),
+                "beta" to listOf("EXP-1", "EXP-2"),
+            ),
+        )
+        assertEquals(mapOf("VAPP-202" to "acme", "EXP-1" to "acme", "EXP-2" to "beta"), known)
+        val segments = issueTextLinks("#exp-1 and #EXP-2, never #EXP-9", known)!!
+        assertEquals(
+            listOf(
+                at.exponential.ui.host.TextLinkSegment("#exp-1", "/t/acme/issues/exp-1"),
+                at.exponential.ui.host.TextLinkSegment("#EXP-2", "/t/beta/issues/EXP-2"),
+            ),
+            segments.filter { it.href != null },
+        )
+        assertNull(issueTextLinks("#EXP-9", known))
+    }
 }

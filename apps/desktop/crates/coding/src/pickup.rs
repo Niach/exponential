@@ -6445,6 +6445,15 @@ mod tests {
         assert_eq!(opened.as_deref(), Some(reason.as_str()));
     }
 
+    /// #FEED-306: a start the device's memory pressure failed reaches the
+    /// session (and its parent) naming the slice, its use and the scope
+    /// holding the most, never a generic error.
+    #[test]
+    fn a_start_failed_under_memory_pressure_says_so() {
+        let reason = "Device is under memory pressure (expbg.slice 16.4 GB of 16.0 GB; run-exp-52fdfc7f.scope holds 12.6 GB): claude did not start, it answered nothing at startup, 2 times in a row";
+        assert_eq!(start_failure(reason), format!("Could not start: {reason}"));
+    }
+
     /// #EXP-1411: a base branch origin does not have reads as what to do,
     /// never as git's raw error; any other error is passed on as it is.
     #[test]

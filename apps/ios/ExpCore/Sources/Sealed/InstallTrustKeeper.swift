@@ -5,13 +5,15 @@ import os
 // this install's side of install approval and the four rules, per account,
 // around the pure `InstallTrust`. It follows `installs.trust` into the pin
 // store (the Keychain, `TrustStorePersistence`), claims its account's root
-// when there is no chain, asks ONCE to be approved when there is one, and
+// when there is no chain (with the approvals of the installs that existed
+// with it, decision e), asks ONCE to be approved when it waits, and
 // answers for the tree key holder whether a wrap is kept (R1), a key sealed
 // to (R2, R3) and a target wrapped for (R4). Release 1 is RECORD-ONLY
 // (`TrustMode.build`) for keys; the one thing it refuses that a released
 // build did is a wrap for an install that ASKED (or claims a root) and is
 // not approved (and a waiting install wraps for nobody but itself).
-// It APPROVES only when a person presses Approve, never by itself.
+// It APPROVES a new install only when a person presses Approve; by itself
+// only the installs that existed with it once (`approveExisting`).
 // An older server without `installs.trust` (NOT_FOUND) = `unavailable`:
 // every target is wrapped as before and recorded `legacy`.
 
@@ -20,12 +22,14 @@ private let logger = Logger(subsystem: "at.exponential", category: "InstallTrust
 /// The persistent side of the pin store: one item per account (the app's
 /// own Keychain group, `AfterFirstUnlockThisDeviceOnly`; no extension reads it).
 public struct TrustStorePersistence: Sendable {
-    public let load: @Sendable (_ accountId: String) -> Data?
+    /// nil = no store for the account (decision e: an existing install);
+    /// throws when it cannot be read, never taken for none.
+    public let load: @Sendable (_ accountId: String) throws -> Data?
     public let save: @Sendable (_ accountId: String, _ data: Data) -> Void
     public let removeAll: @Sendable () -> Void
 
     public init(
-        load: @escaping @Sendable (String) -> Data?,
+        load: @escaping @Sendable (String) throws -> Data?,
         save: @escaping @Sendable (String, Data) -> Void,
         removeAll: @escaping @Sendable () -> Void
     ) {
@@ -102,6 +106,9 @@ public actor InstallTrustKeeper {
         var served: [String: ServedInstall] = [:]
         var roots: Set<String> = []
         var asked = false
+        /// The kept store could not be read: never cached, never synced
+        /// (a write would replace it).
+        var unreadable = false
     }
 
     private let api: InstallTrustApi
@@ -137,19 +144,49 @@ public actor InstallTrustKeeper {
         return id
     }
 
-    /// The account's pin store as kept (its own endpoint's; another is ignored).
+    /// The account's pin store as kept (its own endpoint's; another is
+    /// ignored). None at all = decision (e): this install EXISTED (a build
+    /// that mints the identity or signs a new account in writes the store
+    /// first, `markNew`), so it may adopt at its first reconcile. A store
+    /// kept for another endpoint (a rotated identity) or that does not
+    /// decode is a new install's; one that cannot be read is never none.
     private func account(_ accountId: String) -> Account? {
         guard let endpoint = endpointId() else { return nil }
         if let found = accounts[accountId], found.store.selfEndpointId == endpoint { return found }
-        var store = TrustStore(selfEndpointId: endpoint, userId: "")
-        if let data = persistence.load(accountId),
-           let kept = try? JSONDecoder().decode(TrustStore.self, from: data),
-           kept.selfEndpointId == endpoint {
+        let data: Data?
+        do {
+            data = try persistence.load(accountId)
+        } catch {
+            logger.error("The pin store could not be read: \(error.localizedDescription)")
+            var unread = Account(store: TrustStore(selfEndpointId: endpoint, userId: ""))
+            unread.unreadable = true
+            return unread
+        }
+        var store = TrustStore(selfEndpointId: endpoint, userId: "", existing: data == nil)
+        if let data, let kept = try? JSONDecoder().decode(TrustStore.self, from: data), kept.selfEndpointId == endpoint {
             store = kept
         }
         let fresh = Account(store: store)
         accounts[accountId] = fresh
         return fresh
+    }
+
+    /// Decision (e): writes the account's empty store (`existing` false)
+    /// BEFORE this install registers for it: an account signed in under this
+    /// build, or every signed-in account of an identity this build minted. A
+    /// store this endpoint already keeps stays; one that cannot be read is
+    /// left alone.
+    public static func markNew(accountId: String, identity: Data, crypto: TrustCrypto, persistence: TrustStorePersistence) {
+        guard let endpoint = try? crypto.endpointId(identity: identity) else { return }
+        let kept: Data?
+        do {
+            kept = try persistence.load(accountId)
+        } catch {
+            return
+        }
+        if let kept, let store = try? JSONDecoder().decode(TrustStore.self, from: kept), store.selfEndpointId == endpoint { return }
+        guard let empty = try? JSONEncoder().encode(TrustStore(selfEndpointId: endpoint, userId: "")) else { return }
+        persistence.save(accountId, empty)
     }
 
     private func persist(_ accountId: String) {
@@ -179,12 +216,13 @@ public actor InstallTrustKeeper {
     // MARK: following the server
 
     /// Follows `installs.trust` once: claims the root when the account has
-    /// no chain, asks once to be approved when this install is not on it.
+    /// no chain (with the existing installs' approvals), approves the
+    /// existing ones its chain does not reach yet, asks once while it waits.
     public func sync(accountId: String, installId: String) async {
-        guard let seed = identity(), var current = account(accountId) else { return }
+        guard let seed = identity(), var current = account(accountId), !current.unreadable else { return }
         current.installId = installId
         accounts[accountId] = current
-        for _ in 0..<2 {
+        for _ in 0..<3 {
             let answer: TrustAnswer
             do {
                 answer = try await api.trust(accountId: accountId, installId: installId)
@@ -210,19 +248,39 @@ public actor InstallTrustKeeper {
             persist(accountId)
             set(accountId, state: InstallTrustState(rawValue: view.status.rawValue) ?? .unknown, rows: view.rows)
             let me = found.served[found.store.selfEndpointId]
-            if view.status == .claimRoot {
+            switch view.status {
+            case .claimRoot:
                 guard let me, let signature = try? InstallApproval.sign(.root, subject: me, identity: seed, crypto: crypto) else { return }
-                if (try? await api.claimRoot(accountId: accountId, installId: installId, signature: signature)) != nil {
+                let approvals = existingApprovals(view.approveExisting, of: found, identity: seed)
+                if (try? await api.claimRoot(accountId: accountId, installId: installId, signature: signature, approvals: approvals)) != nil {
                     logger.info("Claimed the root of this account's install chain")
-                    continue
                 }
-                // CONFLICT: another install started the chain meanwhile: ask instead.
-            }
-            if view.status != .trusted, accounts[accountId]?.asked == false, me?.approvalRequested != true {
-                let asked = (try? await api.requestApproval(accountId: accountId, installId: installId)) != nil
-                accounts[accountId]?.asked = asked
+                // A CONFLICT (another install started the chain meanwhile) is read next round.
+                continue
+            case .trusted:
+                for approval in existingApprovals(view.approveExisting, of: found, identity: seed) {
+                    try? await api.approve(
+                        accountId: accountId, installId: installId, subjectInstallId: approval.subjectInstallId, kind: .approve, signature: approval.signature
+                    )
+                }
+            case .waiting:
+                if accounts[accountId]?.asked == false, me?.approvalRequested != true {
+                    let asked = (try? await api.requestApproval(accountId: accountId, installId: installId)) != nil
+                    accounts[accountId]?.asked = asked
+                }
             }
             return
+        }
+    }
+
+    /// The `approve`s of the installs that existed with this one (decision
+    /// e), over the key it pinned them with.
+    private func existingApprovals(_ endpointIds: [String], of account: Account, identity seed: Data) -> [RootClaimApproval] {
+        endpointIds.compactMap { endpointId in
+            guard let row = account.served[endpointId], let pin = account.store.pins[endpointId],
+                  let message = InstallApproval.message(.approve, userId: pin.userId, endpointId: endpointId, x25519Public: pin.x25519Public),
+                  let signature = try? crypto.sign(identity: seed, message: message) else { return nil }
+            return RootClaimApproval(subjectInstallId: row.installId, signature: signature)
         }
     }
 
@@ -279,7 +337,7 @@ public actor InstallTrustKeeper {
 
     /// Records a key (its own new keys are `verified`); persisted.
     public func record(accountId: String, rootId: String, epoch: UInt32, record: KeyRecord) {
-        guard var found = account(accountId) else { return }
+        guard var found = account(accountId), !found.unreadable else { return }
         if found.store.roots[rootId.lowercased()]?.epochs[String(epoch)] == record { return }
         found.store.recordKey(rootId: rootId, epoch: epoch, record: record)
         accounts[accountId] = found
@@ -288,7 +346,7 @@ public actor InstallTrustKeeper {
 
     /// Decision (c): every key held before the store knew it stays, `legacy`.
     public func recordLegacy(accountId: String, held: [(rootId: String, epoch: UInt32)]) {
-        guard var found = account(accountId) else { return }
+        guard var found = account(accountId), !found.unreadable else { return }
         var changed = false
         for key in held where found.store.roots[key.rootId.lowercased()]?.epochs[String(key.epoch)] == nil {
             found.store.recordKey(rootId: key.rootId, epoch: key.epoch, record: .legacy)

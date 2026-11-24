@@ -46,6 +46,53 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-desktop-cli-0-14-177",
+    date: "2026-11-24",
+    title: "Sessions keep going, and calls are end-to-end encrypted",
+    summary: "Desktop and CLI 0.14.177: sessions no longer stop by themselves, they start and pick up reliably, and calls between up-to-date apps are end-to-end encrypted.",
+    body: r##"- **Sessions keep going**: a session no longer stops by itself with "I've stopped as you asked".
+- **Reliable starts**: a session starts and picks up its messages reliably, also in an encrypted chat.
+- **Calls are end-to-end encrypted**: a call between up-to-date apps is sealed with the chat's key, so the relay cannot read or hear it.
+- **Views in chat**: an agent's views draw in the chat, in a subagent's tab and in a call's transcript.
+- **Busy machines**: builds on a busy machine no longer block new sessions.
+- **Chat fixes**: a child's reply no longer shows twice after a restart, an open question or plan stays at the end of the chat, and a teammate's message the agent has not read yet shows as pending."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_355: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-phones-views-in-chat",
+    date: "2026-11-24",
+    title: "Views in your phone's chats",
+    summary: "Android 0.14.156 and iOS 0.14.144: an agent's views draw in the chat, in subagent tabs and in calls, calls from Android are end-to-end encrypted, and iOS asks you to approve a new install.",
+    body: r##"- **Views in chat**: when an agent writes a view into its message, the chat shows it in place; subagent tabs and a call's transcript show views too.
+- **Encrypted calls from Android**: calls are end-to-end encrypted between up-to-date apps.
+- **Approve a new install on iOS**: when a new install joins your account, Needs you shows it with its whole code, and you approve or remove it there.
+- **Your Assistant across teams**: in your Assistant's chat, issues, people, MCP servers and prompts come from all your teams, and its notifications and inbox rows open its chat.
+- **Questions and plans at the end**: an open question or plan card now sits after the chat's last message instead of above it.
+- **No doubled replies**: a subagent's reply no longer shows twice after you reopen the app.
+- **iOS**: a teammate's message the agent has not picked up yet shows as waiting, and one tap on Reconnect dials a dropped call afresh."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_354: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-assistant-chat-all-teams",
+    date: "2026-11-24",
+    title: "Your Assistant's chat works across all your teams",
+    summary: "Web, desktop, CLI, Android and iOS: in your Assistant's chat, issues, people, MCP servers and prompts come from all your teams, and its live view and devices work wherever it runs.",
+    body: r##"- **Issues and people from every team**: in your Assistant's chat, # lists and resolves the issues of all your teams (or the teams you picked for the turn), and @ lists their people.
+- **MCP servers and prompts from every team**: the composer's MCP servers and prompts list every team's, and each MCP server names its team when there is more than one.
+- **Link or file an issue from the chat**: Link an issue searches all your teams, and New issue opens a board of your first team.
+- **Your own machines**: Settings › Assistant › Device and Start on list all your own computers, also one you share with a team.
+- **Live view on your devices**: your computers hand the Assistant's chat to your other apps again, and your apps catch up its history in the background.
+- **Opens from anywhere**: a notification or inbox row of your Assistant opens its chat from Home and from a cold start.
+- **No leftover to-do**: a run that restarts between turns no longer leaves its old background task card above the message field."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_353: ChangelogEntry = ChangelogEntry {
     id: "2026-11-24-views-in-subagents-and-calls",
     date: "2026-11-24",
     title: "Views in subagent tabs and calls",

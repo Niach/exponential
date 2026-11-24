@@ -118,6 +118,7 @@ fun ChatsScreen(
     /** #EXP-1388: the Archived page's back control. */
     onBack: () -> Unit = {},
     viewModel: ChatsViewModel = hiltViewModel(),
+    trustViewModel: com.exponential.app.ui.session.InstallTrustViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(view) { viewModel.setView(view) }
     val list by viewModel.chatList.collectAsStateWithLifecycle()
@@ -125,6 +126,8 @@ fun ChatsScreen(
     val appRows by viewModel.appRows.collectAsStateWithLifecycle()
     val agents by viewModel.agents.collectAsStateWithLifecycle()
     val needsYouRows by viewModel.needsYouRows.collectAsStateWithLifecycle()
+    // #EXP-1950: installs waiting for this install's approval count as Needs you rows.
+    val trust by trustViewModel.snapshot.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.ensureAssistant() }
     val facts by viewModel.rootFacts.collectAsStateWithLifecycle()
     val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
@@ -183,7 +186,7 @@ fun ChatsScreen(
                 list = list,
                 agentOf = { facts[it]?.agent },
                 marksOf = { facts[it]?.marks.orEmpty() },
-                needsYouCount = needsYouRows.size,
+                needsYouCount = needsYouRows.size + trust.rows.size,
                 onOpenNeedsYou = onOpenNeedsYou,
                 onOpenChat = onOpenChat,
                 onLongPressChat = { row ->

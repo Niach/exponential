@@ -1517,7 +1517,16 @@ export const actionCardInputSchema = z.union([
       messageId: z.string().uuid().nullable(),
     })
     .strict(),
-  z.object({ kind: z.literal(`action`), sealed: z.string().min(1).max(16384) }).strict(),
+  // The envelope keeps the contract's clear fields beside `sealed`
+  // (`CARD_CLEAR_FIELDS`): of an action card's, that is `messageId` (a
+  // synced row's or a show card's press; a live feed row has none).
+  z
+    .object({
+      kind: z.literal(`action`),
+      sealed: z.string().min(1).max(16384),
+      messageId: z.string().uuid().nullable().optional(),
+    })
+    .strict(),
 ])
 export type ActionCardInput = z.infer<typeof actionCardInputSchema>
 

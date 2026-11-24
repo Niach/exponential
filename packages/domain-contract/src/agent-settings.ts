@@ -6,6 +6,7 @@
 import fixture from "../fixtures/agent-settings.json" with { type: "json" }
 import contractJson from "../contract.json" with { type: "json" }
 import { scheduleSummary } from "./schedule-picker"
+import { DEVICES_LIST_COPY } from "./devices-list"
 
 export const AGENT_SETTINGS_FIELDS = fixture.fields
 export const AGENT_SETTINGS_COPY = fixture.copy
@@ -212,6 +213,38 @@ export function runsOnDeviceIds(
     .map((device) => device.deviceId)
 }
 
+/** A Runs on picker row (`runsOnRowCases`): `description` is the secondary
+ *  line (devices-list `copy.offline` while offline), `disabled` the row's
+ *  state. */
+export interface RunsOnRow {
+  id: string
+  description: string | null
+  disabled: boolean
+}
+
+/** THE Runs on rows ×4 (`runsOnRowCases`, web `deviceRows`): the devices of
+ *  `runsOnDeviceIds`, online ones pickable, an offline one listed with
+ *  `Offline` and disabled unless bound; a bound id no device matches leads
+ *  by its raw id. */
+export function runsOnRows(
+  devices: readonly { deviceId: string; kind?: string | null; online: boolean }[],
+  boundId: string | null,
+  assistant: boolean
+): RunsOnRow[] {
+  const kept = new Set(runsOnDeviceIds(devices, boundId, assistant))
+  const rows: RunsOnRow[] = devices
+    .filter((device) => kept.has(device.deviceId))
+    .map((device) => ({
+      id: device.deviceId,
+      description: device.online ? null : DEVICES_LIST_COPY.offline,
+      disabled: !device.online && device.deviceId !== boundId,
+    }))
+  if (boundId && !devices.some((device) => device.deviceId === boundId)) {
+    rows.unshift({ id: boundId, description: null, disabled: false })
+  }
+  return rows
+}
+
 export interface AgentRoleLike {
   role?: string | null
   ownerId: string
@@ -395,6 +428,32 @@ export function assistantPickAgent<T extends TeamAgentLike>(
 ): string | null {
   const listed = agentsInTeam(agents, teamId, teamIds, me).find((agent) => isAssistant(agent) && agent.ownerId === me)
   return listed?.id ?? pageAgentId
+}
+
+/** #EXP-2079 (`assistant.chatTeams`): the teams the lists of a chat read
+ *  (`#` refs, `@` members, the MCP pick, prompts, Link / New issue): the
+ *  own team while it is synced, else the turn's teams (the Teams pick ∩ the
+ *  synced teams, else all of them), in the synced order. */
+export function assistantChatTeams(input: {
+  ownTeamId: string | null | undefined
+  /** The viewer's synced teams, in the cross-team order. */
+  syncedTeamIds: readonly string[]
+  /** The conversation root's Teams pick (`scopeTeamIds`). */
+  pickedTeamIds: readonly string[] | null | undefined
+}): string[] {
+  const { ownTeamId, syncedTeamIds, pickedTeamIds } = input
+  if (ownTeamId && syncedTeamIds.includes(ownTeamId)) return [ownTeamId]
+  if (syncedTeamIds.length === 0) return ownTeamId ? [ownTeamId] : []
+  const picked = new Set(pickedTeamIds ?? [])
+  const turn = syncedTeamIds.filter((id) => picked.has(id))
+  return turn.length > 0 ? turn : [...syncedTeamIds]
+}
+
+/** #EXP-2079 (`assistant.chatTeams` `deviceCases`): the device list of a
+ *  session in a team the viewer does not sync, that they started (the
+ *  Assistant's conversation) = their own machines, no team rule. */
+export function assistantOwnDevices(input: { sessionTeamSynced: boolean; starterIsViewer: boolean }): boolean {
+  return !input.sessionTeamSynced && input.starterIsViewer
 }
 
 export const ASSISTANT_TEAM_PICKS = fixture.assistant.teamPicks

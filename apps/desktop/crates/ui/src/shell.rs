@@ -317,6 +317,8 @@ impl Shell {
             this.refresh_team_runs(cx)
         })
         .detach();
+        // #EXP-1950: installs waiting for approval count in Needs you.
+        cx.observe_global::<crate::install_approval::InstallTrustTick>(|this: &mut Self, cx| this.refresh_team_runs(cx)).detach();
         // EXP-1326: the dock area (every screen) renders as a CACHED view
         // (see `render`), reused until it or a view inside it is notified.
         // A screen that reads a collection without observing it would go
@@ -329,7 +331,7 @@ impl Shell {
             subscription.detach();
         }
         let team_needs_you = crate::needs_you::counts_by_team(cx);
-        crate::app_badge::set(domain::nav_badges::app_icon_badge(team_needs_you.values().map(|n| *n as i64)));
+        crate::app_badge::set(domain::nav_badges::app_icon_badge(std::iter::once(crate::needs_you::total_count(cx) as i64)));
 
         // Re-render when the launch-time update check flips the "update
         // available" flag (§11.2) so the dismissible banner appears without a
@@ -563,7 +565,7 @@ impl Shell {
     fn refresh_team_runs(&mut self, cx: &mut gpui::Context<Self>) {
         let next = crate::needs_you::counts_by_team(cx);
         if next != self.team_needs_you {
-            crate::app_badge::set(domain::nav_badges::app_icon_badge(next.values().map(|n| *n as i64)));
+            crate::app_badge::set(domain::nav_badges::app_icon_badge(std::iter::once(crate::needs_you::total_count(cx) as i64)));
             self.team_needs_you = next;
             cx.notify();
         }

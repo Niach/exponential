@@ -193,7 +193,20 @@ pub fn start_budget_max(env: &[(String, String)]) -> Duration {
 /// #FEED-253: the failed start's reason, in plain words (the parent reads
 /// it). #FEED-296: a start the machine starved of memory says so; it is
 /// not the agent's fault and a person can act on it.
-fn silent_start_reason(timeout: Duration, attempts: u32, starved: Option<&str>) -> String {
+/// #FEED-306: a device under memory pressure at the failure is named with
+/// its numbers and the scope holding the most ([`starved::DevicePressure`]).
+fn silent_start_reason(
+    timeout: Duration,
+    attempts: u32,
+    starved: Option<&str>,
+    pressure: Option<&starved::DevicePressure>,
+) -> String {
+    if let Some(pressure) = pressure {
+        return format!(
+            "{}: claude did not start, it answered nothing at startup, {attempts} times in a row",
+            pressure.describe()
+        );
+    }
     match starved {
         Some(cgroup) => format!(
             "claude did not start: this machine is short of memory ({cgroup} is over its memory limit, so every agent in it is throttled), and it answered nothing at startup, {attempts} times in a row"
@@ -1492,6 +1505,14 @@ impl ClaudeSession {
         // with the reason (EXP-1669's `Could not start`).
         let mut attempt = 1;
         let mut starved_by: Option<String> = None;
+        let mut pressure: Option<starved::DevicePressure> = None;
+        let cgroup_root = self
+            .spec
+            .spawn
+            .env
+            .iter()
+            .find(|(name, _)| name == starved::CGROUP_ROOT_ENV)
+            .map_or_else(|| std::path::PathBuf::from("/sys/fs/cgroup"), |(_, root)| std::path::PathBuf::from(root));
         let child = loop {
             let timeout = start_timeout(&self.spec.spawn.env, attempt);
             let child = Arc::new(self.spawn_child(resume).map_err(|error| {
@@ -1527,6 +1548,10 @@ impl ClaudeSession {
                     break child;
                 }
                 Startup::Silent { starved } if !heard.load(Ordering::SeqCst) && !child.stdout_drained() => {
+                    // #FEED-306: read while the child still lives in its cgroup.
+                    if let Some(now) = starved::device_pressure(child.pid, &cgroup_root) {
+                        pressure = Some(now);
+                    }
                     // Retired FIRST, so its pump's end reads as a stale
                     // child's (no `closed`, no connection teardown).
                     self.retire_child(&child);
@@ -1534,7 +1559,7 @@ impl ClaudeSession {
                         starved_by = starved;
                     }
                     if attempt >= START_ATTEMPTS {
-                        let reason = silent_start_reason(timeout, attempt, starved_by.as_deref());
+                        let reason = silent_start_reason(timeout, attempt, starved_by.as_deref(), pressure.as_ref());
                         log::warn!("engine: {reason}");
                         return Err(Error::internal_error().data(json!({ "reason": reason })));
                     }
@@ -6096,11 +6121,22 @@ mod tests {
     #[test]
     fn a_starved_start_says_the_machine_is_short_of_memory() {
         assert_eq!(
-            silent_start_reason(Duration::from_secs(90), 3, None),
+            silent_start_reason(Duration::from_secs(90), 3, None, None),
             "claude did not start: it answered nothing for 90s at startup, 3 times in a row"
         );
-        let starved = silent_start_reason(Duration::from_secs(90), 3, Some("expbg.slice"));
+        let starved = silent_start_reason(Duration::from_secs(90), 3, Some("expbg.slice"), None);
         assert!(starved.contains("this machine is short of memory (expbg.slice is over its memory limit"), "{starved}");
+        // #FEED-306: the device's pressure, with numbers and the biggest scope.
+        let pressure = starved::DevicePressure {
+            cgroup: "expbg.slice".into(),
+            current: 17_609_365_913,
+            limit: Some(17_179_869_184),
+            top: Some(("run-exp-52fdfc7f.scope".into(), 13_529_146_982)),
+        };
+        assert_eq!(
+            silent_start_reason(Duration::from_secs(90), 2, Some("expbg.slice"), Some(&pressure)),
+            "Device is under memory pressure (expbg.slice 16.4 GB of 16.0 GB; run-exp-52fdfc7f.scope holds 12.6 GB): claude did not start, it answered nothing at startup, 2 times in a row"
+        );
     }
 
     /// EXP-1330: an aside adds the read-only set to the form gate.

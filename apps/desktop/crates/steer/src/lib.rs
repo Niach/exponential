@@ -83,6 +83,7 @@ pub mod exp_tool_group;
 pub mod feed;
 pub mod frames;
 pub mod history;
+pub mod install_trust;
 // EXP-825: the image-message shape lives in `domain` now (the launcher
 // parses start-prompt embeds with it); re-exported so `steer::image_message`
 // and the flat re-exports below keep resolving.

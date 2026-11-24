@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, ClickEvent, Entity, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
     Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window,
@@ -486,13 +487,34 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
 /// #EXP-2027 (sidebar-tree.json): Needs you spans every member team.
 pub(crate) fn rows_in_all_teams(cx: &mut App) -> NeedsYouRows {
     let teams: Vec<String> = Store::try_global(cx).map(|store| store.collections().teams_sorted(cx).into_iter().map(|team| team.id).collect()).unwrap_or_default();
+    let lists: Vec<Rc<NeedsYouRows>> = teams.iter().map(|team| rows_in_team(team, cx)).collect();
+    merge_team_rows(lists.iter().map(|rows| rows.as_ref()))
+}
+
+/// #EXP-2082: every team's list holds the viewer's own sessions in their
+/// personal team (the Assistant's conversation, `in_team_or_personal`), so
+/// the all-teams list keeps each row ONCE (by its message), in first-seen
+/// order, as web's.
+fn merge_team_rows<'a>(lists: impl IntoIterator<Item = &'a NeedsYouRows>) -> NeedsYouRows {
     let mut out = NeedsYouRows::default();
-    for team in teams {
-        let rows = rows_in_team(&team, cx);
-        out.rows.extend(rows.rows.iter().cloned());
+    let mut seen = std::collections::HashSet::new();
+    for rows in lists {
+        for row in &rows.rows {
+            if seen.insert(row.message_id.clone()) {
+                out.rows.push(row.clone());
+            }
+        }
         out.stuck.extend(rows.stuck.iter().map(|(k, v)| (k.clone(), v.clone())));
     }
     out
+}
+
+/// #EXP-2082: the Needs you total (the rail badge, the app icon): the
+/// all-teams rows, each once ([`merge_team_rows`]); never the sum of the
+/// per-team counts, which counts the viewer's personal-team rows per team.
+/// #EXP-1950: plus the installs waiting for this install's approval.
+pub(crate) fn total_count(cx: &mut App) -> usize {
+    rows_in_all_teams(cx).rows.len() + crate::install_approval::pending_count(cx)
 }
 
 pub(crate) fn counts_by_team(cx: &mut App) -> std::collections::BTreeMap<String, usize> {
@@ -500,8 +522,10 @@ pub(crate) fn counts_by_team(cx: &mut App) -> std::collections::BTreeMap<String,
         return Default::default();
     };
     let teams: Vec<String> = store.collections().teams.read(cx).iter().map(|team| team.id.clone()).collect();
+    // #EXP-1950: installs waiting for approval are rows of every team's Needs you.
+    let pending = crate::install_approval::pending_count(cx);
     teams.into_iter().map(|team| {
-        let count = rows_in_team(&team, cx).rows.len();
+        let count = rows_in_team(&team, cx).rows.len() + pending;
         (team, count)
     }).collect()
 }
@@ -693,6 +717,8 @@ pub(crate) fn needs_you_list(rows: &[NeedsYouRow], stuck: &HashMap<String, Stuck
 pub struct NeedsYouView {
     nav: Entity<Navigation>,
     scroll: ScrollHandle,
+    /// #EXP-1950: the installs waiting for approval, or this install waiting.
+    install_trust: Entity<crate::install_approval::InstallTrustSurface>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -701,7 +727,9 @@ impl NeedsYouView {
         let nav = nav_for_window(window, cx);
         let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         subscriptions.extend(crate::session_data::observe_session_collections(cx));
-        Self { nav, scroll: ScrollHandle::new(), _subscriptions: subscriptions }
+        subscriptions.push(cx.observe_global::<crate::install_approval::InstallTrustTick>(|_, cx| cx.notify()));
+        let install_trust = gpui::AppContext::new(cx, |cx| crate::install_approval::InstallTrustSurface::new(window, cx));
+        Self { nav, scroll: ScrollHandle::new(), install_trust, _subscriptions: subscriptions }
     }
 }
 
@@ -709,17 +737,23 @@ impl Render for NeedsYouView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let _span = tracing::trace_span!("render", view = "NeedsYouView").entered();
         let ready = Store::try_global(cx).is_some_and(|store| store.collections().sessions.read(cx).is_ready());
-        let column: AnyElement = if ready {
+        // #EXP-1950 (web needs-you.tsx): the installs waiting for this
+        // install's approval sit on top; this install waiting shows its code.
+        // Either one replaces the empty list's EmptyState.
+        let trust = crate::install_approval::snapshot(cx);
+        let trust_shown = trust.as_ref().is_some_and(|trust| trust.waiting() || !trust.rows.is_empty());
+        let column: Option<AnyElement> = if ready {
             // #EXP-2027: every member team's rows.
             let rows = rows_in_all_teams(cx);
-            needs_you_list(&rows.rows, &rows.stuck, cx)
+            (!(rows.rows.is_empty() && trust_shown)).then(|| needs_you_list(&rows.rows, &rows.stuck, cx))
         } else {
             // Skeletons, never "Loading…" (feedback-states.json).
-            crate::feedback::skeleton_rows("needs-you-skeleton", crate::feedback::SKELETON_ROWS, crate::settings::SETTINGS_ROW_H, cx).into_any_element()
+            Some(crate::feedback::skeleton_rows("needs-you-skeleton", crate::feedback::SKELETON_ROWS, crate::settings::SETTINGS_ROW_H, cx).into_any_element())
         };
+        let content = v_flex().min_w_0().gap_3().when(trust_shown, |this| this.child(self.install_trust.clone())).children(column);
         v_flex()
             .size_full()
-            .child(crate::scroll_pane::page_scaffold_with("needs-you-scroll", &self.scroll, v_flex().min_w_0().child(column), COLUMN_W, window, cx))
+            .child(crate::scroll_pane::page_scaffold_with("needs-you-scroll", &self.scroll, content, COLUMN_W, window, cx))
     }
 }
 
@@ -759,6 +793,20 @@ mod tests {
 
     fn dated(id: &str, kind: NeedsYouKind, created_at: &str) -> NeedsYouRow {
         NeedsYouRow { message_id: id.into(), created_at: created_at.into(), ..row(kind, "") }
+    }
+
+    /// #EXP-2082: the Assistant's question shows in every team's list (its
+    /// session sits in the personal team); the all-teams list keeps it once.
+    #[test]
+    fn the_all_teams_list_keeps_a_personal_team_row_once() {
+        let a = NeedsYouRows { rows: vec![dated("q-assistant", NeedsYouKind::Question, "2026-11-24T01:00:00Z"), dated("q-a", NeedsYouKind::Question, "2026-11-24T00:00:00Z")], stuck: HashMap::new() };
+        let b = NeedsYouRows { rows: vec![dated("q-assistant", NeedsYouKind::Question, "2026-11-24T01:00:00Z"), dated("q-b", NeedsYouKind::Plan, "2026-11-23T00:00:00Z")], stuck: HashMap::new() };
+        let merged = merge_team_rows([&a, &b]);
+        let ids: Vec<&str> = merged.rows.iter().map(|row| row.message_id.as_str()).collect();
+        assert_eq!(ids, ["q-assistant", "q-a", "q-b"]);
+        // The badge counts these rows (3), never the per-team sum (4).
+        assert_eq!(merged.rows.len(), 3);
+        assert_eq!(a.rows.len() + b.rows.len(), 4);
     }
 
     /// #EXP-1710 (web `withStuckRows`): a stuck PR replaces its ready row

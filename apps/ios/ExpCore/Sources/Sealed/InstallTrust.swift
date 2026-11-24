@@ -35,10 +35,11 @@ public enum KeyRecord: String, Codable, Sendable {
 /// the path from its account's root when it joined; `approved` = an
 /// `approve` by a pinned install of the same account; `first` = a
 /// team-mate's root at first contact; `reset` = a team-mate's new root a
-/// pinned install confirmed.
+/// pinned install confirmed; `existing` = an install of the own account
+/// served at this EXISTING install's first reconcile (decision e, once).
 public enum PinVia: String, Codable, Sendable {
     case itself = "self"
-    case chain, approved, first, reset
+    case chain, approved, first, reset, existing
 }
 
 public struct TrustPin: Codable, Equatable, Sendable {
@@ -73,8 +74,14 @@ public struct TrustStore: Codable, Equatable, Sendable {
     /// This install's endpoint id.
     public var selfEndpointId: String
     public var userId: String
-    /// Placed in its account's chain (a root, or approved).
+    /// Placed in its account's chain (a root, approved, or existing).
     public var joined: Bool
+    /// Decision (e): this install existed before approval shipped (its store
+    /// was made for an install an earlier build had registered for this
+    /// account; a build that makes an identity, or signs a new account into
+    /// one, writes that account's store first, `false`). Consumed (`false`)
+    /// by the first reconcile that serves this install.
+    public var existing: Bool
     public var pins: [String: TrustPin]
     /// Every team-mate ever pinned: a new root of one is a Reset, not a first contact.
     public var members: [String]
@@ -85,17 +92,30 @@ public struct TrustStore: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case selfEndpointId = "self"
-        case userId, joined, pins, members, declined, roots
+        case userId, joined, existing, pins, members, declined, roots
     }
 
-    public init(selfEndpointId: String, userId: String) {
+    public init(selfEndpointId: String, userId: String, existing: Bool = false) {
         self.selfEndpointId = selfEndpointId
         self.userId = userId
         joined = false
+        self.existing = existing
         pins = [:]
         members = []
         declined = []
         roots = [:]
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        selfEndpointId = try c.decode(String.self, forKey: .selfEndpointId)
+        userId = try c.decode(String.self, forKey: .userId)
+        joined = try c.decode(Bool.self, forKey: .joined)
+        existing = try c.decodeIfPresent(Bool.self, forKey: .existing) ?? false
+        pins = try c.decode([String: TrustPin].self, forKey: .pins)
+        members = try c.decode([String].self, forKey: .members)
+        declined = try c.decode([String].self, forKey: .declined)
+        roots = try c.decode([String: TrustRootRecord].self, forKey: .roots)
     }
 
     /// The record of a held key; a key the store never saw = `legacy` (decision c).
@@ -218,13 +238,25 @@ public struct TrustRow: Equatable, Sendable, Identifiable {
 }
 
 /// `trusted` = joined; `waiting` = shows "Waiting for approval" and its
-/// code; `claimRoot` = its account has no chain: it signs `root` for itself.
+/// code; `claimRoot` = its account has no chain: it signs `root` for itself
+/// (a joined existing install with its `approveExisting`, in one claim).
 public enum TrustStatus: String, Sendable { case trusted, waiting, claimRoot }
 
 public struct TrustView: Equatable, Sendable {
     public var store: TrustStore
     public var status: TrustStatus
     public var rows: [TrustRow]
+    /// The `existing` pins this install signs `approve` for (with its root
+    /// claim, or once it is on the chain): its account's chain then reaches
+    /// every install that existed. Sorted by endpoint id.
+    public var approveExisting: [String]
+
+    public init(store: TrustStore, status: TrustStatus, rows: [TrustRow], approveExisting: [String] = []) {
+        self.store = store
+        self.status = status
+        self.rows = rows
+        self.approveExisting = approveExisting
+    }
 }
 
 // ── the crypto (the eNet binding; a fake never stands in for the replays) ─
@@ -436,23 +468,36 @@ public enum InstallTrust {
         return crypto.verify(signature: signature, message: Data(text.utf8), endpointId: install.endpointId)
     }
 
-    /// Follows the server's answer. The server may only SHRINK the pins; a
-    /// pin is ADDED only for a signature this install verified, by an install
-    /// already pinned (or, once, at joining and at first contact).
+    /// Follows the server's answer. The server may only SHRINK the pins (a
+    /// pin missing from the answer, or served with another user or key, is
+    /// dropped); a pin is ADDED only for a signature this install verified,
+    /// by an install already pinned (or, once, at joining, at an existing
+    /// install's first reconcile and at first contact).
     public static func reconcile(_ before: TrustStore, served: TrustAnswer, crypto: TrustCrypto) -> TrustView {
         var store = before
-        // The served installs whose registration verifies, by endpoint id (first position kept).
+        // `valid` = the registration verifies (a row, a first contact);
+        // `counted` adds rows that store none (registered before #3394): an
+        // approval's own signature binds their key, and an existing install
+        // pins them once. By endpoint id (first position kept).
         var valid: [String: ServedInstall] = [:]
         var order: [String] = []
-        for install in served.installs where registrationValid(install, crypto: crypto) {
-            if valid[install.endpointId] == nil { order.append(install.endpointId) }
-            valid[install.endpointId] = install
+        var counted: [String: ServedInstall] = [:]
+        var countedOrder: [String] = []
+        for install in served.installs {
+            if registrationValid(install, crypto: crypto) {
+                if valid[install.endpointId] == nil { order.append(install.endpointId) }
+                valid[install.endpointId] = install
+            }
+            if valid[install.endpointId] != nil || install.registrationSignature == nil {
+                if counted[install.endpointId] == nil { countedOrder.append(install.endpointId) }
+                counted[install.endpointId] = install
+            }
         }
-        let me = valid[store.selfEndpointId]
+        let me = counted[store.selfEndpointId]
 
         // Shrink: what the server no longer lists (or binds) is no longer pinned.
         for (endpointId, pin) in store.pins where endpointId != store.selfEndpointId {
-            guard let row = valid[endpointId], row.userId == pin.userId, row.x25519Public == pin.x25519Public else {
+            guard let row = counted[endpointId], row.userId == pin.userId, row.x25519Public == pin.x25519Public else {
                 store.pins[endpointId] = nil
                 continue
             }
@@ -461,25 +506,37 @@ public enum InstallTrust {
 
         // The approvals that verify, against the subject as its registration binds it.
         let approvals = served.approvals.filter { approval in
-            guard let subject = valid[approval.subjectEndpointId] else { return false }
+            guard let subject = counted[approval.subjectEndpointId] else { return false }
             if approval.kind == .root, approval.approverEndpointId != approval.subjectEndpointId { return false }
             return InstallApproval.verify(approval.kind, subject: subject, signature: approval.signature, approverEndpointId: approval.approverEndpointId, crypto: crypto)
         }
         let roots = Set(approvals.filter { $0.kind == .root }.map(\.subjectEndpointId))
-        let userOf: (String) -> String? = { valid[$0]?.userId }
+        let userOf: (String) -> String? = { counted[$0]?.userId }
+        let ownChain = approvals.contains { ($0.kind == .root || $0.kind == .approve) && userOf($0.subjectEndpointId) == store.userId }
 
-        // Joining: its own root claim, or the chain from its account's root to it.
+        // Joining: its own root claim, or the chain from its account's root
+        // to it, or (decision e) an existing install of an account with no
+        // chain: every install of its account served now that did not ask is pinned.
         if !store.joined, me != nil {
             if roots.contains(store.selfEndpointId) {
                 store.joined = true
             } else if let path = chain(to: store.selfEndpointId, userId: store.userId, approvals: approvals, roots: roots, userOf: userOf) {
                 for endpointId in path where endpointId != store.selfEndpointId {
-                    let row = valid[endpointId]!
+                    let row = counted[endpointId]!
                     store.pins[endpointId] = TrustPin(userId: row.userId, x25519Public: row.x25519Public, via: .chain, by: nil)
+                }
+                store.joined = true
+            } else if store.existing, !ownChain {
+                for endpointId in countedOrder {
+                    let install = counted[endpointId]!
+                    if install.userId != store.userId || endpointId == store.selfEndpointId || install.approvalRequested { continue }
+                    store.pins[endpointId] = TrustPin(userId: install.userId, x25519Public: install.x25519Public, via: .existing, by: nil)
                 }
                 store.joined = true
             }
         }
+        // Only the FIRST reconcile that serves this install adopts.
+        if me != nil { store.existing = false }
 
         // Declines by this account's pinned installs.
         for approval in approvals where approval.kind == .decline {
@@ -490,12 +547,12 @@ public enum InstallTrust {
 
         if store.joined {
             // First contact with a team-mate: their root(s) as served, once.
-            for endpointId in order {
-                let install = valid[endpointId]!
+            for endpointId in countedOrder {
+                let install = counted[endpointId]!
                 if install.userId == store.userId || store.members.contains(install.userId) { continue }
                 if store.pins.values.contains(where: { $0.userId == install.userId }) { continue }
-                for rootId in order {
-                    let root = valid[rootId]!
+                for rootId in countedOrder {
+                    let root = counted[rootId]!
                     if root.userId == install.userId, roots.contains(rootId), !store.declined.contains(rootId) {
                         store.pins[rootId] = TrustPin(userId: root.userId, x25519Public: root.x25519Public, via: .first, by: nil)
                     }
@@ -506,7 +563,7 @@ public enum InstallTrust {
             while changed {
                 changed = false
                 for approval in approvals {
-                    let subject = valid[approval.subjectEndpointId]!
+                    let subject = counted[approval.subjectEndpointId]!
                     if store.pins[subject.endpointId] != nil || store.declined.contains(subject.endpointId) { continue }
                     guard let approver = store.pins[approval.approverEndpointId] else { continue }
                     let pinned = (approval.kind == .approve && approver.userId == subject.userId)
@@ -530,8 +587,9 @@ public enum InstallTrust {
                 if store.pins[endpointId] != nil || store.declined.contains(endpointId) { continue }
                 let kind: TrustRow.Kind?
                 if install.userId == store.userId {
-                    // Own: a build that asked, or a competing root.
-                    kind = install.approvalRequested || roots.contains(endpointId) ? .newInstall : nil
+                    // Own: every install nobody pinned is new (decision e: the
+                    // ones that existed are pinned `existing`), any build.
+                    kind = .newInstall
                 } else {
                     // A team-mate's: only a new root of a member pinned before.
                     kind = roots.contains(endpointId) && store.members.contains(install.userId) ? .reset : nil
@@ -542,12 +600,23 @@ public enum InstallTrust {
             rows.sort { a, b in a.kind == b.kind ? a.endpointId < b.endpointId : a.kind == .newInstall }
         }
 
-        let ownChain = order.contains { endpointId in
-            valid[endpointId]!.userId == store.userId
-                && approvals.contains { ($0.kind == .root || $0.kind == .approve) && $0.subjectEndpointId == endpointId }
+        // A new install claims a root only ALONE (decision e): next to installs
+        // of its account that are on no chain yet (older builds) it waits for
+        // one of them to update, adopt and approve it.
+        let alone = !served.installs.contains { $0.userId == store.userId && $0.endpointId != store.selfEndpointId }
+        let status: TrustStatus = store.joined ? (ownChain ? .trusted : .claimRoot) : (ownChain || !alone ? .waiting : .claimRoot)
+
+        // The existing pins its account's chain does not reach yet, approved
+        // by this install with its root claim or once it is on the chain itself.
+        let reached: (String) -> Bool = { endpointId in
+            roots.contains(endpointId)
+                || approvals.contains { $0.kind == .approve && $0.subjectEndpointId == endpointId && store.pins[$0.approverEndpointId] != nil }
         }
-        let status: TrustStatus = store.joined ? .trusted : ownChain ? .waiting : .claimRoot
-        return TrustView(store: store, status: status, rows: rows)
+        let onChain = reached(store.selfEndpointId)
+        let approveExisting = store.joined && (status == .claimRoot || onChain)
+            ? store.pins.filter { $0.value.via == .existing && !reached($0.key) }.map(\.key).sorted()
+            : []
+        return TrustView(store: store, status: status, rows: rows, approveExisting: approveExisting)
     }
 
     /// The approvals from a root of `userId` down to `target` (`approve`
@@ -686,11 +755,13 @@ public enum InstallTrust {
 
     /// R4: whether this install wraps a key for a target the server names.
     /// Only a joined install wraps for others; a pinned target with its pinned
-    /// user and key = `verified`; a target that ASKED (or claims a root) and
-    /// is not pinned is refused in every mode (the waiting state); one that
-    /// never asked and claims no root is an older build: `legacy`, wrapped in
-    /// `record` mode, refused once mandatory. A registration that does not
-    /// verify, or a pinned endpoint served with another key, is refused always.
+    /// user and key = `verified`. An install of the OWN account nobody pinned
+    /// (a New install, decision e), and a team-mate's that ASKED (or claims a
+    /// root), are refused in every mode (the waiting state); a team-mate's
+    /// that never asked and claims no root is an older build: `legacy`,
+    /// wrapped in `record` mode, refused once mandatory. A registration that
+    /// does not verify, or a pinned endpoint served with another key, is
+    /// refused always.
     public static func wrapTarget(
         _ target: ServedInstall, store: TrustStore, mode: TrustMode, roots: Set<String> = [], crypto: TrustCrypto
     ) -> TargetVerdict {
@@ -701,6 +772,9 @@ public enum InstallTrust {
         }
         // An older build that registered before #EXP-1950 kept no signature: legacy too.
         if target.registrationSignature != nil, !registrationValid(target, crypto: crypto) { return .refuse(.registration) }
+        // Decision (e): every own install that existed is pinned (`existing`);
+        // one nobody pinned is a New install row, any build: unapproved in every mode.
+        if target.userId == store.userId { return .refuse(.unapproved) }
         if target.approvalRequested || roots.contains(target.endpointId) { return .refuse(.unapproved) }
         return mode == .record ? .wrap(record: .legacy) : .refuse(.unapproved)
     }

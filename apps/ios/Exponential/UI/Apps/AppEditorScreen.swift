@@ -1469,7 +1469,7 @@ private struct AppFirstMessageComposer: View {
             usageFraction: nil,
             usageSeverity: AgentUsagePresentation.severity(Double?.none),
             onUsage: {},
-            teamId: teamId,
+            teamIds: teamId.map { [$0] } ?? [],
             account: picks.account,
             device: deviceMenu,
             editor: true

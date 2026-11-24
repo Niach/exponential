@@ -141,7 +141,8 @@ describe(`desktop attribution`, () => {
     // `composer-skills-menu` (its + menu's Skills submenu), #EXP-1715
     // `composer-teams-menu` (its Teams submenu). EXP-1733: the chat screen's
     // views (`chat-screen`, `chat-replies`, `chat-results`) share the stem too,
-    // and `session-slash-menu` drives `chat:$chat`, the same harmless over-capture.
+    // and `session-slash-menu` drives `chat:$chat` (#EXP-2075 `session-synced-tail`
+    // `chat:$awaySession`), the same harmless over-capture.
     const result = scope(`apps/desktop/crates/ui/src/chat_screen.rs`)
     expect(views(result, `desktop`).sort()).toEqual([
       `agent-home`,
@@ -161,6 +162,7 @@ describe(`desktop attribution`, () => {
       `composer-teams-menu`,
       `search-list`,
       `session-slash-menu`,
+      `session-synced-tail`,
     ])
   })
 
@@ -173,7 +175,7 @@ describe(`desktop attribution`, () => {
     // `session-row` styleguide twin shares the stem, and `session-slash-menu`
     // types into this screen's composer.
     const result = scope(`apps/desktop/crates/ui/src/session_screen.rs`)
-    expect(views(result, `desktop`)).toEqual([`steering`, `session-row`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-slash-menu`])
+    expect(views(result, `desktop`)).toEqual([`steering`, `session-row`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-slash-menu`, `session-synced-tail`])
   })
 
   test(`a component reused across screens still widens`, () => {
@@ -741,7 +743,7 @@ describe(`fail-safe`, () => {
     expect(named.broad).toEqual([])
     // The two ui modules also draw EXP-1259's feed cards; the engine and
     // feed files alone claim the same feed-drawn shots.
-    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `session-row`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-slash-menu`])
+    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `session-row`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-slash-menu`, `session-synced-tail`])
     const feedOnly = affectedScope({
       changedFiles: [
         `apps/desktop/crates/steer/src/viewer.rs`,

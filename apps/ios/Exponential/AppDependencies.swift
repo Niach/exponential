@@ -249,13 +249,36 @@ final class AppDependencies: @unchecked Sendable {
         ))
         let opener = SealedOpener(crypto: SealedCryptoFactory.make(), ring: keyRing)
         SealedOpener.shared = opener
+        // #EXP-1950: the pin store (the app's own keychain group); decision
+        // (e): an account signed in under this build, and every account of an
+        // identity this build mints, gets its empty store BEFORE the install
+        // registers for it (an account without one existed before).
+        let pinStore = InstallTrustPinStore()
+        let trustPersistence = TrustStorePersistence(
+            load: { try pinStore.load(account: $0) },
+            save: { pinStore.save(account: $0, data: $1) },
+            removeAll: { pinStore.removeAll() }
+        )
+        let trustCrypto = TrustCryptoFactory.make()
+        auth.onNewAccount = { accountId in
+            guard let trustCrypto, let identity = identityStore.load() else { return }
+            InstallTrustKeeper.markNew(accountId: accountId, identity: identity, crypto: trustCrypto, persistence: trustPersistence)
+        }
         let installNode = InstallNodeCoordinator.make(
             trpc: trpc,
             auth: auth,
             db: db,
             identity: InstallIdentitySource(
-                loadOrCreate: { identityStore.loadOrCreate() },
-                rotate: { identityStore.rotate() }
+                loadOrMint: { identityStore.loadOrMint() },
+                rotate: { identityStore.rotate() },
+                minted: { identity, accountIds in
+                    if let trustCrypto {
+                        for accountId in Set(accountIds).union(auth.authenticatedAccountIds) {
+                            InstallTrustKeeper.markNew(accountId: accountId, identity: identity, crypto: trustCrypto, persistence: trustPersistence)
+                        }
+                    }
+                    identityStore.clearMinted()
+                }
             ),
             label: deviceLabel,
             platform: devicePlatform,
@@ -266,19 +289,13 @@ final class AppDependencies: @unchecked Sendable {
             }
         )
         self.installNode = installNode
-        // #EXP-1950: the pin store (the app's own keychain group) and the
-        // four rules, record-only in this release (`TrustMode.build`).
+        // #EXP-1950: the four rules, record-only in this release (`TrustMode.build`).
         let installsApi = InstallsApi(trpc: trpc)
-        let pinStore = InstallTrustPinStore()
-        let installTrust = TrustCryptoFactory.make().map { trustCrypto in
+        let installTrust = trustCrypto.map { trustCrypto in
             InstallTrustKeeper(
                 api: installsApi,
                 crypto: trustCrypto,
-                persistence: TrustStorePersistence(
-                    load: { pinStore.load(account: $0) },
-                    save: { pinStore.save(account: $0, data: $1) },
-                    removeAll: { pinStore.removeAll() }
-                ),
+                persistence: trustPersistence,
                 identity: { identityStore.load() }
             )
         }

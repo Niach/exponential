@@ -63,6 +63,16 @@ class McpServerPickerRowsTest {
     }
 
     @Test
+    fun `a pick over several chat teams names the row's team (EXP-2079)`() {
+        val row = server(url = "https://mcp.linear.app/mcp").copy(teamName = "Acme")
+        assertEquals("Acme", mcpServerCaption(row))
+        // The disabled row keeps its reason.
+        assertEquals("Acme · Connect first", mcpServerCaption(row.copy(connectionStatus = "missing")))
+        // One chat team (every team chat): no team name, the host as ever.
+        assertEquals("mcp.linear.app", mcpServerCaption(row.copy(teamName = null)))
+    }
+
+    @Test
     fun `mcpServerGlyphIcon draws every catalog mark, the plug for an unknown slug`() {
         for (mark in DomainContract.mcpCatalogMarks) {
             assertEquals(ExpBrandIcons.bySlug(mark)!!, mcpServerGlyphIcon(McpServerGlyph.Brand(mark)))

@@ -134,6 +134,9 @@ import kotlinx.coroutines.delay
  * icon expands that card ([DeviceAccountPanel]), nothing floats any more.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+/** #EXP-1950: below this width the page is a phone's: the approval rows show here too. */
+private val COMPACT_MAX_WIDTH = 600.dp
+
 @Composable
 fun AgentsScreen(
     // #EXP-1381: pushed from the Team page's Devices row (settings-nav.json)
@@ -243,6 +246,10 @@ fun AgentsScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    // #EXP-1950: phones also list the installs waiting for approval here.
+                    if (maxWidth < COMPACT_MAX_WIDTH) {
+                        item(key = "__pending_installs__") { LivePendingInstalls() }
+                    }
                     item(key = "__machines_header__") {
                         SectionHeader(DevicesList.Copy.MINE) {
                             GlassPill(

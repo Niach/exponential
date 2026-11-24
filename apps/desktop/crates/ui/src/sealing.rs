@@ -227,13 +227,33 @@ pub fn plan_send(input: &SendInput, cx: &App) -> SendPlan {
         })
         .unwrap_or_default();
     let sessions = collections.sessions.read(cx);
-    let team_id = input
-        .team_id
-        .clone()
-        .or_else(|| input.session_id.as_ref().or(input.parent_id.as_ref()).and_then(|id| sessions.get(id)?.team_id.clone()));
-    let ref_issue_ids = match (input.text.as_deref(), team_id.as_deref()) {
-        (Some(text), Some(team_id)) => {
-            let issues = collections.issue_refs_in_team(team_id, cx);
+    // #EXP-2079 (agent-settings.json `assistant.chatTeams` (1)): `#IDENT`
+    // refs resolve over the CHAT TEAMS of the session written to (its own
+    // team while synced; the Assistant's conversation: the turn's teams,
+    // the pick this send carries first), team by team so an identifier found
+    // in several is the first team's. A send that names no session (a new
+    // chat, a first message to an agent) reads the team it names.
+    let session = input.session_id.as_ref().or(input.parent_id.as_ref()).and_then(|id| sessions.get(id));
+    let teams: Vec<String> = match (session, input.team_id.as_deref()) {
+        (Some(session), _) => match &input.scope_team_ids {
+            Some(pick) => crate::chat_teams::team_ids(session.team_id.as_deref(), pick.as_deref(), cx),
+            None => crate::chat_teams::session_team_ids(session, cx),
+        },
+        (None, named) => {
+            // A first message to an agent reads the AGENT's team (the
+            // Assistant's is its member's personal team, whatever team the
+            // send names for the membership check).
+            let agent_team = input.agent_id.as_deref().and_then(|id| crate::session_data::agent_def(id, cx)).and_then(|agent| agent.team_id);
+            match agent_team.as_deref().or(named) {
+                Some(own) => crate::chat_teams::team_ids(Some(own), input.scope_team_ids.clone().flatten().as_deref(), cx),
+                None => Vec::new(),
+            }
+        }
+    };
+    let ref_issue_ids = match input.text.as_deref() {
+        Some(text) if !teams.is_empty() => {
+            let issues: Vec<&domain::rows::Issue> =
+                teams.iter().flat_map(|team_id| collections.issue_refs_in_team(team_id, cx)).collect();
             domain::sealed::ref_issue_ids(text, issues.iter().map(|issue| (issue.id.as_str(), issue.identifier.as_str())))
         }
         _ => Vec::new(),
@@ -367,6 +387,9 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) ->
         // Resolved before sealing ([`deliver`]); never leaves unsealed.
         SealTarget::Unsynced(session_id) => Err(failed(format!("{session_id}: its tree is not known yet"))),
         SealTarget::Keyed { root_id, epoch, public } => {
+            // #EXP-1950 R2 + R3 (install-trust.json): a rollback or a key
+            // that is not the held secret's is never sealed to.
+            sealing::check_seal(root_id, *epoch, public, None).map_err(|err| failed(format!("{root_id}: {err}")))?;
             let body = |text: &str| enet_core::sealed::seal_body(public, *epoch, text).map_err(|err| failed(format!("{root_id}: {err}")));
             let sealed_text = text.as_deref().map(body).transpose()?;
             let sealed_name = input.name.as_deref().map(body).transpose()?;
@@ -692,7 +715,7 @@ mod tests {
                 install_id: "me".into(),
                 public_key: self.key.public_key(),
                 epoch: 1,
-                wraps: vec![api::session_keys::InstallWrap { install_id: "me".into(), wrapped: "w".into() }],
+                wraps: vec![api::session_keys::InstallWrap { install_id: "me".into(), wrapped: "w".into(), signature: None }],
                 secret: self.key.secret,
             })
         }
@@ -914,6 +937,7 @@ mod tests {
                 public_key: keyed.then(|| self.key.public_key()),
                 clear_tree: false,
                 rotation_due: false,
+                vouch: None,
             })
         }
         fn note_key(&self, _root_id: &str, _epoch: u32, _public: [u8; 32]) {}

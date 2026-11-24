@@ -12,6 +12,8 @@ import com.exponential.app.data.api.SessionsSendResult
 import com.exponential.app.data.api.TreeKeyWrap
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.auth.AuthRepository
+import com.exponential.app.data.chatTeamIssues
+import com.exponential.app.data.crossTeamOrder
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.data.db.agentChat
@@ -20,6 +22,7 @@ import com.exponential.app.data.enet.EnetFfi
 import com.exponential.app.data.enet.EnetIdentityStore
 import com.exponential.app.data.enet.EnetNodeManager
 import com.exponential.app.data.enet.base64Url
+import com.exponential.app.domain.AgentSettings
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -88,7 +91,7 @@ class SealedWriter @Inject constructor(
         if (text.isBlank() && attachments.isEmpty() && input.actionCard == null) return@withContext PreparedSend(input)
         val db = dbs.database(accountId)
         val mentions = mentionIds(db, text)
-        val refs = issueRefIds(db, text)
+        val refs = issueRefIds(db, accountId, input, text)
         val withMentions = input.copy(
             mentionUserIds = mentions.takeIf { it.isNotEmpty() },
             refIssueIds = refs.takeIf { it.isNotEmpty() },
@@ -144,7 +147,7 @@ class SealedWriter @Inject constructor(
         val holder = if (installId != null && identities.vault.identity(accountId, create = false) != null) SendHolder.Ready else SendHolder.None
         if (refusesUpFront(tree, holder, hasInstall = installId != null) || installId == null) throw TrpcException(NO_KEY_REFUSAL)
         return when (wire) {
-            is TreeWire.Sealed -> sealedTo(withMentions, wire.key, body)
+            is TreeWire.Sealed -> sealedTo(withMentions, allowed(accountId, wire.rootId, wire.key) ?: throw TrpcException(NO_KEY_REFUSAL), body)
             is TreeWire.Create -> {
                 // #EXP-1960 (`keylessCases`): `reader` = this install keys it; a
                 // failed create takes [keylessStep]: a blip is retried, a tree
@@ -154,14 +157,15 @@ class SealedWriter @Inject constructor(
                     is Keyless.Clear -> PreparedSend(withMentions)
                     is Keyless.Created -> sealedTo(withMentions, keyed.key, body)
                     is Keyless.Arrived -> when (sendWire(tree, holder, reader = false, keyArrives = keyed.key != null)) {
-                        SendWire.Sealed -> sealedTo(withMentions, keyed.key!!, body)
+                        SendWire.Sealed -> sealedTo(withMentions, allowed(accountId, wire.rootId, keyed.key!!) ?: throw TrpcException(NO_KEY_REFUSAL), body)
                         else -> throw TrpcException(NO_KEY_REFUSAL)
                     }
                 }
             }
             else -> {
                 val key = crypto.generateTreeKey()
-                val wraps = readerWraps(accountId, installId, readers, key.secret) ?: throw TrpcException(NO_KEY_REFUSAL)
+                val targets = readerTargets(accountId, installId, readers) ?: throw TrpcException(NO_KEY_REFUSAL)
+                val wraps = wrapsFor(accountId, targets, key, rootId = null) ?: throw TrpcException(NO_KEY_REFUSAL)
                 val sealed = crypto.sealBody(key.publicKey, FIRST_EPOCH, body)
                 PreparedSend(
                     sealedName(withMentions, key.publicKey, FIRST_EPOCH).copy(
@@ -169,7 +173,7 @@ class SealedWriter @Inject constructor(
                         seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps),
                         actionCard = sealedActionCard(withMentions.actionCard, key.publicKey, FIRST_EPOCH),
                     ),
-                ) { result -> keep(accountId, result.sessionId, key.secret) }
+                ) { result -> keepSeal(accountId, result.sessionId, key, targets, wraps) }
             }
         }
     }
@@ -186,7 +190,7 @@ class SealedWriter @Inject constructor(
         val (wire, readers) = target(db, accountId, input, fresh)
         val treeKey = when (wire) {
             TreeWire.Unknown, is TreeWire.Clear -> return PreparedSend(withMentions)
-            is TreeWire.Sealed -> wire.key
+            is TreeWire.Sealed -> allowed(accountId, wire.rootId, wire.key) ?: return PreparedSend(withMentions)
             is TreeWire.Create -> StaleTree.keyFirst(
                 wire.rootId,
                 create = { createKey(accountId, wire.rootId, readers) },
@@ -197,11 +201,12 @@ class SealedWriter @Inject constructor(
         if (treeKey != null) return sealedTo(withMentions, treeKey, body)
         val installId = nodes.get().installId(accountId) ?: return PreparedSend(withMentions)
         val key = crypto.generateTreeKey()
-        val wraps = readerWraps(accountId, installId, readers, key.secret) ?: return PreparedSend(withMentions)
+        val targets = readerTargets(accountId, installId, readers) ?: return PreparedSend(withMentions)
+        val wraps = wrapsFor(accountId, targets, key, rootId = null) ?: return PreparedSend(withMentions)
         val sealed = crypto.sealBody(key.publicKey, FIRST_EPOCH, body)
         return PreparedSend(
             withMentions.copy(text = sealed, seal = SealInput(installId, key.publicKey, FIRST_EPOCH, wraps)),
-        ) { result -> keep(accountId, result.sessionId, key.secret) }
+        ) { result -> keepSeal(accountId, result.sessionId, key, targets, wraps) }
     }
 
     private sealed interface Keyless {
@@ -336,9 +341,11 @@ class SealedWriter @Inject constructor(
         val opened = SealedContent.openCard(row.rootId, raw!!)
         val root = db.sessionDao().getById(row.rootId)
         // #EXP-1641: a root not synced here (a notification action) asks the server.
-        val key = root?.sealPublicKey?.let { it to root.sealEpoch } ?: publicKey(accountId, row.rootId)?.let { it.publicKey to it.epoch }
-        val publicKey = key?.first
-        val epoch = key?.second
+        val key = root?.sealPublicKey?.let { k -> root.sealEpoch?.let { PublicTreeKey(k, it) } } ?: publicKey(accountId, row.rootId)
+        // #EXP-1950 R2 + R3: only to a key the rule seals to.
+        val allowedKey = key?.let { allowed(accountId, row.rootId, it) }
+        val publicKey = allowedKey?.publicKey
+        val epoch = allowedKey?.epoch
         if (SealedContent.isSealedCard(opened) || publicKey == null || epoch == null) throw TrpcException(LOCKED_ANSWER)
         val answered = SealedWrite.answeredCard(opened, input) ?: throw TrpcException(LOCKED_ANSWER)
         val sealedCard = Json.parseToJsonElement(crypto.sealCard(publicKey, epoch, answered.toString())) as JsonObject
@@ -362,11 +369,13 @@ class SealedWriter @Inject constructor(
             if (text.isBlank()) throw TrpcException(LOCKED_SEND)
             val db = dbs.database(accountId)
             val mentions = mentionIds(db, text)
-            val refs = issueRefIds(db, text)
+            val refs = issueRefIds(db, accountId, input, text)
             val root = db.sessionDao().getById(rootId)
-            val key = root?.sealPublicKey?.let { it to root.sealEpoch } ?: publicKey(accountId, rootId)?.let { it.publicKey to it.epoch }
-            val publicKey = key?.first ?: throw TrpcException(LOCKED_SEND)
-            val epoch = key.second ?: throw TrpcException(LOCKED_SEND)
+            val key = root?.sealPublicKey?.let { k -> root.sealEpoch?.let { PublicTreeKey(k, it) } } ?: publicKey(accountId, rootId)
+            // #EXP-1950 R2 + R3: only to a key the rule seals to.
+            val allowedKey = key?.let { allowed(accountId, rootId, it) } ?: throw TrpcException(LOCKED_SEND)
+            val publicKey = allowedKey.publicKey
+            val epoch = allowedKey.epoch
             val body = SealedWrite.withAttachmentEmbeds(text, input.attachmentIds.orEmpty())
             PreparedSend(
                 sealedName(input, publicKey, epoch).copy(
@@ -383,11 +392,52 @@ class SealedWriter @Inject constructor(
         return runCatching { db.userDao().byEmails(emails).map { it.id }.distinct() }.getOrDefault(emptyList())
     }
 
-    /** The text's `#IDENT` refs this install knows (the server never parses a sealed text). */
-    private suspend fun issueRefIds(db: ExponentialDatabase, text: String): List<String> {
+    /** The text's `#IDENT` refs this install knows (the server never parses a sealed text).
+     *  #EXP-2079 (agent-settings.json `assistant.chatTeams` (1)): a send into
+     *  a team that is not synced (the Assistant's chat) resolves them in the
+     *  chat teams; an identifier found in several = the first team's in order. */
+    private suspend fun issueRefIds(db: ExponentialDatabase, accountId: String, input: SessionsSendInput, text: String): List<String> {
         val identifiers = SealedWrite.issueRefs(text)
         if (identifiers.isEmpty()) return emptyList()
-        return runCatching { db.issueDao().byIdentifiers(identifiers).map { it.id }.distinct() }.getOrDefault(emptyList())
+        return runCatching {
+            val issues = db.issueDao().byIdentifiers(identifiers)
+            val teams = unsyncedSendChatTeams(db, accountId, input)
+            val known = if (teams == null) issues else chatTeamIssues(issues, db.boardDao().observeAll().first(), teams)
+            known.map { it.id }.distinct()
+        }.getOrDefault(emptyList())
+    }
+
+    /** #EXP-2079: the chat teams of the tree [input] writes into while its
+     *  own team is NOT one of the synced teams; null = a synced team (or
+     *  nothing known): every team chat's send resolves as it always did. */
+    private suspend fun unsyncedSendChatTeams(db: ExponentialDatabase, accountId: String, input: SessionsSendInput): List<String>? {
+        val synced = crossTeamOrder(db.teamDao().observeAll().first()).map { it.id }
+        if (synced.isEmpty()) return null
+        val userId = auth.accounts.value.firstOrNull { it.id == accountId }?.userId
+        val explicitId = input.sessionId ?: input.parentId
+        val existing: SessionEntity? = when {
+            explicitId != null -> db.sessionDao().getById(explicitId)
+            input.agentId != null -> userId?.let { db.sessionDao().agentConversation(input.agentId, it) }
+            input.appId != null -> userId?.let { db.sessionDao().appConversation(input.appId, it) }
+            else -> null
+        }
+        val root = existing?.let { row ->
+            val rootId = row.rootId.ifEmpty { row.id }
+            if (rootId == row.id) row else db.sessionDao().getById(rootId)
+        }
+        val own = (root ?: existing)?.teamId?.takeIf { it.isNotEmpty() }
+            ?: input.teamId
+            ?: input.agentId?.let { db.agentDefinitionDao().observeById(it).first()?.teamId }
+            ?: input.appId?.let { db.appDao().observeById(it).first()?.teamId }
+        if (own.isNullOrEmpty() || own in synced) return null
+        // The turn's teams: this send's Teams pick (JSON null = every team),
+        // else the conversation root's.
+        val picked = when (val scope = input.scopeTeamIds) {
+            null -> root?.scopeTeamIdList
+            is kotlinx.serialization.json.JsonArray -> scope.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            else -> null
+        }
+        return AgentSettings.Assistant.chatTeams(own, synced, picked)
     }
 
     /** The tree [input] writes into (`staleTree`) and who its key is wrapped for. */
@@ -424,7 +474,7 @@ class SealedWriter @Inject constructor(
             fresh = fresh,
             sendTarget = {
                 sessions.get().sendTarget(accountId, input.agentId, input.appId).let { target ->
-                    ServerTree(target.rootId, target.publicKey?.let { key -> target.epoch?.let { PublicTreeKey(key, it) } }, clear = target.clearTree)
+                    ServerTree(target.rootId, target.publicKey?.let { key -> target.epoch?.let { PublicTreeKey(key, it, target.vouch) } }, clear = target.clearTree)
                 }
             },
             publicKey = { publicKey(accountId, it) },
@@ -437,35 +487,67 @@ class SealedWriter @Inject constructor(
         val installId = nodes.get().installId(accountId) ?: return null
         val key = crypto.generateTreeKey()
         // #EXP-1960: a refused wrap: once more for this account's installs only.
-        val wraps = readerWraps(accountId, installId, if (ownOnly) readers.copy(deviceId = null) else readers, key.secret) ?: return null
+        val targets = readerTargets(accountId, installId, if (ownOnly) readers.copy(deviceId = null) else readers) ?: return null
+        // #EXP-1950: the root exists: every wrap is signed.
+        val wraps = wrapsFor(accountId, targets, key, rootId) ?: return null
         sessionKeys.create(accountId, CreateSessionKeyInput(rootId, installId, FIRST_EPOCH, key.publicKey, wraps))
         keep(accountId, rootId, key.secret)
+        // #EXP-1950: it made the key itself: verified.
+        nodes.get().recordMadeKey(accountId, rootId, FIRST_EPOCH)
         return PublicTreeKey(key.publicKey, FIRST_EPOCH)
     }
 
     /** A root whose row has not synced its key yet: ask the server (absent = keyless). */
     private suspend fun publicKey(accountId: String, rootId: String): PublicTreeKey? =
         runCatching { sessionKeys.publicKeys(accountId, listOf(rootId)).firstOrNull { it.rootId == rootId } }
-            .getOrNull()?.let { PublicTreeKey(it.publicKey, it.epoch) }
+            .getOrNull()?.let { PublicTreeKey(it.publicKey, it.epoch, it.vouch) }
+
+    /** #EXP-1950 R2 + R3 (install-trust.json `sealCases`): [key] when the rule seals [rootId]'s send to it; null = refused (nothing leaves). */
+    private fun allowed(accountId: String, rootId: String, key: PublicTreeKey): PublicTreeKey? =
+        key.takeIf { nodes.get().sealAllowed(accountId, rootId, it.publicKey, it.epoch, it.vouch) }
 
     /**
-     * Wraps for the readers this install resolves (addendum 1): its own
-     * install always, the user's other installs, and the target device's
+     * The readers this install resolves (addendum 1): its own install
+     * always (first), the user's other installs, and the target device's
      * install when `installs.list` names it. Holders fill any gap later via
-     * `pending`. Null when this install's own wrap cannot be made.
+     * `pending`. Null without an identity.
      */
-    private suspend fun readerWraps(accountId: String, installId: String, target: Readers, secret: ByteArray): List<TreeKeyWrap>? {
+    private suspend fun readerTargets(accountId: String, installId: String, target: Readers): List<WrapTarget>? {
         val identity = identities.vault.identity(accountId, create = false) ?: return null
-        val own = TreeKeyWrap(installId, crypto.wrapTreeKey(base64Url(EnetFfi.x25519PublicOf(identity)), secret))
+        val own = WrapTarget(installId, WrapSignerFfi.endpointIdOf(identity), base64Url(EnetFfi.x25519PublicOf(identity)))
         val userId = auth.accounts.value.firstOrNull { it.id == accountId }?.userId
         val teamInstalls = target.teamId?.let { teamId -> runCatching { installs.list(accountId, teamId) }.getOrNull() }.orEmpty()
         val others = teamInstalls
             .filter { it.installId != installId }
             .filter { it.userId == userId || (target.deviceId != null && it.deviceId == target.deviceId) }
-            .mapNotNull { reader ->
-                runCatching { TreeKeyWrap(reader.installId, crypto.wrapTreeKey(reader.x25519Public, secret)) }.getOrNull()
+            .map { WrapTarget(it.installId, it.endpointId, it.x25519Public) to it.userId }
+        // #EXP-1950 R4: only the readers the rule wraps for (a skipped one asks a holder later).
+        return listOf(own) + nodes.get().allowedTargets(accountId, others)
+    }
+
+    /**
+     * [key]'s wraps for [targets]; null when the own (first) one cannot be
+     * made. #EXP-1950: signed when [rootId] is known; a new root's seal
+     * (null) goes unsigned and its holder signs it again ([keepSeal]).
+     */
+    private suspend fun wrapsFor(accountId: String, targets: List<WrapTarget>, key: TreeKey, rootId: String?): List<TreeKeyWrap>? {
+        val signing = rootId?.let { root -> identities.vault.identity(accountId, create = false)?.let { root to it } }
+        val wraps = targets.mapNotNull { target ->
+            val wrapped = runCatching { crypto.wrapTreeKey(target.x25519Public, key.secret) }.getOrNull() ?: return@mapNotNull null
+            val signature = signing?.let { (root, id) ->
+                runCatching { WrapSignerFfi.sign(id, root, FIRST_EPOCH, key.publicKey, target.endpointId, wrapped) }.getOrNull()
             }
-        return listOf(own) + others
+            TreeKeyWrap(target.installId, wrapped, signature)
+        }
+        return wraps.takeIf { it.firstOrNull()?.installId == targets.firstOrNull()?.installId }
+    }
+
+    /** A new root's key once the send created [rootId]; #EXP-1950: its unsigned seal is signed again by the holder. */
+    private fun keepSeal(accountId: String, rootId: String, key: TreeKey, targets: List<WrapTarget>, wraps: List<TreeKeyWrap>) {
+        keep(accountId, rootId, key.secret)
+        // #EXP-1950 (`newRoot.makerRecord`): it made the key itself: verified.
+        nodes.get().recordMadeKey(accountId, rootId, FIRST_EPOCH)
+        nodes.get().resignNewRoot(accountId, rootId, FIRST_EPOCH, key.publicKey, targets.filter { target -> wraps.any { it.installId == target.installId } })
     }
 
     private fun keep(accountId: String, rootId: String, secret: ByteArray) {

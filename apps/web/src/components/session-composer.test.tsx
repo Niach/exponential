@@ -60,7 +60,17 @@ vi.mock(`@/lib/trpc-client`, () => ({
 }))
 vi.mock(`@/hooks/use-prompts`, () => ({
   usePrompts: () => ({ prompts: mocks.prompts, isReady: true }),
+  usePromptsForTeams: () => ({ prompts: mocks.prompts, isReady: true }),
 }))
+// #EXP-2079: the composer's lists read the chat teams (one synced team here).
+vi.mock(`@/hooks/use-chat-teams`, () => ({
+  useSessionChatTeams: (_session: unknown, teamId?: string) => ({
+    teamIds: teamId ? [teamId] : [],
+    teams: teamId ? [{ id: teamId, slug: `acme`, name: `Acme` }] : [],
+    ownSynced: true,
+  }),
+}))
+vi.mock(`@/components/chat/chat-teams-scope`, () => ({ ChatTeamsScope: ({ children }: { children: unknown }) => children }))
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return { ...actual, useLiveQuery: () => ({ data: [] }) }
@@ -91,10 +101,14 @@ vi.mock(`@/components/session-account-switch`, () => ({
 }))
 vi.mock(`@/hooks/use-mcp-servers`, () => ({
   useMcpServers: () => ({ servers: mocks.mcpServers }),
+  useMcpServersForTeams: (teamIds: readonly string[]) => ({
+    servers: (mocks.mcpServers as Record<string, unknown>[] | null)?.map((server) => ({ ...server, teamId: teamIds[0] })) ?? null,
+  }),
 }))
 vi.mock(`@/hooks/use-team-data`, () => ({
   useTeamById: () => ({ slug: `acme` }),
   useTeamMemberships: () => ({ memberships: [], myTeams: mocks.teams }),
+  useTeamsUsers: () => ({ users: [], userMap: new Map() }),
 }))
 vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: { user: { id: `u1` } } }) }))
 vi.mock(`@/hooks/use-agent-row`, () => ({ useAgentRow: () => ({ agent: mocks.agent, isReady: true }) }))
