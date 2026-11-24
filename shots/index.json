@@ -6168,6 +6168,13 @@
       }
     },
     "new-tab-menu": {
+      "desktop": {
+        "file": "shots/new-tab-menu/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 35838,
+        "sha256": "7b63ed1596f1ae4bf93be4b9dd62044cfd47a2ee3128ea80a3589943d601eade"
+      },
       "web": {
         "file": "shots/new-tab-menu/web.webp",
         "width": 1800,
@@ -8044,6 +8051,13 @@
       }
     },
     "sidebar-board-menu": {
+      "desktop": {
+        "file": "shots/sidebar-board-menu/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 31766,
+        "sha256": "38efcc80961a0356991e635b2ff5dc4dddad23f76fd13050c1f78731fcf20ba9"
+      },
       "web": {
         "file": "shots/sidebar-board-menu/web.webp",
         "width": 1800,
@@ -8053,6 +8067,13 @@
       }
     },
     "sidebar-device-menu": {
+      "desktop": {
+        "file": "shots/sidebar-device-menu/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 29296,
+        "sha256": "059a32de9e8c4aaaa7880de7a25559af243e1cca3d04b38cea2223d57a2a3da5"
+      },
       "web": {
         "file": "shots/sidebar-device-menu/web.webp",
         "width": 1800,
@@ -8066,8 +8087,8 @@
         "file": "shots/sidebar-team-menu/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 39086,
-        "sha256": "de312989d245635bfa56f865db437773ed52cbf4204faf5734fe1ec9308eb6cc"
+        "bytes": 27224,
+        "sha256": "d62ef86422092eca2aa8fd235c7bc248aa491a3f67046b57c63e0a81b09a1a63"
       },
       "web": {
         "file": "shots/sidebar-team-menu/web.webp",
@@ -8082,8 +8103,8 @@
         "file": "shots/sidebar-tree/desktop.webp",
         "width": 1800,
         "height": 1125,
-        "bytes": 40660,
-        "sha256": "3e82b938f42509840b93eaa631b6ec455059a83051afd5c16d059cdcfc605570"
+        "bytes": 25974,
+        "sha256": "ca4ca8ebec5236d0993ffe49142d2caac567d34a8e0fe2c87e1bc273d70ba626"
       },
       "web": {
         "file": "shots/sidebar-tree/web.webp",
