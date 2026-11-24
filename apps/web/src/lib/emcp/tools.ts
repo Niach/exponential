@@ -249,6 +249,7 @@ import { inlineShowResult } from "@exp/mcp-apps/genui-result"
 import { ALL_MCP_TOOL_GATES, watchedByLiveSession, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
 import { trainEdge } from "@/lib/merge-train/edge"
+import { loadIssuePullRequests } from "@/lib/emcp/issue-pull-requests"
 import {
   assertFullAccess,
   assertBoardGranted,
@@ -1341,7 +1342,7 @@ export function registerExponentialTools(
     `exponential_issues_get`,
     {
       annotations: READ_ONLY,
-      description: `Get a single issue by UUID or identifier (e.g. "MET-12"), including its label ids and latest comments (newest first, capped at 50; commentsLimit overrides).`,
+      description: `Get a single issue by UUID or identifier (e.g. "MET-12"), including its label ids, pull requests (pullRequests[].status = where each stands) and latest comments (newest first, capped at 50; commentsLimit overrides).`,
       // EXP-1183: no MCP Apps view here — the always-loaded set has no room
       // for the `_meta.ui` binding (context-budget.test.ts); the issues view
       // opens an issue itself through the host's tools/call.
@@ -1415,6 +1416,8 @@ export function registerExponentialTools(
           // EXP-988/EXP-979: how many files the issue carries, so an agent
           // knows whether exponential_attachments_list is worth a call.
           attachmentCount: await countIssueAttachments(id),
+          // #NEW-23: its pull requests with the header pill's words.
+          pullRequests: await loadIssuePullRequests(id),
           // NEW-19 (FEED-116): the "Reported via widget" card's data, on
           // widget- and agent-filed issues only.
           ...(submission ? { widget: widgetSubmissionWire(submission) } : {}),
