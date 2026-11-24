@@ -34,7 +34,8 @@ import {
   WRAPPED_RE,
   type Reader,
 } from "@/lib/sessions/tree-keys"
-import { checkWrapSignatures, vouchesFor, wrapSignatureInput, type SignedColumns, type Vouch } from "@/lib/sessions/wrap-signatures"
+import { RESIGN_MAX_WRAPS } from "@exp/domain-contract/wrap-signature"
+import { checkWrapSignatures, resignWrapsInTx, vouchesFor, wrapSignatureInput, type SignedColumns, type Vouch } from "@/lib/sessions/wrap-signatures"
 
 export { createTreeKeyInTx, treeReaders, type TreeKeyInput, type TreeReader } from "@/lib/sessions/tree-keys"
 
@@ -443,6 +444,21 @@ export const sessionKeysRouter = router({
       // dropped meanwhile (`dropNonReaderKeysInTx`) is never wrapped for late.
       return ctx.db.transaction((tx) => writeWraps(tx, input, rootIds, signed))
     }),
+
+  /** #EXP-1950 decision (c) (wrap-signature.json `resign`): a holder of a
+   *  root's current epoch replaces each reader's UNSIGNED wrap of it with
+   *  its own signed one; a signed row is never touched. */
+  resign: authedProcedure
+    .input(
+      z.object({
+        installId: uuid,
+        wraps: z
+          .array(z.object({ rootId: uuid, epoch, installId: uuid, wrapped, signature: z.string().min(1).max(128) }))
+          .min(1)
+          .max(RESIGN_MAX_WRAPS),
+      })
+    )
+    .mutation(({ ctx, input }) => ctx.db.transaction((tx) => resignWrapsInTx(tx, ctx.session.user.id, input))),
 
   /** #EXP-1960: a keyless tree this install may not key: its devices key it. */
   requestKey: authedProcedure
