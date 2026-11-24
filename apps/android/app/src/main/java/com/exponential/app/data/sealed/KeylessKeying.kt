@@ -114,3 +114,13 @@ internal class KeylessKeying(
         const val KEY_POLL_MS = 2_000L
     }
 }
+
+/**
+ * #EXP-2123 (install-trust.json `keyMaker` `newRoot`): a new root's inline
+ * key is [made] only by a JOINED install; one that waits for approval fails
+ * the send with [NO_KEY_REFUSAL] (no seal, no root, nothing in clear).
+ */
+internal suspend fun <T> newRootKey(makesKeys: suspend () -> Boolean, made: suspend () -> T): T {
+    if (keyMakerStep(makesKeys(), KeyWrite.NewRoot) != KeyMakerStep.Make) throw TrpcException(NO_KEY_REFUSAL)
+    return made()
+}

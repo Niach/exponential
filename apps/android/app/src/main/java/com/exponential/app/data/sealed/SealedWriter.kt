@@ -168,10 +168,9 @@ class SealedWriter @Inject constructor(
                     }
                 }
             }
-            else -> {
-                // #EXP-2123 (install-trust.json `keyMaker` `newRoot`): an install
-                // that waits for approval makes no key: the send fails, no root is made.
-                if (keyMakerStep(nodes.get().makesKeys(accountId), KeyWrite.NewRoot) != KeyMakerStep.Make) throw TrpcException(NO_KEY_REFUSAL)
+            // #EXP-2123 (install-trust.json `keyMaker` `newRoot`): an install
+            // that waits for approval makes no key: the send fails, no root is made.
+            else -> newRootKey({ nodes.get().makesKeys(accountId) }) {
                 val key = crypto.generateTreeKey()
                 val targets = readerTargets(accountId, installId, readers) ?: throw TrpcException(NO_KEY_REFUSAL)
                 val wraps = wrapsFor(accountId, targets, key, rootId = null) ?: throw TrpcException(NO_KEY_REFUSAL)
@@ -187,7 +186,7 @@ class SealedWriter @Inject constructor(
         }
     }
 
-    /** An attachment-only send (`clearTree`: unchanged): its embeds sealed when this install can, plain otherwise. */
+    /** An attachment-only send (`clearTree`: unchanged): its embeds sealed when this install can, plain otherwise; #EXP-2123: an existing keyless root no key came for fails ([NO_KEY_REFUSAL]), never plain. */
     private suspend fun attachmentsOnly(
         db: ExponentialDatabase,
         accountId: String,
