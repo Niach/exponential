@@ -121,7 +121,9 @@ class VoiceCallDriverTest {
             timers += it
         }
         override fun nowMs(): Long = now
-        override fun log(message: String) {}
+        /** #FEED-268: the call's log lines, apart from the platform calls. */
+        val said = mutableListOf<String>()
+        override fun log(message: String) { said += message }
     }
 
     private val cases by lazy {
@@ -316,6 +318,27 @@ class VoiceCallDriverTest {
     }
 
     /** A clear call up to the pickup. */
+    /** #FEED-268: a dropped call reads from its lines alone: the id, the stages, who ended it and why. */
+    @Test
+    fun aCallLogsItsIdItsStagesAndWhyItEnded() = runTest {
+        val android = FakeAndroid(mutableListOf())
+        val driver = VoiceCallDriver(android, backgroundScope)
+        answered(driver, android)
+        android.now = 5_000L
+        android.socket!!.frames.trySend("""{"t":"call_event","event":{"t":"said","text":"words of the call"}}""")
+        android.socket!!.frames.trySend("""{"t":"call_end","reason":"idle"}""")
+        runCurrent()
+        assertEquals(VoiceCall.Caller.Stage.Idle, driver.caller.stage)
+        val lines = android.said
+        assertEquals("call (no id yet): started (fallback false)", lines.first())
+        assertTrue(lines.toString(), lines.any { it.startsWith("call call-1: ticket after 0 ms: rings device ? (fallback null, sealed false)") })
+        assertTrue(lines.toString(), "call call-1: call_ready: the host joined after 0 ms" in lines)
+        assertTrue(lines.toString(), "call call-1: answered after 0 ms" in lines)
+        assertTrue(lines.last(), lines.last().startsWith("call call-1: ended: call_end from the other side (reason idle) stage=Paired phase="))
+        assertTrue(lines.last(), lines.last().endsWith("answered=true lasted=5000 ms sealed=false up_frames=0 down_frames=0 last_host_audio=never"))
+        assertTrue("never a word of the call", lines.none { "words of the call" in it })
+    }
+
     private suspend fun TestScope.answered(driver: VoiceCallDriver, android: FakeAndroid) {
         driver.start("agent-1", "mint", "en", false)
         android.answer!!.invoke(true, null)
