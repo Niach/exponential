@@ -4,8 +4,10 @@
 #   train/train.sh [config.yaml] [workdir] [stage…]
 #
 # Stages: env setup generate augment train export eval (default: all, in
-# that order). One stage per call lets a shared machine take turns (NEW-129:
-# one heavy-lane take per stage); generate resumes where it stopped.
+# that order). On a shared machine (NEW-129: mint's heavy lane has a 45 min
+# hold) run them a few per call, with staged.py's cuts in place of the long
+# ones: generate-fast for generate, augment-clips + features for augment,
+# train-phase ×3 for train.
 #
 # Defaults: train/hey_spezl.yaml, ~/.cache/etalk-wakeword-train (any disk
 # with ~40 GB free for the 25k-sample settings: the setup step downloads livekit-wakeword's
@@ -64,6 +66,9 @@ PY
       ;;
     generate | augment | train | export | eval)
       lkww "$stage" "$work/config.yaml"
+      ;;
+    generate-fast | augment-clips | features | train-phase)
+      (cd "$work" && "$py" "$here/staged.py" "$work/config.yaml" "$stage")
       ;;
     *)
       echo "unknown stage: $stage" >&2
