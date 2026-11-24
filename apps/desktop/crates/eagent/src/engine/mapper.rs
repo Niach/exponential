@@ -3341,10 +3341,6 @@ impl Mapper {
         } else {
             ActivityEvent::rate_limit(status, resets_at.filter(|at| *at >= 0), message)
         };
-        if self.last_rate_limit.as_ref() == Some(&event) {
-            return;
-        }
-        self.last_rate_limit = Some(event.clone());
         // EXP-804: the ROW's durable `blocked` rides the same edge as the
         // viewer's banner. The banner only exists while somebody watches
         // the stream; the row is what a teammate's list and a parent agent's
@@ -3368,6 +3364,17 @@ impl Mapper {
                     _ => None,
                 },
             );
+        // #FEED-289: a turn the usage wall answered (a start or a resume on
+        // a spent login: the CLI says only its synthetic "You've hit your
+        // weekly limit") HAS its answer: the wall, never the empty-turn line.
+        // Also a repeat of the wall the run already shows.
+        if wall {
+            self.turn_output = true;
+        }
+        if self.last_rate_limit.as_ref() == Some(&event) {
+            return;
+        }
+        self.last_rate_limit = Some(event.clone());
         out.blocked = Some(wall.then(|| {
             wire::activity::SessionBlocked {
                 kind: wire::activity::BLOCKED_KIND_RATE_LIMIT.to_string(),

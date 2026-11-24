@@ -876,23 +876,26 @@ html {
 }
 
 /* #EXP-1860 (agent-settings.json `assistant.fab.clearance`): the Assistant
-   FAB (`[data-assistant-fab]`, a direct child of the team layout's <main>)
-   owns the card's bottom-right 92px square, reserved HERE, once, while it
-   shows: a page's scroll content (`.fab-clearance`, part of
-   PAGE_END_CLEARANCE) ends with a 92px spacer so its last row always
+   FAB (`[data-assistant-fab]`, a direct child of the team layout's <main>,
+   which wears `data-fab-corner` while it shows) owns the card's bottom-right
+   92px square, reserved HERE, once, while it shows: a page's scroll content
+   (`.fab-clearance`, part of PAGE_END_CLEARANCE) ends with a 92px spacer so its last row always
    scrolls clear of the circle, and THE Dock band (`.fab-lane`) keeps its
    right edge 92px in so the composer's send button sits beside the FAB,
-   never under it. No FAB (phones, the Assistant's own page), no rule. */
-main:has(> [data-assistant-fab]) {
+   never under it. No FAB (phones, the Assistant's own page), no rule.
+   #EXP-1999: an attribute, never `main:has(> [data-assistant-fab])`: that
+   restyled the WHOLE page on every node a chat mounted (two full style
+   recalcs per Load earlier page). */
+main[data-fab-corner] {
   --fab-clearance: 92px;
 }
-main:has(> [data-assistant-fab]) .fab-clearance::after {
+main[data-fab-corner] .fab-clearance::after {
   content: "";
   display: block;
   flex-shrink: 0;
   height: var(--fab-clearance);
 }
-main:has(> [data-assistant-fab]) .fab-lane {
+main[data-fab-corner] .fab-lane {
   padding-right: var(--fab-clearance);
 }
 /* #EXP-1872 THE pinned foot (`.fab-foot`): a row of controls a pane pins
@@ -900,7 +903,7 @@ main:has(> [data-assistant-fab]) .fab-lane {
    footer). Its content ends the corner's width in from the card's edge,
    less what already sits between the foot and that edge
    (`--fab-foot-inset`, the pane's own padding, set by the pane). */
-main:has(> [data-assistant-fab]) .fab-foot {
+main[data-fab-corner] .fab-foot {
   padding-right: max(0px, calc(var(--fab-clearance) - var(--fab-foot-inset, 0px)));
 }
 

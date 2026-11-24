@@ -395,9 +395,22 @@ struct ReportInput<'a> {
 /// heartbeat). Fire-and-forget for the tickers: they retry an unlanded
 /// write on their next edge.
 pub fn report(trpc: &TrpcClient, session_id: &str, report: &SessionReport) -> Result<(), ApiError> {
-    let _: serde::de::IgnoredAny =
-        trpc.mutation("sessions.report", &ReportInput { session_id, report })?;
-    Ok(())
+    report_reply(trpc, session_id, report).map(drop)
+}
+
+/// #EXP-2058: what `sessions.report` answered: the row's status once the
+/// report landed. An `ended` report the server kept alive (a chat's root,
+/// an agent, a lost run) reads idle; an older server says nothing.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReportReply {
+    /// The row reads `ended` now: this report ended it, or it already was.
+    pub ended: bool,
+}
+
+/// [`report`], with the server's answer.
+pub fn report_reply(trpc: &TrpcClient, session_id: &str, report: &SessionReport) -> Result<ReportReply, ApiError> {
+    let reply: serde_json::Value = trpc.mutation("sessions.report", &ReportInput { session_id, report })?;
+    Ok(ReportReply { ended: reply.get("status").and_then(serde_json::Value::as_str) == Some("ended") })
 }
 
 // EXP-1426: the reply cards are the agent core's vocabulary (its mapper

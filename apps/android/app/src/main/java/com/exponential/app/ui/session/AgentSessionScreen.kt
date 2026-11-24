@@ -723,6 +723,11 @@ private fun RunFaceContent(
     val ownTail by viewModel.ownTail.collectAsStateWithLifecycle()
     // #EXP-1990: the teammates' inputs the device has not consumed yet.
     val teammateTail by viewModel.teammateTail.collectAsStateWithLifecycle()
+    // #EXP-2089 (message-delivery.json ORDER): every person's not-consumed
+    // rows in ONE list, oldest first, between the held rows and the outbox.
+    val pendingTail = remember(teammateTail, ownTail) {
+        com.exponential.app.domain.MessageDelivery.pendingTail(teammateTail, ownTail)
+    }
     // #FEED-260 (steer-enet.json SYNCED TAIL): a NOT-live feed (the stored
     // tail painted at open, a dropped feed's cache, an empty feed) is
     // followed by the session's synced messages after it, so the agent's
@@ -1297,10 +1302,10 @@ private fun RunFaceContent(
                 // rows = the sent inputs above it, then the own tail; find
                 // counts and paints them (no transcript to page in).
                 // #EXP-1990: + the teammates' inputs still waiting for the device.
-                val placeholderInputs = remember(sessionEnded, noFeedInputs, teammateTail) {
-                    (if (!sessionEnded) noFeedInputs else emptyList()) + teammateTail
+                val placeholderInputs = remember(sessionEnded, noFeedInputs) {
+                    if (!sessionEnded) noFeedInputs else emptyList()
                 }
-                val placeholderBubbles = remember(placeholderInputs, ownTail) { placeholderInputs + ownTail }
+                val placeholderBubbles = remember(placeholderInputs, pendingTail) { placeholderInputs + pendingTail }
                 // #EXP-1998: the sent inputs are the synced messages drawn
                 // here (a live or an ended placeholder draws none); an older
                 // one pages in by widening them and loading older messages.
@@ -1398,11 +1403,13 @@ private fun RunFaceContent(
                             members = tailMembers,
                         )
                     }
-                    if (ownTail.isNotEmpty()) {
+                    if (pendingTail.isNotEmpty()) {
                         com.exponential.app.ui.chat.OwnTailBubbles(
-                            ownTail,
+                            pendingTail,
                             viewModel::ownBubbleAction,
                             modifier = Modifier.padding(top = 8.dp),
+                            viewerId = tailViewerId,
+                            members = tailMembers,
                             // #EXP-1876: below the sent inputs = the same own group
                             // (#EXP-1990: unless a teammate's input ends them).
                             startsGroup = placeholderInputs.isEmpty() ||
@@ -1541,7 +1548,7 @@ private fun RunFaceContent(
                     sessionCards = cardSlots,
                     renderCard = renderSessionCard,
                     calls = feedCalls,
-                    ownTail = if (teammateTail.isEmpty()) ownTail else teammateTail + ownTail,
+                    ownTail = pendingTail,
                     onOwnAction = viewModel::ownBubbleAction,
                 )
                 }
@@ -2216,12 +2223,18 @@ private fun ActivityFeed(
                     lead + head
                 } else {
                     val at = rows.indexOfFirst { row -> sessionCards.after(row).any { it.id == id } }
-                    if (at < 0) null else lead + sessionCards.head.size + at
+                    val tail = sessionCards.tail.indexOfFirst { it.id == id }
+                    when {
+                        at >= 0 -> lead + sessionCards.head.size + at
+                        // #EXP-2087: an open card after the last row.
+                        tail >= 0 -> lead + sessionCards.head.size + rows.size + orphanWorkflows.size + tail
+                        else -> null
+                    }
                 }
             }
         },
         more = { canLoadEarlier || chatMessagesMore },
-        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size).hashCode() },
+        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size, sessionCards.tail.size).hashCode() },
         page = loadEarlier,
         onTake = {
             onFollowChange(false)
@@ -2393,7 +2406,8 @@ private fun ActivityFeed(
         val visible = if (focused != null) {
             focused.items.size + 1
         } else {
-            rows.size + orphanWorkflows.size + (if (working) 1 else 0) + (if (ownTail.isNotEmpty()) 1 else 0)
+            rows.size + orphanWorkflows.size + sessionCards.tail.size + (if (working) 1 else 0) +
+                (if (ownTail.isNotEmpty()) 1 else 0)
         }
         if (following && visible > 0) {
             listState.scrollToItem(visible - 1)
@@ -2411,7 +2425,8 @@ private fun ActivityFeed(
         firstPin[0] = true
         if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
             val count = (if (canLoadEarlier) 1 else 0) + sessionCards.head.size + rows.size +
-                orphanWorkflows.size + (if (working) 1 else 0) + (if (ownTail.isNotEmpty()) 1 else 0) +
+                orphanWorkflows.size + sessionCards.tail.size + (if (working) 1 else 0) +
+                (if (ownTail.isNotEmpty()) 1 else 0) +
                 (if (feedFooter != null) 1 else 0)
             listState.requestScrollToItem(count - 1, Int.MAX_VALUE / 2)
         }
@@ -2758,6 +2773,11 @@ private fun ActivityFeed(
                         )
                     }
                 }
+            }
+            // #EXP-2087 (ask-dock.json `tail`): an open card with no call
+            // in the feed draws after the last row, never above the first.
+            items(sessionCards.tail, key = { "session-card-${it.id}" }, contentType = { "session-card" }) { card ->
+                SessionCardRow(card, ringCard)
             }
             // #EXP-1943: a RUNNING call with no report in the loaded feed
             // draws its card after the feed's last row.
@@ -3172,6 +3192,10 @@ internal class SessionCardSlots(
 ) {
     /** The cards with no call in the feed, at the transcript's head. */
     val head: List<SessionTree.SessionChatRow> get() = anchors.unanchored.mapNotNull(rows::get)
+
+    /** #EXP-2087: the WAITING cards with no call in the feed, after the
+     *  transcript's last row. */
+    val tail: List<SessionTree.SessionChatRow> get() = anchors.tail.mapNotNull(rows::get)
 
     /** The cards a feed row's calls posted, oldest first. */
     fun after(row: AgentFeedRow): List<SessionTree.SessionChatRow> {

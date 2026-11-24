@@ -21,7 +21,24 @@ const STEP_KEYS: &[&str] =
 const STEP_IGNORED: &[&str] = &["id"];
 const SHELLS: &[&str] = &["bash", "sh"];
 /// `uses:` our runner covers itself: the checkout and the cache (a no-op).
-const ACTIONS: &[&str] = &["actions/checkout", "actions/cache"];
+const ACTIONS: &[&str] = &["actions/checkout", "actions/cache", "swatinem/rust-cache"];
+/// Setup actions (#EXP-2078) → the tool each one puts on the PATH. The runner
+/// runs the host's processes and installs nothing, so the step only checks
+/// the tool is there: a no-op when it is, a failure naming it when not.
+const SETUP_ACTIONS: &[(&str, &str)] = &[
+    ("actions/setup-node", "node"),
+    ("actions/setup-python", "python3"),
+    ("actions/setup-go", "go"),
+    ("actions/setup-java", "java"),
+    ("actions/setup-dotnet", "dotnet"),
+    ("dtolnay/rust-toolchain", "cargo"),
+    ("actions-rust-lang/setup-rust-toolchain", "cargo"),
+    ("astral-sh/setup-uv", "uv"),
+    ("oven-sh/setup-bun", "bun"),
+    ("pnpm/action-setup", "pnpm"),
+    ("denoland/setup-deno", "deno"),
+    ("ruby/setup-ruby", "ruby"),
+];
 
 fn event_keys(event: &str) -> Option<&'static [&'static str]> {
     match event {
@@ -455,7 +472,13 @@ pub fn read_workflow(workflow: &Value) -> WorkflowRead {
                             r.unknown(s, STEP_KEYS, STEP_IGNORED, &sat);
                             if let Some(uses) = s.get("uses") {
                                 let action = uses.as_str().map(|u| u.split('@').next().unwrap_or_default().to_lowercase());
-                                if !action.is_some_and(|a| ACTIONS.contains(&a.as_str())) {
+                                let setup = action.as_deref().and_then(|a| SETUP_ACTIONS.iter().find(|(name, _)| *name == a));
+                                if let Some((name, tool)) = setup {
+                                    steps.push(json!({
+                                        "name": name,
+                                        "run": format!("command -v {tool} || {{ echo \"{name}: {tool} is not on this runner\" >&2; exit 1; }}"),
+                                    }));
+                                } else if !action.is_some_and(|a| ACTIONS.contains(&a.as_str())) {
                                     r.err(format!("{sat}/uses"), "unsupported_action");
                                 }
                                 if s.contains_key("run") {

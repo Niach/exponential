@@ -327,7 +327,8 @@ describe(`teamMembers.remove — offboarding cleanup (REV-8)`, () => {
     // Target re-read + owner count both ran under the lock (in-tx), not on
     // the pre-lock snapshot; only the initial target fetch runs outside.
     // The fourth is the FEED-149 read of the machines shared into the team.
-    expect(selectInTx).toEqual([false, true, true, true])
+    // The fifth is #EXP-1951's read of the ex-member's installs (their tree keys).
+    expect(selectInTx).toEqual([false, true, true, true, true])
     expect(deletes[0]!.table).toBe(teamMembers)
   })
 

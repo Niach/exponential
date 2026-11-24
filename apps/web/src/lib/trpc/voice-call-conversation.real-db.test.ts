@@ -147,6 +147,7 @@ describe.skipIf(!ready.ok)(`#EXP-1941 voice.callConversation`, () => {
       brief: null,
       clearTree: false,
       rotationDue: false,
+      vouch: null,
     })
   })
 
@@ -296,7 +297,7 @@ describe.skipIf(!ready.ok)(`#EXP-1941 sessionKeys.pending {rootIds} and sendTarg
     const all = await keys(w.me).pending({ installId: w.mine.id })
     expect(all.map((pair) => pair.rootId).sort()).toEqual([a.rootId, b.rootId].sort())
     const one = await keys(w.me).pending({ installId: w.mine.id, rootIds: [b.rootId] })
-    expect(one).toEqual([{ rootId: b.rootId, epoch: 1, publicKey: b.publicKey, targetInstallId: phone.id, targetX25519Public: phone.publicKey }])
+    expect(one).toEqual([{ rootId: b.rootId, epoch: 1, publicKey: b.publicKey, targetInstallId: phone.id, targetX25519Public: phone.publicKey, targetEndpointId: expect.any(String) }])
     expect(await keys(w.me).pending({ installId: w.mine.id, rootIds: [] })).toEqual([])
     // A root this install holds no wrap of is not answered, whoever asks for it.
     expect(await keys(w.me).pending({ installId: phone.id, rootIds: [a.rootId] })).toEqual([])

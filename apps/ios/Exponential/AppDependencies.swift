@@ -93,6 +93,9 @@ final class AppDependencies: @unchecked Sendable {
     /// content, answers other readers' key requests, seals what we write).
     let treeKeyHolder: TreeKeyHolder
     let treeKeys: TreeKeyCoordinator
+    /// #EXP-1950: this install's approval state per account (the rows of
+    /// Needs you and the phone's Devices, the waiting state).
+    let installTrust: InstallTrustModel
     let notificationDelegate: NotificationDelegate
 
     // EXP-452: best-effort per-account timezone claim (digest send hour).
@@ -263,10 +266,28 @@ final class AppDependencies: @unchecked Sendable {
             }
         )
         self.installNode = installNode
+        // #EXP-1950: the pin store (the app's own keychain group) and the
+        // four rules, record-only in this release (`TrustMode.build`).
+        let installsApi = InstallsApi(trpc: trpc)
+        let pinStore = InstallTrustPinStore()
+        let installTrust = TrustCryptoFactory.make().map { trustCrypto in
+            InstallTrustKeeper(
+                api: installsApi,
+                crypto: trustCrypto,
+                persistence: TrustStorePersistence(
+                    load: { pinStore.load(account: $0) },
+                    save: { pinStore.save(account: $0, data: $1) },
+                    removeAll: { pinStore.removeAll() }
+                ),
+                identity: { identityStore.load() }
+            )
+        }
         let treeKeyHolder = TreeKeyHolder(
             keys: SessionKeysApi(trpc: trpc),
-            installs: InstallsApi(trpc: trpc),
+            installs: installsApi,
             crypto: opener.crypto,
+            signer: WrapSignerFactory.make(),
+            trust: installTrust,
             ring: keyRing,
             identity: { identityStore.load() },
             installId: { accountId in await installNode?.installId(accountId: accountId) },
@@ -274,6 +295,7 @@ final class AppDependencies: @unchecked Sendable {
         )
         self.treeKeyHolder = treeKeyHolder
         self.treeKeys = TreeKeyCoordinator(holder: treeKeyHolder, opener: opener, auth: auth, db: db)
+        self.installTrust = MainActor.assumeIsolated { InstallTrustModel(keeper: installTrust) }
         sessionsApi.sealing.sealer = SessionSealer(
             holder: treeKeyHolder,
             opener: opener,

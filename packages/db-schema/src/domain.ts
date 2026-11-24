@@ -1782,7 +1782,11 @@ export const sessionsSendInputSchema = z
         installId: sendUuid,
         publicKey: z.string().length(43),
         epoch: z.literal(1),
-        wraps: z.array(z.object({ installId: sendUuid, wrapped: z.string().min(1).max(256) })).min(1).max(200),
+        // #EXP-1950: `signature` = the caller's install's over the wrap (optional).
+        wraps: z
+          .array(z.object({ installId: sendUuid, wrapped: z.string().min(1).max(256), signature: z.string().min(1).max(128).nullish() }))
+          .min(1)
+          .max(200),
       })
       .optional(),
     // A new root's or child's issues (rows on it); a message's FORWARDED

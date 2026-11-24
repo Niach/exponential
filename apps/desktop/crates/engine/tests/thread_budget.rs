@@ -154,6 +154,7 @@ fn prepared(session_id: &str, worktree: &Path) -> coding::PreparedLaunch {
         tab_title: "claude · PERF-12".to_string(),
         tab_title_prefix: "PERF-12".to_string(),
         seed_message_id: None,
+        start_note: None,
         bypass_permissions: true,
         plan_mode: false,
         agent: coding::CodingAgent::Claude,
@@ -205,6 +206,7 @@ fn host(runtime: &Arc<steer::SteerRuntime>, index: usize) -> Hosted {
             sink: Some(RecordingSink::new() as Arc<dyn EventSink>),
             conversation: None,
             computer: None,
+            thread: None,
         },
     )
     .expect("the engine starts");

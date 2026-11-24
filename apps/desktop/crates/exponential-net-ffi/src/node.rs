@@ -465,6 +465,14 @@ pub fn identity_sign(identity: Vec<u8>, message: Vec<u8>) -> Result<Vec<u8>, Ene
     Ok(net::Identity::from_slice(&identity)?.sign(&message).to_vec())
 }
 
+/// #EXP-1950 (install-trust.json): whether `signature` (64 bytes) is
+/// `endpoint_id`'s strict ed25519 signature over `message` (an install
+/// approval, a registration). False for a malformed key or signature.
+#[uniffi::export]
+pub fn identity_verify(endpoint_id: String, message: Vec<u8>, signature: Vec<u8>) -> bool {
+    net::verify_endpoint_signature(&endpoint_id, &message, &signature)
+}
+
 /// Parses (validates) an `enet1…` ticket.
 #[uniffi::export]
 pub fn parse_ticket(ticket: String) -> Result<EnetTicket, EnetError> {

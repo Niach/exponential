@@ -36,6 +36,8 @@ import {
   CLEAR_TREE_REFUSAL,
   createFailure,
   keylessStep,
+  rotationAfter,
+  rotationEpoch,
   type CreateFailure,
   type RequestKeyAnswer,
   type SendTree,
@@ -221,5 +223,31 @@ describe(`sealed by default (clearTree, #EDE-97)`, () => {
   test(`the copy and the floor come from the fixture`, () => {
     expect(NO_KEY_REFUSAL).toBe(fixture.clearTree.noKeyRefusal)
     expect(SEALING_DEVICE_MIN_VERSION).toBe(`0.14.96`)
+  })
+})
+
+describe(`rotation (#EXP-1951)`, () => {
+  const hex = (text: string) => Uint8Array.from(text.match(/../g)!.map((byte) => parseInt(byte, 16)))
+  for (const c of fixture.rotation.stepCases) {
+    test(`step: ${c.name}`, () => {
+      expect(rotationEpoch({ flagged: c.flagged, current: c.current, held: c.held, left: c.left })).toBe(c.epoch)
+    })
+  }
+  for (const c of fixture.rotation.answerCases) {
+    test(`answer: ${c.name}`, () => {
+      expect(rotationAfter(c.failure as CreateFailure | null)).toBe(c.then as never)
+    })
+  }
+  test(`the vectors: the other holder's key opens for the install, a foreign row does not`, () => {
+    const secret = hex(fixture.install.secret)
+    expect(unwrapTreeKey(secret, fixture.rotation.rotatedWrap)).toEqual(hex(fixture.rotatedTree.secret))
+    expect(() => unwrapTreeKey(secret, fixture.rotation.foreignWrap)).toThrow()
+  })
+  test(`every holder case names known answers and only wraps listed readers`, () => {
+    for (const c of fixture.rotation.holderCases) {
+      for (const answer of c.create) expect([`ok`, `blip`, `CONFLICT`, `FORBIDDEN`, `NOT_FOUND`]).toContain(answer)
+      for (const create of c.creates) expect(create.wraps).toEqual([`self`])
+      for (const wrap of c.wraps) expect(c.readers).toContain(wrap.to)
+    }
   })
 })

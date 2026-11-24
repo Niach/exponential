@@ -199,7 +199,8 @@ function cardCallRow(name: string | null | undefined): string | null {
  *  pair newest back PER KIND over the legacy calls, then over the shared
  *  `show` calls (S-3: one verb posts every kind), counting only calls with
  *  no `cardId` (an older device); a card with no call left = `unanchored`
- *  (card order, the transcript's head). `anchors` keys = feed item ids,
+ *  (card order, the transcript's head), a WAITING one = `tail` (#EXP-2087:
+ *  after the transcript's last row). `anchors` keys = feed item ids,
  *  each list oldest first. */
 export function anchorSessionCards(
   feed: readonly {
@@ -210,8 +211,8 @@ export function anchorSessionCards(
     failed?: boolean
     cardId?: string | null
   }[],
-  cards: readonly { id: string; kind: SessionCardKind }[]
-): { anchors: Map<number, string[]>; unanchored: string[] } {
+  cards: readonly { id: string; kind: SessionCardKind; waiting?: boolean }[]
+): { anchors: Map<number, string[]>; unanchored: string[]; tail: string[] } {
   const calls = new Map<string, number[]>()
   const named = new Map<string, number>()
   for (const item of feed) {
@@ -227,6 +228,7 @@ export function anchorSessionCards(
   const used = new Map<string, number>()
   const anchors = new Map<number, string[]>()
   const unanchored: string[] = []
+  const tail: string[] = []
   const take = (row: string): number | undefined => {
     const skip = used.get(row) ?? 0
     const ids = calls.get(row) ?? []
@@ -237,8 +239,8 @@ export function anchorSessionCards(
   for (let i = cards.length - 1; i >= 0; i--) {
     const card = cards[i]!
     const call = named.get(card.id) ?? take(SESSION_CARD_CALLS[card.kind]) ?? take(SHOW_CARD_CALL)
-    if (call === undefined) unanchored.unshift(card.id)
+    if (call === undefined) (card.waiting === true ? tail : unanchored).unshift(card.id)
     else anchors.set(call, [card.id, ...(anchors.get(call) ?? [])])
   }
-  return { anchors, unanchored }
+  return { anchors, unanchored, tail }
 }

@@ -62,6 +62,7 @@ pub(crate) fn message(id: &str, author: &str, body: &str) -> SessionChatRow {
         queued: false,
         author_session_id: None,
         xref: None,
+        action: None,
     }
 }
 
@@ -121,6 +122,7 @@ pub(crate) fn rows() -> Vec<(SessionChatRow, &'static str)> {
                     name: "Fix the sign-in redirect".into(),
                     agent_id: None,
                 }),
+                action: None,
             },
             "08:41",
         ),

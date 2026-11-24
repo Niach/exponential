@@ -13,6 +13,12 @@ unset LANE_LOG
 # Every lock dir and the waiter registry live under the private root: the
 # machine's live lanes and /tmp/exp-lane-waiters are never read or written.
 export EXP_LANE_LOCK_ROOT="$root"
+# #EXP-1996: nor may a lane.sh run here sweep the machine's shared cargo
+# target: its sweep goes to a CLI that does nothing (sweep.test.sh has the
+# sweep's own checks).
+printf '#!/bin/sh\nexit 0\n' > "$root/no-sweep"
+chmod +x "$root/no-sweep"
+export LANE_SWEEP_CLI="$root/no-sweep"
 fails=0
 ok() { echo "ok - $1"; }
 no() { echo "not ok - $1"; fails=$((fails + 1)); }
