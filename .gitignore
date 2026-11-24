@@ -52,3 +52,6 @@ packages/exponential-ui-swift/Tests/ExponentialUITests/Resources/bench/*.json
 
 # #NEW-56: local measuring data (wake-word recordings: own and consenting voices only, never committed).
 /out/
+
+# The embedding model (#NEW-134): fetched by `bun run embeddings:model`, baked into the image
+apps/web/embedder/models/

@@ -1,0 +1,86 @@
+name: issue-embeddings
+
+# #NEW-134: semantic issue search's server half on the database it needs:
+# Postgres 17 + pgvector, the image a database that is still on 17 can run
+# (infra/postgres/Dockerfile, built here; build-postgres.yml publishes it).
+# The migration chain from scratch on PG 17, the boot SQL that creates
+# `issue_embeddings`, then the REAL model (fetched pinned + sha256-checked,
+# cached) through the real worker: recompute, sweep, backfill, kNN order for
+# German and English issues.
+#
+# The OTHER half, a Postgres WITHOUT the extension, is every other job: the
+# migrations job (stock postgres:18) applies the same boot SQL and runs the
+# same suite's "without pgvector" cases, and the web-build boot smoke boots
+# the server on it.
+#
+# Part of the PR gate behind a path filter (test.yml `embeddings`) and of the
+# release suite.
+
+on:
+  workflow_call: {}
+
+jobs:
+  pgvector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/exponential
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-bun
+      - run: bun install --frozen-lockfile
+      - name: Build Postgres 17 + pgvector
+        run: docker build --build-arg PG_MAJOR=17 -t exponential-postgres:ci infra/postgres
+      - name: Smoke the image (stock server, musl, CREATE EXTENSION, HNSW)
+        run: infra/postgres/smoke.sh exponential-postgres:ci 17
+      - name: Start it
+        run: |
+          docker run -d --name pg -p 127.0.0.1:5432:5432 -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=exponential \
+            exponential-postgres:ci -c listen_addresses='*' -c wal_level=logical
+          for _ in $(seq 60); do docker exec pg psql -U postgres -d exponential -tAc 'select 1' >/dev/null 2>&1 && break; sleep 1; done
+          sleep 2
+          docker exec pg psql -U postgres -d exponential -tAc 'select version()'
+      - name: Migrations from scratch on Postgres 17
+        run: bun run migrate && (cd apps/web && bun run migrate:contract)
+      - name: Boot SQL (the triggers, then the embeddings table)
+        run: |
+          for file in 0001_triggers 0002_issue_embeddings; do
+            docker exec -i pg psql -U postgres -d exponential -v ON_ERROR_STOP=1 < "apps/web/src/db/out/custom/$file.sql"
+          done
+          # Twice: every boot applies it again.
+          docker exec -i pg psql -U postgres -d exponential -v ON_ERROR_STOP=1 < apps/web/src/db/out/custom/0002_issue_embeddings.sql
+          [ "$(docker exec pg psql -U postgres -d exponential -tAc "select to_regclass('public.issue_embeddings') is not null")" = t ]
+      - name: Restore the embedding model
+        uses: actions/cache@v4
+        with:
+          path: apps/web/embedder/models
+          key: embedding-model-${{ hashFiles('apps/web/embedder/model.json') }}
+      - name: Fetch the embedding model (pinned revision, sha256-checked)
+        run: cd apps/web && bun run embeddings:model
+      - name: Embedder + real-DB suites (real model, pgvector required)
+        env:
+          BETTER_AUTH_SECRET: ci-only-embeddings-secret
+          REAL_DB_REQUIRED: '1'
+          PGVECTOR_REQUIRED: '1'
+          EMBEDDING_MODEL_REQUIRED: '1'
+        run: cd apps/web && bunx vitest run src/lib/issue-embeddings
+      - name: The embedder under bun (the image's runtime), offline numbers
+        run: cd apps/web && bun embedder/bench.mjs
+      - name: Backfill script (dry run, then for real, then nothing left)
+        run: |
+          cd apps/web
+          docker exec -i pg psql -U postgres -d exponential -v ON_ERROR_STOP=1 <<'SQL'
+          insert into users (id, name, email, email_verified, is_admin, created_at, updated_at) values ('ci-embed', 'CI', 'ci@embed.test', true, false, now(), now());
+          insert into teams (id, name, slug) values ('00000000-0000-4000-8000-000000000001', 'CI', 'ci-embed');
+          insert into boards (id, team_id, name, slug, prefix) values ('00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 'Core', 'core', 'CI');
+          insert into issues (board_id, team_id, title, description, creator_id)
+            select '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 'Issue ' || n, 'Beschreibung / description ' || n, 'ci-embed' from generate_series(1, 7) n;
+          SQL
+          bun run embeddings:backfill --dry-run | tee /tmp/dry.log
+          grep -q '7 issue(s) missing or stale' /tmp/dry.log
+          [ "$(docker exec pg psql -U postgres -d exponential -tAc 'select count(*) from issue_embeddings')" = 0 ]
+          bun run embeddings:backfill --batch 3 --sleep-ms 0 --limit 4 | tee /tmp/first.log
+          [ "$(docker exec pg psql -U postgres -d exponential -tAc 'select count(*) from issue_embeddings')" = 4 ]
+          bun run embeddings:backfill --batch 3 --sleep-ms 0 | tee /tmp/second.log
+          grep -q 'finished: 3 embedded, 0 unchanged, 0 left' /tmp/second.log
+          [ "$(docker exec pg psql -U postgres -d exponential -tAc 'select count(*) from issue_embeddings')" = 7 ]
