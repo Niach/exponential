@@ -377,6 +377,13 @@ pub trait TalkHost: 'static {
         let _ = (agent_id, cx);
         None
     }
+    /// EXP-1859: [`Self::dial_call`] as a TURN call (`voice.startCall`
+    /// `mode: turn` with the heard wake `phrase`): one turn on the agent's
+    /// own device. None = this host cannot dial (the turn stays local).
+    fn dial_turn(&self, agent_id: &str, phrase: &str, cx: &mut App) -> Option<Task<Result<DialConnection, DialError>>> {
+        let _ = (agent_id, phrase, cx);
+        None
+    }
     /// A device of the member's (None = unknown).
     fn device(&self, device_id: &str, cx: &App) -> Option<TalkDevice>;
     /// EXP-1857: the member's OWN desktops, newest `lastSeenAt` first (a

@@ -337,6 +337,18 @@ pub(crate) fn target_desktops(
 /// runs, from this desktop: the agent's Runs on, this machine, the
 /// member's other desktops; `busy` = a call already runs on this client.
 pub fn target(agent_id: &str, cx: &App) -> CallTarget {
+    target_for(agent_id, active(cx), cx)
+}
+
+/// EXP-1859 (voice-call.json EXP-1859, the listener's `dial`): a wake turn
+/// with `agent_id` runs as a TURN call: its call target is another device
+/// (whatever runs here right now).
+pub fn dials(agent_id: &str, cx: &App) -> bool {
+    let target = target_for(agent_id, false, cx);
+    target.enabled() && !target.local && target.device.is_some()
+}
+
+fn target_for(agent_id: &str, busy: bool, cx: &App) -> CallTarget {
     let settings = crate::speak_replies::settings(cx);
     let here = host::device_id(cx);
     let name = own_name(cx);
@@ -355,7 +367,7 @@ pub fn target(agent_id: &str, cx: &App) -> CallTarget {
         agent_device: agent_device.as_deref(),
         desktops: &desktops,
         servers: &servers,
-        busy: active(cx),
+        busy,
     })
 }
 

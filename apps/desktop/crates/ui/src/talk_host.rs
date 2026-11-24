@@ -432,6 +432,64 @@ fn talk_message<'a>(row: &'a domain::rows::MessageRow, body: Option<&'a str>) ->
     }
 }
 
+impl ExponentialHost {
+    /// EXP-1857: `voice.startCall` as a desktop (this one the first
+    /// fallback), then the relay's caller socket; EXP-1859: `phrase` = a
+    /// turn call's wake phrase.
+    fn dial(&self, agent_id: &str, phrase: Option<String>, cx: &mut App) -> Option<Task<Result<DialConnection, DialError>>> {
+        let trpc = Arc::new(crate::queries::trpc_client(cx)?);        let runtime = crate::steer_wiring::runtime(cx)?;
+        let (agent_id, device_id) = (agent_id.to_string(), self.device_id());
+        let node = self.account(cx).and_then(|account| crate::enet_wiring::node(&account, cx));
+        Some(cx.spawn(async move |cx| {
+            let (asking, agent) = (Arc::clone(&trpc), agent_id.clone());
+            let has_node = node.is_some();
+            let (started, before) = cx
+                .background_executor()
+                .spawn(async move {
+                    // #EXP-1941: a caller that can seal claims it. A key holder
+                    // that is still starting is waited for first (bounded, the
+                    // wait the chat's writers use); only a desktop that can
+                    // never hold keys dials without the claim.
+                    let claim = has_node && coding::sealing::sealer().is_ok();
+                    // Its own answer on root and epoch, before it dials.
+                    let before = claim.then(|| api::sessions::send_target(&asking, Some(&agent), None).ok()).flatten();
+                    let started = match phrase.as_deref() {
+                        // EXP-1859: a turn call claims the seal as a call does.
+                        Some(phrase) => api::voice::voice_start_turn(&asking, &agent, &device_id, phrase, claim)?,
+                        None => api::voice::voice_start_call_claiming(&asking, &agent, &device_id, claim)?,
+                    };
+                    Ok::<_, api::ApiError>((started, before))
+                })
+                .await
+                .map_err(dial_error)?;
+            log::info!("[voice] call {}: dialling {} (fallback {}, sealed {})", started.call_id, started.device, started.fallback, started.seal);
+            // The server's one boolean: the claim AND the target's cap.
+            let sealing = started.seal.then(|| {
+                let before = before.and_then(|target| {
+                    Some(steer::call_keys::CallTarget { root_id: target.root_id?, epoch: target.epoch, rotation_due: target.rotation_due })
+                });
+                let keys: Arc<dyn steer::call_keys::CallKeySource> = match node {
+                    Some(node) => Arc::new(steer::call_keys::CallerKeys { ops: Arc::new(steer::call_keys::InstallKeyOps { trpc, node }), agent_id: agent_id.clone(), before: before.clone() }),
+                    None => Arc::new(steer::call_keys::FixedKeySource { key: None, delay: std::time::Duration::ZERO }),
+                };
+                steer::call_keys::CallSealing {
+                    call_id: started.call_id.clone(),
+                    agent_id: agent_id.clone(),
+                    // The HOST's device, as the server answered it.
+                    device_id: started.device_id.clone(),
+                    caller_target: before.and_then(|target| Some((target.root_id, target.epoch?))),
+                    keys,
+                }
+            });
+            let (tx, events) = flume::unbounded::<DialLinkEvent>();
+            let caller = steer::call_caller::connect_sealed(&runtime, started.url, &started.call_id, sealing, move |event| {
+                let _ = tx.send(dial_event(event));
+            });
+            Ok(DialConnection { link: Box::new(SteerDial(caller)), events })
+        }))
+    }
+}
+
 impl TalkHost for ExponentialHost {
     fn brand(&self) -> Brand {
         Brand { name: "Exponential", tray_icon_svg: TRAY_ICON_SVG, app_id: crate::undock::CHANNEL_APP_ID, tray_id: "exponential-voice" }
@@ -508,7 +566,11 @@ impl TalkHost for ExponentialHost {
         };
         domain::agent_settings::wake_listeners(&input, &agents)
             .into_iter()
-            .map(|listener| etalk::WakeListener { agent_id: listener.agent_id, phrase: listener.phrase, language: listener.language, dial: false })
+            .map(|listener| {
+                // EXP-1859: an agent whose call runs on another device gets a turn call.
+                let dial = etalk_gpui::voice_call::dials(&listener.agent_id, cx);
+                etalk::WakeListener { agent_id: listener.agent_id, phrase: listener.phrase, language: listener.language, dial }
+            })
             .collect()
     }
 
@@ -672,53 +734,12 @@ impl TalkHost for ExponentialHost {
     /// EXP-1857: `voice.startCall` as a desktop (this one the first
     /// fallback), then the relay's caller socket.
     fn dial_call(&self, agent_id: &str, cx: &mut App) -> Option<Task<Result<DialConnection, DialError>>> {
-        let trpc = Arc::new(crate::queries::trpc_client(cx)?);
-        let runtime = crate::steer_wiring::runtime(cx)?;
-        let (agent_id, device_id) = (agent_id.to_string(), self.device_id());
-        let node = self.account(cx).and_then(|account| crate::enet_wiring::node(&account, cx));
-        Some(cx.spawn(async move |cx| {
-            let (asking, agent) = (Arc::clone(&trpc), agent_id.clone());
-            let has_node = node.is_some();
-            let (started, before) = cx
-                .background_executor()
-                .spawn(async move {
-                    // #EXP-1941: a caller that can seal claims it. A key holder
-                    // that is still starting is waited for first (bounded, the
-                    // wait the chat's writers use); only a desktop that can
-                    // never hold keys dials without the claim.
-                    let claim = has_node && coding::sealing::sealer().is_ok();
-                    // Its own answer on root and epoch, before it dials.
-                    let before = claim.then(|| api::sessions::send_target(&asking, Some(&agent), None).ok()).flatten();
-                    let started = api::voice::voice_start_call_claiming(&asking, &agent, &device_id, claim)?;
-                    Ok::<_, api::ApiError>((started, before))
-                })
-                .await
-                .map_err(dial_error)?;
-            log::info!("[voice] call {}: dialling {} (fallback {}, sealed {})", started.call_id, started.device, started.fallback, started.seal);
-            // The server's one boolean: the claim AND the target's cap.
-            let sealing = started.seal.then(|| {
-                let before = before.and_then(|target| {
-                    Some(steer::call_keys::CallTarget { root_id: target.root_id?, epoch: target.epoch, rotation_due: target.rotation_due })
-                });
-                let keys: Arc<dyn steer::call_keys::CallKeySource> = match node {
-                    Some(node) => Arc::new(steer::call_keys::CallerKeys { ops: Arc::new(steer::call_keys::InstallKeyOps { trpc, node }), agent_id: agent_id.clone(), before: before.clone() }),
-                    None => Arc::new(steer::call_keys::FixedKeySource { key: None, delay: std::time::Duration::ZERO }),
-                };
-                steer::call_keys::CallSealing {
-                    call_id: started.call_id.clone(),
-                    agent_id: agent_id.clone(),
-                    // The HOST's device, as the server answered it.
-                    device_id: started.device_id.clone(),
-                    caller_target: before.and_then(|target| Some((target.root_id, target.epoch?))),
-                    keys,
-                }
-            });
-            let (tx, events) = flume::unbounded::<DialLinkEvent>();
-            let caller = steer::call_caller::connect_sealed(&runtime, started.url, &started.call_id, sealing, move |event| {
-                let _ = tx.send(dial_event(event));
-            });
-            Ok(DialConnection { link: Box::new(SteerDial(caller)), events })
-        }))
+        self.dial(agent_id, None, cx)
+    }
+
+    /// EXP-1859: a wake turn dialled to the agent's own device.
+    fn dial_turn(&self, agent_id: &str, phrase: &str, cx: &mut App) -> Option<Task<Result<DialConnection, DialError>>> {
+        self.dial(agent_id, Some(phrase.to_string()), cx)
     }
 
     fn desktops(&self, cx: &App) -> Vec<TalkDesktop> {
