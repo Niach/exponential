@@ -8,6 +8,7 @@
 // (`sidebar-folders.ts` runs unchanged over that list, section `team`).
 
 import fixture from "../fixtures/sidebar-tree.json" with { type: "json" }
+import { sidebarNewKinds, type SidebarNewKind } from "./sidebar-menus"
 import {
   sidebarMove,
   type SidebarEntry,
@@ -23,13 +24,13 @@ export const SIDEBAR_TREE_MAX_DEPTH = fixture.maxDepth
 export const SIDEBAR_TEAMS_MENU = fixture.teamsMenu as readonly SidebarTeamsMenuItem[]
 
 export type SidebarTeamsMenuItem = `new-team` | `join-team`
-export type SidebarRootRow = `home` | `needs-you` | `chats` | `drafts` | `devices`
+export type SidebarRootRow = `assistant` | `home` | `needs-you` | `chats` | `drafts` | `devices`
 export type SidebarItemKind = `board` | `agent` | `app` | `session`
-export type SidebarNewKind = `board` | `agent` | `app` | `session`
+export type { SidebarNewKind }
 
 /** The fixed rows above the teams; Needs you and Drafts only while they count. */
-export function sidebarRootRows(input: { needsYou: number; drafts: number }): SidebarRootRow[] {
-  const rows: SidebarRootRow[] = [`home`]
+export function sidebarRootRows(input: { needsYou: number; drafts: number; assistant?: boolean }): SidebarRootRow[] {
+  const rows: SidebarRootRow[] = input.assistant ? [`assistant`, `home`] : [`home`]
   if (input.needsYou > 0) rows.push(`needs-you`)
   rows.push(`chats`)
   if (input.drafts > 0) rows.push(`drafts`)
@@ -96,9 +97,8 @@ export interface SidebarMenuItem {
 /** A team row's `…` / right-click menu (settings-nav.json `newEntries`:
  *  board, agent and app are owner-only). */
 export function sidebarTeamMenu(input: { owner: boolean }): SidebarMenuItem[] {
-  const kinds: SidebarNewKind[] = input.owner ? [`board`, `agent`, `app`, `session`] : [`session`]
   return [
-    { id: `new`, children: kinds },
+    { id: `new`, children: sidebarNewKinds(input) },
     { id: `new-folder`, children: [] },
     { id: `settings`, children: [] },
   ]
