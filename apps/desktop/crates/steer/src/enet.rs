@@ -825,12 +825,28 @@ async fn send_direct(inner: Weak<Inner>, peer: EndpointId, message_id: String, b
 }
 
 fn user_in_team(inner: &Inner, team_id: &str, endpoint: &EndpointId) -> Option<String> {
-    let hex = endpoint_hex(endpoint);
-    lock(&inner.team_entries)
-        .get(team_id)?
-        .iter()
-        .find(|entry| entry.endpoint_id == hex)
-        .map(|entry| entry.user_id.clone())
+    sender_in_team(&lock(&inner.team_entries), team_id, &endpoint_hex(endpoint)).team_user_id
+}
+
+/// Who `endpoint_hex` is for a session of `team_id` (steer-enet.json
+/// `access`): its user in that team's list, and (#EXP-2079) for a team this
+/// device holds NO list for, its user in the lists it does hold. An
+/// endpoint two lists give to different users is nobody's.
+fn sender_in_team(
+    team_entries: &HashMap<String, Vec<InstallEntry>>,
+    team_id: &str,
+    endpoint_hex: &str,
+) -> crate::enet_steer::Sender {
+    let user_in = |rows: &Vec<InstallEntry>| {
+        rows.iter().find(|entry| entry.endpoint_id == endpoint_hex).map(|entry| entry.user_id.clone())
+    };
+    if let Some(rows) = team_entries.get(team_id) {
+        return crate::enet_steer::Sender { team_user_id: user_in(rows), team_listed: true, any_team_user_id: None };
+    }
+    let mut users = team_entries.values().filter_map(user_in);
+    let first = users.next();
+    let any_team_user_id = first.filter(|first| users.all(|user| &user == first));
+    crate::enet_steer::Sender { team_user_id: None, team_listed: false, any_team_user_id }
 }
 
 /// EXP-1458: an agent-to-agent message from an allowed peer goes into the
@@ -843,7 +859,9 @@ fn receive_chat(inner: &Inner, from: &EndpointId, body: &[u8]) {
         return;
     }
     if let Some(node) = lock(&inner.node).clone() {
-        let lookup = |team_id: &str, endpoint: &EndpointId| user_in_team(inner, team_id, endpoint);
+        let lookup = |team_id: &str, endpoint: &EndpointId| {
+            sender_in_team(&lock(&inner.team_entries), team_id, &endpoint_hex(endpoint))
+        };
         let stored = lock(&inner.stored).clone();
         if crate::enet_steer::receive(&node, *from, body, &lookup, stored.as_ref()) {
             return;
@@ -960,5 +978,33 @@ mod tests {
         assert_eq!(target_device_installs(&entries, "me", "d1"), [("a".to_string(), "pk-a".to_string())]);
         assert_eq!(target_device_installs(&entries, "me", "d3"), [("d".to_string(), "pk-d".to_string())]);
         assert!(target_device_installs(&entries, "me", "d9").is_empty());
+    }
+
+    /// #EXP-2079 (steer-enet.json `access`): a team with no list at all
+    /// names the endpoint's user from the lists the device does hold; a team
+    /// WITH a list never falls back to another team's.
+    #[test]
+    fn a_team_without_a_list_names_the_endpoint_from_any_list() {
+        let at = |install: &str, user: &str, endpoint: &str| {
+            let mut entry = entry(install, user, None);
+            entry.endpoint_id = endpoint.to_string();
+            entry
+        };
+        let mut lists = HashMap::new();
+        lists.insert("t-a".to_string(), vec![at("a", "me", "e-me"), at("b", "mate", "e-mate")]);
+        lists.insert("t-b".to_string(), vec![at("a", "me", "e-me"), at("c", "odd", "e-odd")]);
+        lists.insert("t-c".to_string(), vec![at("d", "other", "e-odd")]);
+
+        let listed = sender_in_team(&lists, "t-a", "e-me");
+        assert_eq!((listed.team_user_id.as_deref(), listed.team_listed, listed.any_team_user_id), (Some("me"), true, None));
+        // Listed team lacking the endpoint: no fallback (they left the team).
+        let left = sender_in_team(&lists, "t-c", "e-me");
+        assert_eq!((left.team_user_id, left.team_listed, left.any_team_user_id), (None, true, None));
+        // The personal team: no list, the endpoint's user from the others.
+        let personal = sender_in_team(&lists, "p-me", "e-me");
+        assert_eq!((personal.team_user_id, personal.team_listed, personal.any_team_user_id.as_deref()), (None, false, Some("me")));
+        assert_eq!(sender_in_team(&lists, "p-me", "e-nobody").any_team_user_id, None);
+        // Two lists disagree about an endpoint's user: nobody's.
+        assert_eq!(sender_in_team(&lists, "p-me", "e-odd").any_team_user_id, None);
     }
 }

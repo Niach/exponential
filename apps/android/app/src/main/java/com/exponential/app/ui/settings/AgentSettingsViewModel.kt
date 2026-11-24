@@ -245,23 +245,22 @@ class AgentSettingsViewModel @Inject constructor(
             userId != null && members.firstOrNull { it.userId == userId }?.role == DomainContract.teamRoleOwner
         }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    /** The Device picker (`agent-settings.json`): the ONLINE devices of the
-     *  team the caller may start on (the caller's machines + the team's shared
-     *  servers), plus the agent's CURRENT device even while it is offline so
-     *  the field still shows its value. null = loading. */
     /** The agent's team's devices, offline ones too (#EXP-1849: the app
      *  agent slot lists the team-shared ones, offline ones disabled). */
     val teamDevices: StateFlow<List<SteerDevice>?> =
-        steerDeviceFlow(dbFlow, combine(agent, teamId) { row, selected -> row?.teamId ?: selected }, auth.userId)
+        // #EXP-2079 (agent-settings.json `assistant.chatTeams` DEVICES): an
+        // Assistant's page lists its member's OWN machines, whatever teams
+        // they are shared with (null = no team rule), no teammate's server.
+        steerDeviceFlow(
+            dbFlow,
+            combine(agent, teamId) { row, selected -> if (row?.isAssistant == true) null else row?.teamId ?: selected },
+            auth.userId,
+        )
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val devices: StateFlow<List<SteerDevice>?> = combine(
-        teamDevices,
-        agent,
-    ) { list, row ->
-        val current = row?.runnerDefaults?.deviceId
-        list?.filter { it.online || (current != null && it.deviceId == current) }
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    /** The Device row's pool (`runsOnRowCases`, web `deviceRows`): every
+     *  device, online or not; the rows disable an offline one unless bound. */
+    val devices: StateFlow<List<SteerDevice>?> = teamDevices
 
     /** #EXP-1661: the agent's team's skills (the Skills row's picker), by name. */
     val skills: StateFlow<List<com.exponential.app.domain.SkillOption>> =

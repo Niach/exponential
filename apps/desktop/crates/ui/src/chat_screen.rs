@@ -426,8 +426,17 @@ pub(crate) struct ChatScreenView {
     device: DevicePick,
     /// EXP-792: the team's MCP servers with the person's own connection to
     /// each, one fetch per team; `None` while the fetch is out.
-    mcp: Option<Vec<api::mcp_servers::McpServerListEntry>>,
+    /// #EXP-2079: each with its team's name while the pick reads SEVERAL
+    /// teams (the Assistant's first-message pick).
+    mcp: Option<Vec<(api::mcp_servers::McpServerListEntry, Option<String>)>>,
     mcp_team: Option<String>,
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams`): the CHAT TEAMS
+    /// key the composer's lists read (`@` members, `/` prompts, the `+` ›
+    /// Issue pool, the MCP pick): the screen's team, or, while the agent row
+    /// picks the viewer's Assistant, its chat teams (the Teams pick ∩ the
+    /// synced teams, else all of them). Settled per render
+    /// ([`Self::sync_list_team`]).
+    list_team: Option<String>,
     images: PendingImages,
     /// The image strip's notice (too many / too big).
     notice: Option<SharedString>,
@@ -600,6 +609,7 @@ impl ChatScreenView {
             device: DevicePick::default(),
             mcp: None,
             mcp_team: None,
+            list_team: None,
             images: PendingImages::default(),
             notice: None,
             sending: false,
@@ -840,8 +850,11 @@ impl ChatScreenView {
             crate::session_data::ensure_assistant(team_id, cx);
         }
         self.probe_generation += 1;
+        // #EXP-2079: the lists read the chat teams ([`Self::lists_team`]).
+        let lists = self.lists_team(cx);
+        self.list_team = lists.clone();
         self.mention.update(cx, |mention, _| {
-            mention.set_source(team_id.clone().map(crate::markdown::store_completion_source));
+            mention.set_source(lists.map(crate::markdown::store_completion_source));
         });
         self.refresh_actions(window, cx);
         // #EXP-1752: the candidates are team-scoped (#EXP-1440): a team
@@ -923,7 +936,7 @@ impl ChatScreenView {
     /// Replace the subject with these checked issues (a seed, or the first
     /// pick while an action was the subject) and probe them.
     fn set_issue_subject(&mut self, checked: HashSet<String>, cx: &mut gpui::Context<Self>) {
-        let Some(team_id) = self.team_id.clone() else {
+        let Some(team_id) = self.lists_team(cx) else {
             return;
         };
         let rows = issue_picker::snapshot_rows(cx, &team_id, &checked);
@@ -1035,7 +1048,7 @@ impl ChatScreenView {
 
     /// Refresh the team's prompts from the synced `prompts` shape.
     fn refresh_actions(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let Some(team_id) = self.team_id.clone() else {
+        let Some(team_id) = self.lists_team(cx) else {
             self.actions = Vec::new();
             self.actions_ready = false;
             return;
@@ -1228,6 +1241,33 @@ impl ChatScreenView {
         self.selected_agent(cx).is_some()
     }
 
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams`): the chat teams
+    /// key the composer's lists read right now: the screen's team for a new
+    /// chat or a team agent, the Assistant's chat teams (its own personal
+    /// team is never synced: the Teams pick ∩ the synced teams, else all of
+    /// them) while the row picks the viewer's Assistant.
+    fn lists_team(&self, cx: &App) -> Option<String> {
+        match self.selected_agent(cx).filter(|agent| crate::teams_pick::is_my_assistant(agent, cx)) {
+            Some(assistant) => crate::chat_teams::key(assistant.team_id.as_deref(), self.teams_picked.as_deref(), cx)
+                .or_else(|| self.team_id.clone()),
+            None => self.team_id.clone(),
+        }
+    }
+
+    /// Re-point the lists when [`Self::lists_team`] moved (the agent row's
+    /// pick, the Teams pick, a team that synced).
+    fn sync_list_team(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let next = self.lists_team(cx);
+        if next == self.list_team {
+            return;
+        }
+        self.list_team = next.clone();
+        self.mention.update(cx, |mention, _| {
+            mention.set_source(next.map(crate::markdown::store_completion_source));
+        });
+        self.refresh_actions(window, cx);
+    }
+
     /// #EXP-1715: the row picks the viewer's own Assistant (the Teams pick).
     fn to_assistant(&self, cx: &App) -> bool {
         self.selected_agent(cx).is_some_and(|agent| crate::teams_pick::is_my_assistant(&agent, cx))
@@ -1351,26 +1391,44 @@ impl ChatScreenView {
     /// EXP-792: one `mcpServers.list` per team (it carries the person's own
     /// connection to each server).
     fn ensure_mcp_loaded(&mut self, cx: &mut gpui::Context<Self>) {
-        if self.team_id == self.mcp_team {
+        // #EXP-2079 (`assistant.chatTeams` (3)): the servers of the chat
+        // teams, team by team; with more than one each row names its team.
+        let list_team = self.lists_team(cx);
+        if list_team == self.mcp_team {
             return;
         }
         self.mcp = None;
         // NEW-39: the marker lands only once the fetch can run, so a team
         // that syncs before the auth context retries on the next render
         // (the "+" menu's MCP servers row).
-        let (Some(team), Some(trpc)) = (self.team_id.clone(), queries::trpc_client(cx)) else {
+        let (Some(team), Some(trpc)) = (list_team, queries::trpc_client(cx)) else {
             self.mcp_team = None;
             return;
         };
         self.mcp_team = Some(team.clone());
+        let teams: Vec<(String, Option<String>)> = {
+            let ids = crate::chat_teams::teams_of(&team);
+            let named = ids.len() > 1;
+            let rows = Store::global(cx).collections().teams.read(cx);
+            ids.into_iter()
+                .map(|id| {
+                    let name = named.then(|| rows.get(&id).map(|row| row.name.clone())).flatten();
+                    (id, name)
+                })
+                .collect()
+        };
         cx.spawn(async move |this, cx| {
             let loaded = cx
                 .background_executor()
                 .spawn(async move {
-                    api::mcp_servers::list(&trpc, &team)
-                        .inspect_err(|err| log::debug!("[ui] mcpServers.list for chat: {err}"))
-                        .ok()
-                        .map(|loaded| (team, loaded))
+                    let mut loaded = Vec::new();
+                    for (team_id, team_name) in teams {
+                        let listed = api::mcp_servers::list(&trpc, &team_id)
+                            .inspect_err(|err| log::debug!("[ui] mcpServers.list for chat: {err}"))
+                            .ok()?;
+                        loaded.extend(listed.into_iter().map(|entry| (entry, team_name.clone())));
+                    }
+                    Some((team, loaded))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -1396,7 +1454,8 @@ impl ChatScreenView {
         };
         entries
             .iter()
-            .map(|entry| launch_options::McpServerOption {
+            .map(|(entry, team_name)| launch_options::McpServerOption {
+                team_name: team_name.clone(),
                 id: entry.config.id.clone(),
                 name: entry.config.name.clone(),
                 blocked: launch_options::mcp_block_reason(&entry.connection),
@@ -2293,7 +2352,7 @@ impl ChatScreenView {
                     .collect(),
             ),
             _ => (
-                self.team_id
+                self.lists_team(cx)
                     .as_deref()
                     .map(|team| self.team_pool(team, cx))
                     .unwrap_or_default(),
@@ -2654,6 +2713,8 @@ impl ChatScreenView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
+        // #EXP-2079: the lists follow the agent row's and the Teams pick.
+        self.sync_list_team(window, cx);
         // NEW-39: retry the per-team fetches that found no tRPC client yet;
         // both return at once when the team already matches.
         self.ensure_mcp_loaded(cx);
@@ -4042,6 +4103,7 @@ mod tests {
                         enabled_by_default: true,
                         url: None,
                         command: None,
+                        team_name: None,
                     }]
                 } else {
                     Vec::new()

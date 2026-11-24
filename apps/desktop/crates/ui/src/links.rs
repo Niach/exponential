@@ -197,10 +197,15 @@ pub(crate) fn issue_text_links(text: &str, team_id: Option<&str>, cx: &App) -> O
     let mut at = 0;
     for token in crate::markdown::scan_issue_refs(text) {
         let identifier = &text[token.start + 1..token.end];
-        if issue_by_identifier(&team_id, identifier, cx).is_none() {
+        let Some((_, board_id)) = issue_by_identifier(&team_id, identifier, cx) else {
             continue;
-        }
-        let Some(href) = expand_team_link(&format!("~/issues/{identifier}"), Some(&team)) else { continue };
+        };
+        // #EXP-2079 (`assistant.chatTeams` (6)): an issue links through its
+        // OWN team (a chat teams key reads several).
+        let own = Store::try_global(cx)
+            .and_then(|store| store.collections().boards.read(cx).get(&board_id).map(|board| board.team_id.clone()))
+            .and_then(|team_id| team_slug_by_id(&team_id, cx));
+        let Some(href) = expand_team_link(&format!("~/issues/{identifier}"), Some(own.as_deref().unwrap_or(&team))) else { continue };
         if token.start > at {
             segments.push(TextLink { text: text[at..token.start].to_string(), href: None, chip: None });
         }
@@ -486,6 +491,12 @@ pub(crate) fn chip_prose_links(text: &str, team_id: Option<&str>, cx: &App) -> S
     }
     let team = team_slug_by_id(team_id, cx);
     let chips = crate::markdown::RefResolver::from_store(team_id.to_string()).issue_chip;
+    // #EXP-2079: the rows of the chat teams, plus the viewer's own rows of a
+    // team they do not sync (the Assistant and its conversation).
+    let in_scope = |row_team: &str| {
+        domain::agent_settings::chat_teams_has(team_id, row_team)
+            || (team_id.contains(domain::agent_settings::CHAT_TEAMS_SEPARATOR) && team_slug_by_id(row_team, cx).is_none())
+    };
     let resolve = |kind: ProseChipKind, id: &str| -> Option<String> {
         match kind {
             ProseChipKind::Issue => (chips)(&id.to_uppercase(), cx).map(|chip| chip.title),
@@ -494,14 +505,14 @@ pub(crate) fn chip_prose_links(text: &str, team_id: Option<&str>, cx: &App) -> S
                 let boards = store.collections().boards.read(cx);
                 boards
                     .iter()
-                    .find(|board| board.team_id == team_id && board.slug.as_deref().is_some_and(|slug| slug.eq_ignore_ascii_case(id)))
+                    .find(|board| domain::agent_settings::chat_teams_has(team_id, &board.team_id) && board.slug.as_deref().is_some_and(|slug| slug.eq_ignore_ascii_case(id)))
                     .map(|board| board.name.clone())
             }
             ProseChipKind::Session => crate::session_data::session(id, cx)
-                .filter(|row| row.team_id.as_deref() == Some(team_id))
+                .filter(|row| row.team_id.as_deref().is_some_and(in_scope))
                 .map(|row| row.title.filter(|title| !title.trim().is_empty()).unwrap_or_else(|| "Session".to_string())),
             ProseChipKind::Agent => crate::session_data::agent_def(id, cx)
-                .filter(|row| row.team_id.as_deref() == Some(team_id))
+                .filter(|row| row.team_id.as_deref().is_some_and(in_scope))
                 .and_then(|row| row.name),
         }
     };
@@ -523,7 +534,9 @@ fn active_team_slug(window: &Window, cx: &App) -> Option<String> {
 fn team_slug_by_id(team_id: &str, cx: &App) -> Option<String> {
     let store = Store::try_global(cx)?;
     let teams = store.collections().teams.read(cx);
-    teams.get(team_id)?.slug.clone().filter(|slug| !slug.is_empty())
+    // #EXP-2079 (`assistant.chatTeams` (7)): a chat teams key resolves a
+    // team-less target against its first team.
+    teams.get(domain::agent_settings::chat_teams_first(team_id))?.slug.clone().filter(|slug| !slug.is_empty())
 }
 
 /// The synced team a link's slug names (case-insensitive).
@@ -539,11 +552,17 @@ fn team_id_by_slug(team_slug: &str, cx: &App) -> Option<String> {
 /// `(issue id, board id)` of a synced issue of `team_id`.
 fn issue_by_identifier(team_id: &str, identifier: &str, cx: &App) -> Option<(String, String)> {
     let store = Store::try_global(cx)?;
+    // #EXP-2079 (`assistant.chatTeams` (1)): over a chat teams key, the
+    // first team's issue wins a clash.
+    let boards = store.collections().boards.read(cx);
     store
         .collections()
         .issue_refs_in_team(team_id, cx)
         .into_iter()
-        .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
+        .filter(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
+        .min_by_key(|issue| {
+            boards.get(&issue.board_id).and_then(|board| domain::agent_settings::chat_teams_rank(team_id, &board.team_id))
+        })
         .map(|issue| (issue.id.clone(), issue.board_id.clone()))
 }
 

@@ -158,7 +158,8 @@ import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { cardElement, DeepLinkContext, measureCard, useDeepLinkDriver, useReaderScrollDrops } from "@/hooks/use-deep-link"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { SessionDeviceMoveButton } from "@/components/session-device-move"
-import { useTeamUsers } from "@/hooks/use-team-data"
+import { useTeamsUsers } from "@/hooks/use-team-data"
+import { useSessionChatTeams } from "@/hooks/use-chat-teams"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
 import {
@@ -420,7 +421,10 @@ export function AgentSessionView({
   // outlives this view — mounting subscribes to the retained state and dials
   // only when nothing is connected yet.
   const store = useMemo(() => acquireSteerSession(session.id), [session.id])
-  const { users: teamUsers } = useTeamUsers(session.teamId)
+  // #EXP-2079 (agent-settings.json `assistant.chatTeams` (2)): the people of
+  // the chat teams (the Assistant's conversation: its turn's teams).
+  const chatTeams = useSessionChatTeams(session)
+  const { users: teamUsers } = useTeamsUsers(chatTeams.teamIds)
   const {
     phase,
     feed,

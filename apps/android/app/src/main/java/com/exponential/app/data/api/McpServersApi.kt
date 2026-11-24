@@ -91,6 +91,18 @@ class McpServersApi @Inject constructor(private val trpc: TrpcClient) {
             )
         }
 
+    /** #EXP-2079 (agent-settings.json `assistant.chatTeams` (3)): the servers
+     *  of the chat teams, team by team in order, each team's in its list
+     *  order; with more than one team each row names its team. */
+    suspend fun listForTeams(
+        accountId: String,
+        teamIds: List<String>,
+        teamName: suspend (String) -> String?,
+    ): List<McpServerOption> = teamIds.flatMap { team ->
+        val name = if (teamIds.size > 1) teamName(team) else null
+        list(accountId, team).map { it.copy(teamName = name) }
+    }
+
     /** Settings › MCP: an open http server row's tools, with the caller's own credential. */
     suspend fun tools(accountId: String, serverId: String): McpServerToolsDto =
         trpc.query(

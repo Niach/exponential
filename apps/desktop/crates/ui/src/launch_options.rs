@@ -69,6 +69,20 @@ pub(crate) struct McpServerOption {
     /// ([`crate::picker::mcp_server_picker::mcp_server_icon`]).
     pub(crate) url: Option<String>,
     pub(crate) command: Option<String>,
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams` (3)): the
+    /// server's team, set only when the pick reads SEVERAL teams (the
+    /// Assistant's conversation): the row's second line names it.
+    pub(crate) team_name: Option<String>,
+}
+
+/// The second line of a row of a pick over several teams: its team, then the
+/// reason it is not ready (`None` = one team: the row's own line).
+pub(crate) fn mcp_team_line(team_name: Option<&str>, blocked: Option<&str>) -> Option<String> {
+    let team = team_name?;
+    Some(match blocked {
+        Some(reason) => format!("{team} · {reason}"),
+        None => team.to_string(),
+    })
 }
 
 /// The options as the shared picker reads them
@@ -86,7 +100,7 @@ pub(crate) fn mcp_picker_servers(
             name: server.name.clone(),
             url: server.url.clone(),
             command: server.command.clone(),
-            description: server.blocked.clone(),
+            description: mcp_team_line(server.team_name.as_deref(), server.blocked.as_deref()).or_else(|| server.blocked.clone()),
             disabled: false,
         })
         .collect()
@@ -1290,6 +1304,7 @@ mod tests {
 
     fn server(id: &str, name: &str, on_by_default: bool) -> McpServerOption {
         McpServerOption {
+            team_name: None,
             id: id.into(),
             name: name.into(),
             blocked: None,
@@ -1378,6 +1393,16 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].url.as_deref(), Some("https://mcp.linear.app/mcp"));
         assert_eq!(rows[0].description, None);
+        // #EXP-2079: a pick over several teams names each row's team, then
+        // the reason it is not ready.
+        let teams: Vec<McpServerOption> = servers
+            .iter()
+            .cloned()
+            .map(|server| McpServerOption { team_name: Some("Acme".into()), ..server })
+            .collect();
+        let named = mcp_picker_servers(&teams);
+        assert_eq!(named[0].description.as_deref(), Some("Acme"));
+        assert_eq!(named[1].description, Some(format!("Acme · {MCP_CONNECT_FIRST}")));
         assert_eq!(rows[1].command.as_deref(), Some("npx acme"));
         assert_eq!(rows[1].description.as_deref(), Some(MCP_CONNECT_FIRST));
         assert!(rows.iter().all(|row| !row.disabled));

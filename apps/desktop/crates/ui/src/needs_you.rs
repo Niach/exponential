@@ -486,13 +486,33 @@ pub(crate) fn rows_in_team(team_id: &str, cx: &mut App) -> Rc<NeedsYouRows> {
 /// #EXP-2027 (sidebar-tree.json): Needs you spans every member team.
 pub(crate) fn rows_in_all_teams(cx: &mut App) -> NeedsYouRows {
     let teams: Vec<String> = Store::try_global(cx).map(|store| store.collections().teams_sorted(cx).into_iter().map(|team| team.id).collect()).unwrap_or_default();
+    let lists: Vec<Rc<NeedsYouRows>> = teams.iter().map(|team| rows_in_team(team, cx)).collect();
+    merge_team_rows(lists.iter().map(|rows| rows.as_ref()))
+}
+
+/// #EXP-2082: every team's list holds the viewer's own sessions in their
+/// personal team (the Assistant's conversation, `in_team_or_personal`), so
+/// the all-teams list keeps each row ONCE (by its message), in first-seen
+/// order, as web's.
+fn merge_team_rows<'a>(lists: impl IntoIterator<Item = &'a NeedsYouRows>) -> NeedsYouRows {
     let mut out = NeedsYouRows::default();
-    for team in teams {
-        let rows = rows_in_team(&team, cx);
-        out.rows.extend(rows.rows.iter().cloned());
+    let mut seen = std::collections::HashSet::new();
+    for rows in lists {
+        for row in &rows.rows {
+            if seen.insert(row.message_id.clone()) {
+                out.rows.push(row.clone());
+            }
+        }
         out.stuck.extend(rows.stuck.iter().map(|(k, v)| (k.clone(), v.clone())));
     }
     out
+}
+
+/// #EXP-2082: the Needs you total (the rail badge, the app icon): the
+/// all-teams rows, each once ([`merge_team_rows`]); never the sum of the
+/// per-team counts, which counts the viewer's personal-team rows per team.
+pub(crate) fn total_count(cx: &mut App) -> usize {
+    rows_in_all_teams(cx).rows.len()
 }
 
 pub(crate) fn counts_by_team(cx: &mut App) -> std::collections::BTreeMap<String, usize> {
@@ -759,6 +779,20 @@ mod tests {
 
     fn dated(id: &str, kind: NeedsYouKind, created_at: &str) -> NeedsYouRow {
         NeedsYouRow { message_id: id.into(), created_at: created_at.into(), ..row(kind, "") }
+    }
+
+    /// #EXP-2082: the Assistant's question shows in every team's list (its
+    /// session sits in the personal team); the all-teams list keeps it once.
+    #[test]
+    fn the_all_teams_list_keeps_a_personal_team_row_once() {
+        let a = NeedsYouRows { rows: vec![dated("q-assistant", NeedsYouKind::Question, "2026-11-24T01:00:00Z"), dated("q-a", NeedsYouKind::Question, "2026-11-24T00:00:00Z")], stuck: HashMap::new() };
+        let b = NeedsYouRows { rows: vec![dated("q-assistant", NeedsYouKind::Question, "2026-11-24T01:00:00Z"), dated("q-b", NeedsYouKind::Plan, "2026-11-23T00:00:00Z")], stuck: HashMap::new() };
+        let merged = merge_team_rows([&a, &b]);
+        let ids: Vec<&str> = merged.rows.iter().map(|row| row.message_id.as_str()).collect();
+        assert_eq!(ids, ["q-assistant", "q-a", "q-b"]);
+        // The badge counts these rows (3), never the per-team sum (4).
+        assert_eq!(merged.rows.len(), 3);
+        assert_eq!(a.rows.len() + b.rows.len(), 4);
     }
 
     /// #EXP-1710 (web `withStuckRows`): a stuck PR replaces its ready row

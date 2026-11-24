@@ -81,12 +81,28 @@ final class IssueRefAugmentor {
         let local = await IssueRefLookup.search(
             query, scope: scope, db: db, accountId: accountId, limit: Self.limit)
         guard !IssueSearch.normalizeQuery(query).isEmpty,
-              let teamId = await IssueRefLookup.teamId(for: scope, db: db, accountId: accountId),
-              let hits = try? await issuesApi.search(
-                  accountId: accountId, teamId: teamId, query: query, limit: Self.limit),
-              !hits.isEmpty
+              let found = await serverHits(query), !found.hits.isEmpty
         else { return local }
-        return await mergeHits(hits, local: local)
+        return mergeHits(found, local: local)
+    }
+
+    /// The server's hits with their renderable rows. #EXP-2079: a chat asks
+    /// each of its teams (`issues.search` is team-scoped), team by team in
+    /// order; nil = no team, or every ask failed.
+    private func serverHits(_ query: String) async -> (hits: [SearchIssueHit], table: [String: IssueRefCandidate])? {
+        var hits: [SearchIssueHit] = []
+        var table: [String: IssueRefCandidate] = [:]
+        var answered = false
+        for teamId in await IssueRefLookup.teamIds(for: scope, db: db, accountId: accountId) {
+            guard let found = try? await issuesApi.search(
+                accountId: accountId, teamId: teamId, query: query, limit: Self.limit)
+            else { continue }
+            answered = true
+            hits += found
+            let rows = await IssueRefLookup.candidates(for: found, teamId: teamId, db: db, accountId: accountId)
+            table.merge(rows, uniquingKeysWith: { first, _ in first })
+        }
+        return answered ? (hits, table) : nil
     }
 
     private func loadLocal(_ query: String) {
@@ -112,28 +128,28 @@ final class IssueRefAugmentor {
         task = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.debounce)
             guard !Task.isCancelled, let self else { return }
-            guard let teamId = await IssueRefLookup.teamId(for: scope, db: db, accountId: accountId),
-                  let hits = try? await issuesApi.search(
-                      accountId: accountId, teamId: teamId, query: query, limit: Self.limit)
-            else { return }
-            guard !Task.isCancelled, !hits.isEmpty else { return }
-            await self.apply(hits, for: query)
+            guard let found = await self.serverHits(query) else { return }
+            guard !Task.isCancelled, !found.hits.isEmpty else { return }
+            await self.apply(found, for: query)
         }
     }
 
-    private func apply(_ hits: [SearchIssueHit], for query: String) async {
+    private func apply(
+        _ hits: (hits: [SearchIssueHit], table: [String: IssueRefCandidate]), for query: String
+    ) async {
         guard let editor, editor.activeIssueRefQuery == query else { return }
         let local = await IssueRefLookup.search(
             query, scope: scope, db: db, accountId: accountId, limit: Self.limit)
-        let merged = await mergeHits(hits, local: local)
+        let merged = mergeHits(hits, local: local)
         guard !Task.isCancelled else { return }
         mergedQuery = query
         editor.offerIssueRefCandidates(merged, for: query)
     }
 
-    private func mergeHits(_ hits: [SearchIssueHit], local: [IssueRefCandidate]) async -> [IssueRefCandidate] {
-        let table = await IssueRefLookup.candidates(
-            for: hits, scope: scope, db: db, accountId: accountId)
+    private func mergeHits(
+        _ found: (hits: [SearchIssueHit], table: [String: IssueRefCandidate]), local: [IssueRefCandidate]
+    ) -> [IssueRefCandidate] {
+        let (hits, table) = found
         // The issue being edited never offers itself — on either half.
         let exclude: Set<String> = {
             if case .issue(let id) = scope { return [id] }
