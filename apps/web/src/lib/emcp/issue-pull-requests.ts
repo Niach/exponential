@@ -1,11 +1,12 @@
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm"
+import { alias } from "drizzle-orm/pg-core"
 import { statusPill, type HoldReason, type MergeWait, type PrMergeState } from "@exp/domain-contract/merge-train"
 import { db } from "@/db/connection"
-import { pullRequestIssues, pullRequests } from "@/db/schema"
+import { pullRequestIssues, pullRequests, sessionIssues, sessions } from "@/db/schema"
 
-// #NEW-23: `exponential_issues {op: "get"}` names the issue's pull requests,
-// so a reader outside the app (the Claude Code status line, an agent) knows
-// where its PR stands without a second call. `status` = the header pill's
+// #NEW-23: `exponential_issues {op: "get"}` names the issue's pull requests
+// and its live sessions, so a reader outside the app (the Claude Code status
+// line and pane, an agent) knows where the work stands without a second call. `status` = the header pill's
 // label (merge-train.json `statusPill`), the same words every client draws.
 
 /** How many PRs one issue's reply lists (newest first). */
@@ -89,4 +90,47 @@ export async function loadIssuePullRequests(issueId: string): Promise<IssuePullR
   return rows.map((row) =>
     issuePullRequestWire(row, row.mergeState === `testing` && row.mergeTrainId ? Math.max(0, (batchSize.get(row.mergeTrainId) ?? 1) - 1) : 0)
   )
+}
+
+/** How many live sessions one issue's reply lists (latest first). */
+export const ISSUE_SESSIONS_CAP = 5
+
+export interface IssueSessionWire {
+  sessionId: string
+  rootId: string
+  status: string
+  busy: boolean
+  needsInput: boolean
+  branch: string | null
+  updatedAt: Date
+}
+
+/** The live sessions that hold the issue, under THE visibility rule
+ *  (lib/sessions/access.ts: shared or the caller's own, on the row and its
+ *  root). */
+export async function loadIssueSessions(issueId: string, userId: string): Promise<IssueSessionWire[]> {
+  const root = alias(sessions, `issue_session_root`)
+  return db
+    .select({
+      sessionId: sessions.id,
+      rootId: sessions.rootId,
+      status: sessions.status,
+      busy: sessions.busy,
+      needsInput: sessions.needsInput,
+      branch: sessions.branch,
+      updatedAt: sessions.updatedAt,
+    })
+    .from(sessionIssues)
+    .innerJoin(sessions, eq(sessions.id, sessionIssues.sessionId))
+    .innerJoin(root, eq(root.id, sessions.rootId))
+    .where(
+      and(
+        eq(sessionIssues.issueId, issueId),
+        ne(sessions.status, `ended`),
+        or(eq(sessions.shared, true), eq(sessions.userId, userId)),
+        or(eq(root.shared, true), eq(root.userId, userId))
+      )
+    )
+    .orderBy(desc(sessions.updatedAt))
+    .limit(ISSUE_SESSIONS_CAP)
 }

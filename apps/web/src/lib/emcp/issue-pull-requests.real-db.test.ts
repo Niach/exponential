@@ -12,14 +12,15 @@ const ready = await probeRealDb(`
 `)
 if (!ready.ok) console.info(`[issue-pull-requests.real-db] skipped: ${ready.reason}`)
 
-const { loadIssuePullRequests } = await import(`./issue-pull-requests`)
+const { loadIssuePullRequests, loadIssueSessions } = await import(`./issue-pull-requests`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
-const made = { teams: [] as string[] }
+const made = { teams: [] as string[], users: [] as string[] }
 
 afterAll(async () => {
   if (!ready.ok) return
   for (const id of made.teams) await db.execute(sql`DELETE FROM teams WHERE id = ${id}`)
+  for (const id of made.users) await db.execute(sql`DELETE FROM users WHERE id = ${id}`)
 })
 
 describe.skipIf(!ready.ok)(`#NEW-23: an issue's pull requests`, () => {
@@ -66,5 +67,44 @@ describe.skipIf(!ready.ok)(`#NEW-23: an issue's pull requests`, () => {
       [1, `merged`, `Merged`],
     ])
     expect(rows[0]).toMatchObject({ url: `https://github.com/acme/app/pull/5`, checks: `none` })
+  })
+
+  it(`lists the live sessions the caller may see`, async () => {
+    const user = async () => {
+      const id = `pulls-${id8()}`
+      await db.execute(sql`
+        INSERT INTO users (id, name, email, email_verified, is_admin, created_at, updated_at)
+        VALUES (${id}, 'Tester', ${`${id}@pulls.test`}, true, false, now(), now())`)
+      made.users.push(id)
+      return id
+    }
+    const [me, mate] = [await user(), await user()]
+    const team = await db.execute<{ id: string }>(sql`
+      INSERT INTO teams (name, slug) VALUES ('Pulls', ${`pulls-${id8()}`}) RETURNING id`)
+    const teamId = team.rows[0]!.id
+    made.teams.push(teamId)
+    const board = await db.execute<{ id: string }>(sql`
+      INSERT INTO boards (team_id, name, slug, prefix) VALUES (${teamId}, 'Board', ${`b-${id8()}`}, ${`P${id8().slice(0, 3).toUpperCase()}`}) RETURNING id`)
+    const boardId = board.rows[0]!.id
+    const issue = await db.execute<{ id: string }>(sql`
+      INSERT INTO issues (board_id, team_id, number, identifier, title) VALUES (${boardId}, ${teamId}, 1, ${`PUL-${id8()}`}, 'An issue') RETURNING id`)
+    const issueId = issue.rows[0]!.id
+    const session = async (owner: string, columns: { status?: string; shared?: boolean; busy?: boolean; branch?: string }) => {
+      const id = crypto.randomUUID()
+      await db.execute(sql`
+        INSERT INTO sessions (id, team_id, root_id, user_id, device_id, status, shared, busy, branch)
+        VALUES (${id}, ${teamId}, ${id}, ${owner}, 'dev', ${columns.status ?? `running`}, ${columns.shared ?? false}, ${columns.busy ?? false}, ${columns.branch ?? null})`)
+      await db.execute(sql`
+        INSERT INTO session_issues (session_id, issue_id, team_id, board_id) VALUES (${id}, ${issueId}, ${teamId}, ${boardId})`)
+      return id
+    }
+    const mine = await session(me, { busy: true, branch: `exp/session-mine` })
+    await session(me, { status: `ended` })
+    await session(mate, {})
+    const shared = await session(mate, { shared: true, status: `idle` })
+
+    const rows = await loadIssueSessions(issueId, me)
+    expect(rows.map((row) => row.sessionId).sort()).toEqual([mine, shared].sort())
+    expect(rows.find((row) => row.sessionId === mine)).toMatchObject({ rootId: mine, status: `running`, busy: true, needsInput: false, branch: `exp/session-mine` })
   })
 })
