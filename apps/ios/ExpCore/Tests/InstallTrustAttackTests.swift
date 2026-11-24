@@ -71,8 +71,7 @@ final class InstallTrustAttackTests: XCTestCase {
         let claims = Locked<[String]>([])
         /// Holds every claim until `claimGate` claims arrived (two installs at once).
         var claimGate = 0
-        private let arrived = Locked(0)
-        private let waiters = Locked<[CheckedContinuation<Void, Never>]>([])
+        private let gate = Locked<(arrived: Int, waiters: [CheckedContinuation<Void, Never>])>((0, []))
 
         init(_ installs: [ServedInstall]) { self.installs = Locked(installs) }
 
@@ -98,14 +97,15 @@ final class InstallTrustAttackTests: XCTestCase {
         func claimRoot(accountId: String, installId: String, signature: String, approvals claimed: [RootClaimApproval]?) async throws {
             claims.mutate { $0.append(installId) }
             if claimGate > 0 {
-                var count = 0
-                arrived.mutate { $0 += 1; count = $0 }
-                if count < claimGate {
-                    await withCheckedContinuation { continuation in waiters.mutate { $0.append(continuation) } }
-                } else {
-                    var all: [CheckedContinuation<Void, Never>] = []
-                    waiters.mutate { all = $0; $0 = [] }
-                    for waiter in all { waiter.resume() }
+                let needed = claimGate
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    gate.mutate { state in
+                        state.arrived += 1
+                        state.waiters.append(continuation)
+                        guard state.arrived >= needed else { return }
+                        for waiter in state.waiters { waiter.resume() }
+                        state.waiters = []
+                    }
                 }
             }
             let me = try endpoint(of: installId)

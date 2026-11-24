@@ -241,13 +241,14 @@ public actor InstallNodeService {
         // At most one rotation per pass: a second FORBIDDEN means something
         // else is wrong, and looping would mint identities forever.
         for attempt in 0..<2 {
-            guard let (seed, minted) = identity.loadOrMint() else {
+            guard let loaded = identity.loadOrMint() else {
                 logger.error("No install identity (keychain refused it): eNet stays off")
                 return false
             }
+            let seed = loaded.identity
             // Decision (e): every account's store is written BEFORE this new
             // identity registers for it (accounts without one are existing).
-            if minted { identity.minted(seed, accounts.map(\.accountId)) }
+            if loaded.minted { identity.minted(seed, accounts.map(\.accountId)) }
             guard await ensureNode(seed) != nil else { return false }
             if await registerPending(seed: seed) || attempt == 1 { break }
             logger.info("The registry revoked this install: rotating its identity")

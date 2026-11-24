@@ -176,7 +176,7 @@ public actor InstallTrustKeeper {
     /// build, or every signed-in account of an identity this build minted. A
     /// store this endpoint already keeps stays; one that cannot be read is
     /// left alone.
-    public nonisolated static func markNew(accountId: String, identity: Data, crypto: TrustCrypto, persistence: TrustStorePersistence) {
+    public static func markNew(accountId: String, identity: Data, crypto: TrustCrypto, persistence: TrustStorePersistence) {
         guard let endpoint = try? crypto.endpointId(identity: identity) else { return }
         let kept: Data?
         do {
