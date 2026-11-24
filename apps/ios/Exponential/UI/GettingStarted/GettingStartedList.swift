@@ -253,7 +253,7 @@ struct GettingStartedRow: View {
 }
 
 /// Settings' "Getting started" row (the phones' entry, web's sidebar entry):
-/// the same block in a bottom sheet, bound to the active team.
+/// the same block in a bottom sheet, bound to one team.
 struct GettingStartedSheet: View {
     let progress: GettingStartedProgress
     let accountId: String

@@ -6,7 +6,7 @@ import GRDB
 /// EXP-825/EXP-1291: the ONE launcher's state — what Home's composer is
 /// about to start, and the send. Every play button navigates here with an
 /// `AgentComposerSeed`; the send is ONE `sessions.send` that starts a new
-/// CHAT root in the ACTIVE team (phones: the current board's team):
+/// CHAT root:
 ///
 /// - The SUBJECT is issue chips, OR one prompt chip (NEW-2: picked in the
 ///   `/` menu, sent as `promptId`); picking issues or a prompt REPLACES the
