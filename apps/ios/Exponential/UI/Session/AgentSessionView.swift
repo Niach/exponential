@@ -2317,6 +2317,8 @@ struct AgentSessionView: View {
                 }
                 .id(TranscriptFind.ownKey(bubble))
                 .deepLinkRow(findLink?.target == TranscriptFind.ownKey(bubble), frame: $findFrame)
+                // The tail's first row opens a group under the transcript.
+                .padding(.top, index == 0 ? TranscriptGrouping.Layout.gapBetween : 0)
             } else {
             TranscriptRow(
                 side: .own,
