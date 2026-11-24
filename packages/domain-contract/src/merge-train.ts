@@ -196,17 +196,20 @@ export const NO_CHECKS_GRACE_MS = 5 * 60_000
  *  #FEED-282: a base naming none still waits out the grace when the repo
  *  reports CI on its PRs (`ciSeen`): a PR opened seconds ago has no runs
  *  YET; past the grace it lands as before (never held: a paths filter may
- *  run nothing). */
+ *  run nothing). #EXP-2090: a repo whose CI is new has no such PR, so the
+ *  forge's check runs at this very head (`headRuns`) count the same. */
 export function noChecksVerdict(input: {
   expected: boolean
   /** The repo's other PRs report check runs (it has CI). */
   ciSeen?: boolean
+  /** The forge shows check runs at this head (no row of them arrived yet). */
+  headRuns?: boolean
   /** The forge's mergeability (false = conflicts), null = not computed. */
   mergeable: boolean | null
   /** Since the forge last updated the PR. */
   ageMs: number
 }): `wait` | `no_checks` | `conflict` | null {
-  if (!input.expected) return input.ciSeen === true && input.ageMs < NO_CHECKS_GRACE_MS ? `wait` : null
+  if (!input.expected) return (input.ciSeen === true || input.headRuns === true) && input.ageMs < NO_CHECKS_GRACE_MS ? `wait` : null
   if (input.mergeable === false) return `conflict`
   return input.ageMs >= NO_CHECKS_GRACE_MS ? `no_checks` : `wait`
 }

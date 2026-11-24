@@ -579,7 +579,7 @@ describe(`voice calls (NEW-55)`, () => {
   }
   function dial(
     hub: Hub,
-    opts: { callId?: string; owner?: string; deviceId?: string } = {}
+    opts: { callId?: string; owner?: string; deviceId?: string; mode?: `call` | `turn`; phrase?: string } = {}
   ) {
     const sock = new FakeSocket()
     hub.onOpen(
@@ -592,6 +592,8 @@ describe(`voice calls (NEW-55)`, () => {
         agentId: `agent-1`,
         deviceId: opts.deviceId ?? `mint`,
         deviceOwnerId: opts.owner ?? `owner`,
+        ...(opts.mode ? { mode: opts.mode } : {}),
+        ...(opts.phrase ? { phrase: opts.phrase } : {}),
       })
     )
     return sock
@@ -638,6 +640,21 @@ describe(`voice calls (NEW-55)`, () => {
     expect(caller.closed).toBeNull()
     expect(hub.stats().calls).toBe(1)
     expect(hub.counters().callRings).toBe(1)
+    hub.destroy()
+  })
+
+  // EXP-1859: a turn call's ring says its mode and phrase.
+  test(`a turn call's ring carries its mode and phrase`, () => {
+    const hub = new Hub()
+    const device = onlineDevice(hub)
+    dial(hub, { mode: `turn`, phrase: `Hey Studio` })
+    expect(device.lastFrame(`call_ring`)).toEqual({
+      t: `call_ring`,
+      callId: `call-1`,
+      agentId: `agent-1`,
+      mode: `turn`,
+      phrase: `Hey Studio`,
+    })
     hub.destroy()
   })
 
@@ -1018,6 +1035,37 @@ describe(`voice calls (NEW-55)`, () => {
     expect(next.closed).toBeNull()
     expect(device.framesOf(`call_ring`)).toHaveLength(2)
     hub.destroy()
+  })
+
+  test(`#FEED-268 a call's log lines say who ended it and why, by its tag, never a frame`, () => {
+    const info = spyOn(console, `info`).mockImplementation(() => {})
+    try {
+      const callId = `1a2b3c4d-0000-4000-8000-000000000001`
+      const lines = () => info.mock.calls.map((call) => String(call[0])).filter((line) => line.startsWith(`[call `))
+      // The caller's socket goes away mid-call.
+      const hub = new Hub()
+      onlineDevice(hub)
+      const caller = dial(hub, { callId })
+      const host = answer(hub, { callId })
+      hub.onBinary(caller, audio(1, 0))
+      hub.onBinary(host, audio(2, 0))
+      hub.onClose(caller)
+      expect(lines()[0]).toBe(`[call 1a2b3c4d] ring: sent to the device's control socket`)
+      expect(lines()[1]).toMatch(/^\[call 1a2b3c4d\] paired: the host joined \d+ ms after the ring$/)
+      expect(lines()[2]).toMatch(/^\[call 1a2b3c4d\] ended by=caller reason=socket_closed paired=\d+ ms lasted=\d+ ms sealed=false up=1 down=1 last_up=\d+ ms ago last_down=\d+ ms ago /)
+      expect(lines().join(`\n`)).not.toContain(callId)
+      hub.destroy()
+      info.mockClear()
+      // The host hangs up with End call; a second host is refused.
+      const next = paired()
+      next.hub.onMessage(next.host, JSON.stringify({ t: `call_end` }))
+      expect(lines().at(-1)).toMatch(/^\[call call-1\] ended by=host reason=hung_up /)
+      answer(next.hub)
+      expect(lines().at(-1)).toBe(`[call call-1] refused call_host: no_such_call`)
+      next.hub.destroy()
+    } finally {
+      info.mockRestore()
+    }
   })
 
   test(`either socket closing ends the call for the other`, () => {

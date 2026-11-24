@@ -11,6 +11,8 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { pageTitle } from "@/lib/page-title"
+import { PendingInstalls } from "@/components/devices/install-approval"
+import { useInstallTrust } from "@/lib/enet/use-install-trust"
 
 // Team Devices view (EXP-686 — the old Agents route, minus the actions
 // surface: Actions is its own route now): the caller's
@@ -53,6 +55,7 @@ function DevicesPage() {
   const navigate = useNavigate()
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
+  const installTrust = useInstallTrust()
   const { isMember, isOwner } = useTeamPermissions(team)
   const steerConfig = useSteerConfig()
 
@@ -114,6 +117,12 @@ function DevicesPage() {
           className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${PAGE_END_CLEARANCE}`}
         >
           {header}
+          {/* #EXP-1950: phones also list the installs waiting for approval here. */}
+          {installTrust.rows.length > 0 && (
+            <div className="mb-6 md:hidden">
+              <PendingInstalls trust={installTrust} />
+            </div>
+          )}
           {isMember && steerConfig?.enabled && (
             <MyMachines
               devices={remote.devices}

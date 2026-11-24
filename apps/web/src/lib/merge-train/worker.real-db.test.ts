@@ -93,7 +93,9 @@ class FakeForge {
   /** Runs as the worker reads a run's verdict (a person acting meanwhile). */
   onReadPipeline: (() => Promise<void>) | null = null
   private outcomes = new Map<string, TrainPipelineOutcome>()
-  private checks = new Map<string, TrainCheck[]>()
+  /** The check runs the forge shows at a sha (public: #EXP-2090 sets a PR head's). */
+  checks = new Map<string, TrainCheck[]>()
+  checksReads = 0
 
   forge(): Forge {
     return partialForgeForTests({
@@ -154,7 +156,10 @@ class FakeForge {
         const outcome = this.hold ? null : (this.outcomes.get(trainId) ?? null)
         return { outcome, finished: !!outcome }
       },
-      checksAt: async (_repo, sha) => this.checks.get(sha) ?? [],
+      checksAt: async (_repo, sha) => {
+        this.checksReads++
+        return this.checks.get(sha) ?? []
+      },
       fastForward: async (_repo, { branch, from, to }) => {
         if (this.refuseFastForward) return { ok: false, reason: `refused`, message: `ruleset` }
         if (this.branch.get(branch) !== from) return { ok: false, reason: `moved`, current: this.branch.get(branch) ?? null }
@@ -721,6 +726,41 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     await pass(w.repoId)
     expect((await prRow(a)).mergeState).not.toBe(`checks`)
     expect((await prRow(a)).mergeHold).toBeNull()
+  })
+
+  it(`#EXP-2090: a repo's FIRST PR with CI waits for the runs the forge shows at its head`, async () => {
+    const w = await world()
+    fake.required = []
+    // No other PR of the repo ever reported a check: its CI is new.
+    const a = await w.pr(843, { checks: false })
+    fake.prs.get(843)!.updatedAt = new Date()
+    fake.checks.set(`head-843`, [{ name: `ci`, status: `in_progress`, conclusion: null }])
+    await w.idle()
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `checks`, mergeHold: null })
+    expect(fake.dispatches).toHaveLength(0)
+    // Its rows arrive: the usual gate takes over (running = checks, green = rides).
+    await db.insert(pullRequestChecks).values({ teamId: w.teamId, pullRequestId: a, headSha: `head-843`, name: `ci`, status: `in_progress`, conclusion: null, required: false })
+    await pass(w.repoId)
+    expect(await prRow(a)).toMatchObject({ mergeState: `checks`, mergeWait: `checks` })
+    await db.update(pullRequestChecks).set({ status: `completed`, conclusion: `success` }).where(eq(pullRequestChecks.pullRequestId, a))
+    await pass(w.repoId)
+    expect((await prRow(a)).mergeState).toBe(`testing`)
+  })
+
+  it(`#EXP-2090: no runs at the head = lands at once, and a PR past the grace costs no forge read`, async () => {
+    const w = await world()
+    fake.required = []
+    const a = await w.pr(844, { checks: false })
+    const b = await w.pr(845, { checks: false })
+    fake.prs.get(844)!.updatedAt = new Date()
+    await db.update(pullRequests).set({ providerUpdatedAt: new Date(Date.now() - 6 * 60_000) }).where(eq(pullRequests.id, b))
+    await w.idle()
+    await pass(w.repoId)
+    expect((await prRow(a)).mergeState).toBe(`testing`)
+    expect((await prRow(b)).mergeState).toBe(`testing`)
+    // Only #844 (fresh) asked the forge for its head's runs.
+    expect(fake.checksReads).toBe(1)
   })
 
   it(`#FEED-282: a direct landing re-reads the checks: CI reported since readiness stops it`, async () => {
