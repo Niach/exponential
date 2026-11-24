@@ -1274,10 +1274,21 @@ fn clip_file(deps: &Deps, clip_id: &str) -> Option<PathBuf> {
 
 /// The agents of the synced teams whose Runs on is this device.
 fn hosted_agents(deps: &Deps) -> Option<Vec<HostedAgent>> {
+    hosted_from(&(deps.teams)(), &deps.device_id, |team_id| api::agents::list(&deps.trpc, team_id), || Ok(None))
+}
+
+/// The agents that run on `device_id` as the server names them: every synced
+/// team's list. `None` = a read failed (the last answer stands).
+fn hosted_from(
+    teams: &[String],
+    device_id: &str,
+    list: impl Fn(&str) -> Result<Vec<api::agents::Agent>, api::ApiError>,
+    assistant: impl Fn() -> Result<Option<api::agents::Agent>, api::ApiError>,
+) -> Option<Vec<HostedAgent>> {
+    let _ = &assistant;
     let mut hosted = Vec::new();
-    for team_id in (deps.teams)() {
-        let agents = api::agents::list(&deps.trpc, &team_id).ok()?;
-        hosted.extend(hosted_of(&agents, &deps.device_id));
+    for team_id in teams {
+        hosted.extend(hosted_of(&list(team_id).ok()?, device_id));
     }
     hosted.sort_by(|a, b| a.id.cmp(&b.id));
     Some(hosted)
@@ -1880,6 +1891,57 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(hosted_of(&agents, "here"), vec![HostedAgent { id: "a".into(), team_id: "t".into() }]);
+    }
+
+    fn listed(value: serde_json::Value) -> Vec<api::agents::Agent> {
+        serde_json::from_value(value).unwrap()
+    }
+
+    /// #EXP-2080 (after the Assistant move, #EXP-1984): the member's ONE
+    /// Assistant lives in their personal team, which is never synced and
+    /// which no team's `agents.list` names: it is asked for on its own, and
+    /// one bound to this device is hosted like any other agent.
+    #[test]
+    fn the_members_own_assistant_is_hosted_past_the_synced_teams() {
+        let teams = vec!["t".to_string()];
+        let list = |_: &str| Ok(listed(serde_json::json!([{ "id": "a", "teamId": "t", "deviceId": "here" }])));
+        let assistant = || Ok(listed(serde_json::json!([{ "id": "z", "teamId": "personal", "deviceId": "here", "role": "assistant" }])).pop());
+        assert_eq!(
+            hosted_from(&teams, "here", list, assistant),
+            Some(vec![
+                HostedAgent { id: "a".into(), team_id: "t".into() },
+                HostedAgent { id: "z".into(), team_id: "personal".into() },
+            ])
+        );
+        // No synced team's agent runs here: the Assistant alone brings the voice up.
+        let none = |_: &str| Ok(Vec::new());
+        assert_eq!(hosted_from(&teams, "here", none, assistant), Some(vec![HostedAgent { id: "z".into(), team_id: "personal".into() }]));
+    }
+
+    /// Switch off (self-hosted): the Assistant is a row of a synced team's
+    /// list as well: one entry. One that runs elsewhere, or none: not hosted.
+    #[test]
+    fn the_assistant_is_one_entry_and_only_when_it_runs_here() {
+        let teams = vec!["t".to_string(), "u".to_string()];
+        let list = |team: &str| Ok(if team == "t" { listed(serde_json::json!([{ "id": "z", "teamId": "t", "deviceId": "here", "role": "assistant" }])) } else { Vec::new() });
+        let same = || Ok(listed(serde_json::json!([{ "id": "z", "teamId": "t", "deviceId": "here", "role": "assistant" }])).pop());
+        assert_eq!(hosted_from(&teams, "here", list, same), Some(vec![HostedAgent { id: "z".into(), team_id: "t".into() }]));
+        let elsewhere = || Ok(listed(serde_json::json!([{ "id": "y", "teamId": "personal", "deviceId": "desktop" }])).pop());
+        assert_eq!(hosted_from(&teams, "here", list, elsewhere), Some(vec![HostedAgent { id: "z".into(), team_id: "t".into() }]));
+        assert_eq!(hosted_from(&teams, "here", list, || Ok(None)), Some(vec![HostedAgent { id: "z".into(), team_id: "t".into() }]));
+    }
+
+    /// A read that did not reach the server leaves the last answer standing
+    /// (None), the Assistant's as a team's; a server that refuses the ask
+    /// (an older one) hosts the teams' agents as before.
+    #[test]
+    fn a_failed_assistant_read_never_drops_the_hosted_agents() {
+        let teams = vec!["t".to_string()];
+        let list = |_: &str| Ok(listed(serde_json::json!([{ "id": "a", "teamId": "t", "deviceId": "here" }])));
+        let offline = || Err(api::ApiError::Transport { message: "down".into(), offline: true });
+        assert_eq!(hosted_from(&teams, "here", list, offline), None);
+        let refused = || Err(api::ApiError::Http { status: 404, message: "No procedure".into() });
+        assert_eq!(hosted_from(&teams, "here", list, refused), Some(vec![HostedAgent { id: "a".into(), team_id: "t".into() }]));
     }
 
     /// The N95 case: no agent here = no worker, no row; an agent here and
