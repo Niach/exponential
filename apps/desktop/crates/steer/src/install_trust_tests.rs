@@ -610,6 +610,27 @@ fn never_shows_a_row_whose_code_the_server_supplied() {
 }
 
 #[test]
+fn a_reader_installs_trust_does_not_list_is_judged_by_r4_alone_both_modes() {
+    // One rule ×4: the keeper adds nothing to `wrapTarget` for a reader the
+    // server names but `installs.trust` does not list (no registration, never
+    // asked, no root, not the own account = the fixture's older team-mate).
+    let fx = fixture();
+    let case = rule_case(&fx, "targetCases", "a team-mate's install nobody pinned that never asked and claims no root (an older build): legacy");
+    for (mode, at) in MODES {
+        let v = victim(mode);
+        let t2 = endpoint(&fx, "T2");
+        assert!(lock(&v.liar.installs).iter().all(|i| i.endpoint_id != t2));
+        let got = v.keeper.target("install-T2", text(&key(&fx, "T2")["x25519Public"]), Some(&t2), None);
+        let got = match got {
+            TargetVerdict::Wrap(record) => record.as_str().to_string(),
+            TargetVerdict::Refuse(reason) => format!("refused:{}", reason.as_str()),
+        };
+        let want = if case[at]["wrap"].as_bool().unwrap() { text(&case[at]["record"]).to_string() } else { format!("refused:{}", text(&case[at]["reason"])) };
+        assert_eq!(got, want, "{at}");
+    }
+}
+
+#[test]
 fn a_server_without_install_trust_changes_nothing() {
     let fx = fixture();
     let liar = Arc::new(Liar { no_trust: true, ..Default::default() });
