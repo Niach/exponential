@@ -89,7 +89,9 @@ public protocol TreeReaderDirectory: Sendable {
 public protocol InstallTrustApi: Sendable {
     func trust(accountId: String, installId: String) async throws -> TrustAnswer
     func requestApproval(accountId: String, installId: String) async throws
-    func claimRoot(accountId: String, installId: String, signature: String) async throws
+    /// `approvals` = an existing install's `approve`s of the installs it
+    /// adopted (`approveExisting`), stored with the root in one transaction.
+    func claimRoot(accountId: String, installId: String, signature: String, approvals: [RootClaimApproval]?) async throws
     /// `approve` an own install, confirm (`reset`) or turn down (`decline`) a team-mate's new root.
     func approve(accountId: String, installId: String, subjectInstallId: String, kind: ApprovalKind, signature: String) async throws
     /// A New install row's Remove: its wraps go, its trees rotate.
@@ -98,7 +100,18 @@ public protocol InstallTrustApi: Sendable {
 
 private struct InstallsTeamInput: Encodable { let teamId: String }
 private struct InstallIdInput: Encodable { let installId: String }
-private struct ClaimRootInput: Encodable { let installId: String; let signature: String }
+/// One `approve` an existing install sends with its root claim.
+public struct RootClaimApproval: Encodable, Equatable, Sendable {
+    public let subjectInstallId: String
+    public let signature: String
+
+    public init(subjectInstallId: String, signature: String) {
+        self.subjectInstallId = subjectInstallId
+        self.signature = signature
+    }
+}
+
+private struct ClaimRootInput: Encodable { let installId: String; let signature: String; let approvals: [RootClaimApproval]? }
 private struct ApproveInstallInput: Encodable {
     let installId: String
     let subjectInstallId: String
@@ -137,8 +150,11 @@ public final class InstallsApi: InstallsRegistry, TreeReaderDirectory, InstallTr
         try await trpc.mutationVoid(accountId: accountId, path: "installs.requestApproval", input: InstallIdInput(installId: installId))
     }
 
-    public func claimRoot(accountId: String, installId: String, signature: String) async throws {
-        try await trpc.mutationVoid(accountId: accountId, path: "installs.claimRoot", input: ClaimRootInput(installId: installId, signature: signature))
+    public func claimRoot(accountId: String, installId: String, signature: String, approvals: [RootClaimApproval]?) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "installs.claimRoot",
+            input: ClaimRootInput(installId: installId, signature: signature, approvals: approvals)
+        )
     }
 
     public func approve(accountId: String, installId: String, subjectInstallId: String, kind: ApprovalKind, signature: String) async throws {

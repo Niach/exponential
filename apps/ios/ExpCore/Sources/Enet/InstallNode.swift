@@ -137,13 +137,28 @@ public struct InstallAccount: Equatable, Sendable {
 
 /// The install's identity (the keychain in the app).
 public struct InstallIdentitySource: Sendable {
-    public let loadOrCreate: @Sendable () -> Data?
+    /// The identity, and whether THIS build minted it and the accounts' pin
+    /// stores are not written for it yet (#EXP-1950 decision e).
+    public let loadOrMint: @Sendable () -> (identity: Data, minted: Bool)?
     /// Forget it: the registry revoked its endpoint id.
     public let rotate: @Sendable () -> Void
+    /// A minted identity: writes these accounts' empty pin stores (they are
+    /// new installs, never existing ones), then clears the minted flag.
+    public let minted: @Sendable (_ identity: Data, _ accountIds: [String]) -> Void
 
-    public init(loadOrCreate: @escaping @Sendable () -> Data?, rotate: @escaping @Sendable () -> Void) {
-        self.loadOrCreate = loadOrCreate
+    public init(
+        loadOrMint: @escaping @Sendable () -> (identity: Data, minted: Bool)?,
+        rotate: @escaping @Sendable () -> Void,
+        minted: @escaping @Sendable (_ identity: Data, _ accountIds: [String]) -> Void
+    ) {
+        self.loadOrMint = loadOrMint
         self.rotate = rotate
+        self.minted = minted
+    }
+
+    /// Without install approval (tests, a build without the binding).
+    public init(loadOrCreate: @escaping @Sendable () -> Data?, rotate: @escaping @Sendable () -> Void) {
+        self.init(loadOrMint: { loadOrCreate().map { ($0, false) } }, rotate: rotate, minted: { _, _ in })
     }
 }
 
@@ -226,10 +241,13 @@ public actor InstallNodeService {
         // At most one rotation per pass: a second FORBIDDEN means something
         // else is wrong, and looping would mint identities forever.
         for attempt in 0..<2 {
-            guard let seed = identity.loadOrCreate() else {
+            guard let (seed, minted) = identity.loadOrMint() else {
                 logger.error("No install identity (keychain refused it): eNet stays off")
                 return false
             }
+            // Decision (e): every account's store is written BEFORE this new
+            // identity registers for it (accounts without one are existing).
+            if minted { identity.minted(seed, accounts.map(\.accountId)) }
             guard await ensureNode(seed) != nil else { return false }
             if await registerPending(seed: seed) || attempt == 1 { break }
             logger.info("The registry revoked this install: rotating its identity")
