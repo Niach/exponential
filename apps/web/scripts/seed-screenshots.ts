@@ -2992,7 +2992,7 @@ async function main() {
     // the login (brand mark + email) like every phone specimen does.
     agentAccounts: demoAgentReport(hoursAgo(5)).agentAccounts,
     sharedTeamIds: [ws.id],
-    lastSeenAt: minutesAgo(DEMO_SERVER_AWAY_MINUTES),
+    lastSeenAt: new Date(now - DEMO_SERVER_AWAY_MINUTES * 60_000),
     createdAt: daysAgo(45),
   })
 
