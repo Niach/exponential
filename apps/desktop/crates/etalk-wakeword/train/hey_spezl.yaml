@@ -8,13 +8,15 @@ model_name: hey_spezl
 # the ways people do ("Schpezl", "Spetzl", "Spezzle").
 target_phrases: ["hey spezl", "hey spetzl", "hey shpetzl", "hey spezzle"]
 
-n_samples: 10000
-n_samples_val: 2000
-n_background_samples: 1000
-n_background_samples_val: 250
+n_samples: 25000
+n_samples_val: 5000
+n_background_samples: 2000
+n_background_samples_val: 500
 tts_batch_size: 50
 
-# Near misses that must NOT wake it.
+# Near misses that must NOT wake it. The generator cycles through ~1,270
+# CMUdict neighbours plus this list, so one line here is ~20 of the 25,000
+# negative clips (v1: 8 of 10,000, and "hey special" still woke it).
 custom_negative_phrases:
   - "spezl"
   - "spetzl"
@@ -30,6 +32,35 @@ custom_negative_phrases:
   - "pretzel"
   - "they spell"
   - "hey spencer"
+  - "special"
+  - "hey special one"
+  - "hey special offer today"
+  - "hey specially"
+  - "hey specialist"
+  - "they special"
+  - "a special"
+  - "hey pretzels"
+  - "hey pretzel bread"
+  - "hey pencil"
+  - "hey spazzle"
+
+# NEW-129: how often train.sh repeats a phrase in the list above (livekit-
+# wakeword has no per-phrase weight; train.sh expands this key and drops it).
+# 150 lines = ~8 % of the negative clips each, ~2,000 clips.
+negative_weights:
+  "hey special": 150
+  "hey pretzel": 150
+  "hey special one": 30
+  "hey special offer today": 30
+  "hey spatial": 30
+  "they special": 30
+  "special": 30
+  "pretzel": 30
+  "hey specially": 20
+  "hey specialist": 20
+  "hey pretzels": 20
+  "hey pretzel bread": 20
+  "a special": 20
 
 noise_scales: [0.98]
 noise_scale_ws: [0.98]
@@ -42,15 +73,15 @@ output_dir: ./output
 augmentation:
   clip_duration: 2.0
   batch_size: 16
-  rounds: 2
+  rounds: 3
   background_paths: [./data/backgrounds]
   rir_paths: [./data/rirs]
 
 model:
   model_type: conv_attention
-  model_size: small
+  model_size: medium
 
-steps: 30000
+steps: 100000
 learning_rate: 0.0001
 weight_decay: 0.01
 label_smoothing: 0.05
