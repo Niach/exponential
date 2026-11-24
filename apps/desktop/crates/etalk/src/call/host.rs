@@ -758,6 +758,20 @@ impl CallHost {
 mod tests {
     use super::*;
 
+    /// #FEED-268: the end line names who ended the call and why (`hangUpRules`).
+    #[test]
+    fn the_end_line_names_who_ended_the_call_and_why() {
+        let by = |event: CallEvent, remote: bool| ended_by(&event, remote);
+        assert_eq!(by(CallEvent::HungUp(None), true), ("caller", "hung_up".to_string()));
+        assert_eq!(by(CallEvent::HungUp(Some("dropped".into())), true), ("caller", "dropped".to_string()));
+        assert_eq!(by(CallEvent::HungUp(Some("idle".into())), true), ("relay", "idle".to_string()));
+        assert_eq!(by(CallEvent::HungUp(Some("max_length".into())), true), ("relay", "max_length".to_string()));
+        assert_eq!(by(CallEvent::HungUp(Some("no_key".into())), true), ("link", "no_key".to_string()));
+        assert_eq!(by(CallEvent::End, true), ("host", "hung_up".to_string()));
+        assert_eq!(by(CallEvent::End, false), ("user", "hung_up".to_string()));
+        assert_eq!(by(CallEvent::Failed("unavailable".into()), true), ("host", "failed:unavailable".to_string()));
+    }
+
     /// One event of a `hostCases` row, at its instant.
     #[derive(Deserialize)]
     struct Timed {

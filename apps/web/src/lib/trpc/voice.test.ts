@@ -894,6 +894,12 @@ describe(`#EXP-1941 voice.startCall mints the id callHostTicket vouches for`, ()
       ])
       expect(lines.join(`\n`)).not.toContain(sealed.callId)
       expect(lines.join(`\n`)).not.toContain(clear.callId)
+      // #FEED-268: each call's own line names it by its tag, never the whole id.
+      const all = info.mock.calls.map((call) => String(call[0])).join(`\n`)
+      expect(all).toContain(`[voice] call ${sealed.callId.slice(0, 8)}: minted for member=`)
+      expect(all).toContain(`sealed=true`)
+      expect(all).not.toContain(sealed.callId)
+      expect(all).not.toContain(clear.callId)
     } finally {
       info.mockRestore()
     }
