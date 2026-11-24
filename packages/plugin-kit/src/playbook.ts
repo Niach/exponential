@@ -50,7 +50,7 @@ are the part after the last \`__\`.`,
     description: `Work in Exponential (exponential.at), the realtime issue tracker with coding agents, from Claude Code: find, create and update issues on boards, comment, follow the pull request and the sessions of the issue you are working on, and start a coding agent on one of the person's devices. Use when the person mentions Exponential, an issue identifier like EXP-12, their boards, or asks to track or hand off work there.`,
     host: `Claude Code`,
     connection: `connector`,
-    sdkSkills: true,
+    sdkSkills: false,
     slots: {
       "tool-names": `Here the tools carry the plugin's prefix (\`mcp__plugin_…__exponential_issues\`);
 the names above are the part after the last \`__\`.`,
