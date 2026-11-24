@@ -277,7 +277,7 @@ fn synthetic_row_id(at: usize) -> Option<FeedItemId> {
 fn own_bubble_fingerprint(bubble: &crate::session_outbox::OwnBubble) -> u64 {
     use std::hash::{Hash as _, Hasher as _};
     let mut hasher = std::hash::DefaultHasher::new();
-    (&bubble.key, &bubble.text, &bubble.created_at, bubble.state, bubble.stored).hash(&mut hasher);
+    (&bubble.key, &bubble.text, &bubble.created_at, bubble.state, bubble.stored, &bubble.member_id).hash(&mut hasher);
     hasher.finish()
 }
 
@@ -6242,7 +6242,8 @@ impl SteerSessionView {
                 .enumerate()
                 .map(|(index, bubble)| {
                     let row_id = ORPHAN_ROW_BASE.saturating_sub(512).saturating_add(index as FeedItemId);
-                    self.render_own_bubble(row_id, bubble, lead && index == 0, window, cx)
+                    let avatar = if index == 0 { lead } else { self.own_tail_avatar(index) };
+                    self.render_own_bubble(row_id, bubble, avatar, window, cx)
                 })
                 .collect();
             // #EXP-1998 (find-in-chat.json): ONE scrolling column (the sent
@@ -6695,6 +6696,29 @@ impl SteerSessionView {
     ) -> AnyElement {
         use domain::message_delivery::{bubble_actions, BubbleAction};
         let sizes = crate::session_chat::transcript_sizes();
+        // #EXP-2089: a teammate's not-consumed row = THEIR bubble (left,
+        // their avatar and name, its time, no mark, no menu).
+        if bubble.member_id.is_some() {
+            let layout = self.own_tail_layout(&bubble.key, cx);
+            let width = self.user_bubble_width(&bubble.text, sizes.avatar + sizes.avatar_gap, false, window);
+            let at = domain::instant::parse_instant(&bubble.created_at);
+            let element = crate::session_chat::message_bubble(
+                crate::session_chat::MessageBubble {
+                    id: SharedString::from(format!("steer-member-bubble-{}", bubble.key)),
+                    body: self.render_user_message(row_id, &bubble.text, Some(&chat_find::own_bubble_key(bubble)), cx),
+                    time: at.map(crate::session_chat::clock_ms).unwrap_or_default(),
+                    own: false,
+                    name: layout.as_ref().filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
+                    link: None,
+                    status: None,
+                    menu: None,
+                    width: Some(width),
+                    tail: layout.as_ref().is_none_or(|layout| layout.tail).into(),
+                },
+                cx,
+            );
+            return crate::session_chat::sender_row(layout.as_ref(), element, cx);
+        }
         let width = self.user_bubble_width(&bubble.text, sizes.avatar + sizes.avatar_gap, true, window);
         let session_id = self.session_id.clone();
         let target = bubble.clone();
@@ -6727,12 +6751,27 @@ impl SteerSessionView {
         crate::session_chat::own_row(avatar, element, cx)
     }
 
+    /// #EXP-2089: the grouping of the tail's bubble `key` (a teammate's row
+    /// sits under their avatar and name, a group's first only), through THE
+    /// grouping the SENT INPUTS use.
+    fn own_tail_layout(&self, key: &str, cx: &App) -> Option<domain::transcript_grouping::TranscriptRowLayout> {
+        let inputs: Vec<(String, String, String, Option<String>)> = self
+            .own_tail
+            .iter()
+            .map(|bubble| (bubble.key.clone(), String::new(), String::new(), bubble.member_id.clone()))
+            .collect();
+        let at = inputs.iter().position(|(id, ..)| id == key)?;
+        self.no_feed_layouts(&inputs, cx).into_iter().nth(at)
+    }
+
     /// #FEED-239: whether own-tail bubble `index` starts the own group (the
     /// viewer's avatar): the first one, unless the transcript's last row
     /// right above it is the viewer's own.
     fn own_tail_avatar(&self, index: usize) -> bool {
         if index > 0 {
-            return false;
+            // #EXP-2089: an own bubble right after a teammate's opens the
+            // own group again.
+            return self.own_tail.get(index - 1).is_some_and(|before| before.member_id.is_some());
         }
         let between = !self.orphan_workflows.is_empty() || !self.conv_tail().is_empty();
         // #FEED-260: the synced tail's last row, when there is one.

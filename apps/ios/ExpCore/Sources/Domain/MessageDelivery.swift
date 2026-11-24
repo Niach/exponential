@@ -225,6 +225,23 @@ public enum MessageDelivery {
         }
     }
 
+    /// #EXP-2089 (ORDER, `pendingCases`, TS `pendingRows`): the synced person
+    /// rows the device has not consumed, EVERY person's, oldest first
+    /// (createdAt, then id); `own` = the viewer's (their bubble with its
+    /// mark), else that member's bubble.
+    public static func pendingRows(viewerId: String?, rows: [HandoffRow]) -> [(id: String, own: Bool)] {
+        rows
+            .filter { row in
+                row.authorKind == "user" && !row.hasCard && (row.consumedAt ?? "").isEmpty
+                    && !row.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            .sorted { a, b in
+                let (at, bt) = (millis(a.createdAt), millis(b.createdAt))
+                return at != bt ? at < bt : a.id < b.id
+            }
+            .map { (id: $0.id, own: viewerId != nil && $0.authorId == viewerId) }
+    }
+
     /// A person row of the transcript's main lane.
     public struct HandoffEcho: Equatable, Sendable {
         public let text: String

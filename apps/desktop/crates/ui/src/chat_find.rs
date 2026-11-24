@@ -706,6 +706,7 @@ mod tests {
             stored: message_id.is_some(),
             message_id: message_id.map(str::to_string),
             client_id: client_id.map(str::to_string),
+            member_id: None,
         }
     }
 
