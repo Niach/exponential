@@ -5682,6 +5682,80 @@
         "sha256": "ca790c0f604fcb61c9d02e0e00ae3164b18e0e1369208bb94f4f16982090ce24"
       }
     },
+    "install-approval": {
+      "android": {
+        "file": "shots/install-approval/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 16580,
+        "sha256": "a9d8ed357bbe7f70577b676660bab2796ef5269e1930c3bf5eb7b157aa5b0ee4"
+      },
+      "desktop": {
+        "file": "shots/install-approval/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 59032,
+        "sha256": "a70e24ec2a8339bc27647ba7795f12022296495adba73c5a9c2904073445bcc8"
+      },
+      "ios": {
+        "file": "shots/install-approval/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 17362,
+        "sha256": "59d78828dbbcc1e59a4dc0912450ae6b57494fa2701fc373a5ed124dc75cacd7"
+      },
+      "web": {
+        "file": "shots/install-approval/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 61922,
+        "sha256": "a6ab0d1b4026793799b69d06e81aa01e7338cf23dd84ff46b3696dd7e000ed0a"
+      },
+      "web-mobile": {
+        "file": "shots/install-approval/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 30284,
+        "sha256": "1f28c4ccbff69fae2abef8f26f4f97e419a514d69df4454ba3062404d6d74a0f"
+      }
+    },
+    "install-waiting": {
+      "android": {
+        "file": "shots/install-waiting/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 11520,
+        "sha256": "ac714101e61b25fc0baebccd8990155d007f4de66ab40fc6295587f3f7f7db36"
+      },
+      "desktop": {
+        "file": "shots/install-waiting/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 53776,
+        "sha256": "49d2fb8c6bb71a360bfe53700c9614734869a897b000a0610a3fd08f633ce63b"
+      },
+      "ios": {
+        "file": "shots/install-waiting/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 12574,
+        "sha256": "2082703a26795050688433b9d2888b9e2af64d8985f6cc97d17970d55d00a988"
+      },
+      "web": {
+        "file": "shots/install-waiting/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 58830,
+        "sha256": "88a14a5d7f9fb033caa0bacd020080c77622698457268ff40a526baab42fb3d0"
+      },
+      "web-mobile": {
+        "file": "shots/install-waiting/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 39550,
+        "sha256": "6025b9774840b623d90772f6c1929235bebd8d2d3dace7ef64d3fc7aef58a33e"
+      }
+    },
     "invite-accept": {
       "android": {
         "file": "shots/invite-accept/android.webp",

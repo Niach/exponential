@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.Chats
 import com.exponential.app.ui.theme.AppBackground
@@ -115,14 +118,23 @@ fun PendingInstalls(
     }
 }
 
-/** This install, not approved yet: THE page EmptyState with its own code. */
+/** This install, not approved yet: THE page EmptyState with its own code,
+ *  where install-trust.json `waiting` stands it (web `max-w-md pt-[20vh]`). */
 @Composable
 fun InstallWaiting(code: String, modifier: Modifier = Modifier) {
-    CiSurface(
-        surfaceId = InstallApprovalView.TestIds.WAITING,
-        tree = InstallApprovalView.waitingTree(code),
-        modifier = modifier.fillMaxWidth().testTag(InstallApprovalView.TestIds.WAITING),
-    )
+    val top = with(LocalDensity.current) {
+        (LocalWindowInfo.current.containerSize.height * InstallApprovalView.Waiting.TOP_OFFSET).toDp()
+    }
+    Box(modifier.fillMaxWidth().padding(top = top), contentAlignment = Alignment.TopCenter) {
+        CiSurface(
+            surfaceId = InstallApprovalView.TestIds.WAITING,
+            tree = InstallApprovalView.waitingTree(code),
+            modifier = Modifier
+                .widthIn(max = InstallApprovalView.Waiting.MAX_WIDTH.dp)
+                .fillMaxWidth()
+                .testTag(InstallApprovalView.TestIds.WAITING),
+        )
+    }
 }
 
 /** The live band: the active account's rows, Approve / Remove through the keeper. */
@@ -152,7 +164,7 @@ fun InstallWaitingGate(sealed: Boolean, holdsKey: Boolean, viewModel: InstallTru
     if (!sealed || holdsKey || !snapshot.waiting || code == null) return
     // Under the chat header (its back stays), over the locked transcript.
     AppBackground(Modifier.statusBarsPadding().padding(top = Chats.Shell.ChatHeader.ROW.dp)) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             InstallWaiting(code)
         }
     }

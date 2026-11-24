@@ -33,8 +33,10 @@ use serde_json::{json, Value};
 use steer::install_trust::{copy, install_code, RowKind, TrustKeeper, TrustRow, TrustSnapshot, TrustState, WAITING_ICON};
 use sync::Store;
 
-/// The waiting state's column (web `max-w-md`).
+/// install-trust.json `waiting`: the column (web `max-w-md`) and its top
+/// offset, a share of the window's height (web `pt-[20vh]`).
 const WAITING_W: f32 = 448.;
+const WAITING_TOP: f32 = 0.2;
 
 pub(crate) const EVENT_APPROVE: &str = "approve";
 pub(crate) const EVENT_REMOVE: &str = "remove";
@@ -295,7 +297,7 @@ impl Render for InstallTrustSurface {
         if snapshot.waiting() {
             self.show(waiting_tree(snapshot.code.as_deref().unwrap_or_default()), cx);
             // Web `mx-auto max-w-md pt-[20vh]`.
-            let top = window.viewport_size().height * 0.2;
+            let top = window.viewport_size().height * WAITING_TOP;
             return div()
                 .w_full()
                 .flex()
@@ -372,6 +374,16 @@ mod tests {
             waiting_tree("HNMBN A0319"),
             json!({"id": "install-waiting", "component": "EmptyState", "props": {"icon": "ui-private", "title": "Waiting for approval", "description": "HNMBN A0319"}})
         );
+    }
+
+    /// install-trust.json `waiting`.
+    #[test]
+    fn the_waiting_state_stands_where_the_fixture_says() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/install-trust.json")).unwrap();
+        assert_eq!(fixture["waiting"]["topOffset"].as_f64().unwrap() as f32, WAITING_TOP);
+        assert_eq!(fixture["waiting"]["maxWidth"].as_f64().unwrap() as f32, WAITING_W);
+        assert_eq!(fixture["waiting"]["listGap"], 12, "needs_you.rs gap_3");
     }
 
     /// The pending rows count in Needs you; the waiting state and no keeper add none.
