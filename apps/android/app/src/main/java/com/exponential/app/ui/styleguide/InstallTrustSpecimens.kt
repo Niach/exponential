@@ -1,5 +1,6 @@
 package com.exponential.app.ui.styleguide
 
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -29,6 +30,7 @@ fun InstallTrustSpecimenScreen(waiting: Boolean) {
             onOpen = {},
             onOpenInbox = {},
             inboxUnread = 1,
+            modifier = Modifier.statusBarsPadding(),
             waitingCode = if (waiting) rows[0].code else null,
             pendingInstalls = if (waiting) 0 else rows.size,
             band = { PendingInstalls(rows = rows, onApprove = {}, onRemove = {}) },

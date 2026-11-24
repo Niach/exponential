@@ -3870,5 +3870,11 @@
       ]
     },
     "neverTruncated": "code"
+  },
+  "waiting": {
+    "$comment": "WHERE THE WAITING STATE STANDS, the same ×4 and wherever it shows (Needs you, with or without rows; where an encrypted chat would open): the EmptyState starts `topOffset` of the window's height below where the page's content starts (web `pt-[20vh]`), never centred on the page or in a box; its column is at most `maxWidth` wide, centred. Needs you rows follow `listGap` under it (under the band of pending rows too).",
+    "topOffset": 0.2,
+    "maxWidth": 448,
+    "listGap": 12
   }
 }

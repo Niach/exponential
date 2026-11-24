@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/install-trust.json" with { type: "json" }
 import { INSTALL_TRUST_COPY, type TrustRow } from "@exp/domain-contract/install-trust"
-import { pendingRow } from "./install-approval"
+import { pendingRow, WAITING_CLASS } from "./install-approval"
 
 type Node = { component: string; props?: Record<string, unknown>; children?: Node[]; slots?: Record<string, Node>; id?: string; on?: unknown }
 
@@ -33,5 +33,14 @@ describe(`install-trust.json row`, () => {
     }
     expect(fixture.row.neverTruncated).toBe(`code`)
     expect(fixture.row.minWidthPt).toBe(320)
+  })
+})
+
+describe(`install-trust.json waiting`, () => {
+  it(`the waiting state starts the fixture's share of the window down, in its column`, () => {
+    // Tailwind: `max-w-md` = 28rem, the page's `gap-3` = 12.
+    expect(WAITING_CLASS.split(` `)).toEqual([`mx-auto`, `w-full`, `max-w-md`, `pt-[${fixture.waiting.topOffset * 100}vh]`])
+    expect(fixture.waiting.maxWidth).toBe(28 * 16)
+    expect(fixture.waiting.listGap).toBe(3 * 4)
   })
 })

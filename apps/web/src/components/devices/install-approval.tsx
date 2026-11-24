@@ -94,6 +94,9 @@ export function PendingInstalls({ trust }: { trust?: InstallTrustView }) {
   )
 }
 
+/** install-trust.json `waiting`: the top offset and the column ×4. */
+export const WAITING_CLASS = `mx-auto w-full max-w-md pt-[20vh]`
+
 /** This install, not approved yet: THE page EmptyState with its own code. */
 export function InstallWaiting({ code }: { code: string }) {
   const tree: NestedNode = {
@@ -102,7 +105,7 @@ export function InstallWaiting({ code }: { code: string }) {
     props: { icon: `ui-private`, title: INSTALL_TRUST_COPY.waiting, description: code },
   }
   return (
-    <div data-testid="install-waiting" className="mx-auto w-full max-w-md pt-[20vh]">
+    <div data-testid="install-waiting" className={WAITING_CLASS}>
       <CiSurface surfaceId="install-waiting" tree={tree} />
     </div>
   )
