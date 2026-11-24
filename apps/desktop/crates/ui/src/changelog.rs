@@ -46,6 +46,23 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-desktop-cli-0-14-178",
+    date: "2026-11-24",
+    title: "New devices need your OK, and sessions start on Windows",
+    summary: "Desktop and CLI 0.14.178: a new install waits for your approval on a device you already use, sessions start again on Windows, and a session's cards always travel encrypted.",
+    body: r##"- **New devices need your OK**: a new install shows a short code and waits until you approve it on a device you already use. Devices you already have are trusted automatically.
+- **Windows starts**: a session starts again on Windows, where every start failed with "the filename or extension is too long".
+- **Cards stay encrypted**: a session started while the app or daemon was still starting up could send the text of its cards unencrypted. It now always goes through the device's encrypted path.
+- **Failed starts say why**: a message sent while the agent fails to start now shows the reason instead of waiting forever.
+- **Search**: the issue search takes filters such as `is:open` or `created:7d`, and a sentence in English or German becomes those filters with one pick.
+- **Quieter wake word**: listening for the wake word in a quiet room uses about a third of the processor time it did.
+- **Meetings on macOS**: an app that starts playing in the middle of a meeting keeps its first words.
+- **Chat fixes**: a reply no longer shows twice after a restart, a message arriving at the same instant as the newest one no longer goes missing, and people and issues in the @ list come in the same order on every platform."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_358: ChangelogEntry = ChangelogEntry {
     id: "2026-11-24-search-translate-on-your-device",
     date: "2026-11-24",
     title: "Translate a sentence into a search",

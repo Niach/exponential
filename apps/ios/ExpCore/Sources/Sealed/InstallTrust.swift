@@ -799,3 +799,44 @@ public enum InstallTrust {
         return .key(held.secret, record: held.record)
     }
 }
+
+// ── who makes a chat key (install-trust.json `keyMaker`, #EXP-2123) ───────
+
+/// The server's refusal of a key write by an install that waits for approval.
+public let keyMakerRefusal = "An install waiting for approval makes no chat key"
+
+public func isKeyMakerRefusal(_ message: String?) -> Bool { message == keyMakerRefusal }
+
+/// `serverCases`: whether the server lists an install as waiting.
+public func keyMakerWaits(chained: Bool, asked: Bool, accountChain: Bool, registration: Bool) -> Bool {
+    !chained && (asked || (accountChain && registration))
+}
+
+/// A key write: an existing keyless root's first key, a new root's inline
+/// key, a due rotation, a device keying its tree.
+public enum KeyWrite: String, Sendable, CaseIterable { case firstKey, newRoot, rotation, deviceKey }
+public enum KeyMakerStep: String, Sendable, CaseIterable { case make, requestKey, refused, skip }
+
+/// `makerCases`: what an install does with a key write. Only a JOINED
+/// install makes a key; `refused` = the server answered `keyMakerRefusal` to
+/// one that took itself for joined.
+public func keyMakerStep(joined: Bool, write: KeyWrite, refused: Bool = false) -> KeyMakerStep {
+    if joined, !refused { return .make }
+    return switch write {
+    case .firstKey: .requestKey
+    case .newRoot: .refused
+    case .rotation, .deviceKey: .skip
+    }
+}
+
+/// `strandedCases`: the epoch a holder creates for a root `sessionKeys.due`
+/// names (`rotationEpoch`; nil = nothing to rotate here), with two rules
+/// more: an install that waits never rotates, and a STRANDED root (no
+/// approved reader holds its current epoch) is rotated by a joined reader
+/// without the old secret.
+public func strandedRotationEpoch(
+    flagged: UInt32?, current: UInt32?, held: Bool, stranded: Bool = false, joined: Bool, left: Bool = false
+) -> UInt32? {
+    guard joined else { return nil }
+    return rotationEpoch(flagged: flagged, current: current, held: held || stranded, left: left)
+}

@@ -14,12 +14,13 @@
 // Every procedure names an `installId` the caller owns (not revoked).
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { deviceCommands, devices, installs, sessionKeys, sessions, type Session } from "@/db/schema"
 import { nudgeDevice } from "@/lib/trpc/devices"
 import { sessionVisibleTo } from "@/lib/sessions/access"
 import { teamMemberPairs } from "@/lib/auth/membership"
+import { installWaits, waitingInstallIds } from "@/lib/install-approvals"
 import { resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
 import type { Tx } from "@/lib/sessions/tx"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
@@ -142,6 +143,54 @@ function pairsFor(
     }
   }
   return out
+}
+
+/** #EXP-2123 (install-trust.json `keyMaker`, a STRANDED root): the flagged
+ *  roots `userId` may read (shared, its own, or on one of its devices) whose
+ *  current epoch no live install that is not waiting holds a wrap of: the
+ *  install that made the key waited for approval, or was removed. A fixed
+ *  number of queries, whatever the count. */
+export async function strandedRoots(database: Reader, userId: string): Promise<Session[]> {
+  const machineIds = (await database.select({ userId: devices.userId, deviceId: devices.deviceId }).from(devices).where(eq(devices.userId, userId)))
+    .filter((row) => row.userId === userId)
+    .map((row) => row.deviceId)
+  const flagged = (
+    await database
+      .select()
+      .from(sessions)
+      .where(
+        and(
+          isNotNull(sessions.sealRotateEpoch),
+          isNull(sessions.parentId),
+          or(eq(sessions.shared, true), eq(sessions.userId, userId), ...(machineIds.length > 0 ? [inArray(sessions.deviceId, machineIds)] : []))
+        )
+      )
+      .orderBy(asc(sessions.id))
+  ).filter(
+    (root) =>
+      root.parentId === null &&
+      root.sealEpoch !== null &&
+      root.sealRotateEpoch !== null &&
+      !root.clearTree &&
+      (root.shared || root.userId === userId || machineIds.includes(root.deviceId))
+  )
+  if (flagged.length === 0) return []
+  const epochOf = new Map(flagged.map((root) => [root.id, root.sealEpoch]))
+  const wraps = (
+    await database
+      .select({ rootId: sessionKeys.rootId, epoch: sessionKeys.epoch, installId: sessionKeys.installId })
+      .from(sessionKeys)
+      .where(inArray(sessionKeys.rootId, [...epochOf.keys()]))
+  ).filter((row) => epochOf.get(row.rootId) === row.epoch)
+  const holderIds = [...new Set(wraps.map((row) => row.installId))]
+  const holders =
+    holderIds.length > 0
+      ? (await database.select().from(installs).where(inArray(installs.id, holderIds))).filter((row) => holderIds.includes(row.id) && !row.revokedAt)
+      : []
+  const waiting = await waitingInstallIds(database, holders)
+  const approved = new Set(holders.filter((row) => !waiting.has(row.id)).map((row) => row.id))
+  const heldByApproved = new Set(wraps.filter((row) => approved.has(row.installId)).map((row) => row.rootId))
+  return flagged.filter((root) => !heldByApproved.has(root.id))
 }
 
 /** EXP-1531: the fewest ms between two holder nudges for one (install, root). */
@@ -424,11 +473,15 @@ export const sessionKeysRouter = router({
   /** #EXP-1951 (sealed-content.json `rotation`): the roots this install
    *  rotates now: flagged (`seal_rotate_epoch`: a reader was dropped), their
    *  current epoch held by this install, which still reads them. `epoch` =
-   *  the one to supersede (`create {epoch + 1}`). */
+   *  the one to supersede (`create {epoch + 1}`). #EXP-2123 (install-trust.json
+   *  `keyMaker`): nothing for an install that waits for approval; and each
+   *  STRANDED root this install reads (`stranded: true`: no approved reader
+   *  holds its current epoch), which it rotates without the old secret. */
   due: authedProcedure
     .input(z.object({ installId: uuid, limit: z.number().int().min(1).max(SESSION_KEYS_PENDING_MAX).default(SESSION_KEYS_PENDING_MAX) }))
     .query(async ({ ctx, input }) => {
-      await ownInstall(ctx.db, ctx.session.user.id, input.installId)
+      const install = await ownInstall(ctx.db, ctx.session.user.id, input.installId)
+      if (await installWaits(ctx.db, install)) return []
       const rows = await ctx.db
         .select({ root: sessions })
         .from(sessionKeys)
@@ -437,10 +490,13 @@ export const sessionKeysRouter = router({
         .orderBy(asc(sessions.id))
         .limit(input.limit)
       const roots = rows.map((row) => row.root).filter((root) => root.sealEpoch !== null && root.sealRotateEpoch !== null && !root.clearTree)
-      const readersOf = await treeReadersMany(ctx.db, roots)
-      return roots
-        .filter((root) => readersOf.get(root.id)?.has(input.installId))
-        .map((root) => ({ rootId: root.id, epoch: root.sealEpoch! }))
+      const stranded = (await strandedRoots(ctx.db, ctx.session.user.id)).filter((root) => !roots.some((held) => held.id === root.id))
+      const readersOf = await treeReadersMany(ctx.db, [...roots, ...stranded])
+      const reads = (root: Session) => readersOf.get(root.id)?.has(input.installId)
+      return [
+        ...roots.filter(reads).map((root): { rootId: string; epoch: number; stranded?: true } => ({ rootId: root.id, epoch: root.sealEpoch! })),
+        ...stranded.filter(reads).map((root) => ({ rootId: root.id, epoch: root.sealEpoch!, stranded: true as const })),
+      ].slice(0, input.limit)
     }),
 
   /** Wraps for pairs `pending` lists. A pair another holder wrapped

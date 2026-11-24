@@ -587,3 +587,68 @@ export function callKey(
   if (mode === `mandatory` && held.record !== `verified` && held.record !== `legacy`) return { noKey: `noKey` }
   return { key: held.secret, record: held.record }
 }
+
+// ── who makes a chat key (fixtures/install-trust.json `keyMaker`, #EXP-2123) ──
+
+/** The server's refusal of a key write by an install that waits for approval. */
+export const KEY_MAKER_REFUSAL: string = fixture.keyMaker.refusal
+export const KEY_MAKER_REFUSAL_CODE = fixture.keyMaker.code as `FORBIDDEN`
+
+export function isKeyMakerRefusal(message: string | null | undefined): boolean {
+  return message === KEY_MAKER_REFUSAL
+}
+
+/**
+ * `serverCases`: whether the server lists an install as waiting (the New
+ * install rule of `installs.waiting`), over what it stores: `chained` = a
+ * `root` or `approve` names it, `asked` = `approvalRequested`,
+ * `accountChain` = a `root` or `approve` names another live install of its
+ * account, `registration` = its row stores a registration signature. A
+ * waiting install's key writes are refused (`KEY_MAKER_REFUSAL`).
+ */
+export function keyMakerWaits(install: { chained: boolean; asked: boolean; accountChain: boolean; registration: boolean }): boolean {
+  return !install.chained && (install.asked || (install.accountChain && install.registration))
+}
+
+/** A key write: an existing keyless root's first key, a new root's inline
+ *  key, a due rotation, a device keying its tree (`tree_key`, a claim). */
+export type KeyWrite = `firstKey` | `newRoot` | `rotation` | `deviceKey`
+export type KeyMakerStep = `make` | `requestKey` | `refused` | `skip`
+
+/**
+ * `makerCases`: what an install does with a key write. Only a JOINED install
+ * makes a key; `refused` = the server answered `KEY_MAKER_REFUSAL` to one
+ * that took itself for joined.
+ */
+export function keyMakerStep(input: { joined: boolean; write: KeyWrite; refused?: boolean }): KeyMakerStep {
+  if (input.joined && !input.refused) return `make`
+  switch (input.write) {
+    case `firstKey`:
+      return `requestKey`
+    case `newRoot`:
+      return `refused`
+    default:
+      return `skip`
+  }
+}
+
+/**
+ * `strandedCases`: the epoch a holder creates for a root `sessionKeys.due`
+ * names (sealed-content `rotationEpoch`, null = nothing to rotate here),
+ * with two rules more: an install that waits never rotates, and a STRANDED
+ * root (`stranded`: no approved reader holds its current epoch) is rotated
+ * by a joined reader without the old secret.
+ */
+export function strandedRotationEpoch(input: {
+  flagged: number | null
+  current: number | null
+  held: boolean
+  stranded?: boolean
+  joined: boolean
+  left?: boolean
+}): number | null {
+  const { flagged, current } = input
+  if (!input.joined || flagged === null || current === null || current !== flagged) return null
+  if (!(input.held || input.stranded) || input.left || current >= 2_147_483_647) return null
+  return current + 1
+}
