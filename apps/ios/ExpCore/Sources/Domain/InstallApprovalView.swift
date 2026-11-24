@@ -4,7 +4,7 @@ import Foundation
 /// the approval of a new install and a team-mate's reset, and this install
 /// waiting itself, as the genUI trees web builds
 /// (`apps/web/src/components/devices/install-approval.tsx`): the same node
-/// ids, props and order, painted by the core catalog (`CiSurface`): Section,
+/// ids, props and order, painted by the core catalog (`CiSurface`): Section, Stack,
 /// Row, Badge, Button, EmptyState. No new component, no monospace style: the
 /// code is the Row's subtitle / the EmptyState's description. Rows: Needs
 /// you, and the phone's Devices too. The code is derived on THIS install
@@ -62,16 +62,21 @@ public enum InstallApprovalView {
         ["on": .object(["press": .object(["event": .object(["name": .string(name), "context": .object(["id": .string(installId)])])])])]
     }
 
-    /// One Row per install: title, the code as its subtitle; trailing the
-    /// Badge (secondary), Approve (Button sm) and Remove (Button sm ghost).
+    /// One Stack per install (vertical, gap sm; fixture `row`): the Row
+    /// (title, the code as its subtitle, trailing ONLY the Badge), then the
+    /// actions under it, Approve (Button sm) and Remove (Button sm ghost).
+    /// The buttons never sit in the Row's trailing slot: on a phone they took
+    /// the subtitle's width and cut the code the person must compare; now
+    /// only the label may truncate, the code shows whole down to 320 pt.
     public static func row(_ row: TrustRow, title: String) -> CardJSON {
         let id = "install-\(row.installId)"
+        let badge = node("\(id)-badge", "Badge", props: ["text": .string(Copy.badge(row.kind)), "variant": .string("secondary")])
+        let line = node("\(id)-row", "Row", props: ["title": .string(title), "subtitle": .string(row.code)], extra: ["slots": .object(["trailing": badge])])
         let actions = node("\(id)-actions", "Stack", props: ["direction": .string("horizontal"), "gap": .string("sm")], children: [
-            node("\(id)-badge", "Badge", props: ["text": .string(Copy.badge(row.kind)), "variant": .string("secondary")]),
             node("\(id)-approve", "Button", props: ["label": .string(Copy.approve), "size": .string("sm")], extra: press(Events.approve, row.installId)),
             node("\(id)-remove", "Button", props: ["label": .string(Copy.remove), "size": .string("sm"), "variant": .string("ghost")], extra: press(Events.remove, row.installId)),
         ])
-        return node(id, "Row", props: ["title": .string(title), "subtitle": .string(row.code)], extra: ["slots": .object(["trailing": actions])])
+        return node(id, "Stack", props: ["direction": .string("vertical"), "gap": .string("sm")], children: [line, actions])
     }
 
     /// The band of installs waiting for this install's approval.

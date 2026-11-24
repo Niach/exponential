@@ -846,9 +846,26 @@ impl Host {
             armed_at: &call.armed_at,
             meeting: false,
         };
-        let Some((id, text)) = reply_to_speak(fresh.iter().map(|row| (row.id.as_str(), message(row))), &context) else { return };
+        // #EXP-2076 (chat-express.json `plainProseCases`): the call says and
+        // captions an agent row's PROSE only, never an Express block's raw.
+        let prose: Vec<Option<String>> = fresh.iter().map(spoken_prose).collect();
+        let Some((id, text)) = reply_to_speak(
+            fresh.iter().zip(&prose).map(|(row, prose)| (row.id.as_str(), VoiceMessage { body: prose.as_deref().or(row.body.as_deref()), ..message(row) })),
+            &context,
+        ) else {
+            return;
+        };
         self.call_input(HostInput::Reply { id, text }, now);
     }
+}
+
+/// #EXP-2076: an agent row's body as Voice reads it (the IDE's
+/// `talk_host::spoken_prose`): its pure prose when it holds an Express block;
+/// `None` = the body as it is.
+fn spoken_prose(row: &domain::rows::MessageRow) -> Option<String> {
+    let body = row.body.as_deref()?;
+    (row.author_kind.as_deref() == Some("agent") && domain::chat_express::has_express_block(body))
+        .then(|| domain::chat_express::plain_prose(body))
 }
 
 /// A synced row as the speak rule reads it.
@@ -2388,5 +2405,19 @@ mod tests {
         answered_sealed(&mut rig);
         rig.handle(Input::Sent { call_id: "c1".into(), session_id: "root-1".into() });
         assert_eq!(rig.host.call.as_ref().and_then(|call| call.root.as_deref()), Some("root-1"));
+    }
+
+    /// #EXP-2076 (chat-express.json `plainProseCases`): the call says an agent
+    /// row's prose only; a block-only reply says nothing; a person's text and
+    /// a block-less agent row stay as they are.
+    #[test]
+    fn spoken_prose_reads_an_agent_rows_prose() {
+        let sample = "Checked the three lanes.\n<a2ui>\nroot = Text(text=\"Build 1482 is green\")\n</a2ui>\nAll green.";
+        let agent = row("m1", "agent", sample, "2026-11-18T09:10:00.000Z");
+        assert_eq!(spoken_prose(&agent).as_deref(), Some("Checked the three lanes.\n\nAll green."));
+        let only = row("m2", "agent", "<a2ui>\nroot = Text(text=\"x\")\n</a2ui>", "2026-11-18T09:10:00.000Z");
+        assert_eq!(spoken_prose(&only).as_deref(), Some(""));
+        assert_eq!(spoken_prose(&row("m3", "agent", "Plain words.", "2026-11-18T09:10:00.000Z")), None);
+        assert_eq!(spoken_prose(&row("m4", "user", sample, "2026-11-18T09:10:00.000Z")), None);
     }
 }

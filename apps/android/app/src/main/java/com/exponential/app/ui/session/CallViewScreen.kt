@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.ChatExpress
 import com.exponential.app.domain.Chats
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.TranscriptGrouping
@@ -80,6 +81,11 @@ internal fun CallViewPage(viewModel: AgentSessionViewModel, onBack: () -> Unit) 
         SessionTree.callView(it, messages, agentName, now, Chats.deviceUtcOffsetMinutes())
     }
     val times = remember(messages) { messages.associate { it.id to it.createdAt } }
+    // #EXP-2076 (chat-express.json ACTIONS, web `CallSessionBody`): a block's
+    // action posts into the CALL session (the session this view draws); an
+    // ended one's surfaces are inert.
+    val actions = com.exponential.app.ui.chat.rememberExpressActionSink(viewModel::sendAction)
+    val ended = session?.status == com.exponential.app.domain.DomainContract.sessionStatusEnded
     CallViewContent(
         view = view,
         agent = agent,
@@ -87,6 +93,7 @@ internal fun CallViewPage(viewModel: AgentSessionViewModel, onBack: () -> Unit) 
         viewerId = viewerId,
         time = { id -> times[id]?.let(::clockTime) },
         onBack = onBack,
+        onSurfaceAction = if (ended) null else actions,
     )
 }
 
@@ -100,6 +107,8 @@ internal fun CallViewContent(
     time: (messageId: String) -> String?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    /** #EXP-2076: where the turns' block presses go; null = inert. */
+    onSurfaceAction: ((ChatExpress.ActionResult) -> Unit)? = null,
 ) {
     Scaffold(
         modifier = modifier,
@@ -123,6 +132,7 @@ internal fun CallViewContent(
             time = time,
             modifier = Modifier.fillMaxSize().padding(padding),
             transcriptModifier = { Modifier.weight(1f) },
+            onSurfaceAction = onSurfaceAction,
         )
     }
 }
@@ -145,7 +155,12 @@ internal fun CallViewBody(
     transcriptModifier: ColumnScope.() -> Modifier = { Modifier.weight(1f) },
     /** A specimen: the transcript opens at its head. */
     startAtTop: Boolean = false,
+    /** #EXP-2076: where the turns' block presses go (the call session); null = inert. */
+    onSurfaceAction: ((ChatExpress.ActionResult) -> Unit)? = null,
 ) {
+    // #EXP-2076 (chat-express.json PROSE): the summary band only READS the
+    // agent's summary: its pure prose; empty = no band.
+    val summaryText = remember(view.summary) { view.summary?.let(ChatExpress::plainProse)?.takeIf { it.isNotBlank() } }
     Column(modifier.testTag("call-view")) {
         if (heading) {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).testTag("call-view-heading")) {
@@ -164,7 +179,7 @@ internal fun CallViewBody(
                 )
             }
         }
-        view.summary?.let { summary ->
+        summaryText?.let { summary ->
             Column(Modifier.fillMaxWidth().testTag("call-view-summary")) {
                 SectionHeader(view.summaryLabel, modifier = Modifier.padding(top = 8.dp))
                 Box(
@@ -204,6 +219,9 @@ internal fun CallViewBody(
             ),
             viewerId = viewerId,
             startAtTop = startAtTop,
+            // #EXP-2076: the turns are THE chat's rows: an agent turn with
+            // Express blocks splits exactly like the chat.
+            onSurfaceAction = onSurfaceAction,
         )
     }
 }

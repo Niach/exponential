@@ -1,4 +1,5 @@
 import type { ComponentProps, ReactNode } from "react"
+import { plainProse } from "@exp/domain-contract/chat-express"
 import type { CallView } from "@exp/domain-contract/session-tree"
 import { GlassSectionHeader } from "./glass-rows"
 import { ChatConversation } from "./session-chat-view"
@@ -10,6 +11,12 @@ import { cn } from "./cn"
  * the screen's header does not carry it, the summary under the section band
  * with a hairline under it, then the spoken turns as the chat's bubbles.
  * Existing parts only: GlassSectionHeader + ChatConversation.
+ *
+ * #EXP-2076 (chat-express.json): the turns are THE chat's rows, so an agent
+ * turn with Express blocks splits exactly like the chat (prose bubbles, each
+ * block's surface card in place); their actions post into the CALL session
+ * (`onSurfaceAction`; none = inert). The summary band only reads the agent's
+ * summary: its pure prose (`plainProse`), no band when that is empty.
  */
 export function CallViewBody({
   view,
@@ -22,6 +29,7 @@ export function CallViewBody({
   member,
   messageTime,
   arrived,
+  onSurfaceAction,
   className,
 }: {
   view: CallView
@@ -33,8 +41,9 @@ export function CallViewBody({
   chat: { sessionId: string; title: string; agentId: string | null }
 } & Pick<
   ComponentProps<typeof ChatConversation>,
-  `viewerId` | `viewer` | `member` | `messageTime` | `arrived` | `className`
+  `viewerId` | `viewer` | `member` | `messageTime` | `arrived` | `onSurfaceAction` | `className`
 >) {
+  const summary = view.summary ? plainProse(view.summary) : ``
   return (
     <div data-testid="call-view" className={cn(`flex flex-col gap-4`, className)}>
       {heading && (
@@ -43,10 +52,10 @@ export function CallViewBody({
           <span className="truncate text-xs text-muted-foreground">{view.subtitle}</span>
         </div>
       )}
-      {view.summary && (
+      {summary && (
         <div className="flex flex-col border-b border-border pb-4" data-testid="call-view-summary">
           <GlassSectionHeader label={view.summaryLabel} className="-mx-3 w-auto md:mx-0" />
-          <div className="pt-2">{renderText(view.summary)}</div>
+          <div className="pt-2">{renderText(summary)}</div>
         </div>
       )}
       <ChatConversation
@@ -60,6 +69,7 @@ export function CallViewBody({
         member={member}
         messageTime={messageTime}
         arrived={arrived}
+        onSurfaceAction={onSurfaceAction}
       />
     </div>
   )

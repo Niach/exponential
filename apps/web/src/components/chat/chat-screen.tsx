@@ -527,6 +527,9 @@ export function ChatScreen({
         agentId={root.agentId ?? null}
         agentName={agent?.name ?? view.title}
         heading={!isMobile}
+        // #EXP-2076: a block's action posts into the call session, like any
+        // opened session view (an ended one's surfaces are inert).
+        actionTarget={openSessionRow.status === `ended` ? null : { teamId: team.id, sessionId: openSessionRow.id }}
       />
     )
   } else if (screen.open === `session` && openSessionRow) {

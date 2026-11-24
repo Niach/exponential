@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { CallAudioError, openCallAudio } from "./audio"
+import { CALL_WORKLET_URLS, CallAudioError, openCallAudio } from "./audio"
 
 // NEW-70 review: the web call's audio against stub WebAudio + WebCodecs:
 // the microphone's track is stopped on close (and on a failed open), mute
@@ -17,8 +17,10 @@ class FakeTrack {
 
 class FakeContext {
   static failWorklet = false
+  static modules: string[] = []
   audioWorklet = {
-    addModule: async () => {
+    addModule: async (url: string) => {
+      FakeContext.modules.push(url)
       if (FakeContext.failWorklet) throw new Error(`no worklet`)
     },
   }
@@ -90,8 +92,7 @@ beforeEach(() => {
     close() {}
   })
   vi.stubGlobal(`EncodedAudioChunk`, class {})
-  vi.spyOn(URL, `createObjectURL`).mockReturnValue(`blob:worklet`)
-  vi.spyOn(URL, `revokeObjectURL`).mockImplementation(() => {})
+  FakeContext.modules = []
 })
 
 afterEach(() => {
@@ -106,6 +107,20 @@ function capture(samples = new Float32Array(320).fill(0.1)) {
 }
 
 describe(`openCallAudio`, () => {
+  // #EXP-2102: the CSP (script-src 'self', no blob:, no data:) refuses any
+  // other module; a refused one read "This browser can't make calls".
+  it(`loads both worklets by a same-origin path, never a blob: or data: URL`, async () => {
+    const created = vi.spyOn(URL, `createObjectURL`)
+    const audio = await openCallAudio()
+    audio.close()
+    expect(FakeContext.modules).toEqual([CALL_WORKLET_URLS.capture, CALL_WORKLET_URLS.playback])
+    for (const url of FakeContext.modules) {
+      expect(url).toMatch(/^\/[^/].*call-(capture|playback).*\.js/)
+      expect(new URL(url, `https://app.example`).origin).toBe(`https://app.example`)
+    }
+    expect(created).not.toHaveBeenCalled()
+  })
+
   it(`close stops the microphone's track`, async () => {
     const audio = await openCallAudio()
     expect(track.stopped).toBe(false)

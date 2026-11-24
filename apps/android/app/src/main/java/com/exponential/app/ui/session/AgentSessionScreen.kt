@@ -2497,14 +2497,7 @@ private fun ActivityFeed(
                         EmptyState(EmptyStateCopy.transcript)
                     }
                 } else {
-                    // EXP-916: the lane's own projection — its consecutive
-                    // edits fold into ONE edited-files card, exactly as they
-                    // do in the main transcript.
-                    // #FEED-256: a blank narration (a lone U+200B) draws no bubble.
-                    val laneRows = projectLaneRows(
-                        focused.items.filter { it !is AgentFeedItem.Narration || !TranscriptGrouping.isBlankText(it.text) },
-                        workflowIds,
-                    )
+                    val laneRows = subagentLaneRows(focused, workflowIds)
                     // #EXP-1736: the same grouping as the main stream, the
                     // subagent as the chat's own sender.
                     val laneLayouts = laneTranscriptLayout(laneRows, focused)
@@ -2512,26 +2505,8 @@ private fun ActivityFeed(
                         laneRows,
                         key = { _, laneRow -> laneRow.id },
                         contentType = { _, laneRow -> laneRow.contentType },
-                    ) { index, laneRow ->
-                        val laneLayout = laneLayouts[laneRow.id]
-                        val layout = laneLayout?.layout
-                        // The same ladder as the main feed, over the rows a
-                        // subagent's conversation is made of; two bubbles in
-                        // a row take the group's gaps.
-                        TranscriptRow(
-                            if (laneLayout?.groupGap == true) {
-                                layout?.gap?.dp ?: 0.dp
-                            } else {
-                                transcriptGap(laneRows.getOrNull(index - 1)?.rowClass, laneRow.rowClass).dp
-                            },
-                        ) {
-                            TranscriptBubbleRow(
-                                layout = layout?.copy(gap = 0),
-                                avatar = { layout?.sender?.let { SenderAvatar(it) } },
-                            ) {
-                                LaneRow(laneRow, liveItemId = liveRowId, live = live, author = layout.authorLine(), tail = layout.hasTail())
-                            }
-                        }
+                    ) { index, _ ->
+                        SubagentLaneItem(laneRows, index, laneLayouts, focused, liveRowId = liveRowId, live = live, working = working)
                     }
                 }
             } else {
@@ -3118,6 +3093,73 @@ internal fun feedTranscriptLayout(
     }
     return out
 }
+
+/**
+ * EXP-916: a subagent lane's own projection: its consecutive edits fold into
+ * ONE edited-files card, exactly as they do in the main transcript.
+ * #FEED-256: a blank narration (a lone U+200B) draws no bubble.
+ */
+internal fun subagentLaneRows(run: AgentFeedRow.SubagentRun, workflowIds: Set<String>): List<AgentFeedRow> =
+    projectLaneRows(
+        run.items.filter { it !is AgentFeedItem.Narration || !TranscriptGrouping.isBlankText(it.text) },
+        workflowIds,
+    )
+
+/**
+ * EXP-356: one row of the focused subagent's tab ([subagentLaneRows],
+ * [laneTranscriptLayout]): the same gap ladder as the main feed (two bubbles
+ * in a row take the group's gaps), the grouping's avatar and name, the row.
+ * #EXP-2074: its narration takes THE main lane's Express path
+ * ([ExpressNarration] under the feed's [com.exponential.app.ui.chat.LocalExpressSession]
+ * / [com.exponential.app.ui.chat.LocalExpressActions]), FINAL by
+ * [laneNarrationFinal].
+ */
+@Composable
+internal fun SubagentLaneItem(
+    laneRows: List<AgentFeedRow>,
+    index: Int,
+    laneLayouts: Map<Long, FeedRowLayout>,
+    run: AgentFeedRow.SubagentRun,
+    liveRowId: Long?,
+    live: Boolean,
+    working: Boolean,
+) {
+    val laneRow = laneRows[index]
+    val laneLayout = laneLayouts[laneRow.id]
+    val layout = laneLayout?.layout
+    TranscriptRow(
+        if (laneLayout?.groupGap == true) {
+            layout?.gap?.dp ?: 0.dp
+        } else {
+            transcriptGap(laneRows.getOrNull(index - 1)?.rowClass, laneRow.rowClass).dp
+        },
+    ) {
+        TranscriptBubbleRow(
+            layout = layout?.copy(gap = 0),
+            avatar = { layout?.sender?.let { SenderAvatar(it) } },
+        ) {
+            LaneRow(
+                laneRow,
+                liveItemId = liveRowId,
+                live = live,
+                author = layout.authorLine(),
+                tail = layout.hasTail(),
+                final = laneNarrationFinal(index, laneRows.size, working, run.completed),
+            )
+        }
+    }
+}
+
+/**
+ * #EXP-2074 (chat-express.json STREAMING): a lane narration row is FINAL by
+ * the main lane's rule, per lane: another row of its OWN lane follows it
+ * ([index] < [count] - 1), or its turn ended (the session not [working]) or
+ * the subagent is [done]. (The old `!live` held every row of a live
+ * transcript's lane open forever: an unclosed block never read `Unclosed`,
+ * a trailing `<a2ui` prefix line stayed hidden.)
+ */
+internal fun laneNarrationFinal(index: Int, count: Int, working: Boolean, done: Boolean): Boolean =
+    index < count - 1 || !working || done
 
 /**
  * #EXP-1736: a subagent's own tab as transcript items, the subagent as the
@@ -5269,11 +5311,13 @@ private fun LaneRow(
     author: String? = null,
     /** #EXP-1876: the bubble's tail (a group's first message). */
     tail: Boolean = false,
+    /** #EXP-2074: a narration's Express FINAL ([laneNarrationFinal]). */
+    final: Boolean = !live,
 ) {
     when (row) {
         is AgentFeedRow.Edits -> EditedFilesCard(items = row.items, liveItemId = liveItemId)
         is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items, nested = nested)
-        is AgentFeedRow.Single -> SubagentItemRow(row.item, live = live, nested = nested, author = author, tail = tail)
+        is AgentFeedRow.Single -> SubagentItemRow(row.item, live = live, nested = nested, author = author, tail = tail, final = final)
         else -> Unit
     }
 }
@@ -5283,12 +5327,23 @@ private fun LaneRow(
 // renders nothing rather than breaking the feed. `live` = the RUN still
 // lives: an ended session's open reasoning never shimmers (main-site rule).
 @Composable
-private fun SubagentItemRow(item: AgentFeedItem, live: Boolean, nested: Boolean = false, author: String? = null, tail: Boolean = false) {
+private fun SubagentItemRow(
+    item: AgentFeedItem,
+    live: Boolean,
+    nested: Boolean = false,
+    author: String? = null,
+    tail: Boolean = false,
+    /** #EXP-2074: the narration's Express FINAL ([laneNarrationFinal]). */
+    final: Boolean = !live,
+) {
     when (item) {
         is AgentFeedItem.Tool -> ToolRow(item, nested = nested)
+        // #EXP-2074 (chat-express.json WHICH ROWS): a subagent's narration
+        // is agent text: THE main lane's path (key `n:<session>:<messageId>`,
+        // one sender group, presses through the feed's handler).
         is AgentFeedItem.Narration -> ExpressNarration(
             item,
-            final = !live,
+            final = final,
             author = author,
             tail = tail,
             modifier = if (nested) Modifier.padding(vertical = 5.dp) else Modifier,

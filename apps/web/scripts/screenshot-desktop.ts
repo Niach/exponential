@@ -174,6 +174,14 @@ const FEED: Array<Record<string, unknown>> = [
     detail: `./gradlew :app:startupProfile --variant=release`,
     subagentId: `sub-startup-trace`,
   },
+  // #EXP-2074 (chat-express.json WHICH ROWS): the subagent's own narration
+  // holds ONE Express block; its tab draws the surface in place (never Main).
+  // = `EXPRESS_SAMPLE_TEXT` (@exp/ui chat-specimens), the natives' sample too.
+  {
+    kind: `narration`,
+    text: `Checked the three lanes.\n<a2ui>\nroot = Stack(children=[title, ship])\ntitle = Text(text="Build 1482 is green")\nship = Button(label="Ship it", on={press: Event("reply", userMessage="Ship it")})\n</a2ui>\nAll green.`,
+    subagentId: `sub-startup-trace`,
+  },
   {
     kind: `subagent`,
     id: `sub-startup-trace`,
