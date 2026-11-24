@@ -1,5 +1,5 @@
 {
-  "id": "4b47395d-cf54-4aed-931a-addabb780d1b",
+  "id": "0961bfcc-1c7d-4754-86f1-46cc8f81b332",
   "prevId": "eec2d4bb-8825-40dd-b214-fadec6300c9f",
   "version": "7",
   "dialect": "postgresql",
@@ -12249,12 +12249,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "tree_public_key": {
-          "name": "tree_public_key",
-          "type": "varchar(43)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -14637,6 +14631,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": 4
+        },
+        "wake_agent_ids": {
+          "name": "wake_agent_ids",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
         },
         "created_at": {
           "name": "created_at",

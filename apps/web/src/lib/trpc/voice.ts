@@ -20,6 +20,12 @@
 // meeting; `stopMeeting {reason}` (the device's auto-stop or restart) clears
 // only the stamp it read and, when it did, posts `stopNote` once into the
 // member's conversation with the voice agent (never waking it).
+//
+// #EXP-1859 (agent-settings.json `voice.wake`): `wakeAgentIds` = the team
+// agents the member switched on to listen on the voice device; written only
+// by `wakeAgent` (pure `wakeToggle`), riding the heartbeat like the rest.
+// `startCall {mode: 'turn', phrase}` = a wake turn dialled to the agent's
+// device (voice-call.json EXP-1859), desktops only.
 
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
@@ -51,6 +57,7 @@ import { mintCallId, verifyCallId } from "@/lib/voice-call-id"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED, postMeetingStopNote } from "@/lib/sessions/meeting-access"
 import { voiceAssistantOf } from "@/lib/agents/assistant"
 import { endCallSession, startCallSession } from "@/lib/sessions/call"
+import { AGENT_VOICE_WAKE_COPY, WAKE_MAX_IDS, wakeToggle, type WakeAgentLike } from "@exp/domain-contract/agent-settings"
 
 type Db = typeof Database
 
@@ -72,6 +79,8 @@ export interface VoiceSettings {
   meetingStartedAt: string | null
   /** FEED-163: meeting.json `autoStop.hoursValues`. */
   meetingAutoStopHours: number
+  /** #EXP-1859: the team agents switched on to listen, in order. */
+  wakeAgentIds: string[]
 }
 
 /** voice.json `defaults` plus the meeting.json settings' defaults. */
@@ -81,6 +90,7 @@ export const VOICE_SETTINGS_DEFAULTS: VoiceSettings = {
   desktopAudioApps: [],
   meetingStartedAt: null,
   meetingAutoStopHours: MEETING_AUTO_STOP.defaultHours,
+  wakeAgentIds: [],
 }
 
 const DESKTOP_AUDIO = DESKTOP_AUDIO_VALUES.map((option) => option.value) as [DesktopAudio, ...DesktopAudio[]]
@@ -106,6 +116,12 @@ function storedApps(value: unknown): AudioApp[] {
     .filter((app): app is AudioApp => typeof app?.id === `string` && typeof app?.name === `string`)
     .slice(0, MEETING_LIMITS.apps)
     .map((app) => ({ id: app.id, name: app.name }))
+}
+
+// #EXP-1859: a stored id list is trusted only as far as its shape.
+function storedIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((id): id is string => typeof id === `string`).slice(0, WAKE_MAX_IDS)
 }
 
 /** The member's settings, the fixture's defaults when no row exists. */
@@ -144,6 +160,7 @@ export async function voiceSettingsOf(database: Db, userId: string): Promise<Voi
         ? new Date(row.meetingStartedAt).toISOString()
         : null,
     meetingAutoStopHours,
+    wakeAgentIds: storedIds(row.wakeAgentIds),
   })
 }
 
@@ -306,6 +323,30 @@ export async function vouchedCall(
   return match ? { sealed: false, tried: `clear` } : { sealed: null, tried: `clear for ${agentIds.length} agents (the host named none)` }
 }
 
+/** #EXP-1859: the agents `wakeToggle` reads: the agents of the member's
+ *  teams (never another member's Assistant) plus the voice agent. */
+export async function wakeAgentsOf(
+  database: Db,
+  userId: string,
+  voiceAgentId: string | null
+): Promise<WakeAgentLike[]> {
+  const memberTeams = database
+    .select({ teamId: teamMembers.teamId })
+    .from(teamMembers)
+    .where(eq(teamMembers.userId, userId))
+  const rows = await database
+    .select({ id: agents.id, role: agents.role, name: agents.name, voice: agents.voice, ownerId: agents.ownerId })
+    .from(agents)
+    .where(
+      voiceAgentId
+        ? or(inArray(agents.teamId, memberTeams), eq(agents.id, voiceAgentId))
+        : inArray(agents.teamId, memberTeams)
+    )
+  return rows
+    .filter((row) => row.role !== `assistant` || row.ownerId === userId)
+    .map((row) => ({ id: row.id, role: row.role, name: row.name, voice: row.voice ?? {} }))
+}
+
 /** EXP-1857 (voice-call.json `callTarget`): the member's OWN desktops,
  *  newest first, as a call's possible speech devices (EXP-1858: and their
  *  own servers, a candidate only as the agent's device). A meeting runs on
@@ -437,6 +478,33 @@ export const voiceRouter = router({
         : next
     }),
 
+  // #EXP-1859 (agent-settings.json `voice.wake`): a team agent page's Wake
+  // word row. `wakeToggle` in one write: on appends the agent (once) and
+  // turns Wake word on, refused (BAD_REQUEST, the copy) when its phrase is
+  // too short, clashes with one that listens, or past the cap; off drops it.
+  // Answers the new settings and nudges the voice device.
+  wakeAgent: authedProcedure
+    .input(z.object({ agentId: z.string().uuid(), on: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const db = ctx.db
+      const before = await voiceSettingsOf(db, userId)
+      const wakeAgents = await wakeAgentsOf(db, userId, before.agentId)
+      const agent = wakeAgents.find((candidate) => candidate.id === input.agentId)
+      if (input.on && (!agent || agent.role === `assistant`)) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `That agent isn't in your teams` })
+      }
+      const toggled = wakeToggle({ settings: before, agents: wakeAgents }, input.agentId, input.on)
+      if (toggled.error) throw new TRPCError({ code: `BAD_REQUEST`, message: toggled.error })
+      if (toggled.wakeAgentIds.length > WAKE_MAX_IDS) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: AGENT_VOICE_WAKE_COPY.errors.wakeCap })
+      }
+      const next = withClearOnNone({ ...before, wakeWord: toggled.wakeWord, wakeAgentIds: toggled.wakeAgentIds })
+      await writeSettings(db, userId, next, { meeting: false })
+      if (next.voiceDeviceId) nudge(userId, next.voiceDeviceId)
+      return next
+    }),
+
   // NEW-57: THE consent dialog's Start. Refused without `consent: true` (the
   // zod literal), without a voice device and an agent, and with
   // `copy.sharedRefused` unless that agent is private (`meetingAgentIsPrivate`:
@@ -511,11 +579,21 @@ export const voiceRouter = router({
         deviceId: z.string().min(1).max(128).optional(),
         /** #EXP-1941: the caller can seal this call (it holds a key holder). */
         seal: z.boolean().optional(),
+        /** EXP-1859: `turn` = a wake turn dialled to the agent's device
+         *  (desktops only); `phrase` = the wake phrase heard (turn only). */
+        mode: z.enum([`call`, `turn`]).default(`call`),
+        phrase: oneLine(VOICE_LIMITS.wakePhrase, `wake phrase`).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const db = ctx.db
+      if (input.mode === `turn` && input.platform !== `desktop`) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `Only a desktop makes a turn call` })
+      }
+      if (input.phrase !== undefined && input.mode !== `turn`) {
+        throw new TRPCError({ code: `BAD_REQUEST`, message: `A phrase goes with a turn call only` })
+      }
       const agent = await memberAgent(db, userId, input.agentId)
       if (!agent) {
         throw new TRPCError({ code: `NOT_FOUND`, message: `That agent isn't in your teams` })
@@ -567,6 +645,7 @@ export const voiceRouter = router({
         callId,
         agentId: input.agentId,
         deviceId: target.device,
+        ...(input.mode === `turn` ? { mode: `turn` as const, ...(input.phrase?.trim() ? { phrase: input.phrase.trim() } : {}) } : {}),
       })
       if (`disabled` in minted) {
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
