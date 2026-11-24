@@ -34,13 +34,6 @@ export function chatMarks(root: { shared: boolean; sealEpoch?: number | null }):
   return marks
 }
 
-/** The Team tab's `copy.team.meta` (`teamMetaCases`): singular at exactly 1. */
-export function teamMeta(members: number, boards: number): string {
-  const { team } = fixture.copy
-  return team.meta
-    .replace(`{members}`, `${members} ${members === 1 ? team.member : team.members}`)
-    .replace(`{boards}`, `${boards} ${boards === 1 ? team.board : team.boards}`)
-}
 /** #EXP-1836: the board's My issues (`boardMineCases`): the viewer's
  *  assigned issues on THIS board, input order kept; no viewer = none. */
 export function boardMineIssues<T extends { boardId: string; assigneeId: string | null }>(
@@ -53,6 +46,18 @@ export function boardMineIssues<T extends { boardId: string; assigneeId: string 
 }
 export const CHATS_TEST_IDS = fixture.testIds
 export const CHATS_SHELL = fixture.shell
+
+/** #EXP-2109: the phone's docked bar. */
+export type PhoneTabId = `chats` | `teams` | `assistant` | `new` | `settings`
+export const PHONE_TABS = fixture.shell.tabs as PhoneTabId[]
+export type PhoneRootPage = keyof typeof fixture.shell.pages
+
+/** The tab a page lights and whether the bar shows (`shell.pages`); a page
+ *  not listed is a detail: no bar. */
+export function phonePage(page: string): { tab: PhoneTabId | null; bar: boolean } {
+  const pages = fixture.shell.pages as Record<string, { tab: string; bar: boolean }>
+  return Object.hasOwn(pages, page) ? (pages[page] as { tab: PhoneTabId; bar: boolean }) : { tab: null, bar: false }
+}
 /** #EXP-1380: the transcript window, its step and the follow slack (px). */
 export const CHATS_TRANSCRIPT = fixture.transcript
 
