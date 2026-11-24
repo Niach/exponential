@@ -670,6 +670,10 @@ jobs:
       - name: Cargo tests (one claude store, junctions)
         working-directory: apps/desktop
         run: cargo test --locked -p eagent --lib claude_store
+      # #FEED-308: the command line stays under CreateProcess' limit.
+      - name: Cargo tests (command line limit, launch files)
+        working-directory: apps/desktop
+        run: cargo test --locked -p eagent --lib -- command_line launch_files
 
   desktop-fuzz:
     needs: dedupe
