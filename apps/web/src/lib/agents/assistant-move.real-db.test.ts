@@ -1,8 +1,13 @@
 // @vitest-environment node
-// #EXP-1986 (agent-settings.json `assistant.move`, #EXP-1984): the move
-// (lib/agents/assistant-move.sql, behind its switch) against the REAL migrated Postgres, replayed in a rolled-back
-// transaction over rows shaped like before it (per-team Assistants), scoped
-// to this file's members so parallel suites never see it. Locks:
+// #EXP-1986 / #EXP-1989 (agent-settings.json `assistant.move`, #EXP-1984):
+// THE MIGRATION that moves every per-team Assistant and then holds one per
+// owner (db/out/*_exp1989_one_assistant_per_owner.sql, the move's only
+// copy) against the REAL migrated Postgres, replayed in a rolled-back
+// transaction that first puts the (team, owner) index back, over rows shaped
+// like before it (per-team Assistants), the move scoped to this file's
+// members so parallel suites never see it. The same file through drizzle's
+// migrator on a database of its own: assistant-move-migration.real-db.test.ts.
+// Locks:
 //   * the pick replays `keepCases` (the TS reference `assistantMoveOf`);
 //   * the kept conversation moves into the personal team with its ids, its
 //     tree key and its sealed history, and stays readable by its member;
@@ -14,8 +19,13 @@
 //   * a NEW Assistant conversation on a team-shared device is private;
 //   * #EXP-1988: every per-team Assistant's skill and MCP picks carry into
 //     the kept one (and its conversation), and each team's work launches
-//     with that team's picks before and after the move.
-import { afterAll, describe, expect, it, onTestFinished, vi } from "vitest"
+//     with that team's picks before and after the move;
+//   * #EXP-1989: on a member who already moved, and with nobody to move, the
+//     file changes only the index; the index refuses a second Assistant row.
+import { readdirSync, readFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { ASSISTANT_MOVE, assistantMoveOf } from "@exp/domain-contract/agent-settings"
 import {
@@ -67,26 +77,56 @@ const { sessionVisibleTo, loadSessionForUser } = await import(`@/lib/sessions/ac
 const { sendSession } = await import(`@/lib/sessions/send`)
 const { ensureAssistant, personalTeamSlug } = await import(`@/lib/agents/assistant`)
 const { conversationInTx } = await import(`@/lib/agents/conversation`)
-const { assistantMoveStatements } = await import(`@/lib/agents/assistant-move`)
 const { sessionLaunchPick, sessionLaunchTeams, mergedAgentPick } = await import(`@/lib/agents/team-picks`)
 
-const MIGRATION = assistantMoveStatements()
+const OUT = join(dirname(fileURLToPath(import.meta.url)), `../../db/out`)
+// Found by name: its number moves when another migration lands first.
+const MIGRATION = readFileSync(
+  join(OUT, readdirSync(OUT).find((name) => name.endsWith(`_exp1989_one_assistant_per_owner.sql`))!),
+  `utf8`
+)
+  .split(`--> statement-breakpoint`)
+  .map((statement) => statement.trim())
+  .filter(Boolean)
+const MOVERS = MIGRATION.findIndex((statement) => statement.includes(`CREATE TABLE "exp1986_movers" AS`))
 
-/** The migration, scoped to `owners` (the movers' set is its first table). */
+/** The whole migration file (the move, then the index), the move scoped to
+ *  `owners` (the movers' set is its first table; none = nobody moves). */
 async function runMove(tx: RealDbTx, owners: string[]) {
-  const scope = owners.map((owner) => `'${owner}'`).join(`, `)
+  const scope = owners.length ? owners.map((owner) => `'${owner}'`).join(`, `) : `NULL`
+  expect(MOVERS).toBeGreaterThanOrEqual(0)
   for (const [index, statement] of MIGRATION.entries()) {
     const scoped =
-      index === 0
+      index === MOVERS
         ? statement.replace(
             `WHERE a."role" = 'assistant' AND t."kind" <> 'personal';`,
             `WHERE a."role" = 'assistant' AND t."kind" <> 'personal' AND a."owner_id" IN (${scope});`
           )
         : statement
-    if (index === 0) expect(scoped).not.toBe(statement)
+    if (index === MOVERS) expect(scoped).not.toBe(statement)
     await tx.execute(sql.raw(scoped))
   }
 }
+
+/** A rolled-back transaction on the database as it was BEFORE the migration:
+ *  the unique index on (team, owner) again, taken first (it locks `agents`
+ *  until the rollback, so nothing of ours is held while it waits). */
+const beforeMigration = (fn: (tx: RealDbTx) => Promise<void>) =>
+  inRollback(async (tx) => {
+    await tx.execute(sql.raw(`DROP INDEX "uniq_agents_assistant"`))
+    await tx.execute(
+      sql.raw(`CREATE UNIQUE INDEX "uniq_agents_assistant" ON "agents" USING btree ("team_id","owner_id") WHERE role = 'assistant'`)
+    )
+    await fn(tx)
+  })
+
+const indexDef = async (tx: RealDbTx) => {
+  const result = (await tx.execute(
+    sql`SELECT indexdef FROM pg_indexes WHERE indexname = 'uniq_agents_assistant'`
+  )) as unknown as { rows: Array<{ indexdef: string }> }
+  return result.rows[0]?.indexdef ?? ``
+}
+const OWNER_INDEX = /UNIQUE INDEX uniq_agents_assistant ON public\.agents USING btree \(owner_id\) WHERE \(role = 'assistant'/
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
@@ -173,7 +213,7 @@ afterAll(async () => {
   if (made.users.length) await db.execute(sql`DELETE FROM users WHERE id IN ${sql.raw(`('${made.users.join(`','`)}')`)}`)
 })
 
-describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
+describe.skipIf(!ready.ok)(`the Assistant move's migration (#EXP-1986, #EXP-1989)`, () => {
   it(`keeps the most recently active conversation, moved private with its key and history; ends the other`, async () => {
     const me = await user()
     const mate = await user()
@@ -184,7 +224,7 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
     const myPhone = await install(me)
     const myDesk = await install(me, desk.rowId)
     const matePhone = await install(mate)
-    await inRollback(async (tx) => {
+    await beforeMigration(async (tx) => {
       const asA = await assistant(tx, teamA, me, desk.deviceId, `2026-10-01T09:00:00Z`)
       const asB = await assistant(tx, teamB, me, desk.deviceId, `2026-10-02T09:00:00Z`)
       const tree = generateTreeKey()
@@ -261,9 +301,11 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
       // No scratch table survives; a second run changes nothing.
       const scratch = await tx.execute(sql`SELECT count(*)::int AS n FROM pg_tables WHERE tablename LIKE 'exp1986_%' OR tablename LIKE 'exp1988_%'`)
       expect((scratch as unknown as { rows: Array<{ n: number }> }).rows?.[0]?.n ?? (scratch as unknown as Array<{ n: number }>)[0]?.n).toBe(0)
+      expect(await indexDef(tx)).toMatch(OWNER_INDEX)
       await runMove(tx, [me])
       const [again] = await tx.select().from(sessions).where(eq(sessions.id, rA))
       expect(again).toMatchObject({ teamId: personal!.id, status: `running` })
+      expect(await indexDef(tx)).toMatch(OWNER_INDEX)
     })
   }, 60_000)
 
@@ -275,7 +317,7 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
       for (const [, real] of owners) deskOf.set(real, (await device(real)).deviceId)
       const teamOf = new Map<string, string>()
       for (const a of c.assistants) teamOf.set(a.id, await team([[owners.get(a.ownerId)!, `owner`]]))
-      await inRollback(async (tx) => {
+      await beforeMigration(async (tx) => {
         // Fixture ids sort like real uuids: map each to a uuid of the same order.
         const ids = [...new Set([...c.assistants.map((a) => a.id), ...c.roots.map((r) => r.id)])].sort()
         const uuidOf = new Map(ids.map((fid, i) => [fid, `00000000-0000-4000-8${String(i).padStart(3, `0`)}-${id8()}${id8().slice(0, 4)}`]))
@@ -326,10 +368,6 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
   }, 120_000)
 
   it(`a NEW Assistant conversation on a device shared with the team is private (the hole stays closed)`, async () => {
-    process.env.ASSISTANT_MOVE = `on`
-    onTestFinished(() => {
-      delete process.env.ASSISTANT_MOVE
-    })
     const me = await user()
     const mate = await user()
     const teamA = await team([[me, `owner`], [mate, `member`]])
@@ -363,7 +401,7 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
     const teamA = await team([[me, `owner`]])
     const teamB = await team([[me, `owner`]])
     const desk = await device(me)
-    await inRollback(async (tx) => {
+    await beforeMigration(async (tx) => {
       const skill = async (teamId: string, name: string) =>
         (await tx.insert(skills).values({ teamId, name, description: name, body: `# ${name}` }).returning({ id: skills.id }))[0]!.id
       const server = async (teamId: string, name: string) =>
@@ -379,7 +417,7 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
       await tx.update(sessions).set({ skillIds: [skA], mcpServerIds: [mcpA] }).where(eq(sessions.id, rA))
       await tx.update(sessions).set({ skillIds: [skB, skB2], mcpServerIds: [mcpB] }).where(eq(sessions.id, rB))
 
-      // (a) switch off: each team's conversation launches with its team's picks.
+      // (a) before the move: each team's conversation launches with its team's picks.
       const before = await tx.select().from(sessions).where(inArray(sessions.id, [rA, rB]))
       const byId = new Map(before.map((row) => [row.id, row]))
       expect(await sessionLaunchPick(tx, `skills`, byId.get(rA)!, byId.get(rA)!.skillIds)).toEqual([skA])
@@ -410,6 +448,59 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
       await runMove(tx, [me])
       const [again] = await tx.select().from(agents).where(eq(agents.id, asA.id))
       expect(again).toMatchObject({ skillIds: [skA, skB, skB2], mcpServerIds: [mcpA, mcpB] })
+    })
+  }, 60_000)
+
+  it(`#EXP-1989: a member who already moved (the switch was on) is untouched; only the index changes`, async () => {
+    const me = await user()
+    const teamA = await team([[me, `owner`]])
+    await device(me)
+    const agent = (await ensureAssistant(me, teamA))!
+    const sent = await sendSession({ userId: me, input: { agentId: agent.id, teamId: teamA, text: `Still here?` } as never })
+    const rows = async (tx: RealDbTx) => ({
+      agents: await tx.select().from(agents).where(eq(agents.ownerId, me)),
+      teams: await tx.select().from(teams).where(eq(teams.ownerId, me)),
+      sessions: await tx.select().from(sessions).where(eq(sessions.userId, me)),
+      messages: await tx.select().from(messages).where(eq(messages.sessionId, sent.sessionId)),
+    })
+    await beforeMigration(async (tx) => {
+      const before = await rows(tx)
+      expect(before.agents.map((a) => a.id)).toEqual([agent.id])
+      expect(before.sessions.map((s) => s.id)).toContain(sent.sessionId)
+      // Unscoped as the migration runs it would move other suites' rows, so
+      // the movers' set is scoped to this member: it must find nobody.
+      await runMove(tx, [me])
+      expect(await rows(tx)).toEqual(before)
+      expect(await indexDef(tx)).toMatch(OWNER_INDEX)
+    })
+  }, 60_000)
+
+  it(`#EXP-1989: nobody to move (a new install): only the index changes`, async () => {
+    await beforeMigration(async (tx) => {
+      const count = async () =>
+        ((await tx.execute(sql`SELECT count(*)::int AS n FROM agents WHERE role = 'assistant'`)) as unknown as { rows: Array<{ n: number }> }).rows[0]!.n
+      const before = await count()
+      await runMove(tx, [])
+      expect(await count()).toBe(before)
+      expect(await indexDef(tx)).toMatch(OWNER_INDEX)
+    })
+  }, 60_000)
+
+  it(`#EXP-1989: the index refuses a second Assistant row for one owner, in any team`, async () => {
+    const me = await user()
+    const teamA = await team([[me, `owner`]])
+    const teamB = await team([[me, `owner`]])
+    const desk = await device(me)
+    await inRollback(async (tx) => {
+      expect(await indexDef(tx)).toMatch(OWNER_INDEX)
+      await assistant(tx, teamA, me, desk.deviceId, `2026-10-01T09:00:00Z`)
+      for (const teamId of [teamA, teamB]) {
+        await expect(
+          tx.transaction((inner) => assistant(inner as never, teamId, me, desk.deviceId, `2026-10-02T09:00:00Z`))
+        ).rejects.toMatchObject({ cause: { code: `23505`, constraint: `uniq_agents_assistant` } })
+      }
+      // A team agent of theirs is no Assistant: as many as they like.
+      await tx.insert(agents).values({ teamId: teamB, ownerId: me, deviceId: desk.deviceId, name: `Triage`, role: `agent` } as never)
     })
   }, 60_000)
 })

@@ -3,6 +3,7 @@ import {
   CLIENT_VERSION_HEADER,
   DEVICE_SEALING_FLOOR,
   checkClientVersion,
+  clientFloors,
   parseClientVersionHeader,
   parseVersionTuple,
   versionPayload,
@@ -117,51 +118,42 @@ describe(`checkClientVersion`, () => {
     expect(await res?.json()).toMatchObject({ platform: `cli`, min: `0.15.0` })
   })
 
-  it(`raises a configured desktop/CLI minimum below the sealing floor (EDE-97)`, async () => {
+  it(`the sealing floor (EDE-97) is the fixture's, below the Assistant floor that now applies on desktop and CLI`, () => {
     expect(DEVICE_SEALING_FLOOR).toBe(sealedFixture.clearTree.deviceMinVersion)
-    process.env.CLIENT_MIN_VERSION_DESKTOP = `0.14.89`
-    process.env.CLIENT_MIN_VERSION_CLI = `0.14.88`
-    const res = checkClientVersion(req(`cli/0.14.95`))
-    expect(res?.status).toBe(426)
-    expect(await res?.json()).toMatchObject({ platform: `cli`, min: `0.14.96` })
-    expect(checkClientVersion(req(`cli/0.14.96`))).toBeNull()
-    expect(checkClientVersion(req(`desktop/0.14.96`))).toBeNull()
+    expect(clientFloors(`desktop`)).toEqual([DEVICE_SEALING_FLOOR, ASSISTANT_CLIENT_FLOOR.desktop])
+    expect(clientFloors(`cli`)).toEqual([DEVICE_SEALING_FLOOR, ASSISTANT_CLIENT_FLOOR.cli])
+    expect(clientFloors(`android`)).toEqual([ASSISTANT_CLIENT_FLOOR.android])
+    expect(clientFloors(`ios`)).toEqual([ASSISTANT_CLIENT_FLOOR.ios])
     // An unset minimum still fails open.
-    delete process.env.CLIENT_MIN_VERSION_DESKTOP
     expect(checkClientVersion(req(`desktop/0.1.0`))).toBeNull()
+    expect(checkClientVersion(req(`cli/0.1.0`))).toBeNull()
   })
 
-  it(`the Assistant floor waits for the move's switch (#EXP-1986)`, () => {
+  it(`raises a configured minimum below the Assistant floor on every platform, with no switch (#EXP-1984, #EXP-1989)`, async () => {
+    // The first release tags holding #EXP-1987 + #EXP-2020 and #EXP-1988.
+    expect(ASSISTANT_CLIENT_FLOOR).toEqual({ desktop: `0.14.171`, cli: `0.14.171`, android: `0.14.152`, ios: `0.14.140` })
+    process.env.CLIENT_MIN_VERSION_DESKTOP = `0.14.137`
+    process.env.CLIENT_MIN_VERSION_CLI = `0.14.88`
     process.env.CLIENT_MIN_VERSION_ANDROID = `0.14.0`
-    process.env.CLIENT_MIN_VERSION_DESKTOP = `0.14.100`
-    expect(checkClientVersion(req(`android/0.14.1`))).toBeNull()
-    expect(checkClientVersion(req(`desktop/0.14.100`))).toBeNull()
-    expect(versionPayload().android.min).toBe(`0.14.0`)
-  })
-
-  it(`raises a configured minimum below the Assistant floor on desktop and the phones once the move is on (#EXP-1984)`, async () => {
-    process.env.ASSISTANT_MOVE = `on`
-    onTestFinished(() => {
-      delete process.env.ASSISTANT_MOVE
-    })
-    expect(ASSISTANT_CLIENT_FLOOR).toEqual({ desktop: `0.14.137`, android: `0.14.122`, ios: `0.14.116` })
-    process.env.CLIENT_MIN_VERSION_DESKTOP = `0.14.100`
-    process.env.CLIENT_MIN_VERSION_ANDROID = `0.14.0`
-    process.env.CLIENT_MIN_VERSION_IOS = `0.14.115`
-    const res = checkClientVersion(req(`android/0.14.121`))
+    process.env.CLIENT_MIN_VERSION_IOS = `0.14.116`
+    const res = checkClientVersion(req(`android/0.14.151`))
     expect(res?.status).toBe(426)
-    expect(await res?.json()).toMatchObject({ platform: `android`, min: `0.14.122` })
-    expect(checkClientVersion(req(`android/0.14.122`))).toBeNull()
-    expect(checkClientVersion(req(`ios/0.14.115`))?.status).toBe(426)
-    expect(checkClientVersion(req(`ios/0.14.116`))).toBeNull()
-    expect(checkClientVersion(req(`desktop/0.14.136`))?.status).toBe(426)
-    expect(checkClientVersion(req(`desktop/0.14.137`))).toBeNull()
+    expect(await res?.json()).toMatchObject({ platform: `android`, min: `0.14.152` })
+    expect(checkClientVersion(req(`android/0.14.152`))).toBeNull()
+    expect(checkClientVersion(req(`ios/0.14.139`))?.status).toBe(426)
+    expect(checkClientVersion(req(`ios/0.14.140`))).toBeNull()
+    expect(checkClientVersion(req(`desktop/0.14.170`))?.status).toBe(426)
+    expect(checkClientVersion(req(`desktop/0.14.171`))).toBeNull()
+    const cli = checkClientVersion(req(`cli/0.14.170`))
+    expect(cli?.status).toBe(426)
+    expect(await cli?.json()).toMatchObject({ platform: `cli`, min: `0.14.171` })
+    expect(checkClientVersion(req(`cli/0.14.171`))).toBeNull()
     // A minimum above the floor stays; unset gates nothing.
     process.env.CLIENT_MIN_VERSION_IOS = `0.15.0`
     expect(checkClientVersion(req(`ios/0.14.200`))?.status).toBe(426)
     delete process.env.CLIENT_MIN_VERSION_ANDROID
     expect(checkClientVersion(req(`android/0.1.0`))).toBeNull()
-    expect(versionPayload().desktop.min).toBe(`0.14.137`)
+    expect(versionPayload()).toMatchObject({ desktop: { min: `0.14.171` }, cli: { min: `0.14.171` }, android: { min: null }, ios: { min: `0.15.0` } })
   })
 
   it(`raises a configured minimum below the group chat floor once team agents' group chats are on (#EXP-1990)`, async () => {
@@ -169,8 +161,8 @@ describe(`checkClientVersion`, () => {
     process.env.CLIENT_MIN_VERSION_ANDROID = `0.14.122`
     process.env.CLIENT_MIN_VERSION_IOS = `0.14.116`
     process.env.CLIENT_MIN_VERSION_CLI = `0.14.100`
-    // Off: no floor of its own.
-    expect(checkClientVersion(req(`desktop/0.14.137`))).toBeNull()
+    // Off: no floor of its own, only the Assistant's (#EXP-1989, always).
+    expect(checkClientVersion(req(`desktop/${ASSISTANT_CLIENT_FLOOR.desktop}`))).toBeNull()
     process.env.AGENT_GROUP_CHATS = `on`
     onTestFinished(() => {
       delete process.env.AGENT_GROUP_CHATS
@@ -183,8 +175,9 @@ describe(`checkClientVersion`, () => {
       expect(await res?.json()).toMatchObject({ platform, min: floor[platform] })
       expect(checkClientVersion(req(`${platform}/${floor[platform]}`))).toBeNull()
     }
-    // The CLI daemon looks nothing up per member; unset still gates nothing.
-    expect(checkClientVersion(req(`cli/0.14.100`))).toBeNull()
+    // The CLI daemon looks nothing up per member: no group chat floor,
+    // only the Assistant's; unset still gates nothing.
+    expect(checkClientVersion(req(`cli/${ASSISTANT_CLIENT_FLOOR.cli}`))).toBeNull()
     delete process.env.CLIENT_MIN_VERSION_IOS
     expect(checkClientVersion(req(`ios/0.1.0`))).toBeNull()
   })

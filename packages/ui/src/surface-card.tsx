@@ -7,6 +7,7 @@ import { PLAN_CARD_GEOMETRY, type CardSurface } from "@exp/domain-contract/plan-
 import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
 import { cn } from "./cn"
+import { useColorMode } from "./color-mode"
 import { conceptIcon } from "./icons.generated"
 import { paintedCard, planCardHost, useCardLinks } from "./plan-card"
 import { userMessageTime } from "./user-message-bubble"
@@ -227,7 +228,8 @@ function SurfaceCardBody({
   })
   const links = useCardLinks()
   const host = useMemo(() => planCardHost((event) => actionRef.current?.(event), links), [links, actionRef])
-  return <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode="dark" />
+  const mode = useColorMode()
+  return <ExponentialSurface surface={state} host={host} theme={DEFAULT_THEME_ID} mode={mode} />
 }
 
 /** A person's `/new` or `/compact` line: the centred glass pill. EXP-1459:

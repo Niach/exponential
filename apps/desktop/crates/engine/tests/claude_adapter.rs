@@ -1755,6 +1755,81 @@ async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_sc
     assert!(error.contains(&wall), "{error}");
 }
 
+/// #FEED-305 regression: on 2026-11-24 a suspended session on mint got two
+/// handed messages while every claude start on the machine was silent. The
+/// first prompt's lazy start failed with its reason; the second had found
+/// the still-starting child, skipped the wait and queued its turn on a
+/// process that was then retired, so it never settled: the session read
+/// busy with no process for 25 minutes, until the stall watchdog ended it
+/// as "The agent stopped responding". Every prompt that met the failed
+/// start fails with the start's reason, at once, and no extra spawns.
+#[tokio::test]
+async fn a_prompt_that_meets_a_failing_start_fails_with_its_reason_too() {
+    let _session = one_session_at_a_time();
+    let work = workdir("silent-start-second-prompt");
+    let session_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    record_transcript(&work.0, session_id, &work.0);
+    let spawns = work.0.join("spawns.txt");
+    let spawns_env = spawns.display().to_string();
+    let spec = spec_env(
+        &Path::new(FIXTURES).join("basic"),
+        &work.0,
+        false,
+        &[
+            ("EXP_FAKE_CLAUDE_HANGS", "99"),
+            ("EXP_FAKE_CLAUDE_SPAWNS", spawns_env.as_str()),
+            (engine::adapters::claude::START_TIMEOUT_ENV, "1000"),
+            (engine::adapters::claude::START_BACKOFF_ENV, "0"),
+        ],
+    );
+    let adapter = ClaudeAgent::new(spec).expect("the adapter builds");
+    let listed = work.0.clone();
+    let (first, second) = Client
+        .v1()
+        .name("feed305-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let sessions = cx
+                .send_request(ListSessionsRequest::new().cwd(listed.clone()))
+                .block_task()
+                .await?;
+            let loaded = sessions.sessions[0].session_id.clone();
+            cx.send_request(LoadSessionRequest::new(loaded.clone(), listed)).block_task().await?;
+            let prompt = |text: &str| {
+                PromptRequest::new(loaded.clone(), vec![ContentBlock::Text(TextContent::new(text))])
+            };
+            let first = cx.send_request(prompt("First handed message."));
+            // The second arrives while the first's start is under way.
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            let second = cx.send_request(prompt("Second handed message."));
+            let first = first.block_task().await.err().map(|error| format!("{error:?}"));
+            let second = tokio::time::timeout(std::time::Duration::from_secs(20), second.block_task())
+                .await
+                .map(|answer| answer.err().map(|error| format!("{error:?}")));
+            Ok::<_, Error>((first, second))
+        })
+        .await
+        .expect("the connection runs cleanly");
+    let reason = "claude did not start: it answered nothing for 1s at startup, 3 times in a row";
+    let first = first.expect("the first prompt fails");
+    assert!(first.contains(reason), "{first}");
+    let second = second
+        .expect("the second prompt settles: it never hangs on the retired child")
+        .expect("the second prompt fails");
+    assert!(second.contains(reason), "{second}");
+    let count = std::fs::read_to_string(&spawns).expect("the fake counted its spawns").lines().count();
+    assert_eq!(count, 3, "one failed start for both, never a second round of spawns");
+}
+
 /// #FEED-246 regression: a worker said `quiet` after one step, kept working
 /// (a Bash call) and said `quiet` again. That is no loop: the turn runs to
 /// its own end and the CLI never sees an interrupt (it used to, and the

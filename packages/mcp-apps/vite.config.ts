@@ -3,21 +3,31 @@ import tailwindcss from "@tailwindcss/vite"
 import viteReact from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
 
-// EXP-1183 — the MCP Apps views ship as ONE self-contained HTML document: an
-// MCP Apps host (OpenClaw, Claude, ChatGPT…) reads it as a `ui://` resource
+// EXP-1183 — the MCP Apps views ship as self-contained HTML documents: an
+// MCP Apps host (OpenClaw, Claude, ChatGPT…) reads one as a `ui://` resource
 // and mounts it in a sandboxed iframe with no network, so the script and the
-// stylesheet must ride inline. The web server serves the file as every
-// `ui://exponential/*` resource (apps/web/src/lib/emcp/apps.ts), stamping the
-// view name into it; like the widget it is built into the web public dir
-// BEFORE the web build, which copies it into `.output/public`.
+// stylesheet must ride inline. The web server serves each `ui://exponential/*`
+// resource from its own file (apps/web/src/lib/emcp/apps.ts); like the widget
+// they are built into the web public dir BEFORE the web build, which copies
+// them into `.output/public`.
 const OUT_DIR = fileURLToPath(
   new URL(`../../apps/web/public/mcp-apps`, import.meta.url)
 )
 
-// #VAPP-292: the genUI view (the eUI renderer + the app host) is a SECOND
-// document, `genui.html`, built by a second pass (`MCP_APPS_ENTRY=genui`) so
-// the issue views keep their small bundle. Each pass inlines its one entry.
-const ENTRY = process.env.MCP_APPS_ENTRY === `genui` ? `genui` : `app`
+// #NEW-24: ONE document per view (`issues.html`, `inbox.html`, `devices.html`,
+// and #VAPP-292's `genui.html`: the eUI renderer + the app host), one pass
+// each (`MCP_APPS_ENTRY=<view>`, the package's `build` script runs the four),
+// so a view carries only its own code and the documents share nothing at
+// runtime. Each pass inlines its one entry.
+const ENTRIES = [`issues`, `inbox`, `devices`, `genui`] as const
+const ENTRY = ENTRIES.find((entry) => entry === process.env.MCP_APPS_ENTRY) ?? ENTRIES[0]
+
+// #NEW-24: the workspace packages name no `sideEffects`, so every module a
+// barrel (`@exp/ui`) re-exports rode along whether a view drew with it or
+// not: the catalogue's specimens, the fixtures, the Motion wasm glue. For
+// THESE documents their modules are pure (a stylesheet never is): what a
+// view does not import is dropped.
+const PURE_MODULES = /\/packages\/(?:ui|exponential-ui|exponential-ui-react|domain-contract|etalk|icons|emoji|db-schema|mcp-apps\/src\/(?!entries\/|genui\/main|mount))[^?]*\.(?:tsx?|json|js)$/
 
 /** Folds the emitted JS + CSS chunks into the HTML and drops them. */
 function inlineIntoHtml(): Plugin {
@@ -62,14 +72,15 @@ export default defineConfig({
   base: `./`,
   build: {
     outDir: OUT_DIR,
-    // The second pass keeps the first's document.
-    emptyOutDir: ENTRY === `app`,
+    // The first pass empties the directory; the others keep its documents.
+    emptyOutDir: ENTRY === ENTRIES[0],
     cssCodeSplit: false,
     assetsInlineLimit: Number.MAX_SAFE_INTEGER,
     modulePreload: false,
     rolldownOptions: {
-      input: fileURLToPath(new URL(ENTRY === `genui` ? `./genui.html` : `./index.html`, import.meta.url)),
+      input: fileURLToPath(new URL(`./${ENTRY}.html`, import.meta.url)),
       output: { codeSplitting: false },
+      treeshake: { moduleSideEffects: (id) => !PURE_MODULES.test(id) },
     },
   },
 })
