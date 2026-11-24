@@ -309,6 +309,38 @@ final class AgentSettingsTests: XCTestCase {
         }
     }
 
+    /// THE Runs on rows: offline listed, disabled unless bound; raw bound id leads.
+    func testRunsOnRowsReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try assistantBlock()["runsOnRowCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let devices = try XCTUnwrap(testCase["devices"] as? [[String: Any]]).map { device in
+                (
+                    deviceId: try XCTUnwrap(device["deviceId"] as? String, name),
+                    kind: device["kind"] as? String,
+                    online: try XCTUnwrap(device["online"] as? Bool, name)
+                )
+            }
+            let expected = try XCTUnwrap(testCase["expected"] as? [[String: Any]], name).map { row in
+                AgentSettings.RunsOnRow(
+                    id: try XCTUnwrap(row["id"] as? String, name),
+                    description: row["description"] as? String,
+                    disabled: try XCTUnwrap(row["disabled"] as? Bool, name)
+                )
+            }
+            XCTAssertEqual(
+                AgentSettings.runsOnRows(
+                    devices,
+                    boundId: testCase["boundId"] as? String,
+                    assistant: try XCTUnwrap(testCase["assistant"] as? Bool, name)
+                ),
+                expected,
+                name
+            )
+        }
+    }
+
     /// NEW-99: an Assistant's Runs on picker lists desktops only.
     func testRunsOnDeviceIdsReplaysEveryCase() throws {
         let cases = try XCTUnwrap(try assistantBlock()["runsOnCases"] as? [[String: Any]])
@@ -583,12 +615,61 @@ final class AgentSettingsTests: XCTestCase {
         XCTAssertFalse(shows("p-me", "u-me", me: nil), "no viewer, no personal rows")
     }
 
-    /// #EXP-1714: a composer's lookups fall back to the active team.
-    func testLookupTeamId() {
-        XCTAssertEqual(AgentSettings.lookupTeamId("t-b", teamIds: ["t-a", "t-b"], activeTeamId: "t-a"), "t-b")
-        XCTAssertEqual(AgentSettings.lookupTeamId("p-me", teamIds: ["t-a", "t-b"], activeTeamId: "t-a"), "t-a")
-        XCTAssertEqual(AgentSettings.lookupTeamId("p-me", teamIds: [], activeTeamId: "t-a"), "p-me")
-        XCTAssertEqual(AgentSettings.lookupTeamId(nil, teamIds: ["t-a"], activeTeamId: "t-a"), "t-a")
+    /// #EXP-2079: `assistant.chatTeams.cases` (supersedes #EXP-1714's
+    /// single lookup team).
+    /// #EXP-2094: removing the Teams chip widens the chat teams at once,
+    /// before any send; a moved stored pick re-seeds the composer's.
+    func testTeamsPickDraftReadsTheComposersPickAtOnce() {
+        let synced = ["a", "b"]
+        let stored: [String]? = ["a"]
+        var draft = AgentSettings.TeamsPickDraft()
+        func teams() -> [String] {
+            AgentSettings.chatTeams(ownTeamId: "personal", syncedTeamIds: synced, pickedTeamIds: draft.picked(stored: stored))
+        }
+        XCTAssertEqual(draft.picked(stored: stored), ["a"])
+        XCTAssertEqual(teams(), ["a"])
+        draft.pick(nil)
+        XCTAssertNil(draft.picked(stored: stored))
+        XCTAssertEqual(teams(), ["a", "b"])
+        draft.pick(["b"])
+        XCTAssertEqual(teams(), ["b"])
+        draft.reseed()
+        XCTAssertEqual(draft.picked(stored: ["b"]), ["b"])
+        XCTAssertEqual(teams(), ["a"])
+    }
+
+    func testChatTeamsReplaysEveryCase() throws {
+        let block = try XCTUnwrap(try assistantBlock()["chatTeams"] as? [String: Any])
+        let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            XCTAssertEqual(
+                AgentSettings.chatTeams(
+                    ownTeamId: testCase["ownTeamId"] as? String,
+                    syncedTeamIds: try XCTUnwrap(testCase["syncedTeamIds"] as? [String]),
+                    pickedTeamIds: testCase["pickedTeamIds"] as? [String]
+                ),
+                testCase["expected"] as? [String],
+                testCase["name"] as? String ?? "?"
+            )
+        }
+    }
+
+    /// #EXP-2079: `assistant.chatTeams.deviceCases`.
+    func testOwnDevicesReplaysEveryCase() throws {
+        let block = try XCTUnwrap(try assistantBlock()["chatTeams"] as? [String: Any])
+        let cases = try XCTUnwrap(block["deviceCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            XCTAssertEqual(
+                AgentSettings.ownDevices(
+                    sessionTeamSynced: try XCTUnwrap(testCase["sessionTeamSynced"] as? Bool),
+                    starterIsViewer: try XCTUnwrap(testCase["starterIsViewer"] as? Bool)
+                ),
+                testCase["expected"] as? Bool,
+                testCase["name"] as? String ?? "?"
+            )
+        }
     }
 
     /// #EXP-1717: the `coordinator` block (copy, test id, both case lists).

@@ -210,24 +210,17 @@ final class AgentSettingsDraft {
         }
     }
 
-    /// The Device row's pool: online with a runnable agent, plus the bound
-    /// one whatever its state; NEW-99 (`runsOnCases`): an Assistant's lists
-    /// desktops only (a bound non-desktop stays, naming itself), a team
-    /// agent's every team device.
+    /// The Device row's pool (`runsOnCases`, web `deviceRows`): every
+    /// device, online or not (an offline one is listed disabled unless bound,
+    /// `runsOnRows`); NEW-99: an Assistant's lists desktops only (a bound
+    /// non-desktop stays, naming itself), a team agent's every team device.
     static func runsOnDevices(_ all: [SteerDevice], boundId: String?, assistant: Bool) -> [SteerDevice] {
-        let candidates = all.filter { $0.isOnline && $0.hasRunnableAgent }
-        var pool = candidates
-        if let boundId,
-           !candidates.contains(where: { $0.deviceId == boundId }),
-           let row = all.first(where: { $0.deviceId == boundId }) {
-            pool = [row] + candidates
-        }
         let ids = Set(AgentSettings.runsOnDeviceIds(
-            pool.map { (deviceId: $0.deviceId, kind: $0.kind) },
+            all.map { (deviceId: $0.deviceId, kind: $0.kind) },
             boundId: boundId,
             assistant: assistant
         ))
-        return pool.filter { ids.contains($0.deviceId) }
+        return all.filter { ids.contains($0.deviceId) }
     }
 }
 
@@ -358,7 +351,7 @@ struct AgentSettingsPage: View {
             seeded = true
             draft.seedNew()
             // EXP-622: the caller's default machine, else the first one.
-            let pool = devices
+            let pool = devices.filter { $0.isOnline && $0.hasRunnableAgent }
             draft.deviceId = (pool.first(where: \.isDefaultDevice) ?? pool.first)?.deviceId
             draft.snapshotBaseline()
             return
@@ -702,16 +695,37 @@ struct AgentDeviceRow: View {
         devices.first { $0.deviceId == draft.deviceId }
     }
 
+    /// THE Runs on rows (`runsOnRowCases`, web `deviceRows`): offline ones say
+    /// `Offline`, disabled unless bound; a bound id no device matches by its id.
+    private var rows: [DevicePickerDevice] {
+        let byId = Dictionary(devices.map { ($0.deviceId, $0) }, uniquingKeysWith: { a, _ in a })
+        return AgentSettings.runsOnRows(
+            devices.map { (deviceId: $0.deviceId, kind: $0.kind, online: $0.isOnline) },
+            boundId: draft.deviceId,
+            assistant: false
+        ).map { row in
+            guard let device = byId[row.id] else { return DevicePickerDevice(id: row.id, name: row.id) }
+            let base = DevicePickerDevice(device)
+            return DevicePickerDevice(
+                id: base.id,
+                name: base.name,
+                icon: base.icon,
+                description: row.description ?? base.description,
+                disabled: row.disabled
+            )
+        }
+    }
+
     var body: some View {
         DevicePicker(
-            devices: devices.map(DevicePickerDevice.init),
+            devices: rows,
             value: draft.deviceId,
             onChange: { draft.selectDevice($0, devices: devices) },
             trigger: {
                 // Web's row: the device's name as the value, no glyph.
                 GlassPickerRowLabel(
                     title,
-                    value: device.map(LaunchVocabulary.deviceName) ?? ""
+                    value: device.map(LaunchVocabulary.deviceName) ?? draft.deviceId ?? ""
                 )
             }
         )

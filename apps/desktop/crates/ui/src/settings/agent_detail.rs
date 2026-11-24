@@ -62,8 +62,8 @@ pub(crate) fn field_label(key: &str) -> &'static str {
 }
 
 /// One machine an agent can run on: an own device or one shared with the
-/// agent's team (the devices shape's scope). Offline rows stay pickable — a
-/// trigger that missed its time fires once the machine comes back.
+/// agent's team (the devices shape's scope). Offline rows stay listed,
+/// disabled unless bound (`runsOnRowCases`).
 #[derive(Clone, Debug)]
 pub(crate) struct AgentDevice {
     /// The steer TEXT id (`devices.device_id`), what `sessions` rows carry.
@@ -99,7 +99,12 @@ impl AgentDevice {
 }
 
 /// The machines an agent of `team_id` can run on, online first, then by name.
-pub(crate) fn agent_devices(team_id: &str, cx: &App) -> Vec<AgentDevice> {
+/// #EXP-2079 (agent-settings.json `assistant.chatTeams` DEVICES): `None` =
+/// THE VIEWER'S OWN MACHINES, whatever teams they are shared with, and no
+/// teammate's server: an Assistant's Runs on › Device and a suggestion card's
+/// Start on in its conversation (its personal team is never synced, and no
+/// device shared with a team is "usable" in it).
+pub(crate) fn agent_devices(team_id: Option<&str>, cx: &App) -> Vec<AgentDevice> {
     let Some(store) = Store::try_global(cx) else {
         return Vec::new();
     };
@@ -112,9 +117,11 @@ pub(crate) fn agent_devices(team_id: &str, cx: &App) -> Vec<AgentDevice> {
         .iter()
         .filter(|row| {
             // #EXP-1440: an own machine shared only with OTHER teams is theirs.
-            (me.as_deref().is_some_and(|me| row.user_id.as_deref() == Some(me))
-                && row.is_usable_in_team(team_id))
-                || row.is_shared_with(team_id)
+            let mine = me.as_deref().is_some_and(|me| row.user_id.as_deref() == Some(me));
+            match team_id {
+                Some(team_id) => (mine && row.is_usable_in_team(team_id)) || row.is_shared_with(team_id),
+                None => mine,
+            }
         })
         .filter_map(|row| {
             let device_id = row.device_id.clone().filter(|id| !id.is_empty())?;
@@ -150,7 +157,7 @@ pub(crate) fn agent_devices(team_id: &str, cx: &App) -> Vec<AgentDevice> {
                     .as_deref()
                     .is_some_and(|me| row.user_id.as_deref() == Some(me))
                     && row.is_default.unwrap_or(false),
-                team_shared: row.is_shared_with(team_id),
+                team_shared: team_id.is_some_and(|team_id| row.is_shared_with(team_id)),
                 agents,
                 accounts: crate::device_settings::parse_agent_map(row.agent_accounts.as_ref()),
                 usage: crate::device_settings::parse_agent_map(row.agent_usage.as_ref()),
@@ -225,6 +232,14 @@ pub(crate) fn current_account<'a>(
         .find(|option| option.agent.id() == value.agent && option.email == value.email)
 }
 
+/// `domain::agent_settings::runs_on_rows` over the page's (already
+/// NEW-99-filtered) devices: THE Runs on rows ×4.
+fn runs_on_rows_of(devices: &[AgentDevice], bound: Option<&str>) -> Vec<domain::agent_settings::RunsOnRow> {
+    let triples: Vec<(&str, Option<&str>, bool)> =
+        devices.iter().map(|device| (device.device_id.as_str(), device.kind.as_deref(), device.online)).collect();
+    domain::agent_settings::runs_on_rows(&triples, bound, false)
+}
+
 /// THE device picker over `devices` behind a picker-row trigger (the
 /// composer's rows, each machine by its own glyph). Shared with the New agent
 /// page ([`super::new_agent`]).
@@ -249,15 +264,20 @@ pub(crate) fn device_picker_control(
         .unwrap_or_else(|| "Select device…".to_string());
     let trigger = trigger_editor::picker_trigger(format!("{prefix}-device").into(), label, cx)
         .into_any_element();
-    let rows: Vec<crate::picker::device_picker::DevicePickerDevice> = devices
-        .iter()
-        .map(|device| crate::picker::device_picker::DevicePickerDevice {
-            id: device.device_id.clone(),
-            name: device.label.clone(),
-            icon: device.icon.clone(),
-            server: device.server,
-            description: (!device.online).then(|| "Offline".to_string()),
-            disabled: false,
+    // THE rows (`runsOnRowCases`, web `deviceRows`): offline = `Offline`,
+    // disabled unless picked; an unmatched pick leads by its raw id.
+    let rows: Vec<crate::picker::device_picker::DevicePickerDevice> = runs_on_rows_of(devices, picked.as_deref())
+        .into_iter()
+        .map(|row| {
+            let device = devices.iter().find(|device| device.device_id == row.id);
+            crate::picker::device_picker::DevicePickerDevice {
+                name: device.map(|device| device.label.clone()).unwrap_or_else(|| row.id.clone()),
+                icon: device.and_then(|device| device.icon.clone()),
+                server: device.is_some_and(|device| device.server),
+                id: row.id,
+                description: row.description,
+                disabled: row.disabled,
+            }
         })
         .collect();
     crate::picker::deferred(move |window, cx| {
@@ -1037,7 +1057,11 @@ impl AgentDetailPane {
     /// The machines the page offers: every team machine; the Assistant's
     /// (NEW-99 `runsOnCases`) desktops only, a bound non-desktop kept.
     fn devices(&self, agent: &AgentDefRow, team_id: &str, cx: &App) -> Vec<AgentDevice> {
-        let all = agent_devices(team_id, cx);
+        // #EXP-2079 (`deviceCases`): the viewer's own Assistant runs on their
+        // own machines, whatever teams those are shared with.
+        let me = queries::active_account(cx).map(|account| account.user_id);
+        let own = agent.is_assistant() && me.is_some() && agent.owner_id == me;
+        let all = agent_devices((!own).then_some(team_id), cx);
         // #EXP-1849: an app agent's slot = a device shared with the team.
         if self.slot.is_some() {
             return all.into_iter().filter(|device| device.team_shared).collect();
@@ -1149,32 +1173,31 @@ impl AgentDetailPane {
         let devices = self.devices(agent, team_id, cx);
         // THE device picker: each machine by its glyph, offline ones say so;
         // a bound device that isn't synced here keeps its raw id.
-        let mut device_options: Vec<Value> = devices
-            .iter()
-            .map(|device| {
+        // THE rows (`runsOnRowCases`, web `deviceRows`): offline ones say so
+        // and are disabled unless bound; a bound device that isn't synced
+        // here leads by its raw id.
+        let bound_device = agent.device_id.as_deref().filter(|id| !id.is_empty());
+        let mut device_options: Vec<Value> = runs_on_rows_of(&devices, bound_device)
+            .into_iter()
+            .map(|row| {
+                let Some(device) = devices.iter().find(|device| device.device_id == row.id) else {
+                    return json!({"label": row.id, "value": row.id});
+                };
                 let mut option = json!({"label": device.label, "value": device.device_id, "icon": crate::icons::device_icon_name(device.icon.as_deref(), device.server)});
-                if !device.online {
-                    option["description"] = json!("Offline");
+                if let Some(description) = row.description {
+                    option["description"] = json!(description);
+                }
+                if row.disabled {
+                    option["disabled"] = json!(true);
                 }
                 option
             })
             .collect();
-        let bound_device = agent.device_id.as_deref().filter(|id| !id.is_empty());
-        if let Some(bound) = bound_device {
-            if !devices.iter().any(|device| device.device_id == bound) {
-                device_options.push(json!({"label": bound, "value": bound}));
-            }
-        }
         // #EXP-1849 (apps.json `agentSlot`): the slot picker = `Each member's
         // own device`, then the team-shared devices (offline ones disabled);
         // Account and Model only while a device is set.
         let slot = self.slot.is_some();
         if slot {
-            for (option, device) in device_options.iter_mut().zip(devices.iter()) {
-                if !device.online {
-                    option["disabled"] = json!(true);
-                }
-            }
             device_options.insert(0, json!({"label": APPS.agent_slot.copy.each_member, "value": EACH_MEMBER}));
         }
         let device_value = match bound_device {

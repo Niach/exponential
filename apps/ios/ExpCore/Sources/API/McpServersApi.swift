@@ -113,6 +113,36 @@ public enum McpServers {
         return (command?.isEmpty ?? true) ? nil : command
     }
 
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams`, THE MCP PICK):
+    /// the servers a chat's "+" MCP servers page lists and, per server id,
+    /// the team its row's second line names.
+    public struct ChatPick: Equatable, Sendable {
+        public var servers: [McpServerRow]
+        public var teamNames: [String: String]
+
+        public init(servers: [McpServerRow] = [], teamNames: [String: String] = [:]) {
+            self.servers = servers
+            self.teamNames = teamNames
+        }
+    }
+
+    /// The servers of the chat's teams, team by team in order (`lists`: one
+    /// entry per chat team), each team's in its list order. With MORE THAN
+    /// ONE chat team each row names its team (two teams' servers of one name
+    /// stay apart); one team = no names, the row as ever.
+    public static func chatPick(
+        _ lists: [(teamId: String, servers: [McpServerRow])], teamNames: [String: String]
+    ) -> ChatPick {
+        var pick = ChatPick()
+        for list in lists {
+            for server in list.servers where !pick.servers.contains(where: { $0.id == server.id }) {
+                pick.servers.append(server)
+                if lists.count > 1, let name = teamNames[list.teamId] { pick.teamNames[server.id] = name }
+            }
+        }
+        return pick
+    }
+
     // #EXP-1795: the picker row's glyph, web `getMcpServerIcon`, Android
     // `mcpServerGlyph` (McpServerPick.kt).
 
@@ -433,6 +463,16 @@ public final class McpServersApi: Sendable {
 
     public init(trpc: TrpcClient) {
         self.trpc = trpc
+    }
+
+    /// #EXP-2079 (`assistant.chatTeams`): each chat team's list, in the
+    /// teams' order; a team that cannot be listed adds none.
+    public func list(accountId: String, teamIds: [String]) async -> [(teamId: String, servers: [McpServerRow])] {
+        var lists: [(teamId: String, servers: [McpServerRow])] = []
+        for teamId in teamIds {
+            lists.append((teamId, (try? await list(accountId: accountId, teamId: teamId)) ?? []))
+        }
+        return lists
     }
 
     public func list(accountId: String, teamId: String) async throws -> [McpServerRow] {

@@ -91,8 +91,8 @@ extension SessionQueries {
 /// page: no team of its own. It finds the viewer's ONE Assistant through
 /// `ensureAssistant` (no team: the page has none) and the synced agents, so it reads the same
 /// before the move (theirs in the current team) and after it (the one in
-/// their personal team). The current team only feeds the device list and
-/// the per-team pickers.
+/// their personal team). The current team only feeds the per-team pickers
+/// (#EXP-2079: the device list is the member's own machines).
 struct AssistantSettingsPage: View {
     /// An agent page pushed for an Assistant (settings, chats, chat);
     /// nil = the viewer's own, resolved here.
@@ -175,8 +175,8 @@ private struct AssistantSettingsContent: View {
         _voice = State(initialValue: VoiceSettingsModel(accountId: accountId))
     }
 
-    /// The machines it can live on: online with a runnable agent, plus the
-    /// one it is bound to whatever its state (the agent page's pool).
+    /// The machines it can live on, online or not (the agent page's pool;
+    /// an offline one is listed disabled unless bound, `runsOnRows`).
     /// NEW-99 (`runsOnCases`): its device is the voice device, so desktops
     /// only; a bound non-desktop stays, naming itself.
     private var devices: [SteerDevice] {
@@ -226,8 +226,12 @@ private struct AssistantSettingsContent: View {
     // MARK: - Load
 
     private func start() async {
+        // #EXP-2079 (agent-settings.json `assistant.chatTeams` DEVICES): an
+        // Assistant's page lists the member's OWN machines, whatever teams
+        // they are shared with, and no teammate's server (never the current
+        // team's rule: the Assistant runs in the personal team).
         allDevices = await DeviceQueries.devices(
-            db: deps.db, accountId: accountId, teamId: teamId, userId: deps.auth.userId
+            db: deps.db, accountId: accountId, teamId: nil, userId: deps.auth.userId
         )
         guard let agentId else { return }
         observe(agentId: agentId)

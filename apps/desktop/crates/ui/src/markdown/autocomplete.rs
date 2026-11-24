@@ -169,7 +169,8 @@ impl CompletionSource for StoreCompletionSource {
                 let users = collections.users.read(cx);
                 let mut items: Vec<CompletionItem> = members
                     .iter()
-                    .filter(|m| m.team_id == team_id)
+                    // #EXP-2079: `team_id` may be a chat teams key.
+                    .filter(|m| domain::agent_settings::chat_teams_has(team_id, &m.team_id))
                     .filter_map(|m| users.get(&m.user_id))
                     .filter_map(|user| {
                         let email = user.email.clone()?;

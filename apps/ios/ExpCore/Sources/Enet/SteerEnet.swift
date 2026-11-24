@@ -74,8 +74,18 @@ public enum SteerEnet {
 
     /// The device's access rule for one envelope's sender (replayed here so
     /// every platform locks the same table).
-    public static func viewerAllowed(viewerUserId: String?, starterUserId: String, shared: Bool) -> Bool {
-        guard let viewerUserId else { return false }
+    /// #EXP-2079: a team the device holds NO list for (`teamListed` false:
+    /// the starter's personal team, never synced) admits its starter when
+    /// the endpoint is theirs in ANY list the device holds (`anyTeamUserId`);
+    /// nobody else, `shared` or not.
+    public static func viewerAllowed(
+        viewerUserId: String?, starterUserId: String, shared: Bool,
+        teamListed: Bool = true, anyTeamUserId: String? = nil
+    ) -> Bool {
+        guard let viewerUserId else {
+            guard !teamListed, let anyTeamUserId else { return false }
+            return anyTeamUserId == starterUserId
+        }
         return viewerUserId == starterUserId || shared
     }
 

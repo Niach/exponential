@@ -130,18 +130,25 @@ enum LinkOpener {
     /// the `#IDENT` refs that resolve in the team, on its short issue route; an
     /// unresolved ref stays text. nil = no link. #PERF-5: memory only (a
     /// render asks); an unknown slug or ref loads off main and re-renders.
-    static func issueTextLinks(_ text: String, accountId: String, teamId: String?, deps: AppDependencies) -> [TextLinkSegment]? {
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams`): `teamIds` = the
+    /// chat's teams (more than one in the Assistant's chat alone): a ref
+    /// resolves in them in order and links under its OWN team.
+    static func issueTextLinks(
+        _ text: String, accountId: String, teamId: String?, teamIds: [String] = [], deps: AppDependencies
+    ) -> [TextLinkSegment]? {
         let matches = IssueRefs.matches(in: text)
         guard !matches.isEmpty, let team = teamSlug(teamId: teamId, accountId: accountId, deps: deps),
               let id = teamId ?? SharedBoardMirror.readActiveTeam(accountId: accountId)
         else { return nil }
+        let scope: IssueRefLookup.Scope = teamIds.count > 1 ? .teams(ids: teamIds) : .team(id: id)
         let ns = text as NSString
         var segments: [TextLinkSegment] = []
         var at = 0
         for match in matches {
             let identifier = match.identifier.uppercased()
-            guard IssueRefChipCache.chip(identifier, scope: .team(id: id), db: deps.db, accountId: accountId) != nil,
-                  let href = AppLink.expandTeamLink("~/issues/\(match.identifier)", team: team)
+            guard let chip = IssueRefChipCache.chip(identifier, scope: scope, db: deps.db, accountId: accountId),
+                  let own = chip.teamId == id ? team : teamSlug(teamId: chip.teamId, accountId: accountId, deps: deps),
+                  let href = AppLink.expandTeamLink("~/issues/\(match.identifier)", team: own)
             else { continue }
             if match.range.location > at {
                 segments.append(TextLinkSegment(text: ns.substring(with: NSRange(location: at, length: match.range.location - at))))
@@ -292,13 +299,20 @@ enum LinkOpener {
             let outcome = AppLink.linkOpenOutcome(member: true, activeTeam: true, found: true, webOnly: true)
             return Resolution(outcome: outcome, landing: nil)
         }
-        guard let pool = try? deps.db.pool(forAccountId: accountId),
-              let teamId = (try? await pool.read { db -> String? in
-                  try String.fetchOne(
-                      db, sql: #"SELECT "id" FROM "teams" WHERE "slug" = ? LIMIT 1"#, arguments: [slug]
-                  )
-              }) ?? nil
-        else {
+        let pool = try? deps.db.pool(forAccountId: accountId)
+        let linkTeam: String? = (try? await pool?.read { db -> String? in
+            try String.fetchOne(
+                db, sql: #"SELECT "id" FROM "teams" WHERE "slug" = ? LIMIT 1"#, arguments: [slug]
+            )
+        }) ?? nil
+        // #EXP-2079: a link under a team not synced here that names the
+        // viewer's own Assistant chat (its member's personal team) opens
+        // through the current / last team.
+        var ownTeam: String?
+        if linkTeam == nil, let pool {
+            ownTeam = await ownChatTeam(of: link, accountId: accountId, pool: pool, deps: deps)
+        }
+        guard let pool, let teamId = linkTeam ?? ownTeam else {
             let outcome = AppLink.linkOpenOutcome(member: false, activeTeam: false, found: false, webOnly: false)
             return Resolution(outcome: outcome, landing: nil)
         }
@@ -465,6 +479,34 @@ enum LinkOpener {
             try TeamEntity.fetchOne(db, key: rowTeam) != nil
         }) ?? false
         return synced ? rowTeam : linkTeam
+    }
+
+    /// #EXP-2079 (the #EXP-1987 rule for a link with no synced team): the
+    /// team a link lands in when its own is not synced here and it names
+    /// the viewer's OWN session, plan or Assistant in a team not synced
+    /// either (the Assistant's chat in the personal team): the current team,
+    /// else the first synced one. nil = any other link: no access, as ever.
+    private static func ownChatTeam(
+        of link: AppLink, accountId: String, pool: DatabasePool, deps: AppDependencies
+    ) async -> String? {
+        guard let me = deps.auth.accounts.first(where: { $0.id == accountId })?.userId else { return nil }
+        let current = SharedBoardMirror.readActiveTeam(accountId: accountId)
+        return (try? await pool.read { db -> String? in
+            let rowTeam: String?
+            switch link {
+            case let .session(_, sessionId), let .plan(_, sessionId, _):
+                let row = try SessionQueries.session(db: db, id: sessionId)
+                rowTeam = row?.userId == me ? row?.teamId : nil
+            case let .agent(_, agentId):
+                let row = try AgentDefinitionEntity.fetchOne(db, key: agentId)
+                rowTeam = AgentSettings.isMyAssistant(row, me: me) ? row?.teamId : nil
+            default:
+                rowTeam = nil
+            }
+            guard let rowTeam, try TeamEntity.fetchOne(db, key: rowTeam) == nil else { return nil }
+            let teams = TeamGroups.ordered(try TeamEntity.fetchAll(db))
+            return (teams.first { $0.id == current } ?? teams.first)?.id
+        }) ?? nil
     }
 
     private static func session(_ id: String, pool: DatabasePool) async -> SessionEntity? {

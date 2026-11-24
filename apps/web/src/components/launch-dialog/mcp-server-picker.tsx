@@ -35,7 +35,17 @@ export function mcpPickSummary(
 type McpPickerServerRow = Pick<
   McpServerRow,
   `id` | `name` | `url` | `command` | `connection`
->
+> & {
+  /** #EXP-2079 (agent-settings.json `assistant.chatTeams` (3)): a pick over
+   *  SEVERAL teams names each row's team on its secondary line. */
+  teamName?: string | null
+}
+
+/** A row's secondary line: its team (a pick over several teams), then its
+ *  not-ready note. */
+function mcpRowDescription(server: McpPickerServerRow, note: string | null | undefined): string | undefined {
+  return [server.teamName, note].filter(Boolean).join(` · `) || undefined
+}
 
 /** The toggle a pick reports: the added or removed id, or — for a server the
  *  caller has not connected — nothing, after opening its connect link. */
@@ -102,7 +112,7 @@ export function McpServerMenuRows({
           name: server.name,
           url: server.url,
           command: server.command,
-          description: notes.get(server.id) ?? undefined,
+          description: mcpRowDescription(server, notes.get(server.id)),
         }))
       )}
       value={selectedIds}
@@ -142,7 +152,7 @@ export function McpServerPicker({
         name: server.name,
         url: server.url,
         command: server.command,
-        description: notes.get(server.id) ?? undefined,
+        description: mcpRowDescription(server, notes.get(server.id)),
       }))}
       value={selectedIds}
       // The primitive hands back the whole next selection; this picker's hosts

@@ -547,6 +547,34 @@ final class ChatStoreTests: XCTestCase {
         ])
     }
 
+    /// #EXP-2079 (steer-enet.json `access`, A TEAM WITHOUT A LIST): the
+    /// registry is keyed by synced team, so the Assistant's conversation (its
+    /// starter's personal team, no list at all) admits the starter's install
+    /// from ANY list held; a team whose list merely lacks the endpoint stays
+    /// refused.
+    func testAHolderAdmitsTheStarterOfATeamWithoutAList() {
+        let at = "2026-11-17T09:00:00.000Z"
+        func install(_ endpoint: String, _ user: String?, revoked: Bool = false) -> InstallEntry {
+            InstallEntry(installId: endpoint, userId: user, kind: "ios", endpointId: endpoint, x25519Public: "", revokedAt: revoked ? at : nil)
+        }
+        let registry: [String: [InstallEntry]] = [
+            "t1": [install("mine", "me"), install("gone", "me", revoked: true)],
+            "t2": [install("MATE", "mate")],
+        ]
+        func verdict(team: String, shared: Bool = false, peer: String) -> ChatStorePageAccess {
+            let row = SessionEntity(id: "s", teamId: team, userId: "me", deviceId: "dev", shared: shared, createdAt: at, updatedAt: at)
+            return ChatStoreHub.access(row: row, peer: peer, registry: registry)
+        }
+        XCTAssertEqual(verdict(team: "p-me", peer: "mine"), .allowed, "no list for the team: the starter's own install")
+        XCTAssertEqual(verdict(team: "p-me", shared: true, peer: "mate"), .unauthorized, "another user, even on a shared row")
+        XCTAssertEqual(verdict(team: "p-me", peer: "nobody"), .unauthorized, "an endpoint no list knows")
+        XCTAssertEqual(verdict(team: "p-me", peer: "gone"), .unauthorized, "a revoked install")
+        XCTAssertEqual(verdict(team: "t2", peer: "mine"), .unauthorized, "the team HAS a list that lacks the endpoint")
+        XCTAssertEqual(verdict(team: "t1", peer: "mine"), .allowed, "a listed team: the starter, as ever")
+        XCTAssertEqual(verdict(team: "t2", shared: true, peer: "mate"), .allowed, "a listed team: a teammate on a shared row")
+        XCTAssertEqual(verdict(team: "t2", peer: "mate"), .unauthorized, "a listed team: a teammate, not shared")
+    }
+
     // MARK: - The real store (chat-store-ffi)
 
     #if ENET_NODE

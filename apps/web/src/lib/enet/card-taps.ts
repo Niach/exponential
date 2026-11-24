@@ -8,7 +8,8 @@
 
 import { cardItemWire, type CardItemAction } from "@exp/domain-contract/sealed-content"
 import { suggestionRequest } from "@/lib/sessions/suggestion-card"
-import { issueCollection, messageCollection } from "@/lib/collections"
+import { messageCollection } from "@/lib/collections"
+import { issueIdsInTeams, sessionChatTeamIds } from "@/lib/chat-teams"
 import { SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { currentKeyHolder } from "./current-key-holder"
@@ -45,19 +46,20 @@ const handled = (item: Item) => !!(item.sent || item.here || item.dismissed || i
 
 /** An item's issue ids as uuids: an `#IDENT` the issue store knows resolves,
  *  anything else is dropped. */
-function itemIssueIds(item: Item, teamId: string | undefined): string[] | undefined {
+function itemIssueIds(item: Item, sessionId: string | undefined): string[] | undefined {
   if (!Array.isArray(item.issueIds)) return undefined
   const out = new Set<string>()
+  // #EXP-2079 (agent-settings.json `assistant.chatTeams` (1)): over the
+  // chat teams of the card's session, the first team's on a clash.
+  let teams: string[] | undefined
   for (const raw of item.issueIds) {
     if (typeof raw !== `string`) continue
     if (UUID.test(raw)) {
       out.add(raw)
       continue
     }
-    const ident = raw.replace(/^#/, ``).toUpperCase()
-    for (const row of issueCollection.values()) {
-      if ((!teamId || row.teamId === teamId) && row.identifier.toUpperCase() === ident) out.add(row.id)
-    }
+    teams ??= sessionChatTeamIds(sessionId)
+    for (const id of issueIdsInTeams(teams, [raw])) out.add(id)
   }
   return out.size > 0 ? [...out] : undefined
 }
@@ -108,7 +110,7 @@ export async function tapCardItem(tap: CardTap): Promise<unknown> {
         parentId: sessionId,
         text: suggestionRequest({ title: each.title ?? ``, text: each.text ?? `` }),
         ...(each.title ? { name: each.title } : {}),
-        ...(itemIssueIds(each, row!.teamId) ? { issueIds: itemIssueIds(each, row!.teamId) } : {}),
+        ...(itemIssueIds(each, sessionId) ? { issueIds: itemIssueIds(each, sessionId) } : {}),
         ...(tap.deviceId ? { deviceId: tap.deviceId } : {}),
         ...(tap.account ? { account: tap.account } : {}),
         ...(tap.model ? { model: tap.model } : {}),
