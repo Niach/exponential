@@ -1,19 +1,15 @@
-import { useEffect } from "react"
-import { createFileRoute, redirect, useNavigate, useRouterState } from "@tanstack/react-router"
-import { useIsMobile } from "@exp/ui"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 import { fetchSessionOnce, invalidateSessionCache } from "@/lib/auth/client"
 import { hasCompletedOnboarding } from "@/lib/auth/app-user"
-import { phonePathFor } from "@/lib/app-paths"
 import { trpc } from "@/lib/trpc-client"
 import { AppLayout } from "@/components/team/app-layout"
 
-// #EXP-2027 (sidebar-tree.json): the TEAM-LESS pages of web md+ (Home,
-// Chats, Needs you, Drafts, the device pages, the personal settings) under
+// #EXP-2027 (sidebar-tree.json), #EXP-2109 (phones): the TEAM-LESS pages (Home,
+// Chats, Needs you, the Inbox, Drafts, the device pages, the personal settings,
+// the phones' Teams and Assistant tabs) under
 // the same app chrome as a team's pages. There is no active team: the
 // providers and the work tabs read the person's default team (their oldest
 // membership, `teams.getDefault`), nothing on these pages is scoped by it.
-// Phones keep today's team-scoped pages: a team-less URL forwards into the
-// default team there.
 
 /** The default team's slug for this page life (one round trip per user). */
 let defaultTeam = null as { userId: string; slug: string } | null
@@ -52,13 +48,5 @@ export const Route = createFileRoute(`/_app`)({
 
 function TeamlessLayout() {
   const { user, defaultTeamSlug } = Route.useRouteContext()
-  const isMobile = useIsMobile()
-  const navigate = useNavigate()
-  const location = useRouterState({ select: (s) => s.location })
-  const phoneTarget = isMobile ? phonePathFor(location.pathname, defaultTeamSlug) : null
-  useEffect(() => {
-    if (phoneTarget) void navigate({ href: `${phoneTarget}${location.searchStr}`, replace: true })
-  }, [phoneTarget, location.searchStr, navigate])
-  if (phoneTarget) return null
   return <AppLayout teamSlug={defaultTeamSlug} user={user} />
 }

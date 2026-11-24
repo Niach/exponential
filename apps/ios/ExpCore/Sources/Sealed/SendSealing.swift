@@ -148,7 +148,7 @@ extension SessionsSendInput {
     /// The message text this form carries (nil for the no-text forms).
     public var text: String? {
         switch self {
-        case let .newChat(_, _, _, text, _, _, _, _): text
+        case let .newChat(_, _, _, text, _, _, _, _, _): text
         case let .agent(_, text, _, _, _, _): text
         case let .app(_, _, text, _, _, _, _): text
         case let .child(_, _, _, text, _, _): text
@@ -160,7 +160,7 @@ extension SessionsSendInput {
     /// The claimed uploads of this send.
     public var attachmentIds: [String] {
         switch self {
-        case let .newChat(_, _, _, _, ids, _, _, _): ids ?? []
+        case let .newChat(_, _, _, _, ids, _, _, _, _): ids ?? []
         case let .agent(_, _, ids, _, _, _): ids ?? []
         case let .app(_, _, _, ids, _, _, _): ids ?? []
         case let .message(_, _, ids, _): ids ?? []
@@ -183,8 +183,8 @@ extension SessionsSendInput {
     /// The same form with `text` replaced.
     public func with(text: String?) -> SessionsSendInput {
         switch self {
-        case let .newChat(teamId, deviceId, options, _, attachmentIds, issueIds, promptId, repositoryId):
-            .newChat(teamId: teamId, deviceId: deviceId, options: options, text: text, attachmentIds: attachmentIds, issueIds: issueIds, promptId: promptId, repositoryId: repositoryId)
+        case let .newChat(teamId, deviceId, options, _, attachmentIds, issueIds, promptId, repositoryId, scopeTeamIds):
+            .newChat(teamId: teamId, deviceId: deviceId, options: options, text: text, attachmentIds: attachmentIds, issueIds: issueIds, promptId: promptId, repositoryId: repositoryId, scopeTeamIds: scopeTeamIds)
         case let .agent(agentId, _, attachmentIds, issueIds, scope, mcpServerIds):
             .agent(agentId: agentId, text: text, attachmentIds: attachmentIds, issueIds: issueIds, scope: scope, mcpServerIds: mcpServerIds)
         case let .app(appId, deviceId, _, attachmentIds, cli, account, model):
@@ -275,7 +275,7 @@ public struct SendSealing: Sendable {
         switch input {
         case .switchAccount, .moveDevice:
             return PreparedSend(input: SealedSendInput(input: input), newKey: nil)
-        case let .newChat(team, device, _, _, _, _, _, _):
+        case let .newChat(team, device, _, _, _, _, _, _, _):
             teamId = team
             steerDevice = device
         case let .agent(agentId, _, _, _, _, _):
@@ -349,7 +349,7 @@ public struct SendSealing: Sendable {
         if fresh, conversation == nil, let sessionId {
             // A session the store does not have: its key, when it is keyed
             // (or keyed by its device's claim within the wait).
-            guard let key = await arrivingKey(accountId: accountId, rootId: sessionId) else { return try refuse() }
+            guard let key = await holder.arrivingKey(accountId: accountId, rootId: sessionId, wait: keyWait) else { return try refuse() }
             return try await sealed(key, sessionId)
         }
         // A root that does not exist yet: it starts with our key, inline.
@@ -364,9 +364,8 @@ public struct SendSealing: Sendable {
                 input, to: TreeSealKey(publicKey: key.publicKey, epoch: 1), mentions: mentions, seal: seal, actionCard: actionCard
             )
             return PreparedSend(input: sealed, newKey: key, accountId: accountId)
-        } catch let refusal as SealRefusal {
-            throw refusal
         } catch {
+            // #EXP-2123: also an install that waits for approval (it makes none).
             logger.error("No key for a new root (\(String(describing: error), privacy: .public))")
             return try refuse()
         }
@@ -428,22 +427,8 @@ public struct SendSealing: Sendable {
         case .wait: break
         default: return .refused
         }
-        return await arrivingKey(accountId: accountId, rootId: rootId).map(TreeKeyOutcome.key) ?? .refused
+        return await holder.arrivingKey(accountId: accountId, rootId: rootId, wait: keyWait).map(TreeKeyOutcome.key) ?? .refused
     }
-
-    /// The server's key of a keyless tree this install may not key, polled
-    /// until its device's claim keys it (`keyWait`); nil = none came.
-    private func arrivingKey(accountId: String, rootId: String) async -> TreeSealKey? {
-        let clock = ContinuousClock()
-        let deadline = clock.now + keyWait
-        while true {
-            if let key = await holder.serverKey(accountId: accountId, rootId: rootId) { return key }
-            if clock.now >= deadline || Task.isCancelled { return nil }
-            try? await Task.sleep(for: min(Self.keyPoll, deadline - clock.now))
-        }
-    }
-
-    static let keyPoll: Duration = .seconds(1)
 
     /// The server answered a send: a root started with our key holds it now.
     public func completed(_ prepared: PreparedSend, result: SessionsSendResult) async {
@@ -491,6 +476,8 @@ public struct SendSealing: Sendable {
 /// is re-resolved from the server, re-sealed and re-sent ONCE by itself, the
 /// first refusal never surfaced; a second one throws (its description = the
 /// refusal, `TrpcErrorBody.presentableMessage`).
+/// #EXP-2123 (install-trust.json `keyMaker`): the server refused a new root's
+/// key from this install (it waits for approval) = `SealRefusal`.
 public enum StaleTreeResend {
     /// `attempt(fresh)` prepares and sends; `fresh` = resolve from the server.
     /// It runs in the caller's isolation (a main-actor submitter's closure
@@ -500,11 +487,22 @@ public enum StaleTreeResend {
         _ attempt: (_ fresh: Bool) async throws -> R
     ) async throws -> R {
         do {
-            return try await attempt(false)
+            return try await sealed(attempt, fresh: false, isolation: isolation)
         } catch {
             guard isStaleTreeRefusal((error as? LocalizedError)?.errorDescription) else { throw error }
             logger.info("The tree moved on behind this store: re-sealing once")
-            return try await attempt(true)
+            return try await sealed(attempt, fresh: true, isolation: isolation)
+        }
+    }
+
+    private static func sealed<R>(
+        _ attempt: (_ fresh: Bool) async throws -> R, fresh: Bool, isolation: isolated (any Actor)?
+    ) async throws -> R {
+        do {
+            return try await attempt(fresh)
+        } catch {
+            guard isKeyMakerRefusal((error as? LocalizedError)?.errorDescription) else { throw error }
+            throw SealRefusal()
         }
     }
 }

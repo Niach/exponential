@@ -38,13 +38,7 @@ import {
 import { resolveIssueReference } from "@/lib/issue-resolver"
 import { issueWireColumns } from "@/lib/issue-columns"
 import { recordConversionEvent } from "@/lib/conversion/events"
-import {
-  issueSearchIdentifierExactSql,
-  issueSearchMatchIds,
-  issueSearchOpenSql,
-  issueSearchRankSql,
-  issueSearchRecencySql,
-} from "@/lib/issue-search-sql"
+import { searchIssues } from "@/lib/issue-embeddings/search"
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import {
   CATEGORY_ANCHOR,
@@ -1639,41 +1633,13 @@ export const issuesRouter = router({
       const teamIds = [...new Set(input.teamIds ?? [input.teamId as string])]
       for (const teamId of teamIds) await assertTeamMember(ctx.session.user.id, teamId)
 
-      const result = await ctx.db.execute(sql`
-        with matches as (${issueSearchMatchIds(input.query, teamIds.length === 1 ? { teamId: teamIds[0] } : { teamIds })})
-        select
-          i.id,
-          i.identifier,
-          i.title,
-          i.board_id as "boardId",
-          i.status,
-          i.status_id as "statusId",
-          i.priority
-        from issues i
-        join matches m on m.id = i.id
-        -- An exact identifier hit sorts FIRST: those rows come from the
-        -- ILIKE branch, so their ts_rank is 0 and the limit below would
-        -- otherwise drop the very issue the person typed (EXP-892).
-        -- EXP-922: then UNDONE before done, above the relevance rank — the
-        -- same three keys the client engine sorts by, so the hits spliced in
-        -- behind the local ranking carry on in the same order.
-        order by
-          ${issueSearchIdentifierExactSql(input.query)} desc,
-          ${issueSearchOpenSql()} desc,
-          ${issueSearchRankSql(input.query)} desc,
-          ${issueSearchRecencySql(input.query)}
-        limit ${input.limit}
-      `)
-
-      return result.rows.map((row) => ({
-        id: row.id as string,
-        identifier: row.identifier as string,
-        title: row.title as string,
-        boardId: row.boardId as string,
-        status: row.status as string,
-        statusId: (row.statusId as string | null) ?? null,
-        priority: row.priority as string,
-      }))
+      // #NEW-135: the lexical hits, then the semantic ones behind them;
+      // `similar:<ID>` lists that issue's neighbours (lib/issue-embeddings/search.ts).
+      return searchIssues(
+        input.query,
+        teamIds.length === 1 ? { teamId: teamIds[0]! } : { teamIds },
+        input.limit
+      )
     }),
 
   // #EXP-1797: a SOFT delete into the issue trash (issue-lifecycle.json

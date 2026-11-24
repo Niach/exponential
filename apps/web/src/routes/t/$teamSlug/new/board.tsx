@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
-import { Separator } from "@exp/ui"
 import { BoardLimitUpgradeDialog, CreateBoardForm } from "@/components/create-board-dialog"
+import { NewPageHeading } from "@/components/team/new-page-heading"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useSettingsPage } from "@/routes/t/$teamSlug/settings/-shared"
 import { boardCollection } from "@/lib/collections"
@@ -28,8 +28,7 @@ function NewBoardRoute() {
   if (!team || !resolved || refused) return null
   return (
     <div className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${PAGE_END_CLEARANCE}`}>
-      <h1 className="text-2xl font-bold">New board</h1>
-      <Separator />
+      <NewPageHeading teamSlug={teamSlug}>New board</NewPageHeading>
       <CreateBoardForm
         team={team}
         layout="page"

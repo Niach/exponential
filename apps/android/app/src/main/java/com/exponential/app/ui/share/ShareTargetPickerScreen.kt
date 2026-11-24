@@ -1,8 +1,7 @@
 package com.exponential.app.ui.share
 
-import com.exponential.app.data.TeamSelection
-import com.exponential.app.data.applyTeamSwitch
-import com.exponential.app.data.planTeamSwitch
+import com.exponential.app.data.ShellState
+import com.exponential.app.data.crossTeamOrder
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.BoardEntity
@@ -18,10 +17,10 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.launch
 
 data class TeamBoards(val team: TeamEntity, val boards: List<BoardEntity>)
 
@@ -48,22 +47,35 @@ data class ShareTargetState(
 @HiltViewModel
 class ShareTargetPickerViewModel @Inject constructor(
     private val auth: AuthRepository,
-    private val holder: DatabaseHolder,
-    private val selection: TeamSelection,
+    holder: DatabaseHolder,
+    private val shell: ShellState,
 ) : ViewModel() {
 
     // Reactive account scoping (no constructor-time DB snapshot).
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
+    /** The picked team, else the last-used board's, else the first. */
+    private val teamId = combine(
+        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
+        dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
+        shell.shareTeam,
+        auth.activeAccountId,
+        shell.lastBoardVersion,
+    ) { teams, boards, picked, accountId, _ ->
+        val ids = crossTeamOrder(teams).map { it.id }
+        val last = accountId?.let { shell.lastBoard(it) }?.let { id -> boards.firstOrNull { it.id == id }?.teamId }
+        picked?.takeIf { it in ids } ?: last?.takeIf { it in ids } ?: ids.firstOrNull()
+    }.distinctUntilChanged()
+
     val state: StateFlow<ShareTargetState> = combine(
         dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.boardDao().observeAll() },
-        selection.selectedId,
+        teamId,
         auth.activeAccountId,
-        selection.lastBoardVersion,
+        shell.lastBoardVersion,
     ) { teams, boards, teamId, accountId, _ ->
         // The picked team's boards only: never another team's last board.
-        val picked = ShareTargets.shareIssueBoards(teamId, boards, accountId?.let { selection.lastBoard(it) }, { it.id }, { it.teamId })
+        val picked = ShareTargets.shareIssueBoards(teamId, boards, accountId?.let { shell.lastBoard(it) }, { it.id }, { it.teamId })
         val team = teams.firstOrNull { it.id == teamId }
         ShareTargetState(
             groups = if (team == null || picked.boards.isEmpty()) emptyList() else listOf(TeamBoards(team, picked.boards)),
@@ -72,29 +84,23 @@ class ShareTargetPickerViewModel @Inject constructor(
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShareTargetState())
 
-    /** share-targets.json: the Agents section = the active team's agents in
+    /** share-targets.json: the Agents section = the picked team's agents in
      *  `orderedAgents` order (the Assistant first). */
     val shareTo: StateFlow<ShareToState> = combine(
         dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
         dbFlow.scopedQuery(emptyList()) { it.agentDefinitionDao().observeAll() },
-        selection.selectedId,
+        teamId,
         auth.userId,
     ) { teams, agents, teamId, me ->
         val listed = SessionTree.listAgents(agents.map(SessionTree::agentDefinition), emptyList(), teamId, me, teams.map { it.id })
         val row = com.exponential.app.ui.agent.composerAgentRowState(listed, me, null)
         ShareToState(
-            teams = teams,
+            teams = crossTeamOrder(teams),
             teamId = teamId,
             // Already `orderedAgents`: the composer row's order is THE order.
             agents = if (teamId == null) emptyList() else row.agents,
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShareToState())
 
-    /** THE team switch (chats.json): the Board tab moves onto the team too. */
-    fun selectTeam(teamId: String) {
-        val accountId = auth.activeAccountId.value ?: return selection.select(teamId)
-        viewModelScope.launch {
-            selection.applyTeamSwitch(selection.planTeamSwitch(holder, accountId, teamId), auth)
-        }
-    }
+    fun selectTeam(teamId: String) = shell.setShareTeam(teamId)
 }

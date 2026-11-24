@@ -47,6 +47,13 @@ import Foundation
 /// end). Impossible dates (`2026-13`, `2026-02-30`) are ignored. A query of
 /// filters alone lists the matching rows in the empty-query order.
 ///
+/// #NEW-135: `similar:<ID>` (`similar:NEW-12`, one leading `#` dropped, an
+/// empty value ignored) asks for the issues that MEAN the same as that one:
+/// its duplicates. Similarity lives in the server's embeddings, which no
+/// client holds, so a query with a `similar:` token ranks NO local rows: the
+/// list is the server's hits in the server's order (`mergeServerHits`),
+/// nearest first, narrowed there by the query's other tokens.
+///
 /// EXP-922: the ordering is THREE keys above the score, in this order:
 ///
 ///   1. an EXACT identifier hit (some token scored 100) — typing `EXP-42`
@@ -98,6 +105,9 @@ public enum IssueSearch {
     public static let statusPrefix = "status:"
     public static let createdPrefix = "created:"
     public static let updatedPrefix = "updated:"
+
+    /// #NEW-135: the token that asks the server for an issue's nearest issues.
+    public static let similarPrefix = "similar:"
 
     /// The searchable projection of an issue — what the engine reads, whatever
     /// the caller's row type is (a GRDB entity, a picker option, a server hit).
@@ -197,6 +207,9 @@ public enum IssueSearch {
         public var statuses: [String] = []
         public var created: [DateRange] = []
         public var updated: [DateRange] = []
+        /// #NEW-135: `similar:` identifiers (lowercase, one leading `#`
+        /// dropped). Not a filter: any entry hands the whole list to the server.
+        public var similar: [String] = []
 
         public init() {}
 
@@ -236,6 +249,10 @@ public enum IssueSearch {
                 if let range = parseRange(String(token.dropFirst(updatedPrefix.count)), seconds: nowSeconds) {
                     parsed.updated.append(range)
                 }
+            } else if token.hasPrefix(similarPrefix) {
+                var identifier = String(token.dropFirst(similarPrefix.count))
+                if identifier.hasPrefix("#") { identifier = String(identifier.dropFirst()) }
+                if !identifier.isEmpty { parsed.similar.append(identifier) }
             } else {
                 parsed.words.append(token)
             }
@@ -387,7 +404,8 @@ public enum IssueSearch {
     fileprivate static func rank<T>(entries: [Entry<T>], query: String, limit: Int, now: Date) -> [T] {
         let parsed = parseQuery(query, now: now)
         let queryTokens = parsed.words
-        guard limit > 0 else { return [] }
+        // #NEW-135: similarity is the server's to answer.
+        guard limit > 0, parsed.similar.isEmpty else { return [] }
         let entries = parsed.hasFilters
             ? entries.filter { matchesFilters($0, parsed) }
             : entries

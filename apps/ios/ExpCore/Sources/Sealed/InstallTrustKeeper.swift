@@ -316,6 +316,15 @@ public actor InstallTrustKeeper {
         if decisions.count > Self.decisionLog { decisions.removeFirst(decisions.count - Self.decisionLog) }
     }
 
+    /// #EXP-2123 (install-trust.json `keyMaker`): only a JOINED install makes
+    /// a chat key (an older server without `installs.trust` counts as joined).
+    /// A store not reconciled yet is reconciled first.
+    public func makesKeys(accountId: String, installId: String) async -> Bool {
+        if (account(accountId)?.state ?? .unknown) == .unknown { await sync(accountId: accountId, installId: installId) }
+        guard let found = account(accountId) else { return false }
+        return found.state == .unavailable || found.store.joined
+    }
+
     /// R1: whether a served wrap is kept, recorded in the store.
     public func keep(accountId: String, wrap: HeldTreeKey, installSecret: Data) -> InstallTrust.KeepVerdict {
         guard let seed = identity(), let found = account(accountId) else { return .refuse(.malformed) }

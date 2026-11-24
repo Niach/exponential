@@ -154,10 +154,8 @@ import type { Context } from "@/lib/trpc"
 import { activityWire } from "@/lib/activity/wire"
 import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
 import { composeDeviceList } from "@/lib/steer-devices"
-import {
-  ISSUE_SEARCH_SCAN_CAP,
-  issueSearchMatchIds,
-} from "@/lib/issue-search-sql"
+import { ISSUE_SEARCH_SCAN_CAP } from "@/lib/issue-search-sql"
+import { issueSearchIdsSql } from "@/lib/issue-embeddings/search"
 import { buildRuntimeConfig } from "@/lib/runtime-config"
 import { createAgentBugReport } from "@/lib/widget/agent-report"
 import {
@@ -1251,7 +1249,8 @@ export function registerExponentialTools(
       // EVERY granted board, and a limit-1000 list must not scan them all.
       if (search) {
         conditions.push(
-          sql`${issues.id} in (${issueSearchMatchIds(
+          // #NEW-135: plus the semantic hits behind them, and `similar:<ID>`.
+          sql`${issues.id} in (${await issueSearchIdsSql(
             search,
             { boardIds: allowedBoardIds },
             { limit: ISSUE_SEARCH_SCAN_CAP }

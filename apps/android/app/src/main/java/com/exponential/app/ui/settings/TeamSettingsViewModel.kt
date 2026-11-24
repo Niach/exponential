@@ -5,7 +5,8 @@ import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.ARG_TEAM
+import com.exponential.app.data.screenTeamFlow
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.PlaceholderStatus
 import com.exponential.app.domain.GithubCopy
@@ -138,7 +139,6 @@ data class PutAwayBoards(
 @HiltViewModel
 class TeamSettingsViewModel @Inject constructor(
     private val auth: AuthRepository,
-    private val selection: TeamSelection,
     private val holder: DatabaseHolder,
     private val membersApi: TeamMembersApi,
     private val invitesApi: TeamInvitesApi,
@@ -156,18 +156,21 @@ class TeamSettingsViewModel @Inject constructor(
 
     /**
      * #EXP-1381 (settings-nav.json): the ONE category this page shows
-     * (`team-settings/{section}`); it observes only that category's data. The
+     * (`team/{teamId}/settings/{section}`); it observes only that category's data. The
      * roster always loads (it decides who owns the team); null = every
      * category (no caller left, kept for previews).
      */
     val section: String? = savedStateHandle.get<String>("section")
     private fun observes(vararg sections: String): Boolean = section == null || section in sections
 
-    // Reactive account scoping: a Settings → Teams tap on a different
-    // server switches the active account and this ViewModel re-scopes to the
-    // new account's DB automatically (no rebuild, no pending-handoff flag).
+    // Reactive account scoping (no constructor-time DB snapshot).
     private val dbFlow = accountDatabaseFlow(auth, holder)
-    private val dbAndSelected = combine(dbFlow, selection.selectedId) { db, id -> db to id }
+
+    /** #EXP-2109: the team this screen shows ([screenTeamFlow]; no active team). */
+    private val screenTeam: StateFlow<String?> =
+        screenTeamFlow(dbFlow, savedStateHandle)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, savedStateHandle.get<String>(ARG_TEAM))
+    private val dbAndSelected = combine(dbFlow, screenTeam) { db, id -> db to id }
 
     private val teamFlow = dbAndSelected.flatMapLatest { (db, id) ->
         if (db == null || id == null) flowOf(null)
@@ -227,7 +230,7 @@ class TeamSettingsViewModel @Inject constructor(
         // tRPC whenever the active account or selected team changes. The
         // The viewer's GitHub connection state rides along (the connection block).
         viewModelScope.launch {
-            combine(auth.activeAccountId, selection.selectedId) { a, w -> a to w }
+            combine(auth.activeAccountId, screenTeam) { a, w -> a to w }
                 .collectLatest { (accountId, teamId) ->
                     _repos.value = emptyList()
                     _reposLoaded.value = false
@@ -314,7 +317,7 @@ class TeamSettingsViewModel @Inject constructor(
     fun refreshGithub(retried: Boolean = false) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            val teamId = selection.selectedId.value ?: return@launch
+            val teamId = screenTeam.value ?: return@launch
             _reposRefreshing.value = _reposLoaded.value
             try {
                 runCatching { repositoriesApi.list(accountId, teamId) }
@@ -352,7 +355,7 @@ class TeamSettingsViewModel @Inject constructor(
         if (_repos.value.any { it.id == repositoryId }) return
         if (!resolvedRepoIds.add(repositoryId)) return
         val accountId = auth.activeAccountId.value ?: return
-        val teamId = selection.selectedId.value ?: return
+        val teamId = screenTeam.value ?: return
         _resolvingRepoId.value = repositoryId
         viewModelScope.launch {
             // Quiet on failure (FEED-79): the row reads "Repository unavailable".
@@ -481,28 +484,28 @@ class TeamSettingsViewModel @Inject constructor(
 
     fun deleteLabel(labelId: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
+        val teamId = screenTeam.value ?: return@launch
         runCatching { labelsApi.delete(accountId, teamId, labelId) }
             .onFailure { fail("delete", "the label", it) }
     }
 
     fun renameLabel(labelId: String, name: String): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
+        val teamId = screenTeam.value ?: return@launch
         runCatching { labelsApi.update(accountId, UpdateLabelInput(teamId, labelId, name = name)) }
             .onFailure { fail("rename", "the label", it) { renameLabel(labelId, name) } }
     }
 
     fun recolorLabel(labelId: String, color: String): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
+        val teamId = screenTeam.value ?: return@launch
         runCatching { labelsApi.update(accountId, UpdateLabelInput(teamId, labelId, color = color)) }
             .onFailure { fail("update", "the label", it) { recolorLabel(labelId, color) } }
     }
 
     fun createLabel(name: String, color: String) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
+        val teamId = screenTeam.value ?: return@launch
         runCatching { labelsApi.create(accountId, CreateLabelInput(teamId, name.trim(), color)) }
             .onSuccess { created ->
                 // Optimistic local upsert so the label appears immediately instead
@@ -517,7 +520,7 @@ class TeamSettingsViewModel @Inject constructor(
 
     fun deleteTeam() = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
+        val teamId = screenTeam.value ?: return@launch
         runCatching { teamsApi.delete(accountId, teamId) }
             .onSuccess { _teamDeleted.value = true }
             .onFailure { fail("delete", "the team", it) }
@@ -542,7 +545,7 @@ class TeamSettingsViewModel @Inject constructor(
 
     fun refreshPutAway(): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
+        val teamId = screenTeam.value ?: return@launch
         runCatching { boardsApi.listArchived(accountId, teamId) }
             .onSuccess { rows -> _putAway.value = _putAway.value.copy(archived = rows) }
         runCatching { boardsApi.listDeleted(accountId, teamId) }
@@ -576,7 +579,7 @@ class TeamSettingsViewModel @Inject constructor(
 
     fun refreshDeletedIssues(): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
+        val teamId = screenTeam.value ?: return@launch
         runCatching { issuesApi.listDeleted(accountId, teamId) }
             .onSuccess { rows ->
                 _putAway.value = _putAway.value.copy(deletedIssues = rows.sortedByDescending { it.deletedAt.orEmpty() })
@@ -605,7 +608,7 @@ class TeamSettingsViewModel @Inject constructor(
 
     fun refreshRepos(): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
+        val teamId = screenTeam.value ?: return@launch
         // Quiet on failure (FEED-79): every caller is automatic (a deep link,
         // after a write); the list keeps what it had.
         runCatching { repositoriesApi.list(accountId, teamId) }
@@ -619,7 +622,7 @@ class TeamSettingsViewModel @Inject constructor(
     // itself open with the failure inline, dismissing only on success.
     suspend fun addRepository(fullName: String, defaultBranch: String, isPrivate: Boolean) {
         val accountId = auth.activeAccountId.value ?: return
-        val teamId = selection.selectedId.value ?: return
+        val teamId = screenTeam.value ?: return
         repositoriesApi.add(accountId, teamId, fullName, defaultBranch, isPrivate)
         refreshGithub()
     }
@@ -628,7 +631,7 @@ class TeamSettingsViewModel @Inject constructor(
      *  true = created (the sheet closes), a failure toasts and keeps it open. */
     suspend fun createRepository(name: String, defaultBranch: String, mirrorUrl: String?): Boolean {
         val accountId = auth.activeAccountId.value ?: return false
-        val teamId = selection.selectedId.value ?: return false
+        val teamId = screenTeam.value ?: return false
         return try {
             repositoriesApi.create(accountId, teamId, name, defaultBranch, mirrorUrl)
             refreshRepos()
@@ -672,7 +675,7 @@ class TeamSettingsViewModel @Inject constructor(
         isPrivate: Boolean,
     ) = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
-        val teamId = selection.selectedId.value ?: return@launch
+        val teamId = screenTeam.value ?: return@launch
         val added = runCatching {
             repositoriesApi.add(accountId, teamId, fullName, defaultBranch, isPrivate)
         }.onFailure { fail("connect", fullName, it) }
@@ -796,7 +799,7 @@ class TeamSettingsViewModel @Inject constructor(
     init {
         if (observes(SettingsNav.GENERAL)) {
             viewModelScope.launch {
-                combine(auth.activeAccountId, selection.selectedId) { a, t -> a to t }
+                combine(auth.activeAccountId, screenTeam) { a, t -> a to t }
                     .collectLatest { (accountId, teamId) -> loadPrompt(accountId, teamId, retried = false) }
             }
         }
@@ -805,7 +808,7 @@ class TeamSettingsViewModel @Inject constructor(
     /** FEED-79: the load runs on open, so a failure is quiet (the field's
      *  Retry); only a failed Retry tap toasts. */
     fun retryPromptLoad() {
-        viewModelScope.launch { loadPrompt(auth.activeAccountId.value, selection.selectedId.value, retried = true) }
+        viewModelScope.launch { loadPrompt(auth.activeAccountId.value, screenTeam.value, retried = true) }
     }
 
     private suspend fun loadPrompt(accountId: String?, teamId: String?, retried: Boolean) {

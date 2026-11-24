@@ -326,7 +326,7 @@ export function surfaceAction(event: ActionEvent, origin: ActionOrigin): { body:
   if (typeof event.name !== `string` || event.name === ``) return null
   const name = event.name
   const context =
-    event.context && typeof event.context === `object` && !Array.isArray(event.context)
+    event.context && typeof event.context === `object` && !Array.isArray(event.context) && Object.keys(event.context).length > 0
       ? (event.context as Record<string, unknown>)
       : null
   if ([...name].length > EXPRESS_LIMITS.actionNameMax) return `tooLarge`

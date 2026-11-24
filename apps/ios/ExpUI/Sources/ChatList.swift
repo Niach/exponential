@@ -20,6 +20,20 @@ public enum ChatListMetrics {
     /// Lead → text column.
     public static let gap: CGFloat = 14
     public static let rowVerticalPadding: CGFloat = 12
+    /// #EXP-2109: a row's team mark.
+    public static let teamMark: CGFloat = 16
+}
+
+/// #EXP-2109: a row's team on a list over several teams: its mark after the
+/// title, before the time.
+public struct ChatRowTeam: Equatable, Sendable {
+    public let name: String
+    public let iconUrl: String?
+
+    public init(name: String, iconUrl: String?) {
+        self.name = name
+        self.iconUrl = iconUrl
+    }
 }
 
 /// One flat chat row: [52 disc lead] [title · time / preview · word · badge],
@@ -48,6 +62,8 @@ public struct ChatRowView<Lead: View>: View {
     /// false = the lead is a plain glyph centred in the disc column, no
     /// disc, the row as tall as its text (the Archived entry).
     private let leadDisc: Bool
+    /// #EXP-2109: the row's team mark before the time; nil = none.
+    private let team: ChatRowTeam?
     private let lead: Lead
 
     public init(
@@ -64,6 +80,7 @@ public struct ChatRowView<Lead: View>: View {
         wordIcon: String? = nil,
         selected: Bool = false,
         leadDisc: Bool = true,
+        team: ChatRowTeam? = nil,
         @ViewBuilder lead: () -> Lead
     ) {
         self.title = title
@@ -79,6 +96,7 @@ public struct ChatRowView<Lead: View>: View {
         self.wordIcon = wordIcon
         self.selected = selected
         self.leadDisc = leadDisc
+        self.team = team
         self.lead = lead()
     }
 
@@ -104,6 +122,12 @@ public struct ChatRowView<Lead: View>: View {
                         ChatMarksView(marks: marks)
                     }
                     Spacer(minLength: 4)
+                    if let team {
+                        TeamAvatar(iconUrl: team.iconUrl, size: ChatListMetrics.teamMark)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
+                            .accessibilityLabel(team.name)
+                    }
                     if let needsYouCount {
                         CountBadge(count: needsYouCount, tone: .attention)
                     } else {

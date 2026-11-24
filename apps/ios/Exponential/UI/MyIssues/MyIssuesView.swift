@@ -117,7 +117,6 @@ struct MyIssuesListContent: View {
         .background(Color.clear)
         // Clearance for the floating tab bar (EXP-36) — this List renders as
         // the My Work tab's My Issues segment.
-        .tabBarBottomInset()
     }
 
     /// The board list's status band (EXP-1248 `GlassSectionBand` with its

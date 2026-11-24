@@ -4,91 +4,111 @@ import SwiftUI
 
 import GRDB
 
-/// The Team tab's counts (its meta line and rows).
-private struct TeamCounts: Equatable, Sendable {
-    var members = 0
-    var boards = 0
-    var agents = 0
-    /// The viewer owns the team (`owner` rows).
-    var isOwner = false
+/// A settings row: the glyph, the title, the count, the chevron.
+struct SettingsLinkRow<Leading: View>: View {
+    let title: String
+    var count: Int?
+    var chevron = true
+    @ViewBuilder let leading: Leading
+
+    var body: some View {
+        HStack(spacing: 12) {
+            leading
+                .frame(width: 22)
+            Text(title)
+                .font(.body)
+                .foregroundStyle(.white)
+            Spacer()
+            if let count {
+                Text("\(count)")
+                    .font(.body)
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            if chevron {
+                AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+    }
 }
 
-/// EXP-1373 (chats.json `shell`): the phone's TEAM tab (the old settings
-/// root moved here; the board header lost its gear). The ACTIVE team's
-/// avatar (84) + name + `copy.team.meta`, a glass group of the viewer's
-/// teams (the active one checked, another team its needs-you count badge,
-/// #FEED-232; a tap switches — the ONLY place a phone switches team), then
-/// the team's settings rows, Getting started, then settings-nav's Personal
-/// group (each server's signed-in account, Notifications, About).
-struct TeamTabView: View {
-    /// A team row's tap: `(accountId, teamId)`.
-    var onSwitchTeam: (String, String) -> Void = { _, _ in }
+/// A settings row's glyph at the list's size.
+struct SettingsRowGlyph: View {
+    let icon: String
 
+    var body: some View {
+        AppIcon(icon, size: AppIcon.Size.medium)
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+    }
+}
+
+/// #EXP-2109 (settings-nav.json `nav.phone.settings`): the SETTINGS TAB: the
+/// viewer's card (opens Account), account / assistant / notifications /
+/// security, Devices, About, then the app's own rows (each server's signed-in
+/// account and Add server, Getting started for the first team, the staging
+/// Sync diagnostics, the device's Keep tool steps).
+struct SettingsTabView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(TeamState.self) private var teamState
-    /// #FEED-232: each other team's needs-you count (the team rows' badge).
-    @Environment(SessionListsModel.self) private var lists
-    /// EXP-1270: Getting started for the ACTIVE team, behind the General
-    /// section's row (the phones' entry; web's sidebar entry).
+    /// EXP-1270: Getting started's signals for the first team.
     @State private var gettingStarted = GettingStartedProgress()
     @State private var showGettingStarted = false
-    @State private var teamLoader: MultiAccountTeamLoader?
     @State private var showAddServer = false
-    @State private var showTeamSetup = false
-    @State private var counts = TeamCounts()
     // The account that was active before Add-server opened, so a cancelled /
     // incomplete add can be rolled back off the tokenless pending account.
     @State private var previousActiveAccountId: String?
     /// #EDE-114 THE STORAGE SETTING (this device): `Keep tool steps`.
     @State private var keepToolSteps = KeepToolSteps.windowDays()
+    /// The viewer's synced row (the card's image).
+    @State private var user: UserEntity?
 
-    private var activeAccountId: String { deps.auth.activeAccountId ?? "" }
+    private var accountId: String { deps.auth.activeAccountId ?? "" }
+    private var firstTeamId: String? { teamState.orderedTeams.first?.id }
+    private var account: ServerAccount? { deps.auth.accounts.first { $0.id == accountId } }
+
+    /// `phone.settings` split into its cards.
+    private static let groups = [["account", "assistant", "notifications", "security"], ["devices"], ["about"]]
 
     var body: some View {
         ZStack {
             AppBackground()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    teamHeader
-                    teamsSection
-                    teamSettingsSection
-                    generalSection
-                    personalSection
+                VStack(alignment: .leading, spacing: 18) {
+                    viewerCard
+                    ForEach(Self.groups, id: \.self) { group in
+                        VStack(spacing: 0) {
+                            ForEach(SettingsNav.phoneSettings.filter(group.contains), id: \.self) { row($0) }
+                        }
+                        .glassSection()
+                    }
+                    serversSection
+                    deviceSection
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 16)
             }
-            .tabBarBottomInset()
         }
-        // #EXP-1384: the page header, titled with the team's name.
-        .pageHeader(teamState.activeTeam?.name ?? Chats.Copy.Tabs.team)
-        .task(id: "\(activeAccountId)/\(teamState.activeTeamId ?? "")") {
-            if let teamId = teamState.activeTeamId, !activeAccountId.isEmpty {
-                gettingStarted.bind(accountId: activeAccountId, teamId: teamId, deps: deps)
-                await observeCounts(teamId: teamId)
+        .pageHeader(Chats.Copy.Headers.settings)
+        .task(id: accountId) { await observeUser() }
+        .task(id: "\(accountId)/\(firstTeamId ?? "")") {
+            if let firstTeamId {
+                gettingStarted.bind(accountId: accountId, teamId: firstTeamId, deps: deps)
             } else {
                 gettingStarted.stop()
             }
         }
         .sheet(isPresented: $showGettingStarted) {
-            if let teamId = teamState.activeTeamId {
-                GettingStartedSheet(progress: gettingStarted, accountId: activeAccountId, teamId: teamId)
+            if let firstTeamId {
+                GettingStartedSheet(progress: gettingStarted, accountId: accountId, teamId: firstTeamId)
             }
         }
-        .sheet(isPresented: $showTeamSetup) {
-            TeamSetupSheet()
-        }
-        .onAppear {
-            if teamLoader == nil {
-                teamLoader = MultiAccountTeamLoader(auth: deps.auth, db: deps.db)
-            }
-        }
-        .onChange(of: deps.auth.accounts) { _, _ in
-            teamLoader?.refresh()
-        }
-        .accessibilityIdentifier("team-tab")
+        .accessibilityIdentifier("settings-tab")
         .fullScreenCover(isPresented: $showAddServer) {
             InstanceView(showCancel: true) {
                 // Add-server activates a tokenless pending account the moment a
@@ -109,180 +129,96 @@ struct TeamTabView: View {
         }
     }
 
-    // MARK: - Team
+    // MARK: - Viewer
 
     @ViewBuilder
-    private var teamHeader: some View {
-        if let team = teamState.activeTeam {
-            VStack(spacing: 10) {
-                // The team's name is the page header's title now.
-                TeamAvatar(iconUrl: team.iconUrl, size: 84)
-                Text(Chats.Copy.Team.metaLine(members: counts.members, boards: counts.boards))
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("team-tab-header")
-        }
-    }
-
-    /// Every server's teams in ONE group (the server's name only
-    /// disambiguates with several servers).
-    private var teamsSection: some View {
-        let groups = teamLoader?.groups ?? []
-        // No band over the switcher (web-mobile's Team page).
-        return VStack(alignment: .leading, spacing: 4) {
-            VStack(spacing: 0) {
-                ForEach(groups) { group in
-                    ForEach(group.teams, id: \.id) { team in
-                        teamRow(team, accountId: group.accountId, server: groups.count > 1 ? group.hostname : nil)
-                    }
-                }
-                Button { showTeamSetup = true } label: {
-                    settingsRow(icon: AppIcons.uiAdd, title: "New team", chevron: false)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("board-switcher-new-team")
-            }
-            .glassSection()
-        }
-    }
-
-    private func teamRow(_ team: TeamEntity, accountId: String, server: String?) -> some View {
-        let active = accountId == activeAccountId && team.id == teamState.activeTeamId
-        return Button {
-            onSwitchTeam(accountId, team.id)
-        } label: {
-            HStack(spacing: 12) {
-                // A row of another server loads its image with that account.
-                TeamAvatar(iconUrl: team.iconUrl, size: 24)
-                    .environment(\.accountId, accountId)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(team.name)
-                        .font(.body)
-                        .foregroundStyle(.white)
-                    if let server {
-                        Text(server)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    }
-                }
-                Spacer()
-                if active {
-                    AppIcon(AppIcons.uiCheck, size: AppIcon.Size.medium)
-                        .foregroundStyle(.white)
-                } else if accountId == activeAccountId {
-                    CountBadge(
-                        count: lists.needsYou(teamId: team.id, me: deps.auth.userId, now: Date()).count
-                            + deps.installTrust.snapshot(accountId).rows.count,
-                        tone: .attention
+    private var viewerCard: some View {
+        if let account {
+            let name = user?.name ?? account.userName ?? account.userEmail ?? account.displayName
+            NavigationLink(value: AppRoute.serverDetail(accountId: accountId)) {
+                HStack(spacing: 14) {
+                    UserAvatar(
+                        user: user ?? UserEntity(
+                            id: account.userId ?? "", name: account.userName, email: account.userEmail ?? "", image: nil,
+                            createdAt: "", updatedAt: ""
+                        ),
+                        id: account.userId, size: 56
                     )
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(active ? .isSelected : [])
-        .accessibilityIdentifier("team-row-\(team.id)")
-    }
-
-    /// #EXP-1381 (settings-nav.json): the team's settings rows, rendered
-    /// FROM `SettingsNav.visiblePhoneRows` (order, label, icon concept,
-    /// count, visibility); each opens that category's OWN page (#EXP-1632:
-    /// Apps too, the Settings › Apps page).
-    @ViewBuilder
-    private var teamSettingsSection: some View {
-        if let teamId = teamState.activeTeamId {
-            VStack(spacing: 0) {
-                // Visibility is the fixture's (`visiblePhoneRows`): owner
-                // rows for the team's owner; the natives are never "cloud".
-                ForEach(SettingsNav.visiblePhoneRows(isOwner: counts.isOwner), id: \.self) { id in
-                    if let section = TeamSettingsSection(id) {
-                        teamLink(teamId, section: section, row: SettingsNav.row(id))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        if let email = account.userEmail, email != name {
+                            Text(email)
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .lineLimit(1)
+                        }
                     }
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, 4)
+                .contentShape(Rectangle())
             }
-            .glassSection()
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("settings-viewer")
         }
     }
 
-    private func count(_ count: SettingsNav.Count?) -> Int? {
-        switch count {
-        case .members: counts.members
-        case .boards: counts.boards
-        case .agents: counts.agents
-        case nil: nil
-        }
-    }
-
-    private func teamLink(_ teamId: String, section: TeamSettingsSection, row: SettingsNav.Row) -> some View {
-        NavigationLink(value: AppRoute.teamSettingsSection(accountId: activeAccountId, teamId: teamId, section: section)) {
-            settingsRow(
-                icon: AppIcons.conceptOrName(row.icon) ?? AppIcons.uiChevronRight,
-                title: row.label,
-                count: count(row.count)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(SettingsNav.rowTestId)
-    }
-
-    private func observeCounts(teamId: String) async {
-        guard let pool = try? deps.db.pool(forAccountId: activeAccountId) else { return }
-        let userId = deps.auth.userId
-        let observation = ValueObservation.tracking { db in
-            TeamCounts(
-                members: try TeamMemberEntity.filter(Column("team_id") == teamId).fetchCount(db),
-                boards: try BoardEntity.filter(Column("team_id") == teamId).fetchCount(db),
-                // S-3: the team agents the Agents page lists; #EXP-1987: the
-                // viewer's own Assistant is Settings › Assistant, never here.
-                agents: try SessionQueries.teamAgents(db: db, teamId: teamId, me: userId)
-                    .filter { !$0.isAssistant && AgentSettings.visibleAgent($0, me: userId) }.count,
-                isOwner: try userId.map { userId in
-                    try TeamMemberEntity
-                        .filter(Column("team_id") == teamId && Column("user_id") == userId)
-                        .filter(Column("role") == DomainContract.teamRoleOwner)
-                        .fetchCount(db) > 0
-                } ?? false
-            )
-        }.removeDuplicates()
+    private func observeUser() async {
+        user = nil
+        guard let userId = account?.userId, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in try UserEntity.fetchOne(db, key: userId) }.removeDuplicates()
         do {
-            for try await next in observation.values(in: pool) {
-                counts = next
-            }
+            for try await next in observation.values(in: pool) { user = next }
         } catch {}
     }
 
-    /// #EXP-1815 (settings-nav.json `nav`, S-3): the PERSONAL group, its
-    /// items in the spec's iOS order (`visibleGroups(platform: .ios)`):
-    /// account = each server's signed-in account + Add server, then
-    /// #EXP-1987 Assistant (the viewer's ONE Assistant, whichever team is
-    /// current; the brand mark), then Notifications, then About. `security` has no page of its own on iOS:
-    /// its rows (sign-in methods, passkeys) live on the account page.
-    /// EXP-721: ONE grouped card, rows flat inside it, no dividers (EXP-1320).
+    // MARK: - Rows
+
     @ViewBuilder
-    private var personalSection: some View {
-        if let group = SettingsNav.visibleGroups(platform: .ios, isOwner: counts.isOwner).first(where: { $0.id == "personal" }) {
-            sectionStack(title: group.label) {
-                VStack(spacing: 0) {
-                    ForEach(group.items, id: \.self) { item in
-                        personalItem(item)
-                    }
-                }
-                .glassSection()
+    private func row(_ id: String) -> some View {
+        switch id {
+        case "account":
+            link(.serverDetail(accountId: accountId), id) { SettingsRowGlyph(icon: icon(id)) }
+        case "assistant":
+            // #EXP-1987: the viewer's ONE Assistant, its brand mark.
+            link(.assistantSettings(accountId: accountId), id, title: AgentSettings.AssistantCopy.title) {
+                AssistantAvatar(size: 22)
             }
+            .accessibilityIdentifier("assistant-settings-row")
+        case "notifications":
+            link(.notificationSettings(accountId: accountId), id) { SettingsRowGlyph(icon: icon(id)) }
+                .accessibilityIdentifier("settings-notifications-row")
+        case "security":
+            link(.securitySettings(accountId: accountId), id) { SettingsRowGlyph(icon: icon(id)) }
+                .accessibilityIdentifier("settings-security-row")
+        case "devices":
+            link(.devices(accountId: accountId), id) { SettingsRowGlyph(icon: icon(id)) }
+                .accessibilityIdentifier("settings-devices-row")
+        case "about":
+            link(.about, id) { SettingsRowGlyph(icon: icon(id)) }
+        default:
+            EmptyView()
         }
     }
 
-    @ViewBuilder
-    private func personalItem(_ item: String) -> some View {
-        switch item {
-        case "account":
+    private func icon(_ id: String) -> String {
+        SettingsNav.page(id).flatMap { AppIcons.conceptOrName($0.icon) } ?? AppIcons.uiChevronRight
+    }
+
+    private func link<Leading: View>(
+        _ route: AppRoute, _ id: String, title: String? = nil, @ViewBuilder leading: () -> Leading
+    ) -> some View {
+        NavigationLink(value: route) {
+            SettingsLinkRow(title: title ?? SettingsNav.page(id)?.label ?? "", leading: leading)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var serversSection: some View {
+        VStack(spacing: 0) {
             ForEach(deps.auth.accounts, id: \.id) { account in
                 NavigationLink(value: AppRoute.serverDetail(accountId: account.id)) {
                     serverRow(account)
@@ -293,35 +229,11 @@ struct TeamTabView: View {
                 previousActiveAccountId = deps.auth.activeAccountId
                 showAddServer = true
             } label: {
-                settingsRow(icon: AppIcons.uiAdd, title: "Add server", chevron: false)
+                SettingsLinkRow(title: "Add server", chevron: false) { SettingsRowGlyph(icon: AppIcons.uiAdd) }
             }
             .buttonStyle(.plain)
-        case "assistant":
-            if !activeAccountId.isEmpty {
-                NavigationLink(value: AppRoute.assistantSettings(accountId: activeAccountId)) {
-                    settingsRow(title: AgentSettings.AssistantCopy.title) {
-                        AssistantAvatar(size: 22)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("assistant-settings-row")
-            }
-        case "notifications":
-            if let page = SettingsNav.page(item), !activeAccountId.isEmpty {
-                NavigationLink(value: AppRoute.notificationSettings(accountId: activeAccountId)) {
-                    settingsRow(icon: AppIcons.conceptOrName(page.icon) ?? AppIcons.settingsNotifications, title: page.label)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("settings-notifications-row")
-            }
-        case "about":
-            NavigationLink(value: AppRoute.about) {
-                settingsRow(icon: AppIcons.settingsAbout, title: SettingsNav.page(item)?.label ?? "About")
-            }
-            .buttonStyle(.plain)
-        default:
-            EmptyView()
         }
+        .glassSection()
     }
 
     @ViewBuilder
@@ -356,40 +268,37 @@ struct TeamTabView: View {
         .contentShape(Rectangle())
     }
 
-    /// The app's own rows outside settings-nav (Getting started, the
-    /// device's Keep tool steps, the staging Sync diagnostics); gone when it
-    /// has none.
+    /// The app's own rows (Getting started, the staging Sync diagnostics, Keep tool
+    /// steps); gone when it has none.
     @ViewBuilder
-    private var generalSection: some View {
-        let showGettingStarted = !gettingStarted.loading && !gettingStarted.complete && !gettingStarted.entries.isEmpty
+    private var deviceSection: some View {
         let showStorage = ChatStoreHub.shared.isAvailable
+        let showGettingStarted = !gettingStarted.loading && !gettingStarted.complete && !gettingStarted.entries.isEmpty
         if showGettingStarted || showStorage || AppConstants.isStaging {
-            sectionStack(title: "General") {
-                VStack(spacing: 0) {
-                    // EXP-1270: the block's entry, gone once every step is done.
-                    if showGettingStarted {
-                        Button {
-                            self.showGettingStarted = true
-                        } label: {
-                            settingsRow(icon: AppIcons.navGettingStarted, title: GettingStarted.title)
+            VStack(spacing: 0) {
+                // EXP-1270: gone once every step is done.
+                if showGettingStarted {
+                    Button { self.showGettingStarted = true } label: {
+                        SettingsLinkRow(title: GettingStarted.title) {
+                            SettingsRowGlyph(icon: AppIcons.navGettingStarted)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier(GettingStarted.TestId.entry)
                     }
-                    // EXP-232: staging-only — exposes live shape status and a
-                    // "Resync now" data-wipe hatch, not for store builds.
-                    if AppConstants.isStaging {
-                        NavigationLink(value: AppRoute.syncDebug) {
-                            settingsRow(icon: AppIcons.settingsSync, title: "Sync diagnostics")
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    if showStorage {
-                        keepToolStepsRow
-                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(GettingStarted.TestId.entry)
                 }
-                .glassSection()
+                // EXP-232: staging-only — exposes live shape status and a
+                // "Resync now" data-wipe hatch, not for store builds.
+                if AppConstants.isStaging {
+                    NavigationLink(value: AppRoute.syncDebug) {
+                        SettingsLinkRow(title: "Sync diagnostics") { SettingsRowGlyph(icon: AppIcons.settingsSync) }
+                    }
+                    .buttonStyle(.plain)
+                }
+                if showStorage {
+                    keepToolStepsRow
+                }
             }
+            .glassSection()
         }
     }
 
@@ -416,49 +325,107 @@ struct TeamTabView: View {
         }
         .accessibilityIdentifier("settings-keep-tool-steps")
     }
+}
 
-    /// The filled group band (`GlassSectionBand`) over each section — the
-    /// team/account screens' and Android's settings root idiom. The band
-    /// carries its own 4pt bottom inset; the stack adds the rest of the gap.
-    @ViewBuilder
-    private func sectionStack<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            GlassSectionBand(title)
-            content()
+/// #EXP-2109 (settings-nav.json `nav.phone`): Settings › Security: how the
+/// account signs in (methods, passkeys; EXP-1126).
+struct SecuritySettingsPage: View {
+    let accountId: String
+
+    var body: some View {
+        ZStack {
+            AppBackground()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    SignInMethodsSection(accountId: accountId)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
+            }
+        }
+        .pageHeader(SettingsNav.page("security")?.label ?? "", pushed: true)
+        .accessibilityIdentifier("security-settings")
+    }
+}
+
+/// #EXP-2109 (settings-nav.json `nav.phone.team`): a team's SETTINGS page
+/// (its `…` menu): `phone.team` in order, each row as before (visibility,
+/// count, its own page).
+struct TeamSettingsView: View {
+    private struct Counts: Equatable, Sendable {
+        var members = 0
+        var boards = 0
+        var agents = 0
+        var isOwner = false
+    }
+
+    let teamId: String
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @State private var counts = Counts()
+
+    var body: some View {
+        ZStack {
+            AppBackground()
+            ScrollView {
+                VStack(spacing: 18) {
+                    VStack(spacing: 0) {
+                        // Visibility is the fixture's: owner rows for the
+                        // team's owner; the natives are never "cloud".
+                        ForEach(SettingsNav.visiblePhoneTeam(isOwner: counts.isOwner), id: \.self) { id in
+                            if let section = TeamSettingsSection(id) { link(section, row: SettingsNav.row(id)) }
+                        }
+                    }
+                    .glassSection()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 16)
+            }
+        }
+        .pageHeader(Chats.Copy.Headers.settings, pushed: true)
+        .task(id: "\(accountId)/\(teamId)") { await observeCounts() }
+        .accessibilityIdentifier("team-settings")
+    }
+
+    private func count(_ count: SettingsNav.Count?) -> Int? {
+        switch count {
+        case .members: counts.members
+        case .boards: counts.boards
+        case .agents: counts.agents
+        case nil: nil
         }
     }
 
-    private func settingsRow(icon: String, title: String, count: Int? = nil, chevron: Bool = true) -> some View {
-        settingsRow(title: title, count: count, chevron: chevron) {
-            AppIcon(icon, size: AppIcon.Size.medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+    private func link(_ section: TeamSettingsSection, row: SettingsNav.Row) -> some View {
+        NavigationLink(value: AppRoute.teamSettingsSection(accountId: accountId, teamId: teamId, section: section)) {
+            SettingsLinkRow(title: row.label, count: count(row.count)) {
+                SettingsRowGlyph(icon: AppIcons.conceptOrName(row.icon) ?? AppIcons.uiChevronRight)
+            }
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(SettingsNav.rowTestId)
     }
 
-    /// A row with its own leading glyph (the Assistant's brand mark).
-    private func settingsRow<Leading: View>(
-        title: String, count: Int? = nil, chevron: Bool = true, @ViewBuilder leading: () -> Leading
-    ) -> some View {
-        HStack(spacing: 12) {
-            leading()
-                .frame(width: 22)
-            Text(title)
-                .font(.body)
-                .foregroundStyle(.white)
-            Spacer()
-            if let count {
-                Text("\(count)")
-                    .font(.body)
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            if chevron {
-                AppIcon(AppIcons.uiChevronRight, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .contentShape(Rectangle())
+    private func observeCounts() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let teamId = teamId
+        let userId = deps.auth.userId
+        let observation = ValueObservation.tracking { db in
+            Counts(
+                members: try TeamMemberEntity.filter(Column("team_id") == teamId).fetchCount(db),
+                boards: try BoardEntity.filter(Column("team_id") == teamId).fetchCount(db),
+                // S-3: the team agents the Agents page lists; #EXP-1987: the
+                // viewer's own Assistant is Settings › Assistant, never here.
+                agents: try SessionQueries.teamAgents(db: db, teamId: teamId, me: userId)
+                    .filter { !$0.isAssistant && AgentSettings.visibleAgent($0, me: userId) }.count,
+                isOwner: try TeamPageQueries.isOwner(db, teamId: teamId, userId: userId)
+            )
+        }.removeDuplicates()
+        do {
+            for try await next in observation.values(in: pool) { counts = next }
+        } catch {}
     }
 }

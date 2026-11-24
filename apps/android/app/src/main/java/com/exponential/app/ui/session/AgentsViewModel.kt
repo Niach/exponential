@@ -1,9 +1,7 @@
 package com.exponential.app.ui.session
 
-import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.DeviceLatestVersions
 import com.exponential.app.data.api.DevicesApi
 import com.exponential.app.data.api.SteerApi
@@ -15,7 +13,6 @@ import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
-import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
@@ -23,12 +20,7 @@ import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncStats
 import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.AgentProfileUsageRow
-import com.exponential.app.domain.DeviceFreshness
-import com.exponential.app.domain.DeviceLiveness
-import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.SessionDeviceMove
-import com.exponential.app.domain.SessionDevicePresentation
-import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.domain.stableDeviceOrder
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.ui.components.FailedAction
@@ -80,7 +72,6 @@ class AgentsViewModel @Inject constructor(
     private val steerApi: SteerApi,
     private val devicesApi: DevicesApi,
     stats: SyncStats,
-    private val selection: TeamSelection,
 ) : ViewModel() {
 
     // Reactive account scoping (no constructor-time DB snapshot).
@@ -111,26 +102,13 @@ class AgentsViewModel @Inject constructor(
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * FEED-149: the team a team owner's Remove drops a teammate's share from —
-     * the SELECTED team, null when the caller does not OWN it. The list is
-     * cross-team (EXP-1186), so a row only carries Remove when its
-     * `sharedTeamIds` holds this team (web `my-machines.tsx`).
+     * FEED-149: the teams a team owner's Remove may drop a teammate's share
+     * from (#EXP-2109: every team the caller OWNS): a row only carries Remove
+     * when its `sharedTeamIds` holds one of them (web `my-machines.tsx`).
      */
-    val ownedTeamId: StateFlow<String?> =
-        combine(dbFlow, selection.selectedId) { db, teamId -> db to teamId }
-            .flatMapLatest { (db, teamId) ->
-                if (db == null || teamId == null) {
-                    flowOf(null)
-                } else {
-                    combine(db.teamMemberDao().observeByTeam(teamId), auth.userId) { members, userId ->
-                        teamId.takeIf {
-                            userId != null &&
-                                members.any { it.userId == userId && it.role == DomainContract.teamRoleOwner }
-                        }
-                    }
-                }
-            }
-            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val ownedTeamIds: StateFlow<Set<String>> =
+        com.exponential.app.data.ownedTeamIdsFlow(dbFlow, auth.userId)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     // Informational CLIENT_LATEST_VERSION_* values behind the "update
     // available" hint on a machine row; both null until the first list lands.

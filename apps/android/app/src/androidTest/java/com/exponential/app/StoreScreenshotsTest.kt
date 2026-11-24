@@ -145,9 +145,14 @@ class StoreScreenshotsTest {
         // --- Signed in by [sessionRule]; the instance picker + login form only
         // as the fallback (the email field shows once /api/auth-config resolved).
         if (!sessionRule.signedIn) flow.signIn(instanceUrl)
-        // The app lands on the Agent tab; the board shot starts on Issues.
-        flow.waitFor(hasTestTag(Chats.TestIds.TAB_BOARD), SYNC_TIMEOUT)
-        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_BOARD)).performClick()
+        // The app lands on Chats; the board shot starts on Teams › Acme › board.
+        flow.waitFor(hasTestTag(Chats.TestIds.TAB_TEAMS), SYNC_TIMEOUT)
+        composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAMS)).performClick()
+        for (name in listOf("Acme", "Mobile App")) {
+            flow.waitFor(hasText(name), FIRST_SYNC_TIMEOUT)
+            composeRule.onAllNodes(hasText(name)).onFirst().performClick()
+            flow.settle(longer = true)
+        }
 
         // --- Board: wait out session fetch + first Electric sync until the
         // showcase issue row is on screen (in-progress group sits at the top),

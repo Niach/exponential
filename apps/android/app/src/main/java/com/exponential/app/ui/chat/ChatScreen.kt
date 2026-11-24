@@ -123,7 +123,8 @@ import java.time.format.DateTimeFormatter
  */
 @Composable
 fun ChatScreen(
-    onBack: () -> Unit,
+    /** Null = a tab's root (the Assistant's): no back control. */
+    onBack: (() -> Unit)?,
     onOpenSession: (sessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
     onOpenChat: (rootSessionId: String) -> Unit,
@@ -134,6 +135,7 @@ fun ChatScreen(
     onOpenApp: (appId: String) -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
+    val leave: () -> Unit = onBack ?: {}
     val view by viewModel.view.collectAsStateWithLifecycle()
     val root by viewModel.root.collectAsStateWithLifecycle()
     val isAgent by viewModel.isAgent.collectAsStateWithLifecycle()
@@ -664,7 +666,7 @@ fun ChatScreen(
                     ChatIssuePage(
                         issueId = issueId,
                         padding = padding,
-                        onBack = onBack,
+                        onBack = leave,
                         onOpenIssue = openIssueHere,
                         onOpenChat = { id -> if (id != viewModel.rootId) onOpenChat(id) },
                         onMessage = { text -> viewModel.send(text) },
@@ -700,7 +702,7 @@ fun ChatScreen(
                 },
                 // #FEED-239: the `…`'s Agent settings = the settings item IN the chat.
                 settingsPage = agentSettingsId?.let { id ->
-                    { onClose -> AgentSettingsItem(agentId = id, onClose = onClose, onDeleted = onBack) }
+                    { onClose -> AgentSettingsItem(agentId = id, onClose = onClose, onDeleted = leave) }
                 },
                 initialCard = viewModel.initialCard,
                 // #EXP-1732: every kind has Results (an agent's tree too).
@@ -775,7 +777,7 @@ fun ChatScreen(
             onConfirm = {
                 deleteConfirm = false
                 // After a delete the chat's screen closes back to the list.
-                viewModel.deleteChat(onDeleted = onBack)
+                viewModel.deleteChat(onDeleted = leave)
             },
             onDismiss = { deleteConfirm = false },
         )

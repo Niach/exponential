@@ -1263,7 +1263,7 @@ fn menu_preview_cases_show_hide_and_forward_like_the_reference() {
                 let found = found.unwrap_or_else(|| panic!("{name}: no inner {inner}"));
                 if let Some(event) = found["on"]["press"].get("event") {
                     let leaf = s.nodes().iter().position(|n| n.id == format!("m.preview.{key}.surface")).unwrap() as u32;
-                    let payload = eui_core::embed::embed_payload(event["name"].as_str().unwrap(), event.get("context"));
+                    let payload = eui_core::embed::embed_payload(event["name"].as_str().unwrap(), event.get("context"), None);
                     fired.extend(collect(s.event(leaf, "action", Some(payload)), now, &mut timer));
                 }
                 s.layout(&mut m);

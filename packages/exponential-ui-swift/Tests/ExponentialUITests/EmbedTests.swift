@@ -43,7 +43,7 @@ final class EmbedTests: XCTestCase {
         return nested
     }
 
-    /// Every painted Text in the host's pre-order, each card's in place.
+    /// Every painted Text (and Button label) in the host's pre-order, each card's in place.
     private func texts(_ m: SurfaceModel) throws -> [String] {
         var out: [String] = []
         for i in m.order {
@@ -52,6 +52,9 @@ final class EmbedTests: XCTestCase {
                 out += try texts(card(m, n))
             } else if n.component == "Text" {
                 let t = n.props.text("text")
+                if !t.isEmpty { out.append(t) }
+            } else if n.component == "Button", n.part == nil {
+                let t = n.props.text("label")
                 if !t.isEmpty { out.append(t) }
             }
         }
