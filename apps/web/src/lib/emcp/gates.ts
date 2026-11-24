@@ -42,6 +42,14 @@ export const ALL_MCP_TOOL_GATES: McpToolGates = {
 
 const CLOSED: McpToolGates = { inSession: false, unattended: false, agent: false }
 
+/**
+ * NEW-1: a live session watches this one (its spawner), so nobody is watching
+ * in person. Watches live in `session_watches` since #NEW-49; the old
+ * `sessions.wake_on` is written by nothing (#FEED-290). The ONE definition of
+ * "watched" for the gates and for the tools' caller session.
+ */
+export const watchedByLiveSession = sql<boolean>`EXISTS (SELECT 1 FROM session_watches sw JOIN sessions w ON w.id = sw.session_id WHERE w.status <> 'ended' AND sw.kind = 'session' AND sw.subject_id = ${sessions.id})`
+
 /** One indexed lookup (the row + its root): the header's session must exist
  * and belong to the caller. */
 export async function resolveMcpToolGates(
@@ -60,9 +68,7 @@ export async function resolveMcpToolGates(
       deviceId: sessions.deviceId,
       parentId: sessions.parentId,
       rootAgentId: root.agentId,
-      // NEW-1: a live session watches this one (its spawner): nobody is
-      // watching in person.
-      watched: sql<boolean>`EXISTS (SELECT 1 FROM session_watches sw JOIN sessions w ON w.id = sw.session_id WHERE w.status <> 'ended' AND sw.kind = 'session' AND sw.subject_id = ${sessions.id})`,
+      watched: watchedByLiveSession,
     })
     .from(sessions)
     .leftJoin(root, eq(root.id, sessions.rootId))

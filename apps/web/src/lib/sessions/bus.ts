@@ -3,6 +3,7 @@ import { ASSISTANT_SILENT_EVENTS, assistantAgentIds } from "@/lib/agents/assista
 import type { CodingSessionBlocked, MessageCard, MessageEventKind, SessionVoiceCall } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { isBlankText } from "@exp/domain-contract/transcript-grouping"
+import { expiredCards } from "@exp/domain-contract/waiting-cards"
 import { sliceUnits } from "@exp/eagent/copy"
 import {
   ASK_PLAN_LEAD,
@@ -15,7 +16,7 @@ import {
 } from "@exp/domain-contract/chats"
 import { agents, messages, sessions, teams, type Session } from "@/db/schema"
 import { getTeamMember } from "@/lib/auth/membership"
-import { insertMessage, inSession } from "@/lib/sessions/messages"
+import { insertMessage, inSession, inSessions } from "@/lib/sessions/messages"
 import { isSealedBody, isSealedCard } from "@/lib/sessions/sealed"
 import type { Tx } from "@/lib/sessions/tx"
 import { dropEventWatchesOf, forgetWatched, watchesSession, watchSessions } from "@/lib/sessions/watches"
@@ -505,15 +506,51 @@ export async function closeAskMirrors(
     )
 }
 
+/** #FEED-299 (waiting-cards.json EXPIRY): `sessionIds` ENDED, so their
+ *  runs can no longer act on an answer: every question and plan card of
+ *  theirs that still waits is stamped dismissed (`expiredCards`), answered
+ *  AND consumed, so it leaves the chips on every device and no device
+ *  delivers it. Returns the expired message ids. */
+export async function expireWaitingCardsOf(
+  tx: Pick<Tx, `update` | `select`>,
+  sessionIds: readonly string[],
+  at: Date = new Date()
+): Promise<string[]> {
+  if (sessionIds.length === 0) return []
+  const waiting = await tx
+    .select({ id: messages.id, card: messages.card })
+    .from(messages)
+    .where(
+      and(
+        inSessions(sessionIds),
+        isNull(messages.answeredAt),
+        sql`${messages.card}->>'kind' IN ('question', 'plan')`
+      )
+    )
+  // No row lock: each stamp keeps the answer path's own "still unanswered"
+  // guard, so an answer racing the end wins or loses whole.
+  const expired = expiredCards(
+    waiting.map((row) => ({ id: row.id, card: row.card as { kind: string } | null, answeredAt: null }))
+  )
+  for (const { id, card } of expired) {
+    await tx
+      .update(messages)
+      .set({ card: card as unknown as MessageCard, answeredAt: at, consumedAt: at, updatedAt: at })
+      .where(and(eq(messages.id, id), isNull(messages.answeredAt)))
+  }
+  return expired.map((row) => row.id)
+}
+
 /** #EXP-1399 review: `sessionIds` ended (or are about to be deleted):
  *  their still-open `ask` mirrors close, so no list waits on a card nobody
  *  can answer any more. */
 export async function closeAskMirrorsOf(
-  tx: Pick<Tx, `update`>,
+  tx: Pick<Tx, `update` | `select`>,
   sessionIds: readonly string[],
   at: Date = new Date()
 ): Promise<void> {
   if (sessionIds.length === 0) return
+  await expireWaitingCardsOf(tx, sessionIds, at)
   await tx
     .update(messages)
     .set({ answeredAt: at, updatedAt: at })
