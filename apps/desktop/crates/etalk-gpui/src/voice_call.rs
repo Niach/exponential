@@ -2292,7 +2292,7 @@ mod tests {
                         HostEffect::Event { event } => link.push(format!("event {event}")),
                         HostEffect::Flush => link.push("flush".to_string()),
                         HostEffect::End => link.push("end".to_string()),
-                        HostEffect::Listen { id, language, remote, ring_ms, .. } => worker.push(etalk::Request::Call { id: own_id(id), language, remote, ring_ms }),
+                        HostEffect::Listen { id, language, remote, ring_ms, turn } => worker.push(etalk::Request::Call { id: own_id(id), language, remote, ring_ms, turn }),
                         HostEffect::Mute { id, muted } => worker.push(etalk::Request::CallMute { id: own_id(id), muted }),
                         HostEffect::Speak { id, text } => worker.push(etalk::Request::Speak { id: own_id(id), text }),
                         HostEffect::Stop => worker.push(etalk::Request::Stop),

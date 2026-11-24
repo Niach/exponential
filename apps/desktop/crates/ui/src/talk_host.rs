@@ -508,7 +508,7 @@ impl TalkHost for ExponentialHost {
         };
         domain::agent_settings::wake_listeners(&input, &agents)
             .into_iter()
-            .map(|listener| etalk::WakeListener { agent_id: listener.agent_id, phrase: listener.phrase, language: listener.language })
+            .map(|listener| etalk::WakeListener { agent_id: listener.agent_id, phrase: listener.phrase, language: listener.language, dial: false })
             .collect()
     }
 
