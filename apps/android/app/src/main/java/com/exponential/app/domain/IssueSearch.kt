@@ -30,6 +30,24 @@ package com.exponential.app.domain
  * with no creator never matches one. A query of `by:` tokens alone lists the
  * matching rows in the empty-query order below.
  *
+ * #NEW-132: four more FILTER tokens (never scored; every filter must hold; an
+ * empty or unparseable value is ignored like an empty `by:`). They are the
+ * structured syntax natural language translates into (#NEW-131):
+ *
+ *   is:open | is:closed   the row is undone / finished ([isOpen])
+ *   status:<word>         a word of the status ANCHOR (`in_review` = in,
+ *                         review) or of the team status NAME ([Row.statusName])
+ *                         starts with <word>; a row with neither never matches
+ *   created:<range>       the row's createdAt / updatedAt lies in <range>;
+ *   updated:<range>       a row without that timestamp never matches
+ *
+ * A <range> is `<n>d|w|m|y` (the last n×1/7/30/365 days before `now`,
+ * n = 1…9999), a UTC day `YYYY-MM-DD` or month `YYYY-MM`, a comparison
+ * against one (`>D` after it ends, `>=D` from its start, `<D` before its
+ * start, `<=D` until its end), or `D..D` (the first's start to the second's
+ * end). Impossible dates (`2026-13`, `2026-02-30`) are ignored. A query of
+ * filters alone lists the matching rows in the empty-query order.
+ *
  * EXP-922: the ordering is THREE keys above the score, in this order:
  *
  *   1. an EXACT identifier hit (some token scored 100) — typing `EXP-42` finds
@@ -88,6 +106,9 @@ object IssueSearch {
 
         /** #NEW-21: the agent whose session filed it (`issues.creator_agent_id`). */
         val creatorAgentName: String? get() = null
+
+        /** #NEW-132: the team status row's NAME (`issues.status_id`), for `status:`. */
+        val statusName: String? get() = null
     }
 
     /** #EXP-1382: a wire timestamp as the rank's epoch millis (missing/unparseable = oldest). */
@@ -127,27 +148,140 @@ object IssueSearch {
     /** #NEW-21: the token prefix that turns a word into a creator filter. */
     const val CREATOR_PREFIX = "by:"
 
-    /** #NEW-21: the query split into its scored words and its `by:` creator needles. */
-    data class ParsedQuery(val words: List<String>, val creators: List<String>)
+    /** #NEW-132: the filter-token prefixes. */
+    const val STATE_PREFIX = "is:"
+    const val STATUS_PREFIX = "status:"
+    const val CREATED_PREFIX = "created:"
+    const val UPDATED_PREFIX = "updated:"
 
     /**
-     * #NEW-21: the query split into its scored words and its `by:` creator
-     * needles (prefix and one leading `@` dropped, empties ignored). Web
+     * #NEW-132: a half-open time window `[from, to)` in epoch ms
+     * ([Long.MIN_VALUE] / [Long.MAX_VALUE] = unbounded). Web `IssueSearchRange`.
+     */
+    data class Range(val from: Long, val to: Long)
+
+    /** #NEW-21 + #NEW-132: a query split into its scored words and its filters. */
+    data class ParsedQuery(
+        val words: List<String>,
+        /** `by:` needles (prefix and one leading `@` dropped). */
+        val creators: List<String>,
+        /** `is:` values: true = open, false = closed. */
+        val states: List<Boolean> = emptyList(),
+        /** `status:` needles. */
+        val statuses: List<String> = emptyList(),
+        val created: List<Range> = emptyList(),
+        val updated: List<Range> = emptyList(),
+    ) {
+        /** Whether the query filters at all (a filter-only query lists the
+         *  matching rows in the empty-query order). Web `issueSearchHasFilters`. */
+        val hasFilters: Boolean
+            get() = creators.isNotEmpty() || states.isNotEmpty() || statuses.isNotEmpty() ||
+                created.isNotEmpty() || updated.isNotEmpty()
+    }
+
+    private const val DAY_MS = 86_400_000L
+    private val RELATIVE_DAYS = mapOf('d' to 1L, 'w' to 7L, 'm' to 30L, 'y' to 365L)
+    private val RELATIVE_RANGE = Regex("^([0-9]{1,4})([dwmy])$")
+    private val DATE = Regex("^([0-9]{4})-([0-9]{2})(?:-([0-9]{2}))?$")
+
+    /**
+     * Days since 1970-01-01 of a proleptic Gregorian UTC date (Howard
+     * Hinnant's days_from_civil), the same integer arithmetic ×4.
+     */
+    private fun daysFromCivil(year: Long, month: Long, day: Long): Long {
+        val y = if (month <= 2) year - 1 else year
+        val era = Math.floorDiv(y, 400L)
+        val yoe = y - era * 400
+        val mp = (month + 9) % 12
+        val doy = (153 * mp + 2) / 5 + day - 1
+        val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        return era * 146_097 + doe - 719_468
+    }
+
+    private fun daysInMonth(year: Long, month: Long): Long {
+        if (month == 2L) return if ((year % 4 == 0L && year % 100 != 0L) || year % 400 == 0L) 29 else 28
+        return if (month in setOf(4L, 6L, 9L, 11L)) 30 else 31
+    }
+
+    /** A UTC day `YYYY-MM-DD` or month `YYYY-MM` as its window, or null. */
+    private fun parseDate(text: String): Range? {
+        val match = DATE.matchEntire(text) ?: return null
+        val year = match.groupValues[1].toLong()
+        val month = match.groupValues[2].toLong()
+        if (month < 1 || month > 12) return null
+        val dayText = match.groups[3]?.value
+        if (dayText == null) {
+            val from = daysFromCivil(year, month, 1) * DAY_MS
+            return Range(from, from + daysInMonth(year, month) * DAY_MS)
+        }
+        val day = dayText.toLong()
+        if (day < 1 || day > daysInMonth(year, month)) return null
+        val from = daysFromCivil(year, month, day) * DAY_MS
+        return Range(from, from + DAY_MS)
+    }
+
+    /** #NEW-132: a `created:`/`updated:` value as its window, or null. Web `parseIssueSearchRange`. */
+    fun parseRange(value: String, now: Long): Range? {
+        RELATIVE_RANGE.matchEntire(value)?.let { relative ->
+            val count = relative.groupValues[1].toLong()
+            if (count < 1) return null
+            val days = RELATIVE_DAYS.getValue(relative.groupValues[2][0])
+            return Range(now - count * days * DAY_MS, Long.MAX_VALUE)
+        }
+        val comparators: List<Pair<String, (Range) -> Range>> = listOf(
+            ">=" to { d: Range -> Range(d.from, Long.MAX_VALUE) },
+            "<=" to { d: Range -> Range(Long.MIN_VALUE, d.to) },
+            ">" to { d: Range -> Range(d.to, Long.MAX_VALUE) },
+            "<" to { d: Range -> Range(Long.MIN_VALUE, d.from) },
+        )
+        for ((op, window) in comparators) {
+            if (!value.startsWith(op)) continue
+            return parseDate(value.substring(op.length))?.let(window)
+        }
+        val dots = value.indexOf("..")
+        if (dots >= 0) {
+            val start = parseDate(value.substring(0, dots))
+            val end = parseDate(value.substring(dots + 2))
+            return if (start != null && end != null) Range(start.from, end.to) else null
+        }
+        return parseDate(value)
+    }
+
+    /**
+     * #NEW-21 + #NEW-132: the query split into its scored words and its
+     * filter tokens. Every prefixed token leaves the words, valid or not. Web
      * `parseIssueSearchQuery`.
      */
-    fun parseQuery(query: String): ParsedQuery {
+    fun parseQuery(query: String, now: Long = System.currentTimeMillis()): ParsedQuery {
         val words = mutableListOf<String>()
         val creators = mutableListOf<String>()
+        val states = mutableListOf<Boolean>()
+        val statuses = mutableListOf<String>()
+        val created = mutableListOf<Range>()
+        val updated = mutableListOf<Range>()
         for (token in tokens(query)) {
-            if (!token.startsWith(CREATOR_PREFIX)) {
-                words.add(token)
-                continue
+            when {
+                token.startsWith(CREATOR_PREFIX) -> {
+                    var needle = token.substring(CREATOR_PREFIX.length)
+                    if (needle.startsWith("@")) needle = needle.substring(1)
+                    if (needle.isNotEmpty()) creators.add(needle)
+                }
+                token.startsWith(STATE_PREFIX) -> when (token.substring(STATE_PREFIX.length)) {
+                    "open" -> states.add(true)
+                    "closed" -> states.add(false)
+                }
+                token.startsWith(STATUS_PREFIX) -> {
+                    val needle = token.substring(STATUS_PREFIX.length)
+                    if (needle.isNotEmpty()) statuses.add(needle)
+                }
+                token.startsWith(CREATED_PREFIX) ->
+                    parseRange(token.substring(CREATED_PREFIX.length), now)?.let { created.add(it) }
+                token.startsWith(UPDATED_PREFIX) ->
+                    parseRange(token.substring(UPDATED_PREFIX.length), now)?.let { updated.add(it) }
+                else -> words.add(token)
             }
-            var needle = token.substring(CREATOR_PREFIX.length)
-            if (needle.startsWith("@")) needle = needle.substring(1)
-            if (needle.isNotEmpty()) creators.add(needle)
         }
-        return ParsedQuery(words, creators)
+        return ParsedQuery(words, creators, states, statuses, created, updated)
     }
 
     /** Trim, drop ONE leading `#`, lowercase. Empty = "recent work". */
@@ -217,12 +351,15 @@ object IssueSearch {
         query: String,
         limit: Int = DEFAULT_LIMIT,
         exclude: Set<String> = emptySet(),
+        now: Long = System.currentTimeMillis(),
     ): List<T> {
-        val (tokens, creators) = parseQuery(query)
-        val pool = if (exclude.isEmpty() && creators.isEmpty()) {
+        val parsed = parseQuery(query, now)
+        val tokens = parsed.words
+        val filtered = parsed.hasFilters
+        val pool = if (exclude.isEmpty() && !filtered) {
             rows
         } else {
-            rows.filter { it.id !in exclude && (creators.isEmpty() || matchesCreators(Prepared(it), creators)) }
+            rows.filter { it.id !in exclude && (!filtered || matchesFilters(it, parsed)) }
         }
         if (tokens.isEmpty()) {
             return pool.sortedWith(OPEN_ORDER.then(CREATED_ORDER)).take(limit)
@@ -302,6 +439,13 @@ object IssueSearch {
         val creatorAgentName: String = row.creatorAgentName?.lowercase() ?: ""
         val creatorEmail: String = row.creatorEmail?.lowercase() ?: ""
 
+        /** #NEW-132: the status anchor's and the status name's lowercased text. */
+        val statusAnchor: String = row.status?.lowercase() ?: ""
+        val statusName: String = row.statusName?.lowercase() ?: ""
+
+        fun statusWordPrefix(needle: String): Boolean =
+            hasWordPrefix(statusAnchor, needle) || hasWordPrefix(statusName, needle)
+
         fun creatorWordPrefix(token: String): Boolean =
             hasWordPrefix(creatorName, token) || hasWordPrefix(creatorAgentName, token)
     }
@@ -312,6 +456,19 @@ object IssueSearch {
             row.creatorWordPrefix(needle) ||
                 (row.creatorEmail.isNotEmpty() && row.creatorEmail.startsWith(needle))
         }
+
+    private fun inRanges(ms: Long, ranges: List<Range>): Boolean =
+        ranges.all { ms != Long.MIN_VALUE && ms >= it.from && ms < it.to }
+
+    /** #NEW-21 + #NEW-132: whether a row passes every filter token. */
+    private fun matchesFilters(row: Row, parsed: ParsedQuery): Boolean {
+        val prepared = Prepared(row)
+        if (!matchesCreators(prepared, parsed.creators)) return false
+        val open = isOpen(row.status)
+        if (!parsed.states.all { it == open }) return false
+        if (!parsed.statuses.all { prepared.statusWordPrefix(it) }) return false
+        return inRanges(createdOf(row), parsed.created) && inRanges(updatedOf(row), parsed.updated)
+    }
 
     /**
      * The best field score of [token] against a prepared row, or null when the

@@ -30,6 +30,7 @@ class IssueSearchTest {
         override val creatorName: String? = null,
         override val creatorEmail: String? = null,
         override val creatorAgentName: String? = null,
+        override val statusName: String? = null,
     ) : IssueSearch.Row
 
     private data class TestHit(
@@ -46,6 +47,8 @@ class IssueSearchTest {
         val limit: Int,
         val serverHits: List<TestHit>?,
         val allowUnsynced: Boolean,
+        /** #NEW-132: the clock relative ranges count back from (null = the real one). */
+        val now: Long?,
         val expected: List<String>,
     )
 
@@ -69,6 +72,7 @@ class IssueSearchTest {
                         creatorName = str(obj, "creatorName"),
                         creatorEmail = str(obj, "creatorEmail"),
                         creatorAgentName = str(obj, "creatorAgentName"),
+                        statusName = str(obj, "statusName"),
                     )
                 },
                 query = case.getValue("query").jsonPrimitive.content,
@@ -86,6 +90,7 @@ class IssueSearchTest {
                     )
                 },
                 allowUnsynced = case["allowUnsynced"]?.jsonPrimitive?.boolean ?: false,
+                now = str(case, "now")?.let { requireNotNull(IssueSearch.epochMs(it).takeIf { ms -> ms != Long.MIN_VALUE }) },
                 expected = case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
             )
         }
@@ -100,6 +105,7 @@ class IssueSearchTest {
                 case.query,
                 limit = case.limit,
                 exclude = case.exclude,
+                now = case.now ?: System.currentTimeMillis(),
             )
             val byId = case.rows.associateBy { it.id }
             val hits = case.serverHits
@@ -138,6 +144,10 @@ class IssueSearchTest {
         assertTrue(covers("limit caps the list"))
         assertTrue(covers("hash inside the query"))
         assertTrue(covers("by: token"))
+        assertTrue(covers("is:closed"))
+        assertTrue(covers("status: token"))
+        assertTrue(covers("created:<n>d"))
+        assertTrue(covers("D..D range"))
         assertTrue(cases().count { it.serverHits != null } >= 2)
         assertTrue(cases().any { it.allowUnsynced })
     }
@@ -160,6 +170,18 @@ class IssueSearchTest {
             IssueSearch.ParsedQuery(listOf("editor"), listOf("lukas", "triage")),
             IssueSearch.parseQuery("editor BY:lukas by:@triage by:"),
         )
+    }
+
+    @Test
+    fun `parses created and updated ranges`() {
+        val now = IssueSearch.epochMs("2026-11-14T12:00:00Z")
+        val day = 86_400_000L
+        assertEquals(IssueSearch.Range(now - 7 * day, Long.MAX_VALUE), IssueSearch.parseRange("1w", now))
+        val nov3 = IssueSearch.epochMs("2026-11-03T00:00:00Z")
+        assertEquals(IssueSearch.Range(nov3, nov3 + day), IssueSearch.parseRange("2026-11-03", now))
+        assertEquals(IssueSearch.Range(nov3 + day, Long.MAX_VALUE), IssueSearch.parseRange(">2026-11-03", now))
+        assertEquals(null, IssueSearch.parseRange("2026-02-30", now))
+        assertEquals(null, IssueSearch.parseRange("0d", now))
     }
 
     @Test

@@ -15,6 +15,8 @@ interface FixtureCase {
   name: string
   rows: IssueSearchRow[]
   query: string
+  /** #NEW-132: the clock relative ranges count back from. */
+  now?: string
   exclude?: string[]
   limit?: number
   serverHits?: Array<{ id: string; identifier: string; title: string }>
@@ -30,6 +32,7 @@ describe(`issue search (contract fixture)`, () => {
       const local = rankIssueSearch(c.rows, c.query, {
         limit: c.limit,
         exclude: c.exclude,
+        now: c.now ? Date.parse(c.now) : undefined,
       })
       const byId = new Map(c.rows.map((row) => [row.id, row]))
       const merged = c.serverHits
