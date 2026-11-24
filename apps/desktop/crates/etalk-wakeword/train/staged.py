@@ -280,6 +280,8 @@ def _train(path: str) -> None:
                     print(f"stopped on a checkpoint: phase {phase} step {done}", flush=True)
                     raise SystemExit(3)
             if duty < 1:
+                if device.type == "cuda":
+                    torch.cuda.synchronize()  # the sleep must follow the GPU's work, not its queueing
                 time.sleep((time.time() - began) * (1 / duty - 1))
         state.update(phase=phase + 1, step=0, optimizer=None)
         save()
