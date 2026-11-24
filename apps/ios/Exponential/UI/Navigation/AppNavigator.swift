@@ -622,7 +622,7 @@ struct MainNavigator: View {
                         // Every root states its bar visible explicitly — the
                         // roots swap inside ONE stack (EXP-1358: Chats wears the
                         // same inline bar as the others again).
-                        .toolbar(.visible, for: .navigationBar)
+                        .toolbar(tab == .assistant ? .hidden : .visible, for: .navigationBar)
                         // EXP-1554: every pushed page's back = the bare arrow;
                         // the draft page draws its own (the discard guard).
                         .navigationDestination(for: AppRoute.self) { route in

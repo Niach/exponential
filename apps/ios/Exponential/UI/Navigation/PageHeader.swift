@@ -15,7 +15,12 @@ import SwiftUI
 /// arrow's item).
 extension View {
     func pageHeader(_ title: String, pushed: Bool = false, glyph: PageHeaderGlyphKind? = nil) -> some View {
-        modifier(PageHeaderModifier(title: title, pushed: pushed, glyph: glyph))
+        modifier(PageHeaderModifier(title: title, pushed: pushed, glyph: glyph) { EmptyView() })
+    }
+
+    /// A root page with its own circle before the search and inbox ones.
+    func pageHeader<Action: View>(_ title: String, @ViewBuilder action: () -> Action) -> some View {
+        modifier(PageHeaderModifier(title: title, pushed: false, glyph: nil, action: action))
     }
 }
 
@@ -41,17 +46,20 @@ extension EnvironmentValues {
     @Entry var detailColumnRoot = false
 }
 
-private struct PageHeaderModifier: ViewModifier {
+private struct PageHeaderModifier<Action: View>: ViewModifier {
     let title: String
     let requestedPushed: Bool
     let glyph: PageHeaderGlyphKind?
     @Environment(\.inboxUnreadCount) private var inboxUnreadCount
     @Environment(\.pageHeaderAsRoot) private var asRoot
 
-    init(title: String, pushed: Bool, glyph: PageHeaderGlyphKind?) {
+    let action: Action
+
+    init(title: String, pushed: Bool, glyph: PageHeaderGlyphKind?, @ViewBuilder action: () -> Action) {
         self.title = title
         requestedPushed = pushed
         self.glyph = glyph
+        self.action = action()
     }
 
     private var pushed: Bool { requestedPushed && !asRoot }
@@ -65,8 +73,12 @@ private struct PageHeaderModifier: ViewModifier {
         if pushed {
             titled
         } else if #available(iOS 26.0, *) {
-            // Two circles, not one shared capsule: a fixed spacer between them.
+            // Circles, not one shared capsule: a fixed spacer between them.
             titled.toolbar {
+                if Action.self != EmptyView.self {
+                    ToolbarItem(placement: .topBarTrailing) { action }
+                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                }
                 ToolbarItem(placement: .topBarTrailing) { PageHeaderSearchButton() }
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 ToolbarItem(placement: .topBarTrailing) { PageHeaderInboxButton(count: inboxUnreadCount) }
@@ -74,6 +86,7 @@ private struct PageHeaderModifier: ViewModifier {
         } else {
             titled.toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    action
                     PageHeaderSearchButton()
                     PageHeaderInboxButton(count: inboxUnreadCount)
                 }

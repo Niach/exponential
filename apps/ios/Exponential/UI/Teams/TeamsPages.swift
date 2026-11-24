@@ -140,20 +140,12 @@ struct TeamsView: View {
                 }
             }
         }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { menuOpen = true } label: {
-                    PageHeaderGlyph(icon: AppIcons.uiAdd)
-                }
+        .pageHeader(Chats.Copy.Headers.teams) {
+            Button { menuOpen = true } label: { PageHeaderGlyph(icon: AppIcons.uiAdd) }
                 .buttonStyle(.plain)
-                .accessibilityLabel(SidebarTree.Copy.newTeam)
+                .accessibilityLabel(SidebarTree.Copy.teams)
                 .accessibilityIdentifier("teams-add")
-            }
-            if #available(iOS 26.0, *) {
-                ToolbarSpacer(.fixed, placement: .topBarTrailing)
-            }
         }
-        .pageHeader(Chats.Copy.Headers.teams)
         .sheet(isPresented: $menuOpen, onDismiss: {
             if setupPending {
                 setupPending = false
@@ -229,7 +221,7 @@ struct TeamsView: View {
 struct TeamTreePage: View {
     let teamId: String
     var folderId: String?
-    /// The team page's own `.teamSettings` push (the split layout's too).
+
     @Environment(AppDependencies.self) private var deps
     @Environment(TeamState.self) private var teamState
     @Environment(SessionListsModel.self) private var lists
