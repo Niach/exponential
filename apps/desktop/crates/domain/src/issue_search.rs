@@ -47,6 +47,13 @@
 //! end). Impossible dates (`2026-13`, `2026-02-30`) are ignored. A query of
 //! filters alone lists the matching rows in the empty-query order.
 //!
+//! #NEW-135: `similar:<ID>` (`similar:NEW-12`, one leading `#` dropped, an
+//! empty value ignored) asks for the issues that MEAN the same as that one:
+//! its duplicates. Similarity lives in the server's embeddings, which no
+//! client holds, so a query with a `similar:` token ranks NO local rows: the
+//! list is the server's hits in the server's order ([`merge_server_hits`]),
+//! nearest first, narrowed there by the query's other tokens.
+//!
 //! EXP-922: the ordering is THREE keys above the score, in this order:
 //!
 //!   1. an EXACT identifier hit (some token scored 100) — typing `EXP-42`
@@ -86,6 +93,10 @@ pub const STATE_PREFIX: &str = "is:";
 pub const STATUS_PREFIX: &str = "status:";
 pub const CREATED_PREFIX: &str = "created:";
 pub const UPDATED_PREFIX: &str = "updated:";
+
+/// #NEW-135: the token that asks the server for an issue's nearest issues
+/// (web `ISSUE_SEARCH_SIMILAR_PREFIX`).
+pub const SIMILAR_PREFIX: &str = "similar:";
 
 /// The `limit` every consumer gets without asking (web
 /// `ISSUE_SEARCH_DEFAULT_LIMIT`) — and, since EXP-922, the one every SEARCH
@@ -250,6 +261,9 @@ pub struct ParsedQuery {
     pub statuses: Vec<String>,
     pub created: Vec<SearchRange>,
     pub updated: Vec<SearchRange>,
+    /// #NEW-135: `similar:` identifiers (lowercase, one leading `#` dropped).
+    /// Not a filter: any entry hands the whole list to the server.
+    pub similar: Vec<String>,
 }
 
 impl ParsedQuery {
@@ -396,6 +410,11 @@ pub fn parse_query_at(query: &str, now: i64) -> ParsedQuery {
         } else if let Some(value) = token.strip_prefix(UPDATED_PREFIX) {
             if let Some(range) = parse_range(value, now) {
                 parsed.updated.push(range);
+            }
+        } else if let Some(identifier) = token.strip_prefix(SIMILAR_PREFIX) {
+            let identifier = identifier.strip_prefix('#').unwrap_or(identifier);
+            if !identifier.is_empty() {
+                parsed.similar.push(identifier.to_string());
             }
         } else {
             parsed.words.push(token);
@@ -607,6 +626,10 @@ pub fn rank_at(
     now: i64,
 ) -> Vec<usize> {
     let parsed = parse_query_at(query, now);
+    // #NEW-135: similarity is the server's to answer.
+    if !parsed.similar.is_empty() {
+        return Vec::new();
+    }
     let filtered = parsed.has_filters();
     let query_tokens = &parsed.words;
     let pool = rows.iter().enumerate().filter(|(_, row)| {

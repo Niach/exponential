@@ -1,12 +1,9 @@
 // #NEW-134: semantic issue search's server half: one embedding per issue,
 // computed in this process (no third party), stored with pgvector.
 //
-// For #NEW-135 (the kNN branch of `issues.search`):
-//
-//   if (await issueEmbeddingsAvailable()) {
-//     const vector = await embedQuery(query)          // null = stay lexical
-//     if (vector) hits = await nearestIssueIds(vector, scope, { k, maxDistance })
-//   }
+// #NEW-135: `search.ts` is the search itself: `searchIssues` (tRPC
+// `issues.search`) and `issueSearchIdsSql` (MCP list `search`) put the
+// semantic hits behind the lexical ones and answer `similar:<ID>`.
 //
 // `scope` is `issueSearchMatchIds`' IssueSearchScope: the caller checks
 // membership / board access exactly as it does for the lexical branches.
@@ -26,3 +23,12 @@ export {
   scheduleIssueEmbedding,
   startIssueEmbeddingScheduler,
 } from "./recompute"
+export {
+  ISSUE_SEARCH_EMBED_BUDGET_MS,
+  ISSUE_SEARCH_SEMANTIC_MAX_DISTANCE,
+  ISSUE_SEARCH_SEMANTIC_MAX_HITS,
+  ISSUE_SEARCH_SIMILAR_MAX_DISTANCE,
+  issueSearchIdsSql,
+  searchIssues,
+  type IssueSearchHitRow,
+} from "./search"

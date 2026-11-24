@@ -48,6 +48,13 @@ package com.exponential.app.domain
  * end). Impossible dates (`2026-13`, `2026-02-30`) are ignored. A query of
  * filters alone lists the matching rows in the empty-query order.
  *
+ * #NEW-135: `similar:<ID>` (`similar:NEW-12`, one leading `#` dropped, an
+ * empty value ignored) asks for the issues that MEAN the same as that one:
+ * its duplicates. Similarity lives in the server's embeddings, which no
+ * client holds, so a query with a `similar:` token ranks NO local rows: the
+ * list is the server's hits in the server's order ([mergeServerHits]),
+ * nearest first, narrowed there by the query's other tokens.
+ *
  * EXP-922: the ordering is THREE keys above the score, in this order:
  *
  *   1. an EXACT identifier hit (some token scored 100) — typing `EXP-42` finds
@@ -154,6 +161,9 @@ object IssueSearch {
     const val CREATED_PREFIX = "created:"
     const val UPDATED_PREFIX = "updated:"
 
+    /** #NEW-135: the token that asks the server for an issue's nearest issues. */
+    const val SIMILAR_PREFIX = "similar:"
+
     /**
      * #NEW-132: a half-open time window `[from, to)` in epoch ms
      * ([Long.MIN_VALUE] / [Long.MAX_VALUE] = unbounded). Web `IssueSearchRange`.
@@ -171,6 +181,9 @@ object IssueSearch {
         val statuses: List<String> = emptyList(),
         val created: List<Range> = emptyList(),
         val updated: List<Range> = emptyList(),
+        /** #NEW-135: `similar:` identifiers (lowercase, one leading `#` dropped).
+         *  Not a filter: any entry hands the whole list to the server. */
+        val similar: List<String> = emptyList(),
     ) {
         /** Whether the query filters at all (a filter-only query lists the
          *  matching rows in the empty-query order). Web `issueSearchHasFilters`. */
@@ -263,6 +276,7 @@ object IssueSearch {
         val statuses = mutableListOf<String>()
         val created = mutableListOf<Range>()
         val updated = mutableListOf<Range>()
+        val similar = mutableListOf<String>()
         for (token in tokens(query)) {
             when {
                 token.startsWith(CREATOR_PREFIX) -> {
@@ -282,10 +296,15 @@ object IssueSearch {
                     parseRange(token.substring(CREATED_PREFIX.length), now)?.let { created.add(it) }
                 token.startsWith(UPDATED_PREFIX) ->
                     parseRange(token.substring(UPDATED_PREFIX.length), now)?.let { updated.add(it) }
+                token.startsWith(SIMILAR_PREFIX) -> {
+                    var identifier = token.substring(SIMILAR_PREFIX.length)
+                    if (identifier.startsWith("#")) identifier = identifier.substring(1)
+                    if (identifier.isNotEmpty()) similar.add(identifier)
+                }
                 else -> words.add(token)
             }
         }
-        return ParsedQuery(words, creators, states, statuses, created, updated)
+        return ParsedQuery(words, creators, states, statuses, created, updated, similar)
     }
 
     /** Trim, drop ONE leading `#`, lowercase. Empty = "recent work". */
@@ -358,6 +377,8 @@ object IssueSearch {
         now: Long = System.currentTimeMillis(),
     ): List<T> {
         val parsed = parseQuery(query, now)
+        // #NEW-135: similarity is the server's to answer.
+        if (parsed.similar.isNotEmpty()) return emptyList()
         val tokens = parsed.words
         val filtered = parsed.hasFilters
         val pool = if (exclude.isEmpty() && !filtered) {
