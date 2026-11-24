@@ -3,7 +3,9 @@
 // and whether this install itself waits for approval (with its code).
 
 import { useSyncExternalStore } from "react"
+import fixture from "@exp/domain-contract/fixtures/install-trust.json" with { type: "json" }
 import { installCode, type TrustRow } from "@exp/domain-contract/install-trust"
+import { isProductionBuild } from "@/lib/production-build"
 import { currentKeyHolder, keyVersion, subscribeKeyChange } from "./current-key-holder"
 import type { InstallTrustState } from "./install-trust"
 
@@ -44,5 +46,27 @@ function snapshot(): InstallTrustView {
 }
 
 export function useInstallTrust(): InstallTrustView {
-  return useSyncExternalStore(subscribeKeyChange, snapshot, () => NONE)
+  const view = useSyncExternalStore(subscribeKeyChange, snapshot, () => NONE)
+  return specimen() ?? view
+}
+
+/** DEV-ONLY (never in a production build): `?specimen=install-approval`
+ *  draws the fixture's New install and Reset rows, `?specimen=install-waiting`
+ *  this install waiting with its code (the catalogue's views). */
+function specimen(): InstallTrustView | undefined {
+  if (isProductionBuild || typeof window === `undefined`) return undefined
+  const which = new URLSearchParams(window.location.search).get(`specimen`)
+  if (which !== `install-approval` && which !== `install-waiting`) return undefined
+  const keys = fixture.keys
+  const row = (kind: TrustRow[`kind`], name: `N` | `T3`): TrustRow => ({
+    kind,
+    installId: `install-${name}`,
+    endpointId: keys[name].endpointId,
+    userId: keys[name].userId,
+    label: keys[name].label,
+    code: keys[name].code,
+  })
+  return which === `install-approval`
+    ? { ...NONE, status: `trusted`, rows: [row(`newInstall`, `N`), row(`reset`, `T3`)] }
+    : { ...NONE, status: `waiting`, code: keys.N.code }
 }
