@@ -456,7 +456,7 @@ struct CommentRepliesView: View {
                 baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                 accountId: accountId,
                 httpClient: deps.httpClient,
-                mentionMembers: users.values.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
+                mentionMembers: AgentSettings.chatMembers(Array(users.values)).map { MentionMember(name: $0.name ?? $0.email, email: $0.email) },
                 teamId: boards[issue.boardId]?.teamId,
                 onOpenIssue: { issueId in deps.deepLinkBus.navigateToIssue(issueId) },
                 actions: { row in cardActions(for: row) },

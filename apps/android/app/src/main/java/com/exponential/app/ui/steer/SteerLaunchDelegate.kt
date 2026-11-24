@@ -140,6 +140,7 @@ class SteerLaunchDelegate @Inject constructor(
                             description = issue.description,
                             createdAt = issue.createdAt,
                             updatedAt = issue.updatedAt,
+                            resolvedStatus = null,
                         )
                     }
             }

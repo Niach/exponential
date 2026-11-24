@@ -4,7 +4,9 @@
  * Five `sessions` rows are live on purpose: the cold-start chat's root and
  * its child "Profile the launch path" (the `chat-screen`, `session` and `steering`
  * views; the child waits on a question), the APP-14 chat (busy), the FB-9
- * chat the Triage agent started (busy) and the private offline-queue spike.
+ * chat the Triage agent started (#EXP-2105: cut mid-turn when its build
+ * server went away, `away` in lib/demo-live-spec.ts) and the private
+ * offline-queue spike.
  * A full five-lane refresh runs for hours, and a capture may stop or answer a
  * session, so the seed writes their state through this spec and the stub
  * (screenshot-desktop.ts) re-asserts it at boot and on every heartbeat: a row
@@ -15,38 +17,10 @@
 import { and, eq } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { conversations, messages, sessions, teams } from "@/db/schema"
-import { DEMO_SESSION_ID, DEMO_CHAT_IDS, TEAM_SLUG } from "../screenshot-demo"
+import { DEMO_SESSION_ID, TEAM_SLUG } from "../screenshot-demo"
+import { DEMO_LIVE_SESSIONS, demoLiveRow } from "./demo-live-spec"
 
-export interface LiveSessionSpec {
-  id: string
-  status: `running` | `idle`
-  /** Device-written turn state: the list spinner. */
-  busy: boolean
-  startedMinutesAgo: number
-  /** The stub's feed for this row ends on an unanswered question
-   *  (screenshot-desktop.ts) and the chat carries the question card, so
-   *  the row says so the way a real device stamps it: `needs_input`. */
-  asks?: boolean
-}
-
-export const DEMO_LIVE_SESSIONS: readonly LiveSessionSpec[] = [
-  { id: DEMO_CHAT_IDS.coldStart, status: `running`, busy: false, startedMinutesAgo: 60 },
-  { id: DEMO_SESSION_ID, status: `running`, busy: false, startedMinutesAgo: 52, asks: true },
-  { id: DEMO_CHAT_IDS.groupByAssignee, status: `running`, busy: true, startedMinutesAgo: 25 },
-  { id: DEMO_CHAT_IDS.sortReports, status: `running`, busy: true, startedMinutesAgo: 8 },
-  { id: DEMO_CHAT_IDS.offlineSpike, status: `running`, busy: false, startedMinutesAgo: 40 },
-]
-
-/** A capture that opts out of the closing ask (SCREENSHOT_FEED_NO_QUESTION,
- *  or EXP-1501's SCREENSHOT_FEED_WRITING, which ends on a running turn) has
- *  nothing pending, so the row is not waiting either. */
-export function demoNeedsInput(spec: LiveSessionSpec): boolean {
-  return (
-    spec.asks === true &&
-    process.env.SCREENSHOT_FEED_NO_QUESTION !== `1` &&
-    process.env.SCREENSHOT_FEED_WRITING !== `1`
-  )
-}
+export { DEMO_LIVE_SESSIONS, DEMO_SERVER_AWAY_MINUTES, demoLiveRow, demoNeedsInput, type LiveSessionSpec } from "./demo-live-spec"
 
 /**
  * Put the live rows back to their seeded state. Returns how many `sessions`
@@ -65,15 +39,7 @@ export async function assertDemoLiveSessions(now: number = Date.now()): Promise<
   for (const spec of DEMO_LIVE_SESSIONS) {
     const rows = await db
       .update(sessions)
-      .set({
-        status: spec.status,
-        busy: spec.busy,
-        needsInput: demoNeedsInput(spec),
-        startedAt: new Date(now - spec.startedMinutesAgo * 60_000),
-        endedAt: null,
-        lastTurnAt: new Date(now),
-        updatedAt: new Date(now),
-      })
+      .set({ ...demoLiveRow(spec, now), endedAt: null })
       .where(and(eq(sessions.id, spec.id), eq(sessions.teamId, team.id)))
       .returning({ id: sessions.id })
     written += rows.length

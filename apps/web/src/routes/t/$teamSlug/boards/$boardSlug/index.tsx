@@ -146,11 +146,9 @@ function BoardPage() {
       <MobileDetailHeader
         title={<PushedTitle glyph={<BoardGlyph board={board} className="size-5" />}>{board.name}</PushedTitle>}
         onBack={() => (router.history.canGoBack() ? router.history.back() : void navigate({ to: `/t/$teamSlug/team`, params: { teamSlug } }))}
-      />
-      <BoardChips
-        value={chip}
-        counts={{ mine: mine.totalIssueCount, drafts: draftCount }}
-        onChange={setChip}
+        below={
+          <BoardChips value={chip} counts={{ mine: mine.totalIssueCount, drafts: draftCount }} onChange={setChip} />
+        }
       />
     </div>
   ) : (
@@ -164,7 +162,7 @@ function BoardPage() {
       <div className="relative flex h-full flex-col">
         {chips}
         <div ref={setMineBulkSlot} className="contents" />
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 max-md:pt-4">
           <MyIssuesView teamSlug={teamSlug} boardId={board.id} bulkActionSlot={mineBulkSlot} />
         </div>
       </div>
@@ -175,7 +173,7 @@ function BoardPage() {
     return (
       <div className="relative flex h-full flex-col">
         {chips}
-        <div className={`min-h-0 flex-1 overflow-auto ${PAGE_END_CLEARANCE}`}>
+        <div className={`min-h-0 flex-1 overflow-auto max-md:pt-4 ${PAGE_END_CLEARANCE}`}>
           <DraftsList
             teamId={team.id}
             teamSlug={teamSlug}
@@ -195,7 +193,8 @@ function BoardPage() {
         // the tab bar on phones, so PAGE_END_CLEARANCE's `max()` of the two
         // measured heights already covers a live selection; md+ reserves the
         // floating bar's height while a selection lives.
-        className={`flex-1 overflow-auto ${PAGE_END_CLEARANCE} ${
+        // The phone header's fade (24px) hangs over the list's first rows.
+        className={`flex-1 overflow-auto max-md:pt-4 ${PAGE_END_CLEARANCE} ${
           selectedIssues.length > 0 ? `md:pb-20` : ``
         }`}
       >

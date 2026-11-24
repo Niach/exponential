@@ -34,7 +34,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.PromptDto
-import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.FeedbackStates
@@ -284,12 +283,9 @@ internal fun AgentComposerHeadline(
                 IssueChip(
                     identifier = option.identifier,
                     title = option.title,
-                    // The composer carries the ANCHOR off the wire, not
-                    // the team's status row, so the glyph comes from
-                    // the builtin defaults.
-                    status = remember(option.status) {
-                        IssueStatusResolver.resolve(null, option.status, emptyList())
-                    },
+                    // #EXP-2096: the status its own team resolves, else
+                    // the anchor against the builtin defaults.
+                    status = option.glyph,
                     onRemove = { onRemoveIssue(option.id) },
                     removeContentDescription = removeIssueDescription(option),
                     removeTestTag = "agent-composer-chip-issue-${option.identifier}-remove",

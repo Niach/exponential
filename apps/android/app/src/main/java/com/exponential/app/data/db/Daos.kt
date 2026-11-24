@@ -269,7 +269,9 @@ interface TeamMemberDao {
     @Query("SELECT * FROM team_members WHERE team_id = :teamId ORDER BY created_at, id")
     fun observeByTeam(teamId: String): Flow<List<TeamMemberEntity>>
 
-    @Query("SELECT * FROM team_members WHERE user_id = :userId")
+    // #EXP-2097: one person's rows across the synced teams (a member card's
+    // role reads the chat teams, never the session's).
+    @Query("SELECT * FROM team_members WHERE user_id = :userId ORDER BY created_at, id")
     fun observeByUser(userId: String): Flow<List<TeamMemberEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
