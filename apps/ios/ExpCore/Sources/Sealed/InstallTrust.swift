@@ -256,12 +256,12 @@ public struct EnetTrustCrypto: TrustCrypto {
 
     public func verify(signature: String, message: Data, endpointId: String) -> Bool {
         guard InstallTrust.isSignature(signature), InstallTrust.isEndpointId(endpointId),
-              let bytes = Base64URL.decode(signature), bytes.count == 64 else { return false }
+              let bytes = InstallTrust.b64urlDecode(signature), bytes.count == 64 else { return false }
         return identityVerify(endpointId: endpointId, message: message, signature: bytes)
     }
 
     public func sign(identity: Data, message: Data) throws -> String {
-        Base64URL.encode(try identitySign(identity: identity, message: message))
+        InstallTrust.b64urlEncode(try identitySign(identity: identity, message: message))
     }
 
     public func endpointId(identity: Data) throws -> String {
@@ -351,7 +351,7 @@ public enum InstallApproval {
     public static func message(_ kind: ApprovalKind, userId: String, endpointId: String, x25519Public: String) -> Data? {
         guard InstallTrust.isEndpointId(endpointId), !userId.isEmpty,
               let endpoint = InstallTrust.hexBytes(endpointId),
-              let x = Base64URL.decode(x25519Public), x.count == 32 else { return nil }
+              let x = InstallTrust.b64urlDecode(x25519Public), x.count == 32 else { return nil }
         var out = Data(label.utf8)
         out.append(0)
         out.append(kind.byte)
@@ -397,6 +397,24 @@ public enum InstallTrust {
         return bytes.prefix(85).allSatisfy(ok) && [65, 81, 103, 119].contains(bytes[85])
     }
 
+    /// install-register.json's message (`InstallRegistration.message`; the
+    /// share extension compiles this file without the install node).
+    public static func registrationMessage(userId: String, endpointId: String, x25519Public: String, signedAt: String) -> String {
+        "exp-install-v1\n\(userId)\n\(endpointId)\n\(x25519Public)\n\(signedAt)"
+    }
+
+    static func b64urlEncode(_ data: Data) -> String {
+        data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    }
+
+    static func b64urlDecode(_ text: String) -> Data? {
+        var base64 = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder == 1 { return nil }
+        if remainder > 0 { base64 += String(repeating: "=", count: 4 - remainder) }
+        return Data(base64Encoded: base64)
+    }
+
     static func hexBytes(_ hex: String) -> Data? {
         let chars = Array(hex.utf8)
         guard chars.count % 2 == 0 else { return nil }
@@ -414,7 +432,7 @@ public enum InstallTrust {
     /// X25519 key (install-register.json's message).
     public static func registrationValid(_ install: ServedInstall, crypto: TrustCrypto) -> Bool {
         guard let signature = install.registrationSignature, let signedAt = install.registrationSignedAt else { return false }
-        let text = InstallRegistration.message(userId: install.userId, endpointId: install.endpointId, x25519Public: install.x25519Public, signedAt: signedAt)
+        let text = registrationMessage(userId: install.userId, endpointId: install.endpointId, x25519Public: install.x25519Public, signedAt: signedAt)
         return crypto.verify(signature: signature, message: Data(text.utf8), endpointId: install.endpointId)
     }
 
