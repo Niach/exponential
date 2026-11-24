@@ -62,6 +62,7 @@ function served(spec: InstallSpec): ServedInstall {
 type StoreSpec = {
   viewer: string
   joined: boolean
+  existing?: boolean
   pins: Record<string, unknown>
   members?: string[]
   declined?: string[]
@@ -69,7 +70,7 @@ type StoreSpec = {
 }
 function buildStore(spec: StoreSpec): TrustStore {
   const viewer = keys[spec.viewer]!
-  const store = emptyTrustStore(viewer.endpointId, viewer.userId)
+  const store = emptyTrustStore(viewer.endpointId, viewer.userId, spec.existing ?? false)
   store.joined = spec.joined
   for (const [name, pin] of Object.entries(spec.pins)) {
     const [via, by] = pin as [PinVia, string | null]
@@ -157,7 +158,32 @@ describe(`install-trust.json`, () => {
         view.rows.map((row) => ({ kind: row.kind, key: nameOf(row.endpointId), installId: row.installId, code: row.code, label: row.label })),
         c.name
       ).toEqual(c.rows)
+      expect(view.approveExisting.map(nameOf), c.name).toEqual((c as { approveExisting?: string[] }).approveExisting ?? [])
+      const after = c.after as { existing?: boolean }
+      if (after.existing !== undefined) expect(view.store.existing, c.name).toBe(after.existing)
     }
+  })
+
+  test(`decision (e): on day one no row and no waiting state for an account whose installs all existed`, () => {
+    const dayOne = fixture.trustCases.filter((c) => (c as { dayOne?: boolean }).dayOne)
+    expect(dayOne.length).toBeGreaterThanOrEqual(4)
+    for (const c of dayOne) {
+      expect(c.rows, c.name).toEqual([])
+      expect(c.status, c.name).not.toBe(`waiting`)
+      expect(c.after.joined, c.name).toBe(true)
+    }
+  })
+
+  test(`decision (e): a planted install after the first reconcile is never pinned`, () => {
+    const attacks = fixture.trustCases.filter((c) => (c as { attack?: string }).attack === `existing`)
+    expect(attacks.length).toBeGreaterThanOrEqual(3)
+    for (const c of attacks) {
+      if ((c.before as StoreSpec).existing) continue // the accepted moment: the first reconcile
+      expect(Object.keys(c.after.pins), c.name).not.toContain(`Z`)
+      expect(Object.keys(c.after.pins), c.name).toEqual(Object.keys((c.before as StoreSpec).pins).sort())
+    }
+    // Its row: a New install (with a registration that binds its key).
+    expect(fixture.trustCases.some((c) => (c as { attack?: string }).attack === `existing` && c.rows.some((row) => row.key === `Z` && row.kind === `newInstall`))).toBe(true)
   })
 
   test(`R1 keepWrap, now and once mandatory`, () => {
