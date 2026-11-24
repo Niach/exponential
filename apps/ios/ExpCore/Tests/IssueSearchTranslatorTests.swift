@@ -60,8 +60,9 @@ final class IssueSearchTranslatorTests: XCTestCase {
     }
 
     func testTheTextEchoedBackIsNoQuery() async {
-        let fake = Fake(.answer(text))
-        let query = await IssueSearchTranslator.translate(text, members: members, now: now, translator: fake)
+        let short = "what is broken in the editor toolbar"
+        let fake = Fake(.answer(short))
+        let query = await IssueSearchTranslator.translate(short, members: members, now: now, translator: fake)
         XCTAssertNil(query)
     }
 
