@@ -192,6 +192,14 @@ export class InstallTrust {
     await this.sync()
   }
 
+  /** #EXP-2123 (install-trust.json `keyMaker`): only a JOINED install makes
+   *  a chat key (an older server without `installs.trust` counts as joined).
+   *  A store not reconciled yet is reconciled first. */
+  async makesKeys(): Promise<boolean> {
+    if (this.status === `unknown`) await this.sync().catch(() => {})
+    return this.status === `unavailable` || this.store.joined
+  }
+
   /** R1: whether a served wrap is kept, recorded in the store. */
   keep(wrap: ServedWrap, installSecret: Uint8Array): KeepVerdict {
     const verdict = keepWrap(wrap, { identity: this.identity, installSecret }, this.store, this.mode)
