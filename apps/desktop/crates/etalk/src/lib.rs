@@ -124,6 +124,16 @@ fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
+/// EXP-1859 (talk-listen.json `wake.multi`): one agent the wake word
+/// listens for: its resolved `phrase`, heard in `language`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WakeListener {
+    pub agent_id: String,
+    pub phrase: String,
+    pub language: String,
+}
+
 /// Host → worker, one JSON object per line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -175,7 +185,16 @@ pub enum Request {
     Hangup { id: String },
     /// #NEW-56: listen for `phrase` (already resolved: `Hey {agent}` when
     /// the member left it empty) in `language`; an empty phrase = off.
-    Wake { phrase: String, language: String },
+    /// EXP-1859 (talk-listen.json `wake.multi`): `listeners` = EVERY agent
+    /// listened for, in order (at most `maxListeners`; `phrase` and
+    /// `language` repeat the first, the voice agent's); empty = only
+    /// `phrase`, as before.
+    Wake {
+        phrase: String,
+        language: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        listeners: Vec<WakeListener>,
+    },
     /// NEW-57: meeting `id`: the microphone (channel [`YOU_CHANNEL`],
     /// labelled `you_label`) and `selection`'s desktop audio, each channel
     /// segmented and transcribed in `language` until MeetingStop. `phrase`
@@ -318,7 +337,13 @@ pub enum Event {
     DialAudio { id: String, pcm: String },
     /// #NEW-56: the wake phrase was heard: turn `id` runs like a Listen
     /// (Level, Partial) and the worker ends it itself (Heard or Empty).
-    Woke { id: String },
+    /// EXP-1859: `agent_id` = the listener whose phrase won (absent = the
+    /// one phrase of a Wake without listeners).
+    Woke {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_id: Option<String>,
+    },
     /// #NEW-56: the microphone is open for the wake word (`false`: off,
     /// muted, or it could not open; `reason` says why when it failed).
     WakeListening { listening: bool, reason: Option<ListenFailure> },
@@ -829,7 +854,13 @@ impl SpeechClient {
     /// #NEW-56: listen for the wake `phrase` (empty = stop listening; that
     /// never spawns a worker).
     pub fn wake(&self, phrase: impl Into<String>, language: impl Into<String>) {
-        let request = Request::Wake { phrase: phrase.into(), language: language.into() };
+        self.wake_for(phrase, language, Vec::new());
+    }
+
+    /// EXP-1859: [`Self::wake`] for every agent of `listeners` (the first =
+    /// `phrase` and `language`; empty = only that phrase).
+    pub fn wake_for(&self, phrase: impl Into<String>, language: impl Into<String>, listeners: Vec<WakeListener>) {
+        let request = Request::Wake { phrase: phrase.into(), language: language.into(), listeners };
         if matches!(&request, Request::Wake { phrase, .. } if phrase.is_empty()) {
             self.send_if_running(&request);
         } else {
@@ -1453,11 +1484,22 @@ mod tests {
     #[test]
     fn protocol_4_wakes() {
         assert_eq!(
-            serde_json::to_string(&Request::Wake { phrase: "Hey Studio".into(), language: "en".into() }).unwrap(),
+            serde_json::to_string(&Request::Wake { phrase: "Hey Studio".into(), language: "en".into(), listeners: Vec::new() }).unwrap(),
             r#"{"t":"wake","phrase":"Hey Studio","language":"en"}"#
         );
         let event: Event = serde_json::from_str(r#"{"t":"woke","id":"wake-1"}"#).unwrap();
-        assert_eq!(event, Event::Woke { id: "wake-1".into() });
+        assert_eq!(event, Event::Woke { id: "wake-1".into(), agent_id: None });
+        // EXP-1859: several listeners, and the winner's agent.
+        let listeners = vec![
+            WakeListener { agent_id: "a-bro".into(), phrase: "Hey Bro".into(), language: "en".into() },
+            WakeListener { agent_id: "a-ops".into(), phrase: "Hey Ops".into(), language: "de".into() },
+        ];
+        assert_eq!(
+            serde_json::to_string(&Request::Wake { phrase: "Hey Bro".into(), language: "en".into(), listeners }).unwrap(),
+            r#"{"t":"wake","phrase":"Hey Bro","language":"en","listeners":[{"agentId":"a-bro","phrase":"Hey Bro","language":"en"},{"agentId":"a-ops","phrase":"Hey Ops","language":"de"}]}"#
+        );
+        assert_eq!(serde_json::to_string(&Event::Woke { id: "wake-2".into(), agent_id: Some("a-ops".into()) }).unwrap(), r#"{"t":"woke","id":"wake-2","agentId":"a-ops"}"#);
+        assert_eq!(serde_json::to_string(&Event::Woke { id: "wake-1".into(), agent_id: None }).unwrap(), r#"{"t":"woke","id":"wake-1"}"#);
         assert_eq!(
             serde_json::to_string(&Event::WakeListening { listening: false, reason: Some(ListenFailure::Downloading) }).unwrap(),
             r#"{"t":"wakeListening","listening":false,"reason":"downloading"}"#

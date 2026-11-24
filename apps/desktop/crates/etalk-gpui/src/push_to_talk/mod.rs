@@ -56,6 +56,9 @@ struct Armed {
     /// #NEW-56: the wake word's stored phrase (None = the wake word is off;
     /// empty = `Hey {agent}`).
     wake_phrase: Option<String>,
+    /// EXP-1859: the team agents switched on to listen too (empty while
+    /// the wake word is off here).
+    wake_agent_ids: Vec<String>,
 }
 
 fn armed_for(settings: &VoiceSettings, device_id: &str) -> Option<Armed> {
@@ -69,7 +72,8 @@ fn armed_for(settings: &VoiceSettings, device_id: &str) -> Option<Armed> {
     if shortcut.is_none() && wake_phrase.is_none() {
         return None;
     }
-    Some(Armed { shortcut, agent_id: settings.agent_id.clone()?, language: settings.language().to_string(), wake_phrase })
+    let wake_agent_ids = if wake_phrase.is_some() { settings.wake_agent_ids.clone() } else { Vec::new() };
+    Some(Armed { shortcut, agent_id: settings.agent_id.clone()?, language: settings.language().to_string(), wake_phrase, wake_agent_ids })
 }
 
 /// NEW-78 / S-3: THIS device listens: an agent and a bound key (EXP-1857:
@@ -118,8 +122,8 @@ pub struct PushToTalk {
     /// #NEW-56: the worker answered Ready and has not exited since.
     worker_ready: bool,
     /// #NEW-56: the wake phrase and language the worker was last handed
-    /// (None = off).
-    wake_sent: Option<(String, String)>,
+    /// (None = off). EXP-1859: and every listener (empty = that one phrase).
+    wake_sent: Option<(String, String, Vec<etalk::WakeListener>)>,
     /// #NEW-56: the worker holds the microphone open for the wake word.
     wake_listening: bool,
     /// S-3: why the worker's last `WakeListening` said the microphone is not
@@ -129,6 +133,10 @@ pub struct PushToTalk {
     recording: bool,
     /// #NEW-56: the utterance in flight is a wake turn.
     woken: bool,
+    /// EXP-1859: the agent whose phrase opened the last wake turn (None =
+    /// the voice agent: a push-to-talk turn, or a wake that named nobody).
+    /// Its turn goes into the member's chat with THAT agent.
+    turn_agent: Option<String>,
     /// #NEW-56: the tray's Mute, mirrored here: the tray calls in from its
     /// own update, where reading it would panic.
     muted: bool,
@@ -206,6 +214,7 @@ fn start(
             wake_reason: None,
             recording: false,
             woken: false,
+            turn_agent: None,
             muted: false,
             overlay: overlay::Overlay::default(),
         }
@@ -572,7 +581,23 @@ impl PushToTalk {
                 let settings = VoiceSettings { wake_phrase: phrase, ..Default::default() };
                 let phrase = etalk::voice::wake_phrase(&settings, self.agent_label(cx).as_deref())?;
                 // #EXP-1847: the wake turn is heard in the voice agent's language.
-                Some((phrase, host::language_of(&armed.agent_id, &armed.language, cx)))
+                let language = host::language_of(&armed.agent_id, &armed.language, cx);
+                // EXP-1859: every agent switched on listens too (the host's
+                // `wakeListeners`, the voice agent first; none = that phrase).
+                let member = VoiceSettings {
+                    voice_device_id: Some(self.device_id.clone()),
+                    agent_id: Some(armed.agent_id.clone()),
+                    wake_word: true,
+                    wake_phrase: armed.wake_phrase.clone().unwrap_or_default(),
+                    wake_agent_ids: armed.wake_agent_ids.clone(),
+                    language: armed.language.clone(),
+                    ..Default::default()
+                };
+                let listeners = host::wake_listeners(&member, cx);
+                Some(match listeners.first() {
+                    Some(first) => (first.phrase.clone(), first.language.clone(), listeners),
+                    None => (phrase, language, listeners),
+                })
             }),
             _ => None,
         };
@@ -584,7 +609,7 @@ impl PushToTalk {
         }
         let Some(client) = self.client.as_ref() else { return };
         match wanted.as_ref() {
-            Some((phrase, language)) => client.wake(phrase.clone(), language.clone()),
+            Some((phrase, language, listeners)) => client.wake_for(phrase.clone(), language.clone(), listeners.clone()),
             None => client.wake("", "en"),
         }
         if wanted.is_none() && (self.wake_listening || self.wake_reason.is_some()) {
@@ -649,6 +674,8 @@ impl PushToTalk {
         self.held = true;
         self.held_in = cx.active_window().map(|window| window.window_id());
         self.woken = false;
+        // The key talks to the voice agent (push to talk stays with it).
+        self.turn_agent = None;
         self.generation += 1;
         self.sent = None;
         self.reply_id = None;
@@ -727,7 +754,7 @@ impl PushToTalk {
                 self.overlay.refresh(self.level, &self.bands, cx);
             }
             etalk::Event::Partial { id, text } if ours(&id, &self.utterance) => self.step(PttEvent::Partial(text), cx),
-            etalk::Event::Woke { id } => self.woke(id, cx),
+            etalk::Event::Woke { id, agent_id } => self.woke(id, agent_id, cx),
             etalk::Event::WakeListening { listening, reason } => {
                 if let Some(reason) = reason {
                     log::info!("[voice] wake word: the microphone is not open ({reason:?})");
@@ -766,7 +793,7 @@ impl PushToTalk {
 
     /// #NEW-56: the worker heard the wake phrase: a key-down for one turn
     /// (its microphone is already open; the worker ends the turn itself).
-    fn woke(&mut self, id: String, cx: &mut Context<Self>) {
+    fn woke(&mut self, id: String, agent_id: Option<String>, cx: &mut Context<Self>) {
         // A held key's Listen replaces the turn in the worker.
         if self.held {
             return;
@@ -793,6 +820,8 @@ impl PushToTalk {
         }
         self.utterance = Some(id);
         self.woken = true;
+        // EXP-1859: the turn is the woken agent's.
+        self.turn_agent = agent_id;
         self.level = 0.;
         self.bands.clear();
         self.step(PttEvent::KeyDown { muted: false }, cx);
@@ -800,14 +829,16 @@ impl PushToTalk {
 
     fn send(&mut self, heard: String, cx: &mut Context<Self>) {
         let Some(armed) = self.armed.clone() else { return };
-        let Some(outgoing) = host::outgoing(&armed.agent_id, &heard, cx) else {
+        // EXP-1859: a wake turn goes to the agent whose phrase was heard.
+        let turn_agent = self.turn_agent.clone().unwrap_or_else(|| armed.agent_id.clone());
+        let Some(outgoing) = host::outgoing(&turn_agent, &heard, cx) else {
             return;
         };
         let text = match &outgoing.target {
             etalk::voice::UtteranceTarget::Session { text, .. } | etalk::voice::UtteranceTarget::Agent { text, .. } => text.clone(),
         };
         let generation = self.generation;
-        let agent_id = armed.agent_id.clone();
+        let agent_id = turn_agent;
         let Some(job) = host::send(outgoing, cx) else {
             self.send_failed(agent_id, text, cx);
             return;
@@ -897,7 +928,9 @@ impl PushToTalk {
             return Some(agent);
         }
         let armed = self.armed.as_ref()?;
-        let settings = VoiceSettings { agent_id: Some(armed.agent_id.clone()), ..Default::default() };
+        // EXP-1859: a wake turn's capsule names the woken agent.
+        let agent_id = self.turn_agent.clone().unwrap_or_else(|| armed.agent_id.clone());
+        let settings = VoiceSettings { agent_id: Some(agent_id), ..Default::default() };
         crate::voice_tray::agent_label(&settings, cx)
     }
 
@@ -986,7 +1019,7 @@ mod tests {
     fn push_to_talk_is_armed_on_every_desktop_the_wake_word_on_the_voice_device() {
         assert_eq!(
             armed_for(&settings(), "d-mint"),
-            Some(Armed { shortcut: Some("ctrl+space".into()), agent_id: "a1".into(), language: "en".into(), wake_phrase: None })
+            Some(Armed { shortcut: Some("ctrl+space".into()), agent_id: "a1".into(), language: "en".into(), wake_phrase: None, wake_agent_ids: Vec::new() })
         );
         // EXP-1857: push to talk listens on the desktop you're at.
         assert_eq!(armed_for(&settings(), "d-mac").unwrap().shortcut.as_deref(), Some("ctrl+space"), "another desktop");
@@ -1002,6 +1035,10 @@ mod tests {
         assert_eq!(armed_for(&wake, "d-mac"), None, "the wake word stays on the voice device");
         let both = VoiceSettings { wake_word: true, wake_phrase: "Computer".into(), ..settings() };
         assert_eq!(armed_for(&both, "d-mac").unwrap().wake_phrase, None);
+        // EXP-1859: the switched-on agents arm with the wake word, only on the voice device.
+        let more = VoiceSettings { wake_agent_ids: vec!["a2".into()], ..both.clone() };
+        assert_eq!(armed_for(&more, "d-mint").unwrap().wake_agent_ids, ["a2"]);
+        assert!(armed_for(&more, "d-mac").unwrap().wake_agent_ids.is_empty());
         assert_eq!(armed_for(&VoiceSettings { agent_id: None, ..wake }, "d-mint"), None, "clearOnNone");
         let german = VoiceSettings { language: "de".into(), ..settings() };
         assert_eq!(armed_for(&german, "d-mint").unwrap().language, "de");
@@ -1291,7 +1328,7 @@ mod tests {
     fn every_listen_event_is_routed_here() {
         assert!(is_listen_event(&etalk::Event::Empty { id: "u".into() }));
         assert!(is_listen_event(&etalk::Event::Heard { id: "u".into(), text: "x".into() }));
-        assert!(is_listen_event(&etalk::Event::Woke { id: "wake-1".into() }));
+        assert!(is_listen_event(&etalk::Event::Woke { id: "wake-1".into(), agent_id: None }));
         assert!(is_listen_event(&etalk::Event::WakeListening { listening: true, reason: None }));
         assert!(!is_listen_event(&etalk::Event::Ready { protocol: etalk::PROTOCOL }));
         assert!(!is_listen_event(&etalk::Event::Finished { id: "m".into(), stopped: false }));
