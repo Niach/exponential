@@ -11,6 +11,7 @@ import {
   callKey,
   emptyTrustStore,
   INSTALL_CODE_LABEL,
+  INSTALL_TRUST_COPY,
   installCode,
   installX25519Of,
   keepWrap,
@@ -90,6 +91,7 @@ const at = (c: { now: unknown; mandatory: unknown }, mode: TrustMode) => (mode =
 describe(`install-trust.json`, () => {
   test(`the constants, the keys and their registrations`, () => {
     expect(fixture.mode.release1).toBe(TRUST_MODE)
+    expect(INSTALL_TRUST_COPY).toEqual({ newInstall: `New install`, reset: `Reset`, approve: `Approve`, remove: `Remove`, waiting: `Waiting for approval` })
     expect(fixture.code.label).toBe(INSTALL_CODE_LABEL)
     expect(fixture.approval.label).toBe(APPROVAL_LABEL)
     expect(fixture.approval.messageBytes).toBe(APPROVAL_MESSAGE_BYTES)
