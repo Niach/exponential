@@ -109,35 +109,41 @@ gets a thin, GENERATED adapter, the way icons, emoji and design tokens already
 work: a source, a generator, a drift gate.
 
 ```
-apps/web  /api/mcp ·························· the ONE server: tools, ui:// views, OAuth (DCR, later CIMD), expu_ keys
+apps/web  /api/mcp ·························· the ONE server: tools, ui:// views, OAuth (DCR), expu_ keys
 packages/mcp-apps ··························· the HTML views (MCP Apps 2026-01-26) for hosts that draw HTML
-packages/plugin-kit (@exp/plugin-kit, new) ·· the source every adapter is generated from
-  src/mcp-entry.json                         url, bearer header, X-Exp-Session-Id, OAuth hint
-  src/playbook/                              SKILL.md generated from crates/coding/src/skill.md
-  src/model/                                 view-models moved out of packages/mcp-apps
-  src/client/                                typed callers for the tools the views and mods use
-  src/theme/                                 design tokens → OpenClaw theme, mod colours, pi theme
-  scripts/generate.ts                        writes integrations/*; `bun test` gates drift
+packages/plugin-kit (@exp/plugin-kit) ······· the source every adapter is generated from (NEW-23)
+  src/mcp-entry.json + mcp-entry.ts          url, bearer header, X-Exp-Session-Id, key env; one renderer per host
+  src/playbook/core.md + playbook.ts         the ONE skill body; a host adds its description and its own paragraphs
+  src/model/                                 the view-models: core/ (dependency-free: wire rows, labels, status
+                                             glyph + tone, PR line, session state, inbox toasts, typed tool
+                                             callers) + the list files the HTML views also read
+  src/theme/                                 design tokens → the OpenClaw theme, the tone colours of core/
+  src/generate.ts                            writes integrations/*; `bun run plugin-kit:generate`
 integrations/
-  openclaw/      (exists) manifest + skill + theme, regenerated from plugin-kit
-  claude-code/   plugin: plugin.json, marketplace.json, .mcp.json, skills/, hooks/{hooks.json,register.tsx}
-  pi/            npm package @exponential/pi: extension.ts (commands, widgets, overlays, start flow), skills/, theme
-  codex/         ChatGPT/Codex plugin bundle: .codex-plugin/plugin.json, skills/, .mcp.json
-apps/desktop/crates/coding::prepare ········· stays the launcher for claude/codex runs (untouched)
+  claude/        the Claude plugin (chat, Cowork, the directory): connector + skills, no code
+  claude-code/   the Claude Code plugin: .mcp.json, skills/, hooks/ (the mods), its own marketplace.json
+  openclaw/      manifest + skill + theme
+apps/desktop/crates/coding ·················· stays the launcher for Exponential's own sessions (untouched)
 ```
+
+Drift gates: `packages/plugin-kit/src/generate.test.ts` (release suite) and
+`apps/web/src/lib/plugin-kit.test.ts` (every pull request) fail when an
+adapter file differs from what the sources render; `mcp-entry.test.ts` pins
+the launcher's Rust constants and the server's session header to the entry.
+pi and the Codex/ChatGPT bundle (sections 5 and 6) are not built.
 
 Rules:
 
 - Hosts that draw HTML get `packages/mcp-apps`. Hosts that draw their own
   elements (Claude Code mods, pi-tui) get the same view-models rendered with
   their element table. There is no second data layer anywhere.
-- The playbook has one source, `apps/desktop/crates/coding/src/skill.md`
-  (6 KiB cap, gated by `context-budget.test.ts`). Every `SKILL.md` under
-  `integrations/` is generated from it with a per-host preface; nobody edits
-  one by hand. `MCP_SERVER_INSTRUCTIONS` stays the only paraphrase.
-- The MCP entry has one source, `mcp-entry.json`. The OpenClaw manifest, the
-  Claude plugin `.mcp.json`, pi's `mcp.json`, the Codex `.mcp.json` and the
-  marketing snippets derive from it; the Rust launcher keeps its constants and
+- The playbook has one source, `packages/plugin-kit/src/playbook/core.md`.
+  Every `skills/exponential/SKILL.md` under `integrations/` is that body
+  with the host's own paragraphs; nobody edits one by hand. The launcher's
+  runbook (`crates/coding/src/runbook.md`) is for Exponential's own sessions
+  and stays separate; `MCP_SERVER_INSTRUCTIONS` stays the only paraphrase.
+- The MCP entry has one source, `mcp-entry.json`. The OpenClaw manifest and the
+  Claude plugins' `.mcp.json` derive from it; the Rust launcher keeps its constants and
   a test pins them to the JSON.
 - A foreign harness that runs an issue carries the same `X-Exp-Session-Id`
   the launcher stamps, minted by `codingSessions.start`. With that header the
