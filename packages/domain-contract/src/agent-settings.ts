@@ -459,9 +459,9 @@ export function assistantOwnDevices(input: { sessionTeamSynced: boolean; starter
 export const ASSISTANT_TEAM_PICKS = fixture.assistant.teamPicks
 
 export const ASSISTANT_MOVE = fixture.assistant.move
-/** #EXP-1984 (`move.clientFloor`): the oldest build per platform that lists
- *  the global Assistant in every team. */
-export const ASSISTANT_CLIENT_FLOOR = fixture.assistant.move.clientFloor as Record<`desktop` | `android` | `ios`, string>
+/** #EXP-1984 (`move.clientFloor`): the first build per platform that
+ *  works across the move (#EXP-1989: desktop, CLI, Android, iOS). */
+export const ASSISTANT_CLIENT_FLOOR = fixture.assistant.move.clientFloor as Record<`desktop` | `cli` | `android` | `ios`, string>
 
 export interface MoveAssistantLike {
   id: string

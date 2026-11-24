@@ -1,5 +1,5 @@
-import type { RunDetail } from "./model"
-import { relativeTime } from "./time"
+import type { RunDetail } from "./run"
+import { relativeTime } from "./core/time"
 
 // EXP-1183 — the session list's pure half, ported from the web's
 // `lib/coding-session-display.ts`, `lib/session-identity.ts`,

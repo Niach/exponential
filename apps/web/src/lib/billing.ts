@@ -508,6 +508,20 @@ export async function assertCanCreateAppRecord(teamId: string, tx: Pick<typeof d
   assertAppRecordCreatable(limits, count, adding)
 }
 
+// #FEED-279: the refusal is a WALL an agent reports, so it names the limit,
+// what the team uses, what the upload would add and where an owner sees it
+// (a bare "250 MB" read as a failing upload, and `pr open` then failed on
+// the missing picture). Everything `getTeamUsage` sums is named.
+function formatStorageMb(mb: number): string {
+  return mb >= 1024 ? `${Math.round((mb / 1024) * 10) / 10} GB` : `${Math.round(mb * 10) / 10} MB`
+}
+
+export function storageLimitMessage(limitMb: number, usedMb: number, additionalBytes: number): string {
+  const adds =
+    additionalBytes > 0 ? ` and this upload adds ${formatStorageMb(Math.max(additionalBytes / (1024 * 1024), 0.1))}` : ``
+  return `up to ${formatStorageMb(limitMb)} of storage (attachments, session results, repositories and CI logs). The team uses ${formatStorageMb(usedMb)}${adds}. An owner sees the use and deletes files in Settings → Storage. Upgrade to upload more.`
+}
+
 export async function assertWithinStorageLimit(
   teamId: string,
   additionalBytes: number
@@ -524,8 +538,6 @@ export async function assertWithinStorageLimit(
   const limitBytes = limits.storageMb * 1024 * 1024
   const currentBytes = usage.storageMb * 1024 * 1024
   if (currentBytes + additionalBytes > limitBytes) {
-    throw planLimitError(
-      `up to ${limits.storageMb >= 1024 ? `${Math.round(limits.storageMb / 1024)} GB` : `${limits.storageMb} MB`} of storage (attachments and repositories). Upgrade to upload more.`
-    )
+    throw planLimitError(storageLimitMessage(limits.storageMb, usage.storageMb, additionalBytes))
   }
 }

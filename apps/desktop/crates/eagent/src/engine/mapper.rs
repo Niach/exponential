@@ -1393,6 +1393,15 @@ impl Mapper {
             }
         }
         if seed {
+            // #EXP-2100: whatever the coalescers still hold is HISTORY (the
+            // tail of a `session/load` replay: nothing follows a
+            // conversation's last message to flush it), so it goes out
+            // BEFORE the seed, on the history side of it. Flushed after, it
+            // was a live row: a resumed run's publisher drops the replay up
+            // to this edge (its journal file already holds it), so the last
+            // reply was recorded a second time under its own message id and
+            // every client merged the two into one doubled bubble.
+            self.flush_all(out);
             self.turn_live = true;
         }
         self.move_turn(state, seed, out);
@@ -4883,6 +4892,35 @@ mod tests {
             other => panic!("expected one narration, got {other:?}"),
         }
         assert_eq!(out.idle, Some(true));
+    }
+
+    /// #EXP-2100: the tail of a `session/load` replay (a conversation's last
+    /// message, which nothing follows) is history: the seed flushes it ahead
+    /// of its own `turn` edge, so nothing of the replay is a live row. Past
+    /// the seed it was recorded again by a resumed run whose publisher drops
+    /// the replay up to that edge, doubling the last reply in every client.
+    #[test]
+    fn the_seed_flushes_the_replays_last_message_ahead_of_itself() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        mapper.on_update(
+            &notify(SessionUpdate::AgentMessageChunk(chunk("alpha beta gamma", Some("m-old")))),
+            &mut out,
+        );
+        assert!(out.wire.is_empty(), "still coalescing");
+        mapper.set_turn(wire::frames::TurnState::Ended, true, &mut out);
+        let kinds: Vec<String> = out
+            .wire
+            .iter()
+            .map(|event| serde_json::to_value(event).unwrap()["kind"].as_str().unwrap_or_default().to_string())
+            .collect();
+        assert_eq!(kinds, vec!["narration", "turn"], "{:?}", out.wire);
+        // Live from here: nothing of the history is left to come out, and it
+        // is no part of a reply.
+        std::thread::sleep(FLUSH_IDLE);
+        let mut later = MapOut::default();
+        mapper.flush(&mut later);
+        assert!(later.wire.is_empty(), "{:?}", later.wire);
     }
 
     #[test]

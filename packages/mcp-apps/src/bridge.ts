@@ -28,11 +28,27 @@ export interface ToolResult {
   isError?: boolean
 }
 
+/** #NEW-24: the HOST refused a request (a JSON-RPC error in its answer), as
+ *  opposed to a tool that ran and failed (a result with `isError`). */
+export class HostRefusal extends Error {
+  constructor(message: string, readonly code?: number) {
+    super(message)
+    this.name = `HostRefusal`
+  }
+}
+
 export interface HostContext {
+  /** The call this view was opened for (the key its last screen is kept
+   *  under, lease.ts). */
+  toolInfo?: { id?: string | number }
   theme?: `light` | `dark`
   displayMode?: DisplayMode
   availableDisplayModes?: DisplayMode[]
   containerDimensions?: { height?: number; maxHeight?: number; width?: number; maxWidth?: number }
+  /** #NEW-24: the host's style variables and font faces (host-theme.ts). */
+  styles?: { variables?: Record<string, string | undefined>; css?: { fonts?: string } }
+  /** px the host's own chrome covers on each edge. */
+  safeAreaInsets?: { top?: number; right?: number; bottom?: number; left?: number }
   [key: string]: unknown
 }
 
@@ -53,7 +69,7 @@ type Message = {
   method?: string
   params?: unknown
   result?: unknown
-  error?: { message?: string }
+  error?: { message?: string; code?: number }
 }
 
 export class AppBridge {
@@ -160,7 +176,7 @@ export class AppBridge {
       if (!pending) return
       this.pending.delete(message.id)
       if (message.error) {
-        pending.reject(new Error(message.error.message ?? `Request failed`))
+        pending.reject(new HostRefusal(message.error.message ?? `Request failed`, message.error.code))
       } else {
         pending.resolve(message.result)
       }
