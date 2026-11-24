@@ -143,6 +143,7 @@ function ChatsRoute() {
     return team ? <TeamAvatar iconUrl={team.iconUrl} size={16} /> : null
   }
 
+  const assistants = new Set(agentRows.filter((row) => row.assistant).map((row) => row.agentId))
   const openApp = (appId: string, appSlug: string) =>
     void navigate({ to: `/t/$teamSlug/app-editor/$appSlug`, params: { teamSlug: slugOf(appId), appSlug } })
   const appIdBySlug = new Map(appRows.map((row) => [row.slug, row.appId]))
@@ -199,7 +200,8 @@ function ChatsRoute() {
               wallOf={wallOf}
               marksOf={marksOf}
               teamOf={markOf}
-              agentTeamOf={markOf}
+              // The Assistant is nobody's team's (chats.json PHONE SHELL).
+              agentTeamOf={(id) => (assistants.has(id) ? null : markOf(id))}
               appTeamOf={markOf}
               onRowPointerDown={archivedView ? undefined : onRowPointerDown}
               loading={memberTeams.teamIds.length === 0 || !isReady}

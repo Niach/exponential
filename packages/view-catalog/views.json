@@ -1145,7 +1145,7 @@
       "blurb": "Where every client lands (EXP-1253, composer-home.json): the dawn (EXP-1293: the big Exponential mark's top half, no greeting line), the agent row, “What do you want to build?” in the composer, and nothing under the options line: recent sessions live behind the history button and the Agent › Recent sidebar.",
       "order": 3,
       "web": {
-        "route": "/t/$teamSlug",
+        "route": "/home",
         "anchor": {
           "testId": "agent-composer",
           "timeoutMs": 30000
@@ -1168,7 +1168,7 @@
         }
       },
       "notes": {
-        "web": "The team index redirects to the Agent page (a replace), so this is the landing a team URL gets; the anchor waits for the composer.",
+        "web": "Home, the team-less composer page; the anchor waits for the composer.",
         "desktop": "Same drive as `chat` (`EXP_DEV_SCREEN=chat`): the IDE starts on Agent (EXP-1192) and that page IS the home column (the dawn, the agent row and the composer), so the two desktop shots are one surface filed under both names, like issue-detail and issue-comments.",
         "android": "EXP-1309: the live landing (with the bottom bar), like iOS."
       }
@@ -2633,7 +2633,7 @@
         "settleMs": 800
       },
       "webMobile": {
-        "route": "/t/$teamSlug/team",
+        "route": "/settings",
         "anchor": {
           "testId": "getting-started",
           "timeoutMs": 20000
@@ -9817,7 +9817,7 @@
       "group": "coding",
       "title": "Team (phone)",
       "blurb": "#EXP-2109: a team's page of the Teams tab: its one mixed list (folders, boards, agents, apps, placed sessions) in the member's order; a folder pushes its items.",
-      "order": 96,
+      "order": 99,
       "webMobile": {
         "route": "/t/$teamSlug/team",
         "anchor": {
@@ -9846,7 +9846,7 @@
       "group": "coding",
       "title": "Assistant (phone)",
       "blurb": "#EXP-2109: the bar's middle tab: the viewer's Assistant conversation, the composer above the docked bar.",
-      "order": 97,
+      "order": 100,
       "webMobile": {
         "route": "/assistant",
         "anchor": {

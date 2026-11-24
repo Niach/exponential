@@ -198,7 +198,7 @@ export function MobileTabBar() {
           asChild
           label={CHATS_COPY.tabs.chats}
           icon={<ChatsIcon />}
-          selected={tab === `chats`}
+          selected={!open && tab === `chats`}
           badge={chats}
           data-testid={CHATS_TEST_IDS.tabChats}
         >
@@ -208,12 +208,12 @@ export function MobileTabBar() {
           asChild
           label={CHATS_COPY.tabs.teams}
           icon={<TeamsIcon />}
-          selected={tab === `teams`}
+          selected={!open && tab === `teams`}
           data-testid={CHATS_TEST_IDS.tabTeams}
         >
           <Link to="/teams" />
         </PhoneDockTab>
-        <PhoneDockAssistant asChild selected={onAssistant} data-testid={CHATS_TEST_IDS.tabAssistant}>
+        <PhoneDockAssistant asChild selected={!open && onAssistant} data-testid={CHATS_TEST_IDS.tabAssistant}>
           <Link to="/assistant" />
         </PhoneDockAssistant>
         <PhoneDockTab
@@ -229,7 +229,7 @@ export function MobileTabBar() {
           asChild
           label={CHATS_COPY.tabs.settings}
           icon={<SettingsIcon />}
-          selected={tab === `settings`}
+          selected={!open && tab === `settings`}
           data-testid={CHATS_TEST_IDS.tabSettings}
         >
           <Link to="/settings" />
