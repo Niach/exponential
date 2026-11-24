@@ -20,11 +20,21 @@
 // `by:<name>` token narrows every branch to issues whose member name/agent
 // name has a word starting with it (space-separated words here) or whose
 // member email starts with it. A `by:`-only query is the creator filter alone.
+//
+// #NEW-132: the other filter tokens narrow every branch the same way
+// (`issueSearchFilterSql`): `is:open|closed` on the dual-written anchor,
+// `status:<word>` as a word prefix of the anchor or of the team status's
+// name (non-alphanumerics split words, like the client), `created:`/
+// `updated:` as timestamptz bounds of the client's `[from, to)` window.
+// A filter-only query is the filters alone.
 import { sql, type SQL } from "drizzle-orm"
 import { escapeLikePattern } from "@/lib/like-pattern"
 import {
   ISSUE_SEARCH_CLOSED_STATUSES,
+  issueSearchHasFilters,
   parseIssueSearchQuery,
+  type IssueSearchQuery,
+  type IssueSearchRange,
 } from "@/lib/issue-search"
 
 /**
@@ -61,8 +71,8 @@ function scopeSql(alias: `i` | `c`, scope: IssueSearchScope): SQL {
   )}) and ${trash}`
 }
 
-/** The FTS query text: the client's scored words re-joined (no `by:`
- *  tokens), so `#87`, `fix #87` and `87` all ask Postgres for the same words. */
+/** The FTS query text: the client's scored words re-joined (no `by:` or
+ *  other filter tokens), so `#87`, `fix #87` and `87` all ask Postgres for the same words. */
 export function issueSearchFtsQuery(query: string): string {
   return parseIssueSearchQuery(query).words.join(` `)
 }
@@ -77,6 +87,42 @@ function creatorFilterSql(creators: readonly string[]): SQL {
     }),
     sql` and `
   )
+}
+
+/** `x` (lowercased, every non-alphanumeric run a space, a leading space)
+ *  has a word starting with `needle`. */
+function wordPrefixSql(x: SQL, needle: string): SQL {
+  return sql`(' ' || regexp_replace(lower(${x}), '[^[:alnum:]]+', ' ', 'g')) like ${`% ${escapeLikePattern(needle)}%`}`
+}
+
+function rangeSql(column: SQL, range: IssueSearchRange): SQL {
+  const bounds: SQL[] = []
+  if (Number.isFinite(range.from)) {
+    bounds.push(sql`${column} >= ${new Date(range.from).toISOString()}::timestamptz`)
+  }
+  if (Number.isFinite(range.to)) {
+    bounds.push(sql`${column} < ${new Date(range.to).toISOString()}::timestamptz`)
+  }
+  return bounds.length === 0 ? sql`${column} is not null` : sql.join(bounds, sql` and `)
+}
+
+/** #NEW-21 + #NEW-132: issue alias `i` passes every filter token of `parsed`. */
+export function issueSearchFilterSql(parsed: IssueSearchQuery): SQL {
+  const closed = sql`i.status in (${sql.join(
+    ISSUE_SEARCH_CLOSED_STATUSES.map((status) => sql`${status}`),
+    sql`, `
+  )})`
+  const parts: SQL[] = []
+  if (parsed.creators.length > 0) parts.push(creatorFilterSql(parsed.creators))
+  for (const open of parsed.states) parts.push(open ? sql`not ${closed}` : closed)
+  for (const needle of parsed.statuses) {
+    parts.push(
+      sql`(${wordPrefixSql(sql`i.status::text`, needle)} or exists (select 1 from issue_statuses s where s.id = i.status_id and ${wordPrefixSql(sql`s.name`, needle)}))`
+    )
+  }
+  for (const range of parsed.created) parts.push(rangeSql(sql`i.created_at`, range))
+  for (const range of parsed.updated) parts.push(rangeSql(sql`i.updated_at`, range))
+  return parts.length === 0 ? sql`true` : sql.join(parts, sql` and `)
 }
 
 /** `ts_rank` of issue alias `i` for `query` — the relevance sort key. */
@@ -139,9 +185,11 @@ export function issueSearchMatchIds(
   scope: IssueSearchScope,
   options: { readonly limit?: number } = {}
 ): SQL {
-  const { words: tokens, creators } = parseIssueSearchQuery(query)
+  const parsed = parseIssueSearchQuery(query)
+  const tokens = parsed.words
+  const filtered = issueSearchHasFilters(parsed)
   const fts = tokens.join(` `)
-  if (tokens.length === 0 && creators.length === 0) {
+  if (tokens.length === 0 && !filtered) {
     return sql`select null::uuid as id where false`
   }
   const { limit } = options
@@ -149,14 +197,14 @@ export function issueSearchMatchIds(
     const only = sql`
     select i.id from issues i
     where ${scopeSql(`i`, scope)}
-      and ${creatorFilterSql(creators)}`
+      and ${issueSearchFilterSql(parsed)}`
     return limit === undefined ? only : sql`${only}
     limit ${limit}`
   }
-  const byIssue = creators.length > 0 ? sql`
-      and ${creatorFilterSql(creators)}` : sql``
-  const byComment = creators.length > 0 ? sql`
-      and exists (select 1 from issues i where i.id = c.issue_id and ${creatorFilterSql(creators)})` : sql``
+  const byIssue = filtered ? sql`
+      and ${issueSearchFilterSql(parsed)}` : sql``
+  const byComment = filtered ? sql`
+      and exists (select 1 from issues i where i.id = c.issue_id and ${issueSearchFilterSql(parsed)})` : sql``
   const tokenMatch = sql.join(
     tokens.map((token) => {
       const like = `%${escapeLikePattern(token)}%`

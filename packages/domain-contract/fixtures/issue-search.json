@@ -293,5 +293,129 @@
     ],
     "query": "by:anna",
     "expected": ["n2"]
+  },
+  {
+    "name": "an is:closed token keeps finished issues only, alongside the words",
+    "rows": [
+      { "id": "o", "identifier": "EXP-1", "title": "Login fails", "createdAt": "2026-11-01T00:00:00Z", "updatedAt": "2026-11-09T00:00:00Z", "status": "backlog" },
+      { "id": "d", "identifier": "EXP-2", "title": "Login copy", "createdAt": "2026-11-02T00:00:00Z", "updatedAt": "2026-11-05T00:00:00Z", "status": "done" },
+      { "id": "c", "identifier": "EXP-3", "title": "Login retry", "createdAt": "2026-11-03T00:00:00Z", "updatedAt": "2026-11-07T00:00:00Z", "status": "cancelled" },
+      { "id": "x", "identifier": "EXP-4", "title": "Signup", "createdAt": "2026-11-04T00:00:00Z", "updatedAt": "2026-11-04T00:00:00Z", "status": "done" }
+    ],
+    "query": "login is:closed",
+    "expected": ["c", "d"]
+  },
+  {
+    "name": "an is:open-only query lists undone issues newest created, an absent status counts as open",
+    "rows": [
+      { "id": "a", "identifier": "EXP-1", "title": "Alpha", "createdAt": "2026-11-01T00:00:00Z", "updatedAt": "2026-11-01T00:00:00Z", "status": "in_progress" },
+      { "id": "b", "identifier": "EXP-2", "title": "Beta", "createdAt": "2026-11-03T00:00:00Z", "updatedAt": "2026-11-03T00:00:00Z", "status": "duplicate" },
+      { "id": "c", "identifier": "EXP-3", "title": "Gamma", "createdAt": "2026-11-02T00:00:00Z", "updatedAt": "2026-11-02T00:00:00Z" },
+      { "id": "d", "identifier": "EXP-4", "title": "Delta", "createdAt": "2026-10-01T00:00:00Z", "updatedAt": "2026-10-01T00:00:00Z", "status": "backlog" }
+    ],
+    "query": "IS:OPEN",
+    "expected": ["c", "a", "d"]
+  },
+  {
+    "name": "a status: token matches a word of the anchor or of the team status name",
+    "rows": [
+      { "id": "a", "identifier": "EXP-1", "title": "Anchor word", "createdAt": "2026-11-01T00:00:00Z", "updatedAt": "2026-11-01T00:00:00Z", "status": "in_review", "statusName": "In Review" },
+      { "id": "b", "identifier": "EXP-2", "title": "Custom name", "createdAt": "2026-11-02T00:00:00Z", "updatedAt": "2026-11-02T00:00:00Z", "status": "in_progress", "statusName": "Needs review" },
+      { "id": "c", "identifier": "EXP-3", "title": "Elsewhere", "createdAt": "2026-11-03T00:00:00Z", "updatedAt": "2026-11-03T00:00:00Z", "status": "in_progress", "statusName": "Doing" },
+      { "id": "d", "identifier": "EXP-4", "title": "No status", "createdAt": "2026-11-04T00:00:00Z", "updatedAt": "2026-11-04T00:00:00Z" }
+    ],
+    "query": "status:rev",
+    "expected": ["b", "a"]
+  },
+  {
+    "name": "created:<n>d keeps issues created in the last n days before now, the boundary included",
+    "now": "2026-11-14T12:00:00Z",
+    "rows": [
+      { "id": "in", "identifier": "EXP-1", "title": "Editor paste", "createdAt": "2026-11-10T00:00:00Z", "updatedAt": "2026-11-10T00:00:00Z" },
+      { "id": "edge", "identifier": "EXP-2", "title": "Editor toolbar", "createdAt": "2026-11-07T12:00:00Z", "updatedAt": "2026-11-07T12:00:00Z" },
+      { "id": "old", "identifier": "EXP-3", "title": "Editor undo", "createdAt": "2026-11-07T11:59:59Z", "updatedAt": "2026-11-07T11:59:59Z" },
+      { "id": "none", "identifier": "EXP-4", "title": "Editor blank" }
+    ],
+    "query": "editor created:7d",
+    "expected": ["in", "edge"]
+  },
+  {
+    "name": "weeks, months and years count back 7, 30 and 365 days on updatedAt",
+    "now": "2026-11-14T12:00:00Z",
+    "rows": [
+      { "id": "w", "identifier": "EXP-1", "title": "Two weeks", "createdAt": "2025-01-01T00:00:00Z", "updatedAt": "2026-11-01T00:00:00Z" },
+      { "id": "m", "identifier": "EXP-2", "title": "A month", "createdAt": "2025-01-01T00:00:00Z", "updatedAt": "2026-10-16T00:00:00Z" },
+      { "id": "y", "identifier": "EXP-3", "title": "A year", "createdAt": "2025-01-01T00:00:00Z", "updatedAt": "2025-11-20T00:00:00Z" }
+    ],
+    "query": "updated:1m",
+    "expected": ["m", "w"]
+  },
+  {
+    "name": "a created: day or month is that UTC day or month",
+    "rows": [
+      { "id": "a", "identifier": "EXP-1", "title": "Start of day", "createdAt": "2026-11-03T00:00:00Z", "updatedAt": "2026-11-03T00:00:00Z" },
+      { "id": "b", "identifier": "EXP-2", "title": "End of day", "createdAt": "2026-11-03T23:59:59Z", "updatedAt": "2026-11-03T23:59:59Z" },
+      { "id": "c", "identifier": "EXP-3", "title": "Next day", "createdAt": "2026-11-04T00:00:00Z", "updatedAt": "2026-11-04T00:00:00Z" },
+      { "id": "e", "identifier": "EXP-5", "title": "Offset still the 3rd in UTC", "createdAt": "2026-11-04T00:30:00+01:00", "updatedAt": "2026-11-04T00:30:00+01:00" },
+      { "id": "f", "identifier": "EXP-6", "title": "Day before", "createdAt": "2026-11-02T23:59:59Z", "updatedAt": "2026-11-02T23:59:59Z" }
+    ],
+    "query": "created:2026-11-03",
+    "expected": ["b", "e", "a"]
+  },
+  {
+    "name": "a created: month spans the whole month, February knows leap years",
+    "rows": [
+      { "id": "a", "identifier": "EXP-1", "title": "Leap day", "createdAt": "2028-02-29T10:00:00Z", "updatedAt": "2028-02-29T10:00:00Z" },
+      { "id": "b", "identifier": "EXP-2", "title": "March first", "createdAt": "2028-03-01T00:00:00Z", "updatedAt": "2028-03-01T00:00:00Z" },
+      { "id": "c", "identifier": "EXP-3", "title": "February first", "createdAt": "2028-02-01T00:00:00Z", "updatedAt": "2028-02-01T00:00:00Z" },
+      { "id": "d", "identifier": "EXP-4", "title": "January last", "createdAt": "2028-01-31T23:59:59Z", "updatedAt": "2028-01-31T23:59:59Z" }
+    ],
+    "query": "created:2028-02",
+    "expected": ["a", "c"]
+  },
+  {
+    "name": "comparisons: > after the date ends, >= from its start, < before its start, <= until its end",
+    "rows": [
+      { "id": "a", "identifier": "EXP-1", "title": "Oct 31", "createdAt": "2026-10-31T12:00:00Z", "updatedAt": "2026-10-31T12:00:00Z" },
+      { "id": "b", "identifier": "EXP-2", "title": "Nov 1", "createdAt": "2026-11-01T12:00:00Z", "updatedAt": "2026-11-01T12:00:00Z" },
+      { "id": "c", "identifier": "EXP-3", "title": "Nov 2", "createdAt": "2026-11-02T12:00:00Z", "updatedAt": "2026-11-02T12:00:00Z" },
+      { "id": "d", "identifier": "EXP-4", "title": "Nov 10", "createdAt": "2026-11-10T12:00:00Z", "updatedAt": "2026-11-10T12:00:00Z" },
+      { "id": "e", "identifier": "EXP-5", "title": "Nov 11", "createdAt": "2026-11-11T00:00:00Z", "updatedAt": "2026-11-11T00:00:00Z" }
+    ],
+    "query": "created:>2026-11-01 created:<=2026-11-10",
+    "expected": ["d", "c"]
+  },
+  {
+    "name": "a D..D range runs from the first day's start to the second day's end",
+    "rows": [
+      { "id": "a", "identifier": "EXP-1", "title": "Oct 31", "createdAt": "2026-10-31T12:00:00Z", "updatedAt": "2026-10-31T12:00:00Z" },
+      { "id": "b", "identifier": "EXP-2", "title": "Nov 1", "createdAt": "2026-11-01T00:00:00Z", "updatedAt": "2026-11-01T00:00:00Z" },
+      { "id": "c", "identifier": "EXP-3", "title": "Oct 15", "createdAt": "2026-10-15T00:00:00Z", "updatedAt": "2026-10-15T00:00:00Z" },
+      { "id": "d", "identifier": "EXP-4", "title": "Nov 2", "createdAt": "2026-11-02T00:00:00Z", "updatedAt": "2026-11-02T00:00:00Z" }
+    ],
+    "query": "created:2026-10-31..2026-11-01",
+    "expected": ["b", "a"]
+  },
+  {
+    "name": "an empty or unparseable is:, status:, created: or updated: value is ignored, never a word",
+    "now": "2026-11-14T12:00:00Z",
+    "rows": [
+      { "id": "a", "identifier": "EXP-1", "title": "Login", "createdAt": "2026-11-01T00:00:00Z", "updatedAt": "2026-11-01T00:00:00Z" },
+      { "id": "b", "identifier": "EXP-2", "title": "Signup", "createdAt": "2026-11-02T00:00:00Z", "updatedAt": "2026-11-02T00:00:00Z", "status": "done" }
+    ],
+    "query": "login is:maybe status: created:2026-13 created:2026-02-30 created:0d updated:soon created:2026-11..x",
+    "expected": ["a"]
+  },
+  {
+    "name": "the structured form of a sentence: words, by:, is:open and created: together",
+    "now": "2026-11-14T12:00:00Z",
+    "rows": [
+      { "id": "hit", "identifier": "EXP-1", "title": "Editor loses cursor", "createdAt": "2026-11-12T09:00:00Z", "updatedAt": "2026-11-12T09:00:00Z", "status": "in_progress", "creatorName": "Lukas Mai" },
+      { "id": "done", "identifier": "EXP-2", "title": "Editor crash", "createdAt": "2026-11-11T09:00:00Z", "updatedAt": "2026-11-11T09:00:00Z", "status": "done", "creatorName": "Lukas Mai" },
+      { "id": "old", "identifier": "EXP-3", "title": "Editor toolbar", "createdAt": "2026-10-01T09:00:00Z", "updatedAt": "2026-10-01T09:00:00Z", "status": "backlog", "creatorName": "Lukas Mai" },
+      { "id": "anna", "identifier": "EXP-4", "title": "Editor paste", "createdAt": "2026-11-13T09:00:00Z", "updatedAt": "2026-11-13T09:00:00Z", "status": "backlog", "creatorName": "Anna Berg" }
+    ],
+    "query": "editor by:lukas is:open created:7d",
+    "expected": ["hit"]
   }
 ]
