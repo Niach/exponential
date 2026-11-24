@@ -61,3 +61,9 @@ jobs:
       - name: One claude store (junctions)
         shell: bash
         run: cargo test --locked --manifest-path apps/desktop/Cargo.toml -p eagent --lib claude_store
+      # #FEED-308: no claude started on Windows ("os error 206"): the command
+      # line stays small (the long texts ride files) and a line over
+      # CreateProcess' limit is refused naming its argument.
+      - name: Command line limit (launch files, the guard)
+        shell: bash
+        run: cargo test --locked --manifest-path apps/desktop/Cargo.toml -p eagent --lib -- command_line launch_files

@@ -37,6 +37,9 @@ pub mod codex_sessions;
 pub mod codex_trust;
 // EXP-1206: the human-readable head of a command line (`git status`). Pure.
 pub mod command_head;
+// #FEED-308: a spawn's command line against its platform's limit, and the
+// files its long texts ride instead.
+pub mod command_line;
 // EXP-1426 part 4: the ACP engine core (transport, child exit, event sink,
 // local feed, run policies), moved out of `engine`.
 pub mod engine;

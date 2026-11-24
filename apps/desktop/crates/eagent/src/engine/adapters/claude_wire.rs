@@ -34,10 +34,12 @@ use crate::engine::transport::{spawn_lines, ChildLines, StderrPolicy};
 /// Flipping it is this one const plus the two argv vectors below.
 pub const CLAUDE_PRINT_MODE: bool = true;
 
-/// Where the MCP config comes from. `File` is the zero-risk fallback (the
-/// same `.exp-mcp.json` the PTY path writes); `Inline` keeps the `expu_` key
-/// off disk entirely — spike checkpoint #2, and MEASURED green: the CLI
-/// expands `${EXP_MCP_TOKEN}` inside a header VALUE of an inline
+/// Where the MCP config comes from. #FEED-308: a launch's document is a
+/// `File` (`command_line::write_launch_file`; it grows with the team's
+/// servers, and argv has a limit), `Inline` only the constant of an aside.
+/// Either way the `expu_` key stays off disk — spike checkpoint #2, and
+/// MEASURED green, for a file as for the inline document: the CLI
+/// expands `${EXP_MCP_TOKEN}` inside a header VALUE of a
 /// `--mcp-config` document from the child's own environment (a throwaway
 /// listener received the expanded bearer, and the custom
 /// `X-Exp-Session-Id` header rode along on both variants).
@@ -82,11 +84,14 @@ pub struct ClaudeArgs<'a> {
     /// them as `<plugin>:<name>`, so the plain directory won.
     pub skills_dir: Option<&'a Path>,
     pub disallowed_tools: &'a [&'a str],
-    /// EXP-763: `--append-system-prompt <text>` — the run playbook
+    /// EXP-763: `--append-system-prompt-file <path>` — the run playbook
     /// (`coding::skill::RUN_SKILL`). Not an SDK flag: it is the one addition
     /// to the SDK's base array, and passing it turns the CLI's system-prompt
-    /// snapshot off so a `--resume` gets the current text.
-    pub append_system_prompt: Option<&'a str>,
+    /// snapshot off so a `--resume` gets the current text. #FEED-308: a
+    /// FILE (measured on claude 2.1.308, print and interactive), never the
+    /// text on argv: with the team prompt and the express layer it is past
+    /// Windows' 32,767 characters of command line.
+    pub append_system_prompt_file: Option<&'a Path>,
 }
 
 impl Default for ClaudeArgs<'_> {
@@ -106,7 +111,7 @@ impl Default for ClaudeArgs<'_> {
             add_dirs: &[],
             skills_dir: None,
             disallowed_tools: &[],
-            append_system_prompt: None,
+            append_system_prompt_file: None,
         }
     }
 }
@@ -206,9 +211,9 @@ pub fn claude_argv(args: &ClaudeArgs<'_>) -> Vec<String> {
         push("--disallowedTools");
         push(&args.disallowed_tools.join(","));
     }
-    if let Some(text) = args.append_system_prompt {
-        push("--append-system-prompt");
-        push(text);
+    if let Some(path) = args.append_system_prompt_file {
+        push("--append-system-prompt-file");
+        push(&path.display().to_string());
     }
     argv
 }
