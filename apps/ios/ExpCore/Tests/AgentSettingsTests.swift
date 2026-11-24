@@ -655,6 +655,40 @@ final class AgentSettingsTests: XCTestCase {
         }
     }
 
+    /// #EXP-2095: `assistant.chatTeams.memberCases`, the `@` list's one order.
+    func testChatMembersReplaysEveryCase() throws {
+        let block = try XCTUnwrap(try assistantBlock()["chatTeams"] as? [String: Any])
+        let cases = try XCTUnwrap(block["memberCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let members = try XCTUnwrap(testCase["members"] as? [[String: Any]])
+            let sorted = AgentSettings.chatMembers(
+                members,
+                id: { $0["id"] as? String ?? "" },
+                name: { $0["name"] as? String },
+                email: { $0["email"] as? String }
+            )
+            XCTAssertEqual(
+                sorted.compactMap { $0["id"] as? String },
+                testCase["expected"] as? [String],
+                testCase["name"] as? String ?? "?"
+            )
+        }
+    }
+
+    /// #EXP-2095: the synced rows take the same order.
+    func testChatMembersOrdersTheUserRows() {
+        func user(_ id: String, _ name: String?, _ email: String) -> UserEntity {
+            UserEntity(id: id, name: name, email: email, image: nil, createdAt: "", updatedAt: "")
+        }
+        let roster = [
+            user("u-j", "Jonas", "jonas@example.com"), user("u-s", "Sofia", "sofia@example.com"),
+            user("u-a", "Alex", "alex@example.com"), user("u-h", nil, "hannes@example.com"),
+            user("u-m", "Mira", "mira@example.com"),
+        ]
+        XCTAssertEqual(AgentSettings.chatMembers(roster).map(\.id), ["u-a", "u-h", "u-j", "u-m", "u-s"])
+    }
+
     /// #EXP-2079: `assistant.chatTeams.deviceCases`.
     func testOwnDevicesReplaysEveryCase() throws {
         let block = try XCTUnwrap(try assistantBlock()["chatTeams"] as? [String: Any])
