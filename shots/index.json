@@ -5683,6 +5683,13 @@
       }
     },
     "install-approval": {
+      "android": {
+        "file": "shots/install-approval/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 16424,
+        "sha256": "705230a4a7322296d4c03c9b640ae605b2c9f2021252ab6fc99fd8f96e817fb0"
+      },
       "desktop": {
         "file": "shots/install-approval/desktop.webp",
         "width": 1800,
@@ -5713,6 +5720,13 @@
       }
     },
     "install-waiting": {
+      "android": {
+        "file": "shots/install-waiting/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 11574,
+        "sha256": "942117c8e567593088727ca99d5b718573a2568e4096b93b97d2630832354ef5"
+      },
       "desktop": {
         "file": "shots/install-waiting/desktop.webp",
         "width": 1800,
