@@ -125,7 +125,7 @@ so the desktop always wins:
 | What | Where | Priority | Memory |
 | --- | --- | --- | --- |
 | CI runners | `expci.slice` (root level) | `CPUWeight=idle`, `IOWeight=10`, 12 + 12 cores max | `MemoryHigh=16G`, `MemoryMax=20G`; 12 GB per container, no swap; `oom_score_adj` 1000 |
-| Agent runs + their builds, lane builds, emulators | `user@1000.service/expbg.slice/run-*.scope` (`run-scope-background.conf` moves every `systemd-run --user --scope` there) | `CPUWeight=idle` + nice 10; lanes nice 19, `ionice -c 3` | the slice: `MemoryHigh=16G`, `MemoryMax=20G` |
+| Agent runs + their builds, lane builds, emulators | `user@1000.service/expbg.slice/run-*.scope` (`run-scope-background.conf` moves every `systemd-run --user --scope` there) | `CPUWeight=idle` + nice 10; lanes nice 19, `ionice -c 3` | the slice: `MemoryHigh=24G`, `MemoryMax=28G` |
 | mint-ci daemon (eCode CI) + its jobs | `user@1000.service/expbg.slice/exponential-ci-daemon.service` | daemon nice 19 at `CPUWeight=1` (never `idle`: its beats starve into `runner_lost`); its job steps SCHED_IDLE + nice 19 (the runner sets them) | `MemoryMax=10G` inside the slice; `OOMScoreAdjust=1000` |
 | Cinnamon session (desktop app, browser, the Steam client) | `session-<id>.scope` | `CPUWeight=1000` (`session-interactive.conf`) | uncapped |
 | Steam games (Dota 2 = `app-steam-app570-*`) | `user@1000.service/app.slice/app-steam-app*.scope` (Steam makes them; not movable) | `CPUWeight=1000` against app.slice (`app-steam-game.conf`); idle background never wins a core | uncapped |
