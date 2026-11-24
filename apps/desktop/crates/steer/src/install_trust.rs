@@ -588,3 +588,7 @@ fn subject_of(install: &ServedInstall) -> ApprovalSubject<'_> {
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
+
+#[cfg(test)]
+#[path = "install_trust_tests.rs"]
+mod tests;
