@@ -608,7 +608,7 @@ pub(crate) fn splice_server_hits(
     hits: &[api::issues::IssueSearchHit],
     cx: &App,
 ) -> Vec<IssueHit> {
-    splice_server_hits_teams(&[team_id.to_string()], local, hits, cx)
+    splice_server_hits_teams(&[team_id.to_string()], local, hits, cx) // `team_statuses` reads a chat teams key
 }
 
 /// #EXP-2027: the search sheet's issues across every member team.
@@ -669,7 +669,9 @@ pub(crate) fn server_issue_search<V: 'static>(
     cx: &mut Context<V>,
     apply: impl FnOnce(&mut V, &str, Vec<api::issues::IssueSearchHit>, &mut Context<V>) + 'static,
 ) -> Task<()> {
-    server_issue_search_teams(vec![team_id], query, window, cx, apply)
+    // #EXP-2079: a chat teams key searches each of its teams.
+    let teams = domain::agent_settings::chat_teams_of(&team_id).map(str::to_string).collect();
+    server_issue_search_teams(teams, query, window, cx, apply)
 }
 
 /// #EXP-2027: [`server_issue_search`] over several teams (`teamIds`).

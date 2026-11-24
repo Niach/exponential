@@ -7,6 +7,7 @@ import { boardVisible, issueVisible } from "@/lib/board-visibility"
 import type { IssueEventOrigin } from "@/lib/integrations/event-origin"
 import { applyIssuesTakenInTx, applyIssuesUnlinkedInTx } from "@/lib/sessions/issue-lifecycle"
 import { postSystemCard } from "@/lib/sessions/messages"
+import { treeTeams } from "@/lib/sessions/tree-teams"
 import type { Tx } from "@/lib/sessions/tx"
 
 // NEW-1: a session's issues (`session_issues`, n ↔ n). A row sits on the
@@ -75,6 +76,37 @@ export async function assertIssuesInTeam(
   }
   const byId = new Map(rows.map((row) => [row.id, row]))
   return unique.map((id) => byId.get(id)!)
+}
+
+/** #EXP-2082 (agent-settings.json `assistant.chatTeams` (1), (5)): the
+ *  issues a message may NAME without holding them (a `#IDENT` ref, an issue
+ *  forwarded to an agent's conversation, which only reads it): those of the
+ *  TREE's teams (`treeTeams`, eagent tree.json), exactly what the gate
+ *  clamps the same turn's tools to. The Assistant's conversation = its
+ *  member's Teams pick ∩ their teams (nothing picked = all of them); a
+ *  plain chat with a pick = its own team + the pick (#EXP-2027); every team
+ *  agent's tree and pick-less chat = its one team, the old rule. Read
+ *  inside `tx`, so a pick the same call stored is the one that counts.
+ *  LINKED rows (`linkIssues`, `forwardIssues`) keep the one-team rule: the
+ *  worker lifecycle and `session_issues.team_id` are the session's team's. */
+export async function assertIssuesInTree(tx: Tx, rootId: string, issueIds: string[]): Promise<void> {
+  const unique = [...new Set(issueIds)]
+  if (unique.length === 0) return
+  const teamIds = await treeTeams(rootId, tx)
+  const rows =
+    teamIds.length === 0
+      ? []
+      : await tx
+          .select({ id: issues.id })
+          .from(issues)
+          .innerJoin(boards, eq(boards.id, issues.boardId))
+          .where(and(inArray(issues.id, unique), inArray(boards.teamId, teamIds), boardVisible(), issueVisible()))
+  if (rows.length !== unique.length) {
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: `Every issue must belong to the session's team`,
+    })
+  }
 }
 
 export interface LinkArgs {

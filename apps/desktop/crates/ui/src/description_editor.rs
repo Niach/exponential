@@ -275,11 +275,19 @@ pub(crate) fn issue_id_by_identifier(
     identifier: &str,
     cx: &App,
 ) -> Option<String> {
-    Store::global(cx)
-        .collections()
+    // #EXP-2079 (`assistant.chatTeams` (1)): over a chat teams key, the
+    // first team's issue wins a clash.
+    let collections = Store::global(cx).collections();
+    let boards = collections.boards.read(cx);
+    collections
         .issue_refs_in_team(team_id, cx)
         .into_iter()
-        .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
+        .filter(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
+        .min_by_key(|issue| {
+            boards
+                .get(&issue.board_id)
+                .and_then(|board| domain::agent_settings::chat_teams_rank(team_id, &board.team_id))
+        })
         .map(|issue| issue.id.clone())
 }
 

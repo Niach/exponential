@@ -606,12 +606,19 @@ final class AgentSessionModel {
 
     /// The launch composer's machines for the session's team (own +
     /// team-shared), off the same synced rows the host read-out uses.
+    /// #EXP-2079 (`assistant.chatTeams` `deviceCases`): the Assistant's
+    /// conversation (a team never synced, mine) = my OWN machines whatever
+    /// teams they are shared with, no teammate's server.
     private var moveCandidateDevices: [SteerDevice] {
         guard let session else { return [] }
+        let own = AgentSettings.ownDevices(
+            sessionTeamSynced: sessionTeamSynced,
+            starterIsViewer: currentUserId != nil && session.userId == currentUserId
+        )
         return DeviceQueries.compose(
             rows: deviceRows,
             users: mentionUserRows,
-            teamId: session.teamId,
+            teamId: own ? nil : session.teamId,
             userId: currentUserId,
             now: Date()
         )
@@ -1654,6 +1661,23 @@ final class AgentSessionModel {
     /// #EXP-1715: the viewer's Assistant root's Teams pick, carried by every
     /// send as `scopeTeamIds` (set by the host view; nil = none).
     var sendScope: TeamsScope?
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams`): the teams this
+    /// chat's lists read (set by the host view, which knows the synced
+    /// teams): the `#` refs and the `@` members. Empty = not known yet: the
+    /// session's own team.
+    var chatTeamIds: [String] = [] {
+        didSet {
+            guard chatTeamIds != oldValue else { return }
+            // Re-point the three `#` resolvers and the menu's two halves.
+            draftEditor.issueRefSearch = nil
+            configureDraftEditor()
+            rebuildMentionMembers()
+        }
+    }
+    /// #EXP-2079 (`deviceCases`): the session's team is one the viewer syncs
+    /// (set by the host view); false with the viewer as starter = the
+    /// Assistant's conversation: the viewer's own machines.
+    var sessionTeamSynced = true
     /// #FEED-204 / #EXP-1732: an app editor's ended root revived on another
     /// device: the next send is `sessions.send({appId, deviceId})` (set by the
     /// host view; nil = a plain message).
@@ -2371,7 +2395,9 @@ final class AgentSessionModel {
     /// membership, so it arrives on the observation below instead.
     private func configureDraftEditor() {
         guard draftEditor.issueRefSearch == nil, let teamId = session?.teamId else { return }
-        let scope = IssueRefLookup.Scope.team(id: teamId)
+        // #EXP-2079 (`assistant.chatTeams`): the chat's teams once the host
+        // knows them (`chatTeamIds`), the session's own before.
+        let scope: IssueRefLookup.Scope = chatTeamIds.isEmpty ? .team(id: teamId) : .teams(ids: chatTeamIds)
         let database = db
         let account = accountId
         draftEditor.issueRefResolver = { identifier in
@@ -2446,9 +2472,12 @@ final class AgentSessionModel {
     /// EXP-487's rule, session-scoped: the user rows stay account-wide (an
     /// ex-member still renders elsewhere), and membership is what an `@` may
     /// name.
+    /// #EXP-2079 (`assistant.chatTeams`): the members of the chat's teams,
+    /// one row per person, the list's existing order.
     private func rebuildMentionMembers() {
         guard let teamId = session?.teamId else { return }
-        let memberIds = Set(mentionMemberRows.filter { $0.teamId == teamId }.map(\.userId))
+        let teamIds = chatTeamIds.isEmpty ? [teamId] : chatTeamIds
+        let memberIds = Set(mentionMemberRows.filter { teamIds.contains($0.teamId) }.map(\.userId))
         draftEditor.mentionMembers = mentionUserRows
             .filter { memberIds.contains($0.id) }
             .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
