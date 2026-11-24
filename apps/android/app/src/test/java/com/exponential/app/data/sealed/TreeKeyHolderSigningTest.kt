@@ -78,6 +78,10 @@ class TreeKeyHolderSigningTest {
         val resignCalls = mutableListOf<List<ResignWrap>>()
         var resignCode: String? = null
         var oldPending = false
+        /** A tree whose readers are not [readers] (a private chat): its own list. */
+        val rootReaders = mutableMapOf<String, List<String>>()
+
+        fun readersOf(root: String): List<String> = rootReaders[root] ?: readers
 
         fun verifies(caller: String, root: String, epoch: Int, target: String, wrapped: String, signature: String): Boolean {
             val (stored, public) = roots[root] ?: return false
@@ -109,7 +113,7 @@ class TreeKeyHolderSigningTest {
         override suspend fun pending(installId: String): List<PendingTreeKey> = roots.flatMap { (root, key) ->
             val (epoch, public) = key
             if (rows.none { it.root == root && it.epoch == epoch && it.install == installId }) return@flatMap emptyList()
-            readers.filter { reader -> rows.none { it.root == root && it.epoch == epoch && it.install == reader } }.map { reader ->
+            readersOf(root).filter { reader -> rows.none { it.root == root && it.epoch == epoch && it.install == reader } }.map { reader ->
                 val install = installs.getValue(reader)
                 PendingTreeKey(root, epoch, public, reader, install.x25519, install.endpointId.takeUnless { oldPending })
             }
@@ -150,6 +154,7 @@ class TreeKeyHolderSigningTest {
                     row.signature != null -> "signed"
                     else -> "unsigned"
                 }
+                val readers = readersOf(w.rootId)
                 val valid = current && w.installId in readers && verifies(installId, w.rootId, w.epoch, w.installId, w.wrapped, w.signature)
                 val (rule, outcome) = resignRule(installId in readers, current, w.installId in readers, valid, state)
                 when {
@@ -231,6 +236,7 @@ class TreeKeyHolderSigningTest {
         val tree = SealedFfi.generateTreeKey()
         api.legacy(ROOT, 1, tree, listOf("phone", "desktop"))
         api.legacy(OTHER_ROOT, 1, SealedFfi.generateTreeKey(), listOf("phone"))
+        api.rootReaders[OTHER_ROOT] = listOf("phone")
         val holder = holder(api)
         holder.pass()
         assertEquals(1, api.resignCalls.size)
@@ -280,6 +286,8 @@ class TreeKeyHolderSigningTest {
     fun aRefusedNewRootFallsBackToItsOwnRow() = runBlocking {
         val api = VerifyingApi(installs, mutableListOf("phone", "desktop"))
         api.legacy(ROOT, 1, SealedFfi.generateTreeKey(), listOf("phone"))
+        api.rootReaders[ROOT] = listOf("phone")
+        api.rootReaders[THIRD_ROOT] = listOf("phone")
         val holder = holder(api)
         holder.pass()
         assertEquals(1, api.resignCalls.size)
