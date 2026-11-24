@@ -723,6 +723,11 @@ private fun RunFaceContent(
     val ownTail by viewModel.ownTail.collectAsStateWithLifecycle()
     // #EXP-1990: the teammates' inputs the device has not consumed yet.
     val teammateTail by viewModel.teammateTail.collectAsStateWithLifecycle()
+    // #EXP-2089 (message-delivery.json ORDER): every person's not-consumed
+    // rows in ONE list, oldest first, between the held rows and the outbox.
+    val pendingTail = remember(teammateTail, ownTail) {
+        com.exponential.app.domain.MessageDelivery.pendingTail(teammateTail, ownTail)
+    }
     // #FEED-260 (steer-enet.json SYNCED TAIL): a NOT-live feed (the stored
     // tail painted at open, a dropped feed's cache, an empty feed) is
     // followed by the session's synced messages after it, so the agent's
@@ -829,7 +834,9 @@ private fun RunFaceContent(
     val mentionMembers by viewModel.mentionMembers.collectAsStateWithLifecycle()
     val mentionResolver = remember(mentionMembers) { MentionResolver(mentionMembers) }
     // EXP-1188: links the agent writes to this instance open in the app.
-    val appLinkHandler = rememberAppLinkHandler(session?.teamId)
+    // #EXP-2079: a team-less target resolves against the FIRST chat team.
+    val chatTeamIds by viewModel.chatTeamIds.collectAsStateWithLifecycle()
+    val appLinkHandler = rememberAppLinkHandler(session?.teamId, chatTeamIds)
     val answerStates = activity.answerLocks
     // EXP-588: per locked card, what this client picked — joined for display.
     val answerLabels = remember(activity.answerLocks, activity.answerLabels) {
@@ -1297,10 +1304,10 @@ private fun RunFaceContent(
                 // rows = the sent inputs above it, then the own tail; find
                 // counts and paints them (no transcript to page in).
                 // #EXP-1990: + the teammates' inputs still waiting for the device.
-                val placeholderInputs = remember(sessionEnded, noFeedInputs, teammateTail) {
-                    (if (!sessionEnded) noFeedInputs else emptyList()) + teammateTail
+                val placeholderInputs = remember(sessionEnded, noFeedInputs) {
+                    if (!sessionEnded) noFeedInputs else emptyList()
                 }
-                val placeholderBubbles = remember(placeholderInputs, ownTail) { placeholderInputs + ownTail }
+                val placeholderBubbles = remember(placeholderInputs, pendingTail) { placeholderInputs + pendingTail }
                 // #EXP-1998: the sent inputs are the synced messages drawn
                 // here (a live or an ended placeholder draws none); an older
                 // one pages in by widening them and loading older messages.
@@ -1398,11 +1405,13 @@ private fun RunFaceContent(
                             members = tailMembers,
                         )
                     }
-                    if (ownTail.isNotEmpty()) {
+                    if (pendingTail.isNotEmpty()) {
                         com.exponential.app.ui.chat.OwnTailBubbles(
-                            ownTail,
+                            pendingTail,
                             viewModel::ownBubbleAction,
                             modifier = Modifier.padding(top = 8.dp),
+                            viewerId = tailViewerId,
+                            members = tailMembers,
                             // #EXP-1876: below the sent inputs = the same own group
                             // (#EXP-1990: unless a teammate's input ends them).
                             startsGroup = placeholderInputs.isEmpty() ||
@@ -1541,7 +1550,7 @@ private fun RunFaceContent(
                     sessionCards = cardSlots,
                     renderCard = renderSessionCard,
                     calls = feedCalls,
-                    ownTail = if (teammateTail.isEmpty()) ownTail else teammateTail + ownTail,
+                    ownTail = pendingTail,
                     onOwnAction = viewModel::ownBubbleAction,
                 )
                 }
@@ -2216,12 +2225,18 @@ private fun ActivityFeed(
                     lead + head
                 } else {
                     val at = rows.indexOfFirst { row -> sessionCards.after(row).any { it.id == id } }
-                    if (at < 0) null else lead + sessionCards.head.size + at
+                    val tail = sessionCards.tail.indexOfFirst { it.id == id }
+                    when {
+                        at >= 0 -> lead + sessionCards.head.size + at
+                        // #EXP-2087: an open card after the last row.
+                        tail >= 0 -> lead + sessionCards.head.size + rows.size + orphanWorkflows.size + tail
+                        else -> null
+                    }
                 }
             }
         },
         more = { canLoadEarlier || chatMessagesMore },
-        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size).hashCode() },
+        loadedMark = { listOf(feed.size, windowStart, rows.size, sessionCards.head.size, sessionCards.tail.size).hashCode() },
         page = loadEarlier,
         onTake = {
             onFollowChange(false)
@@ -2393,7 +2408,8 @@ private fun ActivityFeed(
         val visible = if (focused != null) {
             focused.items.size + 1
         } else {
-            rows.size + orphanWorkflows.size + (if (working) 1 else 0) + (if (ownTail.isNotEmpty()) 1 else 0)
+            rows.size + orphanWorkflows.size + sessionCards.tail.size + (if (working) 1 else 0) +
+                (if (ownTail.isNotEmpty()) 1 else 0)
         }
         if (following && visible > 0) {
             listState.scrollToItem(visible - 1)
@@ -2411,7 +2427,8 @@ private fun ActivityFeed(
         firstPin[0] = true
         if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) {
             val count = (if (canLoadEarlier) 1 else 0) + sessionCards.head.size + rows.size +
-                orphanWorkflows.size + (if (working) 1 else 0) + (if (ownTail.isNotEmpty()) 1 else 0) +
+                orphanWorkflows.size + sessionCards.tail.size + (if (working) 1 else 0) +
+                (if (ownTail.isNotEmpty()) 1 else 0) +
                 (if (feedFooter != null) 1 else 0)
             listState.requestScrollToItem(count - 1, Int.MAX_VALUE / 2)
         }
@@ -2619,12 +2636,27 @@ private fun ActivityFeed(
                                 val checkIns = shownRows.checkIns[row.id]
                                 val callId = callFeed.first[item.id]
                                 // #EXP-2067: a press's input = its body's bubble, else THE marker.
-                                val action = com.exponential.app.domain.ChatExpress.parseActionInput(item.text)
+                                // #EXP-2075: a teammate's press (the synced tail) is member-worded.
+                                val memberLine = TranscriptGrouping.memberInputOf(item.text)
+                                val action = com.exponential.app.domain.ChatExpress.parseActionInput(memberLine?.body ?: item.text)
+                                val presser = memberLine?.takeIf { action != null && it.userId != senders?.viewerId }
                                 when {
                                     // #EXP-1943: a call's report relay = THE call card.
                                     callId != null -> callCard(callId)
                                     action != null && action.body.isBlank() ->
-                                        FeedMarkerRow(com.exponential.app.domain.ChatExpress.actionMarker(action.card.name, null), testTag = "express-action-marker")
+                                        FeedMarkerRow(
+                                            com.exponential.app.domain.ChatExpress.actionMarker(
+                                                action.card.name,
+                                                presser?.let { senders?.members?.get(it.userId)?.name?.takeIf(String::isNotBlank) ?: it.name },
+                                            ),
+                                            testTag = "express-action-marker",
+                                        )
+                                    action != null && presser != null && layout?.side == TranscriptGrouping.Side.Other -> MessageBubble(
+                                        own = false,
+                                        time = time,
+                                        author = layout.authorLine(),
+                                        tail = layout.hasTail(),
+                                    ) { UserMessageBody(action.body, LocalFindPaint.current?.highlightOf(item.id)) }
                                     action != null -> MessageBubble(
                                         own = true,
                                         time = time,
@@ -2733,6 +2765,11 @@ private fun ActivityFeed(
                         )
                     }
                 }
+            }
+            // #EXP-2087 (ask-dock.json `tail`): an open card with no call
+            // in the feed draws after the last row, never above the first.
+            items(sessionCards.tail, key = { "session-card-${it.id}" }, contentType = { "session-card" }) { card ->
+                SessionCardRow(card, ringCard)
             }
             // #EXP-1943: a RUNNING call with no report in the loaded feed
             // draws its card after the feed's last row.
@@ -3007,7 +3044,10 @@ internal fun feedTranscriptLayout(
                 ) {
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
                 } else if (TranscriptGrouping.feedInput(feedItem.text) is TranscriptGrouping.FeedInput.Marker ||
-                    com.exponential.app.domain.ChatExpress.parseActionInput(feedItem.text)?.body?.isBlank() == true
+                    // #EXP-2075: a teammate's press too (member-worded): a bodiless one is THE marker.
+                    com.exponential.app.domain.ChatExpress.parseActionInput(
+                        TranscriptGrouping.memberInputOf(feedItem.text)?.body ?: feedItem.text,
+                    )?.body?.isBlank() == true
                 ) {
                     // #EXP-1772: a system input is THE marker (full, never grouped).
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
@@ -3214,6 +3254,10 @@ internal class SessionCardSlots(
 ) {
     /** The cards with no call in the feed, at the transcript's head. */
     val head: List<SessionTree.SessionChatRow> get() = anchors.unanchored.mapNotNull(rows::get)
+
+    /** #EXP-2087: the WAITING cards with no call in the feed, after the
+     *  transcript's last row. */
+    val tail: List<SessionTree.SessionChatRow> get() = anchors.tail.mapNotNull(rows::get)
 
     /** The cards a feed row's calls posted, oldest first. */
     fun after(row: AgentFeedRow): List<SessionTree.SessionChatRow> {
@@ -5968,7 +6012,9 @@ internal fun SessionComposer(
         moveError?.let { com.exponential.app.ui.components.FailedAction("move", "the session", it.ifBlank { null }) },
         onShown = viewModel::clearMoveError,
     )
-    LaunchedEffect(session?.teamId) { viewModel.loadMcpServers() }
+    // #EXP-2079: the chat teams' servers (the Assistant's chat: the turn's teams).
+    val mcpTeamIds by viewModel.chatTeamIds.collectAsStateWithLifecycle()
+    LaunchedEffect(session?.teamId, mcpTeamIds) { viewModel.loadMcpServers() }
     val composerAgent = session?.cli?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT
     val promptRows by viewModel.promptRows.collectAsStateWithLifecycle()
     // #EXP-1434: the + menu's prompt lands at the composer's caret (its
@@ -7415,7 +7461,8 @@ internal fun sentInputBubbles(
 ): List<MessageDelivery.Bubble> {
     val seen = newest.mapTo(HashSet()) { it.key }
     val older = loaded
-        .filter { it.authorKind == "user" && it.consumedAt != null && it.body.isNotBlank() && seen.add(it.id) }
+        // #EXP-2075: the loaded window holds a person's carded rows too; SENT INPUTS are card-less.
+        .filter { it.authorKind == "user" && !it.hasCard && it.consumedAt != null && it.body.isNotBlank() && seen.add(it.id) }
         .map { row ->
             MessageDelivery.Bubble(
                 key = row.id,

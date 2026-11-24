@@ -233,7 +233,7 @@ class ExpressBlocksDeviceTest {
     @Test
     fun aCallViewTurnDrawsItsBlock() {
         // #EXP-2076: THE call view (session-card.json `callViewCases[0]` +
-        // the Express turn): the agent turn splits like the chat (`m:v7`).
+        // the Express turn): the agent turn splits like the chat (`m:v-express`).
         var posted: ChatExpress.ActionResult.Post? = null
         show {
             com.exponential.app.ui.styleguide.CallViewExpressSpecimen(
@@ -247,8 +247,8 @@ class ExpressBlocksDeviceTest {
         shot("call-view")
         compose.onAllNodes(hasText("Ship it"), useUnmergedTree = true)[0].performClick()
         compose.waitUntil(5_000) { posted != null }
-        assertEquals("m:v7#1", posted!!.card.block)
-        assertEquals("v7", posted!!.card.messageId)
+        assertEquals("m:v-express#1", posted!!.card.block)
+        assertEquals("v-express", posted!!.card.messageId)
     }
 
     private companion object {

@@ -47,6 +47,7 @@ beforeAll(() => {
       requiredChecks: async () => [],
       reportStatus: async () => {},
       readFile: async () => null,
+      listFiles: async () => null,
     })
   )
 })
@@ -387,7 +388,7 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
       expect(dispatched.map((c) => c.payload.jobId)).toEqual([build.id])
     } finally {
       setForgeForTests(() =>
-        partialForgeForTests({ kind: `github`, requiredChecks: async () => [], reportStatus: async () => {}, readFile: async () => null })
+        partialForgeForTests({ kind: `github`, requiredChecks: async () => [], reportStatus: async () => {}, readFile: async () => null, listFiles: async () => null })
       )
     }
   })
@@ -420,7 +421,7 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
       expect([check.name, check.conclusion]).toEqual([`pipeline`, `failure`])
     } finally {
       setForgeForTests(() =>
-        partialForgeForTests({ kind: `github`, requiredChecks: async () => [], reportStatus: async () => {}, readFile: async () => null })
+        partialForgeForTests({ kind: `github`, requiredChecks: async () => [], reportStatus: async () => {}, readFile: async () => null, listFiles: async () => null })
       )
     }
   })
@@ -463,12 +464,54 @@ describe.skipIf(!ready.ok)(`eCode CI`, { timeout: 30_000 }, () => {
       expect((await runs.startRun({ repositoryId: f.repositoryId, sha, trigger: `push`, ref: `main` })).started).toBe(false)
     } finally {
       setForgeForTests(() =>
-        partialForgeForTests({ kind: `github`, requiredChecks: async () => [], reportStatus: async () => {}, readFile: async () => null })
+        partialForgeForTests({ kind: `github`, requiredChecks: async () => [], reportStatus: async () => {}, readFile: async () => null, listFiles: async () => null })
       )
     }
   })
 
   // Q6: runner devices also serve GitHub Actions for opted-in repos.
+  it(`a GitHub repo with our CI on plans its workflows too, as "ecode <job>" checks (#EXP-2078)`, async () => {
+    const f = await fixture()
+    const files: Record<string, string> = {
+      ".github/workflows/ci.yml": `name: ci\non: [push, pull_request]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n      - run: npm test\n  lint:\n    runs-on: ubuntu-latest\n    needs: build\n    steps:\n      - run: npm run lint\n`,
+    }
+    setForgeForTests(() =>
+      partialForgeForTests({
+        kind: `github`,
+        requiredChecks: async () => [],
+        reportStatus: async () => {},
+        readFile: async (_repo, path) => files[path] ?? null,
+        listFiles: async (_repo, dir) => (dir === `.github/workflows` ? [`ci.yml`] : null),
+      })
+    )
+    try {
+      const sha = `7`.repeat(40)
+      const started = await runs.startRun({ repositoryId: f.repositoryId, sha, trigger: `push`, ref: `main` })
+      expect(started.started).toBe(true)
+      const [run] = await db.select().from(ciRuns).where(and(eq(ciRuns.repositoryId, f.repositoryId), eq(ciRuns.sha, sha)))
+      expect([run.name, run.state]).toEqual([`ci`, `pending`])
+      const jobs = await jobsOf(run.id)
+      expect(jobs.map((j) => j.check)).toEqual([`ecode build`, `ecode lint`])
+      expect(jobs[1].needs).toEqual([jobs[0].id])
+      expect(jobs[0].spec?.steps.map((step) => step.name)).toEqual([`actions/setup-node`, `npm test`])
+      const checks = await db
+        .select({ name: commitChecks.name })
+        .from(commitChecks)
+        .where(and(eq(commitChecks.repositoryId, f.repositoryId), eq(commitChecks.sha, sha)))
+      expect(checks.map((c) => c.name).sort()).toEqual([`ecode build`, `ecode lint`])
+      // `.exponential/ci.json` still wins: the workflows are not read then.
+      files[`.exponential/ci.json`] = JSON.stringify(PIPELINE)
+      const other = `6`.repeat(40)
+      expect((await runs.startRun({ repositoryId: f.repositoryId, sha: other, trigger: `push`, ref: `main` })).started).toBe(true)
+      const [own] = await db.select().from(ciRuns).where(and(eq(ciRuns.repositoryId, f.repositoryId), eq(ciRuns.sha, other)))
+      expect((await jobsOf(own.id)).map((j) => j.check)).not.toContain(`ecode build`)
+    } finally {
+      setForgeForTests(() =>
+        partialForgeForTests({ kind: `github`, requiredChecks: async () => [], reportStatus: async () => {}, readFile: async () => null, listFiles: async () => null })
+      )
+    }
+  })
+
   it(`an opted-in repo gets an Actions runner on every enabled runner device`, async () => {
     const f = await fixture()
     const ar = await import(`@/lib/ci/actions-runners`)

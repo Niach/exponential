@@ -219,8 +219,8 @@ extension ChatStoreHub {
         for (accountId, store) in open.sorted(by: { $0.key < $1.key }) {
             guard let pool = db?.poolIfOpen(forAccountId: accountId),
                   let row = (try? await pool.read({ try SessionEntity.fetchOne($0, key: sessionId) })) ?? nil else { continue }
-            let entries = await node.registry(accountId: accountId)[row.teamId] ?? []
-            target = (store, Self.access(row: row, peer: peer, teamInstalls: entries))
+            let registry = await node.registry(accountId: accountId)
+            target = (store, Self.access(row: row, peer: peer, registry: registry))
             break
         }
         guard let found = target ?? open.first.map({ ($0.value, ChatStorePageAccess.noSuchSession) }) else { return }
@@ -235,9 +235,23 @@ extension ChatStoreHub {
 
     /// The join's access rule over the holder's synced row: the asker's
     /// user from the session team's registry list (unknown = refused), the
-    /// starter, or anyone listed when the session is shared.
-    public static func access(row: SessionEntity, peer: String, teamInstalls: [InstallEntry]) -> ChatStorePageAccess {
-        let user = teamInstalls.first { $0.endpointId.lowercased() == peer.lowercased() && $0.revokedAt == nil }?.userId
-        return SteerEnet.viewerAllowed(viewerUserId: user, starterUserId: row.userId, shared: row.shared) ? .allowed : .unauthorized
+    /// starter, or anyone listed when the session is shared. #EXP-2079
+    /// (steer-enet.json `access`, A TEAM WITHOUT A LIST): the registry holds
+    /// one list per SYNCED team, so a session in a team with no list at all
+    /// (its starter's personal team: the Assistant's conversation) admits
+    /// the starter when the endpoint is theirs in ANY list held.
+    public static func access(row: SessionEntity, peer: String, registry: [String: [InstallEntry]]) -> ChatStorePageAccess {
+        let endpoint = peer.lowercased()
+        func user(in installs: [InstallEntry]) -> String? {
+            installs.first { $0.endpointId.lowercased() == endpoint && $0.revokedAt == nil }?.userId
+        }
+        let teamList = registry[row.teamId]
+        let anyTeamUser = teamList == nil
+            ? registry.keys.sorted().lazy.compactMap { user(in: registry[$0] ?? []) }.first
+            : nil
+        return SteerEnet.viewerAllowed(
+            viewerUserId: teamList.flatMap(user(in:)), starterUserId: row.userId, shared: row.shared,
+            teamListed: teamList != nil, anyTeamUserId: anyTeamUser
+        ) ? .allowed : .unauthorized
     }
 }

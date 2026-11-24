@@ -241,6 +241,14 @@ interface UserDao {
     )
     fun observeByTeam(teamId: String): Flow<List<UserEntity>>
 
+    // #EXP-2079 (agent-settings.json `assistant.chatTeams`): the members of
+    // the chat teams, one row per person, [observeByTeam]'s order.
+    @Query(
+        "SELECT DISTINCT u.* FROM users u JOIN team_members m ON m.user_id = u.id " +
+            "WHERE m.team_id IN (:teamIds) ORDER BY u.name, u.email"
+    )
+    fun observeByTeams(teamIds: List<String>): Flow<List<UserEntity>>
+
     @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
     fun observeById(id: String): Flow<UserEntity?>
 
@@ -659,10 +667,12 @@ abstract class MessageDao {
 
     // #FEED-260 (steer-enet.json SYNCED TAIL): a session's NEWEST [limit]
     // card-less agent lines and person inputs, oldest first: what a
-    // not-live transcript appends after its feed.
+    // not-live transcript appends after its feed. #EXP-2075: a person's
+    // `action` card rows too (a sealed card keeps its `kind` in clear; the
+    // reference decides on the OPENED card).
     @Query(
         "SELECT * FROM (SELECT * FROM messages WHERE session_id = :sessionId AND author_kind IN ('user', 'agent') " +
-            "AND (card IS NULL OR card = 'null') " +
+            "AND (card IS NULL OR card = 'null' OR (author_kind = 'user' AND card LIKE '%\"kind\"%\"action\"%')) " +
             "ORDER BY created_at DESC, id DESC LIMIT :limit) ORDER BY created_at, id",
     )
     abstract fun rawObserveTailMessages(sessionId: String, limit: Int): Flow<List<MessageEntity>>

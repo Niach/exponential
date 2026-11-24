@@ -164,6 +164,13 @@ pub const TOOL_KIND_META_KEY: &str = "exponentialToolKind";
 /// over rather than a lookup.
 pub const TOOL_DETAIL_META_KEY: &str = "exponentialToolDetail";
 
+/// #FEED-274: the `_meta` key (same no-op carrier) an adapter stamps when it
+/// interrupted the agent's turn ITSELF (claude's quiet guard). Value: the
+/// line the host owes the agent once that turn has settled
+/// (`SessionCtx::device_interrupted`): the CLI words every interrupt as the
+/// user's.
+pub const DEVICE_INTERRUPT_META_KEY: &str = "exponentialDeviceInterrupt";
+
 /// EXP-850 §2: the `_meta` key the background-task list rides on (a no-op
 /// `session_info_update`, like the rate-limit slot). Value: the FULL current
 /// list as `[{id, kind, description, toolId?}]`; an empty array means nothing

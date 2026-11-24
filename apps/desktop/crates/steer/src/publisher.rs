@@ -862,17 +862,29 @@ async fn run_publisher_loop(
         running: &running,
         feeds: &mut feeds,
     };
+    // #EXP-2082: the inherited journal may still list the PREDECESSOR's
+    // background tasks (its engine was killed, a between-turn restart, a
+    // crash: it never published the empty list that closes the strip). They
+    // died with that process: close the slot before any viewer replays it,
+    // or its "1 to do · … in the background" card outlives the run for as
+    // long as this one starts no task of its own.
+    lp.close_background_tasks();
     while let Ok(cmd) = cmd_rx.recv_async().await {
         match cmd {
             PublisherCmd::Activity(event) => {
                 lp.record(event);
             }
             PublisherCmd::Shutdown { outcome } => {
+                // The engine is gone, and its background tasks with it: the
+                // journal (and its file, what an idle session replays) must
+                // not keep them listed.
+                lp.close_background_tasks();
                 lp.feeds.set_outcome(outcome);
                 break;
             }
             cmd => {
                 if let Some(Steered::Kill) = lp.command(cmd) {
+                    lp.close_background_tasks();
                     lp.kill();
                     break;
                 }
@@ -1026,6 +1038,14 @@ struct Loop<'a> {
 impl Loop<'_> {
     /// Record one event (stamped, embeds restored) and fan it out live to
     /// the eNet viewers, then (EXP-906) the cap notice it may have minted.
+    /// #EXP-2082: publish the EMPTY `background_tasks` list while the slot
+    /// still lists a task of an engine that is gone.
+    fn close_background_tasks(&mut self) {
+        if self.recorder.journal.background_tasks_open() {
+            self.record(ActivityEvent::background_tasks(Vec::new()));
+        }
+    }
+
     fn record(&mut self, mut event: ActivityEvent) {
         if self.recorder.drops_history(&event) {
             return;
@@ -1419,6 +1439,57 @@ mod tests {
             unqueue: None,
             compact: None,
         }
+    }
+
+    /// #EXP-2082: a run relaunched over its predecessor's journal (a
+    /// between-turn restart, a killed engine) never keeps that engine's
+    /// background tasks listed: the inherited slot is closed before the
+    /// first viewer replays it, and a run that ends with tasks listed closes
+    /// its own.
+    #[test]
+    fn a_dead_engines_background_tasks_are_closed() {
+        let runtime = SteerRuntime::new().unwrap();
+        let data_dir = std::env::temp_dir().join(format!(
+            "exp-steer-bg-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let task = || crate::BackgroundTask {
+            id: "b1".to_string(),
+            kind: crate::BackgroundTaskKind::Shell,
+            description: "Wait for the deploy".to_string(),
+            tool_id: None,
+            started_at: None,
+        };
+        let last_list = |data_dir: &std::path::Path| {
+            crate::history::read_journal(data_dir, "sess-bg").unwrap_or_default().into_iter().rev().find_map(|event| match event {
+                ActivityEvent::BackgroundTasks { tasks, .. } => Some(tasks.len()),
+                _ => None,
+            })
+        };
+        // The predecessor: killed with one task listed, nothing closed it.
+        let mut writer = crate::JournalWriter::open(&data_dir, "sess-bg").unwrap();
+        writer.append(&ActivityEvent::narration("working"));
+        writer.append(&ActivityEvent::background_tasks(vec![task()]));
+        drop(writer);
+        assert_eq!(last_list(&data_dir), Some(1));
+
+        let spec = || PublishSpec {
+            session_id: "sess-bg".to_string(),
+            issue_id: None,
+            journal_dir: Some(data_dir.clone()),
+            embeds: ImageEmbeds::default(),
+            audience: None,
+            resumed: true,
+        };
+        let handle = publish(&runtime, spec(), recording_hooks(Arc::new(Recorded::default())));
+        wait_for(|| last_list(&data_dir) == Some(0));
+        // This run lists a task of its own and ends: closed at the end.
+        handle.activity_sender().send(ActivityEvent::background_tasks(vec![task()]));
+        wait_for(|| last_list(&data_dir) == Some(1));
+        handle.shutdown(Some("suspended".into()));
+        wait_for(|| last_list(&data_dir) == Some(0));
+        let _ = std::fs::remove_dir_all(&data_dir);
     }
 
     /// Wait (bounded) until `predicate` holds — hooks fire on runtime threads.

@@ -8,8 +8,9 @@ import kotlinx.serialization.builtins.ListSerializer
 // EXP-1458 tRPC `sessionKeys` (fixtures/sealed-content.json KEY API): every
 // call names an install the caller owns (not revoked).
 
+/** #EXP-1950: [signature] = this install's over the wrap (`enet_core::wrap_sig`); null = unsigned, omitted on the wire. */
 @Serializable
-data class TreeKeyWrap(val installId: String, val wrapped: String)
+data class TreeKeyWrap(val installId: String, val wrapped: String, val signature: String? = null)
 
 @Serializable
 data class CreateSessionKeyInput(
@@ -25,7 +26,14 @@ data class MineSessionKeysInput(val installId: String, val rootIds: List<String>
 
 /** One wrap this install holds. */
 @Serializable
-data class HeldTreeKey(val rootId: String, val epoch: Int, val wrapped: String)
+data class HeldTreeKey(
+    val rootId: String,
+    val epoch: Int,
+    val wrapped: String,
+    /** #EXP-1950: who signed it (both null = unsigned; an older server sends neither). */
+    val signature: String? = null,
+    val signerEndpointId: String? = null,
+)
 
 @Serializable
 data class PendingSessionKeysInput(val installId: String, val limit: Int = PENDING_MAX)
@@ -38,10 +46,22 @@ data class PendingTreeKey(
     val publicKey: String,
     val targetInstallId: String,
     val targetX25519Public: String,
+    /** #EXP-1950: the target's ed25519 key a wrap signature names (null from a server older than #3394: unsigned). */
+    val targetEndpointId: String? = null,
 )
 
 @Serializable
-data class PendingWrap(val rootId: String, val epoch: Int, val targetInstallId: String, val wrapped: String)
+data class PendingWrap(val rootId: String, val epoch: Int, val targetInstallId: String, val wrapped: String, val signature: String? = null)
+
+/** #EXP-1950 (wrap-signature.json `resign`): a fresh signed wrap of a root's current epoch for [installId], the TARGET. */
+@Serializable
+data class ResignWrap(val rootId: String, val epoch: Int, val installId: String, val wrapped: String, val signature: String)
+
+@Serializable
+data class ResignInput(val installId: String, val wraps: List<ResignWrap>)
+
+@Serializable
+data class ResignResult(val replaced: Int = 0, val skipped: Int = 0)
 
 @Serializable
 data class WrapSessionKeysInput(val installId: String, val wraps: List<PendingWrap>)
@@ -62,7 +82,14 @@ data class RequestKeyInput(val rootId: String)
 @Serializable
 data class RequestKeyResult(val state: String, val epoch: Int? = null, val publicKey: String? = null)
 
+/** #EXP-1951 `sessionKeys.due`: a root this install rotates; [epoch] = the one to supersede. */
+@Serializable
+data class DueTreeKey(val rootId: String, val epoch: Int)
+
 const val PENDING_MAX = 200
+
+/** `resign.maxWraps`. */
+const val RESIGN_MAX = 200
 
 @Singleton
 class SessionKeysApi @Inject constructor(private val trpc: TrpcClient) {
@@ -104,6 +131,26 @@ class SessionKeysApi @Inject constructor(private val trpc: TrpcClient) {
             input = PublicKeysInput(rootIds),
             inputSerializer = PublicKeysInput.serializer(),
             outputSerializer = ListSerializer(TreePublicKey.serializer()),
+        )
+
+    /** #EXP-1951 (sealed-content.json `rotation`): the roots this install rotates now. */
+    suspend fun due(accountId: String, installId: String): List<DueTreeKey> =
+        trpc.query(
+            accountId,
+            path = "sessionKeys.due",
+            input = PendingSessionKeysInput(installId),
+            inputSerializer = PendingSessionKeysInput.serializer(),
+            outputSerializer = ListSerializer(DueTreeKey.serializer()),
+        )
+
+    /** #EXP-1950: replaces readers' UNSIGNED rows of a root's current epoch with these signed wraps. */
+    suspend fun resign(accountId: String, installId: String, wraps: List<ResignWrap>): ResignResult =
+        trpc.mutation(
+            accountId,
+            path = "sessionKeys.resign",
+            input = ResignInput(installId, wraps),
+            inputSerializer = ResignInput.serializer(),
+            outputSerializer = ResignResult.serializer(),
         )
 
     /** #EXP-1960: a keyless tree this install may not key: its devices key it. */

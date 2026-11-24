@@ -454,6 +454,45 @@ public enum AgentSettings {
             .map(\.deviceId)
     }
 
+    /// A Runs on picker row (`runsOnRowCases`): `description` = the secondary
+    /// line (devices-list `copy.offline` while offline), `disabled` its state.
+    public struct RunsOnRow: Equatable, Sendable {
+        public let id: String
+        public let description: String?
+        public let disabled: Bool
+
+        public init(id: String, description: String?, disabled: Bool) {
+            self.id = id
+            self.description = description
+            self.disabled = disabled
+        }
+    }
+
+    /// THE Runs on rows ×4 (`runsOnRowCases`, TS `runsOnRows`, web
+    /// `deviceRows`): the devices of `runsOnDeviceIds`, online ones pickable,
+    /// an offline one listed with `Offline` and disabled unless bound; a bound
+    /// id no device matches leads by its raw id.
+    public static func runsOnRows(
+        _ devices: [(deviceId: String, kind: String?, online: Bool)],
+        boundId: String?,
+        assistant: Bool
+    ) -> [RunsOnRow] {
+        let kept = Set(runsOnDeviceIds(devices.map { (deviceId: $0.deviceId, kind: $0.kind) }, boundId: boundId, assistant: assistant))
+        var rows = devices
+            .filter { kept.contains($0.deviceId) }
+            .map { device in
+                RunsOnRow(
+                    id: device.deviceId,
+                    description: device.online ? nil : DevicesList.Copy.offline,
+                    disabled: !device.online && device.deviceId != boundId
+                )
+            }
+        if let boundId, !boundId.isEmpty, !devices.contains(where: { $0.deviceId == boundId }) {
+            rows.insert(RunsOnRow(id: boundId, description: nil, disabled: false), at: 0)
+        }
+        return rows
+    }
+
     /// `assistant.scheduleCases`: the preset stored triggers stand for; nil
     /// = not an Assistant's (an event, a custom cron, more than one) and
     /// `agents.update` refuses it. A paused preset reads `off`.
@@ -620,15 +659,50 @@ public enum AgentSettings {
         return !teamIds.contains(rowTeamId)
     }
 
-    /// #EXP-1714: the team a composer's `/` prompts, `#` issue search and
-    /// `@` mentions read: the agent's / session's own team while it is a
-    /// synced one, else the ACTIVE team (the global Assistant's personal team
-    /// never syncs). Uploads and sends keep the own team. No synced teams
-    /// known yet = the own team.
-    public static func lookupTeamId(_ teamId: String?, teamIds: [String], activeTeamId: String?) -> String? {
-        guard let teamId else { return activeTeamId }
-        if teamIds.isEmpty || teamIds.contains(teamId) { return teamId }
-        return activeTeamId ?? teamId
+    /// #EXP-2079 (`assistant.chatTeams`): the teams the lists of a chat read
+    /// (`#` refs, `@` members, the MCP pick, prompts, Link / New issue): the
+    /// own team while it is synced, else the turn's teams (the Teams pick ∩
+    /// the synced teams, else all of them), in the synced order.
+    /// `syncedTeamIds` comes in the cross-team order (`crossTeamOrder`).
+    /// Supersedes #EXP-1714's single lookup team.
+    public static func chatTeams(ownTeamId: String?, syncedTeamIds: [String], pickedTeamIds: [String]?) -> [String] {
+        if let ownTeamId, syncedTeamIds.contains(ownTeamId) { return [ownTeamId] }
+        if syncedTeamIds.isEmpty { return ownTeamId.map { [$0] } ?? [] }
+        let picked = Set(pickedTeamIds ?? [])
+        let turn = syncedTeamIds.filter(picked.contains)
+        return turn.isEmpty ? syncedTeamIds : turn
+    }
+
+    /// #EXP-2094 (`assistant.chatTeams`): a composer's Teams pick over its
+    /// root's stored `scopeTeamIds`. The chat teams read the composer's own
+    /// pick the moment it moves (a removed Teams chip = nil = every synced
+    /// team at once), not the stored one until the next send; a stored pick
+    /// that moves (the send landed, another client) re-seeds it.
+    public struct TeamsPickDraft: Equatable, Sendable {
+        private var edited = false
+        private var value: [String]?
+
+        public init() {}
+
+        /// The pick the composer shows and the chat teams read.
+        public func picked(stored: [String]?) -> [String]? { edited ? value : stored }
+
+        public mutating func pick(_ next: [String]?) {
+            edited = true
+            value = next
+        }
+
+        public mutating func reseed() {
+            edited = false
+            value = nil
+        }
+    }
+
+    /// #EXP-2079 (`assistant.chatTeams` `deviceCases`): the device list of a
+    /// session in a team the viewer does not sync, that they started (the
+    /// Assistant's conversation) = their own machines, no team rule.
+    public static func ownDevices(sessionTeamSynced: Bool, starterIsViewer: Bool) -> Bool {
+        !sessionTeamSynced && starterIsViewer
     }
 
     /// #EXP-1714: is this agent the viewer's own Assistant (wherever it

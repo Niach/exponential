@@ -61,6 +61,11 @@ public struct KeychainInstallSecretStorage: InstallSecretStorage {
 
 public final class InstallIdentityStore: Sendable {
     static let account = "identity.v1"
+    /// #EXP-1950 decision (e): set when THIS build mints the identity (any
+    /// caller: the push key minted it too), cleared once every signed-in
+    /// account's pin store was written for it (`clearMinted`). Accounts of an
+    /// identity an earlier build minted, without a store, are the existing ones.
+    static let mintedAccount = "identity.v1.minted"
     private let storage: InstallSecretStorage
 
     public init(storage: InstallSecretStorage) {
@@ -90,9 +95,24 @@ public final class InstallIdentityStore: Sendable {
         var bytes = Data(count: 32)
         let status = bytes.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!) }
         guard status == errSecSuccess else { return nil }
+        // The flag first: an identity without it reads as an earlier build's.
+        storage.delete(account: Self.mintedAccount)
+        _ = storage.add(account: Self.mintedAccount, data: Data([1]))
         if storage.add(account: Self.account, data: bytes) { return bytes }
         // Lost a race with another writer: theirs wins.
         return load()
+    }
+
+    /// `loadOrCreate`, and whether this build minted the identity and the
+    /// accounts' pin stores are not written for it yet.
+    public func loadOrMint() -> (identity: Data, minted: Bool)? {
+        guard let identity = loadOrCreate() else { return nil }
+        return (identity, storage.read(account: Self.mintedAccount) != nil)
+    }
+
+    /// Every signed-in account's pin store is written for the minted identity.
+    public func clearMinted() {
+        storage.delete(account: Self.mintedAccount)
     }
 
     /// Forgets the identity: the next `loadOrCreate` makes a new one. Called

@@ -66,7 +66,7 @@ final class AgentSessionModel {
         case .connecting: return .connecting
         // EXP-1487: a live feed that dropped holds `.live` on screen while it
         // redials silently; to the revival rule it is a reconnecting close.
-        case .live: return dropAt == nil ? .live : .closedReconnecting
+        case .live: return drop.pending ? .closedReconnecting : .live
         case .starting: return .starting
         case .ended: return .final
         case let .closed(_, reconnecting): return reconnecting ? .closedReconnecting : .final
@@ -606,12 +606,19 @@ final class AgentSessionModel {
 
     /// The launch composer's machines for the session's team (own +
     /// team-shared), off the same synced rows the host read-out uses.
+    /// #EXP-2079 (`assistant.chatTeams` `deviceCases`): the Assistant's
+    /// conversation (a team never synced, mine) = my OWN machines whatever
+    /// teams they are shared with, no teammate's server.
     private var moveCandidateDevices: [SteerDevice] {
         guard let session else { return [] }
+        let own = AgentSettings.ownDevices(
+            sessionTeamSynced: sessionTeamSynced,
+            starterIsViewer: currentUserId != nil && session.userId == currentUserId
+        )
         return DeviceQueries.compose(
             rows: deviceRows,
             users: mentionUserRows,
-            teamId: session.teamId,
+            teamId: own ? nil : session.teamId,
             userId: currentUserId,
             now: Date()
         )
@@ -1300,11 +1307,10 @@ final class AgentSessionModel {
     /// next NO FEED then redials at once, the backoff from n = 0).
     @ObservationIgnored private var wakeRow: SteerNoFeed.WakeRow?
     @ObservationIgnored private var rowWoke = false
-    /// EXP-1487 LOST BANNER: when a feed that was joined dropped (nil = no
-    /// drop pending), and how many redials since then failed. A successful
-    /// join resets both (`attachFeed`).
-    private var dropAt: Date?
-    private var failedRedialsSinceDrop = 0
+    /// EXP-1487 LOST BANNER: when a feed that was joined dropped and how
+    /// many redials since then failed (`SteerDrop`). A successful join
+    /// (`attachFeed`) and the banner's Reconnect (#EXP-2087) clear it.
+    private var drop = SteerDrop()
     /// Monotonic dial id — each dial() invalidates the ones before it, so a
     /// dial that was superseded mid-await (a foreground connect() racing a
     /// fired backoff retry, EXP-243) can't install a second socket or stomp
@@ -1504,6 +1510,9 @@ final class AgentSessionModel {
         retryTask?.cancel()
         retryTask = nil
         reconnectAttempts = 0
+        // #EXP-2087: a fresh dial, never one more failed redial of the old
+        // drop (that flipped a tapped Reconnect straight back to the banner).
+        drop.reconnect()
         resetDialState()
         phase = .connecting
         Task { await dial() }
@@ -1603,8 +1612,7 @@ final class AgentSessionModel {
         retryTask = nil
         dialInFlight = false
         lastFrameAt = nil
-        dropAt = nil
-        failedRedialsSinceDrop = 0
+        drop.clear()
         cancelAnswerExpiries()
         clearLiveWork()
         sessionObservationTask?.cancel()
@@ -1653,6 +1661,23 @@ final class AgentSessionModel {
     /// #EXP-1715: the viewer's Assistant root's Teams pick, carried by every
     /// send as `scopeTeamIds` (set by the host view; nil = none).
     var sendScope: TeamsScope?
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams`): the teams this
+    /// chat's lists read (set by the host view, which knows the synced
+    /// teams): the `#` refs and the `@` members. Empty = not known yet: the
+    /// session's own team.
+    var chatTeamIds: [String] = [] {
+        didSet {
+            guard chatTeamIds != oldValue else { return }
+            // Re-point the three `#` resolvers and the menu's two halves.
+            draftEditor.issueRefSearch = nil
+            configureDraftEditor()
+            rebuildMentionMembers()
+        }
+    }
+    /// #EXP-2079 (`deviceCases`): the session's team is one the viewer syncs
+    /// (set by the host view); false with the viewer as starter = the
+    /// Assistant's conversation: the viewer's own machines.
+    var sessionTeamSynced = true
     /// #FEED-204 / #EXP-1732: an app editor's ended root revived on another
     /// device: the next send is `sessions.send({appId, deviceId})` (set by the
     /// host view; nil = a plain message).
@@ -1878,14 +1903,20 @@ final class AgentSessionModel {
 
     private var ownTail: [OwnPendingBubble] {
         guard ownPending.contains(where: { $0.stored }) else { return ownPending }
-        var echoes: [(text: String, at: Double)] = []
+        // #EXP-2089: `member` = the teammate a group chat's line names (nil =
+        // the viewer's, or an unworded line: anyone's).
+        var echoes: [(text: String, at: Double, member: String?)] = []
         for item in feed.suffix(40) {
             if case let .userMessage(_, text, _, at) = item {
-                // #EXP-1990: a group chat's echo of the viewer's own line
+                // #EXP-1990: a group chat's echo of a member's line
                 // (`Message from <name> (member <id>): <body>`) = its body.
                 var own = text
-                if case let .member(_, userId, body) = TranscriptGrouping.feedInput(text), userId == currentUserId { own = body }
-                echoes.append((own.trimmingCharacters(in: .whitespacesAndNewlines), Double(at ?? 0) / 1000))
+                var member: String?
+                if case let .member(_, userId, body) = TranscriptGrouping.feedInput(text) {
+                    own = body
+                    member = userId == currentUserId ? nil : userId
+                }
+                echoes.append((own.trimmingCharacters(in: .whitespacesAndNewlines), Double(at ?? 0) / 1000, member))
             }
         }
         var used = Set<Int>()
@@ -1894,6 +1925,7 @@ final class AgentSessionModel {
             let since = (bubble.at?.timeIntervalSince1970 ?? 0) - 5
             guard let index = echoes.indices.first(where: {
                 !used.contains($0) && echoes[$0].text == bubble.text && echoes[$0].at >= since
+                    && (echoes[$0].member == nil || echoes[$0].member == bubble.memberId)
             }) else { return true }
             used.insert(index)
             return false
@@ -1948,8 +1980,8 @@ final class AgentSessionModel {
     }
 
     /// #FEED-260 (steer-enet.json SYNCED TAIL): the session's newest card-less
-    /// agent lines and person inputs, opened off main, oldest first; a locked
-    /// body reads the sealed placeholder copy.
+    /// agent lines and person inputs (#EXP-2075: and action rows), opened off
+    /// main, oldest first; a locked body reads the sealed placeholder copy.
     private func startObservingTailMessages() {
         guard tailObservationTask == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
         let id = sessionId
@@ -1964,7 +1996,10 @@ final class AgentSessionModel {
                         consumedAt: m.consumedAt, createdAt: m.createdAt,
                         createdAtMs: WireTimestamps.parse(m.createdAt).map { Int(($0.timeIntervalSince1970 * 1000).rounded()) },
                         body: m.locked.map(SealedPlaceholder.copy) ?? m.body,
-                        authorId: m.authorId
+                        authorId: m.authorId,
+                        // #EXP-2075: the OPENED `action` card (a locked one = none).
+                        action: m.cardSealStatus.isReadable ? ChatExpress.actionCard(m.card) : nil,
+                        authorSessionId: m.authorSessionId
                     )
                 }
         }
@@ -2005,7 +2040,8 @@ final class AgentSessionModel {
             let rows = try MessageEntity
                 .filter(Column("session_id") == id)
                 .filter(Column("author_kind") == "user")
-                .filter(Column("author_id") == viewerId)
+                // #EXP-2089: + every teammate's row the device has not consumed.
+                .filter(Column("author_id") == viewerId || Column("consumed_at") == nil)
                 .filter(Column("card") == nil || Column("card").like("%\"action\"%"))
                 .order(Column("created_at").desc)
                 .limit(50)
@@ -2362,7 +2398,9 @@ final class AgentSessionModel {
     /// membership, so it arrives on the observation below instead.
     private func configureDraftEditor() {
         guard draftEditor.issueRefSearch == nil, let teamId = session?.teamId else { return }
-        let scope = IssueRefLookup.Scope.team(id: teamId)
+        // #EXP-2079 (`assistant.chatTeams`): the chat's teams once the host
+        // knows them (`chatTeamIds`), the session's own before.
+        let scope: IssueRefLookup.Scope = chatTeamIds.isEmpty ? .team(id: teamId) : .teams(ids: chatTeamIds)
         let database = db
         let account = accountId
         draftEditor.issueRefResolver = { identifier in
@@ -2437,9 +2475,12 @@ final class AgentSessionModel {
     /// EXP-487's rule, session-scoped: the user rows stay account-wide (an
     /// ex-member still renders elsewhere), and membership is what an `@` may
     /// name.
+    /// #EXP-2079 (`assistant.chatTeams`): the members of the chat's teams,
+    /// one row per person, the list's existing order.
     private func rebuildMentionMembers() {
         guard let teamId = session?.teamId else { return }
-        let memberIds = Set(mentionMemberRows.filter { $0.teamId == teamId }.map(\.userId))
+        let teamIds = chatTeamIds.isEmpty ? [teamId] : chatTeamIds
+        let memberIds = Set(mentionMemberRows.filter { teamIds.contains($0.teamId) }.map(\.userId))
         draftEditor.mentionMembers = mentionUserRows
             .filter { memberIds.contains($0.id) }
             .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
@@ -2502,12 +2543,12 @@ final class AgentSessionModel {
             carriers = nil
             dialInFlight = false
             logger.info("no feed on either carrier (eNet \(reason?.rawValue ?? "-", privacy: .public))")
-            if dropAt != nil, !sessionEnded {
+            if drop.pending, !sessionEnded {
                 // EXP-1487: a redial of a dropped feed that failed — silent
                 // until the lost-banner rule says otherwise.
                 feedDown()
             } else {
-                dropAt = nil
+                drop.clear()
                 applyNoFeed()
             }
         case .closed:
@@ -3665,8 +3706,7 @@ final class AgentSessionModel {
     private func attachFeed(generation: Int) {
         connected = true
         // EXP-1487: a successful join ends any drop (and its backoff curve).
-        dropAt = nil
-        failedRedialsSinceDrop = 0
+        drop.clear()
         reconnectAttempts = 0
         startingRetries = 0
         rowWoke = false
@@ -3769,16 +3809,10 @@ final class AgentSessionModel {
     /// `SteerLostBanner.show`; then the reconnecting close with its banner.
     /// Either way the backoff redials.
     private func feedDown() {
-        let now = Date()
-        if let since = dropAt {
-            failedRedialsSinceDrop += 1
-            let downMs = Int(now.timeIntervalSince(since) * 1000)
-            if SteerLostBanner.show(downMs: downMs, failedRedials: failedRedialsSinceDrop) {
-                phase = .closed(detail: endDetail ?? "Connection lost.", reconnecting: true)
-            }
-        } else {
-            dropAt = now
-            failedRedialsSinceDrop = 0
+        let dropped = !drop.pending
+        if drop.failed(now: Date()) {
+            phase = .closed(detail: endDetail ?? "Connection lost.", reconnecting: true)
+        } else if dropped {
             logger.info("feed dropped, redialing silently")
         }
         scheduleReconnect()
@@ -3793,10 +3827,7 @@ final class AgentSessionModel {
         reconnectAttempts = 0
         // EXP-1487: the stale link is a drop; a failed redial counts toward
         // the lost banner instead of flipping to `starting`.
-        if dropAt == nil {
-            dropAt = Date()
-            failedRedialsSinceDrop = 0
-        }
+        drop.begin(now: Date())
         retryTask = Task { [weak self] in
             guard let self, !self.stopped, !Task.isCancelled else { return }
             self.resetDialState()

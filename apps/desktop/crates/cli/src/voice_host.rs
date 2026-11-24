@@ -2406,4 +2406,18 @@ mod tests {
         rig.handle(Input::Sent { call_id: "c1".into(), session_id: "root-1".into() });
         assert_eq!(rig.host.call.as_ref().and_then(|call| call.root.as_deref()), Some("root-1"));
     }
+
+    /// #EXP-2076 (chat-express.json `plainProseCases`): the call says an agent
+    /// row's prose only; a block-only reply says nothing; a person's text and
+    /// a block-less agent row stay as they are.
+    #[test]
+    fn spoken_prose_reads_an_agent_rows_prose() {
+        let sample = "Checked the three lanes.\n<a2ui>\nroot = Text(text=\"Build 1482 is green\")\n</a2ui>\nAll green.";
+        let agent = row("m1", "agent", sample, "2026-11-18T09:10:00.000Z");
+        assert_eq!(spoken_prose(&agent).as_deref(), Some("Checked the three lanes.\n\nAll green."));
+        let only = row("m2", "agent", "<a2ui>\nroot = Text(text=\"x\")\n</a2ui>", "2026-11-18T09:10:00.000Z");
+        assert_eq!(spoken_prose(&only).as_deref(), Some(""));
+        assert_eq!(spoken_prose(&row("m3", "agent", "Plain words.", "2026-11-18T09:10:00.000Z")), None);
+        assert_eq!(spoken_prose(&row("m4", "user", sample, "2026-11-18T09:10:00.000Z")), None);
+    }
 }

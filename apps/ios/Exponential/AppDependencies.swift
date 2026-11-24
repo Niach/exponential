@@ -93,6 +93,9 @@ final class AppDependencies: @unchecked Sendable {
     /// content, answers other readers' key requests, seals what we write).
     let treeKeyHolder: TreeKeyHolder
     let treeKeys: TreeKeyCoordinator
+    /// #EXP-1950: this install's approval state per account (the rows of
+    /// Needs you and the phone's Devices, the waiting state).
+    let installTrust: InstallTrustModel
     let notificationDelegate: NotificationDelegate
 
     // EXP-452: best-effort per-account timezone claim (digest send hour).
@@ -246,13 +249,36 @@ final class AppDependencies: @unchecked Sendable {
         ))
         let opener = SealedOpener(crypto: SealedCryptoFactory.make(), ring: keyRing)
         SealedOpener.shared = opener
+        // #EXP-1950: the pin store (the app's own keychain group); decision
+        // (e): an account signed in under this build, and every account of an
+        // identity this build mints, gets its empty store BEFORE the install
+        // registers for it (an account without one existed before).
+        let pinStore = InstallTrustPinStore()
+        let trustPersistence = TrustStorePersistence(
+            load: { try pinStore.load(account: $0) },
+            save: { pinStore.save(account: $0, data: $1) },
+            removeAll: { pinStore.removeAll() }
+        )
+        let trustCrypto = TrustCryptoFactory.make()
+        auth.onNewAccount = { accountId in
+            guard let trustCrypto, let identity = identityStore.load() else { return }
+            InstallTrustKeeper.markNew(accountId: accountId, identity: identity, crypto: trustCrypto, persistence: trustPersistence)
+        }
         let installNode = InstallNodeCoordinator.make(
             trpc: trpc,
             auth: auth,
             db: db,
             identity: InstallIdentitySource(
-                loadOrCreate: { identityStore.loadOrCreate() },
-                rotate: { identityStore.rotate() }
+                loadOrMint: { identityStore.loadOrMint() },
+                rotate: { identityStore.rotate() },
+                minted: { identity, accountIds in
+                    if let trustCrypto {
+                        for accountId in Set(accountIds).union(auth.authenticatedAccountIds) {
+                            InstallTrustKeeper.markNew(accountId: accountId, identity: identity, crypto: trustCrypto, persistence: trustPersistence)
+                        }
+                    }
+                    identityStore.clearMinted()
+                }
             ),
             label: deviceLabel,
             platform: devicePlatform,
@@ -263,10 +289,22 @@ final class AppDependencies: @unchecked Sendable {
             }
         )
         self.installNode = installNode
+        // #EXP-1950: the four rules, record-only in this release (`TrustMode.build`).
+        let installsApi = InstallsApi(trpc: trpc)
+        let installTrust = trustCrypto.map { trustCrypto in
+            InstallTrustKeeper(
+                api: installsApi,
+                crypto: trustCrypto,
+                persistence: trustPersistence,
+                identity: { identityStore.load() }
+            )
+        }
         let treeKeyHolder = TreeKeyHolder(
             keys: SessionKeysApi(trpc: trpc),
-            installs: InstallsApi(trpc: trpc),
+            installs: installsApi,
             crypto: opener.crypto,
+            signer: WrapSignerFactory.make(),
+            trust: installTrust,
             ring: keyRing,
             identity: { identityStore.load() },
             installId: { accountId in await installNode?.installId(accountId: accountId) },
@@ -274,6 +312,7 @@ final class AppDependencies: @unchecked Sendable {
         )
         self.treeKeyHolder = treeKeyHolder
         self.treeKeys = TreeKeyCoordinator(holder: treeKeyHolder, opener: opener, auth: auth, db: db)
+        self.installTrust = MainActor.assumeIsolated { InstallTrustModel(keeper: installTrust) }
         sessionsApi.sealing.sealer = SessionSealer(
             holder: treeKeyHolder,
             opener: opener,

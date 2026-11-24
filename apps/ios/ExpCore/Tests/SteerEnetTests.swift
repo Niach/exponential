@@ -77,7 +77,9 @@ final class SteerEnetTests: XCTestCase {
                 SteerEnet.viewerAllowed(
                     viewerUserId: c["viewerUserId"] as? String,
                     starterUserId: try XCTUnwrap(c["starterUserId"] as? String),
-                    shared: c["shared"] as? Bool == true
+                    shared: c["shared"] as? Bool == true,
+                    teamListed: c["teamListed"] as? Bool ?? true,
+                    anyTeamUserId: c["anyTeamUserId"] as? String
                 ),
                 c["allowed"] as? Bool,
                 c["name"] as? String ?? "?"
@@ -277,7 +279,11 @@ final class SteerEnetTests: XCTestCase {
                     consumedAt: m["consumedAt"] as? String,
                     createdAt: m["createdAt"] as? String ?? "",
                     createdAtMs: ms(m["createdAt"]),
-                    body: m["body"] as? String ?? ""
+                    body: m["body"] as? String ?? "",
+                    // #EXP-2075: the card read as the chat reads it (nil =
+                    // not a readable action card).
+                    action: (m["card"] as? [String: Any]).flatMap { ChatExpress.actionCard(TreeMessageCard(object: $0)) },
+                    authorSessionId: m["authorSessionId"] as? String
                 )
             }.map { $0["id"] as? String ?? "" }
             XCTAssertEqual(got, try XCTUnwrap(c["expected"] as? [String], name), name)
@@ -306,6 +312,30 @@ final class SteerEnetTests: XCTestCase {
             live: false, feed: rows, messages: [message("m1", "ship it"), message("m2", "and tag it")]
         ) { $0 }
         XCTAssertEqual(kept.map(\.id), ["m2"])
+    }
+
+    // #EXP-2084: a child's reply the device consumed is in the feed as that
+    // session's input; its synced row never draws a second time after a
+    // not-live feed, even when the device's clock is behind the server's.
+    func testSyncedTailHoldsAChildReplyTheFeedEchoes() {
+        let feed: [AgentFeedItem] = [
+            .userMessage(id: 1, text: "Message from Fix the login (session s-child): The PR is open.", at: 1_000),
+            .narration(id: 2, text: "Noted.", at: 2_000),
+        ]
+        func reply(_ id: String, from: String, _ body: String) -> SteerNoFeed.TailMessage {
+            SteerNoFeed.TailMessage(
+                id: id, authorKind: "agent", hasCard: false, consumedAt: "2026-01-01T00:25:00Z",
+                createdAt: "2026-01-01T00:25:00Z", createdAtMs: 1_500_000, body: body, authorSessionId: from
+            )
+        }
+        let kept = SteerNoFeed.syncedTail(
+            live: false, feed: feed.compactMap(SteerNoFeed.tailFeedRow),
+            messages: [
+                reply("r1", from: "s-child", "The PR is open."), reply("r2", from: "s-child", "CI is green."),
+                reply("r3", from: "s-other", "The PR is open."),
+            ]
+        ) { $0 }
+        XCTAssertEqual(kept.map(\.id), ["r2", "r3"])
     }
 
     // #EXP-1990: a teammate's kept synced row draws under their name, the
@@ -344,6 +374,64 @@ final class SteerEnetTests: XCTestCase {
             .narration(id: SteerNoFeed.syncedTailId("m6"), text: "hello", messageId: "synced:m6", at: 3_000)
         )
         XCTAssertEqual(item(message("m1", author: "u-ada")).id, SteerNoFeed.syncedTailId("m1"))
+    }
+
+    // #EXP-2075: an action row draws as the `[action]` input the device hands
+    // the agent; a teammate's is worded as their member input, and the
+    // feed's echo of the press reaches `syncedTail` raw.
+    func testSyncedTailItemDrawsAnActionRow() {
+        let card = ChatExpress.ActionCard(
+            name: "save_deal", context: ["rep": .string("Ana")], surfaceId: "n:s1:msg_01#1",
+            block: "n:s1:msg_01#1", messageId: nil
+        )
+        func message(_ id: String, body: String, author: String?) -> SteerNoFeed.TailMessage {
+            SteerNoFeed.TailMessage(
+                id: id, authorKind: "user", hasCard: true, consumedAt: "2026-01-01T00:00:03Z",
+                createdAt: "2026-01-01T00:00:03Z", createdAtMs: 3_000, body: body, authorId: author, action: card
+            )
+        }
+        func text(_ item: AgentFeedItem) -> String? {
+            if case let .userMessage(_, text, _, _) = item { return text }
+            return nil
+        }
+        let names = ["u-ada": "Ada"]
+        func item(_ m: SteerNoFeed.TailMessage) -> AgentFeedItem {
+            SteerNoFeed.syncedTailItem(m, viewerId: "u-me", memberName: { names[$0] })
+        }
+        // The viewer's own: the bare input (its body, else none).
+        let own = text(item(message("p1", body: " Ship it \n", author: "u-me")))
+        XCTAssertEqual(own, ChatExpress.actionInput(card, body: "Ship it"))
+        XCTAssertEqual(own.flatMap(ChatExpress.parseActionInput)?.card, card)
+        XCTAssertEqual(own.flatMap(ChatExpress.parseActionInput)?.body, "Ship it")
+        // A teammate's: their member input carrying the press.
+        let bodiless = text(item(message("p2", body: "  ", author: "u-ada")))
+        guard case let .member(name, userId, body)? = bodiless.flatMap(TranscriptGrouping.feedInput) else {
+            return XCTFail("not a member input")
+        }
+        XCTAssertEqual(name, "Ada")
+        XCTAssertEqual(userId, "u-ada")
+        XCTAssertEqual(ChatExpress.parseActionInput(body)?.card, card)
+        XCTAssertEqual(ChatExpress.parseActionInput(body)?.body, "")
+        let bodied = text(item(message("p3", body: "Ship it\nnow", author: "u-ada")))
+        guard case let .member(_, _, held)? = bodied.flatMap(TranscriptGrouping.feedInput) else {
+            return XCTFail("not a member input")
+        }
+        XCTAssertEqual(ChatExpress.parseActionInput(held)?.body, "Ship it\nnow")
+        // The feed's `[action]` line reaches `syncedTail` raw and holds the rows.
+        let line = ChatExpress.actionInput(card, body: "")
+        XCTAssertEqual(
+            SteerNoFeed.tailFeedRow(.userMessage(id: 1, text: line, at: 1_000)),
+            SteerNoFeed.TailFeedRow(author: "user", text: line, at: 1_000)
+        )
+        let feed = [
+            SteerNoFeed.TailFeedRow(author: "user", text: line, at: 1_000),
+            SteerNoFeed.TailFeedRow(author: "agent", text: "Saved.", at: 2_000),
+        ]
+        let kept = SteerNoFeed.syncedTail(
+            live: false, feed: feed,
+            messages: [message("p2", body: "", author: "u-ada"), message("p3", body: "Ship it", author: "u-ada")]
+        ) { $0 }
+        XCTAssertEqual(kept.map(\.id), ["p3"])
     }
 
     // #FEED-260 OFFLINE LINE: a not-live transcript ends with the marker.
@@ -415,6 +503,26 @@ final class SteerEnetTests: XCTestCase {
 
     // EXP-1487 LOST BANNER: a dropped feed redials silently; "Connection
     // lost" only after `graceMs` down AND `failedRedials` failed redials.
+    /// #EXP-2087: the banner's Reconnect starts a fresh dial: the drop it
+    /// answered is over, so one more failure is not "Connection lost" again
+    /// (web `reconnect()` clears `droppedAt` + `failedRedials`).
+    func testReconnectClearsTheDrop() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        var drop = SteerDrop()
+        XCTAssertFalse(drop.failed(now: start))
+        XCTAssertFalse(drop.failed(now: start.addingTimeInterval(2)))
+        XCTAssertTrue(drop.failed(now: start.addingTimeInterval(9)), "down past the grace after two failed redials")
+        drop.reconnect()
+        XCTAssertFalse(drop.pending)
+        XCTAssertFalse(drop.failed(now: start.addingTimeInterval(10)), "the manual dial's failure starts a new drop")
+        XCTAssertEqual(drop.failedRedials, 0)
+        // A stale redial keeps a pending drop's clock; a join ends it.
+        drop.begin(now: start.addingTimeInterval(60))
+        XCTAssertEqual(drop.since, start.addingTimeInterval(10))
+        drop.clear()
+        XCTAssertNil(drop.since)
+    }
+
     func testLostBannerCases() throws {
         let rule = try XCTUnwrap(try fixture()["lostBanner"] as? [String: Any])
         XCTAssertEqual(rule["graceMs"] as? Int, SteerLostBanner.graceMs)

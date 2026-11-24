@@ -14,10 +14,33 @@ private struct CardTeamIdKey: EnvironmentKey {
     static let defaultValue: String? = nil
 }
 
+/// #EXP-2079 (agent-settings.json `assistant.chatTeams`): the chat's teams a
+/// card's `#IDENT` refs resolve in (an identifier found in several = the
+/// first team's); empty = `cardTeamId` alone.
+private struct CardTeamIdsKey: EnvironmentKey {
+    static let defaultValue: [String] = []
+}
+
 extension EnvironmentValues {
     var cardTeamId: String? {
         get { self[CardTeamIdKey.self] }
         set { self[CardTeamIdKey.self] = newValue }
+    }
+
+    var cardTeamIds: [String] {
+        get { self[CardTeamIdsKey.self] }
+        set { self[CardTeamIdsKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// #EXP-2079: a chat whose own team is not synced (the Assistant's
+    /// conversation in its member's personal team) hands its cards the
+    /// chat's teams: `~/` resolves against the first, `#IDENT` in them all.
+    /// Any other chat keeps the defaults (the active team).
+    func cardChatTeams(_ teamIds: [String], ownTeamSynced: Bool) -> some View {
+        environment(\.cardTeamId, ownTeamSynced ? nil : teamIds.first)
+            .environment(\.cardTeamIds, ownTeamSynced ? [] : teamIds)
     }
 }
 
@@ -637,6 +660,7 @@ private struct PlanCardLiveSurface: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.cardTeamId) private var cardTeamId
+    @Environment(\.cardTeamIds) private var cardTeamIds
     @State private var model: SurfaceModel?
     @State private var failed = false
     /// The `buildKey` the current model was built from: a re-appearing card
@@ -695,6 +719,7 @@ private struct PlanCardLiveSurface: View {
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
             accountId: accountId,
             teamId: cardTeamId,
+            teamIds: cardTeamIds,
             deps: deps,
             httpClient: deps.httpClient
         )
@@ -758,13 +783,20 @@ final class PlanCardSurfaceHost: HostPlugin {
     let baseURL: URL?
     let accountId: String
     let teamId: String?
+    /// #EXP-2079: the chat's teams the `#IDENT` refs resolve in; empty =
+    /// `teamId` alone.
+    let teamIds: [String]
     let deps: AppDependencies
     let httpClient: HTTPClient
 
-    init(baseURL: URL?, accountId: String, teamId: String?, deps: AppDependencies, httpClient: HTTPClient) {
+    init(
+        baseURL: URL?, accountId: String, teamId: String?, teamIds: [String] = [], deps: AppDependencies,
+        httpClient: HTTPClient
+    ) {
         self.baseURL = baseURL
         self.accountId = accountId
         self.teamId = teamId
+        self.teamIds = teamIds
         self.deps = deps
         self.httpClient = httpClient
     }
@@ -776,7 +808,7 @@ final class PlanCardSurfaceHost: HostPlugin {
     }
 
     func textLinks(_ text: String) -> [TextLinkSegment]? {
-        LinkOpener.issueTextLinks(text, accountId: accountId, teamId: teamId, deps: deps)
+        LinkOpener.issueTextLinks(text, accountId: accountId, teamId: teamId, teamIds: teamIds, deps: deps)
     }
 
     /// The surface card's reply hook (`Chats.surfaceReply`).

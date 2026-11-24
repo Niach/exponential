@@ -95,7 +95,7 @@ pub use crate::engine::local::INJECTED_PROMPT_META_KEY;
 /// EXP-850: the three `_meta` keys this adapter's new state rides on, plus
 /// the two a WAIT tool row carries (ACP v1 has no `wait` kind).
 pub use crate::engine::local::{
-    BACKGROUND_TASKS_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY, TURN_META_KEY,
+    BACKGROUND_TASKS_META_KEY, DEVICE_INTERRUPT_META_KEY, TOOL_DETAIL_META_KEY, TOOL_KIND_META_KEY, TURN_META_KEY,
     TURN_TOKENS_META_KEY, TURN_WRITING_META_KEY, WORKFLOW_META_KEY,
 };
 
@@ -193,7 +193,20 @@ pub fn start_budget_max(env: &[(String, String)]) -> Duration {
 /// #FEED-253: the failed start's reason, in plain words (the parent reads
 /// it). #FEED-296: a start the machine starved of memory says so; it is
 /// not the agent's fault and a person can act on it.
-fn silent_start_reason(timeout: Duration, attempts: u32, starved: Option<&str>) -> String {
+/// #FEED-306: a device under memory pressure at the failure is named with
+/// its numbers and the scope holding the most ([`starved::DevicePressure`]).
+fn silent_start_reason(
+    timeout: Duration,
+    attempts: u32,
+    starved: Option<&str>,
+    pressure: Option<&starved::DevicePressure>,
+) -> String {
+    if let Some(pressure) = pressure {
+        return format!(
+            "{}: claude did not start, it answered nothing at startup, {attempts} times in a row",
+            pressure.describe()
+        );
+    }
     match starved {
         Some(cgroup) => format!(
             "claude did not start: this machine is short of memory ({cgroup} is over its memory limit, so every agent in it is throttled), and it answered nothing at startup, {attempts} times in a row"
@@ -780,6 +793,10 @@ struct State {
     /// #EXP-1828: a second `quiet` with no new prompt interrupts the turn.
     quiet_guard: wire::QuietGuard,
 }
+
+/// #FEED-274: what the agent is told after the quiet guard interrupted its
+/// turn (the CLI's own words for an interrupt name "the user").
+pub const QUIET_INTERRUPT_NOTE: &str = "Note from Exponential: this device ended your last turn, not a person. You kept calling quiet with nothing new in between, and the CLI words that interrupt as the user rejecting your tool call. Nobody asked you to stop. If work is left, carry on with it now; if not, end this turn without a reply.";
 
 /// EXP-784: what the adapter knows about the plan window, from the CLI's
 /// `rate_limit_event`s and its synthetic "You've hit your…" notices.
@@ -1488,6 +1505,14 @@ impl ClaudeSession {
         // with the reason (EXP-1669's `Could not start`).
         let mut attempt = 1;
         let mut starved_by: Option<String> = None;
+        let mut pressure: Option<starved::DevicePressure> = None;
+        let cgroup_root = self
+            .spec
+            .spawn
+            .env
+            .iter()
+            .find(|(name, _)| name == starved::CGROUP_ROOT_ENV)
+            .map_or_else(|| std::path::PathBuf::from("/sys/fs/cgroup"), |(_, root)| std::path::PathBuf::from(root));
         let child = loop {
             let timeout = start_timeout(&self.spec.spawn.env, attempt);
             let child = Arc::new(self.spawn_child(resume).map_err(|error| {
@@ -1523,6 +1548,10 @@ impl ClaudeSession {
                     break child;
                 }
                 Startup::Silent { starved } if !heard.load(Ordering::SeqCst) && !child.stdout_drained() => {
+                    // #FEED-306: read while the child still lives in its cgroup.
+                    if let Some(now) = starved::device_pressure(child.pid, &cgroup_root) {
+                        pressure = Some(now);
+                    }
                     // Retired FIRST, so its pump's end reads as a stale
                     // child's (no `closed`, no connection teardown).
                     self.retire_child(&child);
@@ -1530,7 +1559,7 @@ impl ClaudeSession {
                         starved_by = starved;
                     }
                     if attempt >= START_ATTEMPTS {
-                        let reason = silent_start_reason(timeout, attempt, starved_by.as_deref());
+                        let reason = silent_start_reason(timeout, attempt, starved_by.as_deref(), pressure.as_ref());
                         log::warn!("engine: {reason}");
                         return Err(Error::internal_error().data(json!({ "reason": reason })));
                     }
@@ -2092,6 +2121,10 @@ impl ClaudeSession {
             && state.deferred.is_none()
             && !state.continuation_end_pending;
         state.continuation_running = true;
+        // #FEED-274: a turn the CLI opens itself answers something new (a
+        // finished background task): the agent may answer THAT quiet once.
+        // The loop the guard is for re-wakes inside one turn, never here.
+        state.quiet_guard.on_prompt();
         // A continuation that starts while the previous one waits on its
         // tasks supersedes that end: the agent is working again.
         state.continuation_end_pending = false;
@@ -3737,6 +3770,9 @@ impl ClaudeSession {
                         // for it) the continuation still follows — right
                         // after this turn's `result`, which opens it then.
                         state.notification_pending = true;
+                        // #FEED-274: a finished background task IS a new
+                        // inbound message: the agent may answer it quiet.
+                        state.quiet_guard.on_prompt();
                         if between_turns {
                             self.begin_continuation(cx, &mut state, true);
                         }
@@ -3877,10 +3913,11 @@ impl ClaudeSession {
         if model != Some(wire::SYNTHETIC_MODEL) && wire::is_real_assistant_activity(&blocks) {
             self.clear_rate_limit_notice(cx);
         }
-        // #EXP-1828: `quiet` is final. A second one since the last prompt
-        // means the turn was re-woken without a new message (Claude Code's
-        // silent-turn reminder looped a team agent 17 times): stop the turn
-        // (not a Stop: queued messages still flow, the turn ends normally).
+        // #EXP-1828: `quiet` is final. A run of them since the last prompt
+        // (`wire::QUIET_LOOP`) means the turn keeps being re-woken without a
+        // new message (Claude Code's silent-turn reminder looped a team agent
+        // 17 times): stop the turn (not a Stop: queued messages still flow,
+        // the turn ends normally).
         // #FEED-246: real work in the same message (or before) re-arms it.
         if parent.is_none() && wire::calls_work(&blocks) {
             self.lock().quiet_guard.on_work();
@@ -3891,13 +3928,18 @@ impl ClaudeSession {
                 !state.replaying_history && !state.closed && state.quiet_guard.on_quiet()
             };
             if repeat {
-                log::warn!("engine: claude called quiet again without a new message; interrupting the turn");
+                log::warn!("engine: claude keeps calling quiet without a new message; interrupting the turn");
                 if let Err(error) = self.send(wire::control_request(
                     &wire::new_request_id(),
                     wire::interrupt(false),
                 )) {
                     log::warn!("engine: claude quiet-loop interrupt failed: {error}");
                 }
+                // #FEED-274: the CLI tells the model "the user" interrupted;
+                // the host tells it who really did.
+                let mut meta = Map::new();
+                meta.insert(DEVICE_INTERRUPT_META_KEY.to_string(), json!(QUIET_INTERRUPT_NOTE));
+                self.notify_meta(cx, SessionUpdate::SessionInfoUpdate(SessionInfoUpdate::new()), meta);
             }
         }
 
@@ -6079,11 +6121,22 @@ mod tests {
     #[test]
     fn a_starved_start_says_the_machine_is_short_of_memory() {
         assert_eq!(
-            silent_start_reason(Duration::from_secs(90), 3, None),
+            silent_start_reason(Duration::from_secs(90), 3, None, None),
             "claude did not start: it answered nothing for 90s at startup, 3 times in a row"
         );
-        let starved = silent_start_reason(Duration::from_secs(90), 3, Some("expbg.slice"));
+        let starved = silent_start_reason(Duration::from_secs(90), 3, Some("expbg.slice"), None);
         assert!(starved.contains("this machine is short of memory (expbg.slice is over its memory limit"), "{starved}");
+        // #FEED-306: the device's pressure, with numbers and the biggest scope.
+        let pressure = starved::DevicePressure {
+            cgroup: "expbg.slice".into(),
+            current: 17_609_365_913,
+            limit: Some(17_179_869_184),
+            top: Some(("run-exp-52fdfc7f.scope".into(), 13_529_146_982)),
+        };
+        assert_eq!(
+            silent_start_reason(Duration::from_secs(90), 2, Some("expbg.slice"), Some(&pressure)),
+            "Device is under memory pressure (expbg.slice 16.4 GB of 16.0 GB; run-exp-52fdfc7f.scope holds 12.6 GB): claude did not start, it answered nothing at startup, 2 times in a row"
+        );
     }
 
     /// EXP-1330: an aside adds the read-only set to the form gate.

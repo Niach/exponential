@@ -95,6 +95,21 @@ final class AuthRepositoryTests: XCTestCase {
         XCTAssertEqual(auth.instanceUrl, cloud, "the login screen still knows the server")
     }
 
+    // #EXP-1950 decision (e): an account this install never held is new
+    // (its pin store is written before it registers); a re-login is not.
+    func testOnNewAccountOnlyForAnAccountNeverHeld() {
+        let auth = makeAuth()
+        var fresh: [String] = []
+        auth.onNewAccount = { fresh.append($0) }
+        signIn(auth, url: cloud, userId: "A", token: "tA")
+        let cloudId = ServerAccount.makeId(instanceUrl: cloud, userId: "A")
+        XCTAssertEqual(fresh, [cloudId])
+        auth.signOutLocally(accountId: cloudId)
+        auth.setToken("tA2", email: "A@x.com", userId: "A", onboardingKnown: true)
+        signIn(auth, url: selfHosted, userId: "B", token: "tB")
+        XCTAssertEqual(fresh, [cloudId, ServerAccount.makeId(instanceUrl: selfHosted, userId: "B")])
+    }
+
     // A re-login after the dead-session sign-out must resolve back to the SAME
     // per-user account (in-place token refresh), not strand a duplicate record.
     func testReloginAfterLocalSignOutReusesTheSameAccount() {

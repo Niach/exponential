@@ -1008,8 +1008,10 @@ struct MainNavigator: View {
     /// #FEED-232: the app icon's number (`NavBadges.appIconBadge` over every
     /// team's needs-you rows).
     private var appIconBadgeCount: Int {
-        NavBadges.appIconBadge(teamState.teams.map {
-            sessionLists.needsYou(teamId: $0.id, me: deps.auth.userId, now: Date()).count
+        // #EXP-1950: installs waiting for approval are rows of every team's Needs you.
+        let pendingInstalls = deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").rows.count
+        return NavBadges.appIconBadge(teamState.teams.map {
+            sessionLists.needsYou(teamId: $0.id, me: deps.auth.userId, now: Date()).count + pendingInstalls
         })
     }
 
@@ -1893,15 +1895,21 @@ extension MainNavigator {
         let accountId = issueAccountId(forUserId: userId)
         if !accountId.isEmpty, accountId != deps.auth.activeAccountId {
             // EXP-1373: the rebuilt navigator opens on the row's team.
-            if let pushTeamId {
-                let block = boardLoader?.groups.first { $0.accountId == accountId }?
-                    .teamBlocks.first { $0.team.id == pushTeamId }
-                if let board = block?.boards.first {
-                    SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: board.id)
+            // #EXP-2079: NEVER a team that account does not sync (the
+            // Assistant's chat's push names its member's personal team: no
+            // teams row, so remembering it would drop the last team instead);
+            // the navigator then opens on the team it last had.
+            Task { @MainActor in
+                if let pushTeamId, await teamSynced(pushTeamId, accountId: accountId) {
+                    let block = boardLoader?.groups.first { $0.accountId == accountId }?
+                        .teamBlocks.first { $0.team.id == pushTeamId }
+                    if let board = block?.boards.first {
+                        SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: board.id)
+                    }
+                    SharedBoardMirror.writeActiveTeam(accountId: accountId, teamId: pushTeamId)
                 }
-                SharedBoardMirror.writeActiveTeam(accountId: accountId, teamId: pushTeamId)
+                deps.auth.switchAccount(id: accountId)
             }
-            deps.auth.switchAccount(id: accountId)
         } else {
             // EXP-1373: the inbox lists the ACTIVE team's rows only, so the
             // tapped row's team becomes active first: the payload's, else
@@ -2107,6 +2115,13 @@ extension MainNavigator {
               teamState.teams.contains(where: { $0.id == teamId })
         else { return }
         applyTeam(teamId)
+    }
+
+    /// #EXP-2079: is `teamId` one of the account's synced teams (never a
+    /// personal team, which has no `teams` row)? Unreadable = no.
+    private func teamSynced(_ teamId: String, accountId: String) async -> Bool {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return false }
+        return (try? await pool.read { try TeamEntity.fetchOne($0, key: teamId) != nil }) ?? false
     }
 
     private func activateTeam(forSession sessionId: String, accountId: String) async {

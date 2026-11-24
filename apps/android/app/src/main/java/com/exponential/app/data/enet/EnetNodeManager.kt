@@ -5,10 +5,12 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
 import android.util.Log
+import com.exponential.app.data.api.CreateSessionKeyInput
 import com.exponential.app.data.api.InstallsApi
 import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.api.PendingWrap
+import com.exponential.app.data.api.ResignWrap
 import com.exponential.app.data.api.TeamInstall
 import com.exponential.app.data.api.SessionKeysApi
 import com.exponential.app.data.db.MultiAccountTeamRepository
@@ -17,6 +19,8 @@ import com.exponential.app.data.sealed.SealedFfi
 import com.exponential.app.data.sealed.SealedKeys
 import com.exponential.app.data.sealed.TreeKeyHolder
 import com.exponential.app.data.sealed.TreeKeyStore
+import com.exponential.app.data.sealed.WrapSignerFfi
+import com.exponential.app.data.sealed.WrapTarget
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -205,6 +209,15 @@ class EnetNodeManager @Inject constructor(
     suspend fun pullTreeKey(accountId: String, rootId: String, epoch: Int): ByteArray? =
         holders[accountId]?.pull(rootId, epoch)
 
+    /**
+     * #EXP-1950: a new root's inline seal went unsigned (its root id was
+     * unknown while sealing): its holder signs its wraps again, now.
+     */
+    fun resignNewRoot(accountId: String, rootId: String, epoch: Int, treePublicKey: String, targets: List<WrapTarget>) {
+        holders[accountId]?.queueResign(rootId, epoch, treePublicKey, targets)
+        wakeHolders()
+    }
+
     /** Runs a holder pass now (a key was just created, or a screen lacks one). */
     fun wakeHolders() {
         holderWake.trySend(Unit)
@@ -287,6 +300,10 @@ class EnetNodeManager @Inject constructor(
             installSecret = SealedFfi.installSecret(identity),
             crypto = SealedFfi,
             vault = treeKeys.vault,
+            installPublic = base64Url(EnetFfi.x25519PublicOf(identity)),
+            // #EXP-1950: every wrap it makes carries this install's signature.
+            identity = identity,
+            signer = WrapSignerFfi,
             api = object : HolderApi {
                 override suspend fun mine(installId: String, rootIds: List<String>?) =
                     withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.mine(accountId, installId, rootIds) } ?: error("mine timed out")
@@ -295,6 +312,15 @@ class EnetNodeManager @Inject constructor(
                 override suspend fun wrap(installId: String, wraps: List<PendingWrap>) {
                     withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.wrap(accountId, installId, wraps) } ?: error("wrap timed out")
                 }
+                override suspend fun due(installId: String) =
+                    withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.due(accountId, installId) } ?: error("due timed out")
+                override suspend fun create(input: CreateSessionKeyInput) {
+                    withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.create(accountId, input) } ?: error("create timed out")
+                }
+                override suspend fun publicKeys(rootIds: List<String>) =
+                    withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.publicKeys(accountId, rootIds) } ?: error("publicKeys timed out")
+                override suspend fun resign(installId: String, wraps: List<ResignWrap>) =
+                    withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.resign(accountId, installId, wraps) } ?: error("resign timed out")
             },
         )
     }

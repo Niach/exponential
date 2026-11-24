@@ -6,9 +6,12 @@ import com.exponential.app.data.steer.syncedTailItems
 import com.exponential.app.data.steer.tailFeedRow
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
+import com.exponential.app.domain.ChatExpress
 import com.exponential.app.domain.MessageDelivery
 import com.exponential.app.domain.TranscriptGrouping
 import com.exponential.app.ui.chat.sentInputLayouts
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -77,10 +80,65 @@ class GroupChatFeedTest {
     }
 
     @Test
+    fun `the synced tail draws a teammate's consumed press as their action input until the feed holds it`() {
+        // #EXP-2075 (steer-enet.json SYNCED TAIL ... ACTION ROWS).
+        val reply = ChatExpress.ActionCard("reply", null, "n:s1:msg_01#1", "n:s1:msg_01#1", null)
+        val save = ChatExpress.ActionCard("save_deal", buildJsonObject { put("rep", "Ana") }, "n:s1:msg_01#1", "n:s1:msg_01#1", null)
+        val messages = listOf(
+            synced("p1", "u-mira", "Ship it ").copy(hasCard = true, action = reply),
+            synced("p2", "u-mira", "").copy(hasCard = true, action = save),
+        )
+        val narration = AgentFeedItem.Narration(id = 1, text = "Ship the first cut?", at = 1_000_000L)
+        fun tail(feed: List<AgentFeedItem>) = syncedTailItems(
+            feed,
+            live = false,
+            messages = messages,
+            viewerId = "u-me",
+            memberName = { id -> "Mira Chen".takeIf { id == "u-mira" } },
+        ).map { (it as AgentFeedItem.UserMessage).text }
+        val bodied = TranscriptGrouping.memberInput("Mira Chen", "u-mira", ChatExpress.actionInput(reply, "Ship it"))
+        val bodiless = TranscriptGrouping.memberInput("Mira Chen", "u-mira", ChatExpress.actionInput(save, ""))
+        assertEquals(listOf(bodied, bodiless), tail(listOf(narration)))
+        // The member wording carries the `[action]` line back out.
+        assertEquals(ChatExpress.parseActionInput(TranscriptGrouping.memberInputOf(bodiless)!!.body)?.card, save)
+        // Bodied = their bubble; bodiless = THE marker (full, never grouped).
+        val layouts = feedTranscriptLayout(listOf(input(1, bodied), input(2, bodiless)), SessionCardSlots.None, senders, agent = null, fromStart = true)
+        assertEquals(TranscriptGrouping.Side.Other, layouts.getValue(1).layout.side)
+        assertEquals("u-mira", layouts.getValue(1).layout.sender?.id)
+        assertEquals(TranscriptGrouping.Side.Full, layouts.getValue(2).layout.side)
+        // The feed holds both presses as its `[action]` inputs: none drawn twice.
+        val held = listOf(
+            narration,
+            AgentFeedItem.UserMessage(id = 2, text = ChatExpress.actionInput(reply, "Ship it"), at = 1_500_000L),
+            AgentFeedItem.UserMessage(id = 3, text = ChatExpress.actionInput(save, ""), at = 1_500_001L),
+        )
+        assertEquals(emptyList<String>(), tail(held))
+    }
+
+    @Test
     fun `a member input in the feed holds its synced row by the body`() {
         val row = AgentFeedItem.UserMessage(id = 1, text = "Message from Mira Chen (member u-mira): hers", at = 5L).tailFeedRow()
         assertEquals("hers", row?.text)
         assertEquals("plain", AgentFeedItem.UserMessage(id = 2, text = "plain", at = 5L).tailFeedRow()?.text)
+    }
+
+    // #EXP-2084: the feed's own echo of a child's reply holds its synced
+    // row, even when the device's clock is behind the server's.
+    @Test
+    fun `a child's reply the feed holds as that session's input is not drawn twice`() {
+        fun reply(id: String, from: String, body: String) = SyncedTailMessage(
+            id, "agent", "2026-11-23T10:00:00.000Z", "2026-11-23T10:00:00.000Z", 2_000_000L, body, authorSessionId = from,
+        )
+        val feed = listOf(
+            AgentFeedItem.UserMessage(id = 1, text = "Message from Fix the login (session s-child): The PR is open.", at = 1_000L),
+            AgentFeedItem.Narration(id = 2, text = "Noted.", at = 1_000_000L),
+        )
+        val items = syncedTailItems(
+            feed,
+            live = false,
+            messages = listOf(reply("r1", "s-child", "The PR is open."), reply("r2", "s-child", "CI is green."), reply("r3", "s-other", "The PR is open.")),
+        ).map { (it as AgentFeedItem.Narration).messageId }
+        assertEquals(listOf("synced:r2", "synced:r3"), items)
     }
 
     private fun bubble(key: String, authorId: String?) = MessageDelivery.Bubble(

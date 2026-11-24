@@ -64,6 +64,8 @@ export type SealSessionRow = {
   shared: boolean
   sealPublicKey?: string | null
   sealEpoch?: number | null
+  /** The conversation root's Teams pick (`sessions.scope_team_ids`). */
+  scopeTeamIds?: string[] | null
   /** #EDE-97: an outside MCP client's root: plaintext for life. */
   clearTree?: boolean | null
 }
@@ -81,8 +83,15 @@ export type SealDeps = {
   myInstalls: () => Promise<InstallRow[]>
   teamInstalls: (teamId: string) => Promise<InstallRow[]>
   userIdsByEmail: (emails: string[]) => string[]
-  /** Issue ids of `#IDENT` refs in the team (unknown ones dropped). */
-  issueIdsByIdentifier: (teamId: string | undefined, identifiers: string[]) => string[]
+  /** Issue ids of `#IDENT` refs (unknown ones dropped). #EXP-2079
+   *  (agent-settings.json `assistant.chatTeams` (1)): resolved over the CHAT
+   *  TEAMS of a session / agent of `teamId` whose root's Teams pick is
+   *  `pickedTeamIds`; an identifier found in several = the first team's. */
+  issueIdsByIdentifier: (
+    teamId: string | undefined,
+    identifiers: string[],
+    pickedTeamIds?: readonly string[] | null
+  ) => string[]
   /** #FEED-248: the server's word on the caller's conversation with an
    *  agent / app (`sessions.sendTarget`): the synced store is a cache. */
   sendTarget: (input: { agentId?: string; appId?: string }) => Promise<ServerTarget>
@@ -214,11 +223,12 @@ export function mentionUserIds(text: string | undefined, deps: Pick<SealDeps, `u
 export function refIssueIds(
   text: string | undefined,
   teamId: string | undefined,
-  deps: Pick<SealDeps, `issueIdsByIdentifier`>
+  deps: Pick<SealDeps, `issueIdsByIdentifier`>,
+  pickedTeamIds?: readonly string[] | null
 ): string[] | undefined {
   const identifiers = text ? extractIssueRefs(text) : []
   if (identifiers.length === 0) return undefined
-  const ids = [...new Set(deps.issueIdsByIdentifier(teamId, identifiers))]
+  const ids = [...new Set(deps.issueIdsByIdentifier(teamId, identifiers, pickedTeamIds))]
   return ids.length > 0 ? ids : undefined
 }
 
@@ -235,7 +245,9 @@ export async function sealSendInput(
   if (!hasText && !input.name && !actionCard) return { input, after: noop }
   const mentions = mentionUserIds(input.text, deps)
   const root = targetRoot(input, deps)
-  const refs = refIssueIds(input.text, root?.teamId ?? input.teamId, deps)
+  // The turn's teams: the pick this send carries, else the root's stored one.
+  const picked = input.scopeTeamIds !== undefined ? input.scopeTeamIds : (root?.scopeTeamIds ?? null)
+  const refs = refIssueIds(input.text, root?.teamId ?? input.teamId, deps, picked)
   const clearMeta = { ...(mentions ? { mentionUserIds: mentions } : {}), ...(refs ? { refIssueIds: refs } : {}) }
 
   const plain = { input: { ...input, ...clearMeta, ...(actionCard ? { actionCard } : {}) }, after: noop }

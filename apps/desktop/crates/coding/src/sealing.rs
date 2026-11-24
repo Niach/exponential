@@ -353,7 +353,8 @@ pub trait SealService: Send + Sync {
     /// `deliverTo` for: deliver it over eNet chat to that install (the
     /// device executing the target session). Fire and forget.
     fn deliver_direct(&self, _deliver_to: &DeliverTo, _message: &DirectMessage) {}
-    /// Keeps a new root's secret once `sessions.send {seal}` returned its id.
+    /// Keeps a new root's secret once `sessions.send {seal}` returned its id
+    /// (#EXP-1950: a key holder then re-signs the seal's wraps, `resign`).
     fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
         adopt_into(self.keyring(), root_id, seal);
     }
@@ -1162,10 +1163,17 @@ pub const LOCKED_TEXT: &str = "[encrypted content this device cannot open yet]";
 /// Content this install cannot open reads [`LOCKED_TEXT`]; a locked card
 /// keeps its clear part.
 pub fn open_message(message: &MessageRow) -> MessageRow {
+    open_message_keyed(message).0
+}
+
+/// [`open_message`], plus whether a part stayed shut for want of its key
+/// (`noKey`: the key may still arrive, #EXP-2086), as opposed to content
+/// that can never open here (a newer version, broken).
+pub fn open_message_keyed(message: &MessageRow) -> (MessageRow, bool) {
     let sealed_body = message.body.as_deref().is_some_and(|b| b.starts_with(SEALED_BODY_PREFIX));
     let sealed_card = message.card.as_ref().is_some_and(|c| c.get("sealed").is_some());
     if !sealed_body && !sealed_card {
-        return message.clone();
+        return (message.clone(), false);
     }
     let root = message
         .root_id
@@ -1174,13 +1182,18 @@ pub fn open_message(message: &MessageRow) -> MessageRow {
         .or_else(|| root_of(&message.session_id))
         .unwrap_or_else(|| message.session_id.clone());
     let mut out = message.clone();
+    let mut no_key = false;
     if sealed_body {
-        out.body = Some(open_body_text(&root, message.body_text()).unwrap_or_else(|| LOCKED_TEXT.to_string()));
+        let opened = open_body(&root, message.body_text());
+        no_key |= opened.status == OpenStatus::NoKey;
+        out.body = Some(opened.text.unwrap_or_else(|| LOCKED_TEXT.to_string()));
     }
     if let (true, Some(card)) = (sealed_card, message.card.as_ref()) {
-        out.card = Some(open_card(&root, card).card);
+        let opened = open_card(&root, card);
+        no_key |= opened.status == OpenStatus::NoKey;
+        out.card = Some(opened.card);
     }
-    out
+    (out, no_key)
 }
 
 /// Every message opened ([`open_message`]).
@@ -1213,7 +1226,9 @@ pub fn open_sessions(rows: &[SessionRow]) -> Vec<SessionRow> {
 // --- new roots -----------------------------------------------------------
 
 /// `sessions.send {seal}` for a root that does not exist yet (addendum 2):
-/// the key travels with the first message in one transaction.
+/// the key travels with the first message in one transaction. #EXP-1950:
+/// its wraps go UNSIGNED (a signature names the root, unknown until the
+/// server answers); the holder re-signs them once adopted ([`SealService::adopt`]).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewRootSeal {
@@ -1232,6 +1247,7 @@ pub fn seal_new_root(own_install_id: &str, own_public: &[u8; 32], readers: &[(St
     let mut wraps = vec![api::session_keys::InstallWrap {
         install_id: own_install_id.to_string(),
         wrapped: wrap_tree_key(own_public, &key.secret).map_err(|e| SealError::Invalid(e.to_string()))?,
+        signature: None,
     }];
     for (install_id, public) in readers {
         if wraps.iter().any(|w| &w.install_id == install_id) {
@@ -1239,7 +1255,7 @@ pub fn seal_new_root(own_install_id: &str, own_public: &[u8; 32], readers: &[(St
         }
         let Ok(public) = public_key_from_b64(public) else { continue };
         if let Ok(wrapped) = wrap_tree_key(&public, &key.secret) {
-            wraps.push(api::session_keys::InstallWrap { install_id: install_id.clone(), wrapped });
+            wraps.push(api::session_keys::InstallWrap { install_id: install_id.clone(), wrapped, signature: None });
         }
     }
     Ok(NewRootSeal { install_id: own_install_id.to_string(), public_key: key.public_key(), epoch: 1, wraps, secret: key.secret })
@@ -1250,7 +1266,8 @@ pub fn adopt_new_root(root_id: &str, seal: &NewRootSeal) {
     with_keyring(|keyring| adopt_into(keyring, root_id, seal));
 }
 
-fn adopt_into(keyring: &Keyring, root_id: &str, seal: &NewRootSeal) {
+/// [`SealService::adopt`]'s keyring half.
+pub fn adopt_into(keyring: &Keyring, root_id: &str, seal: &NewRootSeal) {
     keyring.insert_secret(root_id, seal.epoch, seal.secret);
     if let Ok(public) = public_key_from_b64(&seal.public_key) {
         keyring.set_current(root_id, seal.epoch, public);

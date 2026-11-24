@@ -34,6 +34,7 @@ const api: SessionKeysApi = {
   pending: (input) => trpc.sessionKeys.pending.query(input, quiet),
   wrap: (input) => trpc.sessionKeys.wrap.mutate(input, quiet),
   create: (input) => trpc.sessionKeys.create.mutate(input, quiet),
+  due: (input) => trpc.sessionKeys.due.query(input, quiet),
 }
 
 let leader = false
@@ -41,16 +42,16 @@ let leaderTimer: ReturnType<typeof setInterval> | undefined
 
 export { currentKeyHolder }
 
-function answerPending() {
-  void currentKeyHolder()?.answerPending().catch(() => {})
+function holderPass() {
+  void currentKeyHolder()?.pass().catch(() => {})
 }
 
 function syncLeaderLoop() {
   clearInterval(leaderTimer)
   leaderTimer = undefined
   if (!leader || !currentKeyHolder()) return
-  answerPending()
-  leaderTimer = setInterval(answerPending, PENDING_INTERVAL_MS)
+  holderPass()
+  leaderTimer = setInterval(holderPass, PENDING_INTERVAL_MS)
 }
 
 /** The eNet node's tab (the Web Lock holder) answers pending wraps. */

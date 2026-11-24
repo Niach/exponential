@@ -25,6 +25,7 @@ import { mintReporterToken } from "@/lib/reporter/token"
 import {
   DEMO_AGENT_ID,
   DEMO_DEVICE_ID,
+  DEMO_AWAY_SESSION_ID,
   DEMO_DIFF_CHAT_ID,
   DEMO_GUIDE_CHAT_ID,
   DEMO_SESSION_ID,
@@ -94,6 +95,8 @@ export interface DemoIds {
    *   diffChatId     DEMO_DIFF_CHAT_ID: APP-14's chat (the stack top,
    *                    a real diff, the Results tab's history).
    *   agentId          DEMO_AGENT_ID: the Triage agent.
+   *   awaySessionId    DEMO_AWAY_SESSION_ID: FB-9's chat on the offline
+   *                    build server (`session-synced-tail`, #EXP-2075).
    */
   sessionId?: string
   steeredSessionId?: string
@@ -101,6 +104,7 @@ export interface DemoIds {
   guideChatId?: string
   diffChatId?: string
   agentId?: string
+  awaySessionId?: string
 }
 
 export async function resolveDemoIds(): Promise<DemoIds> {
@@ -193,7 +197,7 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     .where(
       and(
         eq(sessions.teamId, team.id),
-        inArray(sessions.id, [DEMO_SESSION_ID, DEMO_CHAT_ID, DEMO_GUIDE_CHAT_ID, DEMO_DIFF_CHAT_ID])
+        inArray(sessions.id, [DEMO_SESSION_ID, DEMO_CHAT_ID, DEMO_GUIDE_CHAT_ID, DEMO_DIFF_CHAT_ID, DEMO_AWAY_SESSION_ID])
       )
     )
   // NEW-2: the demo agent is an `agents` row.
@@ -227,5 +231,6 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     guideChatId: ifPresent(DEMO_GUIDE_CHAT_ID),
     diffChatId: ifPresent(DEMO_DIFF_CHAT_ID),
     agentId: ifPresent(DEMO_AGENT_ID),
+    awaySessionId: ifPresent(DEMO_AWAY_SESSION_ID),
   }
 }

@@ -1019,7 +1019,7 @@ internal const val EXPRESS_SAMPLE_TEXT = "Checked the three lanes.\n<a2ui>\n" +
     "</a2ui>\nAll green."
 
 /** session-card.json `callViewCases[0].input.messages` (+ #EXP-2076's
- *  Express turn `v7`). */
+ *  Express turn `v-express`). */
 private val CALL_MESSAGES = listOf(
     callMessage("v1", "user", SessionTree.CallCopy.PROMPTS.getValue("request").replace("{language}", "English"), "2026-11-18T09:08:00.000Z"),
     callMessage("v2", "agent", "Hi Dana, the release is close.", "2026-11-18T09:08:03.000Z"),
@@ -1027,8 +1027,8 @@ private val CALL_MESSAGES = listOf(
     callMessage("v4", "agent", "Message from Assistant (session r1): typed in the chat", "2026-11-18T09:08:30.000Z", "r1"),
     callMessage("v5", "agent", "Three PRs are queued. One open thing: the Android microphone drop.", "2026-11-18T09:08:40.000Z"),
     callMessage("v6", "user", "Okay, that one has to go in first. Can you file it?", "2026-11-18T09:09:10.000Z"),
-    // #EXP-2076: an agent turn with ONE Express block (the same sample ×4).
-    callMessage("v7", "agent", EXPRESS_SAMPLE_TEXT, "2026-11-18T09:09:30.000Z"),
+    // #EXP-2076: an agent turn with ONE Express block (the same sample, id and time ×4).
+    callMessage("v-express", "agent", EXPRESS_SAMPLE_TEXT, "2026-11-18T09:10:00.000Z"),
     callMessage("v9", "user", SessionTree.CallCopy.PROMPTS.getValue("ended").replace("{minutes}", "04:12"), "2026-11-18T09:12:12.000Z"),
     callMessage("v10", "agent", "Ship 0.14.140 tomorrow at 09:00. The Android mic fix goes first.", "2026-11-18T09:12:20.000Z"),
 )

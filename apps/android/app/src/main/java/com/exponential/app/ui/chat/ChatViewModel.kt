@@ -47,7 +47,6 @@ import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.InboxRoute
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.markdown.IssueRefTarget
-import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.steer.SessionSender
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -167,18 +166,33 @@ class ChatViewModel @Inject constructor(
         links.mapNotNull { byId[it.issueId] }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** #EXP-2079 (agent-settings.json `assistant.chatTeams`): the teams every
+     *  list of the chat reads (`#` issues, `@` members, Link / New issue,
+     *  links): the chat's team while it is synced, else (the Assistant's
+     *  chat in its member's personal team) the turn's teams: the root's
+     *  Teams pick, else every synced team, in the cross-team order. */
+    val chatTeamIds: StateFlow<List<String>> =
+        com.exponential.app.data.chatTeamIdsFlow(
+            dbFlow,
+            root.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } },
+            root.map { it?.scopeTeamIdList },
+        ).flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     /** The chat's pull requests (opening order) — the Guide's PRs. */
     val pullRequests: StateFlow<List<PullRequestEntity>> =
         dbFlow.scopedQuery(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeByRoot(rootId) }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The team's pull requests — the open-stack walk behind the Guide's
-     *  `Merge stack` (a stack may reach PRs outside this chat). */
+     *  `Merge stack` (a stack may reach PRs outside this chat). #EXP-2079:
+     *  the teams of the chat's OWN pull requests, then the chat teams (the
+     *  Assistant's chat sits in a personal team that holds none). */
     val teamPullRequests: StateFlow<List<PullRequestEntity>> =
-        combine(dbFlow, root.map { it?.teamId }.distinctUntilChanged()) { db, team -> db to team }
-            .flatMapLatest { (db, team) ->
-                if (db == null || team == null) flowOf(emptyList()) else db.pullRequestDao().observeByTeam(team)
-            }
+        com.exponential.app.data.teamByTeamFlow(
+            dbFlow,
+            combine(pullRequests, chatTeamIds) { own, teams -> (own.map { it.teamId } + teams).filter { it.isNotEmpty() }.distinct() }
+                .distinctUntilChanged(),
+        ) { db, team -> db.pullRequestDao().observeByTeam(team) }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** #EXP-1611 (pr-checks.json CHECKS LIST): the Guide PR's synced CI
@@ -582,12 +596,12 @@ class ChatViewModel @Inject constructor(
             sessionsApi.fileSuggestion(accountId, messageId, itemId)
         }
 
-    /** Start on…: the team's ONLINE machines (the synced devices shape). */
-    val startDevices: StateFlow<List<SteerDevice>> = steerDeviceFlow(dbFlow, teamIdFlow(), auth.userId)
-        .map { devices -> devices.orEmpty().filter { it.online } }
-        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    private fun teamIdFlow(): Flow<String?> = root.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged()
+    /** Start on…: the team's ONLINE machines (the synced devices shape).
+     *  #EXP-2079: the Assistant's chat = its member's OWN machines. */
+    val startDevices: StateFlow<List<SteerDevice>> =
+        steerDeviceFlow(dbFlow, com.exponential.app.ui.steer.sessionDeviceTeamFlow(dbFlow, root, auth.userId), auth.userId)
+            .map { devices -> devices.orEmpty().filter { it.online } }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The relay connection behind the live tail, acquired while the root is
      *  live and released when it ends (and in [onCleared]). */
@@ -848,12 +862,13 @@ class ChatViewModel @Inject constructor(
 
     private val teamId: Flow<String?> = root.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged()
 
-    /** The chat team's users: the chat rows' `@email` mention pills
-     *  (LocalMentions), like the issue detail's comment list. */
-    val teamUsers: StateFlow<List<UserEntity>> = teamId
-        .flatMapLatest { team ->
-            if (team == null) flowOf(emptyList())
-            else dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(team) }
+    /** The chat teams' users (#EXP-2079: one row per person): the chat
+     *  rows' `@email` mention pills (LocalMentions), like the issue
+     *  detail's comment list. */
+    val teamUsers: StateFlow<List<UserEntity>> = chatTeamIds
+        .flatMapLatest { teams ->
+            if (teams.isEmpty()) flowOf(emptyList())
+            else dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeams(teams) }
         }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -892,40 +907,39 @@ class ChatViewModel @Inject constructor(
     fun holdPullRequest(pullRequestId: String, hold: Boolean) =
         run(if (hold) "hold" else "resume", "auto-merge") { pullRequestsApi.hold(it, pullRequestId, hold) }
 
-    private val teamBoards: Flow<List<BoardEntity>> = teamId.flatMapLatest { team ->
-        if (team == null) flowOf(emptyList())
-        else dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeByTeam(team) }
-    }
+    /** #EXP-2079: the chat teams' boards, team by team in order. */
+    private val teamBoards: Flow<List<BoardEntity>> =
+        com.exponential.app.data.teamByTeamFlow(dbFlow, chatTeamIds) { db, team -> db.boardDao().observeByTeam(team) }
 
-    /** The team's resolved statuses — the issue tabs' glyphs. */
-    val statuses: StateFlow<List<ResolvedIssueStatus>> = teamId
-        .flatMapLatest { team ->
-            if (team == null) flowOf(emptyList())
-            else dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeByTeam(team) }
-        }
-        .map { rows -> if (rows.isEmpty()) IssueStatusResolver.builtinDefaults else IssueStatusResolver.teamStatuses(rows) }
-        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueStatusResolver.builtinDefaults)
+    /** The linked issues' resolved statuses by issue id (the issue tabs'
+     *  glyphs). #EXP-2079: each against the ISSUE's own team's statuses,
+     *  never the session's. */
+    val issueStatuses: StateFlow<Map<String, ResolvedIssueStatus>> = combine(
+        issues,
+        dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
+        dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() },
+    ) { linked, boards, rows -> linkedIssueStatuses(linked, boards, rows) }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    /** The team's issues as search rows — the "+"'s Link an issue list. */
-    val linkCandidates: StateFlow<List<IssueRefTarget>> = combine(allIssues, teamBoards, statuses) { issues, boards, resolved ->
-        val boardIds = boards.map { it.id }.toSet()
-        issues.filter { it.boardId in boardIds }
-            .sortedByDescending { it.createdAt }
-            .map { issueRefTarget(it, resolved) }
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** The chat teams' issues as search rows — the "+"'s Link an issue list
+     *  (#EXP-2079: an identifier found in several teams = the first team's). */
+    val linkCandidates: StateFlow<List<IssueRefTarget>> =
+        com.exponential.app.ui.markdown.chatTeamIssueRefsFlow(dbFlow, chatTeamIds, allIssues)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Where the "+"'s New issue files: the first linked issue's board, else
-     *  the team's first board; null = nowhere (the row disables). */
+     *  the team's first board (#EXP-2079: the first chat team with a board);
+     *  null = nowhere (the row disables). */
     val newIssueBoardId: StateFlow<String?> = combine(issues, teamBoards) { linked, boards ->
         linked.firstOrNull()?.boardId ?: boards.firstOrNull()?.id
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** EXP-892: `issues.search` over the team behind the local rows. */
+    /** EXP-892: `issues.search` over the chat teams behind the local rows. */
     suspend fun searchIssues(query: String): List<IssueRefTarget> {
         val accountId = auth.activeAccountId.value ?: return emptyList()
-        val team = root.value?.teamId?.takeIf { it.isNotEmpty() } ?: return emptyList()
+        val teams = chatTeamIds.value.ifEmpty { return emptyList() }
         return try {
-            issuesApi.search(accountId, team, query).map(::issueRefTarget)
+            com.exponential.app.ui.markdown.searchChatTeamIssueRefs(issuesApi, accountId, teams, query)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -958,6 +972,20 @@ class ChatViewModel @Inject constructor(
                 busy?.invoke(false)
             }
         }
+    }
+}
+
+/** #EXP-2079 (agent-settings.json `assistant.chatTeams` (6)): each linked
+ *  issue's status against ITS team's statuses (through its board). */
+internal fun linkedIssueStatuses(
+    issues: List<IssueEntity>,
+    boards: List<BoardEntity>,
+    statusRows: List<IssueStatusEntity>,
+): Map<String, ResolvedIssueStatus> {
+    val statuses = statusRows.groupBy { it.teamId }.mapValues { (_, rows) -> IssueStatusResolver.teamStatuses(rows) }
+    val boardTeam = boards.associate { it.id to it.teamId }
+    return issues.associate { issue ->
+        issue.id to IssueStatusResolver.resolve(issue, statuses[boardTeam[issue.boardId]] ?: IssueStatusResolver.builtinDefaults)
     }
 }
 

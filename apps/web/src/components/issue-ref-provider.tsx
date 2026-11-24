@@ -1,13 +1,14 @@
-import { createContext, useContext, useMemo, useRef } from "react"
+import { createContext, useCallback, useContext, useMemo, useRef } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import type { IconName } from "@exp/icons"
 import { issueCollection } from "@/lib/collections"
-import { useTeamBoards } from "@/hooks/use-team-data"
-import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import { useBoardsForTeams, useTeamBoards } from "@/hooks/use-team-data"
+import { useStatusesForTeams, useTeamStatusesContext } from "@/hooks/use-team-statuses"
+import type { StatusResolvable, StatusRowOption } from "@/lib/team-statuses"
 import { statusColorCssValue } from "@/components/issue-properties/status-dropdown"
 import { rankIssueSearch } from "@/lib/issue-search"
-import type { Issue } from "@/db/schema"
+import type { Board, Issue } from "@/db/schema"
 import type { IssueStatus } from "@/lib/domain"
 
 // Team-scoped issue-reference resolution, mounted once in the team
@@ -45,6 +46,12 @@ export interface ResolvedIssueRef {
 export interface IssueRefContextValue {
   /** The team the refs resolve in (undefined until the layout knows it). */
   teamId: string | undefined
+  /** #EXP-2079: set by a chat's own scope (`ChatTeamsScope`): its chat
+   *  teams, so a nested scope of the same chat mounts nothing. */
+  scopeKey?: string
+  /** #EXP-2079: the chat teams of that scope, in order (absent = `teamId`
+   *  alone); a team-less link of the chat resolves against the first. */
+  teamIds?: readonly string[]
   /** Every visible issue of the team, newest created first — the pool the
    * search hook ranks (`useIssueSearchResults`). */
   rows: ResolvedIssueRef[]
@@ -81,22 +88,25 @@ export function useIssueRefs(): IssueRefContextValue | null {
   return useContext(IssueRefContext)
 }
 
-export function IssueRefProvider({
+/** The context value over `boards` (one team's, or several teams' in the
+ *  teams' order): an identifier found in several teams is the first team's
+ *  (`teamRank`, lowest wins), every issue opens through its OWN team. */
+function useIssueRefValue({
   teamId,
-  teamSlug,
-  children,
+  boards,
+  resolveStatus,
+  teamSlugOf,
+  teamRank,
 }: {
   teamId: string | undefined
-  teamSlug: string
-  children: React.ReactNode
-}) {
+  boards: readonly Board[]
+  resolveStatus: (issue: StatusResolvable, teamId: string) => StatusRowOption
+  teamSlugOf: (teamId: string) => string | undefined
+  teamRank: (teamId: string) => number
+}): IssueRefContextValue {
   const navigate = useNavigate()
-  const boards = useTeamBoards(teamId)
   const boardIds = useMemo(() => boards.map((p) => p.id), [boards])
-  const boardSlugById = useMemo(
-    () => new Map(boards.map((p) => [p.id, p.slug])),
-    [boards]
-  )
+  const boardById = useMemo(() => new Map(boards.map((p) => [p.id, p])), [boards])
 
   const { data: issues } = useLiveQuery(
     (query) =>
@@ -121,14 +131,12 @@ export function IssueRefProvider({
   // then the `refs` memo and the context value below — and markdown-editor.tsx
   // watches that value to dispatch a no-op transaction, which re-runs the
   // decoration pass against the new glyph and tint.
-  const { resolve: resolveStatus } = useTeamStatusesContext()
-
   const refs = useMemo(() => {
     const list: ResolvedIssueRef[] = []
     for (const issue of (issues ?? []) as Issue[]) {
-      const boardSlug = boardSlugById.get(issue.boardId)
-      if (!boardSlug) continue
-      const statusOption = resolveStatus(issue)
+      const board = boardById.get(issue.boardId)
+      if (!board) continue
+      const statusOption = resolveStatus(issue, board.teamId)
       list.push({
         id: issue.id,
         identifier: issue.identifier,
@@ -141,25 +149,31 @@ export function IssueRefProvider({
         statusId: issue.statusId,
         statusIcon: statusOption.icon,
         statusColor: statusColorCssValue(statusOption),
-        boardSlug,
+        boardSlug: board.slug,
       })
     }
     // Most recently created first, so empty-query search surfaces fresh work
     // (the engine's own empty-query order).
     return rankIssueSearch(list, ``, { limit: Number.POSITIVE_INFINITY })
-  }, [issues, boardSlugById, resolveStatus])
+  }, [issues, boardById, resolveStatus])
 
-  const byIdentifier = useMemo(
-    () => new Map(refs.map((ref) => [ref.identifier.toUpperCase(), ref])),
-    [refs]
-  )
+  const byIdentifier = useMemo(() => {
+    const map = new Map<string, ResolvedIssueRef>()
+    const rankOf = (ref: ResolvedIssueRef) => teamRank(boardById.get(ref.boardId)?.teamId ?? ``)
+    for (const ref of refs) {
+      const key = ref.identifier.toUpperCase()
+      const held = map.get(key)
+      if (!held || rankOf(ref) < rankOf(held)) map.set(key, ref)
+    }
+    return map
+  }, [refs, boardById, teamRank])
 
   const byId = useMemo(
     () => new Map(refs.map((ref) => [ref.id, ref])),
     [refs]
   )
 
-  const value = useMemo<IssueRefContextValue>(
+  return useMemo<IssueRefContextValue>(
     () => ({
       teamId,
       rows: refs,
@@ -169,12 +183,12 @@ export function IssueRefProvider({
       fromHit: (hit) => {
         const local = byId.get(hit.id)
         if (local) return local
-        const boardSlug = boardSlugById.get(hit.boardId)
-        if (!boardSlug) return null
-        const statusOption = resolveStatus({
-          status: hit.status as IssueStatus,
-          statusId: hit.statusId,
-        })
+        const board = boardById.get(hit.boardId)
+        if (!board) return null
+        const statusOption = resolveStatus(
+          { status: hit.status as IssueStatus, statusId: hit.statusId },
+          board.teamId
+        )
         return {
           id: hit.id,
           identifier: hit.identifier,
@@ -187,7 +201,7 @@ export function IssueRefProvider({
           statusId: hit.statusId,
           statusIcon: statusOption.icon,
           statusColor: statusColorCssValue(statusOption),
-          boardSlug,
+          boardSlug: board.slug,
         }
       },
       search: (query, opts) =>
@@ -197,11 +211,12 @@ export function IssueRefProvider({
         }),
       open: (identifier, options) => {
         const ref = byIdentifier.get(identifier.toUpperCase())
-        if (!ref) return
+        const slug = ref ? teamSlugOf(boardById.get(ref.boardId)?.teamId ?? ``) : undefined
+        if (!ref || !slug) return
         void navigate({
           to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
           params: {
-            teamSlug,
+            teamSlug: slug,
             boardSlug: ref.boardSlug,
             issueIdentifier: ref.identifier,
           },
@@ -209,14 +224,65 @@ export function IssueRefProvider({
         })
       },
     }),
-    [teamId, byIdentifier, byId, refs, boardSlugById, resolveStatus, navigate, teamSlug]
+    [teamId, byIdentifier, byId, refs, boardById, resolveStatus, navigate, teamSlugOf]
   )
+}
 
+const ONE_TEAM_RANK = () => 0
+
+export function IssueRefProvider({
+  teamId,
+  teamSlug,
+  children,
+}: {
+  teamId: string | undefined
+  teamSlug: string
+  children: React.ReactNode
+}) {
+  const boards = useTeamBoards(teamId)
+  const { resolve } = useTeamStatusesContext()
+  const teamSlugOf = useCallback(() => teamSlug, [teamSlug])
+  const value = useIssueRefValue({ teamId, boards, resolveStatus: resolve, teamSlugOf, teamRank: ONE_TEAM_RANK })
   return (
     <IssueRefContext.Provider value={value}>
       {children}
     </IssueRefContext.Provider>
   )
+}
+
+/** #EXP-2079 (agent-settings.json `assistant.chatTeams` (1), (6), (7)): the
+ *  refs of a chat that reads SEVERAL teams (the Assistant's conversation):
+ *  the issues of `teams` in their order, each with its OWN team's status
+ *  glyph, each opening through its own team. `teamId` = the first team (the
+ *  server's full-text pass). */
+export function ChatTeamsIssueRefProvider({
+  teams,
+  scopeKey,
+  children,
+}: {
+  teams: readonly { id: string; slug: string }[]
+  scopeKey: string
+  children: React.ReactNode
+}) {
+  const key = teams.map((team) => `${team.id}:${team.slug}`).join(`,`)
+  const teamIds = useMemo(() => teams.map((team) => team.id), [key])
+  const { boards } = useBoardsForTeams(teamIds)
+  const statusesOf = useStatusesForTeams(teamIds)
+  const resolveStatus = useCallback(
+    (issue: StatusResolvable, teamId: string) => statusesOf(teamId).resolve(issue),
+    [statusesOf]
+  )
+  const teamSlugOf = useCallback((teamId: string) => teams.find((team) => team.id === teamId)?.slug, [key])
+  const teamRank = useCallback(
+    (teamId: string) => {
+      const at = teamIds.indexOf(teamId)
+      return at < 0 ? teamIds.length : at
+    },
+    [teamIds]
+  )
+  const refs = useIssueRefValue({ teamId: teamIds[0], boards, resolveStatus, teamSlugOf, teamRank })
+  const value = useMemo(() => ({ ...refs, scopeKey, teamIds }), [refs, scopeKey, teamIds])
+  return <IssueRefContext.Provider value={value}>{children}</IssueRefContext.Provider>
 }
 
 /** EXP-1347 (session-chat.json): chip navigation = the INNERMOST outlet.

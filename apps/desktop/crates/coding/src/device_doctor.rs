@@ -698,16 +698,19 @@ pub fn add_store_conflicts(doctor: &mut DeviceDoctor, count: usize) {
     doctor.items.push(row);
 }
 
-/// #EXP-1865: the `Build cache` row under `disk`: what the last shared cargo
+/// #EXP-1865: the `Build cache` row under `disk`: what the shared cargo
 /// target sweep freed (or, dry, found) and when, device-local time (grey,
 /// never a problem). No sweep yet, or no `disk` row to hang off = no row.
 /// #EXP-1892: a later sweep that freed nothing adds when it ran
 /// (`cargoSweepChecked`), so a sweep that stopped shows as an old one.
+/// #EXP-1996: the size is the low-disk episode's total (0 included), and
+/// the profiles the last sweep found building close the line
+/// (`cargoSweepSkipped`).
 pub fn add_cargo_sweep(doctor: &mut DeviceDoctor, last: Option<&crate::cargo_target_gc::SweepRecord>) {
     let Some(last) = last else { return };
     let when = local_time(last.at);
     let checked = last.checked_at.filter(|checked| *checked > last.at + 60).map(local_time);
-    add_cargo_sweep_at(doctor, last.freed_bytes, last.dry_run, &when, checked.as_deref());
+    add_cargo_sweep_at(doctor, last.freed_bytes, last.dry_run, &when, checked.as_deref(), last.skipped_locked);
 }
 
 /// Unix seconds as the doctor's device-local `16 Nov 08:14`.
@@ -718,7 +721,14 @@ fn local_time(secs: i64) -> String {
 }
 
 /// [`add_cargo_sweep`] with the times already formatted (pure).
-pub fn add_cargo_sweep_at(doctor: &mut DeviceDoctor, freed_bytes: u64, dry_run: bool, when: &str, checked: Option<&str>) {
+pub fn add_cargo_sweep_at(
+    doctor: &mut DeviceDoctor,
+    freed_bytes: u64,
+    dry_run: bool,
+    when: &str,
+    checked: Option<&str>,
+    skipped: usize,
+) {
     if !doctor.items.iter().any(|item| item.key == KEY_DISK) {
         return;
     }
@@ -726,6 +736,9 @@ pub fn add_cargo_sweep_at(doctor: &mut DeviceDoctor, freed_bytes: u64, dry_run: 
     let mut detail = cargo_sweep(&size, dry_run, when);
     if let Some(checked) = checked {
         detail = cargo_sweep_checked(&detail, checked);
+    }
+    if skipped > 0 {
+        detail = cargo_sweep_skipped(&detail, skipped);
     }
     let mut row = item(KEY_CARGO_SWEEP, DoctorGroup::Storage, DoctorState::Off)
         .parent(KEY_DISK)
@@ -761,6 +774,11 @@ pub fn disk_writes_failing(writers: &str, since: &str) -> String {
 /// The fixture's `cargoSweepChecked` template.
 pub fn cargo_sweep_checked(sweep: &str, when: &str) -> String {
     format!("{sweep} · checked {when}")
+}
+
+/// The fixture's `cargoSweepSkipped` template.
+pub fn cargo_sweep_skipped(sweep: &str, count: usize) -> String {
+    format!("{sweep} · {count} building, skipped")
 }
 
 /// #EXP-1868: the row of a slice over its `memory.high` (a warning, no pill,
@@ -1198,7 +1216,7 @@ mod tests {
             }
             // #EXP-1865: the low-disk case's machine also swept its build cache.
             if index == 14 {
-                add_cargo_sweep_at(&mut doctor, 31_200_000_000, false, "14 Nov 23:02", None);
+                add_cargo_sweep_at(&mut doctor, 31_200_000_000, false, "14 Nov 23:02", None, 0);
             }
             add_key_holder(&mut doctor, index != 12, None);
             assert_eq!(
@@ -1343,6 +1361,7 @@ mod tests {
             dry_run: false,
             target: "/repos/acme/web.cargo-target".into(),
             checked_at: None,
+            skipped_locked: 0,
         };
         let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
         add_cargo_sweep(&mut doctor, Some(&last));
@@ -1371,6 +1390,25 @@ mod tests {
         assert_eq!(
             cargo_sweep_checked("S", "W"),
             copy["cargoSweepChecked"].as_str().unwrap().replace("{sweep}", "S").replace("{when}", "W")
+        );
+        // #EXP-1996: 2026-11-16 as the row tells it now: the episode's 4.2
+        // GB, and the last sweep found two profiles building. A first
+        // sweep that was locked out of everything is a row too.
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        add_storage(&mut doctor, Some(8_000_000_000), &[]);
+        add_cargo_sweep_at(&mut doctor, 4_217_397_948, false, "16 Nov 18:27", Some("16 Nov 18:45"), 2);
+        add_cargo_sweep_at(&mut doctor, 0, false, "16 Nov 18:45", None, 2);
+        assert_eq!(
+            doctor.items[1].detail.as_deref(),
+            Some("4.2 GB freed · 16 Nov 18:27 · checked 16 Nov 18:45 · 2 building, skipped")
+        );
+        assert_eq!(doctor.items[2].detail.as_deref(), Some("0.0 GB freed · 16 Nov 18:45 · 2 building, skipped"));
+        let record = crate::cargo_target_gc::SweepRecord { freed_bytes: 0, skipped_locked: 1, ..last.clone() };
+        add_cargo_sweep(&mut doctor, Some(&record));
+        assert!(doctor.items[3].detail.as_deref().unwrap().ends_with(" · 1 building, skipped"), "{:?}", doctor.items[3].detail);
+        assert_eq!(
+            cargo_sweep_skipped("S", 2),
+            copy["cargoSweepSkipped"].as_str().unwrap().replace("{sweep}", "S").replace("{count}", "2")
         );
         // #EXP-1892: writers the full disk refuses = the Disk writes warning.
         let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };

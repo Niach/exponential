@@ -54,13 +54,42 @@ internal fun isCatchUpPageFrame(frame: JsonObject): Boolean =
     (frame["t"] as? JsonPrimitive)?.content == "history_page" && frame["deviceId"] is JsonPrimitive
 
 /**
- * steer-enet.json ACCESS (the join's rule, the HOLDER's too): the asker's user
- * (from the session team's registry list) is the session's starter, or the
- * session is shared; no synced row = `no_such_session`.
+ * steer-enet.json `access` (TS `steerViewerAllowed`): the device's rule for
+ * one envelope's sender. [viewerUserId] = the endpoint's user in the session
+ * team's registry list (null = not in it): the starter, or anyone on a shared
+ * session. #EXP-2079 A TEAM WITHOUT A LIST: with no registry list at all for
+ * the session's team ([teamListed] false: a personal team is never synced)
+ * the STARTER is allowed when the endpoint is theirs in ANY list the device
+ * holds ([anyTeamUserId]); nobody else, shared or not.
  */
-fun pageAccess(rowFound: Boolean, starterUserId: String?, shared: Boolean, askerUserId: String?): PageAccess = when {
+fun steerViewerAllowed(
+    viewerUserId: String?,
+    starterUserId: String?,
+    shared: Boolean,
+    teamListed: Boolean = true,
+    anyTeamUserId: String? = null,
+): Boolean {
+    if (viewerUserId.isNullOrEmpty()) {
+        return !teamListed && !anyTeamUserId.isNullOrEmpty() && anyTeamUserId == starterUserId
+    }
+    return viewerUserId == starterUserId || shared
+}
+
+/**
+ * steer-enet.json ACCESS (the join's rule, the HOLDER's too, [steerViewerAllowed]):
+ * the asker's user (from the session team's registry list) is the session's
+ * starter, or the session is shared; no synced row = `no_such_session`.
+ */
+fun pageAccess(
+    rowFound: Boolean,
+    starterUserId: String?,
+    shared: Boolean,
+    askerUserId: String?,
+    teamListed: Boolean = true,
+    anyTeamUserId: String? = null,
+): PageAccess = when {
     !rowFound -> PageAccess.NO_SUCH_SESSION
-    askerUserId != null && (askerUserId == starterUserId || shared) -> PageAccess.ALLOWED
+    steerViewerAllowed(askerUserId, starterUserId, shared, teamListed, anyTeamUserId) -> PageAccess.ALLOWED
     else -> PageAccess.UNAUTHORIZED
 }
 

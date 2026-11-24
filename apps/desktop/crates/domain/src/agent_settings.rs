@@ -417,6 +417,47 @@ pub fn runs_on_device_ids<'a>(
         .collect()
 }
 
+/// devices-list `copy.offline`: a Runs on row's secondary line while offline.
+pub const RUNS_ON_OFFLINE: &str = "Offline";
+
+/// A Runs on picker row (`runsOnRowCases`): `description` = the secondary
+/// line ([`RUNS_ON_OFFLINE`] while offline), `disabled` its state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunsOnRow {
+    pub id: String,
+    pub description: Option<String>,
+    pub disabled: bool,
+}
+
+/// TS `runsOnRows` (`runsOnRowCases`, web `deviceRows`): THE Runs on rows ×4,
+/// over `(device_id, kind, online)` in order: the devices of
+/// [`runs_on_device_ids`], online ones pickable, an offline one listed with
+/// `Offline` and disabled unless bound; a bound id no device matches leads
+/// by its raw id.
+pub fn runs_on_rows<'a>(
+    devices: &[(&'a str, Option<&'a str>, bool)],
+    bound_id: Option<&str>,
+    assistant: bool,
+) -> Vec<RunsOnRow> {
+    let bound_id = bound_id.filter(|id| !id.is_empty());
+    let kept = runs_on_device_ids(devices.iter().map(|(id, kind, _)| (*id, *kind)), bound_id, assistant);
+    let mut rows: Vec<RunsOnRow> = devices
+        .iter()
+        .filter(|(id, _, _)| kept.contains(id))
+        .map(|(id, _, online)| RunsOnRow {
+            id: id.to_string(),
+            description: (!online).then(|| RUNS_ON_OFFLINE.to_string()),
+            disabled: !online && Some(*id) != bound_id,
+        })
+        .collect();
+    if let Some(bound) = bound_id {
+        if !devices.iter().any(|(id, _, _)| *id == bound) {
+            rows.insert(0, RunsOnRow { id: bound.to_string(), description: None, disabled: false });
+        }
+    }
+    rows
+}
+
 /// TS `assistantScheduleOf`: the preset id stored triggers stand for
 /// (`off` = none or a paused preset); None = not an Assistant's (an event,
 /// a custom cron, more than one) and `agents.update` refuses it.
@@ -852,6 +893,88 @@ pub fn assistant_pick_agent<'a>(
 }
 
 // ---------------------------------------------------------------------------
+// #EXP-2079: THE CHAT TEAMS (`assistant.chatTeams` in the fixture). Replays
+// `cases`, `deviceCases`.
+// ---------------------------------------------------------------------------
+
+/// TS `assistantChatTeams` (`assistant.chatTeams.cases`): the teams the lists
+/// of a chat read (`#` refs, `@` members, the MCP pick, `/` prompts, Link /
+/// New issue, links): the own team while it is synced, else the turn's teams
+/// (the Teams pick ∩ the synced teams, else all of them), in the synced
+/// order. `synced_team_ids` = the viewer's synced teams in the cross-team
+/// order (`cross_team_order`).
+pub fn assistant_chat_teams(
+    own_team_id: Option<&str>,
+    synced_team_ids: &[String],
+    picked_team_ids: Option<&[String]>,
+) -> Vec<String> {
+    if let Some(own) = own_team_id.filter(|own| synced_team_ids.iter().any(|id| id == own)) {
+        return vec![own.to_string()];
+    }
+    if synced_team_ids.is_empty() {
+        return own_team_id.map(str::to_string).into_iter().collect();
+    }
+    let picked = picked_team_ids.unwrap_or_default();
+    let turn: Vec<String> = synced_team_ids.iter().filter(|id| picked.contains(id)).cloned().collect();
+    if turn.is_empty() {
+        synced_team_ids.to_vec()
+    } else {
+        turn
+    }
+}
+
+/// The cross-team order of `(id, name)` teams: by name (case-insensitive),
+/// then id.
+pub fn cross_team_order<'a>(teams: impl IntoIterator<Item = (&'a str, &'a str)>) -> Vec<String> {
+    let mut teams: Vec<(String, &str)> = teams.into_iter().map(|(id, name)| (name.to_lowercase(), id)).collect();
+    teams.sort();
+    teams.into_iter().map(|(_, id)| id.to_string()).collect()
+}
+
+/// TS `assistantOwnDevices` (`assistant.chatTeams.deviceCases`): the device
+/// list of a session in a team the viewer does not sync, that they started
+/// (the Assistant's conversation) = their own machines, no team rule.
+pub fn assistant_own_devices(session_team_synced: bool, starter_is_viewer: bool) -> bool {
+    !session_team_synced && starter_is_viewer
+}
+
+/// THE CHAT TEAMS AS ONE KEY. The desktop threads "the team a chat's lists
+/// read" as one string through its resolvers, completion sources, pickers and
+/// link openers. A chat of one team carries that team's id, unchanged; the
+/// Assistant's conversation carries its chat teams joined by
+/// `CHAT_TEAMS_SEPARATOR` (never part of an id). Readers ask `chat_teams_has`
+/// / iterate `chat_teams_of`; whoever needs ONE real team (a tRPC `teamId`,
+/// a route) takes `chat_teams_first`.
+pub const CHAT_TEAMS_SEPARATOR: char = '+';
+
+/// The key of `team_ids` (in order); `None` = no team at all.
+pub fn chat_teams_key(team_ids: &[String]) -> Option<String> {
+    (!team_ids.is_empty()).then(|| team_ids.join(&CHAT_TEAMS_SEPARATOR.to_string()))
+}
+
+/// The teams of a key, in order.
+pub fn chat_teams_of(key: &str) -> impl Iterator<Item = &str> {
+    key.split(CHAT_TEAMS_SEPARATOR).filter(|id| !id.is_empty())
+}
+
+/// Is `team_id` one of the key's teams?
+pub fn chat_teams_has(key: &str, team_id: &str) -> bool {
+    chat_teams_of(key).any(|id| id == team_id)
+}
+
+/// The key's first team (`chatTeams` (7): what a team-less target resolves
+/// against; a one-team key = that team).
+pub fn chat_teams_first(key: &str) -> &str {
+    chat_teams_of(key).next().unwrap_or(key)
+}
+
+/// A team's place in the key (`chatTeams` (1): an identifier found in
+/// several teams is the first team's); `None` = not one of them.
+pub fn chat_teams_rank(key: &str, team_id: &str) -> Option<usize> {
+    chat_teams_of(key).position(|id| id == team_id)
+}
+
+// ---------------------------------------------------------------------------
 // #EXP-1717: THE TEAM COORDINATOR (`coordinator` in the fixture; contract
 // `agentRole`). Replays `optionCases`, `valueCases`.
 // ---------------------------------------------------------------------------
@@ -1279,6 +1402,53 @@ mod tests {
         }
     }
     #[test]
+    fn chat_teams_cases_match_the_fixture() {
+        let fixture = fixture();
+        let strings = |value: &Value| -> Vec<String> {
+            value.as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_string()).collect()
+        };
+        let cases = fixture["assistant"]["chatTeams"]["cases"].as_array().unwrap();
+        assert!(cases.len() >= 9);
+        for case in cases {
+            let synced = strings(&case["syncedTeamIds"]);
+            let picked = (!case["pickedTeamIds"].is_null()).then(|| strings(&case["pickedTeamIds"]));
+            assert_eq!(
+                assistant_chat_teams(case["ownTeamId"].as_str(), &synced, picked.as_deref()),
+                strings(&case["expected"]),
+                "{}",
+                case["name"]
+            );
+        }
+        let devices = fixture["assistant"]["chatTeams"]["deviceCases"].as_array().unwrap();
+        assert!(devices.len() >= 3);
+        for case in devices {
+            assert_eq!(
+                assistant_own_devices(
+                    case["sessionTeamSynced"].as_bool().unwrap(),
+                    case["starterIsViewer"].as_bool().unwrap()
+                ),
+                case["expected"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    #[test]
+    fn the_chat_teams_key_round_trips_and_one_team_is_its_id() {
+        let ids = |list: &[&str]| -> Vec<String> { list.iter().map(|id| id.to_string()).collect() };
+        assert_eq!(chat_teams_key(&ids(&["t-a"])).as_deref(), Some("t-a"));
+        assert_eq!(chat_teams_key(&[]), None);
+        let key = chat_teams_key(&ids(&["t-b", "t-a"])).unwrap();
+        assert_eq!(chat_teams_of(&key).collect::<Vec<_>>(), ["t-b", "t-a"]);
+        assert!(chat_teams_has(&key, "t-a") && !chat_teams_has(&key, "t-"));
+        assert_eq!(chat_teams_first(&key), "t-b");
+        assert_eq!(chat_teams_first("t-a"), "t-a");
+        assert_eq!((chat_teams_rank(&key, "t-a"), chat_teams_rank(&key, "t-x")), (Some(1), None));
+        assert_eq!(cross_team_order([("2", "beta"), ("3", "Alpha"), ("1", "alpha")]), ["1", "3", "2"]);
+    }
+
+    #[test]
     fn the_spec_parses_from_the_fixture() {
         let keys: Vec<&str> = AGENT_SETTINGS.fields.iter().map(|field| field.key.as_str()).collect();
         assert_eq!(keys, ["identity", "device", "account", "triggers", "instructions", "delete"]);
@@ -1395,6 +1565,40 @@ mod tests {
                 case["name"]
             );
         }
+    }
+
+    #[test]
+    fn assistant_runs_on_row_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["runsOnRowCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let devices: Vec<(&str, Option<&str>, bool)> = case["devices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|device| (device["deviceId"].as_str().unwrap(), device["kind"].as_str(), device["online"].as_bool().unwrap()))
+                .collect();
+            let expected: Vec<RunsOnRow> = case["expected"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| RunsOnRow {
+                    id: row["id"].as_str().unwrap().to_string(),
+                    description: row["description"].as_str().map(str::to_string),
+                    disabled: row["disabled"].as_bool().unwrap(),
+                })
+                .collect();
+            assert_eq!(
+                runs_on_rows(&devices, case["boundId"].as_str(), case["assistant"].as_bool().unwrap()),
+                expected,
+                "{}",
+                case["name"]
+            );
+        }
+        let devices_list: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/devices-list.json")).unwrap();
+        assert_eq!(devices_list["copy"]["offline"], RUNS_ON_OFFLINE);
     }
 
     #[test]

@@ -185,6 +185,34 @@ class SteerEnetTest {
     }
 
     @Test
+    fun theAccessCasesAreTheFixtures() {
+        // fixtures/steer-enet.json `access` (#EXP-2079: `teamListed` default
+        // true, `anyTeamUserId` default null), the catch-up holder's rule.
+        val cases = fixture["access"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 9)
+        fun JsonObject.text(key: String): String? = (this[key] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content
+        for (case in cases) {
+            val name = case.text("name")
+            val starter = case.text("starterUserId")
+            val shared = case["shared"]!!.jsonPrimitive.boolean
+            val teamListed = case["teamListed"]?.jsonPrimitive?.boolean ?: true
+            val allowed = case["allowed"]!!.jsonPrimitive.boolean
+            assertEquals(
+                name,
+                allowed,
+                com.exponential.app.data.chatstore.steerViewerAllowed(case.text("viewerUserId"), starter, shared, teamListed, case.text("anyTeamUserId")),
+            )
+            // A synced row: the holder's page answer is the same rule.
+            assertEquals(
+                name,
+                allowed,
+                com.exponential.app.data.chatstore.pageAccess(true, starter, shared, case.text("viewerUserId"), teamListed, case.text("anyTeamUserId")) ==
+                    at.exponential.chatstore.ffi.PageAccess.ALLOWED,
+            )
+        }
+    }
+
+    @Test
     fun theOfflineRedialCasesAreTheFixtures() {
         // VAPP-169: fixtures/steer-enet.json `offlineRedial`.
         val cases = fixture["offlineRedial"]!!.jsonArray
@@ -330,6 +358,9 @@ class SteerEnetTest {
                     createdAt = m["createdAt"]!!.jsonPrimitive.content,
                     createdAtMs = ms(m["createdAt"]),
                     body = m["body"]!!.jsonPrimitive.content,
+                    // #EXP-2075: the card as THE action card when it reads.
+                    action = steerTailActionCard(m["card"] as? kotlinx.serialization.json.JsonObject),
+                    authorSessionId = str(m["authorSessionId"]),
                 )
             }
             assertEquals(

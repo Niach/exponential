@@ -266,6 +266,17 @@ pub(crate) fn open_new_issue_in_chat(root_id: &str, window: &mut Window, cx: &mu
         .into_iter()
         .next()
         .map(|issue| issue.board_id)
+        // #EXP-2079 (agent-settings.json `assistant.chatTeams` (5)): a chat
+        // in a team that is not synced (the Assistant's conversation) files
+        // into the first chat team with a board.
+        .or_else(|| {
+            let root = crate::session_data::session(root_id, cx)?;
+            let key = crate::chat_teams::session_key(&root, cx)?;
+            (root.team_id.as_deref() != Some(key.as_str()))
+                .then(|| sync::Store::try_global(cx)?.collections().boards_in_team(&key, cx).into_iter().next())
+                .flatten()
+                .map(|board| board.id)
+        })
         .unwrap_or_default();
     let draft_id = api::issue_drafts::new_draft_id();
     cx.default_global::<DraftChats>()
@@ -629,6 +640,8 @@ pub(crate) fn chat_menu_rows(unlink: Option<&str>) -> Vec<ChatMenuRow> {
 #[derive(Clone)]
 pub(crate) struct ChatMenuTarget {
     pub(crate) root_id: String,
+    /// The chat teams key (`crate::chat_teams`): one team's id for a chat
+    /// of a synced team.
     pub(crate) team_id: Option<String>,
     /// The issue chip the menu was opened on (`(issue_id, identifier)`).
     pub(crate) chip: Option<(String, String)>,
@@ -2424,9 +2437,21 @@ fn suggestion_menu(
 ) -> gpui_component::menu::PopupMenu {
     use crate::controls::{pointer_label_item, pointer_menu_item};
     let copy = &SESSION_CHAT.copy.suggestions;
-    let devices: Vec<_> = team_id
-        .map(|team_id| crate::settings::agent_detail::agent_devices(team_id, cx))
-        .unwrap_or_default()
+    // #EXP-2079 (agent-settings.json `assistant.chatTeams` `deviceCases`): a
+    // card of the viewer's own conversation in a team they do not sync (the
+    // Assistant's) starts on their OWN machines; every other card keeps the
+    // team rule.
+    let own_devices = sync::Store::try_global(cx)
+        .and_then(|store| store.collections().messages.read(cx).get(message_id).map(|message| message.session_id.clone()))
+        .and_then(|session_id| crate::session_data::session(&session_id, cx))
+        .is_some_and(|session| crate::chat_teams::own_devices(&session, cx));
+    let devices: Vec<_> = if own_devices {
+        crate::settings::agent_detail::agent_devices(None, cx)
+    } else {
+        team_id
+            .map(|team_id| crate::settings::agent_detail::agent_devices(Some(crate::chat_teams::first(team_id)), cx))
+            .unwrap_or_default()
+    }
         .into_iter()
         .filter(|device| device.can_start_now())
         .collect();
@@ -3958,10 +3983,12 @@ impl SessionChatScreenView {
 
     // ── render ───────────────────────────────────────────────────────────
 
-    fn menu_target(&self, chip: Option<(String, String)>) -> ChatMenuTarget {
+    fn menu_target(&self, chip: Option<(String, String)>, cx: &App) -> ChatMenuTarget {
         ChatMenuTarget {
             root_id: self.root_id.clone(),
-            team_id: self.model.as_ref().and_then(|model| model.root.team_id.clone()),
+            // #EXP-2079 (`assistant.chatTeams` (5)): Link an issue searches
+            // the chat teams.
+            team_id: self.model.as_ref().and_then(|model| crate::chat_teams::session_key(&model.root, cx)),
             chip,
             linked: self.model.as_ref().map(|model| model.linked_ids()).unwrap_or_default(),
         }
@@ -4027,7 +4054,7 @@ impl SessionChatScreenView {
                 let name = agent.as_ref().map(crate::agent_screen::agent_def_name).unwrap_or_default();
                 let panel = self.call_panel.read(cx).focus_handle(cx);
                 let call = agent.as_ref().map(|agent| crate::agent_screen::agent_header_call(&agent.id, &name, panel, cx));
-                let link = chat_member(model, cx).then(|| self.menu_target(None));
+                let link = chat_member(model, cx).then(|| self.menu_target(None, cx));
                 let menu = crate::agent_screen::agent_header_menu(agent_id, on_settings, link, cx);
                 let avatar = crate::agent_screen::agent_header_disc(agent.as_ref(), cx);
                 let marks = domain::chats::chat_marks(model.root.shared, model.root.seal_epoch);
@@ -4038,7 +4065,7 @@ impl SessionChatScreenView {
             None => {
                 let marks = domain::chats::chat_marks(model.root.shared, model.root.seal_epoch);
                 let title = title_row(&model.view.title, &marks, cx).id("chat-title").into_any_element();
-                (chat_header_lead(model, waiting_item.is_some(), cx), title, merge.into_iter().collect::<Vec<_>>(), guide_menu(model, self.menu_target(None), cx), None)
+                (chat_header_lead(model, waiting_item.is_some(), cx), title, merge.into_iter().collect::<Vec<_>>(), guide_menu(model, self.menu_target(None, cx), cx), None)
             }
         };
         drop(lead_span);
@@ -4446,7 +4473,7 @@ impl SessionChatScreenView {
         });
         let member = chat_member(model, cx);
         let linked: HashSet<String> = model.links.iter().map(|link| link.issue_id.clone()).collect();
-        let menu = member.then(|| (self.menu_target(None), linked));
+        let menu = member.then(|| (self.menu_target(None, cx), linked));
         // #EXP-1834: no `+` here: linking is the `…`'s entry.
         let rows = tree_rows(&SESSION_SCREEN.test_ids.issues, &items, open.as_deref(), on_pick, menu, cx);
         tab_list(&SESSION_SCREEN.test_ids.issues, None, rows, window, cx)
@@ -4621,7 +4648,10 @@ impl Render for SessionChatScreenView {
             }
         }
         // EXP-1346: ONE memoised chip resolver per frame for every text.
-        self.text = ChatText::memoized(model.root.team_id.as_deref(), Some(self.chip_cache.clone()))
+        // #EXP-2079: over the root's CHAT TEAMS key (the Assistant's
+        // conversation: its turn's teams).
+        let chat_teams = crate::chat_teams::session_key(&model.root, cx);
+        self.text = ChatText::memoized(chat_teams.as_deref(), Some(self.chip_cache.clone()))
             .answering(self.root_view.read(cx).inner().read(cx).may_message());
         // EXP-1323: what is on screen is read: the chat (the whole tree's
         // agent replies) and the session open in the pane (its own).

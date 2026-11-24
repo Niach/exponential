@@ -1,5 +1,5 @@
-//! Process-wide installation-token cache: every desktop consumer of a JIT
-//! GitHub-App token (launcher prepare, GitBar sync worker, Source Control's
+//! Process-wide repository-credential cache: every desktop consumer of a JIT
+//! repository token (launcher prepare, GitBar sync worker, Source Control's
 //! Commit & Push, the mid-session refresher) mints through here — one token
 //! per repo at a time, re-minted only when its REAL remaining life (the
 //! server returns GitHub's actual `expires_at` since EXP-73) falls under the
@@ -57,7 +57,7 @@ pub struct TokenCache(Mutex<HashMap<String, MintedToken>>);
 impl TokenCache {
     /// The cached token for `repository_id` when it does not need a re-mint
     /// (per-op margin [`TOKEN_REMINT_MARGIN`]); else mint a fresh one via
-    /// `repositories.installationToken`, cache, and return it. Blocking
+    /// `repositories.credentials` ([`mint`]), cache, and return it. Blocking
     /// (network) — run on a background executor.
     pub fn get_or_mint(
         &self,
@@ -95,18 +95,51 @@ impl TokenCache {
         {
             return Ok(hit.clone());
         }
-        let token = api::repositories::installation_token(trpc, repository_id, board_id)?;
-        let minted = MintedToken {
-            url: TokenUrl::new(token.full_name, token.token),
-            default_branch: token.default_branch,
-            expires_at: token.expires_at,
-        };
+        let minted = mint(trpc, repository_id, board_id)?;
         self.0
             .lock()
             .expect("token cache lock")
             .insert(key, minted.clone());
         Ok(minted)
     }
+}
+
+/// One mint: `repositories.credentials`, whose `remoteUrl` is the ONLY place
+/// a clone URL comes from (#EXP-2019: the app and the daemon both mint here,
+/// so neither can build a github.com URL for an eCode repository). A server
+/// older than #EXP-1614 has no such op (404) and only GitHub repositories:
+/// its `installationToken` answers instead.
+fn mint(trpc: &TrpcClient, repository_id: &str, board_id: Option<&str>) -> Result<MintedToken, ApiError> {
+    match api::repositories::credentials(trpc, repository_id, board_id) {
+        Ok(credentials) => minted_token(credentials),
+        Err(ApiError::Http { status: 404, .. }) => {
+            let token = api::repositories::installation_token(trpc, repository_id, board_id)?;
+            Ok(MintedToken {
+                url: TokenUrl::new(token.full_name, token.token),
+                default_branch: token.default_branch,
+                expires_at: token.expires_at,
+            })
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// The server's credentials as a [`MintedToken`]: the remote is taken as
+/// given (https on any host, or `exp://<team>/<repo>`), never rebuilt from
+/// `full_name`. A remote eCode cannot parse is a decode error, not a guess.
+pub fn minted_token(credentials: api::repositories::RepositoryCredentials) -> Result<MintedToken, ApiError> {
+    let remote = ecode::Credentials::new(
+        &credentials.remote_url,
+        credentials.username,
+        credentials.token,
+        credentials.expires_at.clone(),
+    )
+    .map_err(|_| ApiError::Decode(format!("repositories.credentials: unsupported remote for {}", credentials.full_name)))?;
+    Ok(MintedToken {
+        url: TokenUrl::for_repository(remote, credentials.full_name),
+        default_branch: credentials.default_branch,
+        expires_at: credentials.expires_at,
+    })
 }
 
 /// The process-wide cache (one per app — tokens are account-agnostic here
@@ -180,7 +213,7 @@ mod tests {
 
     fn token_json(token: &str, expires_at: &str) -> String {
         format!(
-            r#"{{"result":{{"data":{{"token":"{token}","fullName":"acme/web","defaultBranch":"main","expiresAt":"{expires_at}"}}}}}}"#
+            r#"{{"result":{{"data":{{"remoteUrl":"https://github.com/acme/web.git","username":"x-access-token","token":"{token}","fullName":"acme/web","defaultBranch":"main","expiresAt":"{expires_at}"}}}}}}"#
         )
     }
 
@@ -246,13 +279,13 @@ mod tests {
             (
                 200,
                 format!(
-                    r#"{{"result":{{"data":{{"token":"ghs_repo","fullName":"acme/web","defaultBranch":"master","expiresAt":"2099-01-01T00:00:00.000Z"}}}}}}"#
+                    r#"{{"result":{{"data":{{"remoteUrl":"https://github.com/acme/web.git","username":"x-access-token","token":"ghs_repo","fullName":"acme/web","defaultBranch":"master","expiresAt":"2099-01-01T00:00:00.000Z"}}}}}}"#
                 ),
             ),
             (
                 200,
                 format!(
-                    r#"{{"result":{{"data":{{"token":"ghs_board","fullName":"acme/web","defaultBranch":"develop","expiresAt":"2099-01-01T00:00:00.000Z"}}}}}}"#
+                    r#"{{"result":{{"data":{{"remoteUrl":"https://github.com/acme/web.git","username":"x-access-token","token":"ghs_board","fullName":"acme/web","defaultBranch":"develop","expiresAt":"2099-01-01T00:00:00.000Z"}}}}}}"#
                 ),
             ),
         ]);
@@ -285,6 +318,72 @@ mod tests {
                 .default_branch,
             "master"
         );
+    }
+
+    fn credentials_json(remote_url: &str, username: &str, full_name: &str) -> String {
+        format!(
+            r#"{{"result":{{"data":{{"remoteUrl":"{remote_url}","username":"{username}","token":"tok_secret","fullName":"{full_name}","defaultBranch":"main","expiresAt":"2099-01-01T00:00:00.000Z"}}}}}}"#
+        )
+    }
+
+    /// #EXP-2019: an eCode repository clones from its `exp://` remote. The
+    /// mint used to read `installationToken`, which has no remote, and built
+    /// `https://github.com/<fullName>.git` for every repository.
+    #[test]
+    fn an_ecode_repository_resolves_to_its_remote_url() {
+        let base = canned_server(vec![(200, credentials_json("exp://acme/app", "exp", "acme/app"))]);
+        let minted = TokenCache::default().get_or_mint(&client(&base), "repo-ecode", None).unwrap();
+        assert_eq!(minted.url.bare(), "exp://acme/app");
+        assert_eq!(minted.url.raw(), "exp://acme/app");
+        assert!(!minted.url.raw().contains("github.com"), "{}", minted.url);
+        // The clone lives under <team>/<repo>, like the server's row.
+        assert_eq!(minted.url.full_name(), "acme/app");
+        assert_eq!(minted.default_branch, "main");
+    }
+
+    /// The remote is the row's `remoteUrl`, not a URL built from the name.
+    #[test]
+    fn the_remote_url_wins_over_the_full_name() {
+        let base = canned_server(vec![(
+            200,
+            credentials_json("https://git.example.com/team/app.git", "exp-bot", "acme/web"),
+        )]);
+        let minted = TokenCache::default().get_or_mint(&client(&base), "repo-any-host", None).unwrap();
+        assert_eq!(minted.url.bare(), "https://git.example.com/team/app.git");
+        assert_eq!(minted.url.redacted(), "https://exp-bot:***@git.example.com/team/app.git");
+    }
+
+    #[test]
+    fn a_github_repository_still_resolves_to_github() {
+        let base = canned_server(vec![(
+            200,
+            credentials_json("https://github.com/acme/web.git", "x-access-token", "acme/web"),
+        )]);
+        let minted = TokenCache::default().get_or_mint(&client(&base), "repo-github", None).unwrap();
+        assert_eq!(minted.url.bare(), "https://github.com/acme/web.git");
+        assert_eq!(minted.url.raw(), "https://x-access-token:tok_secret@github.com/acme/web.git");
+        assert_eq!(minted.url.full_name(), "acme/web");
+    }
+
+    /// A server older than #EXP-1614 has no `credentials` op: the GitHub
+    /// shim still answers.
+    #[test]
+    fn an_older_server_falls_back_to_the_installation_token() {
+        let base = canned_server(vec![
+            (404, r#"{"error":{"message":"No procedure found on path \"repositories.credentials\"","code":-32004,"data":{"code":"NOT_FOUND","httpStatus":404}}}"#.to_string()),
+            (200, r#"{"result":{"data":{"token":"ghs_old","fullName":"acme/web","defaultBranch":"main","expiresAt":"2099-01-01T00:00:00.000Z"}}}"#.to_string()),
+        ]);
+        let minted = TokenCache::default().get_or_mint(&client(&base), "repo-old-server", None).unwrap();
+        assert_eq!(minted.url.bare(), "https://github.com/acme/web.git");
+    }
+
+    #[test]
+    fn an_unparseable_remote_is_an_error_not_a_guess() {
+        let base = canned_server(vec![(200, credentials_json("ssh://git@host/acme/web", "git", "acme/web"))]);
+        let cache = TokenCache::default();
+        let err = cache.get_or_mint(&client(&base), "repo-bad-remote", None).unwrap_err();
+        assert!(matches!(err, ApiError::Decode(_)), "{err}");
+        assert!(cache.0.lock().unwrap().is_empty());
     }
 
     #[test]

@@ -368,7 +368,12 @@ impl CallKeyOps for InstallKeyOps {
     }
 
     fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
-        coding::sealing::adopt_new_root(root_id, seal);
+        // #EXP-1950: through the holder, which signs the seal's wraps again.
+        use coding::sealing::SealService as _;
+        match self.node.key_holder() {
+            Some(holder) => holder.adopt(root_id, seal),
+            None => coding::sealing::adopt_new_root(root_id, seal),
+        }
     }
 
     fn ensure_key(&self, root_id: &str) -> Result<u32, String> {

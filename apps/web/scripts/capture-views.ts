@@ -56,6 +56,7 @@ import {
   DEMO_APP_SLUG,
   DEMO_OPS_SHARE_TOKEN,
   DEMO_APP_ID,
+  DEMO_AWAY_SESSION_ID,
   DEMO_DIFF_CHAT_ID,
   DEMO_GUIDE_CHAT_ID,
   DEMO_SESSION_ID,
@@ -150,6 +151,8 @@ function resolveRoute(route: string, ctx: RecipeCtx, db: DbPlaceholders): string
     // EXP-740: a session is its own route, and the seed pins the id
     // (EXP-1293: the cold-start chat's child session).
     .replaceAll(`$sessionId`, DEMO_SESSION_ID)
+    // #EXP-2075: FB-9's chat on the offline build server (a not-live transcript).
+    .replaceAll(`$awaySessionId`, DEMO_AWAY_SESSION_ID)
     // EXP-1293: a chat is a root session, an agent too; pinned the same
     // way. `$guideChatId`/`$diffChatId` before `$chatId`: none is a
     // prefix of another, but keep the longer names first like the rest of

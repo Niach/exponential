@@ -30,6 +30,10 @@ pub enum Entry {
     Dir(PathBuf),
     /// A compose project: `docker compose -p <name> down --volumes`.
     Compose(String),
+    /// #FEED-306: a running `scripts/lanes/lane.sh` (its pid): its whole
+    /// process tree is ended (TERM, then KILL), only while that pid still
+    /// runs a lane.sh of THIS session ([`lane_is_sessions`]).
+    Lane(u32),
 }
 
 /// `~/.local/state/exponential/session-manifests` (XDG_STATE_HOME honoured),
@@ -97,6 +101,10 @@ pub fn parse(text: &str) -> Vec<Entry> {
             "avd" if valid_name(value) => Entry::Avd(value.to_string()),
             "dir" if value.starts_with('/') => Entry::Dir(PathBuf::from(value)),
             "compose" if valid_name(value) => Entry::Compose(value.to_string()),
+            "lane" => match value.parse::<u32>() {
+                Ok(pid) if pid > 1 && pid <= i32::MAX as u32 => Entry::Lane(pid),
+                _ => continue,
+            },
             _ => continue,
         };
         if !entries.contains(&entry) {
@@ -151,7 +159,7 @@ pub fn command_for(entry: &Entry) -> Option<Vec<String>> {
         Entry::Compose(project) => {
             argv(&["docker", "compose", "-p", project, "down", "--volumes", "--remove-orphans", "--timeout", "10"])
         }
-        Entry::Dir(_) => None,
+        Entry::Dir(_) | Entry::Lane(_) => None,
     }
 }
 
@@ -178,7 +186,10 @@ pub fn clean(dir: &Path, session: &str, worktree: Option<&Path>) -> Vec<(Entry, 
     let roots = dir_roots(worktree);
     let results: Vec<(Entry, Outcome)> =
         parse(&text).into_iter().map(|entry| {
-            let outcome = clean_entry(&entry, &roots);
+            let outcome = match &entry {
+                Entry::Lane(pid) => end_lane(*pid, session),
+                _ => clean_entry(&entry, &roots),
+            };
             log::info!("session manifest [{session}]: {entry:?} → {outcome:?}");
             (entry, outcome)
         }).collect();
@@ -214,6 +225,128 @@ fn clean_entry(entry: &Entry, roots: &[PathBuf]) -> Outcome {
             None => Outcome::Kept("the command did not run".to_string()),
         },
     }
+}
+
+/// How long a lane job gets between TERM and KILL (lane.sh's own
+/// `LANE_KILL_GRACE_SECONDS` default is longer: a teardown should not wait
+/// on a build that ignores TERM).
+const LANE_KILL_GRACE: Duration = Duration::from_secs(10);
+
+/// #FEED-306: the lane.sh at `pid` and every process under it, ended. A
+/// session's lane job must not outlive the session: on 2026-11-24 a stopped
+/// session's cargo build (its lane.sh reparented to pid 1) held mint's
+/// `expbg.slice` over its `memory.high` for four hours, and every new engine
+/// start there failed. Only a pid that still runs a lane.sh of `session`
+/// ([`lane_is_sessions`]): a pid reused since by anything else is left alone.
+#[cfg(unix)]
+fn end_lane(pid: u32, session: &str) -> Outcome {
+    if !crate::process::is_alive(pid) {
+        return Outcome::Gone;
+    }
+    let args = ps(&["-o", "args=", "-p", &pid.to_string()]).unwrap_or_default();
+    if !lane_is_sessions(&args, &process_environ(pid), session) {
+        return Outcome::Gone;
+    }
+    let tree = || ps(&["-A", "-o", "pid=", "-o", "ppid="]).map(|table| tree_pids(&table, pid)).unwrap_or_else(|| vec![pid]);
+    let mut pids = tree();
+    signal_all(&pids, libc::SIGTERM);
+    let deadline = std::time::Instant::now() + LANE_KILL_GRACE;
+    while any_running(&pids) && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    if any_running(&pids) {
+        // Whatever forked meanwhile goes too.
+        for extra in tree() {
+            if !pids.contains(&extra) {
+                pids.push(extra);
+            }
+        }
+        signal_all(&pids, libc::SIGKILL);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while any_running(&pids) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    if any_running(&pids) {
+        Outcome::Kept(format!("lane job {pid}: a process of its tree survived KILL"))
+    } else {
+        Outcome::Removed
+    }
+}
+
+#[cfg(not(unix))]
+fn end_lane(_pid: u32, _session: &str) -> Outcome {
+    Outcome::Kept("no lane jobs here".to_string())
+}
+
+/// Is the process whose command line is `args` and environment `environ`
+/// (NUL- or space-separated `KEY=value`s) a lane.sh started by `session`?
+pub fn lane_is_sessions(args: &str, environ: &str, session: &str) -> bool {
+    let wanted = format!("EXP_MCP_SESSION_ID={session}");
+    args.contains("lane.sh")
+        && environ.split(|c: char| c == '\0' || c.is_whitespace()).any(|pair| pair == wanted)
+}
+
+/// `pid` and all its descendants in a `ps -A -o pid= -o ppid=` table.
+pub fn tree_pids(table: &str, pid: u32) -> Vec<u32> {
+    let rows: Vec<(u32, u32)> = table
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace().map(|field| field.parse::<u32>().ok());
+            Some((fields.next()??, fields.next()??))
+        })
+        .collect();
+    let mut tree = vec![pid];
+    let mut grown = true;
+    while grown {
+        grown = false;
+        for (child, parent) in &rows {
+            if tree.contains(parent) && !tree.contains(child) {
+                tree.push(*child);
+                grown = true;
+            }
+        }
+    }
+    tree
+}
+
+#[cfg(unix)]
+fn ps(args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("ps").args(args).stdin(std::process::Stdio::null()).output().ok()?;
+    Some(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// The environment of `pid`: `/proc` on Linux, `ps eww` elsewhere (it
+/// appends the environment of our own processes to the command).
+#[cfg(unix)]
+fn process_environ(pid: u32) -> String {
+    if let Ok(bytes) = std::fs::read(format!("/proc/{pid}/environ")) {
+        return String::from_utf8_lossy(&bytes).into_owned();
+    }
+    ps(&["eww", "-o", "command=", "-p", &pid.to_string()]).unwrap_or_default()
+}
+
+#[cfg(unix)]
+fn signal_all(pids: &[u32], signal: libc::c_int) {
+    for pid in pids {
+        if *pid > 1 && *pid <= i32::MAX as u32 {
+            // SAFETY: a plain signal to a positive pid of the tree.
+            unsafe { libc::kill(*pid as libc::pid_t, signal) };
+        }
+    }
+}
+
+/// Any of `pids` still running (a zombie has ended: only its parent's
+/// wait is left).
+#[cfg(unix)]
+fn any_running(pids: &[u32]) -> bool {
+    pids.iter().any(|pid| {
+        crate::process::is_alive(*pid)
+            && ps(&["-o", "stat=", "-p", &pid.to_string()]).is_some_and(|stat| {
+                let stat = stat.trim();
+                !stat.is_empty() && !stat.starts_with('Z')
+            })
+    })
 }
 
 /// `avdmanager` missing or failing: the AVD's `<name>.avd` dir and `<name>.ini`
@@ -380,6 +513,53 @@ mod tests {
         assert!(outside.exists(), "a refused dir stays");
         assert!(clean(&manifests, session, None).is_empty(), "nothing left to clean");
         assert_eq!(sessions_with_manifests(&manifests), Vec::<String>::new());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_lane_entry_is_a_pid_and_its_tree_is_read_off_ps() {
+        assert_eq!(parse("lane\t4242\nlane\t1\nlane\tabc\nlane\t-3\n"), vec![Entry::Lane(4242)]);
+        let table = "    1     0\n  100     1\n  200   100\n  201   200\n  300     1\n  202   201\n";
+        let mut tree = tree_pids(table, 100);
+        tree.sort();
+        assert_eq!(tree, vec![100, 200, 201, 202]);
+        assert!(lane_is_sessions("/bin/sh scripts/lanes/lane.sh heavy x -- cargo build", "A=1\0EXP_MCP_SESSION_ID=s306\0", "s306"));
+        assert!(!lane_is_sessions("/bin/sh scripts/lanes/lane.sh heavy x", "EXP_MCP_SESSION_ID=s3060\0", "s306"), "another session");
+        assert!(!lane_is_sessions("cargo build", "EXP_MCP_SESSION_ID=s306\0", "s306"), "a reused pid");
+    }
+
+    /// #FEED-306 regression: a session's lane job (lane.sh and the build
+    /// under it) outlived the session. The session's end now ends the job
+    /// its manifest lists, and never another session's.
+    #[cfg(unix)]
+    #[test]
+    fn the_sessions_lane_job_ends_with_the_session() {
+        let base = temp("lane");
+        let manifests = base.join("manifests");
+        std::fs::create_dir_all(&manifests).unwrap();
+        // A stand-in lane.sh (only its name and env matter) with a child.
+        let script = base.join("lane.sh");
+        std::fs::write(&script, "sleep 300 &\nwait\n").unwrap();
+        let start = |session: &str| {
+            std::process::Command::new("sh").arg(&script).env("EXP_MCP_SESSION_ID", session).spawn().unwrap()
+        };
+        let mut ours = start("s306-ours");
+        let mut theirs = start("s306-theirs");
+        std::thread::sleep(Duration::from_millis(300));
+        let table = ps(&["-A", "-o", "pid=", "-o", "ppid="]).unwrap();
+        let ours_tree = tree_pids(&table, ours.id());
+        assert_eq!(ours_tree.len(), 2, "lane.sh and its sleep: {ours_tree:?}");
+        std::fs::write(manifests.join("s306-ours"), format!("lane\t{}\nlane\t{}\n", ours.id(), theirs.id())).unwrap();
+        let results = clean(&manifests, "s306-ours", None);
+        assert_eq!(results[0], (Entry::Lane(ours.id()), Outcome::Removed));
+        assert_eq!(results[1], (Entry::Lane(theirs.id()), Outcome::Gone), "another session's lane.sh is not ours");
+        let _ = ours.wait();
+        assert!(!any_running(&ours_tree), "the job's whole tree ended");
+        assert!(any_running(&[theirs.id()]), "the other session's job runs on");
+        let table = ps(&["-A", "-o", "pid=", "-o", "ppid="]).unwrap();
+        let theirs_tree = tree_pids(&table, theirs.id());
+        signal_all(&theirs_tree, libc::SIGKILL);
+        let _ = theirs.wait();
         let _ = std::fs::remove_dir_all(&base);
     }
 

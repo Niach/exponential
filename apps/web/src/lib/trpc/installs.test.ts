@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { generateKeyPairSync, randomBytes, sign, type KeyObject } from "node:crypto"
+import { createPublicKey, generateKeyPairSync, randomBytes, sign, verify, type KeyObject } from "node:crypto"
 
 // installs (EXP-1457 / VAPP-37): the eNet install registry. Registration
 // needs a fresh ed25519 signature by the install identity over the caller's
@@ -37,7 +37,14 @@ vi.mock(`@/lib/sessions/access`, () => ({
   sessionDeviceOwner: vi.fn(async (session: { userId: string }) => session.userId),
 }))
 
-import { installMessage, installsRouter, MAX_INSTALLS_PER_USER } from "@/lib/trpc/installs"
+import {
+  installMessage,
+  installsRouter,
+  MAX_INSTALLS_PER_USER,
+  setTeamlessStarterFloorForTest,
+  teamlessStarterEndpoints,
+  versionAtLeast,
+} from "@/lib/trpc/installs"
 import { createFakeDb, type FakeDb } from "@/lib/emcp/upstream/test-db"
 import registerFixture from "@exp/domain-contract/fixtures/install-register.json"
 
@@ -45,14 +52,14 @@ const TEAM_A = `00000000-0000-4000-8000-00000000000a`
 const TEAM_B = `00000000-0000-4000-8000-00000000000b`
 const PERSONAL = `00000000-0000-4000-8000-00000000000c`
 
-function caller(userId: string) {
+function caller(userId: string, clientVersion: string | null = null) {
   return installsRouter.createCaller({
     session: {
       user: { id: userId, name: userId, email: `${userId}@example.com` },
       session: { id: `sess-${userId}` },
     },
     db,
-    request: new Request(`http://localhost/`),
+    request: new Request(`http://localhost/`, clientVersion ? { headers: { "x-client-version": clientVersion } } : {}),
   } as never)
 }
 
@@ -243,6 +250,24 @@ describe(`installs.register`, () => {
   })
 })
 
+describe(`the stored registration (#EXP-1950)`, () => {
+  it(`keeps the newest registration's signature and signedAt byte for byte, and serves them in list and mine`, async () => {
+    const a1 = identity()
+    const first = registration(`u1`, a1)
+    await caller(`u1`).register(first)
+    const again = registration(`u1`, a1, { x: first.x25519Public, signedAt: new Date(Date.now() + 1000).toISOString() })
+    await caller(`u1`).register(again)
+    const [mine] = await caller(`u1`).mine()
+    expect(mine).toMatchObject({ registrationSignature: again.signature, registrationSignedAt: again.signedAt })
+    const [listed] = await caller(`u2`).list({ teamId: TEAM_A })
+    expect(listed).toMatchObject({ registrationSignature: again.signature, registrationSignedAt: again.signedAt })
+    // A client re-checks the binding from what is served.
+    const message = installMessage(`u1`, listed!.endpointId, listed!.x25519Public, listed!.registrationSignedAt!)
+    const key = createPublicKey({ key: Buffer.concat([Buffer.from(`302a300506032b6570032100`, `hex`), Buffer.from(listed!.endpointId, `hex`)]), format: `der`, type: `spki` })
+    expect(verify(null, Buffer.from(message, `utf8`), key, Buffer.from(listed!.registrationSignature!, `base64url`))).toBe(true)
+  })
+})
+
 describe(`installs.list`, () => {
   it(`returns the team members' live installs, never another team's`, async () => {
     const a1 = identity()
@@ -263,7 +288,7 @@ describe(`installs.list`, () => {
       platform: `iOS 27`,
     })
     expect(Object.keys(listed[0]!).sort()).toEqual(
-      [`installId`, `userId`, `deviceId`, `kind`, `label`, `platform`, `endpointId`, `x25519Public`, `lastSeenAt`].sort()
+      [`installId`, `userId`, `deviceId`, `kind`, `label`, `platform`, `endpointId`, `x25519Public`, `lastSeenAt`, `registrationSignature`, `registrationSignedAt`].sort()
     )
 
     expect((await caller(`u3`).list({ teamId: TEAM_B })).map((row) => row.endpointId)).toEqual([b3.endpointId])
@@ -319,6 +344,51 @@ describe(`installs.forSession (VAPP-33 discovery)`, () => {
     expect(await caller(`u1`).forSession({ sessionId: S1 })).toHaveLength(1)
     expect(await caller(`u1`).forSession({ sessionId: S3 })).toEqual([])
     await expect(caller(`u2`).forSession({ sessionId: S3 })).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
+  // #EXP-2082: a device that carries the starter rule (steer-enet.json
+  // `access`, A TEAM WITHOUT A LIST) serves eNet again. The server knows an
+  // install's version from its register's `x-client-version` header.
+  it(`names a personal-team session's endpoints again once every install of its machine carries the starter rule`, async () => {
+    const S3 = `55555555-5555-4555-8555-555555555555`
+    SESSIONS[S3] = { id: S3, userId: `u1`, shared: false, teamId: PERSONAL, deviceId: `mac-1` }
+    const [desktop, daemon] = [identity(), identity()]
+    const as = (version: string | null) => caller(`u1`, version)
+    setTeamlessStarterFloorForTest(`0.14.180`)
+    try {
+      // An install that never said its version: the relay.
+      await as(null).register(registration(`u1`, desktop, { kind: `desktop`, deviceId: `mac-1` }))
+      expect(await caller(`u1`).forSession({ sessionId: S3 })).toEqual([])
+      // Below the floor: the relay.
+      await as(`desktop/0.14.179`).register(registration(`u1`, desktop, { kind: `desktop`, deviceId: `mac-1` }))
+      expect(await caller(`u1`).forSession({ sessionId: S3 })).toEqual([])
+      // At the floor: named.
+      await as(`desktop/0.14.180`).register(registration(`u1`, desktop, { kind: `desktop`, deviceId: `mac-1` }))
+      expect((await caller(`u1`).forSession({ sessionId: S3 })).map((row) => row.endpointId)).toEqual([desktop.endpointId])
+      // An OLDER daemon on the same machine may be the one running it: none.
+      await as(`cli/0.14.171`).register(registration(`u1`, daemon, { kind: `daemon`, deviceId: `mac-1` }))
+      expect(await caller(`u1`).forSession({ sessionId: S3 })).toEqual([])
+      await as(`cli/0.15.0-staging`).register(registration(`u1`, daemon, { kind: `daemon`, deviceId: `mac-1` }))
+      expect((await caller(`u1`).forSession({ sessionId: S3 })).map((row) => row.endpointId).sort()).toEqual(
+        [desktop.endpointId, daemon.endpointId].sort()
+      )
+      // A regular team's session never reads the floor.
+      expect(await caller(`u1`).forSession({ sessionId: S1 })).toHaveLength(2)
+    } finally {
+      setTeamlessStarterFloorForTest(null)
+    }
+    expect(await caller(`u1`).forSession({ sessionId: S3 })).toEqual([])
+  })
+
+  it(`versionAtLeast: numeric per segment, a suffix ignored, unknown = no`, () => {
+    expect(versionAtLeast(`0.14.180`, `0.14.180`)).toBe(true)
+    expect(versionAtLeast(`0.15.0`, `0.14.180`)).toBe(true)
+    expect(versionAtLeast(`0.14.99`, `0.14.180`)).toBe(false)
+    expect(versionAtLeast(`0.14.180-staging`, `0.14.180`)).toBe(true)
+    expect(versionAtLeast(null, `0.14.180`)).toBe(false)
+    expect(versionAtLeast(`dev`, `0.14.180`)).toBe(false)
+    expect(versionAtLeast(`9.9.9`, null)).toBe(false)
+    expect(teamlessStarterEndpoints([], `0.14.180`)).toEqual([])
   })
 })
 

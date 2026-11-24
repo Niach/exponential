@@ -18,6 +18,10 @@
 //!   `unwrapTreeKey`, `sealBody`, `openBody`, `sealCard`, `openCard`.
 //! - The call seal (#EXP-1941, src/call_seal.rs, `node` only): the objects
 //!   `EnetCallHandshake` and `EnetCallSeal`, and `callSealSelftest`.
+//! - Signed tree key wraps (#EXP-1950, src/wrap_sig.rs): `wrapSignatureMessage`,
+//!   `signWrap`, `verifyWrapSignature`, `acceptWrap`, `acceptVouch`. With
+//!   `node` only; the push-only build exports them failing closed (every one
+//!   answers `EnetError.Crypto`, `wrap signature: unavailable`).
 //! - Feature `node` (default) = the node (src/node.rs). Without it
 //!   (`--no-default-features`, the PUSH-ONLY build) the facade is the push
 //!   and sealed-content functions alone: no iroh, no tokio, small enough for a Notification
@@ -38,6 +42,8 @@ mod node;
 pub use call_seal::*;
 #[cfg(feature = "node")]
 pub use node::*;
+mod wrap_sig;
+pub use wrap_sig::*;
 
 // --- errors ------------------------------------------------------------
 

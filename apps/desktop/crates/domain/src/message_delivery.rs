@@ -391,6 +391,24 @@ pub fn handoff_expiry(rows: &[HandoffRow], kept: &[String]) -> Option<i64> {
         .map(|at| at + HANDOFF_MAX_MS)
 }
 
+/// #EXP-2089 (ORDER, `pendingCases`, TS `pendingRows`): the synced person
+/// rows the device has not consumed, EVERY person's, oldest first
+/// (createdAt, then id); `true` = the viewer's own (their bubble with its
+/// mark), else that member's bubble.
+pub fn pending_rows<'r>(viewer_id: &str, rows: &'r [HandoffRow]) -> Vec<(&'r HandoffRow, bool)> {
+    let mut pending: Vec<&HandoffRow> = rows
+        .iter()
+        .filter(|row| {
+            row.author_kind == "user"
+                && !row.has_card
+                && row.consumed_at.as_deref().is_none_or(str::is_empty)
+                && !row.body.trim().is_empty()
+        })
+        .collect();
+    pending.sort_by(|a, b| millis(&a.created_at).cmp(&millis(&b.created_at)).then_with(|| a.id.cmp(&b.id)));
+    pending.into_iter().map(|row| (row, row.author_id.as_deref() == Some(viewer_id))).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -653,6 +671,41 @@ mod tests {
             if let Some(expiry) = handoff_expiry(&rows, &kept) {
                 assert!(own_handoff(&case.input.viewer_id, expiry + 1, false, &rows, &echoes).is_empty(), "{} (expiry)", case.name);
             }
+        }
+    }
+
+    /// #EXP-2089: `pendingCases`.
+    #[test]
+    fn replays_every_pending_case() {
+        let fixture: serde_json::Value = serde_json::from_str(FIXTURE_JSON).unwrap();
+        let cases = fixture["pendingCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let rows: Vec<HandoffRow> = case["input"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| HandoffRow {
+                    id: row["id"].as_str().unwrap().into(),
+                    author_kind: row["authorKind"].as_str().unwrap().into(),
+                    author_id: row["authorId"].as_str().map(str::to_string),
+                    body: row["body"].as_str().unwrap().into(),
+                    created_at: row["createdAt"].as_str().unwrap().into(),
+                    consumed_at: row["consumedAt"].as_str().map(str::to_string),
+                    has_card: !row["card"].is_null(),
+                })
+                .collect();
+            let got: Vec<(&str, bool)> = pending_rows(case["input"]["viewerId"].as_str().unwrap(), &rows)
+                .into_iter()
+                .map(|(row, own)| (row.id.as_str(), own))
+                .collect();
+            let expected: Vec<(&str, bool)> = case["expected"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| (row["id"].as_str().unwrap(), row["own"].as_bool().unwrap()))
+                .collect();
+            assert_eq!(got, expected, "{}", case["name"]);
         }
     }
 

@@ -1472,11 +1472,11 @@ async fn a_cancel_interrupts_the_running_turn_and_settles_it_cancelled() {
 
 /// #EXP-1828 regression (FEED-240): a team agent answered a routine event
 /// with `quiet`, got re-woken without a new message, and answered `quiet`
-/// again, 17 times. The second `quiet` since the prompt interrupts the turn
-/// itself: it settles as an ordinary end (no Stop banner), and the
-/// interrupt keeps whatever the CLI holds queued.
+/// again, 17 times. The fourth `quiet` in a row since the prompt
+/// (`QUIET_LOOP`) interrupts the turn itself: it settles as an ordinary end
+/// (no Stop banner), and the interrupt keeps whatever the CLI holds queued.
 #[tokio::test]
-async fn a_second_quiet_without_a_new_message_ends_the_turn() {
+async fn a_quiet_loop_without_a_new_message_ends_the_turn() {
     let _session = one_session_at_a_time();
     let work = workdir("quiet-loop");
     let adapter = ClaudeAgent::new(spec("quiet-loop", &work.0, false)).expect("the adapter builds");
@@ -1523,6 +1523,59 @@ async fn a_second_quiet_without_a_new_message_ends_the_turn() {
         .collect();
     assert_eq!(interrupts.len(), 1, "one interrupt for the repeated quiet");
     assert_eq!(interrupts[0]["request"]["cancel_queued"], serde_json::json!(false));
+}
+
+/// #FEED-274 regression, measured on a worker moved to another device
+/// (b29c6c92): it said `quiet` twice in a row (a second after the first) and
+/// the guard interrupted that call. The CLI answered the model "The user
+/// doesn't want to proceed with this tool use … STOP what you are doing and
+/// wait for the user", and its next turn opened "I've stopped as you asked".
+/// A double quiet ends the turn by itself: the device sends no interrupt.
+#[tokio::test]
+async fn a_double_quiet_is_no_loop_and_never_interrupts() {
+    let _session = one_session_at_a_time();
+    let work = workdir("quiet-twice");
+    let adapter = ClaudeAgent::new(spec("quiet-twice", &work.0, false)).expect("the adapter builds");
+    let stop_reason = Client
+        .v1()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            let response = cx
+                .send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![ContentBlock::Text(TextContent::new("Dismissed: the ask card."))],
+                ))
+                .block_task()
+                .await?;
+            Ok::<_, Error>(response.stop_reason)
+        })
+        .await
+        .expect("the connection runs cleanly");
+    assert_eq!(stop_reason, StopReason::EndTurn);
+    let stdin: Vec<Value> = std::fs::read_to_string(work.0.join("stdin.jsonl"))
+        .expect("the fake logged stdin")
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let interrupts: Vec<&Value> = stdin
+        .iter()
+        .filter(|line| line["request"]["subtype"] == serde_json::json!("interrupt"))
+        .collect();
+    assert!(interrupts.is_empty(), "a double quiet is no loop: no interrupt the model reads as a stop: {interrupts:?}");
 }
 
 /// #FEED-253 regression: the CLI wedged at startup (no answer to
@@ -1638,6 +1691,70 @@ async fn a_cli_silent_twice_fails_the_start_with_the_reason() {
     assert_eq!(count, 3, "two restarts, then the failure");
 }
 
+/// #FEED-306 regression: on 2026-11-24 mint's expbg.slice sat over its
+/// memory.high for four hours (a runaway build held 12.6 GB of it), and
+/// every failed start said only "answered nothing for 90s". A start that
+/// fails while its cgroups are under memory pressure names the slice, its
+/// use against its cap and the scope holding the most. The fake claude
+/// builds the fake cgroup tree (`EXP_CGROUP_ROOT`) around its OWN cgroup
+/// path: on a systemd host the child runs in a run scope of its own, never
+/// in this test's cgroup (the gate's runner, 2026-11-24).
+#[tokio::test]
+async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_scope() {
+    if std::fs::read_to_string("/proc/self/cgroup").map_or(true, |text| !text.lines().any(|line| line.starts_with("0::"))) {
+        eprintln!("no cgroup v2 here: nothing to check");
+        return;
+    }
+    let _session = one_session_at_a_time();
+    let work = workdir("silent-pressure");
+    let fake_root = work.0.join("cgroup").display().to_string();
+    let slice_file = work.0.join("slice.txt");
+    let slice_env = slice_file.display().to_string();
+    let spawns = work.0.join("spawns.txt").display().to_string();
+    let spec = spec_env(
+        &Path::new(FIXTURES).join("basic"),
+        &work.0,
+        false,
+        &[
+            ("EXP_FAKE_CLAUDE_HANGS", "5"),
+            ("EXP_FAKE_CLAUDE_SPAWNS", spawns.as_str()),
+            (engine::starved::CGROUP_ROOT_ENV, fake_root.as_str()),
+            ("EXP_FAKE_CLAUDE_PRESSURE", slice_env.as_str()),
+            (engine::adapters::claude::START_TIMEOUT_ENV, "2000"),
+            (engine::adapters::claude::START_BACKOFF_ENV, "0"),
+        ],
+    );
+    let adapter = ClaudeAgent::new(spec).expect("the adapter builds");
+    let error = Client
+        .v1()
+        .name("feed306-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let started = cx.send_request(NewSessionRequest::new(std::env::temp_dir())).block_task().await;
+            Ok::<_, Error>(started.err().map(|error| format!("{error:?}")))
+        })
+        .await
+        .expect("the connection runs cleanly")
+        .expect("the start fails");
+    let Ok(slice_name) = std::fs::read_to_string(&slice_file).map(|name| name.trim().to_string()) else {
+        eprintln!("the fake claude's cgroup has no parent slice: nothing to check");
+        return;
+    };
+    let wall = format!(
+        "Device is under memory pressure ({slice_name} 16.4 GB of 16.0 GB; run-exp-hog.scope holds 12.6 GB): claude did not start, it answered nothing at startup, 3 times in a row"
+    );
+    assert!(error.contains(&wall), "{error}");
+}
+
 /// #FEED-246 regression: a worker said `quiet` after one step, kept working
 /// (a Bash call) and said `quiet` again. That is no loop: the turn runs to
 /// its own end and the CLI never sees an interrupt (it used to, and the
@@ -1684,6 +1801,60 @@ async fn work_between_two_quiets_never_interrupts_the_turn() {
         .filter(|line| line["request"]["subtype"] == serde_json::json!("interrupt"))
         .count();
     assert_eq!(interrupts, 0, "work re-arms the quiet guard: no interrupt");
+}
+
+/// #FEED-274 regression: a worker answered `quiet`, its turn ended, a
+/// background build finished and the CLI woke the model for the completion
+/// notification (no prompt from anyone), which it answered `quiet` again.
+/// The guard counted that as a loop and interrupted, and the CLI told the
+/// model "the user" had stopped it. A task notification is a new inbound
+/// message: it re-arms the guard, and the CLI never sees an interrupt.
+#[tokio::test]
+async fn a_quiet_answer_to_a_task_notification_never_interrupts() {
+    let _session = one_session_at_a_time();
+    let work = workdir("quiet-after-notification");
+    let adapter =
+        ClaudeAgent::new(spec("quiet-after-notification", &work.0, false)).expect("the adapter builds");
+    let stop_reason = Client
+        .v1()
+        .name("exp746-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let session = cx
+                .send_request(NewSessionRequest::new(std::env::temp_dir()))
+                .block_task()
+                .await?;
+            let response = cx
+                .send_request(PromptRequest::new(
+                    session.session_id.clone(),
+                    vec![ContentBlock::Text(TextContent::new("Build it in the background."))],
+                ))
+                .block_task()
+                .await?;
+            // The continuation the notification opens runs after the
+            // prompt's own `result`.
+            tokio::time::sleep(Duration::from_millis(600)).await;
+            Ok::<_, Error>(response.stop_reason)
+        })
+        .await
+        .expect("the connection runs cleanly");
+    assert_eq!(stop_reason, StopReason::EndTurn);
+    let stdin = std::fs::read_to_string(work.0.join("stdin.jsonl")).expect("the fake logged stdin");
+    let interrupts = stdin
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|line| line["request"]["subtype"] == serde_json::json!("interrupt"))
+        .count();
+    assert_eq!(interrupts, 0, "a task notification re-arms the quiet guard: no interrupt");
 }
 
 /// EXP-784: the stall watchdog's interrupt says `cancel_queued: false` on

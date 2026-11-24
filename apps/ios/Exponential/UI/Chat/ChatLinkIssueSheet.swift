@@ -4,27 +4,27 @@ import GRDB
 import SwiftUI
 
 /// EXP-1284: "Link an issue" — THE search list (`SearchListView`,
-/// search-list.json) in our sheet chrome, over the chat's TEAM's synced
-/// issues minus the ones already in it, ranked by the shared engine
+/// search-list.json) in our sheet chrome, over the chat's TEAMS' synced
+/// issues (#EXP-2079, agent-settings.json `assistant.chatTeams`) minus the ones already in it, ranked by the shared engine
 /// (`IssueSearch.rank`, EXP-892) at its default limit. A pick hands the id
 /// back; the host links it (`sessions.linkIssues`) and toasts a refusal.
 struct ChatLinkIssueSheet: View {
-    let teamId: String
+    let teamIds: [String]
     /// Already in the chat — never offered.
     let excluded: Set<String>
     let onPick: (String) -> Void
 
     var body: some View {
-        ChatIssueSearchList(teamId: teamId, excluded: excluded, sheet: true) { onPick($0.id) }
+        ChatIssueSearchList(teamIds: teamIds, excluded: excluded, sheet: true) { onPick($0.id) }
             .accessibilityIdentifier("chat-link-issue-sheet")
     }
 }
 
-/// THE issue search list over a team's synced issues — the Link an issue
+/// THE issue search list over the chat teams' synced issues — the Link an issue
 /// sheet's body, and (S-3, composer-menu.json) the session / agent
 /// composer's "+" Issue page, whose pick inserts `#IDENT` at the caret.
 struct ChatIssueSearchList: View {
-    let teamId: String
+    let teamIds: [String]
     var excluded: Set<String> = []
     /// In its own sheet (the search list's sheet chrome); false = a page.
     var sheet = false
@@ -39,7 +39,7 @@ struct ChatIssueSearchList: View {
         Group {
             if sheet { SearchListSheet(list) } else { list }
         }
-        .task { await load() }
+        .task(id: teamIds) { await load() }
     }
 
     private var list: SearchListView<String> {
@@ -73,14 +73,14 @@ struct ChatIssueSearchList: View {
         )
     }
 
-    /// The team's issues (issues sync no team id: through its boards).
+    /// The teams' issues (issues sync no team id: through their boards).
     /// #PERF-5: GRDB's async read, off main.
     private func load() async {
         guard let dbPool = try? deps.db.pool(forAccountId: accountId) else { return }
-        let teamId = teamId
+        let teamIds = teamIds
         pool = (try? await dbPool.read { db in
             let boardIds = try BoardEntity
-                .filter(Column("team_id") == teamId)
+                .filter(teamIds.contains(Column("team_id")))
                 .fetchAll(db)
                 .map(\.id)
             return try IssueEntity

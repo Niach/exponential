@@ -21,10 +21,22 @@ scripts/lanes/lane.sh <ios|android|heavy> <owner> [--own-target] -- <command...>
   (`release_lock <dir> <owner>`); never `rm` a lock.
 - **Max hold (heavy only, #EXP-1844):** `LANE_MAX_HOLD_SECONDS` (default 2700
   = 45 min, `0` = none). At the deadline the holder's `lane.sh` warns on its
-  stderr and logs `overrun`; the next waiter then takes the slot over
-  (`handover`). The overrun build is never killed, and its release can no
-  longer free the new holder's lock. The simulator and emulator lanes have no
-  limit.
+  stderr and logs `overrun`; the next waiter then ENDS the holder's lane.sh
+  and its whole process tree (TERM, KILL after `LANE_KILL_GRACE_SECONDS`,
+  default 20; logged `end`) and takes the slot over (`handover`). A holder it
+  cannot end (not a lane.sh of this host, or a survivor) keeps the slot
+  (`handover-refused`): a lane never runs two heavy jobs (#FEED-306: on
+  2026-11-24 an overrun cargo build kept running after its handover and held
+  mint's `expbg.slice` over its memory.high for four hours). The simulator and
+  emulator lanes have no limit.
+- **A lane job goes with its lane.sh and its session (#FEED-306):** lane.sh
+  runs the command in the background and ends its whole tree on any exit (a
+  signal, Ctrl-C, the command's own end). When its caller is gone (a stopped
+  turn's shell: lane.sh reparented to pid 1) it ends the job and itself
+  within `LANE_ORPHAN_POLL_SECONDS` (5; logged `orphaned`), and stops waiting
+  for a slot. It lists itself in the session manifest (`lane <pid>`, removed
+  at its end), so the daemon ends the tree when the session ends, on macOS
+  too.
 - **First come, first served (#EXP-2055):** a free or handed-over slot goes
   only to the oldest live waiter in the queue (`exp-lane-waiters`, one file per
   waiting pid; all of a lane's slots share slot 1's queue), whatever its poll
@@ -42,6 +54,11 @@ scripts/lanes/lane.sh <ios|android|heavy> <owner> [--own-target] -- <command...>
   under `cargoSweep.freeDiskGb` (settings.json, default 20) it deletes stale
   build output from the shared target (#EXP-1865, the daemon's rule), else
   nothing.
+  It takes the first CLI that knows `sweep-target`: `$LANE_SWEEP_CLI`, each
+  `exponential` on `PATH`, then the target's own `release/` or `debug/`
+  build (`sweep.sh`, #EXP-1996). With none, the lane says
+  `lane.sh: NOT sweeping …` and names the binary that is too old: install a
+  current CLI (`curl -fsSL https://exponential.at/install.sh | sh`).
 
 ## Screen captures: `capture.sh` only (#EXP-2022)
 

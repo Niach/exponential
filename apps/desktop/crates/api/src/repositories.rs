@@ -63,6 +63,37 @@ impl fmt::Debug for InstallationToken {
     }
 }
 
+/// `repositories.credentials` output (#EXP-1614): where git reaches the
+/// repository and an HTTP basic credential for it, whatever the provider
+/// (GitHub: `https://github.com/<full>.git`; eCode: `exp://<team>/<repo>`).
+/// The device clones `remote_url` and never builds a URL of its own
+/// (#EXP-2019). `token` is handled like [`InstallationToken`]'s.
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryCredentials {
+    pub remote_url: String,
+    pub username: String,
+    pub token: String,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    /// `owner/name` (eCode: `team/name`).
+    pub full_name: String,
+    pub default_branch: String,
+}
+
+impl fmt::Debug for RepositoryCredentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RepositoryCredentials")
+            .field("remote_url", &self.remote_url)
+            .field("username", &self.username)
+            .field("token", &"***")
+            .field("expires_at", &self.expires_at)
+            .field("full_name", &self.full_name)
+            .field("default_branch", &self.default_branch)
+            .finish()
+    }
+}
+
 /// One repo's open pull requests from `repositories.openPulls`. Every pull is
 /// guaranteed issue-UNLINKED — the server excludes PRs a synced issue row
 /// already carries, so the Reviews queue renders these below the issue rows
@@ -248,6 +279,22 @@ pub fn installation_token(
 ) -> Result<InstallationToken, ApiError> {
     trpc.mutation(
         "repositories.installationToken",
+        &InstallationTokenInput {
+            repository_id,
+            board_id,
+        },
+    )
+}
+
+/// `repositories.credentials` — mutation, the same gate and `board_id`
+/// rule as [`installation_token`], provider-neutral (#EXP-1614).
+pub fn credentials(
+    trpc: &TrpcClient,
+    repository_id: &str,
+    board_id: Option<&str>,
+) -> Result<RepositoryCredentials, ApiError> {
+    trpc.mutation(
+        "repositories.credentials",
         &InstallationTokenInput {
             repository_id,
             board_id,
@@ -533,6 +580,24 @@ mod tests {
             request.ends_with(r#"{"repositoryId":"repo-1","boardId":"board-1"}"#),
             "{request}"
         );
+    }
+
+    /// #EXP-2019: the remote comes from the server, eCode included.
+    #[test]
+    fn credentials_decode_the_remote_and_post() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"remoteUrl":"exp://acme/app","username":"exp","token":"expr_secret123","expiresAt":"2026-07-03T12:55:00.000Z","fullName":"acme/app","defaultBranch":"main"}}}"#,
+        );
+        let minted = credentials(&client(&base), "repo-1", Some("board-1")).unwrap();
+        assert_eq!(minted.remote_url, "exp://acme/app");
+        assert_eq!(minted.username, "exp");
+        assert_eq!(minted.full_name, "acme/app");
+        assert_eq!(minted.default_branch, "main");
+        assert!(!format!("{minted:?}").contains("expr_secret123"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/repositories.credentials HTTP/1.1"));
+        assert!(request.ends_with(r#"{"repositoryId":"repo-1","boardId":"board-1"}"#), "{request}");
     }
 
     #[test]

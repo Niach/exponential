@@ -17,6 +17,7 @@ import {
   messageDocs,
   retain,
   searchAll,
+  systemInput,
   searchChat,
   type ChatStoreState,
   type StoredEvent,
@@ -53,6 +54,10 @@ describe(`chat store search`, () => {
   }
   for (const entry of fixture.search.allCases) {
     test(entry.name, () => expect(searchAll(state, entry.query, entry.limit)).toEqual(entry.expect as never))
+  }
+  // #FEED-300: SYSTEM INPUTS.
+  for (const entry of fixture.search.systemCases) {
+    test(`system input: ${entry.name}`, () => expect(systemInput(entry.text)).toBe(entry.expected))
   }
 })
 

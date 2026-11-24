@@ -87,6 +87,27 @@ class ComposeDeviceListTest {
     }
 
     @Test
+    fun `the Assistant's chat lists the viewer's own machines, whatever teams they are shared with (EXP-2079)`() {
+        // agent-settings.json `assistant.chatTeams` DEVICES: no team rule
+        // (`sessionDeviceTeamFlow` = null), so no `deviceUsableInTeam` and no
+        // teammate's server.
+        val rows = listOf(
+            device("personal", "me", "2026-08-11T10:00:00Z"),
+            device("shared-mine", "me", "2026-08-10T10:00:00Z", sharedTeamIds = listOf("team-1")),
+            device("theirs", "them", "2026-08-11T09:00:00Z", sharedTeamIds = listOf("team-1")),
+        )
+        assertEquals(
+            listOf("steer-personal", "steer-shared-mine"),
+            composeDeviceList(rows, users, null, "me", nowMs).map { it.deviceId },
+        )
+        // The personal team's rule would drop the shared one.
+        assertEquals(
+            listOf("steer-personal"),
+            composeDeviceList(rows, users, "p-me", "me", nowMs).map { it.deviceId },
+        )
+    }
+
+    @Test
     fun `the Devices page lists every member team's shared servers once (EXP-1186)`() {
         val rows = listOf(
             device("mine", "me", "2026-08-11T10:00:00Z"),

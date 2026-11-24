@@ -165,15 +165,21 @@ pub struct TailFeedRow<'a> {
 }
 
 /// One synced message as [`synced_tail`] reads it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SyncedTailRow<'a> {
     pub id: &'a str,
     pub author_kind: &'a str,
     /// The row carries a card (`card` set and not JSON null).
     pub has_card: bool,
+    /// #EXP-2075: that card when it is THE `action` card that reads (a
+    /// name and a surfaceId; `None` = any other card, or one not opened).
+    pub action: Option<domain::chat_express::ActionCard>,
     pub consumed_at: Option<&'a str>,
     pub created_at: &'a str,
     pub body: &'a str,
+    /// #EXP-2084: the session that posted it (a child's reply), when not
+    /// the chat's own.
+    pub author_session_id: Option<&'a str>,
 }
 
 /// #FEED-260 (steer-enet.json SYNCED TAIL, TS `steerSyncedTail`): the synced
@@ -182,10 +188,14 @@ pub struct SyncedTailRow<'a> {
 /// body, the agent's or a person's CONSUMED input, later than the feed's
 /// newest known row time, and not already held by the feed (an agent line
 /// equal to, a prefix of or prefixed by a narration; an input equal to a feed
-/// input). An empty feed takes the tail only while its live transcript
-/// cannot be loaded (`unreachable`, the OFFLINE LINE's condition) and only
-/// when it holds an agent line (else SENT INPUTS keeps the placeholder). A
-/// live feed = none.
+/// input; #EXP-2084 another session's line the feed holds as that session's
+/// input, whatever its time). #EXP-2075: a person's CONSUMED row with THE
+/// `action` card is an input too, with or without a body; a feed input that
+/// parses with `parse_action_input` is that press (its body the parsed one;
+/// a bodiless press compared by its card). An empty feed takes the tail only
+/// while its live transcript cannot be loaded (`unreachable`, the OFFLINE
+/// LINE's condition) and only when it holds an agent line (else SENT INPUTS
+/// keeps the placeholder). A live feed = none.
 pub fn synced_tail<'r, T>(
     live: bool,
     feed: &[TailFeedRow<'_>],
@@ -207,35 +217,61 @@ pub fn synced_tail<'r, T>(
         .filter_map(|r| r.text.filter(|t| !t.is_empty()))
         .map(str::trim)
         .collect();
-    let inputs: Vec<&str> = feed
+    let mut inputs: Vec<String> = Vec::new();
+    let mut presses: Vec<domain::chat_express::ActionCard> = Vec::new();
+    for text in feed.iter().filter(|r| r.author == Some("user")).filter_map(|r| r.text.filter(|t| !t.is_empty())) {
+        let (card, body) = match domain::chat_express::parse_action_input(text) {
+            Some((card, body)) => (Some(card), body.trim().to_string()),
+            None => (None, text.trim().to_string()),
+        };
+        if !body.is_empty() {
+            inputs.push(body);
+        } else if let Some(card) = card {
+            presses.push(card);
+        }
+    }
+    let same_press = |a: &domain::chat_express::ActionCard, b: &domain::chat_express::ActionCard| {
+        a.name == b.name && a.surface_id == b.surface_id && a.block == b.block && a.message_id == b.message_id && a.context == b.context
+    };
+    // #EXP-2084: the inputs the device worded as another session's
+    // (`Message from <name> (session <id>): <body>`), by session and body.
+    let relays: Vec<domain::transcript_grouping::CrossSessionInput> = feed
         .iter()
         .filter(|r| r.author == Some("user"))
-        .filter_map(|r| r.text.filter(|t| !t.is_empty()))
-        .map(str::trim)
+        .filter_map(|r| r.text.and_then(domain::transcript_grouping::cross_session_input))
         .collect();
     let mut tail: Vec<(SyncedTailRow<'r>, &'r T)> = rows
         .iter()
         .map(|item| (row(item), item))
         .filter(|(m, _)| {
-            if m.has_card {
+            let action = m.action.as_ref().filter(|_| m.has_card && m.author_kind == "user");
+            if m.has_card && action.is_none() {
                 return false;
             }
             let body = m.body.trim();
-            if body.is_empty() {
+            if let Some(action) = action.filter(|_| body.is_empty()) {
+                if m.consumed_at.is_none() || presses.iter().any(|press| same_press(press, action)) {
+                    return false;
+                }
+            } else if body.is_empty() {
                 return false;
-            }
-            match m.author_kind {
-                "agent" => {
-                    if narrations.iter().any(|text| !text.is_empty() && (text.starts_with(body) || body.starts_with(text))) {
-                        return false;
+            } else {
+                match m.author_kind {
+                    "agent" => {
+                        if m.author_session_id.is_some_and(|from| relays.iter().any(|relay| relay.session_id == from && relay.body.trim() == body)) {
+                            return false;
+                        }
+                        if narrations.iter().any(|text| !text.is_empty() && (text.starts_with(body) || body.starts_with(text))) {
+                            return false;
+                        }
                     }
-                }
-                "user" => {
-                    if m.consumed_at.is_none() || inputs.contains(&body) {
-                        return false;
+                    "user" => {
+                        if m.consumed_at.is_none() || inputs.iter().any(|input| input == body) {
+                            return false;
+                        }
                     }
+                    _ => return false,
                 }
-                _ => return false,
             }
             match feed_at {
                 None => true,
@@ -389,13 +425,34 @@ pub fn envelope_overhead(session_id: &str) -> usize {
     envelope_head(session_id).len() + 2
 }
 
-/// The device's access rule for one envelope's sender: `viewer_user_id` =
-/// the sender endpoint's user in the SESSION team's registry list (`None` =
-/// not in it).
-pub fn viewer_allowed(viewer_user_id: Option<&str>, starter_user_id: &str, shared: bool) -> bool {
-    match viewer_user_id {
+/// Who an envelope's sender is to this device (steer-enet.json `access`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Sender {
+    /// The sender endpoint's user in the SESSION team's registry list
+    /// (`None` = not in it).
+    pub team_user_id: Option<String>,
+    /// Does the device hold a registry list for the session's team at all?
+    /// A team that is never synced (a personal team) has none.
+    pub team_listed: bool,
+    /// The sender endpoint's user in ANY list the device holds.
+    pub any_team_user_id: Option<String>,
+}
+
+impl Sender {
+    /// A sender the carrier already named (a relay tunnel's ticket user).
+    pub fn known(user_id: &str) -> Self {
+        Self { team_user_id: Some(user_id.to_string()), team_listed: true, any_team_user_id: None }
+    }
+}
+
+/// The device's access rule for one envelope's sender. #EXP-2079: with no
+/// registry list at all for the session's team the starter is allowed from
+/// any list the device holds, nobody else (`shared` or not); a team whose
+/// list merely lacks the endpoint stays refused.
+pub fn viewer_allowed(sender: &Sender, starter_user_id: &str, shared: bool) -> bool {
+    match sender.team_user_id.as_deref() {
         Some(user) => user == starter_user_id || shared,
-        None => false,
+        None => !sender.team_listed && sender.any_team_user_id.as_deref() == Some(starter_user_id),
     }
 }
 
@@ -589,14 +646,14 @@ pub fn has_room(session_id: &str) -> bool {
 }
 
 /// One chat message from `from`, received on `node`. Returns whether it was
-/// a steer envelope (the caller handles anything else). `user_in_team`
-/// resolves `(team id, endpoint)` to the endpoint's user in that team's
-/// registry list; `stored` = the host's journals for STORED REPLAY.
+/// a steer envelope (the caller handles anything else). `sender_in_team`
+/// resolves `(team id, endpoint)` to who the endpoint is for a session of
+/// that team (`Sender`); `stored` = the host's journals for STORED REPLAY.
 pub fn receive(
     node: &Arc<Node>,
     from: EndpointId,
     body: &[u8],
-    user_in_team: &dyn Fn(&str, &EndpointId) -> Option<String>,
+    sender_in_team: &dyn Fn(&str, &EndpointId) -> Sender,
     stored: Option<&StoredJournals>,
 ) -> bool {
     let Some(envelope) = parse_envelope(body) else { return false };
@@ -605,7 +662,7 @@ pub fn receive(
         return true;
     }
     let peer = FeedPeer::Enet(EnetPeer { id: from, node: Arc::clone(node) });
-    serve_envelope(peer, envelope, &|team_id| user_in_team(team_id, &from), stored);
+    serve_envelope(peer, envelope, &|team_id| sender_in_team(team_id, &from), stored);
     true
 }
 
@@ -616,7 +673,7 @@ pub fn receive_tunnel(peer: &crate::tunnel::TunnelPeer, user_id: &str, envelope:
         return;
     }
     let stored = lock(tunnel_stored()).clone();
-    serve_envelope(FeedPeer::Tunnel(peer.clone()), envelope, &|_| Some(user_id.to_string()), stored.as_ref());
+    serve_envelope(FeedPeer::Tunnel(peer.clone()), envelope, &|_| Sender::known(user_id), stored.as_ref());
 }
 
 /// The relay closed a tunnel (or its control socket went): its viewer
@@ -644,12 +701,12 @@ pub(crate) fn set_tunnel_stored(stored: StoredJournals) {
 }
 
 /// One viewer envelope from `peer`, whatever carried it: the access rule
-/// (`user_of(team)` = the sender's user in that team), then the live room's
+/// (`user_of(team)` = who the sender is for a session of that team), then the live room's
 /// loop or STORED REPLAY.
 fn serve_envelope(
     peer: FeedPeer,
     envelope: Envelope,
-    user_of: &dyn Fn(&str) -> Option<String>,
+    user_of: &dyn Fn(&str) -> Sender,
     stored: Option<&StoredJournals>,
 ) {
     let mut envelope = envelope;
@@ -712,10 +769,9 @@ fn allowed(
     peer: &FeedPeer,
     session_id: &str,
     audience: &SteerAudience,
-    user_of: &dyn Fn(&str) -> Option<String>,
+    user_of: &dyn Fn(&str) -> Sender,
 ) -> bool {
-    let user = user_of(&audience.team_id);
-    if viewer_allowed(user.as_deref(), &audience.starter_user_id, audience.shared) {
+    if viewer_allowed(&user_of(&audience.team_id), &audience.starter_user_id, audience.shared) {
         return true;
     }
     log::info!("enet steer: {} refused for session {session_id}", peer.label());
@@ -1383,9 +1439,14 @@ mod tests {
                 id: m["id"].as_str().unwrap(),
                 author_kind: m["authorKind"].as_str().unwrap(),
                 has_card: !m["card"].is_null(),
+                // #EXP-2075: the card when it reads as THE `action` card.
+                action: serde_json::from_value::<domain::chat_express::ActionCard>(m["card"].clone())
+                    .ok()
+                    .filter(|card| card.kind == "action"),
                 consumed_at: m["consumedAt"].as_str(),
                 created_at: m["createdAt"].as_str().unwrap(),
                 body: m["body"].as_str().unwrap(),
+                author_session_id: m["authorSessionId"].as_str(),
             });
             let ids: Vec<&str> = picked.iter().map(|m| m["id"].as_str().unwrap()).collect();
             let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
@@ -1426,8 +1487,13 @@ mod tests {
     #[test]
     fn access_cases() {
         for case in fixture()["access"].as_array().unwrap() {
+            let sender = Sender {
+                team_user_id: case["viewerUserId"].as_str().map(str::to_string),
+                team_listed: case.get("teamListed").and_then(Value::as_bool).unwrap_or(true),
+                any_team_user_id: case.get("anyTeamUserId").and_then(Value::as_str).map(str::to_string),
+            };
             let allowed = viewer_allowed(
-                case["viewerUserId"].as_str(),
+                &sender,
                 case["starterUserId"].as_str().unwrap(),
                 case["shared"].as_bool().unwrap(),
             );
