@@ -90,6 +90,33 @@ object SearchList {
     // find in chat starts. Mirrors the TS reference `src/search-list.ts`,
     // desktop `domain::search_list` and iOS; SearchListChatsTest replays it.
 
+    /**
+     * #NEW-133 (search-list.json SUGGESTION): the action row a recognised
+     * sentence puts on top of the global search: its icon concept, label
+     * format and test id (SearchListTest locks them to the fixture).
+     */
+    object Suggestion {
+        const val ICON = "nav-search"
+        const val LABEL = "Search: {query}"
+        const val TEST_ID = "search-list-suggestion"
+    }
+
+    /** The suggestion row: the query a recognised sentence means and the row's name. */
+    data class SearchSuggestion(val query: String, val label: String)
+
+    /**
+     * The suggestion row for the typed [text] (`suggestion.cases`), or null
+     * when the phrase grammar does not recognise a sentence. [now] = epoch ms.
+     */
+    fun suggestion(
+        text: String,
+        members: List<IssueSearchPhrase.Member>,
+        now: Long = System.currentTimeMillis(),
+    ): SearchSuggestion? {
+        val query = IssueSearchPhrase.translate(text, members, now) ?: return null
+        return SearchSuggestion(query, Suggestion.LABEL.replace("{query}", query))
+    }
+
     object Chats {
         const val DEBOUNCE_MS = 150L
         const val CHATS_MAX = 20

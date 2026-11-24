@@ -290,6 +290,8 @@ fun <T : Any> SearchListRows(
     /** The rows are still loading: skeleton rows in their geometry (EXP-1275). */
     loading: Boolean = false,
     fadeColor: Color = GlassSheetDefaults.ContainerColor,
+    /** A row's own test tag (#NEW-133: the suggestion row's); null = the list's row tag. */
+    rowTestTag: ((PickerItem<T>) -> String?)? = null,
     renderItem: (@Composable RowScope.(item: PickerItem<T>) -> Unit)? = null,
 ) {
     val state = rememberLazyListState()
@@ -310,7 +312,7 @@ fun <T : Any> SearchListRows(
                 item { EmptyState(title = emptyText, size = EmptyStateSize.List) }
             }
             itemsIndexed(items, key = { _, item -> item.value }) { index, item ->
-                Box(Modifier.testTag(SearchList.ROW_TEST_ID)) {
+                Box(Modifier.testTag(rowTestTag?.invoke(item) ?: SearchList.ROW_TEST_ID)) {
                     PickerRow(
                         item = item,
                         mark = PickerDefaults.mark(mode, PickerRules.checked(item, value)),

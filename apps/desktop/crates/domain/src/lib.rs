@@ -65,6 +65,8 @@
 //! * [`issue_search`] — EXP-892's ONE issue-search engine (rank + server-hit
 //!   merge), byte-locked ×4 by
 //!   `packages/domain-contract/fixtures/issue-search.json`;
+//! * [`issue_search_phrase`] — #NEW-133's DE+EN phrase grammar (a sentence →
+//!   the structured query), byte-locked ×4 by `fixtures/issue-search-phrase.json`;
 //! * [`diff`] — EXP-895's ONE diff model + parser (`git diff`, bare steer
 //!   sections, GitHub patches), byte-locked ×4 by
 //!   `packages/domain-contract/fixtures/diff/`;
@@ -183,6 +185,7 @@ pub mod issue_trash;
 /// Row timestamps as UTC milliseconds (both spellings the shapes deliver).
 pub mod instant;
 pub mod issue_search;
+pub mod issue_search_phrase;
 // EXP-1248: THE list item (geometry, PR node states), fixture-locked ×4.
 pub mod list_item;
 // #EXP-1730: messages are keyed by their own session, fixture-locked ×4.

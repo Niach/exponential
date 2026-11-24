@@ -243,7 +243,7 @@ public enum IssueSearch {
         return parsed
     }
 
-    private static let daySeconds: Double = 86_400
+    static let daySeconds: Double = 86_400
 
     /// #NEW-132: a `created:`/`updated:` value as its window, or nil.
     public static func parseRange(_ value: String, now: Date) -> DateRange? {
@@ -296,7 +296,7 @@ public enum IssueSearch {
     }
 
     /// A UTC day `YYYY-MM-DD` or month `YYYY-MM` as its window, or nil.
-    private static func parseDate(_ text: String) -> DateRange? {
+    static func parseDate(_ text: String) -> DateRange? {
         let bytes = Array(text.utf8)
         guard bytes.count == 7 || bytes.count == 10, bytes[4] == UInt8(ascii: "-") else { return nil }
         if bytes.count == 10, bytes[7] != UInt8(ascii: "-") { return nil }
@@ -326,7 +326,7 @@ public enum IssueSearch {
 
     /// Days since 1970-01-01 of a proleptic Gregorian UTC date (Howard
     /// Hinnant's days_from_civil), the same integer arithmetic ×4.
-    private static func daysFromCivil(year: Int, month: Int, day: Int) -> Int {
+    static func daysFromCivil(year: Int, month: Int, day: Int) -> Int {
         let y = month <= 2 ? year - 1 : year
         let era = (y >= 0 ? y : y - 399) / 400
         let yoe = y - era * 400
@@ -617,7 +617,7 @@ public enum IssueSearch {
 
     /// `\p{L}`/`\p{N}` runs — the web's `[^\p{L}\p{N}]+` split, spelled with
     /// Swift's own Unicode general-category predicates.
-    private static func words(_ text: String) -> [String] {
+    static func words(_ text: String) -> [String] {
         text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
     }
 
