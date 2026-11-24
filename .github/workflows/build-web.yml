@@ -167,6 +167,11 @@ jobs:
             -e BETTER_AUTH_URL=http://localhost:3000 \
             exponential-web:smoke
           SMOKE_WAIT_MS=180000 bun apps/web/scripts/smoke-server.ts http://localhost:3000 || { docker logs smoke-web; exit 1; }
+          # #NEW-134: the image embeds on its own: the baked model and the
+          # WASM runtime load on bun/musl with NO network (--network none), and
+          # a German and an English sentence about one bug land close together.
+          docker run --rm --network none exponential-web:smoke bun apps/web/embedder/bench.mjs | tee /tmp/embed-bench.json
+          bun -e 'const b = JSON.parse(require("fs").readFileSync("/tmp/embed-bench.json", "utf8")); if (!(b.cosine["en_bug~de_bug"] > b.cosine["en_bug~en_other"] + 0.05)) { console.error("the embedder does not separate related from unrelated text"); process.exit(1) }'
           # bun is PID 1 in the image: without server-bun.ts's SIGTERM handler
           # `docker stop` waits out its timeout and SIGKILLs (exit 137).
           start=$(date +%s%N)
