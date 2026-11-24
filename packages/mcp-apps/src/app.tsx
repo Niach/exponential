@@ -2,28 +2,38 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Button, GLASS_CARD_CLASS, ListEmpty, Skeleton, cn } from "@exp/ui"
 import { actionsFromBridge, McpActionsProvider } from "./actions"
 import { AppBridge, type DisplayMode, type HostContext, type ToolResult } from "./bridge"
-import { DevicesView } from "./devices-view"
-import { IssueDetailView } from "./issue-detail-view"
-import { InboxView } from "./inbox-view"
-import { IssueListView } from "./issue-list-view"
-import { RunView } from "./run-view"
-import { RunsListView } from "./runs-list-view"
+import type { DevicesView } from "./devices-view"
+import type { IssueDetailView } from "./issue-detail-view"
+import type { InboxView } from "./inbox-view"
+import type { IssueListView } from "./issue-list-view"
 import {
   MCP_APP_VIEW_TOOL,
   decodeToolResult,
   type IssueDetail,
   type IssueRow,
   type DeviceRow,
-  type McpAppView,
   type NotificationRow,
-  type RunDetail,
 } from "./model"
 import { defaultDisplayMode, listRows, screenForCall, type ListPage } from "./view-screen"
+
+/** #NEW-24: the views that have a document of their own (`<view>.html`,
+ *  vite.config.ts). The session views went with EXP-1291. */
+export type AppView = `issues` | `inbox` | `devices`
+
+/** The components ONE document draws with. Each entry (src/entries/) passes
+ *  only its own, so a document bundles nothing another view needs: the
+ *  devices document carries no markdown, the lists no account sign-in. */
+export interface AppViews {
+  IssueListView?: typeof IssueListView
+  InboxView?: typeof InboxView
+  DevicesView?: typeof DevicesView
+  /** The issue a list row or a one-issue op opens in place. */
+  IssueDetailView?: typeof IssueDetailView
+}
 
 // A list screen a detail can return to.
 type ListScreen =
   | { kind: `issues`; issues: IssueRow[]; page: ListPage | null }
-  | { kind: `runs`; runs: RunDetail[] }
   | { kind: `inbox`; notifications: NotificationRow[]; page: ListPage | null }
   | { kind: `devices`; devices: DeviceRow[] }
 
@@ -33,39 +43,26 @@ type Screen =
   | { kind: `error`; message: string }
   | ListScreen
   | { kind: `issue`; issue: IssueDetail; back?: ListScreen }
-  | { kind: `run`; run: RunDetail; back?: ListScreen }
 
-function listScreen(view: McpAppView, rows: unknown[], page: ListPage | null): ListScreen {
-  if (view === `runs`) return { kind: `runs`, runs: rows as RunDetail[] }
+function listScreen(view: AppView, rows: unknown[], page: ListPage | null): ListScreen {
   if (view === `inbox`) return { kind: `inbox`, notifications: rows as NotificationRow[], page }
   if (view === `devices`) return { kind: `devices`, devices: rows as DeviceRow[] }
   return { kind: `issues`, issues: rows as IssueRow[], page }
 }
 
-/** What a view's own tool result decodes to (a detail tool's answer, or a
- *  list answer when the op is unknown). */
-export function screenFor(view: McpAppView, result: ToolResult): Screen {
-  if (view === `issue`) {
-    const decoded = decodeToolResult<IssueDetail>(result)
-    return decoded.kind === `error` ? decoded : { kind: `issue`, issue: decoded.data }
-  }
-  if (view === `run`) {
-    const decoded = decodeToolResult<RunDetail>(result)
-    return decoded.kind === `error` ? decoded : { kind: `run`, run: decoded.data }
-  }
-  const decoded = decodeToolResult<unknown>(result)
-  if (decoded.kind === `error`) return decoded
-  const list = listRows(result)
-  return listScreen(view, list?.rows ?? [], list?.page ?? null)
+/** What the issue tool's answer decodes to. */
+function issueScreen(result: ToolResult): Screen {
+  const decoded = decodeToolResult<IssueDetail>(result)
+  return decoded.kind === `error` ? decoded : { kind: `issue`, issue: decoded.data }
 }
 
 /** The list noun a view pages through (the view's own tool). */
-const LIST_TOOL: Partial<Record<McpAppView, string>> = {
+const LIST_TOOL: Partial<Record<AppView, string>> = {
   issues: `exponential_issues`,
   inbox: `exponential_notifications`,
 }
 
-export function App({ view }: { view: McpAppView }) {
+export function App({ view, views }: { view: AppView; views: AppViews }) {
   const [screen, setScreen] = useState<Screen>({ kind: `waiting` })
   const [mode, setMode] = useState<DisplayMode>(`inline`)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -101,7 +98,7 @@ export function App({ view }: { view: McpAppView }) {
           return
         }
         if (call.detail) return setScreen({ kind: `issue`, issue: call.detail as IssueDetail })
-        void open(`issue`, call.id, undefined)
+        void open(call.id, undefined)
       },
     })
     bridge.current = instance
@@ -154,15 +151,12 @@ export function App({ view }: { view: McpAppView }) {
 
   // A list row opens its detail through the host (the detail tool), and the
   // detail's back arrow returns to the list it came from.
-  async function open(detail: `issue` | `run`, id: string, back: ListScreen | undefined) {
+  async function open(id: string, back: ListScreen | undefined) {
     const instance = bridge.current
     if (!instance) return
     try {
-      const result = await instance.callTool(MCP_APP_VIEW_TOOL[detail], { id })
-      const next = screenFor(detail, result)
-      setScreen(
-        next.kind === `issue` || next.kind === `run` ? { ...next, back } : next
-      )
+      const next = issueScreen(await instance.callTool(MCP_APP_VIEW_TOOL.issue, { id }))
+      setScreen(next.kind === `issue` ? { ...next, back } : next)
     } catch (error) {
       setScreen({
         kind: `error`,
@@ -233,45 +227,36 @@ export function App({ view }: { view: McpAppView }) {
           </div>
         )}
         {screen.kind === `error` && <ListEmpty>{screen.message}</ListEmpty>}
-        {screen.kind === `issues` && (
+        {screen.kind === `issues` && views.IssueListView && (
           <div className={cn(full && `mx-auto w-full max-w-5xl py-2`)}>
-            <IssueListView
+            <views.IssueListView
               issues={screen.issues}
-              onOpen={(row) => void open(`issue`, row.id, screen)}
+              onOpen={(row) => void open(row.id, screen)}
             />
             {showMore(screen)}
           </div>
         )}
-        {screen.kind === `runs` && (
-          <RunsListView
-            runs={screen.runs}
-            onOpen={(run) => void open(`run`, run.id, screen)}
-          />
-        )}
-        {screen.kind === `inbox` && (
+        {screen.kind === `inbox` && views.InboxView && (
           <div className={cn(full && `mx-auto w-full max-w-3xl py-2`)}>
-            <InboxView
+            <views.InboxView
               notifications={screen.notifications}
-              onOpen={(row) => row.issueId && void open(`issue`, row.issueId, screen)}
+              onOpen={(row) => row.issueId && void open(row.issueId, screen)}
             />
             {showMore(screen)}
           </div>
         )}
-        {screen.kind === `issue` && (
+        {screen.kind === `issue` && views.IssueDetailView && (
           <div className={cn(full && `mx-auto w-full max-w-4xl py-2`)}>
-            <IssueDetailView
+            <views.IssueDetailView
               issue={screen.issue}
               onOpenLink={openLink}
               onBack={backTo(screen.back)}
             />
           </div>
         )}
-        {screen.kind === `run` && (
-          <RunView run={screen.run} onOpenLink={openLink} onBack={backTo(screen.back)} />
-        )}
-        {screen.kind === `devices` && (
+        {screen.kind === `devices` && views.DevicesView && (
           <div className={cn(full && `mx-auto w-full max-w-5xl py-2`)}>
-            <DevicesView devices={screen.devices} />
+            <views.DevicesView devices={screen.devices} />
           </div>
         )}
       </div>

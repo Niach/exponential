@@ -9,7 +9,7 @@
     "./tool-names": "./src/tool-names.ts"
   },
   "scripts": {
-    "build": "tsc --noEmit && vite build && MCP_APPS_ENTRY=genui vite build",
+    "build": "tsc --noEmit && MCP_APPS_ENTRY=issues vite build && MCP_APPS_ENTRY=inbox vite build && MCP_APPS_ENTRY=devices vite build && MCP_APPS_ENTRY=genui vite build",
     "dev": "vite build --watch",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

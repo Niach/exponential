@@ -32,9 +32,26 @@ Five tools carry an MCP Apps binding (`_meta.ui.resourceUri`, the stable
 | `exponential_notifications` op `list` | `ui://exponential/inbox` | inbox |
 | `exponential_devices` op `list` | `ui://exponential/devices` | devices + agent accounts |
 
-The resource is ONE built document (`packages/mcp-apps`, 1,055,648 bytes on
-prod on 2026-10-07, script and stylesheet inlined) with the view stamped into
-its `exp-view` meta tag. Its `_meta.ui` carries `prefersBorder: true` and a
+Each resource is its OWN built document (`packages/mcp-apps`, one vite pass
+per view, script and stylesheet inlined, nothing shared at runtime; NEW-24)
+with the view stamped into its `exp-view` meta tag. Bytes on 2026-11-24
+(master `4b3d0b09bf` before, one bundle per view after):
+
+| View | Before | After |
+| --- | --- | --- |
+| `issues` | 4,535,127 (`app.html`) | 2,349,327 (`issues.html`) |
+| `inbox` | 4,535,127 (`app.html`) | 2,347,740 (`inbox.html`) |
+| `devices` | 4,535,127 (`app.html`) | 808,753 (`devices.html`) |
+| `genui` | 4,814,372 (`genui.html`) | 3,174,425 (`genui.html`) |
+
+The split alone saved nothing: the workspace packages declare no
+`sideEffects`, so the `@exp/ui` barrel carried the catalogue's specimens and
+every fixture into each document. The views' build marks those modules pure
+(`vite.config.ts` `PURE_MODULES`). What is left in `issues` and `inbox` is the
+eUI renderer their markdown draws with (the Motion wasm alone is 635 kB
+inlined); both are still over OpenClaw's 2 MiB cap.
+
+Its `_meta.ui` carries `prefersBorder: true` and a
 CSP of `resourceDomains: [app origin, fonts.googleapis.com, fonts.gstatic.com]`;
 no `connectDomains`: data only ever arrives through the host's `tools/call`.
 
