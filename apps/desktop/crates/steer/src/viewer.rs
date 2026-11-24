@@ -974,9 +974,6 @@ impl Run {
         self.backoff.reset();
         self.phases.set(ViewerPhase::Ended { outcome: Some(SUSPENDED.to_string()) });
         self.enet_redial_at = Some(Instant::now() + self.timings.offline_redial);
-        if std::mem::take(&mut self.row_woke) {
-            self.enet_redial_at = Some(Instant::now());
-        }
     }
 
     /// The next eNet redial's wait: the `startingRetry` backoff (reset by a
@@ -1252,6 +1249,7 @@ impl Run {
     /// is left alone (its legs watch their own staleness).
     fn kick(&mut self) {
         let now = Instant::now();
+        self.suspended = false;
         if self.enet_leg.is_none() && self.carriers.active != Some(Carrier::Enet) {
             self.enet_redial_at = Some(now);
         }
@@ -1268,6 +1266,9 @@ impl Run {
             return;
         }
         self.backoff.reset();
+        // #EXP-2119: the run is back: a suspended feed redials like a
+        // starting one until it lands, no longer once per stale beat.
+        self.suspended = false;
         if self.enet_leg.is_some() {
             self.row_woke = true;
         } else {
