@@ -33,6 +33,10 @@ export interface HostContext {
   displayMode?: DisplayMode
   availableDisplayModes?: DisplayMode[]
   containerDimensions?: { height?: number; maxHeight?: number; width?: number; maxWidth?: number }
+  /** #NEW-24: the host's style variables and font faces (host-theme.ts). */
+  styles?: { variables?: Record<string, string | undefined>; css?: { fonts?: string } }
+  /** px the host's own chrome covers on each edge. */
+  safeAreaInsets?: { top?: number; right?: number; bottom?: number; left?: number }
   [key: string]: unknown
 }
 
