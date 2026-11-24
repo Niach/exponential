@@ -30,10 +30,13 @@ export const FAB_CHROME_CLASS = `border border-glass-stroke-card bg-popover/85 b
 export const FAB_CIRCLE_CLASS = `pointer-events-auto flex size-[52px] shrink-0 items-center justify-center rounded-full ${FAB_CHROME_CLASS} text-foreground/70`
 
 // #EXP-1860 — the Assistant FAB's corner, reserved once (styles.css
-// `main:has(> [data-assistant-fab])`): a page's scroll content wears
+// `main[data-fab-corner]`, FAB_CORNER_ATTR, set by the FAB on its <main>
+// while it shows; #EXP-1999: never a `:has()`, which restyled the whole page
+// on every mounted node): a page's scroll content wears
 // `FAB_CLEARANCE_CLASS` (a 92px spacer after its last row while the FAB
 // shows), THE Dock band `FAB_LANE_CLASS` (its right edge 92px in). Without a
 // FAB both are no-ops.
+export const FAB_CORNER_ATTR = `data-fab-corner`
 export const FAB_CLEARANCE_CLASS = `fab-clearance`
 export const FAB_LANE_CLASS = `fab-lane`
 // #EXP-1872 — THE pinned foot: every control row a pane pins under its

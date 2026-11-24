@@ -175,6 +175,8 @@ import {
   groupLaneRows,
   FEED_WINDOW,
   FEED_WINDOW_STEP,
+  mountedWindowStart,
+  nextMountFloor,
   isAnswerLocked,
   liveToolRowId,
   nestedWorkflowId,
@@ -492,12 +494,17 @@ export function AgentSessionView({
     const at = feed.findIndex((item) => item.id >= windowFrom)
     return Math.min(at === -1 ? tail : at, tail)
   }, [feed, windowFrom])
+  // #EXP-1999: a Load earlier page mounts `FEED_MOUNT_SLICE` items per task
+  // (`mountFloor` = the oldest item mounted so far, per session).
+  const [slicing, setSlicing] = useState<{ sessionId: string; floor: number } | null>(null)
+  const mountFloor = slicing?.sessionId === session.id ? slicing.floor : null
+  const mountStart = mountedWindowStart(feed, windowStart, mountFloor)
   /** Render rows: tool runs collapse, one ask's questions become a stepper,
    *  a subagent's work its own group — a projection only. */
   // #EXP-1772: a system input only above the reply it got, no blank turns.
   const rows = useMemo(
-    () => shownFeedRows(groupFeedRows(feed, windowStart)),
-    [feed, windowStart]
+    () => shownFeedRows(groupFeedRows(feed, mountStart)),
+    [feed, mountStart]
   )
   /** EXP-1280: the cards a TOOL posted (`plan_propose` / `sessions_ask`)
    *  off the synced `messages` (`isToolPostedCard`): the relay holds no
@@ -740,16 +747,32 @@ export function AgentSessionView({
     anchorRef.current = el ? el.scrollHeight - el.scrollTop : null
     // #EXP-1380: the chat's loaded messages widen with it (its cards, ×4).
     loadEarlierMessages(session.id)
-    // #PERF-9: a page mounts as a transition: React renders its rows in
-    // slices that yield to the browser (one task per page was 130–220 ms).
+    // #EXP-1999: the page mounts in slices from the rows mounted now (a
+    // transition still committed it as ONE 90–250 ms task).
+    const floor = feed[mountStart]?.id
+    if (floor !== undefined && mountFloor === null) setSlicing({ sessionId: session.id, floor })
     if (windowStart > 0) {
-      const from = feed[Math.max(0, windowStart - FEED_WINDOW_STEP)].id
-      startTransition(() => setWindowFrom(from))
+      setWindowFrom(feed[Math.max(0, windowStart - FEED_WINDOW_STEP)].id)
       return
     }
-    startTransition(() => setWindowFrom(WINDOW_FROM_START))
+    setWindowFrom(WINDOW_FROM_START)
     store.loadEarlier()
-  }, [feed, windowStart, store, session.id])
+  }, [feed, windowStart, mountStart, mountFloor, store, session.id])
+  // #EXP-1999: one slice per task, each holding the reader's place.
+  useEffect(() => {
+    if (mountFloor === null) return
+    const next = nextMountFloor(feed, windowStart, mountFloor)
+    // A page the device still sends slices in when it lands.
+    if (next === null && mountStart === windowStart && windowFrom === WINDOW_FROM_START && snapshotCanLoadEarlier) return
+    const timer = setTimeout(() => {
+      if (mountedWindowStart(feed, windowStart, next) !== mountStart) {
+        const el = scrollRef.current
+        anchorRef.current = el ? el.scrollHeight - el.scrollTop : null
+      }
+      setSlicing(next === null ? null : { sessionId: session.id, floor: next })
+    })
+    return () => clearTimeout(timer)
+  }, [feed, windowStart, windowFrom, mountStart, mountFloor, snapshotCanLoadEarlier, session.id])
   // REPLAY TAIL (steer-enet.json): within one viewport of the top, the
   // next page loads, the Load earlier press without the press.
   const followScroll = follow.onScroll
@@ -824,14 +847,14 @@ export function AgentSessionView({
         // origin's while the window holds the feed's start.
         {
           origin,
-          fromStart: windowStart === 0 && !snapshotCanLoadEarlier,
+          fromStart: mountStart === 0 && !snapshotCanLoadEarlier,
           isCommand: (text) => parseSteerCommand(text, agentCommands) !== null,
           callIds,
           viewerId,
           memberName: (userId) => memberAvatar(userId)?.name ?? null,
         }
       ),
-    [rows, session.id, sessionCardModel?.name, session.title, session.agentId, origin, windowStart, snapshotCanLoadEarlier, agentCommands, callIds, viewerId, memberAvatar]
+    [rows, session.id, sessionCardModel?.name, session.title, session.agentId, origin, mountStart, snapshotCanLoadEarlier, agentCommands, callIds, viewerId, memberAvatar]
   )
   /** EXP-389/848: the agent is EXECUTING a turn. */
   const working = sessionIsWorking({
@@ -1398,8 +1421,10 @@ export function AgentSessionView({
     (itemId: number) => {
       const at = feed.findIndex((item) => item.id === itemId)
       if (at >= 0 && at < windowStart) startTransition(() => setWindowFrom(itemId))
+      // A found row mounts at once, never a slice later.
+      if (at >= 0 && at < mountStart) setSlicing(null)
     },
-    [feed, windowStart]
+    [feed, windowStart, mountStart]
   )
   // #EXP-1998: the synced messages the screen draws as bubbles (a live
   // transcript holds them as its own rows; an ended placeholder draws none).
