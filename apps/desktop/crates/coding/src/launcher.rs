@@ -3689,7 +3689,25 @@ pub fn set_session_end_observer(observer: SessionEndObserver) {
 /// the host's registry sees each outcome exactly where it happens. A team
 /// agent never ends — its host calls [`idle_session`] instead.
 pub fn end_session(trpc: &TrpcClient, session_id: &str) -> Result<(), ApiError> {
-    end_session_because(trpc, session_id, None)
+    end_session_because(trpc, session_id, None).map(drop)
+}
+
+/// One end report: the write, then the [`SessionEndObserver`]. #EXP-2058:
+/// → whether the row reads ended now (the server keeps a root chat, an
+/// agent and a lost run alive).
+fn report_end(
+    trpc: &TrpcClient,
+    session_id: &str,
+    report: &SessionReport,
+) -> Result<session_device::ReportReply, ApiError> {
+    let (result, reply) = match session_device::report_reply(trpc, session_id, report) {
+        Ok(reply) => (Ok(()), reply),
+        Err(err) => (Err(err), session_device::ReportReply::default()),
+    };
+    if let Some(observer) = SESSION_END_OBSERVER.get() {
+        observer(session_id, &result);
+    }
+    result.map(|()| reply)
 }
 
 /// #FEED-253: [`end_session`] saying WHY this device ended the run
@@ -3699,13 +3717,8 @@ pub fn end_session_because(
     trpc: &TrpcClient,
     session_id: &str,
     reason: Option<session_device::EndReason>,
-) -> Result<(), ApiError> {
-    let report = SessionReport { end_reason: reason, ..end_report() };
-    let result = session_device::report(trpc, session_id, &report);
-    if let Some(observer) = SESSION_END_OBSERVER.get() {
-        observer(session_id, &result);
-    }
-    result
+) -> Result<session_device::ReportReply, ApiError> {
+    report_end(trpc, session_id, &SessionReport { end_reason: reason, ..end_report() })
 }
 
 /// NEW-17: the end of a run whose PROCESS went away without the agent
@@ -3718,18 +3731,14 @@ pub fn end_session_lost(
     session_id: &str,
     lost: session_device::LostReason,
     mid_turn: bool,
-) -> Result<(), ApiError> {
+) -> Result<session_device::ReportReply, ApiError> {
     let report = SessionReport {
         status: Some(ReportStatus::Ended),
         lost: Some(lost),
         mid_turn: Some(mid_turn),
         ..SessionReport::default()
     };
-    let result = session_device::report(trpc, session_id, &report);
-    if let Some(observer) = SESSION_END_OBSERVER.get() {
-        observer(session_id, &result);
-    }
-    result
+    report_end(trpc, session_id, &report)
 }
 
 /// Best-effort session end for teardown paths that bypass the engine's own
@@ -3905,6 +3914,26 @@ mod tests {
         assert!(requests[0].contains("sessions.report"), "{}", requests[0]);
         assert!(requests[0].contains(r#""status":"ended""#) && requests[0].contains(r#""endReason":"stalled""#), "{}", requests[0]);
         assert!(requests[1].contains(r#""status":"ended""#) && !requests[1].contains("endReason"), "{}", requests[1]);
+    }
+
+    /// #EXP-2058: an end report answers whether the row reads ended: the
+    /// server's `status` (a child ended; a kept root reads idle), and
+    /// nothing from a server that does not say.
+    #[test]
+    fn an_end_report_reads_the_rows_status_from_the_reply() {
+        let reply = |status: &str| (200, format!(r#"{{"result":{{"data":{{"txid":1{status}}}}}}}"#));
+        let (base, _requests) = canned_server_recording(vec![
+            reply(r#","status":"ended""#),
+            reply(r#","status":"idle""#),
+            reply(""),
+            reply(r#","status":"idle""#),
+        ]);
+        let trpc = TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        assert!(end_session_because(&trpc, "s-child", None).unwrap().ended);
+        assert!(!end_session_because(&trpc, "s-root", None).unwrap().ended, "the server kept it");
+        assert!(!end_session_because(&trpc, "s-old-server", None).unwrap().ended, "the sweep's");
+        let lost = end_session_lost(&trpc, "s-lost", session_device::LostReason::ProcessLost, true).unwrap();
+        assert!(!lost.ended, "a lost run never ends");
     }
 
     const BRIEF: &str = "Work on EXP-42: Fix login flicker.\n\n## Request\n\nThe login page flickers.";

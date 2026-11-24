@@ -206,6 +206,7 @@ fn start(scenario: &str, seed: Option<String>) -> Harness {
             sink: Some(sink.clone() as Arc<dyn EventSink>),
             conversation: None,
             computer: None,
+            thread: None,
         },
     )
     .expect("the engine starts");
