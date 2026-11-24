@@ -877,6 +877,47 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect((await row(live.sessionId)).account).toBe(`cccc3333`)
   })
 
+  // #FEED-299 (waiting-cards.json EXPIRY): an ended run can no longer act on
+  // an answer, so its waiting cards are dismissed with it (answered AND
+  // consumed: off every chip, never delivered); a live session's card waits.
+  it(`#FEED-299: ending a session dismisses its waiting question and plan; a live session's card keeps waiting`, async () => {
+    const { buildPlanCard, buildQuestionCard, postAskCard } = await import(`@/lib/sessions/plan`)
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
+    const ask = (sessionId: string, question: string) =>
+      postAskCard({ userId: w.owner, sessionId, card: buildQuestionCard({ question, options: [{ label: `a` }, { label: `b` }] }) })
+    const stale = await ask(child.sessionId, `Which base?`)
+    const live = await ask(root.sessionId, `Ship it?`)
+    const plan = await postAskCard({
+      userId: w.owner,
+      sessionId: child.sessionId,
+      card: buildPlanCard({ plan: `1. One` } as never),
+    })
+    const card = async (id: string) =>
+      (await db.select().from(messages).where(eq(messages.id, id)).limit(1))[0]!
+
+    await endSession({ userId: w.owner, sessionId: child.sessionId })
+
+    const question = await card(stale.messageId)
+    expect(question.card).toMatchObject({ kind: `question`, dismissed: true })
+    expect(question.answeredAt).not.toBeNull()
+    expect(question.consumedAt).not.toBeNull()
+    const closed = await card(plan.messageId)
+    expect(closed.card).toMatchObject({ kind: `plan`, decision: `dismissed`, fresh: false, dismissed: true })
+    expect(closed.answeredAt).not.toBeNull()
+    expect(closed.consumedAt).not.toBeNull()
+    const waiting = await card(live.messageId)
+    expect(waiting.card).not.toHaveProperty(`dismissed`)
+    expect(waiting.answeredAt).toBeNull()
+    // The ask mirror of the expired question in the parent closed too.
+    const mirrors = await db
+      .select({ answeredAt: messages.answeredAt })
+      .from(messages)
+      .where(sql`${messages.card}->>'kind' = 'ask' AND ${messages.card}->>'messageId' = ${stale.messageId}`)
+    expect(mirrors.every((mirror) => mirror.answeredAt !== null)).toBe(true)
+  })
+
   it(`ending a root ends its whole tree; an agent refuses End`, async () => {
     const w = await world()
     const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
