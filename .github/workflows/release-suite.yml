@@ -458,8 +458,8 @@ jobs:
         run: bun run build:widget
       - name: Playwright browser
         run: cd apps/web && (bunx playwright install chromium || (sleep 20 && bunx playwright install chromium))
-      - name: Feedback widget e2e
-        run: cd apps/web && bunx playwright test tests/e2e/feedback-widget.spec.ts
+      - name: Feedback widget e2e + a web call under the production CSP (#EXP-2102)
+        run: cd apps/web && bunx playwright test tests/e2e/feedback-widget.spec.ts tests/e2e/web-call-csp.spec.ts
       - name: Keep the Playwright report
         if: failure()
         uses: actions/upload-artifact@v4

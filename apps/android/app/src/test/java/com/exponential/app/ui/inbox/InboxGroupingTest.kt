@@ -116,6 +116,26 @@ class InboxGroupingTest {
     }
 
     /**
+     * Web/iOS parity: one active team's inbox names no team on a row (the
+     * Assistant's decision, whatever team its row carries); a row of a team
+     * no synced team names (the personal team) never does.
+     */
+    @Test
+    fun anActiveTeamsInboxNamesNoTeam() {
+        val rows = listOf(
+            notification("m1", teamId = "t1", sessionId = "chat", type = DomainContract.notificationTypeAgentMessage),
+            notification("m2", teamId = "personal", sessionId = "chat", type = DomainContract.notificationTypeAgentMessage),
+        )
+        val teams = listOf(team("t1", "Acme"), team("t2", "Beta"))
+        val scoped = buildInboxState(rows, emptyList(), teams, labelTeams = false)
+            .entries.filterIsInstance<InboxEntry.Message>()
+        assertEquals(listOf<String?>(null, null), scoped.map { it.teamName })
+        val everyTeam = buildInboxState(rows, emptyList(), teams, labelTeams = true)
+            .entries.filterIsInstance<InboxEntry.Message>()
+        assertEquals(listOf("Acme", null), everyTeam.map { it.teamName })
+    }
+
+    /**
      * EXP-933: an agent message naming an issue groups under that issue, and
      * the row opens the issue's Results face while it is the latest.
      */

@@ -220,3 +220,73 @@ export function acceptVouch(
   if (![...pins].includes(signerEndpointId)) return `unpinned`
   return verifyWrapSignature(statement, signature, signerEndpointId) ? `verified` : `signature`
 }
+
+// ── re-signing the current epoch (wrap-signature.json `resign`, decision c) ──
+
+/** `sessionKeys.resign`: at most this many wraps per call. */
+export const RESIGN_MAX_WRAPS = 200
+
+/** Which check of `sessionKeys.resign` decided a wrap (in the order they apply). */
+export type ResignRule =
+  | `callerNotReader`
+  | `staleEpoch`
+  | `targetNotReader`
+  | `badSignature`
+  | `noRow`
+  | `signedRow`
+  | `unsignedRow`
+
+/** `refused` refuses the WHOLE call (nothing is written). */
+export type ResignOutcome = `replaced` | `skipped` | `refused`
+
+/** What the server knows of one wrap of a `resign` call. */
+export interface ResignFacts {
+  /** The caller's install is a current reader of the root. */
+  callerReader: boolean
+  /** `epoch` is the root's current `seal_epoch`. */
+  currentEpoch: boolean
+  /** The target install is a current reader of the root. */
+  targetReader: boolean
+  /** The signature is the caller's over the stored key (`verifyWrapSignature`). */
+  signatureValid: boolean
+  /** The stored wrap of (root, epoch, target). */
+  row: `none` | `unsigned` | `signed`
+}
+
+const RESIGN_OUTCOME: Record<ResignRule, ResignOutcome> = {
+  callerNotReader: `refused`,
+  staleEpoch: `skipped`,
+  targetNotReader: `refused`,
+  badSignature: `refused`,
+  noRow: `skipped`,
+  signedRow: `skipped`,
+  unsignedRow: `replaced`,
+}
+
+/** The first rule of `resign.order` that applies to a wrap, and its outcome. */
+export function resignOutcome(facts: ResignFacts): { rule: ResignRule; outcome: ResignOutcome } {
+  const rule: ResignRule = !facts.callerReader
+    ? `callerNotReader`
+    : !facts.currentEpoch
+      ? `staleEpoch`
+      : !facts.targetReader
+        ? `targetNotReader`
+        : !facts.signatureValid
+          ? `badSignature`
+          : facts.row === `none`
+            ? `noRow`
+            : facts.row === `signed`
+              ? `signedRow`
+              : `unsignedRow`
+  return { rule, outcome: RESIGN_OUTCOME[rule] }
+}
+
+/** What a holder does after a failed `resign` (`failureCases`): an older
+ *  server has no such procedure (`notYet`, quietly again on a later pass). */
+export type ResignAfter = `notYet` | `refused` | `retry`
+
+export function resignAfter(error: { code?: string | null }): ResignAfter {
+  if (error.code === `NOT_FOUND`) return `notYet`
+  if (error.code === `FORBIDDEN` || error.code === `BAD_REQUEST`) return `refused`
+  return `retry`
+}

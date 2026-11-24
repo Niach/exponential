@@ -61,7 +61,6 @@ import com.exponential.app.domain.Dock
 import com.exponential.app.ui.components.DockSheetBody
 import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.InboxRoute
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
@@ -142,7 +141,7 @@ fun ChatScreen(
     val resultCards by viewModel.resultCards.collectAsStateWithLifecycle()
     val teamUsers by viewModel.teamUsers.collectAsStateWithLifecycle()
     val me by viewModel.currentUserId.collectAsStateWithLifecycle()
-    val statuses by viewModel.statuses.collectAsStateWithLifecycle()
+    val statusById by viewModel.issueStatuses.collectAsStateWithLifecycle()
     val issues by viewModel.issues.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     val linkCandidates by viewModel.linkCandidates.collectAsStateWithLifecycle()
@@ -198,9 +197,6 @@ fun ChatScreen(
     var mergeNowConfirm by remember { mutableStateOf<PullRequestEntity?>(null) }
     val tree by viewModel.tree.collectAsStateWithLifecycle()
 
-    val statusById = remember(issues, statuses) {
-        issues.associate { it.id to IssueStatusResolver.resolve(it, statuses) }
-    }
     val messagesById = remember(messages) { messages.associateBy { it.id } }
     val issueTitles = remember(syncedIssues) { syncedIssues.associate { it.id to it.title } }
     // #EXP-1662 / #EXP-1732: the plan a row or a way in opened (`open: plan`),
@@ -339,7 +335,9 @@ fun ChatScreen(
     // now (owners, the `merge-now-pr` alert), Hold | Resume auto-merge
     // (members), Close PR.
     // #EXP-1674: links in a chat's prose open like everywhere else.
-    val appLinkHandler = rememberAppLinkHandler(root?.teamId)
+    // #EXP-2079: a team-less target resolves against the FIRST chat team.
+    val chatTeamIds by viewModel.chatTeamIds.collectAsStateWithLifecycle()
+    val appLinkHandler = rememberAppLinkHandler(root?.teamId, chatTeamIds)
     // #EXP-1804 (ci-run.json): our own CI's Details link opens THE run page
     // in the app; any other check's logs open in the browser.
     val guideChecksItem = prChecksMenuItem(guideChecks, checksNow) { url ->

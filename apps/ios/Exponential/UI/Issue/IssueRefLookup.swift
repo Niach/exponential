@@ -19,12 +19,18 @@ enum IssueRefLookup {
         /// directly: a run may be issue-less (batch, action, chat), so there
         /// is no issue or board to derive the team from.
         case team(id: String)
+        /// #EXP-2079 (agent-settings.json `assistant.chatTeams`): a chat's
+        /// teams, in order: the Assistant's conversation lives in a team
+        /// that never syncs, so its refs read the turn's teams; an identifier
+        /// found in several = the first team's.
+        case teams(ids: [String])
 
         var cacheKey: String {
             switch self {
             case .issue(let id): return "i:\(id)"
             case .board(let id): return "b:\(id)"
             case .team(let id): return "t:\(id)"
+            case .teams(let ids): return "t:\(ids.joined(separator: ","))"
             }
         }
     }
@@ -84,20 +90,21 @@ enum IssueRefLookup {
             return nil
         }()
         return (try? await pool.read { db -> [IssueRefCandidate] in
-            guard let teamId = try teamId(for: scope, db: db) else { return [] }
+            let teamIds = try Self.teamIds(for: scope, db: db)
+            guard !teamIds.isEmpty else { return [] }
             // The SAME tokens the engine scores with, so the filter can never
             // drop a row the ranking would have kept on those two fields.
             let tokens = IssueSearch.tokens(query)
             var sql = """
                 SELECT i.id, i.identifier, i.title, i.status, i.status_id,
-                       i.created_at, i.updated_at
+                       i.created_at, i.updated_at, p.team_id
                 FROM issues i
                 JOIN boards p ON p.id = i.board_id
-                WHERE p.team_id = ?
+                WHERE p.team_id IN (\(teamIds.map { _ in "?" }.joined(separator: ", ")))
                 """
             // Every bound value is a string, so the array stays concrete and
             // `StatementArguments` takes it without an existential dance.
-            var arguments: [String] = [teamId]
+            var arguments: [String] = teamIds
             for token in tokens {
                 sql += "\n  AND (i.identifier LIKE ? ESCAPE '\\' OR i.title LIKE ? ESCAPE '\\')"
                 let like = "%\(escapedForLike(token))%"
@@ -136,17 +143,22 @@ enum IssueRefLookup {
             guard !ranked.isEmpty else { return [] }
             // EXP-581: the candidate row leads with the issue's status glyph
             // (web/Android parity), resolved in the SAME read as the search.
-            let team = IssueStatusResolver.teamStatusesOrFallback(
-                try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
-            )
+            // #EXP-2079: against the ISSUE's own team's statuses.
+            var statuses: [String: [ResolvedIssueStatus]] = [:]
+            for teamId in teamIds {
+                statuses[teamId] = IssueStatusResolver.teamStatusesOrFallback(
+                    try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
+                )
+            }
             return ranked.compactMap { row in
                 guard let identifier: String = row["identifier"] else { return nil }
                 let statusId: String? = row["status_id"]
                 let anchor: String? = row["status"]
+                let teamId: String = row["team_id"]
                 return IssueRefCandidate(
                     identifier: identifier,
                     title: row["title"],
-                    status: IssueStatusResolver.resolve(statusId: statusId, anchor: anchor, team: team),
+                    status: IssueStatusResolver.resolve(statusId: statusId, anchor: anchor, team: statuses[teamId] ?? []),
                     issueId: row["id"]
                 )
             }
@@ -173,16 +185,17 @@ enum IssueRefLookup {
     /// live title + precise status), an unsynced one renders from the hit's own
     /// fields with its anchor status resolved against the same team.
     /// Keyed by issue id, which is what `IssueSearch.mergeServerHits` resolves.
+    /// `teamId` = the team `issues.search` was asked for (#EXP-2079: a chat
+    /// asks each of its teams).
     static func candidates(
         for hits: [SearchIssueHit],
-        scope: Scope,
+        teamId: String,
         db: DatabaseManager,
         accountId: String
     ) async -> [String: IssueRefCandidate] {
         guard !hits.isEmpty, let pool = try? db.pool(forAccountId: accountId) else { return [:] }
         let ids = hits.map(\.id)
         return (try? await pool.read { db -> [String: IssueRefCandidate] in
-            guard let teamId = try teamId(for: scope, db: db) else { return [:] }
             let team = IssueStatusResolver.teamStatusesOrFallback(
                 try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
             )
@@ -214,12 +227,14 @@ enum IssueRefLookup {
         }) ?? [:]
     }
 
-    /// The team an editor's refs resolve against, as a one-shot read — what
-    /// the team-scoped `issues.search` augmentation needs before it can ask.
-    static func teamId(for scope: Scope, db: DatabaseManager, accountId: String) async -> String? {
-        if case .team(let id) = scope { return id }
-        guard let pool = try? db.pool(forAccountId: accountId) else { return nil }
-        return (try? await pool.read { db in try teamId(for: scope, db: db) }) ?? nil
+    /// The teams an editor's refs resolve against (in order), as a one-shot
+    /// read — what the team-scoped `issues.search` augmentation needs before
+    /// it can ask.
+    static func teamIds(for scope: Scope, db: DatabaseManager, accountId: String) async -> [String] {
+        if case .team(let id) = scope { return [id] }
+        if case .teams(let ids) = scope { return ids }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return [] }
+        return (try? await pool.read { db in try teamIds(for: scope, db: db) }) ?? []
     }
 
     /// Both halves of a chip (id + title, and the status glyph) in ONE read,
@@ -236,16 +251,23 @@ enum IssueRefLookup {
     }
 
     private static func fetchChip(_ identifier: String, scope: Scope, db: Database) throws -> Chip? {
-        guard let teamId = try teamId(for: scope, db: db) else { return nil }
-        guard let row = try Row.fetchOne(
-            db,
-            sql: """
-            SELECT i.id, i.title, i.status, i.status_id FROM issues i
-            JOIN boards p ON p.id = i.board_id
-            WHERE upper(i.identifier) = ? AND p.team_id = ?
-            """,
-            arguments: [identifier, teamId]
-        ) else { return nil }
+        // #EXP-2079: an identifier found in several teams = the first team's
+        // in order.
+        var found: (row: Row, teamId: String)?
+        for teamId in try teamIds(for: scope, db: db) {
+            guard let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT i.id, i.title, i.status, i.status_id FROM issues i
+                JOIN boards p ON p.id = i.board_id
+                WHERE upper(i.identifier) = ? AND p.team_id = ?
+                """,
+                arguments: [identifier, teamId]
+            ) else { continue }
+            found = (row, teamId)
+            break
+        }
+        guard let (row, teamId) = found else { return nil }
         // The chip paints the issue's status glyph over its `#` (EXP-423),
         // so the team's statuses come out of the SAME read — one round trip
         // per token, as before. EXP-1358: the team's resolved rows are
@@ -259,13 +281,20 @@ enum IssueRefLookup {
             anchor: anchor,
             team: team
         )
-        return Chip(issueId: row["id"], title: row["title"], status: status)
+        return Chip(issueId: row["id"], title: row["title"], status: status, teamId: teamId)
     }
 
     struct Chip: Equatable, Sendable {
         let issueId: String
         let title: String
         let status: ResolvedIssueStatus
+        /// The issue's own team (#EXP-2079: a chat's refs read several).
+        let teamId: String
+    }
+
+    private static func teamIds(for scope: Scope, db: Database) throws -> [String] {
+        if case .teams(let ids) = scope { return ids }
+        return try teamId(for: scope, db: db).map { [$0] } ?? []
     }
 
     private static func teamId(for scope: Scope, db: Database) throws -> String? {
@@ -288,6 +317,8 @@ enum IssueRefLookup {
             )
         case .team(let id):
             return id
+        case .teams(let ids):
+            return ids.first
         }
     }
 }

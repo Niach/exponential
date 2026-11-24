@@ -278,7 +278,7 @@ struct CommentCallRow: View {
     @MainActor
     private var chip: IssueRefLookup.Chip? {
         guard let refs = context.issueRefs, let key = issueKey else { return nil }
-        return IssueRefChipCache.chip(key, scope: .team(id: refs.teamId), db: refs.db, accountId: accountId)
+        return IssueRefChipCache.chip(key, scope: refs.scope, db: refs.db, accountId: accountId)
     }
 
     private var bodyText: String? {

@@ -1,7 +1,11 @@
 package com.exponential.app.data
 
 import androidx.lifecycle.SavedStateHandle
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.ExponentialDatabase
+import com.exponential.app.data.db.IssueEntity
+import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.domain.ARG_ACTION
 import com.exponential.app.domain.ARG_ISSUES
 import com.exponential.app.domain.ARG_PR
@@ -72,21 +76,70 @@ fun routeTeamIdFlow(
         .distinctUntilChanged()
 }
 
+/** #EXP-2079 (agent-settings.json `assistant.chatTeams`): the synced teams
+ *  in the cross-team order (by name, case-insensitive, then id). */
+fun crossTeamOrder(teams: List<TeamEntity>): List<TeamEntity> =
+    teams.sortedWith(compareBy<TeamEntity>({ it.name.lowercase() }, { it.id }))
+
 /**
- * #EXP-1714: [own] when it is a synced team, else [selectedId]
- * (`AgentSettings.Assistant.browseTeam`) — the `/` prompts, `#` issues and
- * `@` members of a composer whose team is the hidden personal team.
+ * #EXP-2079 (`AgentSettings.Assistant.chatTeams`): the teams the lists of a
+ * chat read (`#` issues, `@` members, the MCP pick, `/` prompts, Link / New
+ * issue): [own] while it is a synced team, else the turn's teams ([picked] =
+ * the conversation root's Teams pick ∩ the synced teams, else all of them),
+ * in the cross-team order. It supersedes #EXP-1714's one browse team.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-fun browseTeamIdFlow(
+fun chatTeamIdsFlow(
     dbFlow: Flow<ExponentialDatabase?>,
     own: Flow<String?>,
-    selectedId: Flow<String?>,
-): Flow<String?> {
+    picked: Flow<List<String>?> = flowOf(null),
+): Flow<List<String>> {
     val teamIds: Flow<List<String>> = dbFlow.flatMapLatest { db ->
-        db?.teamDao()?.observeAll()?.map { rows -> rows.map { it.id } } ?: flowOf(emptyList())
+        db?.teamDao()?.observeAll()?.map { rows -> crossTeamOrder(rows).map { it.id } } ?: flowOf(emptyList())
     }
-    return combine(own, teamIds, selectedId) { o, ids, selected ->
-        com.exponential.app.domain.AgentSettings.Assistant.browseTeam(o, ids, selected)
+    return combine(own, teamIds, picked) { o, ids, pick ->
+        com.exponential.app.domain.AgentSettings.Assistant.chatTeams(o, ids, pick)
     }.distinctUntilChanged()
+}
+
+/** #EXP-2079: the Teams pick of [session]'s conversation ROOT
+ *  (`sessions.scope_team_ids`); null = none picked. */
+@OptIn(ExperimentalCoroutinesApi::class)
+fun rootTeamsPickFlow(dbFlow: Flow<ExponentialDatabase?>, session: Flow<SessionEntity?>): Flow<List<String>?> =
+    session.flatMapLatest { row ->
+        val rootId = row?.rootId?.takeIf { it.isNotEmpty() && it != row.id }
+        if (row == null || rootId == null) {
+            flowOf(row?.scopeTeamIdList)
+        } else {
+            dbFlow.flatMapLatest { db -> db?.sessionDao()?.observeById(rootId)?.map { it?.scopeTeamIdList } ?: flowOf(null) }
+        }
+    }.distinctUntilChanged()
+
+/** #EXP-2079: [query] per chat team, joined team by team in [teamIds]' order. */
+@OptIn(ExperimentalCoroutinesApi::class)
+fun <T> teamByTeamFlow(
+    dbFlow: Flow<ExponentialDatabase?>,
+    teamIds: Flow<List<String>>,
+    query: (ExponentialDatabase, String) -> Flow<List<T>>,
+): Flow<List<T>> = combine(dbFlow, teamIds) { db, ids -> db to ids }.flatMapLatest { (db, ids) ->
+    when {
+        db == null || ids.isEmpty() -> flowOf(emptyList())
+        ids.size == 1 -> query(db, ids.single())
+        else -> combine(ids.map { query(db, it) }) { lists -> lists.flatMap { it } }
+    }
+}
+
+/** #EXP-2079 (`chatTeams` (1)): the issues of the chat teams; an identifier
+ *  found in several teams = the first team's in [teamIds]' order. */
+fun chatTeamIssues(issues: List<IssueEntity>, boards: List<BoardEntity>, teamIds: List<String>): List<IssueEntity> {
+    val rank = teamIds.withIndex().associate { it.value to it.index }
+    val boardRank = boards.mapNotNull { board -> rank[board.teamId]?.let { board.id to it } }.toMap()
+    val inTeams = issues.filter { it.boardId in boardRank }
+    if (teamIds.size <= 1) return inTeams
+    val first = HashMap<String, Int>()
+    for (issue in inTeams) {
+        val at = boardRank.getValue(issue.boardId)
+        first.merge(issue.identifier.uppercase(), at, ::minOf)
+    }
+    return inTeams.filter { boardRank[it.boardId] == first[it.identifier.uppercase()] }
 }

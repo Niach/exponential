@@ -40,8 +40,13 @@ struct NeedsYouPage: View {
         ZStack {
             AppBackground()
             if lists.loaded {
+                // #EXP-1950: the installs waiting for this install's approval
+                // sit on top; this install waiting itself shows its code.
+                let trust = deps.installTrust.snapshot(accountId)
                 NeedsYouPageContent(
                     rows: lists.needsYou(teamId: teamState.activeTeamId, me: deps.auth.userId, now: now),
+                    waitingCode: trust.waiting ? trust.code : nil,
+                    pendingInstalls: trust.rows.count,
                     onOpen: { row in
                         if row.needsApproval {
                             askApproval(row)
@@ -50,7 +55,9 @@ struct NeedsYouPage: View {
                         }
                     },
                     onAction: { row, action in run(action, on: row) }
-                )
+                ) {
+                    LivePendingInstalls()
+                }
             } else {
                 SkeletonRows()
                     .padding(.horizontal, 16)
@@ -149,25 +156,49 @@ struct NeedsYouPage: View {
     }
 }
 
-/// THE list in its scroll; a pure painter (the `needs-you` specimen too).
-struct NeedsYouPageContent: View {
+/// THE list in its scroll; a pure painter (the `needs-you`,
+/// `install-approval` and `install-waiting` specimens too). #EXP-1950: the
+/// pending installs' band (`band`, `pendingInstalls` rows) above the list;
+/// an install waiting for approval shows THE waiting EmptyState instead.
+struct NeedsYouPageContent<Band: View>: View {
     let rows: [NeedsYou.Row]
+    var waitingCode: String?
+    var pendingInstalls = 0
     let onOpen: (NeedsYou.Row) -> Void
     var onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)?
+    @ViewBuilder var band: () -> Band
 
     var body: some View {
-        if rows.isEmpty {
+        if rows.isEmpty, let waitingCode {
+            InstallWaiting(code: waitingCode)
+                .frame(maxHeight: .infinity)
+        } else if rows.isEmpty, pendingInstalls == 0 {
             NeedsYouList(rows: [], onOpen: onOpen)
                 .frame(maxHeight: .infinity)
         } else {
             ScrollView {
-                NeedsYouList(rows: rows, onOpen: onOpen, onAction: onAction)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-                    .padding(.bottom, 16)
+                VStack(spacing: 0) {
+                    if let waitingCode {
+                        InstallWaiting(code: waitingCode)
+                    } else {
+                        band()
+                    }
+                    if !rows.isEmpty {
+                        NeedsYouList(rows: rows, onOpen: onOpen, onAction: onAction)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 16)
             }
             .scrollContentBackground(.hidden)
             .tabBarBottomInset()
         }
+    }
+}
+
+extension NeedsYouPageContent where Band == EmptyView {
+    init(rows: [NeedsYou.Row], onOpen: @escaping (NeedsYou.Row) -> Void, onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)? = nil) {
+        self.init(rows: rows, onOpen: onOpen, onAction: onAction) { EmptyView() }
     }
 }

@@ -158,7 +158,8 @@ import { useFollowScroll } from "@/hooks/use-follow-scroll"
 import { cardElement, DeepLinkContext, measureCard, useDeepLinkDriver, useReaderScrollDrops } from "@/hooks/use-deep-link"
 import { useSessionDevice } from "@/hooks/use-session-device"
 import { SessionDeviceMoveButton } from "@/components/session-device-move"
-import { useTeamUsers } from "@/hooks/use-team-data"
+import { useTeamsUsers } from "@/hooks/use-team-data"
+import { useSessionChatTeams } from "@/hooks/use-chat-teams"
 import { useNow } from "@/hooks/use-now"
 import { blockedBadgeLabel } from "@/lib/agent-usage"
 import {
@@ -420,7 +421,10 @@ export function AgentSessionView({
   // outlives this view — mounting subscribes to the retained state and dials
   // only when nothing is connected yet.
   const store = useMemo(() => acquireSteerSession(session.id), [session.id])
-  const { users: teamUsers } = useTeamUsers(session.teamId)
+  // #EXP-2079 (agent-settings.json `assistant.chatTeams` (2)): the people of
+  // the chat teams (the Assistant's conversation: its turn's teams).
+  const chatTeams = useSessionChatTeams(session)
+  const { users: teamUsers } = useTeamsUsers(chatTeams.teamIds)
   const {
     phase,
     feed,
@@ -606,7 +610,8 @@ export function AgentSessionView({
       const id = feedCallSession(item.text, callIds)
       if (!id) continue
       if (!first.has(id)) first.set(id, item.id)
-      caption.set(id, crossSessionInput(item.text)?.body ?? ``)
+      // #EXP-2076: the caption only READS the call agent's text: its prose.
+      caption.set(id, plainProse(crossSessionInput(item.text)?.body ?? ``))
     }
     return { first, caption }
   }, [feed, callIds])
@@ -1697,7 +1702,7 @@ export function AgentSessionView({
                   items={agentItems}
                   live={live && !sessionEnded}
                   viewer={viewerAvatar}
-                  express={{ sessionId: session.id, onAction: surfaceAction }}
+                  express={{ sessionId: session.id, turnLive, onAction: surfaceAction }}
                 />
               </div>
             ) : (
@@ -2501,8 +2506,9 @@ export const LaneRows = memo(function LaneRows({
   lane?: { id: string; name: string } | null
   viewer?: UserAvatarUser | null
   /** #EXP-2067: the lane's narration draws its Express blocks (the
-   *  session's id for the row keys, the action poster). */
-  express?: { sessionId: string; onAction?: (event: ActionEvent, origin: ActionOrigin) => void }
+   *  session's id for the row keys, the action poster, `turnLive` = the
+   *  session's turn still streaming: the main lane's FINAL rule). */
+  express?: LaneExpress
 }) {
   // #FEED-256: a blank narration (a lone U+200B) draws no bubble.
   const rows = useMemo(
@@ -2522,7 +2528,7 @@ export const LaneRows = memo(function LaneRows({
           : `py-0.5`
         const layout = layouts?.get(feedRowKey(row)) ?? null
         const grouped = Boolean(layout && layout.side !== `full`)
-        const content = laneRowContent(row, grouped ? `` : ladder, liveRowId, live, layout, express ? { ...express, final: index < rows.length - 1 || !live } : null)
+        const content = laneRowContent(row, grouped ? `` : ladder, liveRowId, live, layout, express ? laneRowExpress(express, index, rows.length, live) : null)
         if (!grouped || !layout || !layouts || content === null) return content
         // Two bubbles in a row take the grouping's gap, everything else keeps
         // the ladder (the main transcript's rule).
@@ -2549,6 +2555,22 @@ export const LaneRows = memo(function LaneRows({
     </>
   )
 })
+
+/** #EXP-2067 (chat-express.json): what one lane's narration needs to draw
+ *  its blocks. */
+export interface LaneExpress {
+  sessionId: string
+  /** The session's turn still streams (`turnLive`); absent = `live` alone. */
+  turnLive?: boolean
+  onAction?: (event: ActionEvent, origin: ActionOrigin) => void
+}
+
+/** #EXP-2074 (chat-express.json STREAMING): a lane row's FINAL by the main
+ *  lane's rule, per lane: a row of its own lane follows it, or its turn ended
+ *  (the lane's agent done, or the session's turn idle). */
+export function laneRowExpress(express: LaneExpress, index: number, count: number, live: boolean) {
+  return { sessionId: express.sessionId, onAction: express.onAction, final: index < count - 1 || !live || express.turnLive === false }
+}
 
 /** #EXP-1876: a lane's rows through THE grouping (iOS `laneGrouping`, Android's
  *  lane layouts): prose = the subagent's message, a turn to it = the viewer's,
@@ -3995,7 +4017,7 @@ function AgentConversation({
   items: FeedItem[]
   live: boolean
   /** #EXP-2067: the subagent's narration draws its Express blocks. */
-  express?: { sessionId: string; onAction?: (event: ActionEvent, origin: ActionOrigin) => void }
+  express?: LaneExpress
   /** #FEED-239: the viewer's own avatar beside the turns to the subagent. */
   viewer?: UserAvatarUser | null
 }) {

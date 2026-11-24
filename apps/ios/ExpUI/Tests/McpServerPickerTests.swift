@@ -26,4 +26,13 @@ final class McpServerPickerTests: XCTestCase {
         XCTAssertEqual(items.map { $0.description }, ["mcp.linear.app", "Connect first", "npx srv", "docs.acme.dev"])
         XCTAssertEqual(items.map { $0.disabled }, [false, true, false, false])
     }
+
+    /// #EXP-2079: a pick over several chat teams names the row's team.
+    func testRowsOfSeveralChatTeamsNameTheirTeam() {
+        let items = McpServerPicker<EmptyView>.items([
+            McpServerRow(id: "a", name: "Linear", url: "https://mcp.linear.app/mcp", connection: .init(status: "connected")),
+            McpServerRow(id: "b", name: "Linear", url: "https://mcp.linear.app/mcp", connection: .init(status: "missing")),
+        ], teamNames: ["a": "Acme", "b": "Beta"])
+        XCTAssertEqual(items.map { $0.description }, ["Acme", "Beta · Connect first"])
+    }
 }

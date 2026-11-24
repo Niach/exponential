@@ -579,19 +579,22 @@ pub fn agent_actor(cx: &App, agent_id: &str) -> Option<domain::agent_settings::A
 /// client-side). Second value = the shape reached readiness (for the
 /// loading-vs-empty split).
 pub fn team_prompts(cx: &App, team_id: &str) -> (Vec<api::prompts::Prompt>, bool) {
+    use domain::agent_settings::chat_teams_rank;
     let collections = Store::global(cx).collections();
     let collection = collections.prompts.read(cx);
-    let mut out: Vec<api::prompts::Prompt> = collection
+    // #EXP-2079 (`assistant.chatTeams` (4)): `team_id` may be a chat teams
+    // key: team by team in its order, each team's in its own order.
+    let mut out: Vec<(usize, api::prompts::Prompt)> = collection
         .iter()
-        .filter(|row| row.team_id.as_deref() == Some(team_id))
-        .map(api::prompts::from_row)
+        .filter_map(|row| Some((chat_teams_rank(team_id, row.team_id.as_deref()?)?, api::prompts::from_row(row))))
         .collect();
-    out.sort_by(|a, b| {
-        a.sort_order
-            .total_cmp(&b.sort_order)
+    out.sort_by(|(rank_a, a), (rank_b, b)| {
+        rank_a
+            .cmp(rank_b)
+            .then_with(|| a.sort_order.total_cmp(&b.sort_order))
             .then_with(|| a.name.cmp(&b.name))
     });
-    (out, collection.is_ready())
+    (out.into_iter().map(|(_, prompt)| prompt).collect(), collection.is_ready())
 }
 
 /// #EXP-1660: a team's skills off the synced `skills` shape (body-less),
@@ -617,7 +620,9 @@ pub fn team_statuses(cx: &App, team_id: &str) -> Vec<IssueStatusRow> {
         .issue_statuses
         .read(cx)
         .iter()
-        .filter(|row| row.team_id == team_id)
+        // #EXP-2079 (`assistant.chatTeams` (6)): over a chat teams key every
+        // team's rows (an issue resolves its OWN status row by id).
+        .filter(|row| domain::agent_settings::chat_teams_has(team_id, &row.team_id))
         .cloned()
         .collect();
     sort_team_statuses(&rows)

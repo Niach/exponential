@@ -137,15 +137,24 @@ pub(crate) fn open_reply_ids(card: &Value) -> Vec<String> {
     items(card).filter(|item| !flag(item, "sent")).map(|item| str_of(item, "id").to_string()).filter(|id| !id.is_empty()).collect()
 }
 
-/// The issues of the card session's team by identifier (Start's `#IDENT`
-/// refs; web / Android read their issue stores the same way).
+/// The issues of the card session's CHAT TEAMS by identifier (Start's
+/// `#IDENT` refs; web / Android read their issue stores the same way).
+/// #EXP-2079 (agent-settings.json `assistant.chatTeams` (1)): the session's
+/// own team while it is synced, else the turn's teams; an identifier found
+/// in several is the first team's.
 fn team_idents(session_id: &str, cx: &App) -> Idents {
     let Some(store) = sync::Store::try_global(cx) else { return Idents::new() };
     let collections = store.collections();
-    let Some(team_id) = collections.sessions.read(cx).get(session_id).and_then(|row| row.team_id.clone()) else {
+    let Some(session) = collections.sessions.read(cx).get(session_id).filter(|row| row.team_id.is_some()).cloned() else {
         return Idents::new();
     };
-    collections.issue_refs_in_team(&team_id, cx).into_iter().map(|issue| (issue.identifier.to_uppercase(), issue.id.clone())).collect()
+    let mut idents = Idents::new();
+    for team_id in crate::chat_teams::session_team_ids(&session, cx) {
+        for issue in collections.issue_refs_in_team(&team_id, cx) {
+            idents.entry(issue.identifier.to_uppercase()).or_insert_with(|| issue.id.clone());
+        }
+    }
+    idents
 }
 
 /// The tap on `message_id`'s item `item_id` (`None` for Start all / the
@@ -273,4 +282,9 @@ mod tests {
         let ids: Vec<_> = all.iter().map(|send| send.card_item.as_ref().unwrap().item_id.as_str()).collect();
         assert_eq!(ids, ["s1", "s3"]);
     }
+}
+
+#[cfg(test)]
+pub(crate) fn team_idents_for_test(session_id: &str, cx: &App) -> Idents {
+    team_idents(session_id, cx)
 }

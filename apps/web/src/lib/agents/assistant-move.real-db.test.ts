@@ -36,6 +36,7 @@ import {
   issues,
   mcpServers,
   messages,
+  notifications,
   sessionKeys,
   sessions,
   skills,
@@ -207,6 +208,8 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
         .returning({ id: issues.id })
       await tx.update(teams).set({ leadAssistantId: asB.id }).where(eq(teams.id, teamB))
       await tx.insert(userVoiceSettings).values({ userId: me, agentId: asB.id } as never).onConflictDoNothing()
+      // #EXP-2082: the kept chat's inbox row (an agent message) still names team A.
+      const [row] = await tx.insert(notifications).values({ userId: me, teamId: teamA, sessionId: rA, type: `agent_message`, title: `Your Assistant needs a decision` } as never).returning({ id: notifications.id })
 
       // The pick, as the TS reference reads it.
       const pick = assistantMoveOf(
@@ -242,6 +245,9 @@ describe.skipIf(!ready.ok)(`the Assistant move (#EXP-1986)`, () => {
       const secret = unwrapTreeKey(myPhone.secret, wraps.find((w) => w.installId === myPhone.id)!.wrapped)
       expect(openBody(line!.body, new Map([[1, secret]]))).toMatchObject({ status: `opened`, text: `the plan for Friday` })
 
+      // #EXP-2082: its inbox row carries the personal team now.
+      const [inbox] = await tx.select().from(notifications).where(eq(notifications.id, row!.id))
+      expect(inbox!.teamId).toBe(personal!.id)
       // The other conversation ended, detached, still in its team.
       const [other] = await tx.select().from(sessions).where(eq(sessions.id, rB))
       expect(other).toMatchObject({ teamId: teamB, status: `ended`, agentId: null })

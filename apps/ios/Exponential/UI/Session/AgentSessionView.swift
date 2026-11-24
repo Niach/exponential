@@ -246,10 +246,11 @@ struct AgentSessionView: View {
     @State private var watchPending: Set<String> = []
     /// #EXP-1715: the Teams pick (nil = every team), seeded from the root's
     /// synced `scope_team_ids` and re-seeded when another client moves it.
-    @State private var teamsPicked: [String]?
-    /// #EXP-1793: the team's MCP servers for an agent chat's "+" MCP servers
-    /// page (`mcpServers.list`).
-    @State private var mcpServers: [McpServerRow] = []
+    @State private var teamsDraft = AgentSettings.TeamsPickDraft()
+    private var teamsPicked: [String]? { teamsDraft.picked(stored: model?.session?.scopeTeamIds ?? session.scopeTeamIds) }
+    /// #EXP-1793: the MCP servers for an agent chat's "+" MCP servers page
+    /// (`mcpServers.list`; #EXP-2079: of the chat's teams, team by team).
+    @State private var mcpServers = McpServers.ChatPick()
     /// #EXP-1714: optional, a specimen may mount the view without one.
     @Environment(TeamState.self) private var teamState: TeamState?
     /// #EXP-1736: this session's tree snapshot (the senders' names and
@@ -283,6 +284,8 @@ struct AgentSessionView: View {
             // EXP-1172: a settled `sessions_show` row finds its picture in
             // the chat's Guide (the ROOT's `guide`).
             .environment(\.sessionResultsRaw, model?.root?.guide)
+            // #EXP-2079: the cards' `~/` and `#IDENT` links read the chat's teams.
+            .cardChatTeams(chatTeamIds, ownTeamSynced: sessionTeamSynced)
     }
 
     private var sessionContent: some View {
@@ -475,13 +478,18 @@ struct AgentSessionView: View {
                 guard (note.object as? String) == rootId else { return }
                 messageLimit = Chats.MessageLimits.shared.limit(rootId)
             }
-            .onChange(of: model?.session?.scopeTeamIds ?? session.scopeTeamIds, initial: true) { _, ids in
-                teamsPicked = ids
-            }
+            .onChange(of: model?.session?.scopeTeamIds ?? session.scopeTeamIds) { _, _ in teamsDraft.reseed() }
+            .onChange(of: session.id) { _, _ in teamsDraft.reseed() }
             .task(id: session.viaAppId) { await observeViaApp() }
-            .task(id: "\(session.id)|\(model == nil)") { await loadMcpPick() }
-            .task(id: session.teamId) {
-                slashPrompts.bind(accountId: accountId, teamId: session.teamId, db: deps.db)
+            .task(id: "\(session.id)|\(model == nil)|\(chatTeamIds)") { await loadMcpPick() }
+            // #EXP-2079: the `/` prompts of the chat's teams, team by team.
+            .task(id: chatTeamIds) {
+                slashPrompts.bind(accountId: accountId, teamIds: chatTeamIds, db: deps.db)
+            }
+            // #EXP-2079: the model's `#` refs, `@` members and device list.
+            .onChange(of: "\(model == nil)|\(sessionTeamSynced)|\(chatTeamIds)", initial: true) { _, _ in
+                model?.chatTeamIds = chatTeamIds
+                model?.sessionTeamSynced = sessionTeamSynced
             }
             // EXP-1031: the transient outcomes land as toasts.
             .onChange(of: model?.stopError) { _, message in
@@ -605,6 +613,28 @@ struct AgentSessionView: View {
 
     // MARK: - Host
 
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams`): the teams every
+    /// list of this chat reads (`#` refs, `@` members, the MCP pick, the `/`
+    /// prompts, the "+" Issue page): the session's own team while it is a
+    /// synced one, else the turn's teams (the conversation root's Teams pick
+    /// ∩ the synced teams, else all of them). The Assistant's conversation
+    /// lives in a personal team that never syncs. #EXP-2094: the composer's
+    /// Teams pick while it has one (a removed chip widens at once).
+    private var chatTeamIds: [String] {
+        guard let teamState else { return [session.teamId] }
+        let root = transcriptRows?.root ?? (session.parentId == nil ? model?.session ?? session : nil)
+        let picked = teamsPick != nil ? teamsPicked : root?.scopeTeamIds
+        return teamState.chatTeamIds(ownTeamId: session.teamId, pickedTeamIds: picked)
+    }
+
+    /// #EXP-2079 (`deviceCases`): the session's team is one the viewer
+    /// syncs; no team state (a specimen) or no team synced yet = the team
+    /// rule.
+    private var sessionTeamSynced: Bool {
+        guard let teams = teamState?.teams, !teams.isEmpty else { return true }
+        return teams.contains { $0.id == session.teamId }
+    }
+
     /// Everything an `AgentMarkdownText` needs to render embedded images —
     /// agent prose can carry `![](/api/attachments/{id})` and those fetches are
     /// authenticated (EXP-440).
@@ -615,15 +645,16 @@ struct AgentSessionView: View {
             httpClient: deps.httpClient,
             // EXP-760: narration, messages, plans and question prompts chip
             // issue identifiers the agent names — `#EXP-1` AND the bare
-            // `EXP-1` agents actually write — scoped to the session's team.
+            // `EXP-1` agents actually write — scoped to the chat's teams
+            // (#EXP-2079: the session's own while it is a synced one).
             issueRefs: AgentIssueRefContext(
-                teamId: session.teamId,
+                teamIds: chatTeamIds,
                 db: deps.db,
                 onOpen: { [chatIssueOutlet] issueId in
                     openIssueInnermost(issueId, outlet: chatIssueOutlet, deps: deps, accountId: accountId)
                 },
                 mentionMembers: ChatMentionMembers.members(
-                    teamId: session.teamId, db: deps.db, accountId: accountId)
+                    teamIds: chatTeamIds, db: deps.db, accountId: accountId)
             )
         )
     }
@@ -1040,7 +1071,16 @@ struct AgentSessionView: View {
                                             row: row, context: markdownContext, nested: false,
                                             live: model.agentWorking, testResults: model.testResults,
                                             author: layout?.name == true ? layout?.sender?.displayName : nil,
-                                            tail: layout?.tail == true
+                                            tail: layout?.tail == true,
+                                            // #EXP-2074: the main lane's Express
+                                            // path; FINAL once a row of this
+                                            // lane follows, the turn ended or
+                                            // the subagent is done.
+                                            express: ExpressLane(
+                                                key: { id, messageId in expressRowKey(id: id, messageId: messageId) },
+                                                final: index < laneRows.count - 1 || !model.agentWorking || focused.done,
+                                                onAction: expressActionHandler(model)
+                                            )
                                         )
                                     }
                                 }
@@ -2936,8 +2976,8 @@ struct AgentSessionView: View {
                 ended: model.session?.isLive == false,
                 // S-3: an agent's conversation root is an agent chat's "+".
                 surface: session.parentId == nil && !(session.agentId ?? "").isEmpty ? .agent : .session,
-                // S-3: the "+" Issue page searches the session's team.
-                teamId: model.session?.teamId,
+                // S-3: the "+" Issue page searches the chat's teams (#EXP-2079).
+                teamIds: chatTeamIds,
                 // #EXP-1434: the "+" Prompts page = the `/` menu's prompts; a
                 // pick inserts the body at the caret.
                 prompts: slashPrompts.prompts,
@@ -3068,21 +3108,28 @@ struct AgentSessionView: View {
     private func mcpMenu(_ model: AgentSessionModel) -> SessionComposerFooter.McpMenu? {
         guard mcpPickAgentId != nil, let pick = model.mcpPick else { return nil }
         return SessionComposerFooter.McpMenu(
-            servers: mcpServers,
+            servers: mcpServers.servers,
+            teamNames: mcpServers.teamNames,
             picked: pick.picked,
             onChange: { model.mcpPick?.picked = $0 }
         )
     }
 
-    /// The team's servers and the conversation's pick (`sessions.mcpPicks`;
-    /// unreadable = the agent's `mcpServerIds`) seed the "+" pick.
+    /// The servers of the chat's teams (#EXP-2079, `McpServers.chatPick`:
+    /// team by team in order, each team's in its list order) and the
+    /// conversation's pick (`sessions.mcpPicks`; unreadable = the agent's
+    /// `mcpServerIds`) seed the "+" pick.
     private func loadMcpPick() async {
         guard let agentId = mcpPickAgentId, let model else { return }
         let api = McpServersApi(trpc: deps.trpc)
-        async let servers = try? api.list(accountId: accountId, teamId: session.teamId)
+        let teamIds = chatTeamIds
+        let teamNames = Dictionary(
+            (teamState?.teams ?? []).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first }
+        )
+        async let servers = api.list(accountId: accountId, teamIds: teamIds)
         async let picks = try? deps.sessionsApi.mcpPicks(accountId: accountId, sessionId: session.id)
-        let (rows, picked) = await (servers, picks)
-        mcpServers = rows ?? []
+        let (lists, picked) = await (servers, picks)
+        mcpServers = McpServers.chatPick(lists, teamNames: teamNames)
         let seed = picked ?? transcriptRows?.agent?.mcpServerIds ?? []
         if model.mcpPick?.agentId == agentId {
             model.mcpPick?.reseed(seed)
@@ -3101,7 +3148,7 @@ struct AgentSessionView: View {
         return ComposerTeamsBinding(
             teams: ComposerTeamsBinding.teams(teamState?.teams ?? []),
             picked: teamsPicked,
-            onChange: { teamsPicked = $0 }
+            onChange: { teamsDraft.pick($0) }
         )
     }
 
@@ -3131,7 +3178,9 @@ struct AgentSessionView: View {
                 }
             },
             onMenu: { rowId, itemId, action in runSuggestionMenu(rowId, itemId, action) },
-            devices: { [teamId = session.teamId] in await loadSuggestionDevices(teamId: teamId) },
+            // #EXP-2079 (`deviceCases`): the Assistant's conversation (a team
+            // never synced, mine) starts on my OWN machines; else the team rule.
+            devices: { [teamId = suggestionDevicesTeamId] in await loadSuggestionDevices(teamId: teamId) },
             pending: suggestionPending
         )
     }
@@ -3296,6 +3345,16 @@ struct AgentSessionView: View {
         case .dismiss:
             dismissSuggestion(rowId, itemId)
         }
+    }
+
+    /// #EXP-2079 (agent-settings.json `assistant.chatTeams` `deviceCases`):
+    /// the team Start on…'s devices list for; nil = the viewer's own
+    /// machines whatever teams they are shared with, no teammate's server.
+    private var suggestionDevicesTeamId: String? {
+        AgentSettings.ownDevices(
+            sessionTeamSynced: sessionTeamSynced,
+            starterIsViewer: deps.auth.userId != nil && session.userId == deps.auth.userId
+        ) ? nil : session.teamId
     }
 
     /// Start on…'s rows: the machines a start can reach right now with an
@@ -4863,7 +4922,7 @@ private struct ExpToolIssuePreview: View {
     private var resolved: IssueRefLookup.Chip? {
         guard let refs, let identifier, !identifier.isEmpty else { return nil }
         return IssueRefChipCache.chip(
-            identifier, scope: .team(id: refs.teamId), db: refs.db, accountId: accountId
+            identifier, scope: refs.scope, db: refs.db, accountId: accountId
         )
     }
 
@@ -5090,6 +5149,8 @@ struct SubagentLaneRow: View {
     var author: String? = nil
     /// #EXP-1876: its group's first bubble wears THE tail.
     var tail: Bool = false
+    /// #EXP-2074: the lane's Express path (nil = its prose read whole).
+    var express: ExpressLane? = nil
 
     var body: some View {
         switch row {
@@ -5105,7 +5166,7 @@ struct SubagentLaneRow: View {
         case let .single(item):
             SubagentItemRow(
                 item: item, context: context, nested: nested, live: live, testResults: testResults,
-                author: author, tail: tail
+                author: author, tail: tail, express: express
             )
         default:
             EmptyView()
@@ -5130,9 +5191,26 @@ struct SubagentItemRow: View {
     var author: String? = nil
     /// #EXP-1876: its group's first bubble wears THE tail.
     var tail: Bool = false
+    /// #EXP-2074: the lane's Express path (nil = its prose read whole).
+    var express: ExpressLane? = nil
 
     var body: some View {
         content.padding(.vertical, nested ? 2 : 0)
+    }
+
+    /// One prose run of a lane narration: the nested digest's line, or
+    /// (#EXP-1736) THE message bubble in the subagent's own tab.
+    @ViewBuilder
+    private func narrationBubble(_ text: String, author: String?, tail: Bool, time: String?) -> some View {
+        if nested {
+            NarrationBubble(text: text, context: context)
+        } else {
+            MessageBubble(side: .other, author: author, time: time, tail: tail) {
+                Group {
+                    AgentMarkdownText(text: text, context: context, streaming: false, hugsWidth: true)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -5161,16 +5239,22 @@ struct SubagentItemRow: View {
         case let .narration(_, text, _, _, _) where TranscriptGrouping.isBlankText(text):
             // #FEED-256: a blank narration draws nothing.
             EmptyView()
-        case let .narration(_, text, _, _, at):
-            if nested {
-                NarrationBubble(text: text, context: context)
+        case let .narration(id, text, messageId, _, at):
+            let time = at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }
+            // #EXP-2074 (chat-express.json): a subagent's text with Express
+            // blocks = its segments in ONE sender group, the main lane's
+            // path (name + tail on the first segment, the time on the last
+            // prose bubble).
+            if let express, let split = express.split(id: id, messageId: messageId, text: text) {
+                ExpressSegmentsView(
+                    rowKey: split.key, segments: split.segments, messageId: split.messageId,
+                    onAction: express.onAction
+                ) { prose, first, last in
+                    narrationBubble(prose, author: first ? author : nil, tail: first && tail, time: last ? time : nil)
+                }
             } else {
                 // #EXP-1736: the subagent's own tab = THE message bubble.
-                MessageBubble(side: .other, author: author, time: at.map { GlassTimeRow.formatted(Date(timeIntervalSince1970: Double($0) / 1000)) }, tail: tail) {
-                    Group {
-                        AgentMarkdownText(text: text, context: context, streaming: false, hugsWidth: true)
-                    }
-                }
+                narrationBubble(text, author: author, tail: tail, time: time)
             }
         case let .apiError(_, message, errorType, _):
             ApiErrorRow(message: message, errorType: errorType)

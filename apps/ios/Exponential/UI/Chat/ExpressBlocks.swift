@@ -215,6 +215,7 @@ struct ExpressBlockView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.cardTeamId) private var cardTeamId
+    @Environment(\.cardTeamIds) private var cardTeamIds
     /// Bumped once the block's host has caught up (it paints a frame later).
     @State private var caughtUp = 0
 
@@ -277,11 +278,33 @@ struct ExpressBlockView: View {
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
             accountId: accountId,
             teamId: cardTeamId,
+            teamIds: cardTeamIds,
             deps: deps,
             httpClient: deps.httpClient
         )
     }
     #endif
+}
+
+/// #EXP-2074 (chat-express.json WHICH ROWS: "a feed `narration` row (main
+/// lane or a subagent's)"): how a subagent lane's narration rows read their
+/// blocks, the main lane's path: its row key (`expressRowKey`), FINAL by
+/// the lane's own rule (a row of the lane follows, or the turn ended / the
+/// subagent is done), its presses through the main lane's handler.
+struct ExpressLane {
+    /// (the narration's row id, its messageId) → the row key + the synced
+    /// row's `messages.id` (nil = a live feed row).
+    let key: @MainActor (Int, String?) -> (key: String, messageId: String?)
+    let final: Bool
+    var onAction: ((ChatExpress.ActionEvent, ChatExpress.ActionOrigin) -> Void)?
+
+    /// The row's segments (nil = no block: today's bubble).
+    @MainActor
+    func split(id: Int, messageId: String?, text: String) -> (key: String, messageId: String?, segments: [ChatExpress.RowSegment])? {
+        let row = key(id, messageId)
+        guard let segments = ExpressRowStore.shared.segments(key: row.key, text: text, final: final) else { return nil }
+        return (row.key, row.messageId, segments)
+    }
 }
 
 /// An agent text's segments in its sender group: the prose runs THE message

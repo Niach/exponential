@@ -8,6 +8,7 @@ import {
   type WorkCardRow,
   type WorkState,
 } from "@exp/domain-contract/work-card"
+import { plainProse } from "@exp/domain-contract/chat-express"
 import fixture from "@exp/domain-contract/fixtures/work-card.json"
 
 import { cn } from "./cn"
@@ -367,14 +368,17 @@ export function SessionCard({
       }
     />
   )
-  const caption = card.caption ? (
+  // #EXP-2076 (chat-express.json PROSE): a caption only READS its text (a
+  // call's summary is the call agent's): the pure prose, never a block.
+  const captionText = card.caption ? plainProse(card.caption) : ``
+  const caption = captionText ? (
     <div
       data-slot="session-card-caption"
       className="-mt-1.5 truncate pr-3 pb-2 text-muted-foreground"
       // The name's x: the row's 12px padding + the 14px icon + its 8px gap.
       style={{ paddingLeft: 34 }}
     >
-      {card.caption}
+      {captionText}
     </div>
   ) : null
   const shell = cn(

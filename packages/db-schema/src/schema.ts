@@ -1725,6 +1725,11 @@ export const installs = pgTable(
     }),
     label: varchar({ length: 64 }),
     platform: varchar({ length: 32 }),
+    // #EXP-2082: the app version THIS install last registered with (the
+    // `x-client-version` header; `devices.version` is per machine, and a
+    // desktop app and a daemon on one machine may differ). NULL = a build
+    // that never said, or a phone / the web. Server-only.
+    appVersion: varchar(`app_version`, { length: 32 }),
     endpointId: varchar(`endpoint_id`, { length: 64 }).notNull().unique(),
     x25519Public: varchar(`x25519_public`, { length: 43 }).notNull(),
     createdAt: timestamp(`created_at`, { withTimezone: true })
@@ -1740,8 +1745,41 @@ export const installs = pgTable(
     // belong to `endpoint_id` (`installMessage`). Null until it registers again.
     registrationSignature: varchar(`registration_signature`, { length: 86 }),
     registrationSignedAt: varchar(`registration_signed_at`, { length: 64 }),
+    // #EXP-1950 (fixtures/install-trust.json): a build that follows the
+    // trust rule and is not approved yet asked for approval
+    // (`installs.requestApproval`). Null = never asked (an older build).
+    approvalRequestedAt: timestamp(`approval_requested_at`, { withTimezone: true }),
   },
   (table) => [index(`idx_installs_user`).on(table.userId)]
+)
+
+// #EXP-1950 (fixtures/install-trust.json): the signed approvals between
+// installs, stored and relayed, never judged: every client checks each
+// signature itself and decides whom it pins. `kind` = `root` (an install
+// starts its account's chain, signed by itself), `approve` (a trusted
+// install of the same account), `reset` (a team-mate's install confirms a
+// member's new root) or `decline` (a team-mate turns that reset down).
+// `signature` = the approver's ed25519 over `approvalMessage(kind, subject)`
+// (base64url); the endpoint ids are kept beside the rows they name.
+// Server-only, served by `installs.trust`.
+export const installApprovals = pgTable(
+  `install_approvals`,
+  {
+    id: uuidPk(),
+    kind: varchar({ length: 16 }).notNull(),
+    subjectInstallId: uuid(`subject_install_id`)
+      .notNull()
+      .references(() => installs.id, { onDelete: `cascade` }),
+    subjectEndpointId: varchar(`subject_endpoint_id`, { length: 64 }).notNull(),
+    approverInstallId: uuid(`approver_install_id`).references(() => installs.id, { onDelete: `set null` }),
+    approverEndpointId: varchar(`approver_endpoint_id`, { length: 64 }).notNull(),
+    signature: varchar({ length: 86 }).notNull(),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex(`uniq_install_approvals_subject_approver_kind`).on(table.subjectInstallId, table.approverEndpointId, table.kind),
+    index(`idx_install_approvals_approver`).on(table.approverEndpointId),
+  ]
 )
 
 // FEED-154: the key PINNED for a machine id, trust-on-first-use: the first

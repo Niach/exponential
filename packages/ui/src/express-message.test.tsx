@@ -6,10 +6,12 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { ExpressDecoder, initExpress, unwrapExpress } from "@exponential_app/eui/express"
 import { EXPRESS_COPY, syncedRowKey } from "@exp/domain-contract/chat-express"
-import type { SessionChatRow } from "@exp/domain-contract/session-tree"
+import type { CallView, SessionChatRow } from "@exp/domain-contract/session-tree"
+import { CallViewBody } from "./call-view"
 import { ExpressMessage, provideExpressSdk } from "./express-message"
 import { ChatConversation, type ChatConversationProps } from "./session-chat-view"
 import { TooltipProvider } from "./tooltip"
+import { SessionCard } from "./work-card"
 
 initExpress(readFileSync(resolve(__dirname, `../../exponential-ui/wasm/express/a2ui_express_bg.wasm`)))
 provideExpressSdk({ unwrap: (text) => unwrapExpress(text), decoder: (surfaceId) => new ExpressDecoder({ surfaceId, wrapped: false }) })
@@ -111,5 +113,76 @@ describe(`ChatConversation`, () => {
       />
     )
     expect(screen.getByTestId(`transcript-marker`).textContent).toContain(`You pressed save_deal`)
+  })
+})
+
+// #EXP-2076: THE call view's spoken turns are the chat's rows: an agent turn
+// with a block splits like the chat and its action posts into the call
+// session; the summary band and a call card's caption only READ the text.
+describe(`CallViewBody`, () => {
+  const SAMPLE = `Checked the three lanes.\n<a2ui>\nroot = Stack(children=[title, ship])\ntitle = Text(text="Build 1482 is green")\nship = Button(label="Ship it", on={press: Event("reply", userMessage="Ship it")})\n</a2ui>\nAll green.`
+  const view = (summary: string | null): CallView => ({
+    sessionId: `call1`,
+    title: `Call · 4 min`,
+    subtitle: `Today 09:08 – 09:12 · Assistant`,
+    running: false,
+    summary,
+    summaryLabel: `Summary`,
+    rows: [{ ...agentRow(SAMPLE), id: `v7` }],
+  })
+  const body = (summary: string | null, onSurfaceAction?: ChatConversationProps[`onSurfaceAction`]) =>
+    render(
+      <TooltipProvider>
+        <CallViewBody
+          view={view(summary)}
+          heading
+          renderText={(text) => <p data-testid="text">{text}</p>}
+          attachmentSrc={() => ``}
+          chat={{ sessionId: `r1`, title: `Assistant`, agentId: null }}
+          onSurfaceAction={onSurfaceAction}
+        />
+      </TooltipProvider>
+    )
+
+  it(`an agent turn draws its block between its prose bubbles; a press posts with the turn's origin`, () => {
+    const onSurfaceAction = vi.fn()
+    body(null, onSurfaceAction)
+    expect(screen.getByTestId(`express-block`).dataset.status).toBe(`ok`)
+    expect(screen.getByTestId(`call-view`).textContent).not.toContain(`<a2ui>`)
+    act(() => {
+      fireEvent.click(screen.getByRole(`button`, { name: `Ship it` }))
+    })
+    expect(onSurfaceAction.mock.calls[0]?.[1]).toEqual({ surfaceId: `m:v7#1`, block: `m:v7#1`, messageId: `v7` })
+  })
+
+  it(`the summary reads its pure prose; a block-only summary draws no band`, () => {
+    const { unmount } = body(SAMPLE)
+    expect(screen.getByTestId(`call-view-summary`).textContent).toContain(`Checked the three lanes.\n\nAll green.`)
+    unmount()
+    body(`<a2ui>\nroot = Text(text="x")\n</a2ui>`)
+    expect(screen.queryByTestId(`call-view-summary`)).toBeNull()
+  })
+})
+
+describe(`SessionCard caption`, () => {
+  it(`reads the pure prose of an agent's text (a call's summary)`, () => {
+    render(
+      <SessionCard
+        card={{
+          sessionId: `call1`,
+          icon: `voice-call`,
+          name: `Call · 4 min`,
+          kindWord: ``,
+          state: `done`,
+          tone: `muted`,
+          elapsed: null,
+          running: false,
+          testId: `session-card`,
+          caption: `Checked the three lanes.\n<a2ui>\nroot = Text(text="x")\n</a2ui>`,
+        } as never}
+      />
+    )
+    const caption = document.querySelector(`[data-slot="session-card-caption"]`)
+    expect(caption?.textContent).toBe(`Checked the three lanes.`)
   })
 })

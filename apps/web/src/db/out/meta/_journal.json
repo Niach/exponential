@@ -2066,6 +2066,20 @@
       "when": 1795476168050,
       "tag": "0294_melted_outlaw_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 295,
+      "version": "7",
+      "when": 1795492431103,
+      "tag": "0295_flat_sabretooth",
+      "breakpoints": true
+    },
+    {
+      "idx": 296,
+      "version": "7",
+      "when": 1795500177607,
+      "tag": "0296_exp2082_install_app_version",
+      "breakpoints": true
     }
   ]
 }
