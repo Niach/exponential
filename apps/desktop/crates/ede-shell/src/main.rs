@@ -626,13 +626,14 @@ impl HostPlugin for Host {
             return;
         }
         // Lane Q: a chat card's Embed bubbles its inner events as
-        // {name, context} over the row's {action: card, messageId}.
+        // {name, context, userMessage?} over the row's {action: card,
+        // messageId} (#EXP-2104: the userMessage is the reply's body).
         if event.name == "ede_chat" && event.context["action"] == "card" && allowed(&self.shell.borrow(), &event.surface_id, "ede_chat") {
             let shell = self.shell.clone();
             let context = event.context.clone();
             cx.defer(move |cx| {
                 let message_id = context["messageId"].as_str().unwrap_or("");
-                chat_card(&shell, message_id, context["name"].as_str().unwrap_or(""), &context["context"], cx);
+                chat_card(&shell, message_id, &context, cx);
             });
             return;
         }
@@ -2834,10 +2835,12 @@ fn chat_answer(shell: &SharedShell, message_id: &str, label: &str, cx: &mut App)
 /// show card, an Express block's surface), answered the way the IDE does
 /// (`domain::chat_document::card_reply`, chat-express.json ACTIONS): EVERY
 /// event posts ONE person message with THE `action` card (a reply's text
-/// as its body); a too-large one posts nothing, THE failed-action toast.
-fn chat_card(shell: &SharedShell, message_id: &str, name: &str, context: &Value, cx: &mut App) {
+/// or `userMessage` as its body); a too-large one posts nothing, THE
+/// failed-action toast. `event` = the Embed's payload `{name, context,
+/// userMessage?}`.
+fn chat_card(shell: &SharedShell, message_id: &str, event: &Value, cx: &mut App) {
     if chat_local(shell) {
-        let replied = shell.borrow_mut().chat_local.as_mut().map(|c| c.card(message_id, name, context));
+        let replied = shell.borrow_mut().chat_local.as_mut().map(|c| c.card(message_id, event));
         match replied {
             Some(Err(local_runs::CardError::TooLarge)) => action_too_large(shell, cx),
             Some(Err(local_runs::CardError::Send(e))) => failed_action(shell, "send", "the message", &e, cx),
@@ -2847,7 +2850,7 @@ fn chat_card(shell: &SharedShell, message_id: &str, name: &str, context: &Value,
         return;
     }
     let Some((chat, rows)) = team_chat(shell) else { return };
-    let Some(reply) = team_chat::card_reply(&rows, &chat, message_id, name, context, now_ms()) else { return };
+    let Some(reply) = team_chat::card_reply(&rows, &chat, message_id, event, now_ms()) else { return };
     let Some((mut input, card)) = team_chat::reply_input(&chat, &reply) else {
         action_too_large(shell, cx);
         return;

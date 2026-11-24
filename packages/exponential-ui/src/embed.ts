@@ -54,9 +54,10 @@ export function embedMount(surface: unknown): { card: EmbedCard; valid: boolean 
 }
 
 /** An inner event → the Embed's `action` payload (merged over the author's
- *  context like any component payload): the inner name and context. */
-export function embedPayload(event: { name: string; context?: Record<string, unknown> }): { name: string; context: Record<string, unknown> } {
-  return { name: event.name, context: { ...(event.context ?? {}) } }
+ *  context like any component payload): the inner name and context, and
+ *  the inner event's resolved `userMessage` when it has one (#EXP-2104). */
+export function embedPayload(event: { name: string; context?: Record<string, unknown>; userMessage?: string }): { name: string; context: Record<string, unknown>; userMessage?: string } {
+  return { name: event.name, context: { ...(event.context ?? {}) }, ...(typeof event.userMessage === `string` ? { userMessage: event.userMessage } : {}) }
 }
 
 /** The nested surface's id: the host's surface id and the Embed's (painted)

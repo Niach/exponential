@@ -186,10 +186,11 @@ impl LocalChat {
     /// Lane Q, #EXP-2077: an Embed's inner event on chat row `message_id`
     /// (`domain::chat_document::card_reply`: a show card, an Express
     /// block's surface): ONE message with THE `action` card, a reply's text
-    /// as its body.
-    pub fn card(&mut self, message_id: &str, name: &str, context: &Value) -> Result<(), CardError> {
+    /// as its body. `event` = the Embed's `action` payload `{name, context,
+    /// userMessage?}` (#EXP-2104).
+    pub fn card(&mut self, message_id: &str, event: &Value) -> Result<(), CardError> {
         let Some((session, _, view, _)) = self.session_chat() else { return Ok(()) };
-        match crate::chat::card_reply(&view.rows, &session, message_id, Some(name), Some(context)) {
+        match crate::chat::card_reply(&view.rows, &session, message_id, event["name"].as_str(), event.get("context"), event.get("userMessage")) {
             Some(crate::chat::CardReply::Send { text, card, .. }) => {
                 let card = serde_json::to_value(&card).map_err(|e| CardError::Send(e.to_string()))?;
                 self.send_message(&text, None, Vec::new(), Some(card)).map_err(CardError::Send)

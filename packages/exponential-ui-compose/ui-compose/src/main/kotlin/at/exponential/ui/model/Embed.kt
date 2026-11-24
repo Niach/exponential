@@ -94,10 +94,14 @@ fun embedMount(surface: JsonValue?): EmbedMount {
 /**
  * An inner event → the Embed's `action` payload (merged over the author's
  * context like any component payload, by the core): the inner name and
- * context.
+ * context, and the inner event's resolved `userMessage` when it has one
+ * (#EXP-2104; no key otherwise).
  */
-fun embedPayload(name: String, context: JsonValue?): JsonValue =
-    JsonValue.Obj(linkedMapOf("name" to JsonValue.Str(name), "context" to JsonValue.Obj(context?.obj ?: emptyMap())))
+fun embedPayload(name: String, context: JsonValue?, userMessage: String? = null): JsonValue {
+    val payload = linkedMapOf<String, JsonValue>("name" to JsonValue.Str(name), "context" to JsonValue.Obj(context?.obj ?: emptyMap()))
+    if (userMessage != null) payload["userMessage"] = JsonValue.Str(userMessage)
+    return JsonValue.Obj(payload)
+}
 
 /** The nested surface's id: the host's surface id and the Embed's (painted) component id, so two cards' inner ids never meet. */
 fun embedSurfaceId(hostSurfaceId: String, componentId: String): String = "$hostSurfaceId/$componentId"
@@ -157,7 +161,7 @@ internal class EmbedSandbox(private val outer: SurfaceModel, private val slot: E
     override fun onAction(event: SurfaceActionEvent) {
         val index = outer.indexOf(slot.componentId) ?: return
         if (outer.node(index)?.component != "Embed") return
-        outer.fire(index, EMBED_EVENT, embedPayload(event.name, event.context))
+        outer.fire(index, EMBED_EVENT, embedPayload(event.name, event.context, event.userMessage))
     }
 
     override fun onInput(event: SurfaceInputEvent) {}
