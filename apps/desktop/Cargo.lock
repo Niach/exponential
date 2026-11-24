@@ -3276,6 +3276,7 @@ dependencies = [
  "iroh-gossip",
  "iroh-tickets",
  "n0-future",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",

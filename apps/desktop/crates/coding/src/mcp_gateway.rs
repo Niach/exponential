@@ -213,6 +213,8 @@ impl SealingTransform {
                 match keyed {
                     Some(((root, epoch), key)) => {
                         let public = sealing::public_key_from_b64(key).map_err(|e| refused("sessions_send", &e))?;
+                        // #EXP-1950 R2 + R3: a rollback, a key that is not the held one's.
+                        sealing::check_seal(root, epoch, &public, target.vouch.as_ref()).map_err(|e| refused("sessions_send", &e))?;
                         if let Some(service) = sealing::service() {
                             service.keyring().set_current(root, epoch, public);
                         }
@@ -785,6 +787,9 @@ struct SendTarget {
     /// #EDE-97: an outside MCP client's conversation (absent = not).
     #[serde(default)]
     clear_tree: bool,
+    /// #EXP-1950: a signed wrap that names the key (R3); absent on an older server.
+    #[serde(default)]
+    vouch: Option<Value>,
 }
 
 impl SendTarget {

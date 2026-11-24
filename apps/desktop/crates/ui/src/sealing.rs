@@ -387,6 +387,9 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) ->
         // Resolved before sealing ([`deliver`]); never leaves unsealed.
         SealTarget::Unsynced(session_id) => Err(failed(format!("{session_id}: its tree is not known yet"))),
         SealTarget::Keyed { root_id, epoch, public } => {
+            // #EXP-1950 R2 + R3 (install-trust.json): a rollback or a key
+            // that is not the held secret's is never sealed to.
+            sealing::check_seal(root_id, *epoch, public, None).map_err(|err| failed(format!("{root_id}: {err}")))?;
             let body = |text: &str| enet_core::sealed::seal_body(public, *epoch, text).map_err(|err| failed(format!("{root_id}: {err}")));
             let sealed_text = text.as_deref().map(body).transpose()?;
             let sealed_name = input.name.as_deref().map(body).transpose()?;
@@ -934,6 +937,7 @@ mod tests {
                 public_key: keyed.then(|| self.key.public_key()),
                 clear_tree: false,
                 rotation_due: false,
+                vouch: None,
             })
         }
         fn note_key(&self, _root_id: &str, _epoch: u32, _public: [u8; 32]) {}

@@ -44,7 +44,7 @@
 //! registered; the engine's replies, the pickup, the brief and the device
 //! MCP gateway all seal and open through it.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -55,7 +55,10 @@ use api::session_keys::{
 };
 use coding::sealing::{self, CreateFailure, KeylessStep, Keyring, NewRootSeal, RequestKeyAnswer, SealError, SealService};
 use enet_core::sealed::{b64url_encode, generate_tree_key, public_key_from_b64, unwrap_tree_key, wrap_tree_key};
-use enet_core::wrap_sig::{endpoint_id_hex, sign_wrap, WrapStatement};
+use enet_core::install_trust::{CallKeyVerdict, KeepVerdict, KeyRecord, NoKey, SealVerdict, TargetVerdict, Vouch};
+use enet_core::wrap_sig::{endpoint_id_hex, sign_wrap, ServedWrap, WrapStatement};
+
+use crate::install_trust::TrustKeeper;
 use enet_core::{Identity, PushKeypair};
 
 /// How often a holder answers `pending` (and re-reads `mine`) while online.
@@ -200,6 +203,11 @@ struct HolderInner {
     woken_at: Mutex<Option<std::time::Instant>>,
     installs: Mutex<Option<InstallLookup>>,
     resign: Mutex<ResignState>,
+    /// #EXP-1950 (install-trust.json): the pin store and the four rules,
+    /// record-only in release 1. None = no rule (tests, old callers).
+    trust: Mutex<Option<Arc<TrustKeeper>>>,
+    /// #EXP-1950 R3: the vouch `publicKeys` answered per (root, epoch).
+    vouches: Mutex<HashMap<(String, u32), Vouch>>,
 }
 
 impl KeyHolder {
@@ -233,6 +241,8 @@ impl KeyHolder {
                 woken_at: Mutex::new(None),
                 installs: Mutex::new(None),
                 resign: Mutex::default(),
+                trust: Mutex::new(None),
+                vouches: Mutex::default(),
             }),
         }
     }
@@ -250,6 +260,37 @@ impl KeyHolder {
     /// installs up (the eNet half).
     pub fn set_device_readers(&self, readers: DeviceReaders) {
         *lock(&self.inner.device_readers) = Some(readers);
+    }
+
+    /// #EXP-1950 (install-trust.json): the install's pin store and rules.
+    pub fn set_trust(&self, keeper: Arc<TrustKeeper>) {
+        *lock(&self.inner.trust) = Some(keeper);
+    }
+
+    /// #EXP-1950: the install's pin store and rules, once set.
+    pub fn trust(&self) -> Option<Arc<TrustKeeper>> {
+        lock(&self.inner.trust).clone()
+    }
+
+    /// #EXP-1950 R4: whether this holder wraps for `install_id` (no keeper = as before).
+    fn may_wrap(&self, install_id: &str, x25519_public: &str, endpoint_id: Option<&str>) -> bool {
+        match self.trust() {
+            Some(trust) => matches!(trust.target(install_id, x25519_public, endpoint_id, None), TargetVerdict::Wrap(_)),
+            None => true,
+        }
+    }
+
+    /// #EXP-1950: a call's key, from the keyring ONLY, by the call rule
+    /// (install-trust.json `callCases`): `Err` = the call ends (`rollback`
+    /// in every mode, an unsigned key once mandatory), `Ok(None)` = not held.
+    pub fn call_secret(&self, root_id: &str, epoch: u32) -> Result<Option<[u8; 32]>, String> {
+        let held = self.inner.keyring.secret(root_id, epoch);
+        let Some(trust) = self.trust() else { return Ok(held) };
+        match trust.call(root_id, epoch, held) {
+            CallKeyVerdict::Key { secret, .. } => Ok(Some(secret)),
+            CallKeyVerdict::NoKey(NoKey::NoKey) if held.is_none() => Ok(None),
+            CallKeyVerdict::NoKey(reason) => Err(reason.as_str().to_string()),
+        }
     }
 
     /// #EXP-1950: where a new root's re-signed wraps look their targets up.
@@ -277,9 +318,35 @@ impl KeyHolder {
     pub fn pull(&self, root_ids: Option<&[String]>) -> Result<usize, ApiError> {
         let held = self.inner.api.mine(&self.inner.install_id, root_ids)?;
         self.note_unsigned(&held);
+        let trust = self.trust();
+        if let Some(trust) = &trust {
+            // Decision (c): a key held before the store knew it stays, `legacy`.
+            let known: Vec<(String, u32)> = held
+                .iter()
+                .filter(|key| self.inner.keyring.secret(&key.root_id, key.epoch).is_some())
+                .map(|key| (key.root_id.clone(), key.epoch))
+                .collect();
+            trust.record_legacy(&known);
+        }
         let mut fresh = 0;
         for key in held {
             if self.inner.keyring.secret(&key.root_id, key.epoch).is_some() {
+                continue;
+            }
+            // #EXP-1950 R1: kept (and recorded) or refused by the pin store.
+            if let Some(trust) = &trust {
+                let wrap = ServedWrap {
+                    root_id: &key.root_id,
+                    epoch: key.epoch,
+                    wrapped: &key.wrapped,
+                    signature: key.signature.as_deref(),
+                    signer_endpoint_id: key.signer_endpoint_id.as_deref(),
+                };
+                if let KeepVerdict::Keep { secret, .. } = trust.keep(&wrap, &self.inner.install_secret) {
+                    if self.inner.keyring.insert_secret(&key.root_id, key.epoch, secret) {
+                        fresh += 1;
+                    }
+                }
                 continue;
             }
             match unwrap_tree_key(&self.inner.install_secret, &key.wrapped) {
@@ -353,6 +420,11 @@ impl KeyHolder {
                 continue;
             };
             let Ok(target) = public_key_from_b64(&pair.target_x25519_public) else { continue };
+            // #EXP-1950 R4: only pinned targets (and older builds of
+            // team-mates, recorded `legacy`); never a waiting install's.
+            if !self.may_wrap(&pair.target_install_id, &pair.target_x25519_public, pair.target_endpoint_id.as_deref()) {
+                continue;
+            }
             match wrap_tree_key(&target, &secret) {
                 Ok(wrapped) => {
                     // #EXP-1950: signed over the key this install HOLDS; a
@@ -476,6 +548,10 @@ impl KeyHolder {
             Ok(()) => {
                 self.inner.keyring.insert_secret(root_id, epoch, key.secret);
                 self.inner.keyring.set_current(root_id, epoch, key.public);
+                // #EXP-1950 (`newRoot.makerRecord`): it made the key.
+                if let Some(trust) = self.trust() {
+                    trust.record(root_id, epoch, KeyRecord::Verified);
+                }
                 let holder = self.clone();
                 std::thread::spawn(move || {
                     if let Err(err) = holder.answer_pending() {
@@ -499,6 +575,10 @@ impl KeyHolder {
     /// One holder pass: pull, rotate what is flagged, answer, then sign
     /// again what is unsigned. BLOCKING.
     pub fn pass(&self) {
+        // #EXP-1950: the pin store follows the server before any key moves.
+        if let Some(trust) = self.trust() {
+            trust.sync();
+        }
         if let Err(err) = self.pull(None) {
             log::debug!("seal-keys: sessionKeys.mine failed: {err}");
         }
@@ -614,8 +694,12 @@ impl KeyHolder {
             let (endpoint_id, x25519) = if *target == self.inner.install_id {
                 (signer.endpoint_id.clone(), self.inner.install_public)
             } else {
-                let Some((endpoint_id, x25519)) = lookup.as_ref().and_then(|lookup| lookup(target)) else { continue };
-                let Ok(x25519) = public_key_from_b64(&x25519) else { continue };
+                let Some((endpoint_id, x25519_text)) = lookup.as_ref().and_then(|lookup| lookup(target)) else { continue };
+                // #EXP-1950 R4.
+                if !self.may_wrap(target, &x25519_text, Some(&endpoint_id)) {
+                    continue;
+                }
+                let Ok(x25519) = public_key_from_b64(&x25519_text) else { continue };
                 (endpoint_id, x25519)
             };
             let Ok(wrapped) = wrap_tree_key(&x25519, &secret) else { continue };
@@ -629,12 +713,34 @@ impl KeyHolder {
         out
     }
 
+    /// #EXP-1950 R2 + R3 (install-trust.json `sealCases`): refused only for
+    /// what is refused in the build's mode (record: a rollback, a key that
+    /// is not the held secret's, a vouch whose signature fails).
+    fn seal_rule(&self, root_id: &str, epoch: u32, public: &[u8; 32]) -> Result<(), SealError> {
+        let Some(trust) = self.trust() else { return Ok(()) };
+        let held = self.inner.keyring.secret(root_id, epoch);
+        let vouch = lock(&self.inner.vouches).get(&(root_id.to_string(), epoch)).cloned();
+        match trust.seal(root_id, epoch, &b64url_encode(public), held, vouch.as_ref()) {
+            SealVerdict::Seal(_) => Ok(()),
+            SealVerdict::Refuse(reason) => {
+                log::warn!("seal-keys: not sealing to {root_id} epoch {epoch}: {}", reason.as_str());
+                Err(SealError::NoKey(format!("the key of {root_id} epoch {epoch} is refused: {}", reason.as_str())))
+            }
+        }
+    }
+
     fn lookup(&self, root_id: &str) -> Result<Option<(u32, [u8; 32])>, String> {
         let rows = self.inner.api.public_keys(&[root_id.to_string()]).map_err(|e| e.to_string())?;
         let Some(row) = rows.into_iter().find(|row| row.root_id == root_id) else {
             return Ok(None);
         };
         let public = public_key_from_b64(&row.public_key).map_err(|e| e.to_string())?;
+        let vouch: Option<Vouch> = row.vouch.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok());
+        if let Some(vouch) = vouch {
+            lock(&self.inner.vouches).insert((root_id.to_string(), row.epoch), vouch);
+        }
+        // #EXP-1950 R2 + R3: a rollback, a key that is not the held one's.
+        self.seal_rule(root_id, row.epoch, &public).map_err(|err| err.to_string())?;
         self.inner.keyring.set_current(root_id, row.epoch, public);
         Ok(Some((row.epoch, public)))
     }
@@ -763,7 +869,16 @@ impl SealService for KeyHolder {
 
     fn new_root_readers(&self, target_device: &str) -> Vec<(String, String)> {
         let readers = lock(&self.inner.device_readers).clone();
-        readers.map(|readers| readers(target_device)).unwrap_or_default()
+        let readers = readers.map(|readers| readers(target_device)).unwrap_or_default();
+        // #EXP-1950 R4: a new root's seal wraps only for allowed targets.
+        readers.into_iter().filter(|(install_id, x25519)| self.may_wrap(install_id, x25519, None)).collect()
+    }
+
+    fn check_seal(&self, root_id: &str, epoch: u32, public: &[u8; 32], vouch: Option<&serde_json::Value>) -> Result<(), SealError> {
+        if let Some(vouch) = vouch.and_then(|v| serde_json::from_value::<Vouch>(v.clone()).ok()) {
+            lock(&self.inner.vouches).insert((root_id.to_string(), epoch), vouch);
+        }
+        self.seal_rule(root_id, epoch, public)
     }
 
     fn deliver_direct(&self, deliver_to: &coding::sealing::DeliverTo, message: &domain::rows::MessageRow) {
@@ -925,7 +1040,7 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|(root, _)| root_ids.contains(root))
-                .map(|(root, (epoch, public))| RootKey { root_id: root.clone(), epoch: *epoch, public_key: public.clone() })
+                .map(|(root, (epoch, public))| RootKey { root_id: root.clone(), epoch: *epoch, public_key: public.clone(), vouch: None })
                 .collect())
         }
         fn request_key(&self, root_id: &str) -> Result<RequestedKey, ApiError> {
@@ -1301,7 +1416,7 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|(root, _)| root_ids.contains(root))
-                .map(|(root, epoch)| RootKey { root_id: root.clone(), epoch: *epoch, public_key: self.fixture["rotatedTree"]["publicKey"].as_str().unwrap().into() })
+                .map(|(root, epoch)| RootKey { root_id: root.clone(), epoch: *epoch, public_key: self.fixture["rotatedTree"]["publicKey"].as_str().unwrap().into(), vouch: None })
                 .collect())
         }
     }
@@ -1639,7 +1754,7 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|(root, _)| root_ids.contains(root))
-                .map(|(root, (epoch, public))| RootKey { root_id: root.clone(), epoch: *epoch, public_key: public.clone() })
+                .map(|(root, (epoch, public))| RootKey { root_id: root.clone(), epoch: *epoch, public_key: public.clone(), vouch: None })
                 .collect())
         }
         fn resign(&self, install_id: &str, wraps: &[ResignWrap]) -> Result<ResignOutput, ApiError> {
