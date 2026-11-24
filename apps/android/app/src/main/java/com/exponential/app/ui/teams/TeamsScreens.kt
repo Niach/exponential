@@ -67,6 +67,8 @@ object TeamsTestIds {
     const val TEAM_ROW = "team-row"
     const val TEAM = "team-page"
     const val ITEM_ROW = "team-item-row"
+    const val FOLDER_ROW = "team-folder-row"
+    const val TEAM_SETTINGS = "team-settings"
     const val ADD = "teams-add"
     const val MORE = "team-more"
 }
@@ -341,7 +343,7 @@ private fun TeamItemRow(row: TeamPageRow, badge: NavBadges.Badge, mark: SessionT
         },
         trailing = { CountBadge(badge, testTag = "team-item-badge") },
         onClick = onClick,
-        modifier = Modifier.testTag("${TeamsTestIds.ITEM_ROW}-${row.id}"),
+        modifier = Modifier.testTag(if (row is TeamPageRow.Folder) TeamsTestIds.FOLDER_ROW else "${TeamsTestIds.ITEM_ROW}-${row.id}"),
     )
 }
 

@@ -492,7 +492,7 @@ fun TeamSettingsRootScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .testTag("team-settings"),
+                .testTag(com.exponential.app.ui.teams.TeamsTestIds.TEAM_SETTINGS),
         ) {
             Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
                 SettingsNavGroups.phoneTeamRows(isOwner = state.owner).forEach { row ->
