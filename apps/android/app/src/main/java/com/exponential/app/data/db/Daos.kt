@@ -667,10 +667,12 @@ abstract class MessageDao {
 
     // #FEED-260 (steer-enet.json SYNCED TAIL): a session's NEWEST [limit]
     // card-less agent lines and person inputs, oldest first: what a
-    // not-live transcript appends after its feed.
+    // not-live transcript appends after its feed. #EXP-2075: a person's
+    // `action` card rows too (a sealed card keeps its `kind` in clear; the
+    // reference decides on the OPENED card).
     @Query(
         "SELECT * FROM (SELECT * FROM messages WHERE session_id = :sessionId AND author_kind IN ('user', 'agent') " +
-            "AND (card IS NULL OR card = 'null') " +
+            "AND (card IS NULL OR card = 'null' OR (author_kind = 'user' AND card LIKE '%\"kind\"%\"action\"%')) " +
             "ORDER BY created_at DESC, id DESC LIMIT :limit) ORDER BY created_at, id",
     )
     abstract fun rawObserveTailMessages(sessionId: String, limit: Int): Flow<List<MessageEntity>>

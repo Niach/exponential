@@ -280,6 +280,9 @@ final class SteerEnetTests: XCTestCase {
                     createdAt: m["createdAt"] as? String ?? "",
                     createdAtMs: ms(m["createdAt"]),
                     body: m["body"] as? String ?? "",
+                    // #EXP-2075: the card read as the chat reads it (nil =
+                    // not a readable action card).
+                    action: (m["card"] as? [String: Any]).flatMap { ChatExpress.actionCard(TreeMessageCard(object: $0)) },
                     authorSessionId: m["authorSessionId"] as? String
                 )
             }.map { $0["id"] as? String ?? "" }
@@ -371,6 +374,64 @@ final class SteerEnetTests: XCTestCase {
             .narration(id: SteerNoFeed.syncedTailId("m6"), text: "hello", messageId: "synced:m6", at: 3_000)
         )
         XCTAssertEqual(item(message("m1", author: "u-ada")).id, SteerNoFeed.syncedTailId("m1"))
+    }
+
+    // #EXP-2075: an action row draws as the `[action]` input the device hands
+    // the agent; a teammate's is worded as their member input, and the
+    // feed's echo of the press reaches `syncedTail` raw.
+    func testSyncedTailItemDrawsAnActionRow() {
+        let card = ChatExpress.ActionCard(
+            name: "save_deal", context: ["rep": .string("Ana")], surfaceId: "n:s1:msg_01#1",
+            block: "n:s1:msg_01#1", messageId: nil
+        )
+        func message(_ id: String, body: String, author: String?) -> SteerNoFeed.TailMessage {
+            SteerNoFeed.TailMessage(
+                id: id, authorKind: "user", hasCard: true, consumedAt: "2026-01-01T00:00:03Z",
+                createdAt: "2026-01-01T00:00:03Z", createdAtMs: 3_000, body: body, authorId: author, action: card
+            )
+        }
+        func text(_ item: AgentFeedItem) -> String? {
+            if case let .userMessage(_, text, _, _) = item { return text }
+            return nil
+        }
+        let names = ["u-ada": "Ada"]
+        func item(_ m: SteerNoFeed.TailMessage) -> AgentFeedItem {
+            SteerNoFeed.syncedTailItem(m, viewerId: "u-me", memberName: { names[$0] })
+        }
+        // The viewer's own: the bare input (its body, else none).
+        let own = text(item(message("p1", body: " Ship it \n", author: "u-me")))
+        XCTAssertEqual(own, ChatExpress.actionInput(card, body: "Ship it"))
+        XCTAssertEqual(own.flatMap(ChatExpress.parseActionInput)?.card, card)
+        XCTAssertEqual(own.flatMap(ChatExpress.parseActionInput)?.body, "Ship it")
+        // A teammate's: their member input carrying the press.
+        let bodiless = text(item(message("p2", body: "  ", author: "u-ada")))
+        guard case let .member(name, userId, body)? = bodiless.flatMap(TranscriptGrouping.feedInput) else {
+            return XCTFail("not a member input")
+        }
+        XCTAssertEqual(name, "Ada")
+        XCTAssertEqual(userId, "u-ada")
+        XCTAssertEqual(ChatExpress.parseActionInput(body)?.card, card)
+        XCTAssertEqual(ChatExpress.parseActionInput(body)?.body, "")
+        let bodied = text(item(message("p3", body: "Ship it\nnow", author: "u-ada")))
+        guard case let .member(_, _, held)? = bodied.flatMap(TranscriptGrouping.feedInput) else {
+            return XCTFail("not a member input")
+        }
+        XCTAssertEqual(ChatExpress.parseActionInput(held)?.body, "Ship it\nnow")
+        // The feed's `[action]` line reaches `syncedTail` raw and holds the rows.
+        let line = ChatExpress.actionInput(card, body: "")
+        XCTAssertEqual(
+            SteerNoFeed.tailFeedRow(.userMessage(id: 1, text: line, at: 1_000)),
+            SteerNoFeed.TailFeedRow(author: "user", text: line, at: 1_000)
+        )
+        let feed = [
+            SteerNoFeed.TailFeedRow(author: "user", text: line, at: 1_000),
+            SteerNoFeed.TailFeedRow(author: "agent", text: "Saved.", at: 2_000),
+        ]
+        let kept = SteerNoFeed.syncedTail(
+            live: false, feed: feed,
+            messages: [message("p2", body: "", author: "u-ada"), message("p3", body: "Ship it", author: "u-ada")]
+        ) { $0 }
+        XCTAssertEqual(kept.map(\.id), ["p3"])
     }
 
     // #FEED-260 OFFLINE LINE: a not-live transcript ends with the marker.

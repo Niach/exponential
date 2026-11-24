@@ -1,6 +1,7 @@
 package com.exponential.app.data.steer
 
 import com.exponential.app.domain.AgentFeedItem
+import com.exponential.app.domain.ChatExpress
 import com.exponential.app.domain.TranscriptGrouping
 
 /** #FEED-260: one synced message (body OPENED) a not-live transcript may append. */
@@ -13,6 +14,10 @@ data class SyncedTailMessage(
     val body: String,
     /** #EXP-1990: who wrote a person's message (a group chat holds every member's). */
     val authorId: String? = null,
+    /** #EXP-2075: the message carries a card (any; a locked one too). */
+    val hasCard: Boolean = false,
+    /** #EXP-2075: its OPENED card as THE `action` card ([steerTailActionCard]). */
+    val action: ChatExpress.ActionCard? = null,
     /** #EXP-2084: the session that posted it (a child's reply), when not the chat's own. */
     val authorSessionId: String? = null,
 )
@@ -66,11 +71,12 @@ fun syncedTailItems(
         SteerTailMessage(
             id = m.id,
             authorKind = m.authorKind,
-            hasCard = false,
+            hasCard = m.hasCard,
             consumedAt = m.consumedAt,
             createdAt = m.createdAt,
             createdAtMs = m.createdAtMs,
             body = m.body,
+            action = m.action,
             authorSessionId = m.authorSessionId,
         )
     }
@@ -79,11 +85,14 @@ fun syncedTailItems(
         if (m.authorKind == "agent") {
             AgentFeedItem.Narration(id = id, text = m.body.trim(), messageId = "synced:${m.id}", at = m.createdAtMs)
         } else {
+            // #EXP-2075: a press is the `[action]` input the device hands
+            // the agent, so it draws through the feed's action-input row.
+            val line = m.action?.takeIf { m.hasCard }?.let { ChatExpress.actionInput(it, m.body.trim()) } ?: m.body.trim()
             val author = m.authorId?.takeIf { it.isNotEmpty() && !viewerId.isNullOrEmpty() && it != viewerId }
             val text = if (author != null) {
-                TranscriptGrouping.memberInput(memberName(author) ?: TranscriptGrouping.Copy.FORMER_MEMBER, author, m.body.trim())
+                TranscriptGrouping.memberInput(memberName(author) ?: TranscriptGrouping.Copy.FORMER_MEMBER, author, line)
             } else {
-                m.body.trim()
+                line
             }
             AgentFeedItem.UserMessage(id = id, text = text, at = m.createdAtMs, messageId = "synced:${m.id}")
         }

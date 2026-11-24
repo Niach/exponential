@@ -358,6 +358,8 @@ class SteerEnetTest {
                     createdAt = m["createdAt"]!!.jsonPrimitive.content,
                     createdAtMs = ms(m["createdAt"]),
                     body = m["body"]!!.jsonPrimitive.content,
+                    // #EXP-2075: the card as THE action card when it reads.
+                    action = steerTailActionCard(m["card"] as? kotlinx.serialization.json.JsonObject),
                     authorSessionId = str(m["authorSessionId"]),
                 )
             }

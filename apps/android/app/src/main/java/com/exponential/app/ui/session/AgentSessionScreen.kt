@@ -2636,12 +2636,27 @@ private fun ActivityFeed(
                                 val checkIns = shownRows.checkIns[row.id]
                                 val callId = callFeed.first[item.id]
                                 // #EXP-2067: a press's input = its body's bubble, else THE marker.
-                                val action = com.exponential.app.domain.ChatExpress.parseActionInput(item.text)
+                                // #EXP-2075: a teammate's press (the synced tail) is member-worded.
+                                val memberLine = TranscriptGrouping.memberInputOf(item.text)
+                                val action = com.exponential.app.domain.ChatExpress.parseActionInput(memberLine?.body ?: item.text)
+                                val presser = memberLine?.takeIf { action != null && it.userId != senders?.viewerId }
                                 when {
                                     // #EXP-1943: a call's report relay = THE call card.
                                     callId != null -> callCard(callId)
                                     action != null && action.body.isBlank() ->
-                                        FeedMarkerRow(com.exponential.app.domain.ChatExpress.actionMarker(action.card.name, null), testTag = "express-action-marker")
+                                        FeedMarkerRow(
+                                            com.exponential.app.domain.ChatExpress.actionMarker(
+                                                action.card.name,
+                                                presser?.let { senders?.members?.get(it.userId)?.name?.takeIf(String::isNotBlank) ?: it.name },
+                                            ),
+                                            testTag = "express-action-marker",
+                                        )
+                                    action != null && presser != null && layout?.side == TranscriptGrouping.Side.Other -> MessageBubble(
+                                        own = false,
+                                        time = time,
+                                        author = layout.authorLine(),
+                                        tail = layout.hasTail(),
+                                    ) { UserMessageBody(action.body, LocalFindPaint.current?.highlightOf(item.id)) }
                                     action != null -> MessageBubble(
                                         own = true,
                                         time = time,
@@ -3029,7 +3044,10 @@ internal fun feedTranscriptLayout(
                 ) {
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
                 } else if (TranscriptGrouping.feedInput(feedItem.text) is TranscriptGrouping.FeedInput.Marker ||
-                    com.exponential.app.domain.ChatExpress.parseActionInput(feedItem.text)?.body?.isBlank() == true
+                    // #EXP-2075: a teammate's press too (member-worded): a bodiless one is THE marker.
+                    com.exponential.app.domain.ChatExpress.parseActionInput(
+                        TranscriptGrouping.memberInputOf(feedItem.text)?.body ?: feedItem.text,
+                    )?.body?.isBlank() == true
                 ) {
                     // #EXP-1772: a system input is THE marker (full, never grouped).
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
@@ -7443,7 +7461,8 @@ internal fun sentInputBubbles(
 ): List<MessageDelivery.Bubble> {
     val seen = newest.mapTo(HashSet()) { it.key }
     val older = loaded
-        .filter { it.authorKind == "user" && it.consumedAt != null && it.body.isNotBlank() && seen.add(it.id) }
+        // #EXP-2075: the loaded window holds a person's carded rows too; SENT INPUTS are card-less.
+        .filter { it.authorKind == "user" && !it.hasCard && it.consumedAt != null && it.body.isNotBlank() && seen.add(it.id) }
         .map { row ->
             MessageDelivery.Bubble(
                 key = row.id,

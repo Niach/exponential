@@ -6,6 +6,7 @@
 // steer store, iOS and Android.
 
 import fixture from "../fixtures/steer-enet.json" with { type: "json" }
+import { parseActionInput, type ActionCard } from "./chat-express"
 import { crossSessionInput } from "./transcript-grouping"
 
 export const STEER_ENET_TAG = fixture.tag
@@ -209,6 +210,34 @@ export type SteerSyncedMessage = SteerNoFeedInputRow & {
   authorSessionId?: string | null
 }
 
+/** #EXP-2075: the row's `action` card when it reads (a name and a
+ *  surfaceId), as `parseActionInput` shapes a feed input's. */
+function readActionCard(card: unknown): ActionCard | null {
+  if (!card || typeof card !== `object` || Array.isArray(card)) return null
+  const v = card as Record<string, unknown>
+  if (v.kind !== `action` || typeof v.name !== `string` || typeof v.surfaceId !== `string`) return null
+  return {
+    kind: `action`,
+    name: v.name,
+    context: v.context && typeof v.context === `object` && !Array.isArray(v.context) ? (v.context as Record<string, unknown>) : null,
+    surfaceId: v.surfaceId,
+    block: typeof v.block === `string` ? v.block : null,
+    messageId: typeof v.messageId === `string` ? v.messageId : null,
+  }
+}
+
+function jsonEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (!a || !b || typeof a !== `object` || typeof b !== `object`) return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  const ka = Object.keys(a as object)
+  const kb = Object.keys(b as object)
+  return ka.length === kb.length && ka.every((k) => k in (b as object) && jsonEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
+}
+
+const samePress = (a: ActionCard, b: ActionCard): boolean =>
+  a.name === b.name && a.surfaceId === b.surfaceId && a.block === b.block && a.messageId === b.messageId && jsonEqual(a.context, b.context)
+
 function epochMs(iso: string | null): number | null {
   if (iso === null) return null
   const ms = Date.parse(iso)
@@ -223,7 +252,11 @@ function epochMs(iso: string | null): number | null {
  * already held by the feed (an agent line equal to, a prefix of or prefixed
  * by a narration; an input equal to a feed input; #EXP-2084 another
  * session's line the feed holds as that session's input, whatever its time).
- * An empty feed takes the tail only while its live transcript cannot be loaded (`unreachable`, the
+ * #EXP-2075: a person's CONSUMED row with THE `action` card is an input too,
+ * with or without a body; a feed input that parses with `parseActionInput`
+ * is that press (its body the parsed one; a bodiless press compared by its
+ * card). An empty feed takes the tail only while its live transcript cannot
+ * be loaded (`unreachable`, the
  * OFFLINE LINE's condition) and only when it holds an agent line (else
  * SENT INPUTS keeps the placeholder). A live feed = none.
  */
@@ -245,20 +278,31 @@ export function steerSyncedTail<T extends SteerSyncedMessage>(input: {
   }
   if (input.feed.length > 0 && feedAt === null) return []
   const narrations = input.feed.filter((row) => row.author === `agent` && row.text).map((row) => (row.text ?? ``).trim())
-  const inputs = new Set(input.feed.filter((row) => row.author === `user` && row.text).map((row) => (row.text ?? ``).trim()))
+  const inputs = new Set<string>()
+  const presses: ActionCard[] = []
   // #EXP-2084: the inputs the device worded as another session's
   // (`Message from <name> (session <id>): <body>`), by session and body.
   const relays = new Set<string>()
   for (const row of input.feed) {
-    const relay = row.author === `user` && row.text ? crossSessionInput(row.text) : null
+    if (row.author !== `user` || !row.text) continue
+    const relay = crossSessionInput(row.text)
     if (relay) relays.add(`${relay.sessionId}\n${relay.body.trim()}`)
+    const action = parseActionInput(row.text)
+    const body = (action ? action.body : row.text).trim()
+    if (body !== ``) inputs.add(body)
+    else if (action) presses.push(action.card)
   }
   const tail = input.messages
     .filter((m) => {
-      if (m.card !== null && m.card !== undefined) return false
+      const carded = m.card !== null && m.card !== undefined
+      const action = carded && m.authorKind === `user` ? readActionCard(m.card) : null
+      if (carded && !action) return false
       const body = m.body.trim()
-      if (body === ``) return false
-      if (m.authorKind === `agent`) {
+      if (action && body === ``) {
+        if (m.consumedAt === null || presses.some((press) => samePress(press, action))) return false
+      } else if (body === ``) {
+        return false
+      } else if (m.authorKind === `agent`) {
         if (m.authorSessionId && relays.has(`${m.authorSessionId}\n${body}`)) return false
         if (narrations.some((text) => text !== `` && (text.startsWith(body) || body.startsWith(text)))) return false
       } else if (m.authorKind === `user`) {

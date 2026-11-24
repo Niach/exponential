@@ -6,9 +6,12 @@ import com.exponential.app.data.steer.syncedTailItems
 import com.exponential.app.data.steer.tailFeedRow
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AgentFeedRow
+import com.exponential.app.domain.ChatExpress
 import com.exponential.app.domain.MessageDelivery
 import com.exponential.app.domain.TranscriptGrouping
 import com.exponential.app.ui.chat.sentInputLayouts
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -74,6 +77,42 @@ class GroupChatFeedTest {
             memberName = { id -> "Mira Chen".takeIf { id == "u-mira" } },
         ).map { (it as AgentFeedItem.UserMessage).text }
         assertEquals(listOf("mine", "Message from Mira Chen (member u-mira): hers", "unknown"), items)
+    }
+
+    @Test
+    fun `the synced tail draws a teammate's consumed press as their action input until the feed holds it`() {
+        // #EXP-2075 (steer-enet.json SYNCED TAIL ... ACTION ROWS).
+        val reply = ChatExpress.ActionCard("reply", null, "n:s1:msg_01#1", "n:s1:msg_01#1", null)
+        val save = ChatExpress.ActionCard("save_deal", buildJsonObject { put("rep", "Ana") }, "n:s1:msg_01#1", "n:s1:msg_01#1", null)
+        val messages = listOf(
+            synced("p1", "u-mira", "Ship it ").copy(hasCard = true, action = reply),
+            synced("p2", "u-mira", "").copy(hasCard = true, action = save),
+        )
+        val narration = AgentFeedItem.Narration(id = 1, text = "Ship the first cut?", at = 1_000_000L)
+        fun tail(feed: List<AgentFeedItem>) = syncedTailItems(
+            feed,
+            live = false,
+            messages = messages,
+            viewerId = "u-me",
+            memberName = { id -> "Mira Chen".takeIf { id == "u-mira" } },
+        ).map { (it as AgentFeedItem.UserMessage).text }
+        val bodied = TranscriptGrouping.memberInput("Mira Chen", "u-mira", ChatExpress.actionInput(reply, "Ship it"))
+        val bodiless = TranscriptGrouping.memberInput("Mira Chen", "u-mira", ChatExpress.actionInput(save, ""))
+        assertEquals(listOf(bodied, bodiless), tail(listOf(narration)))
+        // The member wording carries the `[action]` line back out.
+        assertEquals(ChatExpress.parseActionInput(TranscriptGrouping.memberInputOf(bodiless)!!.body)?.card, save)
+        // Bodied = their bubble; bodiless = THE marker (full, never grouped).
+        val layouts = feedTranscriptLayout(listOf(input(1, bodied), input(2, bodiless)), SessionCardSlots.None, senders, agent = null, fromStart = true)
+        assertEquals(TranscriptGrouping.Side.Other, layouts.getValue(1).layout.side)
+        assertEquals("u-mira", layouts.getValue(1).layout.sender?.id)
+        assertEquals(TranscriptGrouping.Side.Full, layouts.getValue(2).layout.side)
+        // The feed holds both presses as its `[action]` inputs: none drawn twice.
+        val held = listOf(
+            narration,
+            AgentFeedItem.UserMessage(id = 2, text = ChatExpress.actionInput(reply, "Ship it"), at = 1_500_000L),
+            AgentFeedItem.UserMessage(id = 3, text = ChatExpress.actionInput(save, ""), at = 1_500_001L),
+        )
+        assertEquals(emptyList<String>(), tail(held))
     }
 
     @Test
