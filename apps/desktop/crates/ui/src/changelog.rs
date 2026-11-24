@@ -54,31 +54,6 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 - **Right-click menus**: every sidebar row has one, in the same order everywhere: open, what the row does, arrange, settings.
 - **New tab menu**: the + next to the tabs starts a chat, agent, app or board in any team.
 - **Tabs for every page**: boards, apps, devices, Home, Chats, Needs you and Drafts open as tabs, and Open in new tab adds one in the background."##,
-    id: "2026-11-24-search-by-meaning",
-    date: "2026-11-24",
-    title: "Search finds issues by meaning",
-    summary: "Web, desktop, Android and iOS: the issue search also lists issues that mean what you typed, in German and English, and similar:NEW-12 finds an issue's likely duplicates.",
-    body: r##"- **By meaning**: the issue search also lists issues that mean what you typed without sharing a word with it, for example a German report for an English query. They follow the issues that match your words, a few at most.
-- **Similar issues**: `similar:NEW-12` lists the issues closest in meaning to NEW-12, its likely duplicates, nearest first. Add other filters to narrow them, for example `similar:NEW-12 is:open`.
-- **Everywhere you search issues**: the search, the `#` menu and the issue pickers, and for agents the `search` of the issue list.
-- **Stays on the server**: the search text is read by a model inside your Exponential server and goes nowhere else. Self-hosted servers need the database image with pgvector, the default of the compose file."##,
-};
-
-/// An earlier head entry, kept so the mirror's history reads in place.
-#[allow(dead_code)]
-const PREVIOUS_359: ChangelogEntry = ChangelogEntry {
-    id: "2026-11-24-desktop-cli-0-14-178",
-    date: "2026-11-24",
-    title: "New devices need your OK, and sessions start on Windows",
-    summary: "Desktop and CLI 0.14.178: a new install waits for your approval on a device you already use, sessions start again on Windows, and a session's cards always travel encrypted.",
-    body: r##"- **New devices need your OK**: a new install shows a short code and waits until you approve it on a device you already use. Devices you already have are trusted automatically.
-- **Windows starts**: a session starts again on Windows, where every start failed with "the filename or extension is too long".
-- **Cards stay encrypted**: a session started while the app or daemon was still starting up could send the text of its cards unencrypted. It now always goes through the device's encrypted path.
-- **Failed starts say why**: a message sent while the agent fails to start now shows the reason instead of waiting forever.
-- **Search**: the issue search takes filters such as `is:open` or `created:7d`, and a sentence in English or German becomes those filters with one pick.
-- **Quieter wake word**: listening for the wake word in a quiet room uses about a third of the processor time it did.
-- **Meetings on macOS**: an app that starts playing in the middle of a meeting keeps its first words.
-- **Chat fixes**: a reply no longer shows twice after a restart, a message arriving at the same instant as the newest one no longer goes missing, and people and issues in the @ list come in the same order on every platform."##,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

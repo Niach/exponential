@@ -9709,7 +9709,7 @@
       "group": "coding",
       "title": "Tab strip · new-tab menu",
       "blurb": "#EXP-2124: the tab strip's + opens THE new-tab menu: the Assistant (its name + the brand mark), then one row per team in sidebar order, each a submenu: Chat for every member, Agent, App, Board for an owner.",
-      "order": 99,
+      "order": 102,
       "web": {
         "route": "/home",
         "anchor": {
@@ -9741,7 +9741,7 @@
       "group": "coding",
       "title": "Sidebar · device menu",
       "blurb": "#EXP-2124: a device row's right-click, THE sidebar menu table's `device`: Open, Open in new tab, Rename (the viewer's own device) and Copy link, Settings.",
-      "order": 100,
+      "order": 103,
       "web": {
         "route": "/home",
         "anchor": {
@@ -9773,7 +9773,7 @@
       "group": "coding",
       "title": "Sidebar · board menu",
       "blurb": "#EXP-2124: a board row's right-click, THE sidebar menu table's `board`: Open, Open in new tab, New issue, Copy link, Move to folder ›, Settings, Archive last.",
-      "order": 101,
+      "order": 104,
       "web": {
         "route": "/home",
         "anchor": {

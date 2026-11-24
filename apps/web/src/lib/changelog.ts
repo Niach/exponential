@@ -33,6 +33,8 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Right-click menus**: every sidebar row has one, in the same order everywhere: open, what the row does, arrange, settings.
 - **New tab menu**: the + next to the tabs starts a chat, agent, app or board in any team.
 - **Tabs for every page**: boards, apps, devices, Home, Chats, Needs you and Drafts open as tabs, and Open in new tab adds one in the background.`,
+  },
+  {
     id: `2026-11-24-search-by-meaning`,
     date: `2026-11-24`,
     title: `Search finds issues by meaning`,
