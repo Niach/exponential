@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-phones-views-in-chat",
+    date: "2026-11-24",
+    title: "Views in your phone's chats",
+    summary: "Android 0.14.156 and iOS 0.14.144: an agent's views draw in the chat, in subagent tabs and in calls, calls from Android are end-to-end encrypted, and iOS asks you to approve a new install.",
+    body: r##"- **Views in chat**: when an agent writes a view into its message, the chat shows it in place; subagent tabs and a call's transcript show views too.
+- **Encrypted calls from Android**: calls are end-to-end encrypted between up-to-date apps.
+- **Approve a new install on iOS**: when a new install joins your account, Needs you shows it with its whole code, and you approve or remove it there.
+- **Your Assistant across teams**: in your Assistant's chat, issues, people, MCP servers and prompts come from all your teams, and its notifications and inbox rows open its chat.
+- **Questions and plans at the end**: an open question or plan card now sits after the chat's last message instead of above it.
+- **No doubled replies**: a subagent's reply no longer shows twice after you reopen the app.
+- **iOS**: a teammate's message the agent has not picked up yet shows as waiting, and one tap on Reconnect dials a dropped call afresh."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_354: ChangelogEntry = ChangelogEntry {
     id: "2026-11-24-assistant-chat-all-teams",
     date: "2026-11-24",
     title: "Your Assistant's chat works across all your teams",
