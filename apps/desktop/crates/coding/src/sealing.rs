@@ -365,6 +365,35 @@ pub trait SealService: Send + Sync {
     fn request_key(&self, _root_id: &str) -> RequestKeyAnswer {
         RequestKeyAnswer::Error
     }
+    /// #EXP-1950 (install-trust.json R2 + R3): whether this install may seal
+    /// to (root, epoch, public key) as the server named it (`vouch` = the
+    /// answer's, when it carried one). Record-only in release 1: refused only
+    /// for a rollback, a key that is not the held secret's, or a vouch whose
+    /// signature fails. Default: no rule (no key holder with a pin store).
+    fn check_seal(&self, _root_id: &str, _epoch: u32, _public: &[u8; 32], _vouch: Option<&Value>) -> Result<(), SealError> {
+        Ok(())
+    }
+}
+
+/// #EXP-1950: [`SealService::check_seal`] of the installed service (none = no rule).
+pub fn check_seal(root_id: &str, epoch: u32, public: &[u8; 32], vouch: Option<&Value>) -> Result<(), SealError> {
+    match service() {
+        Some(service) => service.check_seal(root_id, epoch, public, vouch),
+        None => Ok(()),
+    }
+}
+
+/// #EXP-1950 (install-trust.json): this install's own code while it waits
+/// for approval (`None` = trusted, or no rule): the daemon's doctor row and
+/// log say "Waiting for approval · <code>".
+static INSTALL_WAITING: RwLock<Option<String>> = RwLock::new(None);
+
+pub fn set_install_waiting(code: Option<String>) {
+    *write(&INSTALL_WAITING) = code;
+}
+
+pub fn install_waiting() -> Option<String> {
+    read(&INSTALL_WAITING).clone()
 }
 
 static SERVICE: RwLock<Option<Arc<dyn SealService>>> = RwLock::new(None);
@@ -745,10 +774,12 @@ fn key_for_writing(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
         return Err(SealError::ClearTree);
     }
     let service = sealer()?;
-    match service.ensure_key(root_id) {
+    let (epoch, public) = match service.ensure_key(root_id) {
         Err(SealError::NotReader) => Err(SealError::NoKey(SealError::NotReader.to_string())),
         other => other,
-    }
+    }?;
+    service.check_seal(root_id, epoch, &public, None)?;
+    Ok((epoch, public))
 }
 
 /// EXP-1472: how long a send into a tree this install may not key waits for
@@ -764,6 +795,12 @@ pub fn set_send_key_wait(wait: Duration) {
 }
 
 fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
+    let (epoch, public) = key_for_sending_unchecked(root_id)?;
+    check_seal(root_id, epoch, &public, None)?;
+    Ok((epoch, public))
+}
+
+fn key_for_sending_unchecked(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
     if tree_clear(root_id) {
         return Err(SealError::ClearTree);
     }

@@ -131,6 +131,61 @@ pub fn revoke(trpc: &TrpcClient, install_id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+// ── #EXP-1950 install approval (fixtures/install-trust.json) ───────────
+// The answers are read by `enet_core::install_trust` (generic here: this
+// crate does not depend on eNet).
+
+/// `installs.trust {installId}`: every live install of the account and its
+/// team-mates, and every approval about them.
+pub fn trust<T: serde::de::DeserializeOwned>(trpc: &TrpcClient, install_id: &str) -> Result<T, ApiError> {
+    trpc.query_with_input("installs.trust", &InstallInput { install_id })
+}
+
+/// `installs.requestApproval {installId}`: a waiting install asks, once.
+pub fn request_approval(trpc: &TrpcClient, install_id: &str) -> Result<(), ApiError> {
+    let _: serde_json::Value = trpc.mutation("installs.requestApproval", &InstallInput { install_id })?;
+    Ok(())
+}
+
+/// One `approve` riding in a root claim (an install that existed, decision e).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RootClaimApproval {
+    pub subject_install_id: String,
+    pub signature: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaimRootInput<'a> {
+    install_id: &'a str,
+    signature: &'a str,
+    #[serde(skip_serializing_if = "<[RootClaimApproval]>::is_empty")]
+    approvals: &'a [RootClaimApproval],
+}
+
+/// `installs.claimRoot`: this install starts its account's chain (CONFLICT
+/// = another install of the account claimed first).
+pub fn claim_root(trpc: &TrpcClient, install_id: &str, signature: &str, approvals: &[RootClaimApproval]) -> Result<(), ApiError> {
+    let _: serde_json::Value = trpc.mutation("installs.claimRoot", &ClaimRootInput { install_id, signature, approvals })?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ApproveInput<'a> {
+    install_id: &'a str,
+    subject_install_id: &'a str,
+    kind: &'a str,
+    signature: &'a str,
+}
+
+/// `installs.approve {kind: approve | reset | decline}`.
+pub fn approve(trpc: &TrpcClient, install_id: &str, subject_install_id: &str, kind: &str, signature: &str) -> Result<(), ApiError> {
+    let _: serde_json::Value = trpc.mutation("installs.approve", &ApproveInput { install_id, subject_install_id, kind, signature })?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

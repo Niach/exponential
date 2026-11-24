@@ -994,6 +994,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 let off = coding::sealing::holder_off_reason().map(coding::sealing::HolderOff::detail);
                 coding::device_doctor::record_key_holder(&ctx.data_dir, missing, off);
                 coding::device_doctor::add_key_holder(&mut device, !missing, off);
+                // #EXP-1950: a NEW install waits for a trusted install's Approve.
+                coding::device_doctor::add_install_waiting(&mut device, coding::sealing::install_waiting().as_deref());
                 // #EXP-1858: the `speech` row while an agent runs here.
                 if let Some(voice) = &voice {
                     voice.add_doctor(&mut device);

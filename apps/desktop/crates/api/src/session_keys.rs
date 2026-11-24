@@ -109,6 +109,10 @@ pub struct RootKey {
     pub root_id: String,
     pub epoch: u32,
     pub public_key: String,
+    /// #EXP-1950: a signed wrap of this epoch made for another install,
+    /// which names the key (install-trust.json R3); absent on an older server.
+    #[serde(default)]
+    pub vouch: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]

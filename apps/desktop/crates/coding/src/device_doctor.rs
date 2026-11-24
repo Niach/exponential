@@ -685,6 +685,21 @@ pub fn add_key_holder(doctor: &mut DeviceDoctor, running: bool, off: Option<&str
     doctor.items.push(row);
 }
 
+/// #EXP-1950 (install-trust.json): the daemon is a NEW install its account's
+/// trusted installs have not approved yet: the `Encryption keys` row says so
+/// with its code (`copy.waiting` · the code), approved from any trusted
+/// install's Needs you. None = trusted (or no rule): no row.
+pub fn add_install_waiting(doctor: &mut DeviceDoctor, code: Option<&str>) {
+    let Some(code) = code else { return };
+    if doctor.items.iter().any(|row| row.key == KEY_KEY_HOLDER) {
+        return;
+    }
+    let mut row = item(KEY_KEY_HOLDER, DoctorGroup::Storage, DoctorState::Action)
+        .detail(format!("{} · {code}", enet_core::install_trust_copy::WAITING));
+    row.label = Some("Encryption keys".to_string());
+    doctor.items.push(row);
+}
+
 /// EXP-1794: the row of diverged conversation copies the claude store
 /// migration kept under `store/conflicts/` (a warning, no pill, never a
 /// blocker: nothing was deleted, this says where to look). None = no row.

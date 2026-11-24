@@ -31,13 +31,7 @@ use crate::sealed::{b64url_decode, b64url_encode, TreeKey};
 use crate::wrap_sig::{accept_vouch, accept_wrap, ServedWrap, WrapRefusal, WrapStatement, WrapVerdict};
 
 /// The approval rows' and the waiting state's copy (`copy`), the same ×4.
-pub mod copy {
-    pub const NEW_INSTALL: &str = "New install";
-    pub const RESET: &str = "Reset";
-    pub const APPROVE: &str = "Approve";
-    pub const REMOVE: &str = "Remove";
-    pub const WAITING: &str = "Waiting for approval";
-}
+pub use crate::install_trust_copy as copy;
 
 /// The waiting state's glyph (`icon`).
 pub const WAITING_ICON: &str = "ui-private";
