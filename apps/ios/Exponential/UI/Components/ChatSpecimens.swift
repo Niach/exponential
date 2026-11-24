@@ -742,10 +742,41 @@ struct ChatTranscriptSpecimens: View {
         .accessibilityIdentifier("chat-check-in-specimen")
     }
 
+    /// #EXP-2074 (chat-express.json, the ×4 sample): a subagent tab's
+    /// narration with one Express block, drawn by THE lane row the focused
+    /// tab draws (`SubagentLaneRow` over the main lane's Express path): the
+    /// subagent's name + tail on the first prose bubble, the block in place,
+    /// the time on the last prose bubble.
+    static let expressSample = "Checked the three lanes.\n<a2ui>\nroot = Stack(children=[title, ship])\ntitle = Text(text=\"Build 1482 is green\")\nship = Button(label=\"Ship it\", on={press: Event(\"reply\", userMessage=\"Ship it\")})\n</a2ui>\nAll green."
+
+    private var subagentLane: some View {
+        TranscriptRow(side: .other, gap: 0, avatar: .session) {
+            SubagentLaneRow(
+                row: .single(.narration(
+                    id: 1, text: Self.expressSample, messageId: "msg_sub_1", subagentId: "sub-1",
+                    at: 1_763_457_000_000
+                )),
+                context: context, nested: false, live: false,
+                author: "Explore", tail: true,
+                express: ExpressLane(
+                    key: { _, messageId in
+                        (ChatExpress.feedRowKey(sessionId: "s-subagent-specimen", messageId: messageId, firstSeq: 1), nil)
+                    },
+                    final: true
+                )
+            )
+        }
+        .padding(.bottom, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("subagent-lane-express-specimen")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // #EXP-1943: the call card + call view on top (the shot's first screen).
             CallSpecimens()
+            // #EXP-2074: a subagent tab's narration with one Express block.
+            subagentLane
             // #EXP-1873: the check-ins first, the shot's first screen.
             checkIns
             ForEach(Self.rows, id: \.item.id) { row in

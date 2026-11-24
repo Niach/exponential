@@ -620,14 +620,24 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     // The device's `ended` report of a ROOT (its process went away: an app
     // quit, a crash) reads idle; only a person's End ends it. A CHILD's
     // still ends it.
-    await host.report({ sessionId: root.sessionId, status: `running`, busy: true })
-    await host.report({ sessionId: root.sessionId, status: `ended` })
+    // #EXP-2058: each report answers with the status the row then reads,
+    // so the device tears down at once only what really ended.
+    expect(await host.report({ sessionId: root.sessionId, status: `running`, busy: true })).toMatchObject({
+      status: `running`,
+    })
+    expect(await host.report({ sessionId: root.sessionId, status: `ended` })).toMatchObject({ status: `idle` })
     expect(await row(root.sessionId)).toMatchObject({ status: `idle`, busy: false, endedAt: null })
     const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
     await host.claim({ sessionId: child.sessionId, deviceId: w.deviceId })
-    await host.report({ sessionId: child.sessionId, status: `ended` })
+    expect(await host.report({ sessionId: child.sessionId, busy: true })).toMatchObject({ status: `running` })
+    expect(await host.report({ sessionId: child.sessionId, status: `ended` })).toMatchObject({ status: `ended` })
     expect(await row(child.sessionId)).toMatchObject({ status: `ended` })
     expect(await row(root.sessionId)).toMatchObject({ status: `idle` })
+    // A late report of the ended row (a no-op) still says ended; a row
+    // that is gone says nothing.
+    expect(await host.report({ sessionId: child.sessionId, status: `idle` })).toMatchObject({ status: `ended` })
+    const gone = await host.report({ sessionId: `00000000-0000-4000-8000-000000000000`, status: `ended` })
+    expect(gone).not.toHaveProperty(`status`)
   })
 
   it(`a root's \`ended\` report before its first turn ends it; after a turn it reads idle (FEED-134)`, async () => {
@@ -875,6 +885,47 @@ describe.skipIf(!ready.ok)(`sessions.send — children, messages, continuation`,
     expect((await row(live.sessionId)).account).toBe(`aaaa1111`)
     await sendSession({ userId: w.owner, input: { sessionId: live.sessionId, account: `cccc3333` } })
     expect((await row(live.sessionId)).account).toBe(`cccc3333`)
+  })
+
+  // #FEED-299 (waiting-cards.json EXPIRY): an ended run can no longer act on
+  // an answer, so its waiting cards are dismissed with it (answered AND
+  // consumed: off every chip, never delivered); a live session's card waits.
+  it(`#FEED-299: ending a session dismisses its waiting question and plan; a live session's card keeps waiting`, async () => {
+    const { buildPlanCard, buildQuestionCard, postAskCard } = await import(`@/lib/sessions/plan`)
+    const w = await world()
+    const root = await sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `r` } })
+    const child = await sendSession({ userId: w.owner, input: { parentId: root.sessionId, text: `c` } })
+    const ask = (sessionId: string, question: string) =>
+      postAskCard({ userId: w.owner, sessionId, card: buildQuestionCard({ question, options: [{ label: `a` }, { label: `b` }] }) })
+    const stale = await ask(child.sessionId, `Which base?`)
+    const live = await ask(root.sessionId, `Ship it?`)
+    const plan = await postAskCard({
+      userId: w.owner,
+      sessionId: child.sessionId,
+      card: buildPlanCard({ plan: `1. One` } as never),
+    })
+    const card = async (id: string) =>
+      (await db.select().from(messages).where(eq(messages.id, id)).limit(1))[0]!
+
+    await endSession({ userId: w.owner, sessionId: child.sessionId })
+
+    const question = await card(stale.messageId)
+    expect(question.card).toMatchObject({ kind: `question`, dismissed: true })
+    expect(question.answeredAt).not.toBeNull()
+    expect(question.consumedAt).not.toBeNull()
+    const closed = await card(plan.messageId)
+    expect(closed.card).toMatchObject({ kind: `plan`, decision: `dismissed`, fresh: false, dismissed: true })
+    expect(closed.answeredAt).not.toBeNull()
+    expect(closed.consumedAt).not.toBeNull()
+    const waiting = await card(live.messageId)
+    expect(waiting.card).not.toHaveProperty(`dismissed`)
+    expect(waiting.answeredAt).toBeNull()
+    // The ask mirror of the expired question in the parent closed too.
+    const mirrors = await db
+      .select({ answeredAt: messages.answeredAt })
+      .from(messages)
+      .where(sql`${messages.card}->>'kind' = 'ask' AND ${messages.card}->>'messageId' = ${stale.messageId}`)
+    expect(mirrors.every((mirror) => mirror.answeredAt !== null)).toBe(true)
   })
 
   it(`ending a root ends its whole tree; an agent refuses End`, async () => {

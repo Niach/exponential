@@ -17,6 +17,7 @@
 //
 // The server needs DATABASE_URL + BETTER_AUTH_SECRET (the image's minimum).
 
+import { readdirSync } from "node:fs"
 import { join } from "node:path"
 
 const WAIT_MS = Number.parseInt(process.env.SMOKE_WAIT_MS || ``) || 90_000
@@ -47,6 +48,44 @@ const PROBES: Probe[] = [
   },
 ]
 
+// #EXP-2102: a web call's two AudioWorklet modules are files of the build,
+// served from this origin as JavaScript. As blob: (or inlined data:) URLs the
+// CSP's `script-src 'self'` refuses them and no web call starts.
+const WORKLETS = [`call-capture`, `call-playback`]
+
+function workletProbes(): Probe[] {
+  let files: string[]
+  try {
+    files = readdirSync(join(import.meta.dir, `..`, `.output`, `public`, `assets`))
+  } catch {
+    // Probing a remote server (the image): no build output here to name the files.
+    return []
+  }
+  return WORKLETS.map((name) => {
+    const file = files.find((entry) => entry.startsWith(`${name}-`) && entry.endsWith(`.js`))
+    return {
+      path: file ? `/assets/${file}` : `/assets/${name}-MISSING.js`,
+      check: (res: Response, body: string) => {
+        if (!file) return `the build emitted no ${name}-*.js asset (inlined, or a blob: again?)`
+        if (res.status !== 200) return `status ${res.status}`
+        if (!/javascript/.test(res.headers.get(`content-type`) ?? ``)) return `content-type ${res.headers.get(`content-type`)}`
+        return body.includes(`registerProcessor(`) ? null : `no registerProcessor in the module`
+      },
+    }
+  })
+}
+
+const cspProbe: Probe = {
+  path: `/auth/login`,
+  check: (res) => {
+    const csp = res.headers.get(`content-security-policy`)
+    // Unset = SECURITY_HEADERS_ENABLED is off for this server: nothing to hold.
+    if (!csp) return null
+    const scriptSrc = csp.split(`;`).map((part) => part.trim()).find((part) => part.startsWith(`script-src `)) ?? ``
+    return /\bblob:|\bdata:/.test(scriptSrc) ? `script-src allows blob: or data: (${scriptSrc})` : null
+  },
+}
+
 async function waitForListen(base: string, server?: Bun.Subprocess) {
   const deadline = Date.now() + WAIT_MS
   while (Date.now() < deadline) {
@@ -63,9 +102,9 @@ async function waitForListen(base: string, server?: Bun.Subprocess) {
   throw new Error(`nothing listened on ${base} within ${WAIT_MS / 1000}s`)
 }
 
-async function probe(base: string) {
+async function probe(base: string, probes: Probe[]) {
   let failed = 0
-  for (const { path, check } of PROBES) {
+  for (const { path, check } of probes) {
     let miss: string | null
     let body = ``
     try {
@@ -103,9 +142,10 @@ async function main() {
   base = base.replace(/\/$/, ``)
   try {
     await waitForListen(base, server)
-    const failed = await probe(base)
+    const probes = [...PROBES, cspProbe, ...workletProbes()]
+    const failed = await probe(base, probes)
     if (failed > 0) {
-      console.error(`[smoke-server] ${failed} of ${PROBES.length} probes failed on ${base}`)
+      console.error(`[smoke-server] ${failed} of ${probes.length} probes failed on ${base}`)
       process.exitCode = 1
     }
     if (server) await stopsPromptly(server)

@@ -118,6 +118,21 @@ val syncSpecimenSamples = tasks.register<Sync>("syncSpecimenSamples") {
 }
 tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(syncSpecimenSamples) }
 
+// #EXP-2057: Robolectric's android-all jar (sdk 35, DeepLinkBackStackTest's
+// `@Config`) comes through Gradle, so the seeded Gradle cache
+// (seed-gradle-caches.yml) carries it, and Robolectric runs OFFLINE from
+// `robolectric-jars`: never its own fetch from Maven Central (HTTP 429 on
+// CI). As in eUI Compose (#EXP-2054). The coordinate follows the Robolectric
+// version (4.17); after a bump a test names the jar it misses.
+val robolectricRuntime: Configuration by configurations.creating {
+    isTransitive = false
+}
+val robolectricJarsDir = layout.buildDirectory.dir("robolectric-jars")
+val robolectricJars = tasks.register<Sync>("robolectricJars") {
+    from(robolectricRuntime)
+    into(robolectricJarsDir)
+}
+
 android {
     namespace = "com.exponential.app"
     compileSdk = 37
@@ -128,6 +143,10 @@ android {
         // "not mocked".
         unitTests.isReturnDefaultValues = true
         unitTests.all {
+            it.dependsOn(robolectricJars)
+            it.inputs.files(robolectricJars).withPropertyName("robolectricJars").withPathSensitivity(PathSensitivity.NAME_ONLY)
+            it.systemProperty("robolectric.offline", "true")
+            it.systemProperty("robolectric.dependency.dir", robolectricJarsDir.get().asFile.absolutePath)
             // PushSealFixtureTest (EXP-1435) + the eNet install tests (EXP-1457): the
             // facade's host build + the shared vectors.
             it.systemProperty("jna.library.path", File(cargoTarget, "release").absolutePath)
@@ -378,6 +397,7 @@ dependencies {
     testImplementation(libs.jna.aar)
     // #ERR-27: the back-stack budget test drives the real NavController.
     testImplementation(libs.robolectric)
+    robolectricRuntime("org.robolectric:android-all-instrumented:15-robolectric-13954326-i7")
     testImplementation(libs.navigation.testing)
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.rules)

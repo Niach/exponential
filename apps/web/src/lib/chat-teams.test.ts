@@ -7,7 +7,7 @@ vi.mock(`@/lib/collections`, () => ({
   teamCollection: { toArray: [], get: () => undefined },
 }))
 
-import { chatTeamIds, issueIdsInTeams, sessionOwnDevices, syncedTeamOrder } from "@/lib/chat-teams"
+import { chatTeamIds, issueIdsInTeams, sessionOwnDevices, syncedIssueTeamId, syncedTeamOrder } from "@/lib/chat-teams"
 
 // #EXP-2079 (agent-settings.json `assistant.chatTeams`): the web port over
 // the synced store's rows.
@@ -40,14 +40,29 @@ describe(`chat teams (assistant.chatTeams)`, () => {
   }
 
   it(`resolves identifiers over the chat teams, the first team's on a clash, nothing outside them`, () => {
+    // Real-shaped: the issues shape carries NO team_id; a row's team is its
+    // board's (#EXP-2082: rows with a teamId hid that every ref was dropped).
+    const boards = new Map([
+      [`b-a`, `t-a`],
+      [`b-b`, `t-b`],
+      [`b-x`, `t-x`],
+    ])
+    const teamOfBoard = (boardId: string) => boards.get(boardId)
     const issues = [
-      { id: `i-b7`, teamId: `t-b`, identifier: `EXP-7` },
-      { id: `i-a7`, teamId: `t-a`, identifier: `EXP-7` },
-      { id: `i-b9`, teamId: `t-b`, identifier: `web-9` },
-      { id: `i-x1`, teamId: `t-x`, identifier: `OPS-1` },
+      { id: `i-b7`, boardId: `b-b`, identifier: `EXP-7` },
+      { id: `i-a7`, boardId: `b-a`, identifier: `EXP-7` },
+      { id: `i-b9`, boardId: `b-b`, identifier: `web-9` },
+      { id: `i-x1`, boardId: `b-x`, identifier: `OPS-1` },
+      { id: `i-gone`, boardId: `b-gone`, identifier: `GONE-1` },
     ]
-    expect(issueIdsInTeams([`t-a`, `t-b`], [`#exp-7`, `WEB-9`, `OPS-1`, `NOPE-1`], issues)).toEqual([`i-a7`, `i-b9`])
-    expect(issueIdsInTeams([`t-b`, `t-a`], [`EXP-7`], issues)).toEqual([`i-b7`])
-    expect(issueIdsInTeams([], [`EXP-7`], issues)).toEqual([])
+    expect(issues.every((row) => !(`teamId` in row))).toBe(true)
+    expect(issueIdsInTeams([`t-a`, `t-b`], [`#exp-7`, `WEB-9`, `OPS-1`, `NOPE-1`, `GONE-1`], issues, teamOfBoard)).toEqual([
+      `i-a7`,
+      `i-b9`,
+    ])
+    expect(issueIdsInTeams([`t-b`, `t-a`], [`EXP-7`], issues, teamOfBoard)).toEqual([`i-b7`])
+    expect(issueIdsInTeams([], [`EXP-7`], issues, teamOfBoard)).toEqual([])
+    expect(syncedIssueTeamId({ boardId: `b-b` }, teamOfBoard)).toBe(`t-b`)
+    expect(syncedIssueTeamId({ boardId: null }, teamOfBoard)).toBeUndefined()
   })
 })

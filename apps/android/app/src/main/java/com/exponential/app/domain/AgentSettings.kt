@@ -393,6 +393,26 @@ object AgentSettings {
     fun runsOnDeviceIds(devices: List<RunsOnDevice>, boundId: String?, assistant: Boolean): List<String> =
         devices.filter { !assistant || it.kind == "desktop" || it.deviceId == boundId }.map { it.deviceId }
 
+    /** A Runs on picker row (`runsOnRowCases`): [description] = the secondary
+     *  line (devices-list `copy.offline` while offline), [disabled] its state. */
+    data class RunsOnRow(val id: String, val description: String?, val disabled: Boolean)
+
+    /**
+     * THE Runs on rows ×4 (`runsOnRowCases`, TS `runsOnRows`, web
+     * `deviceRows`): the devices of [runsOnDeviceIds], online ones pickable,
+     * an offline one listed with `Offline` and disabled unless bound; a bound
+     * id no device matches leads by its raw id. [online] is per device id.
+     */
+    fun runsOnRows(devices: List<RunsOnDevice>, online: (String) -> Boolean, boundId: String?, assistant: Boolean): List<RunsOnRow> {
+        val kept = runsOnDeviceIds(devices, boundId, assistant).toSet()
+        val rows = devices.filter { it.deviceId in kept }.map {
+            val up = online(it.deviceId)
+            RunsOnRow(it.deviceId, if (up) null else DevicesList.Copy.OFFLINE, !up && it.deviceId != boundId)
+        }
+        val unmatched = boundId?.takeIf { id -> id.isNotEmpty() && devices.none { it.deviceId == id } }
+        return if (unmatched != null) listOf(RunsOnRow(unmatched, null, false)) + rows else rows
+    }
+
     /**
      * #EXP-1793 (agent-settings.json `mcpRow`): the agent page's MCP servers
      * row, right under Skills (the Assistant: after Skills, the last row of

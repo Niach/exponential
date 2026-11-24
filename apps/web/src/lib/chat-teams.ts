@@ -5,7 +5,7 @@
 // Link / New issue, links) read the turn's teams: the root's Teams pick ∩
 // the synced teams, else every synced team, in the cross-team order.
 import { assistantChatTeams, assistantOwnDevices } from "@exp/domain-contract/agent-settings"
-import { issueCollection, sessionCollection, teamCollection } from "@/lib/collections"
+import { boardCollection, issueCollection, sessionCollection, teamCollection } from "@/lib/collections"
 
 type TeamLike = { id: string; name: string }
 
@@ -62,22 +62,34 @@ export function chatTeamSlug(sessionId: string | null | undefined): string | nul
   return null
 }
 
+type SyncedIssueLike = { id: string; boardId: string; identifier: string }
+
+/** A SYNCED issue row's team. The issues shape carries no `team_id`
+ *  (routes/api/shapes/issues.ts `ISSUE_COLUMNS`): it is its board's. Never
+ *  read `issue.teamId` off a synced row (#EXP-2082). */
+export function syncedIssueTeamId(
+  issue: { boardId?: string | null } | null | undefined,
+  teamOfBoard: (boardId: string) => string | undefined = (boardId) =>
+    (boardCollection.get(boardId) as { teamId?: string } | undefined)?.teamId
+): string | undefined {
+  return issue?.boardId ? teamOfBoard(issue.boardId) : undefined
+}
+
 /** `#IDENT` → issue ids over `teamIds`: an identifier found in several teams
- *  is the first team's in order (`chatTeams` (1)). */
+ *  is the first team's in order (`chatTeams` (1)). Each row's team is its
+ *  board's (`syncedIssueTeamId`). */
 export function issueIdsInTeams(
   teamIds: readonly string[],
   identifiers: readonly string[],
-  issues: Iterable<{ id: string; teamId: string; identifier: string }> = issueCollection.values() as Iterable<{
-    id: string
-    teamId: string
-    identifier: string
-  }>
+  issues: Iterable<SyncedIssueLike> = issueCollection.values() as Iterable<SyncedIssueLike>,
+  teamOfBoard?: (boardId: string) => string | undefined
 ): string[] {
   const rank = new Map(teamIds.map((id, index) => [id, index]))
   const found = new Map<string, { id: string; rank: number }>()
   const wanted = new Set(identifiers.map((identifier) => identifier.replace(/^#/, ``).toUpperCase()))
   for (const row of issues) {
-    const at = rank.get(row.teamId)
+    const teamId = syncedIssueTeamId(row, teamOfBoard)
+    const at = teamId === undefined ? undefined : rank.get(teamId)
     const key = row.identifier.toUpperCase()
     if (at === undefined || !wanted.has(key)) continue
     const held = found.get(key)

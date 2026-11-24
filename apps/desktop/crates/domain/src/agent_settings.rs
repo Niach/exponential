@@ -417,6 +417,47 @@ pub fn runs_on_device_ids<'a>(
         .collect()
 }
 
+/// devices-list `copy.offline`: a Runs on row's secondary line while offline.
+pub const RUNS_ON_OFFLINE: &str = "Offline";
+
+/// A Runs on picker row (`runsOnRowCases`): `description` = the secondary
+/// line ([`RUNS_ON_OFFLINE`] while offline), `disabled` its state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunsOnRow {
+    pub id: String,
+    pub description: Option<String>,
+    pub disabled: bool,
+}
+
+/// TS `runsOnRows` (`runsOnRowCases`, web `deviceRows`): THE Runs on rows ×4,
+/// over `(device_id, kind, online)` in order: the devices of
+/// [`runs_on_device_ids`], online ones pickable, an offline one listed with
+/// `Offline` and disabled unless bound; a bound id no device matches leads
+/// by its raw id.
+pub fn runs_on_rows<'a>(
+    devices: &[(&'a str, Option<&'a str>, bool)],
+    bound_id: Option<&str>,
+    assistant: bool,
+) -> Vec<RunsOnRow> {
+    let bound_id = bound_id.filter(|id| !id.is_empty());
+    let kept = runs_on_device_ids(devices.iter().map(|(id, kind, _)| (*id, *kind)), bound_id, assistant);
+    let mut rows: Vec<RunsOnRow> = devices
+        .iter()
+        .filter(|(id, _, _)| kept.contains(id))
+        .map(|(id, _, online)| RunsOnRow {
+            id: id.to_string(),
+            description: (!online).then(|| RUNS_ON_OFFLINE.to_string()),
+            disabled: !online && Some(*id) != bound_id,
+        })
+        .collect();
+    if let Some(bound) = bound_id {
+        if !devices.iter().any(|(id, _, _)| *id == bound) {
+            rows.insert(0, RunsOnRow { id: bound.to_string(), description: None, disabled: false });
+        }
+    }
+    rows
+}
+
 /// TS `assistantScheduleOf`: the preset id stored triggers stand for
 /// (`off` = none or a paused preset); None = not an Assistant's (an event,
 /// a custom cron, more than one) and `agents.update` refuses it.
@@ -1524,6 +1565,40 @@ mod tests {
                 case["name"]
             );
         }
+    }
+
+    #[test]
+    fn assistant_runs_on_row_cases_match_the_fixture() {
+        let fixture = fixture();
+        let cases = fixture["assistant"]["runsOnRowCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let devices: Vec<(&str, Option<&str>, bool)> = case["devices"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|device| (device["deviceId"].as_str().unwrap(), device["kind"].as_str(), device["online"].as_bool().unwrap()))
+                .collect();
+            let expected: Vec<RunsOnRow> = case["expected"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| RunsOnRow {
+                    id: row["id"].as_str().unwrap().to_string(),
+                    description: row["description"].as_str().map(str::to_string),
+                    disabled: row["disabled"].as_bool().unwrap(),
+                })
+                .collect();
+            assert_eq!(
+                runs_on_rows(&devices, case["boundId"].as_str(), case["assistant"].as_bool().unwrap()),
+                expected,
+                "{}",
+                case["name"]
+            );
+        }
+        let devices_list: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/devices-list.json")).unwrap();
+        assert_eq!(devices_list["copy"]["offline"], RUNS_ON_OFFLINE);
     }
 
     #[test]

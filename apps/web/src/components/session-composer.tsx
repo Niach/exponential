@@ -487,12 +487,14 @@ export function SessionComposer({
   const commands = useMemo(() => steerCommandsFor(catalogAgent), [catalogAgent])
   // #EXP-2079 (agent-settings.json `assistant.chatTeams`): the `/` prompts,
   // `@` members, `#` refs and the MCP pick read the chat teams.
-  const chatTeams = useSessionChatTeams(row, teamId)
-  const { prompts } = usePromptsForTeams(chatTeams.teamIds)
-  const { users } = useTeamsUsers(chatTeams.teamIds)
   // #EXP-1715 (composer-menu.json `teamsPick`): the viewer's Assistant's
   // Teams pick, seeded from its conversation root (null = every team).
   const { pick: teamsPick, scope: teamsScope } = useTeamsPick(row, agentId)
+  // #EXP-2082: the lists follow the pick being edited at once (removing the
+  // Teams chip widens them before the next send), not the stored one.
+  const chatTeams = useSessionChatTeams(row, teamId, teamsPick ? teamsPick.picked : undefined)
+  const { prompts } = usePromptsForTeams(chatTeams.teamIds)
+  const { users } = useTeamsUsers(chatTeams.teamIds)
   // #EXP-1793: an agent chat's MCP servers pick (its conversation's).
   const mcpPick = useAgentMcpPick({
     enabled: surface === `agent`,

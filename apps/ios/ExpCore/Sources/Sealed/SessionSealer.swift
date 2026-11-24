@@ -228,7 +228,7 @@ public final class SessionSealer: @unchecked Sendable {
         guard let key = await holder.sealKey(
             accountId: accountId, rootId: target.id, known: target.key, teamId: target.teamId,
             deviceIds: deviceIds(accountId: accountId, steerDeviceId: target.deviceId), shared: target.shared
-        ) else { return nil }
+        ), await holder.sealAllowed(accountId: accountId, rootId: target.id, key: key) else { return nil }
         guard let sealed = try? crypto.sealBody(
             treePublicKey: key.publicKey, epoch: key.epoch,
             text: SealedAttachmentLines.withEmbeds(text, attachmentIds: input.attachmentIds, uploadOf: SealedAttachmentLines.upload)
@@ -273,7 +273,7 @@ public final class SessionSealer: @unchecked Sendable {
             teamId: root?.teamId,
             deviceIds: [],
             shared: root?.shared ?? false
-        ) else { return nil }
+        ), await holder.sealAllowed(accountId: accountId, rootId: row.rootId, key: key) else { return nil }
         let answered = SealedAnswer.answeredCard(card, input)
         guard let data = try? JSONSerialization.data(withJSONObject: answered, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8),

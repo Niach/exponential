@@ -109,10 +109,33 @@ import {
   parseScriptLog,
   scriptCardInput,
   workflowSubagentIds,
+  mountedWindowStart,
+  nextMountFloor,
 } from "./agent-feed"
 import { CONFIG_DEFAULT_VALUE_LABEL } from "./steer-commands"
 import { contract } from "@exp/domain-contract"
 import designTokens from "../../../../packages/design-tokens/tokens.json" with { type: "json" }
+
+// #EXP-1999: a Load earlier page mounts in slices from the oldest row
+// mounted, down to the window's start, by item id (a prepended page shifts
+// indexes, never ids).
+describe(`Load earlier mount slices`, () => {
+  const feed = Array.from({ length: 10 }, (_, i) => ({ id: 100 + i }))
+  it(`mounts from the floor until the slices reach the window`, () => {
+    expect(mountedWindowStart(feed, 2, null)).toBe(2)
+    expect(mountedWindowStart(feed, 2, 107)).toBe(7)
+    expect(mountedWindowStart(feed, 8, 105)).toBe(8)
+    expect(nextMountFloor(feed, 2, 107, 3)).toBe(104)
+    expect(nextMountFloor(feed, 2, 104, 3)).toBe(null)
+    expect(nextMountFloor(feed, 2, null, 3)).toBe(null)
+  })
+  it(`a page the device prepends slices in under the same floor`, () => {
+    const paged = [{ id: 90 }, { id: 91 }, { id: 92 }, { id: 93 }, ...feed]
+    expect(mountedWindowStart(paged, 0, 100)).toBe(4)
+    expect(nextMountFloor(paged, 0, 100, 3)).toBe(91)
+    expect(nextMountFloor(paged, 0, 91, 3)).toBe(null)
+  })
+})
 
 describe(`local-echo dedupe`, () => {
   it(`consumes a matching echo exactly once`, () => {

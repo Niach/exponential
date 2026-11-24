@@ -833,7 +833,11 @@ export const sessionsRouter = router({
    *  start, `start_failed`, which is never said as a wall: its "Could not
    *  start" reply already reached the sender); an ending reports through
    *  the bus. EXP-1374: `background` = busy only because background tasks
-   *  still run after the turn (a not-busy report clears it). */
+   *  still run after the turn (a not-busy report clears it).
+   *  #EXP-2058: → the row's `status` after the report (an `ended` it kept
+   *  alive reads `idle`), so the device tears an ended run down at once
+   *  instead of on its sweep; absent for a row that is gone, and on older
+   *  servers. */
   report: authedProcedure
     .input(
       z.object({
@@ -901,7 +905,9 @@ export const sessionsRouter = router({
         // row's). #EXP-1737: nothing runs a re-queued row until its new
         // device claims it, so a report naming no device (a shipped engine's)
         // is its old engine's late write.
-        return noOpTx(ctx.db)
+        const noOp = await noOpTx(ctx.db)
+        // #EXP-2058: an ended row says so, whoever asks.
+        return session?.status === `ended` ? { ...noOp, status: session.status } : noOp
       }
       // NEW-17: the device says the run's PROCESS went away without the
       // agent finishing (killed / OOM / the daemon restarted under it). The
@@ -943,7 +949,7 @@ export const sessionsRouter = router({
           // S-3: the interruption is silent (no bus line ×4).
           return txid
         })
-        return { txid }
+        return { txid, status: `idle` as const }
       }
       // A session that SURVIVES its process: an agent's conversation never
       // ends, and neither does a chat's ROOT (FEED-134: the conversation
@@ -1081,7 +1087,7 @@ export const sessionsRouter = router({
       if (endedHere) await relayKillSessionsBestEffort([session.id])
       // EXP-1413: a turn ending (or a child's process going) is a merge-train edge.
       if (trainTurnEnd) trainEdge(session.rootId)
-      return { txid }
+      return { txid, status: status ?? (revived ? (`running` as const) : session.status) }
     }),
 
   /** #EXP-1731 (eagent subagents.json): a CLI subagent's edge from the

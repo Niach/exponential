@@ -309,6 +309,38 @@ final class AgentSettingsTests: XCTestCase {
         }
     }
 
+    /// THE Runs on rows: offline listed, disabled unless bound; raw bound id leads.
+    func testRunsOnRowsReplaysEveryCase() throws {
+        let cases = try XCTUnwrap(try assistantBlock()["runsOnRowCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let devices = try XCTUnwrap(testCase["devices"] as? [[String: Any]]).map { device in
+                (
+                    deviceId: try XCTUnwrap(device["deviceId"] as? String, name),
+                    kind: device["kind"] as? String,
+                    online: try XCTUnwrap(device["online"] as? Bool, name)
+                )
+            }
+            let expected = try XCTUnwrap(testCase["expected"] as? [[String: Any]], name).map { row in
+                AgentSettings.RunsOnRow(
+                    id: try XCTUnwrap(row["id"] as? String, name),
+                    description: row["description"] as? String,
+                    disabled: try XCTUnwrap(row["disabled"] as? Bool, name)
+                )
+            }
+            XCTAssertEqual(
+                AgentSettings.runsOnRows(
+                    devices,
+                    boundId: testCase["boundId"] as? String,
+                    assistant: try XCTUnwrap(testCase["assistant"] as? Bool, name)
+                ),
+                expected,
+                name
+            )
+        }
+    }
+
     /// NEW-99: an Assistant's Runs on picker lists desktops only.
     func testRunsOnDeviceIdsReplaysEveryCase() throws {
         let cases = try XCTUnwrap(try assistantBlock()["runsOnCases"] as? [[String: Any]])
@@ -585,6 +617,27 @@ final class AgentSettingsTests: XCTestCase {
 
     /// #EXP-2079: `assistant.chatTeams.cases` (supersedes #EXP-1714's
     /// single lookup team).
+    /// #EXP-2094: removing the Teams chip widens the chat teams at once,
+    /// before any send; a moved stored pick re-seeds the composer's.
+    func testTeamsPickDraftReadsTheComposersPickAtOnce() {
+        let synced = ["a", "b"]
+        let stored: [String]? = ["a"]
+        var draft = AgentSettings.TeamsPickDraft()
+        func teams() -> [String] {
+            AgentSettings.chatTeams(ownTeamId: "personal", syncedTeamIds: synced, pickedTeamIds: draft.picked(stored: stored))
+        }
+        XCTAssertEqual(draft.picked(stored: stored), ["a"])
+        XCTAssertEqual(teams(), ["a"])
+        draft.pick(nil)
+        XCTAssertNil(draft.picked(stored: stored))
+        XCTAssertEqual(teams(), ["a", "b"])
+        draft.pick(["b"])
+        XCTAssertEqual(teams(), ["b"])
+        draft.reseed()
+        XCTAssertEqual(draft.picked(stored: ["b"]), ["b"])
+        XCTAssertEqual(teams(), ["a"])
+    }
+
     func testChatTeamsReplaysEveryCase() throws {
         let block = try XCTUnwrap(try assistantBlock()["chatTeams"] as? [String: Any])
         let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])

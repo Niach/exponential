@@ -75,7 +75,7 @@ mod tests {
 
     #[test]
     fn a_stored_0_9_card_paints_as_1_0_and_a_1_0_card_stays() {
-        let card = |id: &str, surface: serde_json::Value| ChatRowInput::Card { id: id.into(), icon: "ui-widget".into(), title: "T".into(), text: String::new(), target: None, surface: Some(surface) };
+        let card = |id: &str, surface: serde_json::Value| ChatRowInput::Card { id: id.into(), icon: "ui-widget".into(), title: "T".into(), text: String::new(), target: None, surface: Some(surface), group: None };
         let input = ChatInput {
             session_id: Some("s".into()),
             rows: vec![

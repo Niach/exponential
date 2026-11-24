@@ -569,9 +569,9 @@ pub(crate) fn held_rows(
     (held, expiry)
 }
 
-/// One of the viewer's own bubbles at the transcript's bottom: a consumed
-/// row whose echo has not arrived (HANDOFF), a synced row the device has
-/// not consumed yet, or an outbox entry.
+/// One of the bubbles at the transcript's bottom: a consumed own row whose
+/// echo has not arrived (HANDOFF), a synced row the device has not consumed
+/// yet (#EXP-2089: anyone's), or an outbox entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct OwnBubble {
     /// The row's id, else the entry's clientId (the element ids key on it).
@@ -586,25 +586,33 @@ pub(crate) struct OwnBubble {
     pub message_id: Option<String>,
     /// The outbox entry (Retry / Delete), `None` = a synced row alone.
     pub client_id: Option<String>,
+    /// #EXP-2089: the TEAMMATE who wrote a not-consumed row (their bubble
+    /// left under their avatar and name, no mark, no menu); `None` = the
+    /// viewer's own.
+    pub member_id: Option<String>,
 }
 
 /// message-delivery.json ORDER: the consumed own rows the HANDOFF still
 /// holds (`held`, [`held_rows`]: reading `read` until the transcript's echo
-/// appears), then the viewer's own synced rows the device has not consumed
-/// (oldest first, a card never), then the kept outbox entries (`kept`,
-/// already merged). Each wears `deliveryState`; one bubble per row id.
+/// appears), then the synced person rows the device has not consumed
+/// (#EXP-2089 `pendingCases`: every person's, oldest first, a card never),
+/// then the kept outbox entries (`kept`, already merged). The viewer's own
+/// wear `deliveryState`; one bubble per row id.
 pub(crate) fn own_tail(viewer_id: &str, rows: &[MessageRow], held: &[String], kept: &[OutboxEntry]) -> Vec<OwnBubble> {
     use domain::message_delivery::{delivery_state, DeliveryInput};
     let held_rows = held.iter().filter_map(|id| {
         rows.iter().find(|row| &row.id == id && !row.is_queued() && row.author_id.as_deref() == Some(viewer_id))
     });
-    let mut pending: Vec<&MessageRow> = rows
-        .iter()
-        .filter(|row| row.card.is_none() && row.is_queued() && row.author_id.as_deref() == Some(viewer_id))
-        .filter(|row| !domain::transcript_grouping::is_blank_text(row.body_text()) || !row.attachment_ids.is_empty())
-        .collect();
-    let at = |row: &MessageRow| row.created_at.as_deref().and_then(domain::instant::parse_instant).unwrap_or(0);
-    pending.sort_by(|a, b| at(a).cmp(&at(b)).then_with(|| a.id.cmp(&b.id)));
+    // A row of files alone (a sealed one names none in its body) draws too.
+    let mut candidates = handoff_rows(rows);
+    for (candidate, row) in candidates.iter_mut().zip(rows) {
+        if candidate.body.trim().is_empty() && !row.attachment_ids.is_empty() {
+            candidate.body = "file".to_string();
+        }
+    }
+    let pending = domain::message_delivery::pending_rows(viewer_id, &candidates)
+        .into_iter()
+        .filter_map(|(pending, _)| rows.iter().find(|row| row.id == pending.id));
     let mut out: Vec<OwnBubble> = held_rows
         .chain(pending)
         .map(|row| OwnBubble {
@@ -621,6 +629,8 @@ pub(crate) fn own_tail(viewer_id: &str, rows: &[MessageRow], held: &[String], ke
             stored: true,
             message_id: Some(row.id.clone()),
             client_id: None,
+            // A row with no author left (a removed member) is a teammate's.
+            member_id: (row.author_id.as_deref() != Some(viewer_id)).then(|| row.author_id.clone().unwrap_or_default()),
         })
         .collect();
     out.extend(kept.iter().map(|entry| {
@@ -633,6 +643,7 @@ pub(crate) fn own_tail(viewer_id: &str, rows: &[MessageRow], held: &[String], ke
             stored,
             message_id: entry.message_id.clone(),
             client_id: Some(entry.client_id.clone()),
+            member_id: None,
         }
     }));
     out
@@ -704,17 +715,21 @@ mod tests {
         let kept = vec![entry("c1", LocalState::Failed, None), entry("c2", LocalState::Sending, Some("m9"))];
         let tail = own_tail("u1", &rows, &[], &kept);
         let keys: Vec<(&str, DeliveryState, bool)> = tail.iter().map(|b| (b.key.as_str(), b.state, b.stored)).collect();
+        // #EXP-2089: the teammate's not-consumed row draws too, in the one
+        // list (oldest first, ties by id), as theirs.
+        assert_eq!(tail.iter().map(|b| b.member_id.as_deref()).collect::<Vec<_>>(), [None, Some("u2"), None, None, None]);
         assert_eq!(
             keys,
             vec![
                 ("m1", DeliveryState::Sending, true),
+                ("x1", DeliveryState::Sending, true),
                 ("m2", DeliveryState::Sent, true),
                 ("c1", DeliveryState::Failed, false),
                 ("c2", DeliveryState::Sending, true),
             ]
         );
-        assert_eq!(tail[2].client_id.as_deref(), Some("c1"));
-        assert_eq!(tail[3].message_id.as_deref(), Some("m9"));
+        assert_eq!(tail[3].client_id.as_deref(), Some("c1"));
+        assert_eq!(tail[4].message_id.as_deref(), Some("m9"));
     }
 
     /// HANDOFF: a consumed own row keeps its bubble (`read`, ahead of the

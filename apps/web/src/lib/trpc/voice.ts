@@ -46,6 +46,7 @@ import { createTreeKeyInTx, loadRoot, lockTreeKeys } from "@/lib/sessions/tree-k
 import { getSteerRelayConfig, mintSteerTicket, relayPostNudge } from "@/lib/steer"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { callSpeechOf } from "@/lib/voice-call/availability"
+import { callSealPlatformOf, callSealPlatforms } from "@/lib/voice-call/seal-switch"
 import { mintCallId, verifyCallId } from "@/lib/voice-call-id"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED, postMeetingStopNote } from "@/lib/sessions/meeting-access"
 import { voiceAssistantOf } from "@/lib/agents/assistant"
@@ -333,6 +334,17 @@ export async function callDevicesOf(
   return { desktops: of(`desktop`), servers: of(`server`) }
 }
 
+/** #EXP-1941: the member's own device advertises `call-seal` (its host
+ *  process has a key holder; a host registers again when that changes). */
+async function deviceCanSeal(database: Db, userId: string, deviceId: string): Promise<boolean> {
+  const [row] = await database
+    .select({ caps: devices.caps })
+    .from(devices)
+    .where(and(eq(devices.userId, userId), eq(devices.deviceId, deviceId)))
+    .limit(1)
+  return Array.isArray(row?.caps) && row.caps.includes(`call-seal`)
+}
+
 // NEW-55: `callSpeechOf` lives beside the web caller's availability
 // (lib/voice-call/availability.ts) so the telephone reads the doctor row the
 // same way this refusal does.
@@ -526,10 +538,22 @@ export const voiceRouter = router({
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
       }
       // #EXP-1941: ONE boolean for the id and for the answer, so the host is
-      // never told another mode than the caller. It will be the caller's
-      // claim (`input.seal`) AND the target's `call-seal` cap; until the
-      // hosts are released and sealing is turned on it is the constant false.
-      const sealed = false
+      // never told another mode than the caller: the caller's claim
+      // (`input.seal`, it holds a key holder), its platform being switched
+      // on (`VOICE_CALL_SEAL`, lib/voice-call/seal-switch.ts: only platforms
+      // whose real call was proven sealed) AND the target's `call-seal` cap
+      // (its host process holds a key holder, `devices.caps`). An older
+      // caller claims nothing and an older host has no cap: today's clear
+      // call. Until sealing is mandatory the SERVER decides here which calls
+      // are sealed; the relay writes nothing that decides it.
+      const claim = input.seal === true
+      const from = callSealPlatformOf(input.platform, ctx.request)
+      const on = from !== null && callSealPlatforms().has(from)
+      const cap = claim && on && (await deviceCanSeal(db, userId, target.device))
+      const sealed = claim && on && cap
+      // The count of clear answers (who still calls readable, and why);
+      // never an id.
+      console.info(`[voice] startCall: platform=${from ?? input.platform} claim=${claim} on=${on} cap=${cap} sealed=${sealed}`)
       // The id vouches for this member, device, agent and mode
       // (lib/voice-call-id.ts). Without the secret it could vouch for
       // nothing: no call.
@@ -574,7 +598,7 @@ export const voiceRouter = router({
   // answer names its own public key. It posts no message. A new row is
   // `queued` and its device is nudged, exactly as a first message does it.
   // Key writes stay bound to the caller's own install and to readers
-  // (`createTreeKeyInTx`). Unreachable until `startCall` mints sealed ids.
+  // (`createTreeKeyInTx`).
   callConversation: authedProcedure
     .input(
       z.object({
@@ -585,7 +609,7 @@ export const voiceRouter = router({
           installId: z.string().uuid(),
           publicKey: z.string().length(43),
           epoch: z.literal(1),
-          wraps: z.array(z.object({ installId: z.string().uuid(), wrapped: z.string().min(1).max(256) })).min(1).max(200),
+          wraps: z.array(z.object({ installId: z.string().uuid(), wrapped: z.string().min(1).max(256), signature: z.string().min(1).max(128).nullish() })).min(1).max(200),
         }),
       })
     )

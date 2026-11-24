@@ -176,6 +176,8 @@ import {
   groupLaneRows,
   FEED_WINDOW,
   FEED_WINDOW_STEP,
+  mountedWindowStart,
+  nextMountFloor,
   isAnswerLocked,
   liveToolRowId,
   nestedWorkflowId,
@@ -496,12 +498,17 @@ export function AgentSessionView({
     const at = feed.findIndex((item) => item.id >= windowFrom)
     return Math.min(at === -1 ? tail : at, tail)
   }, [feed, windowFrom])
+  // #EXP-1999: a Load earlier page mounts `FEED_MOUNT_SLICE` items per task
+  // (`mountFloor` = the oldest item mounted so far, per session).
+  const [slicing, setSlicing] = useState<{ sessionId: string; floor: number } | null>(null)
+  const mountFloor = slicing?.sessionId === session.id ? slicing.floor : null
+  const mountStart = mountedWindowStart(feed, windowStart, mountFloor)
   /** Render rows: tool runs collapse, one ask's questions become a stepper,
    *  a subagent's work its own group — a projection only. */
   // #EXP-1772: a system input only above the reply it got, no blank turns.
   const rows = useMemo(
-    () => shownFeedRows(groupFeedRows(feed, windowStart)),
-    [feed, windowStart]
+    () => shownFeedRows(groupFeedRows(feed, mountStart)),
+    [feed, mountStart]
   )
   /** EXP-1280: the cards a TOOL posted (`plan_propose` / `sessions_ask`)
    *  off the synced `messages` (`isToolPostedCard`): the relay holds no
@@ -603,7 +610,8 @@ export function AgentSessionView({
       const id = feedCallSession(item.text, callIds)
       if (!id) continue
       if (!first.has(id)) first.set(id, item.id)
-      caption.set(id, crossSessionInput(item.text)?.body ?? ``)
+      // #EXP-2076: the caption only READS the call agent's text: its prose.
+      caption.set(id, plainProse(crossSessionInput(item.text)?.body ?? ``))
     }
     return { first, caption }
   }, [feed, callIds])
@@ -686,7 +694,8 @@ export function AgentSessionView({
   const surfaceCards = useMemo(() => surfaceCardRows(session, sessionMessages), [session, sessionMessages])
   // EXP-1398 (ask-dock.json `anchorCases`): every card after the call that
   // posted it (#FEED-231: the card a show call names, its `preview.id`),
-  // the rest paired per kind; the rest at the head.
+  // the rest paired per kind; the rest at the head, a waiting one at the
+  // tail (#EXP-2087).
   const cardAnchors = useMemo(
     () =>
       anchorSessionCards(
@@ -744,16 +753,32 @@ export function AgentSessionView({
     anchorRef.current = el ? el.scrollHeight - el.scrollTop : null
     // #EXP-1380: the chat's loaded messages widen with it (its cards, ×4).
     loadEarlierMessages(session.id)
-    // #PERF-9: a page mounts as a transition: React renders its rows in
-    // slices that yield to the browser (one task per page was 130–220 ms).
+    // #EXP-1999: the page mounts in slices from the rows mounted now (a
+    // transition still committed it as ONE 90–250 ms task).
+    const floor = feed[mountStart]?.id
+    if (floor !== undefined && mountFloor === null) setSlicing({ sessionId: session.id, floor })
     if (windowStart > 0) {
-      const from = feed[Math.max(0, windowStart - FEED_WINDOW_STEP)].id
-      startTransition(() => setWindowFrom(from))
+      setWindowFrom(feed[Math.max(0, windowStart - FEED_WINDOW_STEP)].id)
       return
     }
-    startTransition(() => setWindowFrom(WINDOW_FROM_START))
+    setWindowFrom(WINDOW_FROM_START)
     store.loadEarlier()
-  }, [feed, windowStart, store, session.id])
+  }, [feed, windowStart, mountStart, mountFloor, store, session.id])
+  // #EXP-1999: one slice per task, each holding the reader's place.
+  useEffect(() => {
+    if (mountFloor === null) return
+    const next = nextMountFloor(feed, windowStart, mountFloor)
+    // A page the device still sends slices in when it lands.
+    if (next === null && mountStart === windowStart && windowFrom === WINDOW_FROM_START && snapshotCanLoadEarlier) return
+    const timer = setTimeout(() => {
+      if (mountedWindowStart(feed, windowStart, next) !== mountStart) {
+        const el = scrollRef.current
+        anchorRef.current = el ? el.scrollHeight - el.scrollTop : null
+      }
+      setSlicing(next === null ? null : { sessionId: session.id, floor: next })
+    })
+    return () => clearTimeout(timer)
+  }, [feed, windowStart, windowFrom, mountStart, mountFloor, snapshotCanLoadEarlier, session.id])
   // REPLAY TAIL (steer-enet.json): within one viewport of the top, the
   // next page loads, the Load earlier press without the press.
   const followScroll = follow.onScroll
@@ -828,14 +853,14 @@ export function AgentSessionView({
         // origin's while the window holds the feed's start.
         {
           origin,
-          fromStart: windowStart === 0 && !snapshotCanLoadEarlier,
+          fromStart: mountStart === 0 && !snapshotCanLoadEarlier,
           isCommand: (text) => parseSteerCommand(text, agentCommands) !== null,
           callIds,
           viewerId,
           memberName: (userId) => memberAvatar(userId)?.name ?? null,
         }
       ),
-    [rows, session.id, sessionCardModel?.name, session.title, session.agentId, origin, windowStart, snapshotCanLoadEarlier, agentCommands, callIds, viewerId, memberAvatar]
+    [rows, session.id, sessionCardModel?.name, session.title, session.agentId, origin, mountStart, snapshotCanLoadEarlier, agentCommands, callIds, viewerId, memberAvatar]
   )
   /** EXP-389/848: the agent is EXECUTING a turn. */
   const working = sessionIsWorking({
@@ -1402,8 +1427,10 @@ export function AgentSessionView({
     (itemId: number) => {
       const at = feed.findIndex((item) => item.id === itemId)
       if (at >= 0 && at < windowStart) startTransition(() => setWindowFrom(itemId))
+      // A found row mounts at once, never a slice later.
+      if (at >= 0 && at < mountStart) setSlicing(null)
     },
-    [feed, windowStart]
+    [feed, windowStart, mountStart]
   )
   // #EXP-1998: the synced messages the screen draws as bubbles (a live
   // transcript holds them as its own rows; an ended placeholder draws none).
@@ -1675,7 +1702,7 @@ export function AgentSessionView({
                   items={agentItems}
                   live={live && !sessionEnded}
                   viewer={viewerAvatar}
-                  express={{ sessionId: session.id, onAction: surfaceAction }}
+                  express={{ sessionId: session.id, turnLive, onAction: surfaceAction }}
                 />
               </div>
             ) : (
@@ -1747,6 +1774,9 @@ export function AgentSessionView({
                     </div>
                   ) : null
                 })}
+                {/* #EXP-2087 (ask-dock.json `tail`): an open card with no
+                    call in the feed draws after the last row. */}
+                {renderToolCards(cardAnchors.tail, `tail`)}
                 {chatExtras}
                 {offlineLine && (
                   <div className={TRANSCRIPT_GAP_CLASS.gapBlock} data-testid="transcript-offline-line">
@@ -2476,8 +2506,9 @@ export const LaneRows = memo(function LaneRows({
   lane?: { id: string; name: string } | null
   viewer?: UserAvatarUser | null
   /** #EXP-2067: the lane's narration draws its Express blocks (the
-   *  session's id for the row keys, the action poster). */
-  express?: { sessionId: string; onAction?: (event: ActionEvent, origin: ActionOrigin) => void }
+   *  session's id for the row keys, the action poster, `turnLive` = the
+   *  session's turn still streaming: the main lane's FINAL rule). */
+  express?: LaneExpress
 }) {
   // #FEED-256: a blank narration (a lone U+200B) draws no bubble.
   const rows = useMemo(
@@ -2497,7 +2528,7 @@ export const LaneRows = memo(function LaneRows({
           : `py-0.5`
         const layout = layouts?.get(feedRowKey(row)) ?? null
         const grouped = Boolean(layout && layout.side !== `full`)
-        const content = laneRowContent(row, grouped ? `` : ladder, liveRowId, live, layout, express ? { ...express, final: index < rows.length - 1 || !live } : null)
+        const content = laneRowContent(row, grouped ? `` : ladder, liveRowId, live, layout, express ? laneRowExpress(express, index, rows.length, live) : null)
         if (!grouped || !layout || !layouts || content === null) return content
         // Two bubbles in a row take the grouping's gap, everything else keeps
         // the ladder (the main transcript's rule).
@@ -2524,6 +2555,22 @@ export const LaneRows = memo(function LaneRows({
     </>
   )
 })
+
+/** #EXP-2067 (chat-express.json): what one lane's narration needs to draw
+ *  its blocks. */
+export interface LaneExpress {
+  sessionId: string
+  /** The session's turn still streams (`turnLive`); absent = `live` alone. */
+  turnLive?: boolean
+  onAction?: (event: ActionEvent, origin: ActionOrigin) => void
+}
+
+/** #EXP-2074 (chat-express.json STREAMING): a lane row's FINAL by the main
+ *  lane's rule, per lane: a row of its own lane follows it, or its turn ended
+ *  (the lane's agent done, or the session's turn idle). */
+export function laneRowExpress(express: LaneExpress, index: number, count: number, live: boolean) {
+  return { sessionId: express.sessionId, onAction: express.onAction, final: index < count - 1 || !live || express.turnLive === false }
+}
 
 /** #EXP-1876: a lane's rows through THE grouping (iOS `laneGrouping`, Android's
  *  lane layouts): prose = the subagent's message, a turn to it = the viewer's,
@@ -3970,7 +4017,7 @@ function AgentConversation({
   items: FeedItem[]
   live: boolean
   /** #EXP-2067: the subagent's narration draws its Express blocks. */
-  express?: { sessionId: string; onAction?: (event: ActionEvent, origin: ActionOrigin) => void }
+  express?: LaneExpress
   /** #FEED-239: the viewer's own avatar beside the turns to the subagent. */
   viewer?: UserAvatarUser | null
 }) {

@@ -175,8 +175,8 @@ private struct AssistantSettingsContent: View {
         _voice = State(initialValue: VoiceSettingsModel(accountId: accountId))
     }
 
-    /// The machines it can live on: online with a runnable agent, plus the
-    /// one it is bound to whatever its state (the agent page's pool).
+    /// The machines it can live on, online or not (the agent page's pool;
+    /// an offline one is listed disabled unless bound, `runsOnRows`).
     /// NEW-99 (`runsOnCases`): its device is the voice device, so desktops
     /// only; a bound non-desktop stays, naming itself.
     private var devices: [SteerDevice] {

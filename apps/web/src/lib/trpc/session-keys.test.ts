@@ -356,7 +356,7 @@ describe(`sessionKeys.publicKeys`, () => {
     expect(await ids(`u2`)).toEqual([R2])
     expect(await ids(`u3`)).toEqual([R2])
     expect(await ids(`u4`)).toEqual([R3])
-    expect(await caller(`u2`).publicKeys({ rootIds: [R2] })).toEqual([{ rootId: R2, epoch: 1, publicKey: PUBLIC }])
+    expect(await caller(`u2`).publicKeys({ rootIds: [R2] })).toEqual([{ rootId: R2, epoch: 1, publicKey: PUBLIC, vouch: null }])
   })
 })
 

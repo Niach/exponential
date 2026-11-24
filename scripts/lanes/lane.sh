@@ -17,6 +17,7 @@
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 . "$here/lock.sh"
+. "$here/sweep.sh"
 
 # #EXP-1844: who holds each lane, for how long, and who waits.
 lane_status() {
@@ -29,7 +30,7 @@ lane_status() {
       if [ -d "$d" ]; then
         note=
         lock_holder_dead "$d" && note=" [holder gone: the next waiter takes over]"
-        lock_overdue "$d" && note=" [past the max hold of $(lane_age "$(lane_max_hold "$d")"): the next waiter takes over]"
+        lock_overdue "$d" && note=" [past the max hold of $(lane_age "$(lane_max_hold "$d")"): the next waiter ends its job and takes over]"
         echo "$lane slot $k: $(lock_describe "$d")$note"
       else
         echo "$lane slot $k: free"
@@ -70,14 +71,36 @@ shift 3
 
 # Traps first: release_lock only frees our own lock, so an interrupt while
 # waiting leaves the holder's lock alone, and none lands between the take
-# and the trap.
+# and the trap. #FEED-306: whatever ends this run (the command's own end, a
+# signal, an orphaned caller, a waiter ending an overdue holder) ends the
+# command's whole process tree with it: a lane job never outlives its lane.sh.
 watchdog=
-trap '[ -n "$watchdog" ] && kill "$watchdog" 2>/dev/null; lane_wait_end; release_lock "$dir" "$owner" 2>/dev/null' EXIT
+orphan_watch=
+job=
+lane_end_job() {
+  [ -n "$job" ] || return 0
+  lane_end_tree "$job" "$LANE_KILL_GRACE_SECONDS" || echo "lane.sh: $lane: part of the command (pid $job) did not end" >&2
+  wait "$job" 2>/dev/null
+  job=
+}
+trap '[ -n "$watchdog" ] && kill "$watchdog" 2>/dev/null; [ -n "$orphan_watch" ] && kill "$orphan_watch" 2>/dev/null; lane_end_job; lane_wait_end; session_manifest_remove lane "$$" 2>/dev/null; release_lock "$dir" "$owner" 2>/dev/null' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+trap 'exit 129' HUP
 # This shell lives for the whole run: a waiter takes over only once it is gone.
 LANE_LOCK_PID=$$
 lock_owner_ok "$owner" || exit 2
+# #FEED-306: a session's lane job goes with the session. Its manifest lists
+# this lane.sh (the daemon ends its tree at the session's teardown, on macOS
+# too); the caller (the session's shell) gone = orphaned: reparented to pid 1
+# when a session's turn is stopped (2026-11-24: a build ran on for hours).
+. "$here/session-manifest.sh"
+session_manifest_add lane "$$" 2>/dev/null
+lane_parent=$PPID
+lane_orphaned() {
+  [ "$lane_parent" -gt 1 ] 2>/dev/null || return 1
+  [ "$(ps -o ppid= -p $$ 2>/dev/null | tr -d ' ')" != "$lane_parent" ]
+}
 slots=$(lane_slots "$lane")
 # Any free slot of the lane (lane_slots; slot 1 = lane_lock_dir); `dir`
 # names the one we hold, so the EXIT trap releases exactly that one.
@@ -92,6 +115,10 @@ while :; do
     holders="$holders${holders:+; }$(lock_describe "$dir")"
     k=$((k + 1))
   done
+  if lane_orphaned; then
+    echo "lane.sh: $lane: the caller (pid $lane_parent) is gone; not waiting any longer" >&2
+    exit 129
+  fi
   lane_wait_begin "$(lane_lock_dir "$lane")" "$owner"
   if [ "$holders" != "$seen" ]; then
     seen=$holders
@@ -100,7 +127,7 @@ while :; do
   sleep "$LANE_LOCK_POLL_SECONDS"
 done
 # #EXP-1844: past the lane's max hold, tell the holder (this run) that the
-# next waiter may take the slot; the command itself is never killed.
+# next waiter may take the slot; #FEED-306: that waiter ends this run first.
 max_hold=$(lane_max_hold "$dir")
 if [ "${max_hold:-0}" -gt 0 ] 2>/dev/null; then
   (
@@ -109,7 +136,7 @@ if [ "${max_hold:-0}" -gt 0 ] 2>/dev/null; then
     sleeper=$!
     wait "$sleeper"
     if [ "$(lock_field "$dir" 3)" = "$LANE_LOCK_PID" ]; then
-      echo "lane.sh: $lane: '$owner' has held $(basename "$dir") for $(lane_age "$max_hold") (LANE_MAX_HOLD_SECONDS): the next waiter takes the slot over; this command keeps running" >&2
+      echo "lane.sh: $lane: '$owner' has held $(basename "$dir") for $(lane_age "$max_hold") (LANE_MAX_HOLD_SECONDS): the next waiter ends this command and takes the slot over" >&2
       lane_log "$dir" "overrun owner=$owner session=$(lane_session) pid=$LANE_LOCK_PID held=${max_hold}s"
     fi
   ) >/dev/null &
@@ -122,19 +149,42 @@ if [ -n "$own_target" ]; then
   echo "lane.sh: building into $CARGO_TARGET_DIR (own target)" >&2
 fi
 # #EXP-1865: the slot is ours; before its build, sweep stale output from the
-# shared cargo target if its disk is low (a no-op otherwise, and skipped
-# when the CLI is missing or predates `sweep-target`). Never a failure.
-if [ -z "$own_target" ] && [ -n "${CARGO_TARGET_DIR:-}" ] && command -v exponential >/dev/null 2>&1; then
-  if swept=$(exponential sweep-target --if-low "$CARGO_TARGET_DIR" 2>&1) && [ -n "$swept" ]; then
-    echo "lane.sh: $swept" >&2
-  fi
+# shared cargo target if its disk is low (a no-op otherwise; sweep.sh finds
+# a CLI that knows `sweep-target` and says so when there is none). Never a
+# failure.
+if [ -z "$own_target" ] && [ -n "${CARGO_TARGET_DIR:-}" ]; then
+  lane_sweep "$CARGO_TARGET_DIR"
 fi
 # PERF-4: a lane's build is the machine's background work: nice 19 and, on
 # Linux, idle IO, so the desktop keeps its cores and disk while it runs
 # (.github/runners/README.md "Desktop first"). Not exec'd: the lock holder
-# above must outlive the command.
+# above must outlive the command. #FEED-306: started in the background (its
+# stdin kept: fd 3) so a signal reaches this shell's traps at once instead
+# of after the command, and `job` names the tree the EXIT trap ends.
+exec 3<&0
 if command -v ionice >/dev/null 2>&1; then
-  nice -n 19 ionice -c 3 "$@"
+  nice -n 19 ionice -c 3 "$@" <&3 3<&- &
 else
-  nice -n 19 "$@"
+  nice -n 19 "$@" <&3 3<&- &
 fi
+job=$!
+exec 3<&-
+# #FEED-306: the caller gone (a stopped turn's shell) = this run goes too.
+(
+  trap 'kill "$sleeper" 2>/dev/null; exit 0' TERM
+  while :; do
+    sleep "${LANE_ORPHAN_POLL_SECONDS:-5}" &
+    sleeper=$!
+    wait "$sleeper"
+    if lane_orphaned; then
+      lane_log "$dir" "orphaned owner=$owner session=$(lane_session) pid=$LANE_LOCK_PID parent=$lane_parent"
+      kill -TERM "$LANE_LOCK_PID" 2>/dev/null
+      exit 0
+    fi
+  done
+) >/dev/null 2>&1 &
+orphan_watch=$!
+wait "$job"
+status=$?
+job=
+exit "$status"

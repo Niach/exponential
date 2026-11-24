@@ -59,6 +59,9 @@ export type ChatHit = {
   snippet: string
   matchStart: number
   matchLen: number
+  /** SYSTEM INPUTS (#FEED-300): present (true) on an input or message that is
+   *  not a person's own words (`systemInput`). */
+  system?: true
 }
 
 const SPACE = new Set([` `, `\t`, `\n`, `\r`, `\f`, `\v`])
@@ -121,6 +124,19 @@ export function firstMatch(text: string, query: string[]): { snippet: string; ma
   const lead = from > 0 ? `…` : ``
   const snippet = lead + chars.slice(from, to).join(``) + (to < chars.length ? `…` : ``)
   return { snippet, matchStart: start - from + lead.length, matchLen: end - start }
+}
+
+const SYSTEM_TAG = /^\[[a-z_]+\] /
+const SYSTEM_SCHEDULE = /^Schedule `[^`\n]+`[^\n]* fired/
+const SYSTEM_EVENT = /^Event `[^`\n]+` \(from /
+const SYSTEM_SPEAKER = /^(?:Report|Message) from [^\n]+? \((?:session|member) [^,) \t\n\r\f\v]+(?:, ended)?\): /
+
+/** SYSTEM INPUTS (#FEED-300, `search.systemCases`): is this input or message
+ *  text a line the device or the server worded (a tagged system line, a
+ *  firing, another speaker's line), not a person's own words? The lines
+ *  transcript-grouping.json `feedInput` reads back. */
+export function systemInput(text: string): boolean {
+  return SYSTEM_TAG.test(text) || SYSTEM_SCHEDULE.test(text) || SYSTEM_EVENT.test(text) || SYSTEM_SPEAKER.test(text)
 }
 
 const str = (value: unknown) => (typeof value === `string` ? value : null)
@@ -237,6 +253,7 @@ function allHits(state: ChatStoreState, query: string[], rootId?: string): ChatH
       ...(seq !== undefined ? { seq } : {}),
       ...(doc.messageId !== undefined ? { messageId: doc.messageId } : {}),
       ...match,
+      ...((doc.kind === `user_message` || doc.kind === `message`) && systemInput(doc.text) ? { system: true as const } : {}),
     }
     if (doc.kind === `message`) {
       messageHits.push({ hit, text: collapse(doc.text) })

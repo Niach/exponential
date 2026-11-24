@@ -218,6 +218,8 @@ extension SessionsSendInput {
 public struct PreparedSend: Sendable {
     public var input: SealedSendInput
     let newKey: GeneratedTreeKey?
+    /// The account a new root's key is recorded for (#EXP-1950 `newRoot`).
+    var accountId: String? = nil
 }
 
 /// The root a send lands in, as the local database knows it.
@@ -313,8 +315,13 @@ public struct SendSealing: Sendable {
         guard await holder.readyInstall(accountId: accountId, wait: hasText ? holderWait : .zero) != nil else {
             return try refuse()
         }
-        let sealed = { (key: TreeSealKey) throws in
-            PreparedSend(input: try self.seal(input, to: key, mentions: mentions, actionCard: actionCard), newKey: nil)
+        // #EXP-1950 R2 + R3: an existing root's key only when the rule seals to it.
+        let sealed = { (key: TreeSealKey, rootId: String) async throws -> PreparedSend in
+            guard await self.holder.sealAllowed(accountId: accountId, rootId: rootId, key: key) else {
+                logger.error("The key of this send's tree is refused: nothing sent")
+                throw SealRefusal()
+            }
+            return PreparedSend(input: try self.seal(input, to: key, mentions: mentions, actionCard: actionCard), newKey: nil)
         }
         let target: ServerSendTarget? = if let conversation, root == nil || fresh {
             await holder.sendTarget(accountId: accountId, agentId: conversation.agentId, appId: conversation.appId)
@@ -333,7 +340,7 @@ public struct SendSealing: Sendable {
                 shared: false,
                 hasText: hasText
             ) {
-            case let .key(key): return try sealed(key)
+            case let .key(key): return try await sealed(key, rootId)
             case .plain: return plain
             case .refused: return try refuse()
             }
@@ -351,7 +358,7 @@ public struct SendSealing: Sendable {
                 shared: root.shared,
                 hasText: hasText
             ) {
-            case let .key(key): return try sealed(key)
+            case let .key(key): return try await sealed(key, root.id)
             case .plain: return plain
             case .refused: return try refuse()
             }
@@ -360,7 +367,7 @@ public struct SendSealing: Sendable {
             // A session the store does not have: its key, when it is keyed
             // (or keyed by its device's claim within the wait).
             guard let key = await arrivingKey(accountId: accountId, rootId: sessionId) else { return try refuse() }
-            return try sealed(key)
+            return try await sealed(key, sessionId)
         }
         // A root that does not exist yet: it starts with our key, inline.
         do {
@@ -373,7 +380,7 @@ public struct SendSealing: Sendable {
             let sealed = try self.seal(
                 input, to: TreeSealKey(publicKey: key.publicKey, epoch: 1), mentions: mentions, seal: seal, actionCard: actionCard
             )
-            return PreparedSend(input: sealed, newKey: key)
+            return PreparedSend(input: sealed, newKey: key, accountId: accountId)
         } catch let refusal as SealRefusal {
             throw refusal
         } catch {
@@ -459,7 +466,7 @@ public struct SendSealing: Sendable {
     public func completed(_ prepared: PreparedSend, result: SessionsSendResult) async {
         // A new chat / first conversation answers with its new root.
         guard let key = prepared.newKey else { return }
-        await holder.adopt(rootId: result.sessionId, key: key)
+        await holder.adopt(rootId: result.sessionId, key: key, accountId: prepared.accountId)
     }
 
     /// The text (and a new child's `name`, as `sealedName`) sealed to

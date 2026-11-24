@@ -27,6 +27,7 @@ function holderWith(api: Partial<SessionKeysApi> = {}) {
     pending: async () => [],
     wrap: async () => ({}),
     create: vi.fn(async () => ({})),
+    due: async () => [],
     ...api,
   }
   return { holder: new KeyHolder(ME, INSTALL, hex(fixture.install.secret), { api: full, store: memoryTreeKeyStore() }), api: full }

@@ -521,7 +521,9 @@ fn session_card_framed(
         .child(header)
         // #EXP-1943 (session-card.json `call`): a call card's summary = the
         // muted second line under the name, aligned with its text.
-        .when_some(card.caption().map(str::to_string), |this, caption| {
+        // #EXP-2076 (chat-express.json PROSE): a caption only READS its
+        // text: the pure prose, never a block; empty = no line.
+        .when_some(card.caption().map(domain::chat_express::plain_prose).filter(|caption| !caption.trim().is_empty()), |this, caption| {
             this.child(
                 tool_text(div())
                     .id(ElementId::from(SharedString::from(format!("session-card-caption-{}", card.session_id))))

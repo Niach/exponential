@@ -4,15 +4,21 @@
 // arrives wrapped to that key (`sessionKeys.mine`), is unwrapped here, kept
 // in memory and cached sealed in IndexedDB (tree-key-store.ts). Every tab
 // holds keys to OPEN content; only the tab running the eNet node (the Web
-// Lock in use-web-install.ts) answers `sessionKeys.pending` (on start, then
-// every minute): automatic, no approval. Writers create a tree's first key
-// (`createTree`) with wraps for the readers they can resolve.
+// Lock in use-web-install.ts) runs the holder pass (on start, then every
+// minute): it rotates the roots that are due (#EXP-1951, `rotation`: a
+// reader was dropped) and answers `sessionKeys.pending`: automatic, no
+// approval. Writers create a tree's first key (`createTree`) with wraps for
+// the readers they can resolve.
 
 import {
+  createFailure,
   generateTreeKey,
+  rotationAfter,
+  rotationEpoch,
   treeKeyFromSecret,
   unwrapTreeKey,
   wrapTreeKey,
+  type CreateFailure,
   type TreeKeys,
 } from "@exp/domain-contract/sealed-content"
 import type { TreeKeyStore } from "./tree-key-store"
@@ -43,6 +49,8 @@ export type SessionKeysApi = {
     wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string }>
   }) => Promise<unknown>
   create: (input: { rootId: string; installId: string; epoch: number; publicKey: string; wraps: TreeWrap[] }) => Promise<unknown>
+  /** #EXP-1951: the roots this install rotates (`epoch` = the one to supersede). */
+  due: (input: { installId: string; limit?: number }) => Promise<Array<{ rootId: string; epoch: number }>>
 }
 
 /** An install a writer wraps a new tree key for. */
@@ -60,6 +68,8 @@ export class KeyHolder {
   private queued = new Set<string>()
   private flushing: Promise<void> | undefined
   private stopped = false
+  /** #EXP-1951: rotations the server refused this install, `root\nepoch`. */
+  private left = new Set<string>()
   /** Bumps whenever a key arrives (React re-reads opened content). */
   version = 0
 
@@ -179,6 +189,66 @@ export class KeyHolder {
       if (pairs.length < PENDING_LIMIT || wraps.length === 0) break
     }
     return written
+  }
+
+  /** #EXP-1951 (sealed-content.json `rotation`): a fresh key at the next
+   *  epoch for every root the server names as due whose current secret this
+   *  install holds, wrapped for THIS install only: the current readers get
+   *  theirs from `pending`, which lists readers and nobody else. */
+  async rotateDue(): Promise<number> {
+    const due = await this.deps.api.due({ installId: this.installId, limit: PENDING_LIMIT })
+    if (this.stopped || due.length === 0) return 0
+    // The server holds a wrap of each for this install: unwrap what is missing.
+    await this.refresh(due.filter((root) => !this.keys.get(root.rootId)?.has(root.epoch)).map((root) => root.rootId)).catch(() => {})
+    const own = treeKeyFromSecret(this.installSecret).publicKey
+    let rotated = 0
+    for (const root of due) {
+      if (this.stopped) break
+      const epochs = this.keys.get(root.rootId)
+      const epoch = rotationEpoch({
+        flagged: root.epoch,
+        current: Math.max(root.epoch, ...(epochs?.keys() ?? [])),
+        held: epochs?.has(root.epoch) ?? false,
+        left: this.left.has(`${root.rootId}\n${root.epoch}`),
+      })
+      if (epoch === null) continue
+      const key = generateTreeKey()
+      let failure: CreateFailure | null = null
+      try {
+        await this.deps.api.create({
+          rootId: root.rootId,
+          installId: this.installId,
+          epoch,
+          publicKey: key.publicKey,
+          wraps: [{ installId: this.installId, wrapped: wrapTreeKey(own, key.secret) }],
+        })
+      } catch (error) {
+        const data = (error as { data?: { code?: unknown } } | null)?.data
+        failure = createFailure({ code: typeof data?.code === `string` ? data.code : undefined, message: error instanceof Error ? error.message : undefined })
+      }
+      switch (rotationAfter(failure)) {
+        case `adopt`:
+          await this.keep(root.rootId, epoch, key.secret)
+          rotated++
+          break
+        case `reread`:
+          await this.refresh([root.rootId]).catch(() => {})
+          break
+        case `leave`:
+          this.left.add(`${root.rootId}\n${root.epoch}`)
+          break
+        case `retry`:
+          break
+      }
+    }
+    return rotated
+  }
+
+  /** One holder pass: the rotations that are due, then the pending wraps
+   *  (the new epochs' readers among them). */
+  async pass(): Promise<void> {
+    await this.rotateDue().catch(() => {})
+    await this.answerPending()
   }
 
   /** A new tree key (epoch 1) wrapped for `readers` (this install always
