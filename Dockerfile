@@ -24,6 +24,7 @@ COPY packages/exponential-ui-element/package.json packages/exponential-ui-elemen
 COPY packages/exponential-ui-bench/package.json packages/exponential-ui-bench/package.json
 COPY packages/icons/package.json packages/icons/package.json
 COPY packages/mcp-apps/package.json packages/mcp-apps/package.json
+COPY packages/plugin-kit/package.json packages/plugin-kit/package.json
 COPY packages/licenses/package.json packages/licenses/package.json
 COPY packages/steer-ticket/package.json packages/steer-ticket/package.json
 COPY apps/steer-relay/package.json apps/steer-relay/package.json

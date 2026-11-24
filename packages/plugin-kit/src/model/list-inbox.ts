@@ -1,5 +1,5 @@
 import { SEMANTIC_ICONS, type IconConcept } from "@exp/icons"
-import type { NotificationRow } from "./model"
+import type { NotificationRow } from "./core"
 
 // EXP-1183 — the inbox's pure half (`components/inbox/inbox-view.tsx`):
 // the per-type glyph concept and the grouping — an issue's notifications

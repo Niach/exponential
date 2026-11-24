@@ -65,7 +65,7 @@ The plugin also ships an **Exponential** appearance theme: Exponential's dark
 glass look (the near-black zinc ground, white-alpha cards, hairline borders,
 white primary actions), Inter, no lobster branding. Pick it in Settings →
 Appearance, or ask the agent to switch to it. It is generated from the
-Exponential styleguide (`node integrations/openclaw/scripts/theme.mjs`), so it
+Exponential styleguide (`bun run plugin-kit:generate`), so it
 follows the app's tokens.
 
 ## Source

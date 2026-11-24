@@ -27,7 +27,7 @@ import {
   localDay,
   type IssueListRow,
   type MemberRow,
-} from "./list-issue"
+} from "@exp/plugin-kit/model"
 
 const IssuesIcon = conceptIcon(`nav-issues`)
 const DueDateIcon = conceptIcon(`ui-due-date`)

@@ -23,7 +23,7 @@ import {
   sessionRowIsWorking,
   sessionStatusLine,
   type SessionListRow,
-} from "./list-session"
+} from "@exp/plugin-kit/model"
 
 const RunsIcon = conceptIcon(`coding-running`)
 const ChevronDownIcon = conceptIcon(`ui-chevron-down`)

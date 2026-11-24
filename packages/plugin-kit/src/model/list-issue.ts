@@ -1,4 +1,4 @@
-import type { IssueRow } from "./model"
+import type { IssueRow } from "./core"
 
 // EXP-1183 — the issue list's pure half: the `exponential_issues_list` row
 // fields beyond `IssueRow` (lib/issue-columns.ts `issueWireColumns`), the

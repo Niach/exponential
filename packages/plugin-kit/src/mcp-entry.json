@@ -1,0 +1,13 @@
+{
+  "$comment": "#NEW-23: THE Exponential MCP server entry. Every harness adapter's server block (the Claude plugins' .mcp.json, the OpenClaw manifest) is generated from it (`bun run --filter @exp/plugin-kit generate`); the Rust launcher keeps its own constants and `mcp-entry.test.ts` pins them to these values. `apiKeyEnv` is what a person exports for a headless host; `launcherTokenEnv` is the launcher's own (Exponential's sessions). A request carrying `sessionHeader` is one of Exponential's own sessions: it gets no views (EXP-1212).",
+  "server": "exponential",
+  "origin": "https://app.exponential.at",
+  "path": "/api/mcp",
+  "authorizationHeader": "Authorization",
+  "bearerScheme": "Bearer",
+  "apiKeyPrefix": "expu_",
+  "apiKeyEnv": "EXPONENTIAL_API_KEY",
+  "launcherTokenEnv": "EXP_MCP_TOKEN",
+  "sessionHeader": "X-Exp-Session-Id",
+  "requestTimeoutMs": 660000
+}
