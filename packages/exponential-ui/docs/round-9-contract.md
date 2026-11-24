@@ -1635,8 +1635,9 @@ it does not fire). An Embed may nest another Embed.
 
 **Action.** Every inner `event` action reaches the host as the Embed's
 `action`, with the payload `{name: <inner event name>, context: <inner
-event context>}` (`embedPayload`; inner bindings in the context resolved
-against the card's data) merged over the author's `on.action` context like
+event context>}` plus `userMessage: <the inner event's resolved
+userMessage>` when it has one (#EXP-2104; `embedPayload`; inner bindings
+resolved against the card's data) merged over the author's `on.action` context like
 any component payload, so the payload's `name` and `context` win over an
 author's keys of the same name. No `on.action` = the host hears nothing.
 
