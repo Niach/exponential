@@ -59,6 +59,8 @@ mod util;
 pub mod wrap_sig;
 #[cfg(feature = "node")]
 pub mod install_trust;
+/// #EXP-2123: install-trust.json `keyMaker` (no eNet needed: `coding` reads it).
+pub mod key_maker;
 /// #EXP-1950: install-trust.json `copy` (no eNet needed: the daemon's doctor row).
 pub mod install_trust_copy {
     pub const NEW_INSTALL: &str = "New install";
