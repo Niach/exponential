@@ -151,9 +151,9 @@ impl Sampler for PlatformSampler {
         const GDB: &std::ffi::CStr = c"/usr/bin/gdb";
         let pid = pid.to_string();
         let (name, seconds, tool): (&str, u64, Vec<&str>) = if spawn::exists(EU_STACK) {
-            ("eu-stack", 30, vec!["/usr/bin/eu-stack", "-p", &pid])
+            ("eu-stack", 30, vec!["/usr/bin/eu-stack", "-p", pid.as_str()])
         } else if spawn::exists(GDB) {
-            ("gdb", 60, vec!["/usr/bin/gdb", "-p", &pid, "-batch", "-nx", "-ex", "set pagination off", "-ex", "thread apply all bt 64"])
+            ("gdb", 60, vec!["/usr/bin/gdb", "-p", pid.as_str(), "-batch", "-nx", "-ex", "set pagination off", "-ex", "thread apply all bt 64"])
         } else {
             let _ = writeln!(out, "\nsampler: the task table above is all there is: neither eu-stack nor gdb is installed, so no stacks");
             return;
