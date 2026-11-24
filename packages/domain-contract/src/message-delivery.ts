@@ -181,3 +181,23 @@ export function ownHandoff(input: {
   }
   return kept
 }
+
+export interface PendingRow {
+  id: string
+  authorKind: string
+  authorId: string | null
+  body: string
+  createdAt: string
+  consumedAt: string | null
+  card?: unknown
+}
+
+/** #EXP-2089 (ORDER, `pendingCases`): the synced person rows the device has
+ *  not consumed, EVERY person's, oldest first (createdAt, then id); `own` =
+ *  the viewer's (their bubble with its mark), else that member's bubble. */
+export function pendingRows(input: { viewerId: string | null; rows: readonly PendingRow[] }): { id: string; own: boolean }[] {
+  return input.rows
+    .filter((row) => row.authorKind === `user` && row.card == null && row.consumedAt == null && row.body.trim() !== ``)
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((row) => ({ id: row.id, own: input.viewerId !== null && row.authorId === input.viewerId }))
+}
