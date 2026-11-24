@@ -229,7 +229,7 @@ describe.skipIf(!ready.ok)(`answering sealed cards`, () => {
     }
     await host.answer({ messageId, sealedCard })
     const row = await message(messageId)
-    expect(row.card).toEqual({ kind: `plan`, decision: `approved`, fresh: false, answered: true, sealed: sealedCard.sealed })
+    expect(row.card).toEqual({ kind: `plan`, decision: `approved`, fresh: false, answered: true, answeredBy: w.owner, sealed: sealedCard.sealed })
     expect(row.answeredAt).not.toBeNull()
     expect((await mirrorsIn(w.rootId, w.childId))[0]!.answeredAt).not.toBeNull()
     await expect(host.answer({ messageId, sealedCard })).rejects.toThrow(/Already answered/)
@@ -247,7 +247,7 @@ describe.skipIf(!ready.ok)(`answering sealed cards`, () => {
       sealed: string
     }
     await sendSession({ userId: w.owner, input: { sessionId: w.childId, answer: { messageId, sealedCard } } })
-    expect((await message(messageId)).card).toEqual({ kind: `question`, answered: true, sealed: sealedCard.sealed })
+    expect((await message(messageId)).card).toEqual({ kind: `question`, answered: true, answeredBy: w.owner, sealed: sealedCard.sealed })
   })
 
   it(`a plaintext card refuses sealedCard and keeps its old answer`, async () => {

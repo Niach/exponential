@@ -1,6 +1,7 @@
 import { avatarHueKey } from "@exponential_app/eui/web/primitives"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
 import { BoardGlyph } from "./board-glyph"
+import { agentGlyph } from "./board-icons"
 import { cn, getInitials } from "./cn"
 
 export { avatarHueKey }
@@ -72,7 +73,7 @@ export function UserAvatar({
           className
         )}
       >
-        <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className={scale.glyph} />
+        <BoardGlyph board={agentGlyph(agent)} className={scale.glyph} />
       </span>
     )
   }

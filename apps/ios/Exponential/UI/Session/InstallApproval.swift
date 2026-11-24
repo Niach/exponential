@@ -94,15 +94,22 @@ struct InstallWaitingGate: View {
     let sealed: Bool
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    /// The key ring is no observable state: a wrap that lands lifts the gate
+    /// (#EXP-2119; it stayed over the chat it had made readable).
+    @State private var keysChanged = 0
 
     var body: some View {
         let trust = deps.installTrust.snapshot(accountId)
-        if sealed, trust.waiting, let code = trust.code, deps.treeKeyHolder.held(rootId: rootId).isEmpty {
-            ZStack {
+        let _ = keysChanged
+        ZStack {
+            if sealed, trust.waiting, let code = trust.code, deps.treeKeyHolder.held(rootId: rootId).isEmpty {
                 AppBackground()
                 InstallWaiting(code: code)
+                    .task(id: accountId) { await deps.installTrust.refresh(accountId) }
             }
-            .task(id: accountId) { await deps.installTrust.refresh(accountId) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sealedKeysChanged).receive(on: DispatchQueue.main)) { _ in
+            keysChanged += 1
         }
     }
 }

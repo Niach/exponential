@@ -215,6 +215,29 @@ describe(`rotation (#EXP-1951)`, () => {
     })
   }
 
+  // #EXP-2119 OLDER EPOCHS (`olderEpochCases`).
+  for (const c of fixture.rotation.olderEpochCases) {
+    it(c.name, async () => {
+      const store = memoryTreeKeyStore()
+      for (const epoch of c.held) await store.put(`u1`, { rootId: ROOT, epoch, secret: secretAt(epoch) })
+      const target = hex(fixture.install.secret)
+      const pair = {
+        rootId: ROOT,
+        epoch: c.pair.epoch,
+        publicKey: c.pair.publicKey && fixture.tree.publicKey,
+        targetInstallId: OTHER,
+        targetX25519Public: fixture.install.x25519Public,
+      }
+      let asked = 0
+      const api = fakeApi({ mine: async () => [], pending: async (input) => (expect(input.olderEpochs).toBe(true), asked++ === 0 ? [pair] : []) })
+      const holder = new KeyHolder(`u1`, SELF, target, { api, store })
+      await holder.start()
+      await holder.answerPending()
+      const wraps = (api.calls.wrap as Array<{ wraps: Array<{ epoch: number; wrapped: string }> }>).flatMap((call) => call.wraps)
+      expect(wraps.map((wrap) => unwrapTreeKey(target, wrap.wrapped))).toEqual(c.wraps === null ? [] : [secretAt(c.wraps)])
+    })
+  }
+
   it(`an older server without \`due\` still gets its pending wraps answered`, async () => {
     const api = fakeApi({ due: async () => Promise.reject(Object.assign(new Error(`No procedure`), { data: { code: `NOT_FOUND` } })) })
     const holder = new KeyHolder(`u1`, SELF, hex(fixture.install.secret), { api, store: memoryTreeKeyStore() })

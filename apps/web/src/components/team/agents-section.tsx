@@ -7,7 +7,7 @@ import type {
 } from "@exp/db-schema/domain"
 import {
   AccountPicker,
-  BOARD_ICON_OPTIONS,
+  agentGlyph,
   BoardGlyph,
   Button,
   conceptIcon,
@@ -126,7 +126,7 @@ const SettingsAgentsIcon = conceptIcon(`settings-agents`)
 const TriggerEventIcon = conceptIcon(`trigger-event`)
 
 const DEFAULT_AGENT_COLOR = `#6366f1`
-const DEFAULT_AGENT_ICON: BoardIcon = BOARD_ICON_OPTIONS[0].name
+const DEFAULT_AGENT_ICON = agentGlyph({}).icon as BoardIcon
 const EMPTY_PIN: TriggerAccountPin = { agent: ``, account: `` }
 
 /** The device's logins, narrowed to one CLI when the agent has one. */
@@ -1280,7 +1280,7 @@ export function AgentsListBand({
               {agent.assistant ? (
                 <AssistantMark />
               ) : (
-                <BoardGlyph board={{ icon: agent.icon, color: agent.color }} />
+                <BoardGlyph board={agentGlyph(agent)} />
               )}
               <span className="min-w-0 flex-1 truncate font-medium">{agent.name}</span>
             </ListRow>

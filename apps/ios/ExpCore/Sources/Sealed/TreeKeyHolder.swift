@@ -342,11 +342,14 @@ public actor TreeKeyHolder {
                 }
                 guard let wrapped = try? crypto.wrap(installPublic: pair.targetX25519Public, treeSecret: secret) else { continue }
                 // Signed over the key of the secret held, never the server's
-                // word for it: a pair naming another key goes unsigned.
+                // word for it: a pair naming another key goes unsigned. An empty
+                // one is a superseded epoch the server kept no key of (#EXP-2119).
                 let held = TreePublicKeys.of(secret: secret)
-                let signed = held == pair.publicKey
-                    ? signature(rootId: pair.rootId, epoch: pair.epoch, treePublicKey: pair.publicKey, recipientEndpointId: pair.targetEndpointId, wrapped: wrapped)
-                    : nil
+                let signed = held.flatMap { key in
+                    key == pair.publicKey || pair.publicKey.isEmpty
+                        ? signature(rootId: pair.rootId, epoch: pair.epoch, treePublicKey: key, recipientEndpointId: pair.targetEndpointId, wrapped: wrapped)
+                        : nil
+                }
                 wraps.append(PendingTreeKeyWrap(rootId: pair.rootId, epoch: pair.epoch, targetInstallId: pair.targetInstallId, wrapped: wrapped, signature: signed))
             }
             guard !wraps.isEmpty else { return }

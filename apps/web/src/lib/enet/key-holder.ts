@@ -43,7 +43,7 @@ export type TreeWrap = { installId: string; wrapped: string }
 /** tRPC `sessionKeys` (lib/trpc/session-keys.ts). */
 export type SessionKeysApi = {
   mine: (input: { installId: string; rootIds?: string[] }) => Promise<Array<{ rootId: string; epoch: number; wrapped: string }>>
-  pending: (input: { installId: string; limit?: number }) => Promise<PendingPair[]>
+  pending: (input: { installId: string; limit?: number; olderEpochs?: boolean }) => Promise<PendingPair[]>
   wrap: (input: {
     installId: string
     wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string }>
@@ -159,17 +159,18 @@ export class KeyHolder {
     })
   }
 
-  /** As a holder: wraps every pending reader of a tree whose current key
-   *  this install holds. */
+  /** As a holder: wraps every pending reader of an epoch this install holds
+   *  (#EXP-2119: superseded ones too). */
   async answerPending(): Promise<number> {
     let written = 0
     for (let round = 0; round < PENDING_ROUNDS && !this.stopped; round++) {
-      const pairs = await this.deps.api.pending({ installId: this.installId, limit: PENDING_LIMIT })
+      const pairs = await this.deps.api.pending({ installId: this.installId, limit: PENDING_LIMIT, olderEpochs: true })
       const wraps: Array<{ rootId: string; epoch: number; targetInstallId: string; wrapped: string }> = []
       for (const pair of pairs) {
         const secret = this.keys.get(pair.rootId)?.get(pair.epoch)
-        // Only for the key the root really carries.
-        if (!secret || treeKeyFromSecret(secret).publicKey !== pair.publicKey) continue
+        // Only for the key the epoch really has; #EXP-2119: an empty one is a
+        // superseded epoch the server knows no key of (the held secret).
+        if (!secret || (pair.publicKey !== `` && treeKeyFromSecret(secret).publicKey !== pair.publicKey)) continue
         try {
           wraps.push({
             rootId: pair.rootId,
