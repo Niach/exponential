@@ -14,7 +14,9 @@ import com.exponential.app.data.api.ResignWrap
 import com.exponential.app.data.api.TeamInstall
 import com.exponential.app.data.api.SessionKeysApi
 import com.exponential.app.data.db.MultiAccountTeamRepository
+import com.exponential.app.data.sealed.EnetTrustCrypto
 import com.exponential.app.data.sealed.HolderApi
+import com.exponential.app.data.sealed.InstallTrustKeeper
 import com.exponential.app.data.sealed.SealedFfi
 import com.exponential.app.data.sealed.SealedKeys
 import com.exponential.app.data.sealed.TreeKeyHolder
@@ -77,6 +79,19 @@ class EnetNodeManager @Inject constructor(
     private val nodes = ConcurrentHashMap<String, InstallNode>()
     private val holders = ConcurrentHashMap<String, TreeKeyHolder>()
     private val installIds = ConcurrentHashMap<String, String>()
+
+    /**
+     * #EXP-1950 (install-trust.json): the pin store and the four rules of
+     * every signed-in account on this install (record-only, release 1). The
+     * holders follow `installs.trust` through it; the approval rows and the
+     * waiting state read its [InstallTrustKeeper.snapshots].
+     */
+    val trust = InstallTrustKeeper(
+        api = api,
+        crypto = EnetTrustCrypto,
+        persistence = treeKeys.trust,
+        identity = { accountId -> identities.vault.identity(accountId, create = false) },
+    )
 
     // #EDE-114: the registry lists each account's node last loaded, per team
     // (the chat store's catch-up holders and its page access rule).
@@ -205,9 +220,30 @@ class EnetNodeManager @Inject constructor(
         return com.exponential.app.data.sealed.awaitWithin(timeoutMs, HOLDER_POLL_MS) { holders[accountId] }
     }
 
-    /** #EXP-1941: a call's unthrottled pull of ONE root: the secret of ([rootId], [epoch]), or null. */
-    suspend fun pullTreeKey(accountId: String, rootId: String, epoch: Int): ByteArray? =
-        holders[accountId]?.pull(rootId, epoch)
+    /**
+     * #EXP-1941: a call's unthrottled pull of ONE root.
+     * #EXP-1950 (install-trust.json `callCases`): a sealed call's key, from
+     * this install's keyring only, by the rule (release 1: any kept key);
+     * null = `no_key`.
+     */
+    suspend fun callTreeKey(accountId: String, rootId: String, epoch: Int): ByteArray? {
+        holders[accountId]?.let { return it.callSecret(rootId, epoch) }
+        val held = SealedKeys.of(rootId)[epoch]?.copyOf()
+        return if (identities.vault.identity(accountId, create = false) == null) held else trust.callKey(accountId, rootId, epoch, held)
+    }
+
+    /** #EXP-1950 R2 + R3: whether a send seals to [publicKey] at [epoch] of the existing root [rootId]. */
+    fun sealAllowed(accountId: String, rootId: String, publicKey: String, epoch: Int, vouch: com.exponential.app.data.sealed.Vouch?): Boolean =
+        holders[accountId]?.sealAllowed(rootId, publicKey, epoch, vouch) ?: true
+
+    /** #EXP-1950 R4 over a writer's readers: this install always, the others only where the rule wraps for them. */
+    fun allowedTargets(accountId: String, targets: List<Pair<WrapTarget, String?>>): List<WrapTarget> =
+        holders[accountId]?.allowed(targets) ?: targets.map { it.first }
+
+    /** #EXP-1950 `newRoot.makerRecord`: a key this install made is `verified`. */
+    fun recordMadeKey(accountId: String, rootId: String, epoch: Int) {
+        holders[accountId]?.recordMade(rootId, epoch)
+    }
 
     /**
      * #EXP-1950: a new root's inline seal went unsigned (its root id was
@@ -304,6 +340,8 @@ class EnetNodeManager @Inject constructor(
             // #EXP-1950: every wrap it makes carries this install's signature.
             identity = identity,
             signer = WrapSignerFfi,
+            // #EXP-1950: the pin store and the four rules, record-only.
+            trust = trust,
             api = object : HolderApi {
                 override suspend fun mine(installId: String, rootIds: List<String>?) =
                     withTimeoutOrNull(CALL_TIMEOUT_MS) { sessionKeys.mine(accountId, installId, rootIds) } ?: error("mine timed out")
@@ -399,6 +437,7 @@ class EnetNodeManager @Inject constructor(
             }
             if (forget) {
                 identities.vault.forget(accountId)
+                trust.forget(accountId)
                 SealedKeys.drop(treeKeys.vault.all(accountId).keys)
                 treeKeys.vault.forget(accountId)
             }

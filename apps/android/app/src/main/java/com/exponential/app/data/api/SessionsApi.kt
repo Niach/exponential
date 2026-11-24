@@ -251,6 +251,8 @@ data class SessionSendTarget(
     val clearTree: Boolean = false,
     /** #EXP-1941: the root's rotation is due (a call on it waits for the rotation); absent = false. */
     val rotationDue: Boolean = false,
+    /** #EXP-1950 (install-trust.json R3): a signed wrap of that epoch vouching for [publicKey]; none on an older server. */
+    val vouch: com.exponential.app.data.sealed.Vouch? = null,
 )
 
 /** `sessions.send`'s answer: the session it landed in and the message row

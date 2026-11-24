@@ -72,8 +72,9 @@ data class WrapSessionKeysResult(val written: Int = 0, val skipped: Int = 0)
 @Serializable
 data class PublicKeysInput(val rootIds: List<String>)
 
+/** #EXP-1950: [vouch] = a signed wrap of that epoch vouching for the key (R3); none on an older server. */
 @Serializable
-data class TreePublicKey(val rootId: String, val epoch: Int, val publicKey: String)
+data class TreePublicKey(val rootId: String, val epoch: Int, val publicKey: String, val vouch: com.exponential.app.data.sealed.Vouch? = null)
 
 /** #EXP-1960 `sessionKeys.requestKey`: `state` = keyed | clear | requested | noHost. */
 @Serializable

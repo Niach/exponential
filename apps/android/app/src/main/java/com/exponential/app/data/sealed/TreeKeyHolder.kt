@@ -57,6 +57,14 @@ interface HolderApi {
  *    seal ([queueResign]: unsigned while its root id was unknown), get a
  *    fresh signed wrap, once per root, at most [RESIGN_MAX] per pass; an
  *    older server (NOT_FOUND) is asked again after [RESIGN_NOT_YET_MS].
+ * 5. #EXP-1950 (install-trust.json): with an [InstallTrustKeeper] ([trust])
+ *    it follows `installs.trust` first on every pass, keeps a wrap only by R1
+ *    (recorded), wraps only for targets R4 allows (an install that asked and
+ *    is not approved, or an own install nobody pinned, gets nothing; a
+ *    waiting install wraps for itself only), and answers R2 + R3 for a send
+ *    ([sealAllowed]) and a call's key from its keyring ([callSecret]).
+ *    Release 1 records; it refuses only what the fixture refuses now. None =
+ *    as before.
  */
 class TreeKeyHolder(
     private val accountId: String,
@@ -70,6 +78,8 @@ class TreeKeyHolder(
     /** #EXP-1950: the install's eNet identity; null (or no [signer]) = it signs nothing. */
     private val identity: ByteArray? = null,
     private val signer: WrapSigner? = null,
+    /** #EXP-1950: the pin store and the four rules (null = off, as before). */
+    val trust: InstallTrustKeeper? = null,
     private val now: () -> Long = System::currentTimeMillis,
     private val publish: (TreeKeys) -> Unit = SealedKeys::merge,
 ) {
@@ -94,6 +104,7 @@ class TreeKeyHolder(
 
     /** One pass; false when a step failed (the next pass retries). */
     suspend fun pass(): Boolean {
+        step { trust?.sync(accountId, installId) }
         val fetched = step { fetchMine() }
         val rotated = step { rotateDue() }
         val wrapped = step { answerPending() }
@@ -129,6 +140,11 @@ class TreeKeyHolder(
      * ([rootId], [epoch]), null while no wrap for it opened.
      */
     suspend fun pull(rootId: String, epoch: Int): ByteArray? {
+        if (trust != null) return callSecret(rootId, epoch)
+        return pullHeld(rootId, epoch)
+    }
+
+    private suspend fun pullHeld(rootId: String, epoch: Int): ByteArray? {
         vault.all(accountId)[rootId]?.get(epoch)?.let { return it }
         fetchMine(listOf(rootId))
         return vault.all(accountId)[rootId]?.get(epoch)
@@ -140,12 +156,26 @@ class TreeKeyHolder(
         val fresh = mutableMapOf<String, MutableMap<Int, ByteArray>>()
         val mine = api.mine(installId, rootIds)
         noteUnsigned(mine)
+        val before = mutableListOf<Pair<String, Int>>()
         for (wrap in mine) {
-            if (held[wrap.rootId]?.containsKey(wrap.epoch) == true) continue
-            // A wrap that does not open (another identity's, tampered) is skipped.
-            val secret = runCatching { crypto.unwrapTreeKey(installSecret, wrap.wrapped) }.getOrNull() ?: continue
+            if (held[wrap.rootId]?.containsKey(wrap.epoch) == true) {
+                before += wrap.rootId to wrap.epoch
+                continue
+            }
+            val secret = if (trust != null) {
+                // R1 (install-trust.json `keepCases`): kept and recorded, or refused.
+                when (val verdict = trust.keep(accountId, wrap, installSecret)) {
+                    is InstallTrust.KeepVerdict.Keep -> verdict.secret
+                    is InstallTrust.KeepVerdict.Refuse -> continue
+                }
+            } else {
+                // A wrap that does not open (another identity's, tampered) is skipped.
+                runCatching { crypto.unwrapTreeKey(installSecret, wrap.wrapped) }.getOrNull() ?: continue
+            }
             fresh.getOrPut(wrap.rootId) { mutableMapOf() }[wrap.epoch] = secret
         }
+        // Decision (c): a key held before the pin store knew it stays, `legacy`.
+        if (before.isNotEmpty()) trust?.recordLegacy(accountId, before)
         if (fresh.isEmpty()) return
         vault.put(accountId, fresh)
         publish(fresh)
@@ -196,6 +226,8 @@ class TreeKeyHolder(
                 RotationAfter.Adopt -> {
                     val fresh = mapOf(root.rootId to mapOf(epoch to key.secret))
                     vault.put(accountId, fresh)
+                    // It made the key itself: verified.
+                    trust?.record(accountId, root.rootId, epoch, KeyRecord.Verified)
                     publish(fresh)
                     rotated++
                 }
@@ -213,6 +245,8 @@ class TreeKeyHolder(
         val pairs = api.pending(installId)
         val wraps = pairs.mapNotNull { pair ->
             val secret = held[pair.rootId]?.get(pair.epoch) ?: return@mapNotNull null
+            // R4: never for a target that asked and is not approved, or whose key is not the pinned one.
+            if (trust?.target(accountId, pair.targetInstallId, pair.targetX25519Public, pair.targetEndpointId, null)?.wraps == false) return@mapNotNull null
             val wrapped = runCatching { crypto.wrapTreeKey(pair.targetX25519Public, secret) }.getOrNull() ?: return@mapNotNull null
             // #EXP-1950: signed over the key this install HOLDS; a root whose
             // stored key is another goes unsigned (the server would refuse the batch).
@@ -299,6 +333,10 @@ class TreeKeyHolder(
             emptyList()
         } else {
             job.targets.mapNotNull { target ->
+                // R4 over a new root's readers: this install always, the others only where the rule wraps for them.
+                if (target.installId != installId && trust?.target(accountId, target.installId, target.x25519Public, target.endpointId, null)?.wraps == false) {
+                    return@mapNotNull null
+                }
                 val wrapped = runCatching { crypto.wrapTreeKey(target.x25519Public, secret) }.getOrNull() ?: return@mapNotNull null
                 val signature = sign(job.rootId, job.epoch, publicKey, target.endpointId, wrapped) ?: return@mapNotNull null
                 ResignWrap(job.rootId, job.epoch, target.installId, wrapped, signature)
@@ -310,6 +348,42 @@ class TreeKeyHolder(
             return null
         }
         return wraps
+    }
+
+    /**
+     * #EXP-1950 R2 + R3 (install-trust.json `sealCases`): whether a send seals
+     * to [publicKey] at [epoch] of the existing root [rootId]: only to the key
+     * of a held secret of that epoch, or one a pinned install vouched for;
+     * release 1 seals an unvouched key and records it, never a refused one.
+     */
+    fun sealAllowed(rootId: String, publicKey: String, epoch: Int, vouch: Vouch?): Boolean {
+        val trust = trust ?: return true
+        val held = vault.all(accountId)[rootId]?.get(epoch)
+        return trust.seal(accountId, rootId, publicKey, epoch, vouch, held) is InstallTrust.SealVerdict.Seal
+    }
+
+    /**
+     * #EXP-1950 (install-trust.json `callCases`): a sealed call's key, from
+     * this install's keyring ONLY (one pull when missing); null = `no_key`.
+     * Release 1 takes any kept key, its record says what it is.
+     */
+    suspend fun callSecret(rootId: String, epoch: Int): ByteArray? {
+        val held = pullHeld(rootId, epoch)
+        val trust = trust ?: return held
+        return trust.callKey(accountId, rootId, epoch, held)
+    }
+
+    /** #EXP-1950 R4 over a writer's readers ([WrapTarget] + its user when known): this install always, the others only where the rule wraps for them. */
+    fun allowed(targets: List<Pair<WrapTarget, String?>>): List<WrapTarget> {
+        val trust = trust ?: return targets.map { it.first }
+        return targets.filter { (target, userId) ->
+            target.installId == installId || trust.target(accountId, target.installId, target.x25519Public, target.endpointId, userId).wraps
+        }.map { it.first }
+    }
+
+    /** #EXP-1950 `newRoot.makerRecord`: a key this install made (a new root, a key it created) is `verified`. */
+    fun recordMade(rootId: String, epoch: Int) {
+        trust?.record(accountId, rootId, epoch, KeyRecord.Verified)
     }
 
     private fun finishResign(job: ResignJob) {

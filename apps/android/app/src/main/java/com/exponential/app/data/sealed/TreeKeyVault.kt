@@ -130,20 +130,54 @@ class TreeKeyVault(
     }
 }
 
+/**
+ * #EXP-1950 (install-trust.json THE PIN STORE, Android = the Keystore vault):
+ * one account's pin store ([TrustStore] JSON), sealed by the same Keystore key
+ * as its tree keys, in the same app-private storage excluded from backups,
+ * slot `trust.<accountId>` beside `trees.<accountId>`. No slot = no store
+ * (decision e: an install an earlier build registered); a slot that does not
+ * open THROWS: a store that cannot be read is never taken for a missing one.
+ */
+class TrustVault(
+    private val slots: IdentitySlots,
+    private val sealer: SecretSealer,
+) : TrustStorePersistence {
+    private val lock = Any()
+
+    override fun load(accountId: String): String? = synchronized(lock) {
+        val slot = slots.get(slotKey(accountId)) ?: return null
+        val sealed = runCatching { Base64.getDecoder().decode(slot) }.getOrNull() ?: throw IllegalStateException("pin store slot is not base64")
+        val opened = sealer.open(sealed) ?: throw IllegalStateException("pin store does not open")
+        opened.toString(Charsets.UTF_8)
+    }
+
+    override fun save(accountId: String, json: String): Boolean = synchronized(lock) {
+        val sealed = sealer.seal(json.toByteArray(Charsets.UTF_8)) ?: return false
+        slots.put(slotKey(accountId), Base64.getEncoder().encodeToString(sealed))
+    }
+
+    override fun remove(accountId: String) = synchronized(lock) { slots.remove(slotKey(accountId)) }
+
+    private fun slotKey(accountId: String) = "trust.$accountId"
+}
+
 @Singleton
 class TreeKeyStore @Inject constructor(@ApplicationContext context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
 
-    val vault = TreeKeyVault(
-        slots = object : IdentitySlots {
-            override fun get(key: String) = prefs.getString(key, null)
-            override fun put(key: String, value: String) = prefs.edit().putString(key, value).commit()
-            override fun remove(key: String) {
-                prefs.edit().remove(key).commit()
-            }
-        },
-        sealer = KeystoreSealer(KEY_ALIAS),
-    )
+    private val slots = object : IdentitySlots {
+        override fun get(key: String) = prefs.getString(key, null)
+        override fun put(key: String, value: String) = prefs.edit().putString(key, value).commit()
+        override fun remove(key: String) {
+            prefs.edit().remove(key).commit()
+        }
+    }
+    private val sealer = KeystoreSealer(KEY_ALIAS)
+
+    val vault = TreeKeyVault(slots = slots, sealer = sealer)
+
+    /** #EXP-1950: the pin store, beside the tree keys. */
+    val trust = TrustVault(slots = slots, sealer = sealer)
 
     companion object {
         /** Excluded from cloud backup + device transfer (res/xml/data_extraction_rules.xml). */
