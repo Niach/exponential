@@ -689,6 +689,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // within a second of the row landing); this tick is the catch-up pass
     // after a sleep/offline stretch, where no delta ever arrives.
     let mut last_worker_tick = Instant::now();
+    // #EXP-2086: the keys this process holds, as of the last pass they
+    // woke: a message held for its tree key is picked up as soon as the key
+    // holder registers or a wrap lands, not on the next tick.
+    let mut seen_keys = coding::sealing::changed();
     // EXP-1005: the account-rotation wall beat (every ROTATION_BEAT).
     let mut rotation = RotationHost {
         ctx: Arc::clone(&ctx),
@@ -1118,6 +1122,11 @@ fn run_daemon(args: &[String]) -> CommandResult {
             if last_worker_tick.elapsed() >= DAEMON_TICK {
                 last_worker_tick = Instant::now();
                 worker.send(DaemonWork::Tick).ok();
+            }
+            let keys = coding::sealing::changed();
+            if keys != seen_keys {
+                seen_keys = keys;
+                worker.send(DaemonWork::Pickup).ok();
             }
         }
 
