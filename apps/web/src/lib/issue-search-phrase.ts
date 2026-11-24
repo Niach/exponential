@@ -122,7 +122,7 @@ function isCount(token: string | undefined): token is string {
 const pad = (value: number, width: number) => String(value).padStart(width, `0`)
 
 /** The UTC civil date of a day number (Howard Hinnant's civil_from_days). */
-function civilFromDays(days: number): { year: number; month: number; day: number } {
+export function civilFromDays(days: number): { year: number; month: number; day: number } {
   const z = days + 719_468
   const era = Math.floor(z / 146_097)
   const doe = z - era * 146_097
