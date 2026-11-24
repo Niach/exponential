@@ -9315,6 +9315,7 @@ dependencies = [
  "sentry",
  "serde",
  "serde_json",
+ "stall-watch",
  "tracing",
  "tracing-subscriber",
 ]
@@ -12245,6 +12246,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.4",
+]
+
+[[package]]
+name = "stall-watch"
+version = "0.14.177"
+dependencies = [
+ "libc",
+ "log",
 ]
 
 [[package]]

@@ -9,6 +9,9 @@
 //! - gpui's own per-draw timings (`Window::draw` start/end) →
 //!   `lag::record_frame`.
 //!
+//! - the stall watchdog's main-thread beat (`stall::beat`, #EXP-2091), on
+//!   the same loop: it runs whether or not anything listens.
+//!
 //! Idle while nothing listens: one check every few seconds, no timer at
 //! display rate, frame tracing left off.
 
@@ -74,6 +77,9 @@ pub fn install(cx: &mut App) {
         let watch = cx.update(|cx| cx.new(|_| FocusWatch));
         let mut watched = HashSet::new();
         loop {
+            // #EXP-2091: this thread is alive (the stall watchdog's beat;
+            // every 5 s at the least, listening or not).
+            observability::stall::beat(observability::stall::Source::Main);
             if !lag::active() {
                 cx.background_executor().timer(IDLE_RECHECK).await;
                 continue;

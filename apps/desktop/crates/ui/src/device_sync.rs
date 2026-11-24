@@ -209,8 +209,15 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
         loop {
             cx.background_executor().timer(TICK).await;
             if stop.load(Ordering::SeqCst) {
+                // #EXP-2091: ended on purpose, no stall (another account's
+                // loop, or this account's next one, beats on).
+                observability::stall::rest(observability::stall::Source::Heartbeat);
                 return;
             }
+            // #EXP-2091: the loop is alive; two minutes without this (the
+            // main thread stuck, or one beat that never came back) and the
+            // stall watchdog writes the thread stacks.
+            observability::stall::beat(observability::stall::Source::Heartbeat);
             let nudged = check_in.swap(false, Ordering::SeqCst);
             if !nudged && last_beat.is_some_and(|at| at.elapsed() < HEARTBEAT_INTERVAL) {
                 continue;
