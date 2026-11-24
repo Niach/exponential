@@ -1623,8 +1623,12 @@ mod tests {
                     }
                 }
             }
+            // Like the server: a pair another pass wrapped meanwhile is skipped.
             for wrap in wraps {
-                self.store(install_id, &wrap.root_id, wrap.epoch, &wrap.target_install_id, &wrap.wrapped, wrap.signature.as_deref());
+                let known = self.rows.lock().unwrap().iter().any(|r| r.root == wrap.root_id && r.epoch == wrap.epoch && r.install == wrap.target_install_id);
+                if !known {
+                    self.store(install_id, &wrap.root_id, wrap.epoch, &wrap.target_install_id, &wrap.wrapped, wrap.signature.as_deref());
+                }
             }
             Ok(())
         }
@@ -1770,13 +1774,16 @@ mod tests {
         let device = world.holder("device");
         let (epoch, _) = device.ensure_key(ROOT).unwrap();
         assert_eq!(epoch, 1);
-        assert_eq!(device.answer_pending().unwrap(), 2);
+        // The create's own pending pass runs on a thread beside this one.
+        device.answer_pending().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
         assert_eq!(world.api.assert_signed(ROOT, 1, &world.ids["device"], &world.secrets), 3);
 
         // The laptop is dropped; the device rotates: epoch 2, signed again.
         world.api.readers.lock().unwrap().retain(|r| r != "laptop");
         assert_eq!(device.rotate_root(ROOT, 1), Ok(true));
         device.answer_pending().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
         assert_eq!(world.api.assert_signed(ROOT, 2, &world.ids["device"], &world.secrets), 2);
 
         // A reader's own pass over the signed rows: nothing to sign again.
@@ -1794,7 +1801,8 @@ mod tests {
         Arc::get_mut(&mut world.api).unwrap().old_pending = true;
         let device = world.holder("device");
         device.ensure_key(ROOT).unwrap();
-        assert_eq!(device.answer_pending().unwrap(), 1);
+        device.answer_pending().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
         let rows = world.api.rows.lock().unwrap().clone();
         let phone = rows.iter().find(|r| r.install == "phone").unwrap();
         assert_eq!(phone.signature, None);
