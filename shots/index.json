@@ -5683,6 +5683,13 @@
       }
     },
     "install-approval": {
+      "ios": {
+        "file": "shots/install-approval/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 14400,
+        "sha256": "ed526865c7d5b2ce116850c514bfbbdea500b4adca4247c582b3ecaa8d43430e"
+      },
       "web": {
         "file": "shots/install-approval/web.webp",
         "width": 1800,
@@ -5699,6 +5706,13 @@
       }
     },
     "install-waiting": {
+      "ios": {
+        "file": "shots/install-waiting/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 9232,
+        "sha256": "ddfc74c6033b77e67eebd6ece2b168d0cd08834077e3c88650fb4e52f5a07922"
+      },
       "web": {
         "file": "shots/install-waiting/web.webp",
         "width": 1800,
