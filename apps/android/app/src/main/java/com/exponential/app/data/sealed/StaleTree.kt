@@ -91,7 +91,9 @@ internal object StaleTree {
      * A send whose key write the server refused as stale re-resolves the
      * tree ([attempt] with `fresh = true`) and goes again ONCE, without
      * surfacing the first refusal; a second one fails with [STALE_TREE_REFUSAL],
-     * never a raw epoch.
+     * never a raw epoch. #EXP-2123 (install-trust.json `keyMaker`): the
+     * server's [KEY_MAKER_REFUSAL] of a new root's key (this install waits
+     * for approval) fails the send with [NO_KEY_REFUSAL], never resent.
      */
     suspend fun <R> sendOnce(attempt: suspend (fresh: Boolean) -> R): R {
         try {
@@ -99,6 +101,7 @@ internal object StaleTree {
         } catch (err: CancellationException) {
             throw err
         } catch (err: Throwable) {
+            if (isKeyMakerRefusal(err.message)) throw noKey(err)
             if (!isStaleTreeRefusal(err.message)) throw err
         }
         try {
@@ -106,10 +109,13 @@ internal object StaleTree {
         } catch (err: CancellationException) {
             throw err
         } catch (err: Throwable) {
+            if (isKeyMakerRefusal(err.message)) throw noKey(err)
             if (!isStaleTreeRefusal(err.message)) throw err
             throw TrpcException(STALE_TREE_REFUSAL, status = (err as? TrpcException)?.status, code = (err as? TrpcException)?.code)
         }
     }
+
+    private fun noKey(err: Throwable) = TrpcException(NO_KEY_REFUSAL, status = (err as? TrpcException)?.status, code = (err as? TrpcException)?.code)
 
     private suspend fun <T> quietly(block: suspend () -> T?): T? =
         try {
