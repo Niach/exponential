@@ -7,8 +7,14 @@ import XCTest
 // `domain::issue_search_translation`) against the ONE contract fixture: same
 // cases, same names.
 final class IssueSearchTranslationTests: XCTestCase {
+    private struct Hints: Decodable {
+        let time: String
+        let state: String
+    }
+
     private struct Fixture: Decodable {
         let system: String
+        let hints: Hints
         let limits: Limits
         let wantsCases: [WantsCase]
         let sanitizeCases: [SanitizeCase]
@@ -75,6 +81,8 @@ final class IssueSearchTranslationTests: XCTestCase {
     func testTheConstantsAreTheFixtures() throws {
         let fixture = try fixture()
         XCTAssertEqual(fixture.system, IssueSearchTranslation.system)
+        XCTAssertEqual(fixture.hints.time, IssueSearchTranslation.timeHints)
+        XCTAssertEqual(fixture.hints.state, IssueSearchTranslation.stateHints)
         XCTAssertEqual(fixture.limits.minWords, IssueSearchTranslation.Limits.minWords)
         XCTAssertEqual(fixture.limits.maxTextLength, IssueSearchTranslation.Limits.maxTextLength)
         XCTAssertEqual(fixture.limits.maxTokens, IssueSearchTranslation.Limits.maxTokens)

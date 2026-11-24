@@ -41,10 +41,10 @@ final class IssueSearchTranslatorTests: XCTestCase {
 
     private let members = [IssueSearchPhrase.Member(name: "Anna Berg", email: "anna@acme.test")]
     private let now = Date(timeIntervalSince1970: 1_794_571_200) // 2026-11-13T12:00:00Z
-    private let text = "what is still broken in the editor toolbar"
+    private let text = "what did anna say is still broken in the editor toolbar"
 
     func testAnAnswerBecomesTheSanitizedQuery() async {
-        let fake = Fake(.answer("```\nSearch: is:open by:anna label:bug editor toolbar\n```"))
+        let fake = Fake(.answer("```\nSearch: is:open by:anna label:bug created:today editor toolbar crash\n```"))
         let query = await IssueSearchTranslator.translate(text, members: members, now: now, translator: fake)
         XCTAssertEqual(query, "is:open by:anna editor toolbar")
         // ONE call, with the shared prompt and the shared instruction line.

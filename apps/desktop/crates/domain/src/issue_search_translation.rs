@@ -38,9 +38,19 @@ pub struct TranslationLimits {
     pub model: String,
 }
 
+/// The fixture's `hints`: the words that say a sentence names a TIME or a
+/// STATE (space-separated). A date or a state the model answers without one
+/// is dropped.
+#[derive(Debug, Deserialize)]
+struct Hints {
+    time: String,
+    state: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct Spec {
     system: String,
+    hints: Hints,
     limits: TranslationLimits,
 }
 
@@ -145,9 +155,10 @@ pub fn wants(text: &str, members: &[PhraseMember<'_>], now: i64) -> bool {
 }
 
 /// The query a model's answer means, or `None`. Only tokens the engine
-/// accepts survive, in the phrase grammar's order (is:, status:, by:, the
-/// dates, the words); `None` when nothing is left or nothing changed against
-/// `text`. `now` = epoch ms.
+/// accepts AND the typed text backs survive (a person, a word, a time or a
+/// state the sentence does not name is the model's invention), in the phrase
+/// grammar's order (is:, status:, by:, the dates, the words); `None` when
+/// nothing is left or nothing changed against `text`. `now` = epoch ms.
 pub fn sanitize(output: &str, text: &str, members: &[PhraseMember<'_>], now: i64) -> Option<String> {
     let limits = limits();
     let members = members_of(members);
@@ -155,6 +166,28 @@ pub fn sanitize(output: &str, text: &str, members: &[PhraseMember<'_>], now: i64
         members
             .iter()
             .any(|member| member.words.iter().any(|w| w == word) || (!member.local.is_empty() && member.local == word))
+    };
+
+    // What the typed text names: its words, a time, a state.
+    let lowered = text.to_lowercase();
+    let text_words = words(&lowered);
+    let names = |hints: &str, digits: bool| {
+        lowered.split_whitespace().map(strip_punctuation).any(|token| {
+            (digits && token.bytes().any(|b| b.is_ascii_digit())) || hints.split(' ').any(|hint| hint == token)
+        })
+    };
+    let names_time = names(&SPEC.hints.time, true);
+    let names_state = names(&SPEC.hints.state, false);
+    // A word of the answer is the text's when one starts with the other
+    // (`crash` for `crashes`); a text word under three letters is no stem.
+    let in_text = |token: &str| {
+        let parts = words(token);
+        !parts.is_empty()
+            && parts.iter().all(|word| {
+                text_words
+                    .iter()
+                    .any(|typed| typed.starts_with(word) || (typed.chars().count() >= 3 && word.starts_with(typed)))
+            })
     };
 
     let line = output.split('\n').map(clean_line).find(|line| !line.is_empty()).unwrap_or("");
@@ -166,7 +199,7 @@ pub fn sanitize(output: &str, text: &str, members: &[PhraseMember<'_>], now: i64
     let mut plain: Vec<String> = Vec::new();
     let mut add_plain = |token: &str| {
         let word = strip_punctuation(token);
-        if words(word).is_empty() || word.chars().count() > limits.max_word_length {
+        if !in_text(word) || word.chars().count() > limits.max_word_length {
             return;
         }
         if plain.len() >= limits.max_words && !plain.iter().any(|w| w == word) {
@@ -177,27 +210,29 @@ pub fn sanitize(output: &str, text: &str, members: &[PhraseMember<'_>], now: i64
 
     for token in tokens(line).iter().take(limits.max_tokens) {
         if let Some(value) = token.strip_prefix("is:") {
-            if value == "open" || value == "closed" {
-                add(&mut states, value.to_string());
+            // One state at most: two would never match together.
+            if (value == "open" || value == "closed") && names_state && states.is_empty() {
+                states.push(value.to_string());
             }
         } else if let Some(value) = token.strip_prefix("status:") {
-            if is_word(value) && value.chars().count() <= limits.max_word_length {
-                add(&mut statuses, value.to_string());
+            let valid = is_word(value) && value.chars().count() <= limits.max_word_length;
+            if valid && names_state && statuses.is_empty() {
+                statuses.push(value.to_string());
             }
         } else if let Some(value) = token.strip_prefix("by:") {
             let value = value.strip_prefix('@').unwrap_or(value);
             // A name that is no member is a plain word, like in the grammar.
-            if is_member(value) {
+            if is_member(value) && in_text(value) {
                 add(&mut creators, value.to_string());
             } else if !value.contains(':') {
                 add_plain(value);
             }
         } else if let Some(value) = token.strip_prefix("created:") {
-            if parse_range(value, now).is_some() {
+            if names_time && parse_range(value, now).is_some() {
                 add(&mut dates, token.clone());
             }
         } else if let Some(value) = token.strip_prefix("updated:") {
-            if parse_range(value, now).is_some() {
+            if names_time && parse_range(value, now).is_some() {
                 add(&mut dates, token.clone());
             }
         } else if !token.contains(':') {
@@ -255,22 +290,27 @@ pub fn prompt(text: &str, members: &[PhraseMember<'_>], now: i64) -> String {
     let mut lines: Vec<String> = vec![
         "Translate the sentence into one issue search query.".into(),
         "Tokens:".into(),
-        "is:open or is:closed".into(),
-        "status:<word>, one of backlog, progress, review, done, cancelled, duplicate".into(),
+        "is:open or is:closed, at most one".into(),
+        "status:<word>, at most one of backlog, progress, review, done, cancelled, duplicate".into(),
     ];
     if !names.is_empty() {
-        lines.push(format!("by:<name> for who created the issue, one of {}", names.join(", ")));
+        lines.push(format!(
+            "by:<name> for who created the issue, only when the sentence names one of {}",
+            names.join(", ")
+        ));
     }
     lines.extend([
-        "created:<range> or updated:<range>, a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD".to_string(),
-        "any other word is a plain search word: keep only the words that name the topic".to_string(),
-        format!("Use no other tokens. Today is {year:04}-{month:02}-{day:02} (UTC)."),
+        "created:<range> or updated:<range>, only when the sentence names a time; a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD".to_string(),
+        "any other word is a plain search word: keep only the words that name the topic, as the sentence spells them".to_string(),
+        format!("Use no other tokens. Never add a person, a status or a time the sentence does not name. Today is {year:04}-{month:02}-{day:02} (UTC)."),
         "Answer with one line, the query only.".to_string(),
         "Examples:".to_string(),
         "offene Issues zum Editor aus letzter Woche -> is:open created:7d editor".to_string(),
-        "which crashes did we close since yesterday -> is:closed updated:yesterday crash".to_string(),
+        "which crashes did we close since yesterday -> is:closed updated:yesterday crashes".to_string(),
         "was wurde im letzten Monat zur Abrechnung erledigt -> status:done updated:1m abrechnung".to_string(),
         "everything in review about the login page -> status:review login page".to_string(),
+        "why is the export to csv so slow -> export csv slow".to_string(),
+        "welche Fehler beim Drucken von Rechnungen sind noch offen -> is:open fehler drucken rechnungen".to_string(),
     ]);
     if let Some(first) = names.first() {
         lines.push(format!("what did {first} file about sync this year -> by:{first} created:1y sync"));

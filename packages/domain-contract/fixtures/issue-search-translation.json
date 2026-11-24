@@ -1,6 +1,10 @@
 {
-  "$comment": "#NEW-136: THE MODEL FALLBACK of the issue search (slice 5 of #NEW-131), its pure half: when the row shows, the ONE prompt, and the sanitizer that turns a model's answer into a query. DECISIONS (Danny, 2026-11-24): (1) EXPLICIT, never automatic: typing never calls a model. In the GLOBAL issue search, when the phrase grammar (issue-search-phrase.json) answers null for the typed text AND wants(text) holds, the list's top row is the SAME Picker action row as the `Search: <query>` suggestion (search-list.json SUGGESTION, `suggestion.translate`), named `Translate to a search`: same icon by concept, same position, never both rows at once. Picking it runs the model; while it runs the row carries the existing spinner in its trailing slot (no new component, no subtitle) and a second pick does nothing. Success: the field's text is replaced by the query, the focus stays, the search re-runs. Failure, a timeout or an answer the sanitizer rejects: the toast `Couldn't translate this search` (feedback-states.json: a failed action = toast), the field stays as typed and the row is offered again. (2) WHERE: the desktop app (every OS) and iOS 26+ with Apple Intelligence available. Web and Android show NO row (no local model; Android has no caller, so there is no Kotlin port). (3) DESKTOP MODEL: the signed-in claude CLI of the user's own login (the profile a launch would run on), model `limits.model`, ONE print-mode call: the prompt on stdin, `system` as the system prompt, no tools, no MCP servers, no settings, no session row, no transcript, nothing shown in chats, killed after `limits.timeoutSeconds` and when the sheet closes or the text changes. No signed-in claude login = no row. Never a hosted agent, never our server, never resold tokens; the macOS desktop app uses this path too. (4) iOS MODEL: Apple Foundation Models on the device (`#available(iOS 26, *)`, `SystemLanguageModel.default.availability == .available`), `system` as the session's instructions. Older iOS, an unsupported device, Apple Intelligence off or the model not ready = no row. WANTS (`wantsCases`: {name, now, members, text, expected}): true when the trimmed text is at most `limits.maxTextLength` code points, has `limits.minWords` or more WORDS (whitespace-separated tokens that, stripped of leading and trailing . , ; : ! ? \" ' ( ), hold a letter or digit), no token starts with by: is: status: created: updated: or similar: (lowercased, stripped the same way), and the phrase grammar answers null. SANITIZE (`sanitizeCases`: {name, now, members, text, output, expected: string | null}); the model's output is NEVER trusted. LINE: the first line of the output that is non-empty after cleaning; cleaning = trim, a line that starts with a code fence (three backticks) and does not also end with a backtick is dropped, then leading and trailing whitespace and wrap characters (backtick, \" ' * and the typographic quotes) go, then ONE leading `search:` or `query:` (any case) with the wrap characters after it. TOKENS: the engine's (issue-search.json: trimmed, one leading # dropped, lowercased, split on whitespace), the first `limits.maxTokens` of them. Each token: `is:open|closed` stays, any other is: goes; `status:<v>` stays when v is ONE word of letters and digits at most `limits.maxWordLength` long, else goes; `by:<v>` (one leading @ dropped) stays ONLY when v is a name word or the email local part of a member (the grammar's member rule), else v becomes a plain word; `created:<v>` / `updated:<v>` stay when the engine parses v as a range (`parseIssueSearchRange`), else go; EVERY other token holding a colon goes (similar:, a URL, a made-up filter); the rest are plain words: stripped of the punctuation above, kept when they hold a letter or digit and are at most `limits.maxWordLength` code points, the first `limits.maxWords` different ones. RESULT: is: tokens, status: tokens, by: tokens, the dates, then the words, each in first-seen order without repeats, joined by one space; null when nothing is left, null when it equals the text's own engine tokens joined (nothing changed). PROMPT (`promptCases`: {name, now, members, text, expected}): ONE string, byte for byte the same on desktop and iOS: the token syntax, the members' FIRST names only (the first name word of each, lowercased, no repeats, at most `limits.maxNames`; never an email, a member without a name is left out, and without any name the by: line and its example are left out), today's UTC date, `Answer with one line, the query only.`, German and English examples, then `Sentence: ` and the text (whitespace collapsed, its first `limits.maxTextLength` code points). `system` is the instruction line beside it. REPLAYED: web `apps/web/src/lib/issue-search-translation.ts` (the reference; web never calls a model), desktop `domain::issue_search_translation`, iOS ExpCore `IssueSearchTranslation`; same case names.",
+  "$comment": "#NEW-136: THE MODEL FALLBACK of the issue search (slice 5 of #NEW-131), its pure half: when the row shows, the ONE prompt, and the sanitizer that turns a model's answer into a query. DECISIONS (Danny, 2026-11-24): (1) EXPLICIT, never automatic: typing never calls a model. In the GLOBAL issue search, when the phrase grammar (issue-search-phrase.json) answers null for the typed text AND wants(text) holds, the list's top row is the SAME Picker action row as the `Search: <query>` suggestion (search-list.json SUGGESTION, `suggestion.translate`), named `Translate to a search`: same icon by concept, same position, never both rows at once. Picking it runs the model; while it runs the row carries the existing spinner in its trailing slot (no new component, no subtitle) and a second pick does nothing. Success: the field's text is replaced by the query, the focus stays, the search re-runs. Failure, a timeout or an answer the sanitizer rejects: the toast `Couldn't translate this search` (feedback-states.json: a failed action = toast), the field stays as typed and the row is offered again. (2) WHERE: the desktop app (every OS) and iOS 26+ with Apple Intelligence available. Web and Android show NO row (no local model; Android has no caller, so there is no Kotlin port). (3) DESKTOP MODEL: the signed-in claude CLI of the user's own login (the profile a launch would run on), model `limits.model`, ONE print-mode call: the prompt on stdin, `system` as the system prompt, no tools, no MCP servers, no settings, no session row, no transcript, nothing shown in chats, killed after `limits.timeoutSeconds` and when the sheet closes or the text changes. No signed-in claude login = no row. Never a hosted agent, never our server, never resold tokens; the macOS desktop app uses this path too. (4) iOS MODEL: Apple Foundation Models on the device (`#available(iOS 26, *)`, `SystemLanguageModel.default.availability == .available`), `system` as the session's instructions. Older iOS, an unsupported device, Apple Intelligence off or the model not ready = no row. WANTS (`wantsCases`: {name, now, members, text, expected}): true when the trimmed text is at most `limits.maxTextLength` code points, has `limits.minWords` or more WORDS (whitespace-separated tokens that, stripped of leading and trailing . , ; : ! ? \" ' ( ), hold a letter or digit), no token starts with by: is: status: created: updated: or similar: (lowercased, stripped the same way), and the phrase grammar answers null. SANITIZE (`sanitizeCases`: {name, now, members, text, output, expected: string | null}); the model's output is NEVER trusted: a token stays only when the engine accepts it AND the typed text backs it. LINE: the first line of the output that is non-empty after cleaning; cleaning = trim, a line that starts with a code fence (three backticks) and does not also end with a backtick is dropped, then leading and trailing whitespace and wrap characters (backtick, \" ' * and the typographic quotes) go, then ONE leading `search:` or `query:` (any case) with the wrap characters after it. TOKENS: the engine's (issue-search.json: trimmed, one leading # dropped, lowercased, split on whitespace), the first `limits.maxTokens` of them. THE TEXT NAMES: its words (the engine's words of the lowercased text); a TIME when one of its tokens (lowercased, split on whitespace, stripped of leading and trailing . , ; : ! ? \" ' ( )) holds an ASCII digit or is one of `hints.time`; a STATE when one of them is one of `hints.state`. A word of the answer is IN THE TEXT when every engine word of it is: some word of the text starts with it, or it starts with a word of the text that is 3 or more code points long (`crash` for `crashes`, `editors` for `editor`). Each token: `is:open|closed` stays when the text names a state and no is: stayed before (one at most), any other is: goes; `status:<v>` stays when v is ONE word of letters and digits at most `limits.maxWordLength` long, the text names a state and no status: stayed before, else goes; `by:<v>` (one leading @ dropped) stays ONLY when v is a name word or the email local part of a member (the grammar's member rule) AND v is in the text, else v becomes a plain word; `created:<v>` / `updated:<v>` stay when the engine parses v as a range (`parseIssueSearchRange`) and the text names a time, else go; EVERY other token holding a colon goes (similar:, a URL, a made-up filter); the rest are plain words: stripped of the punctuation above, kept when they are in the text and at most `limits.maxWordLength` code points, the first `limits.maxWords` different ones. RESULT: the is: token, the status: token, by: tokens, the dates, then the words, each in first-seen order without repeats, joined by one space; null when nothing is left, null when it equals the text's own engine tokens joined (nothing changed). PROMPT (`promptCases`: {name, now, members, text, expected}): ONE string, byte for byte the same on desktop and iOS: the token syntax, the members' FIRST names only (the first name word of each, lowercased, no repeats, at most `limits.maxNames`; never an email, a member without a name is left out, and without any name the by: line and its example are left out), today's UTC date, never to add a person, a status or a time the sentence does not name, `Answer with one line, the query only.`, German and English examples, then `Sentence: ` and the text (whitespace collapsed, its first `limits.maxTextLength` code points). `system` is the instruction line beside it. REPLAYED: web `apps/web/src/lib/issue-search-translation.ts` (the reference; web never calls a model), desktop `domain::issue_search_translation`, iOS ExpCore `IssueSearchTranslation`; same case names.",
   "system": "You turn sentences into issue search queries.",
+  "hints": {
+    "time": "heute today gestern yesterday morgen tomorrow tag tage tagen day days woche wochen week weeks monat monate monaten month months jahr jahre jahren year years quartal quarter letzter letzten letzte letztem letztes last past previous vergangene vergangenen vergangener vergangenes diese dieser diesen diesem dieses this seit since ab after nach vor before bis until ago her recently lately neulich kürzlich zuletzt letztens januar january februar february märz march april mai may juni june juli july august september oktober october november dezember december montag monday dienstag tuesday mittwoch wednesday donnerstag thursday freitag friday samstag saturday sonntag sunday wochenende weekend old older oldest alt alte alten älter ältere älteste new newer newest neu neue neuen neuer neueste neuesten latest aktuell aktuelle aktuellen",
+    "state": "open offen offene offenen offener offenes unresolved ungelöst ungelöste ungelösten unfinished unerledigt unerledigte unerledigten closed close geschlossen geschlossene geschlossenen resolved gelöst gelöste gelösten backlog done erledigt erledigte erledigten fertig fertige fertigen completed finished abgeschlossen abgeschlossene abgeschlossenen cancelled canceled abgebrochen abgebrochene abgebrochenen storniert stornierte stornierten duplicate duplicates duplikat duplikate duplikaten progress arbeit bearbeitung review still noch yet pending ausstehend todo fixed behoben gefixt started begonnen angefangen unstarted active aktiv aktive aktiven working wip shipped landed merged"
+  },
   "limits": {
     "minWords": 4,
     "maxTextLength": 200,
@@ -306,7 +310,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "is:open editor toolbar",
       "expected": "is:open editor toolbar"
     },
@@ -331,7 +335,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "toolbar updated:7d by:anna status:review is:closed editor",
       "expected": "is:closed status:review by:anna updated:7d toolbar editor"
     },
@@ -356,7 +360,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "IS:OPEN Editor Toolbar",
       "expected": "is:open editor toolbar"
     },
@@ -381,8 +385,8 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
-      "output": "\n\n  is:open editor\nstatus:done billing\n",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
+      "output": "\n\n  is:open editor\nstatus:done toolbar\n",
       "expected": "is:open editor"
     },
     {
@@ -406,7 +410,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "```\nis:open editor toolbar\n```",
       "expected": "is:open editor toolbar"
     },
@@ -431,7 +435,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "```text\nis:open editor toolbar\n```",
       "expected": "is:open editor toolbar"
     },
@@ -456,7 +460,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "`is:open editor toolbar`",
       "expected": "is:open editor toolbar"
     },
@@ -481,7 +485,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "```is:open editor toolbar```",
       "expected": "is:open editor toolbar"
     },
@@ -506,7 +510,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "\"is:open editor toolbar\"",
       "expected": "is:open editor toolbar"
     },
@@ -531,7 +535,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "„is:open editor toolbar“",
       "expected": "is:open editor toolbar"
     },
@@ -556,7 +560,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "Search: is:open editor toolbar",
       "expected": "is:open editor toolbar"
     },
@@ -581,7 +585,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "**Query:** `is:open editor toolbar`",
       "expected": "is:open editor toolbar"
     },
@@ -606,7 +610,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "is:open editor toolbar\r\nmore",
       "expected": "is:open editor toolbar"
     },
@@ -631,7 +635,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "is:broken editor toolbar",
       "expected": "editor toolbar"
     },
@@ -656,7 +660,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "status:review editor",
       "expected": "status:review editor"
     },
@@ -681,7 +685,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "status:in_review status:in-progress editor",
       "expected": "editor"
     },
@@ -706,9 +710,59 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "status: editor",
       "expected": "editor"
+    },
+    {
+      "name": "one state at most: the first",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
+      "output": "is:open is:closed editor",
+      "expected": "is:open editor"
+    },
+    {
+      "name": "one status at most: the first",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
+      "output": "status:backlog status:review editor",
+      "expected": "status:backlog editor"
     },
     {
       "name": "a member's first name stays by:",
@@ -731,7 +785,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "by:lukas editor",
       "expected": "by:lukas editor"
     },
@@ -756,7 +810,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues by lukas.mai about the editor toolbar",
       "output": "by:lukas.mai editor",
       "expected": "by:lukas.mai editor"
     },
@@ -781,9 +835,34 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "by:@anna editor",
       "expected": "by:anna editor"
+    },
+    {
+      "name": "a member the sentence does not name is the model's",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what is still broken in the editor toolbar",
+      "output": "by:anna editor",
+      "expected": "editor"
     },
     {
       "name": "a name that is no member becomes a word",
@@ -806,7 +885,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "what did peter say about the editor toolbar",
       "output": "by:peter editor",
       "expected": "peter editor"
     },
@@ -831,7 +910,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "by: editor",
       "expected": "editor"
     },
@@ -839,7 +918,7 @@
       "name": "without members every by: is a word",
       "now": "2026-11-14T12:00:00Z",
       "members": [],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "is:open by:lukas editor",
       "expected": "is:open lukas editor"
     },
@@ -864,7 +943,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "created:7d updated:2026-10 created:>=2026-11-01 editor",
       "expected": "created:7d updated:2026-10 created:>=2026-11-01 editor"
     },
@@ -889,7 +968,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "created:2026-10-01..2026-10-31 editor",
       "expected": "created:2026-10-01..2026-10-31 editor"
     },
@@ -914,9 +993,109 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "created:lastweek updated:2026-13 created:0d editor",
       "expected": "editor"
+    },
+    {
+      "name": "a time the sentence does not name is the model's",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "what did anna report about the editor toolbar",
+      "output": "by:anna created:today editor",
+      "expected": "by:anna editor"
+    },
+    {
+      "name": "a digit in the sentence names a time",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "editor problems we filed in 10/2026 please",
+      "output": "created:2026-10 editor",
+      "expected": "created:2026-10 editor"
+    },
+    {
+      "name": "a state the sentence does not name is the model's",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "is there a ticket for the editor toolbar",
+      "output": "is:open status:review editor toolbar",
+      "expected": "editor toolbar"
+    },
+    {
+      "name": "a word that hints at a state keeps it",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "which problems with offline edits are still unresolved",
+      "output": "is:open offline edits",
+      "expected": "is:open offline edits"
     },
     {
       "name": "similar: and made-up filters go",
@@ -939,7 +1118,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "similar:NEW-12 label:bug assignee:anna priority:high editor",
       "expected": "editor"
     },
@@ -964,9 +1143,9 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "see https://example.com/x editor",
-      "expected": "see editor"
+      "expected": "editor"
     },
     {
       "name": "repeats collapse",
@@ -989,7 +1168,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "is:open is:open editor editor by:anna by:anna",
       "expected": "is:open by:anna editor"
     },
@@ -1014,7 +1193,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "(editor), toolbar! ...",
       "expected": "editor toolbar"
     },
@@ -1039,9 +1218,109 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "what is new in NEW-12 and the editor",
       "output": "#NEW-12 editor",
       "expected": "new-12 editor"
+    },
+    {
+      "name": "a word the sentence does not have is the model's",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
+      "output": "is:open editor toolbar crash regression",
+      "expected": "is:open editor toolbar"
+    },
+    {
+      "name": "a stem of a typed word stays, and a word a typed one starts",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
+      "output": "issue editors tool",
+      "expected": "issue editors tool"
+    },
+    {
+      "name": "a typed word under three letters is no stem",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
+      "output": "editor byte",
+      "expected": "editor"
+    },
+    {
+      "name": "a translated answer keeps nothing",
+      "now": "2026-11-14T12:00:00Z",
+      "members": [
+        {
+          "name": "Lukas Mai",
+          "email": "lukas.mai@acme.test"
+        },
+        {
+          "name": "Anna Berg",
+          "email": "anna@acme.test"
+        },
+        {
+          "name": "Lukas Sommer",
+          "email": "ls@acme.test"
+        },
+        {
+          "name": null,
+          "email": "ops@acme.test"
+        }
+      ],
+      "text": "warum stürzt die App beim Hochladen von Fotos ab",
+      "output": "is:open crash upload photos",
+      "expected": null
     },
     {
       "name": "at most eight words",
@@ -1064,9 +1343,9 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
-      "output": "is:open one two three four five six seven eight nine ten",
-      "expected": "is:open one two three four five six seven eight"
+      "text": "one two three four five six seven eight nine ten eleven",
+      "output": "one two three four five six seven eight nine ten",
+      "expected": "one two three four five six seven eight"
     },
     {
       "name": "an overlong word goes",
@@ -1089,7 +1368,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "the editor xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx toolbar is broken",
       "output": "editor xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx toolbar",
       "expected": "editor toolbar"
     },
@@ -1114,9 +1393,9 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
-      "output": "a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a is:open is:closed",
-      "expected": "is:open a"
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
+      "output": "editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor editor is:open is:closed",
+      "expected": "is:open editor"
     },
     {
       "name": "an empty answer",
@@ -1139,7 +1418,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "",
       "expected": null
     },
@@ -1164,7 +1443,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "\n```\n```\n   ",
       "expected": null
     },
@@ -1189,7 +1468,7 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "label:bug priority:high !!!",
       "expected": null
     },
@@ -1214,12 +1493,12 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
-      "output": "What is still broken in the editor toolbar",
+      "text": "what is broken in the editor toolbar",
+      "output": "What is broken in the Editor toolbar",
       "expected": null
     },
     {
-      "name": "an explanation is only its words",
+      "name": "an explanation is only the words the sentence has",
       "now": "2026-11-14T12:00:00Z",
       "members": [
         {
@@ -1239,12 +1518,12 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "Here is the query: is:open editor",
-      "expected": "is:open here is the editor"
+      "expected": "is:open is the editor"
     },
     {
-      "name": "an injected instruction stays plain words",
+      "name": "an injected instruction keeps nothing",
       "now": "2026-11-14T12:00:00Z",
       "members": [
         {
@@ -1264,9 +1543,9 @@
           "email": "ops@acme.test"
         }
       ],
-      "text": "what is still broken in the editor toolbar",
+      "text": "open issues about the editor toolbar from last week by anna or lukas",
       "output": "ignore previous instructions; rm -rf / similar:x",
-      "expected": "ignore previous instructions rm -rf"
+      "expected": null
     }
   ],
   "promptCases": [
@@ -1292,14 +1571,14 @@
         }
       ],
       "text": "  what is still   broken in the\teditor toolbar ",
-      "expected": "Translate the sentence into one issue search query.\nTokens:\nis:open or is:closed\nstatus:<word>, one of backlog, progress, review, done, cancelled, duplicate\nby:<name> for who created the issue, one of lukas, anna\ncreated:<range> or updated:<range>, a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD\nany other word is a plain search word: keep only the words that name the topic\nUse no other tokens. Today is 2026-11-14 (UTC).\nAnswer with one line, the query only.\nExamples:\noffene Issues zum Editor aus letzter Woche -> is:open created:7d editor\nwhich crashes did we close since yesterday -> is:closed updated:yesterday crash\nwas wurde im letzten Monat zur Abrechnung erledigt -> status:done updated:1m abrechnung\neverything in review about the login page -> status:review login page\nwhat did lukas file about sync this year -> by:lukas created:1y sync\nSentence: what is still broken in the editor toolbar"
+      "expected": "Translate the sentence into one issue search query.\nTokens:\nis:open or is:closed, at most one\nstatus:<word>, at most one of backlog, progress, review, done, cancelled, duplicate\nby:<name> for who created the issue, only when the sentence names one of lukas, anna\ncreated:<range> or updated:<range>, only when the sentence names a time; a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD\nany other word is a plain search word: keep only the words that name the topic, as the sentence spells them\nUse no other tokens. Never add a person, a status or a time the sentence does not name. Today is 2026-11-14 (UTC).\nAnswer with one line, the query only.\nExamples:\noffene Issues zum Editor aus letzter Woche -> is:open created:7d editor\nwhich crashes did we close since yesterday -> is:closed updated:yesterday crashes\nwas wurde im letzten Monat zur Abrechnung erledigt -> status:done updated:1m abrechnung\neverything in review about the login page -> status:review login page\nwhy is the export to csv so slow -> export csv slow\nwelche Fehler beim Drucken von Rechnungen sind noch offen -> is:open fehler drucken rechnungen\nwhat did lukas file about sync this year -> by:lukas created:1y sync\nSentence: what is still broken in the editor toolbar"
     },
     {
       "name": "without members: no by: line",
       "now": "2027-01-02T00:30:00Z",
       "members": [],
       "text": "warum stürzt der Editor beim Einfügen ständig ab",
-      "expected": "Translate the sentence into one issue search query.\nTokens:\nis:open or is:closed\nstatus:<word>, one of backlog, progress, review, done, cancelled, duplicate\ncreated:<range> or updated:<range>, a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD\nany other word is a plain search word: keep only the words that name the topic\nUse no other tokens. Today is 2027-01-02 (UTC).\nAnswer with one line, the query only.\nExamples:\noffene Issues zum Editor aus letzter Woche -> is:open created:7d editor\nwhich crashes did we close since yesterday -> is:closed updated:yesterday crash\nwas wurde im letzten Monat zur Abrechnung erledigt -> status:done updated:1m abrechnung\neverything in review about the login page -> status:review login page\nSentence: warum stürzt der Editor beim Einfügen ständig ab"
+      "expected": "Translate the sentence into one issue search query.\nTokens:\nis:open or is:closed, at most one\nstatus:<word>, at most one of backlog, progress, review, done, cancelled, duplicate\ncreated:<range> or updated:<range>, only when the sentence names a time; a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD\nany other word is a plain search word: keep only the words that name the topic, as the sentence spells them\nUse no other tokens. Never add a person, a status or a time the sentence does not name. Today is 2027-01-02 (UTC).\nAnswer with one line, the query only.\nExamples:\noffene Issues zum Editor aus letzter Woche -> is:open created:7d editor\nwhich crashes did we close since yesterday -> is:closed updated:yesterday crashes\nwas wurde im letzten Monat zur Abrechnung erledigt -> status:done updated:1m abrechnung\neverything in review about the login page -> status:review login page\nwhy is the export to csv so slow -> export csv slow\nwelche Fehler beim Drucken von Rechnungen sind noch offen -> is:open fehler drucken rechnungen\nSentence: warum stürzt der Editor beim Einfügen ständig ab"
     }
   ]
 }

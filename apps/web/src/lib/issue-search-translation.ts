@@ -36,6 +36,11 @@ export const ISSUE_SEARCH_TRANSLATION = fixture.limits
 /** The instruction line both models get beside the prompt. */
 export const ISSUE_SEARCH_TRANSLATION_SYSTEM = fixture.system
 
+// The words that say a sentence names a TIME or a STATE (the fixture's
+// `hints`): a date or a state the model answers without one is dropped.
+const TIME_WORDS = new Set(fixture.hints.time.split(` `))
+const STATE_WORDS = new Set(fixture.hints.state.split(` `))
+
 const FILTER_PREFIXES = [`by:`, `is:`, `status:`, `created:`, `updated:`, `similar:`]
 /** What a model wraps its answer in: quotes, backticks, emphasis. */
 const WRAP = `\`"'*“”„‘’«»`
@@ -122,8 +127,10 @@ export function issueSearchWantsTranslation(text: string, options?: IssueSearchP
 
 /**
  * The query a model's answer means, or null. Only tokens the engine accepts
- * survive, in the phrase grammar's order (is:, status:, by:, the dates, the
- * words); null when nothing is left or nothing changed against `text`.
+ * AND the typed text backs survive (a person, a word, a time or a state the
+ * sentence does not name is the model's invention), in the phrase grammar's
+ * order (is:, status:, by:, the dates, the words); null when nothing is left
+ * or nothing changed against `text`.
  */
 export function sanitizeIssueSearchTranslation(
   output: string,
@@ -134,6 +141,23 @@ export function sanitizeIssueSearchTranslation(
   const members = membersOf(options)
   const isMember = (word: string) =>
     members.some((member) => member.words.includes(word) || (member.local.length > 0 && member.local === word))
+
+  // What the typed text names: its words, a time, a state.
+  const textWords = issueSearchWords(text.toLowerCase())
+  const textTokens = text.toLowerCase().split(/\s+/u).map(stripPunctuation)
+  const namesTime = textTokens.some((token) => /[0-9]/.test(token) || TIME_WORDS.has(token))
+  const namesState = textTokens.some((token) => STATE_WORDS.has(token))
+  // A word of the answer is the text's when one starts with the other
+  // (`crash` for `crashes`); a text word under three letters is no stem.
+  const inText = (token: string) => {
+    const words = issueSearchWords(token)
+    return (
+      words.length > 0 &&
+      words.every((word) =>
+        textWords.some((typed) => typed.startsWith(word) || (codePoints(typed) >= 3 && word.startsWith(typed)))
+      )
+    )
+  }
 
   let line = ``
   for (const raw of output.split(`\n`)) {
@@ -151,7 +175,7 @@ export function sanitizeIssueSearchTranslation(
   }
   const plain = (token: string) => {
     const word = stripPunctuation(token)
-    if (issueSearchWords(word).length === 0) return
+    if (!inText(word)) return
     if (codePoints(word) > ISSUE_SEARCH_TRANSLATION.maxWordLength) return
     if (words.length >= ISSUE_SEARCH_TRANSLATION.maxWords && !words.includes(word)) return
     add(words, word)
@@ -160,22 +184,24 @@ export function sanitizeIssueSearchTranslation(
   for (const token of issueSearchTokens(line).slice(0, ISSUE_SEARCH_TRANSLATION.maxTokens)) {
     if (token.startsWith(ISSUE_SEARCH_STATE_PREFIX)) {
       const value = token.slice(ISSUE_SEARCH_STATE_PREFIX.length)
-      if (value === `open` || value === `closed`) add(states, value)
+      // One state at most: two would never match together.
+      if ((value === `open` || value === `closed`) && namesState && states.length === 0) states.push(value)
     } else if (token.startsWith(ISSUE_SEARCH_STATUS_PREFIX)) {
       const value = token.slice(ISSUE_SEARCH_STATUS_PREFIX.length)
-      if (isWord(value) && codePoints(value) <= ISSUE_SEARCH_TRANSLATION.maxWordLength) add(statuses, value)
+      const valid = isWord(value) && codePoints(value) <= ISSUE_SEARCH_TRANSLATION.maxWordLength
+      if (valid && namesState && statuses.length === 0) statuses.push(value)
     } else if (token.startsWith(ISSUE_SEARCH_CREATOR_PREFIX)) {
       let value = token.slice(ISSUE_SEARCH_CREATOR_PREFIX.length)
       if (value.startsWith(`@`)) value = value.slice(1)
       // A name that is no member is a plain word, like in the grammar.
-      if (isMember(value)) add(creators, value)
+      if (isMember(value) && inText(value)) add(creators, value)
       else if (!value.includes(`:`)) plain(value)
     } else if (token.startsWith(ISSUE_SEARCH_CREATED_PREFIX)) {
       const value = token.slice(ISSUE_SEARCH_CREATED_PREFIX.length)
-      if (parseIssueSearchRange(value, now)) add(dates, `${ISSUE_SEARCH_CREATED_PREFIX}${value}`)
+      if (namesTime && parseIssueSearchRange(value, now)) add(dates, `${ISSUE_SEARCH_CREATED_PREFIX}${value}`)
     } else if (token.startsWith(ISSUE_SEARCH_UPDATED_PREFIX)) {
       const value = token.slice(ISSUE_SEARCH_UPDATED_PREFIX.length)
-      if (parseIssueSearchRange(value, now)) add(dates, `${ISSUE_SEARCH_UPDATED_PREFIX}${value}`)
+      if (namesTime && parseIssueSearchRange(value, now)) add(dates, `${ISSUE_SEARCH_UPDATED_PREFIX}${value}`)
     } else if (!token.includes(`:`)) {
       plain(token)
     }
@@ -222,18 +248,22 @@ export function issueSearchTranslationPrompt(text: string, options?: IssueSearch
   const lines = [
     `Translate the sentence into one issue search query.`,
     `Tokens:`,
-    `is:open or is:closed`,
-    `status:<word>, one of backlog, progress, review, done, cancelled, duplicate`,
-    ...(names.length > 0 ? [`by:<name> for who created the issue, one of ${names.join(`, `)}`] : []),
-    `created:<range> or updated:<range>, a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD`,
-    `any other word is a plain search word: keep only the words that name the topic`,
-    `Use no other tokens. Today is ${pad(today.year, 4)}-${pad(today.month, 2)}-${pad(today.day, 2)} (UTC).`,
+    `is:open or is:closed, at most one`,
+    `status:<word>, at most one of backlog, progress, review, done, cancelled, duplicate`,
+    ...(names.length > 0
+      ? [`by:<name> for who created the issue, only when the sentence names one of ${names.join(`, `)}`]
+      : []),
+    `created:<range> or updated:<range>, only when the sentence names a time; a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD`,
+    `any other word is a plain search word: keep only the words that name the topic, as the sentence spells them`,
+    `Use no other tokens. Never add a person, a status or a time the sentence does not name. Today is ${pad(today.year, 4)}-${pad(today.month, 2)}-${pad(today.day, 2)} (UTC).`,
     `Answer with one line, the query only.`,
     `Examples:`,
     `offene Issues zum Editor aus letzter Woche -> is:open created:7d editor`,
-    `which crashes did we close since yesterday -> is:closed updated:yesterday crash`,
+    `which crashes did we close since yesterday -> is:closed updated:yesterday crashes`,
     `was wurde im letzten Monat zur Abrechnung erledigt -> status:done updated:1m abrechnung`,
     `everything in review about the login page -> status:review login page`,
+    `why is the export to csv so slow -> export csv slow`,
+    `welche Fehler beim Drucken von Rechnungen sind noch offen -> is:open fehler drucken rechnungen`,
     ...(names.length > 0 ? [`what did ${names[0]} file about sync this year -> by:${names[0]} created:1y sync`] : []),
     `Sentence: ${sentence}`,
   ]

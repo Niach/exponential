@@ -29,6 +29,13 @@ public enum IssueSearchTranslation {
     /// The instruction line the model gets beside the prompt.
     public static let system = "You turn sentences into issue search queries."
 
+    /// The fixture's `hints`: the words that say a sentence names a TIME or
+    /// a STATE. A date or a state the model answers without one is dropped.
+    static let timeHints = "heute today gestern yesterday morgen tomorrow tag tage tagen day days woche wochen week weeks monat monate monaten month months jahr jahre jahren year years quartal quarter letzter letzten letzte letztem letztes last past previous vergangene vergangenen vergangener vergangenes diese dieser diesen diesem dieses this seit since ab after nach vor before bis until ago her recently lately neulich kürzlich zuletzt letztens januar january februar february märz march april mai may juni june juli july august september oktober october november dezember december montag monday dienstag tuesday mittwoch wednesday donnerstag thursday freitag friday samstag saturday sonntag sunday wochenende weekend old older oldest alt alte alten älter ältere älteste new newer newest neu neue neuen neuer neueste neuesten latest aktuell aktuelle aktuellen"
+    static let stateHints = "open offen offene offenen offener offenes unresolved ungelöst ungelöste ungelösten unfinished unerledigt unerledigte unerledigten closed close geschlossen geschlossene geschlossenen resolved gelöst gelöste gelösten backlog done erledigt erledigte erledigten fertig fertige fertigen completed finished abgeschlossen abgeschlossene abgeschlossenen cancelled canceled abgebrochen abgebrochene abgebrochenen storniert stornierte stornierten duplicate duplicates duplikat duplikate duplikaten progress arbeit bearbeitung review still noch yet pending ausstehend todo fixed behoben gefixt started begonnen angefangen unstarted active aktiv aktive aktiven working wip shipped landed merged"
+    private static let timeWords = Set(timeHints.split(separator: " ").map(String.init))
+    private static let stateWords = Set(stateHints.split(separator: " ").map(String.init))
+
     private static let filterPrefixes = ["by:", "is:", "status:", "created:", "updated:", "similar:"]
     /// What a model wraps its answer in: quotes, backticks, emphasis.
     private static let wrap: Set<Character> = ["`", "\"", "'", "*", "“", "”", "„", "‘", "’", "«", "»"]
@@ -101,9 +108,10 @@ public enum IssueSearchTranslation {
     }
 
     /// The query a model's answer means, or nil. Only tokens the engine
-    /// accepts survive, in the phrase grammar's order (is:, status:, by:,
-    /// the dates, the words); nil when nothing is left or nothing changed
-    /// against `text`.
+    /// accepts AND the typed text backs survive (a person, a word, a time or
+    /// a state the sentence does not name is the model's invention), in the
+    /// phrase grammar's order (is:, status:, by:, the dates, the words); nil
+    /// when nothing is left or nothing changed against `text`.
     public static func sanitize(
         _ output: String,
         text: String,
@@ -113,6 +121,25 @@ public enum IssueSearchTranslation {
         let people = people(members)
         func isMember(_ word: String) -> Bool {
             people.contains { $0.words.contains(word) || (!$0.local.isEmpty && $0.local == word) }
+        }
+
+        // What the typed text names: its words, a time, a state.
+        let lowered = text.lowercased()
+        let textWords = IssueSearch.words(lowered)
+        let textTokens = lowered.split(whereSeparator: { $0.isWhitespace }).map { stripPunctuation($0) }
+        let namesTime = textTokens.contains { token in
+            token.unicodeScalars.contains { $0.value >= 48 && $0.value <= 57 } || timeWords.contains(token)
+        }
+        let namesState = textTokens.contains { stateWords.contains($0) }
+        // A word of the answer is the text's when one starts with the other
+        // (`crash` for `crashes`); a text word under three letters is no stem.
+        func inText(_ token: String) -> Bool {
+            let parts = IssueSearch.words(token)
+            return !parts.isEmpty && parts.allSatisfy { word in
+                textWords.contains { typed in
+                    typed.hasPrefix(word) || (typed.unicodeScalars.count >= 3 && word.hasPrefix(typed))
+                }
+            }
         }
 
         // Split on the LINE FEED scalar: a Swift Character holds `\r\n` whole.
@@ -129,7 +156,7 @@ public enum IssueSearchTranslation {
         var words: [String] = []
         func plain(_ token: String) {
             let word = stripPunctuation(Substring(token))
-            if IssueSearch.words(word).isEmpty || word.unicodeScalars.count > Limits.maxWordLength { return }
+            if !inText(word) || word.unicodeScalars.count > Limits.maxWordLength { return }
             if words.count >= Limits.maxWords, !words.contains(word) { return }
             add(&words, word)
         }
@@ -137,25 +164,29 @@ public enum IssueSearchTranslation {
         for token in IssueSearch.tokens(line).prefix(Limits.maxTokens) {
             if token.hasPrefix(IssueSearch.statePrefix) {
                 let value = String(token.dropFirst(IssueSearch.statePrefix.count))
-                if value == "open" || value == "closed" { add(&states, value) }
+                // One state at most: two would never match together.
+                if value == "open" || value == "closed", namesState, states.isEmpty { states.append(value) }
             } else if token.hasPrefix(IssueSearch.statusPrefix) {
                 let value = String(token.dropFirst(IssueSearch.statusPrefix.count))
-                if isWord(value), value.unicodeScalars.count <= Limits.maxWordLength { add(&statuses, value) }
+                let valid = isWord(value) && value.unicodeScalars.count <= Limits.maxWordLength
+                if valid, namesState, statuses.isEmpty { statuses.append(value) }
             } else if token.hasPrefix(IssueSearch.creatorPrefix) {
                 var value = String(token.dropFirst(IssueSearch.creatorPrefix.count))
                 if value.hasPrefix("@") { value = String(value.dropFirst()) }
                 // A name that is no member is a plain word, like in the grammar.
-                if isMember(value) {
+                if isMember(value), inText(value) {
                     add(&creators, value)
                 } else if !value.contains(":") {
                     plain(value)
                 }
             } else if token.hasPrefix(IssueSearch.createdPrefix) {
-                if IssueSearch.parseRange(String(token.dropFirst(IssueSearch.createdPrefix.count)), now: now) != nil {
+                if namesTime,
+                   IssueSearch.parseRange(String(token.dropFirst(IssueSearch.createdPrefix.count)), now: now) != nil {
                     add(&dates, token)
                 }
             } else if token.hasPrefix(IssueSearch.updatedPrefix) {
-                if IssueSearch.parseRange(String(token.dropFirst(IssueSearch.updatedPrefix.count)), now: now) != nil {
+                if namesTime,
+                   IssueSearch.parseRange(String(token.dropFirst(IssueSearch.updatedPrefix.count)), now: now) != nil {
                     add(&dates, token)
                 }
             } else if !token.contains(":") {
@@ -203,22 +234,26 @@ public enum IssueSearchTranslation {
         var lines = [
             "Translate the sentence into one issue search query.",
             "Tokens:",
-            "is:open or is:closed",
-            "status:<word>, one of backlog, progress, review, done, cancelled, duplicate",
+            "is:open or is:closed, at most one",
+            "status:<word>, at most one of backlog, progress, review, done, cancelled, duplicate",
         ]
         if !names.isEmpty {
-            lines.append("by:<name> for who created the issue, one of \(names.joined(separator: ", "))")
+            lines.append(
+                "by:<name> for who created the issue, only when the sentence names one of \(names.joined(separator: ", "))"
+            )
         }
         lines += [
-            "created:<range> or updated:<range>, a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD",
-            "any other word is a plain search word: keep only the words that name the topic",
-            "Use no other tokens. Today is \(pad(today.year, 4))-\(pad(today.month, 2))-\(pad(today.day, 2)) (UTC).",
+            "created:<range> or updated:<range>, only when the sentence names a time; a range is 7d, 2w, 1m, 1y, today, yesterday, YYYY-MM-DD, YYYY-MM, >=YYYY-MM-DD, <YYYY-MM-DD or YYYY-MM-DD..YYYY-MM-DD",
+            "any other word is a plain search word: keep only the words that name the topic, as the sentence spells them",
+            "Use no other tokens. Never add a person, a status or a time the sentence does not name. Today is \(pad(today.year, 4))-\(pad(today.month, 2))-\(pad(today.day, 2)) (UTC).",
             "Answer with one line, the query only.",
             "Examples:",
             "offene Issues zum Editor aus letzter Woche -> is:open created:7d editor",
-            "which crashes did we close since yesterday -> is:closed updated:yesterday crash",
+            "which crashes did we close since yesterday -> is:closed updated:yesterday crashes",
             "was wurde im letzten Monat zur Abrechnung erledigt -> status:done updated:1m abrechnung",
             "everything in review about the login page -> status:review login page",
+            "why is the export to csv so slow -> export csv slow",
+            "welche Fehler beim Drucken von Rechnungen sind noch offen -> is:open fehler drucken rechnungen",
         ]
         if let first = names.first {
             lines.append("what did \(first) file about sync this year -> by:\(first) created:1y sync")
