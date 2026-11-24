@@ -61,13 +61,19 @@ export function steerEnvelopeFrom(value: unknown): SteerEnvelope | null {
   return { t: v.t, v: v.v, sessionId: v.sessionId, frames: v.frames as SteerFrame[] }
 }
 
-/** The device's access rule for one envelope's sender. */
+/** The device's access rule for one envelope's sender. #EXP-2079: with no
+ *  registry list at all for the session's team (`teamListed` false: a
+ *  personal team is never synced) the starter is allowed from any list. */
 export function steerViewerAllowed(input: {
   viewerUserId: string | null
   starterUserId: string
   shared: boolean
+  teamListed?: boolean
+  anyTeamUserId?: string | null
 }): boolean {
-  if (!input.viewerUserId) return false
+  if (!input.viewerUserId) {
+    return input.teamListed === false && !!input.anyTeamUserId && input.anyTeamUserId === input.starterUserId
+  }
   return input.viewerUserId === input.starterUserId || input.shared
 }
 

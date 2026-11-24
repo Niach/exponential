@@ -6,7 +6,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // runs with no team resolved yet, and it re-runs on changes.
 
 const mockState = vi.hoisted(() => ({
-  rows: [] as { id: string; status: string }[],
+  rows: [] as { id: string; status: string; teamId?: string }[],
+  teams: [{ id: `team-1` }] as { id: string }[],
   params: {} as Record<string, string | undefined>,
   retain: vi.fn(),
   queried: false,
@@ -21,13 +22,20 @@ vi.mock(`@tanstack/react-db`, () => ({
   eq: () => null,
   useLiveQuery: (build: (query: unknown) => unknown) => {
     const chain: Record<string, unknown> = {}
-    for (const key of [`from`, `where`, `select`]) chain[key] = () => chain
-    mockState.queried = build(chain) !== undefined
-    return { data: mockState.queried ? mockState.rows : undefined }
+    let teams = false
+    chain.from = (source: Record<string, unknown>) => {
+      teams = `teams` in source
+      return chain
+    }
+    for (const key of [`where`, `select`]) chain[key] = () => chain
+    const built = build(chain) !== undefined
+    if (teams) return { data: mockState.teams }
+    mockState.queried = built
+    return { data: built ? mockState.rows.map((row) => ({ teamId: `team-1`, ...row })) : undefined }
   },
 }))
 
-vi.mock(`@/lib/collections`, () => ({ sessionCollection: {} }))
+vi.mock(`@/lib/collections`, () => ({ sessionCollection: {}, teamCollection: {} }))
 
 vi.mock(`@/lib/steer-session-store`, () => ({
   retainSteerSessions: mockState.retain,
@@ -78,5 +86,20 @@ describe(`useSteerSessionReaper`, () => {
     mockState.params = { teamSlug: `acme`, sessionId: `s3` }
     rerender()
     expect(lastKeep()).toEqual([`s1`, `s2`, `s3`])
+  })
+
+  // #EXP-2079 (agent-settings.json `assistant.chatTeams` LIVE STATE): my own
+  // session in a team I do not sync (the Assistant's conversation) is kept
+  // on every team's page; another synced team's session is not.
+  it(`keeps my session of a team that is not synced, whatever team's page is open`, () => {
+    mockState.rows = [
+      { id: `s1`, status: `running` },
+      { id: `assistant`, status: `idle`, teamId: `personal` },
+      { id: `other`, status: `running`, teamId: `team-2` },
+      { id: `gone`, status: `ended`, teamId: `personal` },
+    ]
+    mockState.teams = [{ id: `team-1` }, { id: `team-2` }]
+    renderHook(() => useSteerSessionReaper(`team-1`, `user-1`))
+    expect(lastKeep()).toEqual([`assistant`, `s1`])
   })
 })

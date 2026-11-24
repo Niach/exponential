@@ -5,6 +5,7 @@
 import { useMemo, useState } from "react"
 import { Button, conceptIcon, DevicePicker, type DevicePickerDevice } from "@exp/ui"
 import { useSession } from "@/hooks/use-session"
+import { useSessionOwnDevices } from "@/hooks/use-chat-teams"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { canSteerSession } from "@/lib/session-account-switch"
@@ -37,7 +38,15 @@ type MoveSession = Pick<
 export function SessionDeviceMoveButton({ session, label }: { session: MoveSession; label: string }) {
   const { data: auth } = useSession()
   const viewerId = auth?.user.id ?? null
-  const { devices } = useSteerDevices({ currentUserId: viewerId ?? undefined, teamId: session.teamId })
+  // #EXP-2079 (agent-settings.json `assistant.chatTeams` `deviceCases`): the
+  // viewer's own session in a team they do not sync (the Assistant's
+  // conversation) lists their OWN machines, whatever teams they are shared
+  // with; every other session keeps the team rule.
+  const ownDevices = useSessionOwnDevices(session, viewerId)
+  const { devices } = useSteerDevices({
+    currentUserId: viewerId ?? undefined,
+    ...(ownDevices ? {} : { teamId: session.teamId }),
+  })
   const [moving, setMoving] = useState(false)
   const rows = useMemo<DevicePickerDevice[]>(
     () =>

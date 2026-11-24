@@ -5,7 +5,7 @@
 // pickers, filter pills, submenus) resolves through a plain context read
 // instead of its own live query — a 200-row list must not open 200 queries.
 import { createContext, useContext, useMemo } from "react"
-import { eq, useLiveQuery } from "@tanstack/react-db"
+import { eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import { issueStatusCollection } from "@/lib/collections"
 import type { IssueStatusRow } from "@/db/schema"
 import {
@@ -56,6 +56,32 @@ export function useTeamStatuses(teamId: string | undefined): TeamStatuses {
     () => buildTeamStatuses(rows as IssueStatusRow[] | undefined),
     [rows]
   )
+}
+
+/** #EXP-2079 (agent-settings.json `assistant.chatTeams` (6)): the statuses
+ *  of SEVERAL teams, each issue resolved in its OWN team (`teamId` picks the
+ *  set; an unknown team = the constructed defaults). */
+export function useStatusesForTeams(teamIds: readonly string[]): (teamId: string | null | undefined) => TeamStatuses {
+  const key = teamIds.join(`,`)
+  const { data: rows } = useLiveQuery(
+    (query) =>
+      teamIds.length > 0
+        ? query
+            .from({ issueStatuses: issueStatusCollection })
+            .where(({ issueStatuses }) => inArray(issueStatuses.teamId, [...teamIds]))
+        : undefined,
+    [key]
+  )
+  return useMemo(() => {
+    const byTeam = new Map<string, IssueStatusRow[]>()
+    for (const row of (rows ?? []) as IssueStatusRow[]) {
+      const list = byTeam.get(row.teamId)
+      if (list) list.push(row)
+      else byTeam.set(row.teamId, [row])
+    }
+    const built = new Map([...byTeam].map(([teamId, list]) => [teamId, buildTeamStatuses(list)]))
+    return (teamId) => (teamId ? built.get(teamId) : undefined) ?? FALLBACK_TEAM_STATUSES
+  }, [rows])
 }
 
 const TeamStatusesContext = createContext<TeamStatuses | null>(null)

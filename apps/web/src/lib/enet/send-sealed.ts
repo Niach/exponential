@@ -7,12 +7,12 @@
 import type { SessionsSendInput } from "@exp/db-schema/domain"
 import {
   deviceCollection,
-  issueCollection,
   messageCollection,
   sessionCollection,
   userCollection,
 } from "@/lib/collections"
 import type { CardAnswerInput } from "@/lib/sessions/card-answer"
+import { chatTeamIds, issueIdsInTeams } from "@/lib/chat-teams"
 import { trpc } from "@/lib/trpc-client"
 import { awaitKeyHolder, currentKeyHolder } from "./current-key-holder"
 import { SEALED_BODY_PREFIX } from "@exp/domain-contract/sealed-content"
@@ -43,12 +43,10 @@ function sealDeps(): SealDeps {
         .filter((row) => typeof row.email === `string` && wanted.has(row.email.toLowerCase()))
         .map((row) => row.id)
     },
-    issueIdsByIdentifier: (teamId, identifiers) => {
-      const wanted = new Set(identifiers.map((identifier) => identifier.toUpperCase()))
-      return [...issueCollection.values()]
-        .filter((row) => (!teamId || row.teamId === teamId) && wanted.has(row.identifier.toUpperCase()))
-        .map((row) => row.id)
-    },
+    // #EXP-2079: over the chat teams (the Assistant's conversation sits in
+    // a personal team no issue belongs to).
+    issueIdsByIdentifier: (teamId, identifiers, pickedTeamIds) =>
+      issueIdsInTeams(chatTeamIds(teamId, pickedTeamIds), identifiers),
     sendTarget: (target) => trpc.sessions.sendTarget.query(target, quiet),
     publicKey: async (rootId) => (await trpc.sessionKeys.publicKeys.query({ rootIds: [rootId] }, quiet))[0],
     requestKey: (rootId) => trpc.sessionKeys.requestKey.mutate({ rootId }, quiet),

@@ -148,12 +148,45 @@ mkdir "$root/described" && echo "other $((now - 125)) $$ $host sess1234" > "$roo
 d=$(lock_describe "$root/described")
 [ "$d" = "held by other (session sess1234, pid $$) for 2m" ] && ok "a busy lock names owner, session, pid and age" || no "a busy lock names owner, session, pid and age (got '$d')"
 
+# A stand-in for another run's lane.sh (only its name counts) with a child:
+# `fake_holder <pidfile>` starts one and records its pid; its child's pid
+# lands in <pidfile>.child.
+mkdir -p "$root/fake"
+printf 'sleep 300 &\necho $! > "$1.child"\nwait\n' > "$root/fake/lane.sh"
+fake_holder() {
+  sh "$root/fake/lane.sh" "$1" &
+  echo $! > "$1"
+  i=0; while [ ! -s "$1.child" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+}
+running() { st=$(ps -o stat= -p "$1" 2>/dev/null); case "$st" in '' | Z*) return 1 ;; esac; }
+
 # A live heavy holder past LANE_MAX_HOLD_SECONDS hands its slot to the next
 # waiter, and the overrun holder can no longer release the new holder's lock.
-mkdir "$root/exp-perf-heavy-1" && echo "slow $((now - 100)) $$ $host sess0001" > "$root/exp-perf-heavy-1/owner"
-out=$(LANE_MAX_HOLD_SECONDS=60 LANE_LOCK_POLL_SECONDS=0 "$here/lane.sh" heavy fast -- sh -c 'cut -d" " -f1 "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-1/owner"' 2>/dev/null)
+# #FEED-306: the waiter ENDS the holder and its whole tree first.
+fake_holder "$root/slow.pid"
+slowpid=$(cat "$root/slow.pid"); slowchild=$(cat "$root/slow.pid.child")
+mkdir "$root/exp-perf-heavy-1" && echo "slow $((now - 100)) $slowpid $host sess0001" > "$root/exp-perf-heavy-1/owner"
+out=$(LANE_MAX_HOLD_SECONDS=60 LANE_LOCK_POLL_SECONDS=0 LANE_KILL_GRACE_SECONDS=5 "$here/lane.sh" heavy fast -- sh -c 'cut -d" " -f1 "$EXP_LANE_LOCK_ROOT/exp-perf-heavy-1/owner"' 2>/dev/null)
 [ "$out" = fast ] && ok "an overdue heavy holder hands its slot to the waiter" || no "an overdue heavy holder hands its slot to the waiter (got '$out')"
-grep -q "exp-perf-heavy-1 handover owner=slow session=sess0001 pid=$$ held=[0-9]*s reason=overdue to=fast" "$log" && ok "a handover is logged with the old holder's hold" || no "a handover is logged with the old holder's hold"
+wait "$slowpid" 2>/dev/null
+if running "$slowpid" || running "$slowchild"; then no "the overdue holder and its job are ended before the handover"; else ok "the overdue holder and its job are ended before the handover"; fi
+grep -q "exp-perf-heavy-1 end owner=slow session=sess0001 pid=$slowpid held=[0-9]*s reason=overdue to=fast" "$log" && ok "ending the overdue job is logged" || no "ending the overdue job is logged"
+grep -q "exp-perf-heavy-1 handover owner=slow session=sess0001 pid=$slowpid held=[0-9]*s reason=overdue to=fast" "$log" && ok "a handover is logged with the old holder's hold" || no "a handover is logged with the old holder's hold"
+# A holder that is no lane.sh (a person's shell that took the lock by hand)
+# is never killed: the handover is refused, the slot stays.
+mkdir "$root/exp-perf-heavy-1" && echo "slow $((now - 100)) $$ $host sess0001" > "$root/exp-perf-heavy-1/owner"
+if LANE_MAX_HOLD_SECONDS=60 try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null; then no "an overdue holder that is no lane.sh keeps its slot"; else ok "an overdue holder that is no lane.sh keeps its slot"; fi
+[ "$(lock_owner "$root/exp-perf-heavy-1")" = slow ] && ok "the refused handover leaves the lock" || no "the refused handover leaves the lock"
+grep -q "exp-perf-heavy-1 handover-refused owner=slow .* why=not-a-lane-job" "$log" && ok "a refused handover is logged" || no "a refused handover is logged"
+# One that survives TERM and KILL (KILL refused: another user's) keeps it too.
+fake_holder "$root/stuck.pid"
+stuckpid=$(cat "$root/stuck.pid")
+echo "stuck $((now - 100)) $stuckpid $host sess0009" > "$root/exp-perf-heavy-1/owner"
+if (kill() { return 0; }; lane_any_alive() { return 0; }; LANE_MAX_HOLD_SECONDS=60 LANE_KILL_GRACE_SECONDS=0 try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null); then no "a holder that does not end keeps its slot"; else ok "a holder that does not end keeps its slot"; fi
+[ "$(lock_owner "$root/exp-perf-heavy-1")" = stuck ] && ok "never two heavy jobs: the survivor's lock stays" || no "never two heavy jobs: the survivor's lock stays"
+grep -q "handover-refused owner=stuck .* why=still-running" "$log" && ok "a survivor's refusal is logged" || no "a survivor's refusal is logged"
+kill "$stuckpid" "$(cat "$root/stuck.pid.child")" 2>/dev/null; wait "$stuckpid" 2>/dev/null
+rm -rf "$root/exp-perf-heavy-1"
 mkdir "$root/exp-perf-heavy-1" && echo "slow $((now - 100)) $$ $host sess0001" > "$root/exp-perf-heavy-1/owner"
 if LANE_MAX_HOLD_SECONDS=0 try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null; then no "LANE_MAX_HOLD_SECONDS=0 never hands over"; else ok "LANE_MAX_HOLD_SECONDS=0 never hands over"; fi
 if LANE_MAX_HOLD_SECONDS=600 try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null; then no "a heavy holder within its max hold keeps the slot"; else ok "a heavy holder within its max hold keeps the slot"; fi
@@ -164,9 +197,10 @@ rm -rf "$root/exp-ios-sim-1"
 mkdir "$root/handed" && echo "me $now 1 $host -" > "$root/handed/owner"
 if LANE_LOCK_PID=$$ release_lock "$root/handed" me 2>/dev/null; then no "a handed-over holder never frees the new holder's lock"; else ok "a handed-over holder never frees the new holder's lock"; fi
 
-# The holder is warned at its deadline, its command keeps running to the end.
+# The holder is warned at its deadline; with nobody waiting its command
+# runs to the end.
 err=$(LANE_MAX_HOLD_SECONDS=1 "$here/lane.sh" heavy long -- sh -c 'sleep 2; echo done' 2>&1)
-case "$err" in *"keeps running"*done*) ok "the holder is warned at the max hold and keeps running" ;; *) no "the holder is warned at the max hold and keeps running (got '$err')" ;; esac
+case "$err" in *"the next waiter ends this command"*done*) ok "the holder is warned at the max hold and keeps running" ;; *) no "the holder is warned at the max hold and keeps running (got '$err')" ;; esac
 grep -q "exp-perf-heavy-1 overrun owner=long .* held=1s" "$log" && ok "an overrun is logged" || no "an overrun is logged"
 [ ! -e "$root/exp-perf-heavy-1" ] && ok "an overrun holder still releases its slot" || no "an overrun holder still releases its slot"
 
@@ -211,8 +245,9 @@ order=$(tr '\n' ' ' < "$root/order")
 
 # The overdue handover goes to the oldest live waiter too: the holder turns
 # overdue (60 s max hold) about 4 s after both waiters queued.
+fake_holder "$root/slow5.pid"
 now=$(date +%s)
-mkdir "$root/exp-perf-heavy-1" && echo "slow $((now - 56)) $holdpid $host sess0005" > "$root/exp-perf-heavy-1/owner"
+mkdir "$root/exp-perf-heavy-1" && echo "slow $((now - 56)) $(cat "$root/slow5.pid") $host sess0005" > "$root/exp-perf-heavy-1/owner"
 : > "$root/order"
 LANE_MAX_HOLD_SECONDS=60 LANE_LOCK_POLL_SECONDS=2 "$here/lane.sh" heavy old -- sh -c 'echo old >> "$EXP_LANE_LOCK_ROOT/order"; sleep 1' 2>/dev/null & pa=$!
 registered old
@@ -256,6 +291,50 @@ rm -rf "$root/exp-perf-heavy-1"
 wait "$pa"
 rm -f "$root/exp-lane-slots"
 kill "$holdpid" 2>/dev/null; wait "$holdpid" 2>/dev/null
+
+# #FEED-306 end to end: a REAL lane.sh holder past its max hold. The waiter
+# ends its job (the whole tree) before its own command runs: never two.
+LANE_MAX_HOLD_SECONDS=1 LANE_KILL_GRACE_SECONDS=5 "$here/lane.sh" heavy overrun -- sh -c 'echo $$ > "$EXP_LANE_LOCK_ROOT/overrun.job"; sleep 300 & echo $! > "$EXP_LANE_LOCK_ROOT/overrun.child"; wait' 2>/dev/null &
+overrun=$!
+i=0; while [ ! -s "$root/overrun.child" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+job=$(cat "$root/overrun.job"); child=$(cat "$root/overrun.child")
+out=$(LANE_MAX_HOLD_SECONDS=1 LANE_LOCK_POLL_SECONDS=0.2 LANE_KILL_GRACE_SECONDS=5 "$here/lane.sh" heavy next -- sh -c "ps -o stat= -p $job -p $child | grep -v '^Z' | grep -c . ; true" 2>/dev/null)
+wait "$overrun"
+[ "$out" = 0 ] && ok "an overdue lane job is ended before the next one starts" || no "an overdue lane job is ended before the next one starts (still running: '$out')"
+if running "$job" || running "$child" || running "$overrun"; then no "nothing of the overdue run is left"; else ok "nothing of the overdue run is left"; fi
+[ ! -e "$root/exp-perf-heavy-1" ] && ok "both runs released the slot" || no "both runs released the slot"
+
+# #FEED-306: a session's lane job goes with the session. A stopped turn's
+# shell dies and leaves lane.sh to pid 1: it notices and ends its job.
+rm -f "$root/orphan.job"
+sh -c "LANE_ORPHAN_POLL_SECONDS=0.5 '$here/lane.sh' heavy orphan -- sh -c 'echo \$\$ > \"$root/orphan.job\"; sleep 300' 2>/dev/null & echo \$! > '$root/orphan.lane'; wait" &
+caller=$!
+i=0; while [ ! -s "$root/orphan.job" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+lanepid=$(cat "$root/orphan.lane"); job=$(cat "$root/orphan.job")
+kill -KILL "$caller"; wait "$caller" 2>/dev/null
+i=0; while { running "$lanepid" || running "$job"; } && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+if running "$job"; then no "an orphaned lane.sh ends its job"; else ok "an orphaned lane.sh ends its job"; fi
+if running "$lanepid"; then no "an orphaned lane.sh exits"; else ok "an orphaned lane.sh exits"; fi
+[ ! -e "$root/exp-perf-heavy-1" ] && ok "an orphaned run releases its slot" || no "an orphaned run releases its slot"
+grep -q "exp-perf-heavy-1 orphaned owner=orphan .* pid=$lanepid" "$log" && ok "an orphaned run is logged" || no "an orphaned run is logged"
+
+# The session's teardown: lane.sh lists itself in the session manifest while
+# it runs (the daemon ends that tree when the session ends), drops the line
+# at its end, and a TERM to it (the teardown's) ends the job's whole tree.
+export EXP_SESSION_MANIFEST_DIR="$root/manifests"
+sess=feed0306-0000-4000-8000-000000000306
+rm -f "$root/td.job" "$root/td.child"
+EXP_MCP_SESSION_ID=$sess "$here/lane.sh" heavy teardown -- sh -c 'echo $$ > "$EXP_LANE_LOCK_ROOT/td.job"; sleep 300 & echo $! > "$EXP_LANE_LOCK_ROOT/td.child"; wait' 2>/dev/null &
+tdlane=$!
+i=0; while [ ! -s "$root/td.child" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+grep -qx "$(printf 'lane\t%s' "$tdlane")" "$root/manifests/$sess" && ok "a running lane.sh is listed in its session's manifest" || no "a running lane.sh is listed in its session's manifest ($(cat "$root/manifests/$sess" 2>/dev/null))"
+job=$(cat "$root/td.job"); child=$(cat "$root/td.child")
+kill -TERM "$tdlane"; wait "$tdlane"
+[ $? -eq 143 ] && ok "a TERM ends lane.sh at once" || no "a TERM ends lane.sh at once"
+if running "$job" || running "$child"; then no "a TERM to lane.sh ends its job's whole tree"; else ok "a TERM to lane.sh ends its job's whole tree"; fi
+grep -q "$(printf 'lane\t%s' "$tdlane")" "$root/manifests/$sess" 2>/dev/null && no "lane.sh drops its manifest line at its end" || ok "lane.sh drops its manifest line at its end"
+[ ! -e "$root/exp-perf-heavy-1" ] && ok "a terminated run releases its slot" || no "a terminated run releases its slot"
+unset EXP_SESSION_MANIFEST_DIR
 
 # Gradle daemons don't outlive their session (#EXP-1844): an idle timeout
 # well under the 3 h default.

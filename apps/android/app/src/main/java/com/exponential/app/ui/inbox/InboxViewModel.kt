@@ -139,9 +139,13 @@ internal fun buildInboxState(
     notifications: List<NotificationEntity>,
     issues: List<IssueEntity>,
     teams: List<TeamEntity>,
+    /** web/iOS parity: a row names its team only on the every-team stream of
+     *  a member of several teams; one active team's inbox (and a row of a
+     *  team none of [teams] name: the Assistant's personal team) says none. */
+    labelTeams: Boolean = true,
 ): InboxState {
     val issueMap = issues.associateBy { it.id }
-    val teamMap = teams.associateBy { it.id }
+    val teamMap = if (labelTeams) teams.associateBy { it.id } else emptyMap()
     val byKey = LinkedHashMap<GroupKey, MutableList<NotificationEntity>>()
     for (n in notifications) {
         val iid = n.issueId
@@ -256,7 +260,12 @@ class InboxViewModel @Inject constructor(
         boardsFlow,
         activeTeam,
     ) { notifications, issues, teams, boards, team ->
-        buildInboxState(activeTeamNotifications(notifications, issues, boards, team, teams.map { it.id }), issues, teams)
+        buildInboxState(
+            activeTeamNotifications(notifications, issues, boards, team, teams.map { it.id }),
+            issues,
+            teams,
+            labelTeams = team == null && teams.size > 1,
+        )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxState())
 
     fun markGroupRead(group: InboxGroup) = markRead(group.notifications)

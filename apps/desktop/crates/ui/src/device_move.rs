@@ -282,8 +282,14 @@ fn device_row(
 /// ones), plus the session's own device when the launch list dropped it
 /// (offline), so the current row is always there to be selected.
 pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Vec<MoveCandidate> {
-    let launch: Vec<LaunchDevice> =
-        crate::queries::launch_devices(session.team_id.as_deref(), cx);
+    // #EXP-2079 (agent-settings.json `assistant.chatTeams` `deviceCases`):
+    // the viewer's own session in a team they do not sync (the Assistant's
+    // conversation) moves between their OWN machines, whatever teams those
+    // are shared with, and onto no teammate's server; every other session
+    // keeps the team rule.
+    let own_devices = crate::chat_teams::own_devices(session, cx);
+    let launch_team = if own_devices { None } else { session.team_id.as_deref() };
+    let mut launch: Vec<LaunchDevice> = crate::queries::launch_devices(launch_team, cx);
     let Some(store) = sync::Store::try_global(cx) else {
         return Vec::new();
     };
@@ -292,6 +298,11 @@ pub(crate) fn candidates(session: &domain::rows::SessionRow, cx: &mut App) -> Ve
     let me = crate::queries::active_account(cx)
         .map(|account| account.user_id)
         .unwrap_or_default();
+    if own_devices {
+        launch.retain(|device| {
+            device_row(&devices, &device.device_id, &me).is_none_or(|row| row.user_id.as_deref() == Some(me.as_str()))
+        });
+    }
     let team_id = session.team_id.clone().unwrap_or_default();
     // A row with no `cli` is claude's (web `session.cli ?? 'claude'`).
     let agent = session

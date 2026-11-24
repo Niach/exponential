@@ -5,7 +5,7 @@
 // row. A connect usually finishes in ANOTHER tab (the launch picker opens
 // the settings deep link there), so the list also refetches when this tab
 // becomes visible again.
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import { toast } from "@exp/ui"
@@ -105,4 +105,53 @@ export function useMcpServers(
   )
 
   return { servers, reloading, error, refresh, setShared }
+}
+
+/** #EXP-2079 (agent-settings.json `assistant.chatTeams` (3)): the MCP
+ *  servers of SEVERAL teams, team by team in `teamIds`' order, each team's in
+ *  its list order; every row names its team (`teamId`). null until every
+ *  team answered once; a team that fails to load lists nothing. */
+export function useMcpServersForTeams(
+  teamIds: readonly string[],
+  enabled = true
+): { servers: (McpServerList[number] & { teamId: string })[] | null } {
+  const key = teamIds.join(`,`)
+  const [byTeam, setByTeam] = useState<{ key: string; lists: Map<string, McpServerList> } | null>(null)
+  useEffect(() => {
+    if (!key || !enabled) {
+      setByTeam(null)
+      return
+    }
+    let active = true
+    const ids = key.split(`,`)
+    const load = () => {
+      void Promise.all(
+        ids.map((teamId) =>
+          trpc.mcpServers.list
+            .query({ teamId }, { context: { skipErrorToast: true } })
+            .then((rows) => [teamId, rows] as const)
+            .catch(() => [teamId, [] as McpServerList] as const)
+        )
+      ).then((lists) => {
+        if (active) setByTeam({ key, lists: new Map(lists) })
+      })
+    }
+    load()
+    const onVisible = () => {
+      if (document.visibilityState === `visible`) load()
+    }
+    document.addEventListener(`visibilitychange`, onVisible)
+    return () => {
+      active = false
+      document.removeEventListener(`visibilitychange`, onVisible)
+    }
+  }, [key, enabled])
+  const servers = useMemo(
+    () =>
+      byTeam && byTeam.key === key
+        ? key.split(`,`).flatMap((teamId) => (byTeam.lists.get(teamId) ?? []).map((row) => ({ ...row, teamId })))
+        : null,
+    [byTeam, key]
+  )
+  return { servers }
 }

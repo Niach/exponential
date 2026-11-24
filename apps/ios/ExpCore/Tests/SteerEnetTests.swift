@@ -77,7 +77,9 @@ final class SteerEnetTests: XCTestCase {
                 SteerEnet.viewerAllowed(
                     viewerUserId: c["viewerUserId"] as? String,
                     starterUserId: try XCTUnwrap(c["starterUserId"] as? String),
-                    shared: c["shared"] as? Bool == true
+                    shared: c["shared"] as? Bool == true,
+                    teamListed: c["teamListed"] as? Bool ?? true,
+                    anyTeamUserId: c["anyTeamUserId"] as? String
                 ),
                 c["allowed"] as? Bool,
                 c["name"] as? String ?? "?"
