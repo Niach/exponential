@@ -144,6 +144,10 @@ struct Measure {
     /// The first chunk's capture time after the process start, ms.
     first_chunk_ms: Option<i64>,
     captured_ms: i64,
+    /// Audio delivered, and the wall time from its first to its last sample
+    /// (they differ when cycles were dropped or the rate was wrong), ms.
+    audio_ms: i64,
+    wall_ms: i64,
 }
 
 fn measure(reference: &[f32], chunks: &[Chunk], started: u64) -> Measure {
@@ -154,12 +158,19 @@ fn measure(reference: &[f32], chunks: &[Chunk], started: u64) -> Measure {
         let length = chunk.samples.len() as u64 * 1_000 / u64::from(SAMPLE_RATE);
         chunk.captured_ms as i64 - length as i64 - started as i64
     });
+    let audio_ms = to_ms(captured.len() as i64);
+    let wall_ms = match (chunks.first(), chunks.last()) {
+        (Some(first), Some(last)) => {
+            last.captured_ms as i64 - first.captured_ms as i64 + to_ms(first.samples.len() as i64)
+        }
+        _ => 0,
+    };
     let Some((first, last)) = voiced(&captured) else {
-        return Measure { missing_ms: to_ms(ref_span), lag_ms: None, first_chunk_ms, captured_ms: 0 };
+        return Measure { missing_ms: to_ms(ref_span), lag_ms: None, first_chunk_ms, captured_ms: 0, audio_ms, wall_ms };
     };
     let span = (last - first) as i64;
     let lag_ms = lag(reference, &captured[first..]).map(|at| to_ms(at as i64 - ref_first as i64));
-    Measure { missing_ms: to_ms(ref_span - span), lag_ms, first_chunk_ms, captured_ms: to_ms(span) }
+    Measure { missing_ms: to_ms(ref_span - span), lag_ms, first_chunk_ms, captured_ms: to_ms(span), audio_ms, wall_ms }
 }
 
 fn to_ms(samples: i64) -> i64 {
@@ -202,11 +213,13 @@ fn lag(reference: &[f32], head: &[f32]) -> Option<usize> {
 
 fn report(tag: &str, measure: &Measure) {
     println!(
-        "{tag}: missing {} ms, lag {}, first chunk {} after start, captured {} ms",
+        "{tag}: missing {} ms, lag {}, first chunk {} after start, voiced {} ms, {} ms of audio in {} ms",
         measure.missing_ms,
         measure.lag_ms.map_or("-".to_string(), |ms| format!("{ms} ms")),
         measure.first_chunk_ms.map_or("never".to_string(), |ms| format!("{ms} ms")),
         measure.captured_ms,
+        measure.audio_ms,
+        measure.wall_ms,
     );
 }
 

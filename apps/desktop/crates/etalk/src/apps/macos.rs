@@ -16,10 +16,10 @@
 //!   [`Chunk`] on the app's channel.
 //! - ATTACH (#NEW-127, meeting.json CHANNELS: ATTACH): an app that starts
 //!   mid-meeting keeps its first words. Core Audio's listeners
-//!   (the process list, each wanted process's `IsRunningOutput`) wake the
+//!   (the process list, each wanted process's properties) wake the
 //!   thread for a scan at once instead of at the next second, and a process
 //!   that just registered with Core Audio is tapped BEFORE it plays (armed
-//!   for [`GRACE`]), so its first cycle is already captured.
+//!   for [`ARMED`]), so its first cycle is already captured.
 //! - PERMISSION: the "Audio Recording" TCC service (`kTCCServiceAudioCapture`,
 //!   System Settings → Privacy & Security → Screen & System Audio Recording →
 //!   System Audio Recording Only). macOS has no public preflight, and probing
@@ -65,6 +65,9 @@ const DRAIN: Duration = Duration::from_millis(20);
 /// An app that stopped playing keeps its channel this long (pauses between
 /// sentences never tear the tap down).
 const GRACE: Duration = Duration::from_secs(3);
+/// A tap opened before its app plays (ATTACH) waits this long for the first
+/// sound: a speech synthesizer takes seconds to warm up.
+const ARMED: Duration = Duration::from_secs(10);
 /// A tap that failed to open is retried after this long.
 const RETRY: Duration = Duration::from_secs(10);
 /// How long [`request_permission`] waits for the person's answer.
@@ -199,7 +202,9 @@ unsafe extern "C-unwind" fn changed(
 }
 
 /// The listeners of one capture: the process list and every wanted
-/// process's `IsRunningOutput`. Dropping it removes them.
+/// process's properties (measured on macOS 27: a listener on
+/// `IsRunningOutput` alone is not called when a process starts its IO, one
+/// on any of its properties is). Dropping it removes them.
 struct Listeners {
     list: bool,
     processes: HashSet<AudioObjectID>,
@@ -250,6 +255,8 @@ struct Channel {
     tap: Tap,
     resampler: Resampler,
     quiet_since: Option<Instant>,
+    /// How long it stays once quiet: [`GRACE`], [`ARMED`] until it first plays.
+    linger: Duration,
 }
 
 fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
@@ -263,11 +270,9 @@ fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
         let now = Instant::now();
         let count = changes();
         if now >= next_scan || count != seen {
-            if std::env::var_os("N127_DEBUG").is_some() { eprintln!("DBG {} scan listener={} ", super::now_ms(), count != seen); }
             seen = count;
             next_scan = now + SCAN;
             let groups = scanner.scan();
-            if std::env::var_os("N127_DEBUG").is_some() { for g in &groups { if g.app.id.contains("say") { eprintln!("DBG   say objects={:?} playing={} fresh={} channel={}", g.objects, g.playing, g.fresh, channels.contains_key(&g.app.id)); } } }
             let wanted: HashSet<AudioObjectID> = groups
                 .iter()
                 .filter(|group| selection.wants(&group.app.id))
@@ -281,11 +286,11 @@ fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
             for group in groups.iter().filter(|group| selection.wants(&group.app.id)) {
                 let id = &group.app.id;
                 // A process that just registered is about to play: its tap
-                // opens now, armed for GRACE (ATTACH).
-                if !group.playing && !(group.fresh && std::env::var_os("N127_NO_ARM").is_none()) {
+                // opens now, armed (ATTACH).
+                if !group.playing && !group.fresh {
                     if let Some(channel) = channels.get_mut(id) {
                         let since = *channel.quiet_since.get_or_insert(now);
-                        if now.duration_since(since) >= GRACE {
+                        if now.duration_since(since) >= channel.linger {
                             channels.remove(id);
                         }
                     }
@@ -294,6 +299,7 @@ fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
                 if let Some(channel) = channels.get_mut(id) {
                     if group.playing {
                         channel.quiet_since = None;
+                        channel.linger = GRACE;
                     }
                     if channel.objects == group.objects {
                         let rate = channel.tap.rate();
@@ -308,7 +314,6 @@ fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
                 if failed.get(id).is_some_and(|at| now.duration_since(*at) < RETRY) {
                     continue;
                 }
-                if std::env::var_os("N127_DEBUG").is_some() { eprintln!("DBG {} open {} playing={}", super::now_ms(), id, group.playing); }
                 match Tap::open(&group.objects, &group.app.name) {
                     Ok(tap) => {
                         failed.remove(id);
@@ -321,6 +326,7 @@ fn run(selection: Selection, tx: ChunkSender, stop: &AtomicBool) {
                                 tap,
                                 resampler,
                                 quiet_since: (!group.playing).then_some(now),
+                                linger: if group.playing { GRACE } else { ARMED },
                             },
                         );
                     }
