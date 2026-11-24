@@ -698,6 +698,32 @@ public enum AgentSettings {
         }
     }
 
+    /// #EXP-2095 (`assistant.chatTeams` (2), `memberCases`): the `@` list's
+    /// ONE order ×4: by the shown name (the name, else the email) lowercased,
+    /// then the email lowercased, then the id; plain string order (UTF-16
+    /// code units, the TS reference's `<`), no collation.
+    public static func chatMembers<T>(
+        _ members: [T], id: (T) -> String, name: (T) -> String?, email: (T) -> String?
+    ) -> [T] {
+        func before(_ a: String, _ b: String) -> Bool? {
+            a == b ? nil : a.utf16.lexicographicallyPrecedes(b.utf16)
+        }
+        return members
+            .map { member -> (member: T, shown: String, email: String, id: String) in
+                let email = email(member) ?? ""
+                let name = name(member) ?? ""
+                return (member, (name.isEmpty ? email : name).lowercased(), email.lowercased(), id(member))
+            }
+            .sorted { a, b in
+                before(a.shown, b.shown) ?? before(a.email, b.email) ?? before(a.id, b.id) ?? false
+            }
+            .map(\.member)
+    }
+
+    public static func chatMembers(_ users: [UserEntity]) -> [UserEntity] {
+        chatMembers(users, id: \.id, name: \.name, email: \.email)
+    }
+
     /// #EXP-2079 (`assistant.chatTeams` `deviceCases`): the device list of a
     /// session in a team the viewer does not sync, that they started (the
     /// Assistant's conversation) = their own machines, no team rule.
