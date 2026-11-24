@@ -981,7 +981,7 @@ final class AgentSessionModel {
         if synced != findSyncedTail { findSyncedTail = synced }
         let line = SteerNoFeed.offlineLine(
             live: live, rows: feed.count + syncedTail.count, ended: sessionEnded,
-            noFeed: history == .deviceOffline, deviceOffline: hostDevice.offline
+            noFeed: history == .deviceOffline, deviceOffline: hostDevice.offline, deviceOnline: hostDevice.online == true
         )
         if line != offlineLine { offlineLine = line }
         let workflowIds = Set(workflows.map(\.id))

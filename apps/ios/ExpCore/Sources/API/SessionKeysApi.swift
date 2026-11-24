@@ -36,7 +36,9 @@ public struct HeldTreeKey: Decodable, Equatable, Sendable {
     }
 }
 
-/// A reader still missing the current epoch's wrap (`sessionKeys.pending`).
+/// A reader still missing a wrap of an epoch this install holds
+/// (`sessionKeys.pending`); `publicKey` empty = a superseded epoch the server
+/// knows no key of (#EXP-2119: the held secret).
 public struct PendingTreeKey: Decodable, Equatable, Sendable {
     public let rootId: String
     public let epoch: UInt32
@@ -224,7 +226,11 @@ private struct MineInput: Encodable {
     let installId: String
     let rootIds: [String]?
 }
-private struct PendingInput: Encodable { let installId: String }
+private struct PendingInput: Encodable {
+    let installId: String
+    /// #EXP-2119: this holder wraps a superseded epoch the server knows no key of.
+    let olderEpochs = true
+}
 private struct WrapInput: Encodable {
     let installId: String
     let wraps: [PendingTreeKeyWrap]

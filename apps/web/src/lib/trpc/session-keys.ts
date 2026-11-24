@@ -97,6 +97,20 @@ type PendingPair = {
   targetEndpointId: string
 }
 
+/** Who reads an epoch: every reader the current one; a SUPERSEDED one
+ *  (#EXP-2119) the starter and whoever holds it on another install. A reader
+ *  who joined (or rejoined) after the rotation starts at the new epoch. */
+function readsEpoch(
+  root: Session,
+  reader: TreeReader,
+  keyEpoch: number,
+  wraps: EpochWraps,
+  readers: ReadonlyMap<string, TreeReader>
+): boolean {
+  if (keyEpoch === root.sealEpoch || reader.userId === root.userId) return true
+  return [...wraps.installs].some((held) => readers.get(held)?.userId === reader.userId)
+}
+
 /** What `installId` should wrap on `root`: per epoch it holds (the current
  *  one first, then the superseded ones, #EXP-2119 `rotation` OLDER EPOCHS),
  *  the readers without a wrap of it. A superseded epoch whose public key the
@@ -116,7 +130,7 @@ function pairsFor(
     const publicKey = keyEpoch === root.sealEpoch ? root.sealPublicKey : (wraps.publicKey ?? ``)
     if (!publicKey && !olderEpochs) continue
     for (const reader of readers.values()) {
-      if (wraps.installs.has(reader.installId)) continue
+      if (wraps.installs.has(reader.installId) || !readsEpoch(root, reader, keyEpoch, wraps, readers)) continue
       out.push({
         rootId: root.id,
         epoch: keyEpoch,
@@ -154,13 +168,17 @@ export async function nudgeMissingWraps(
   const wrapsOf = await epochWrapsMany(database, roots.map((root) => root.id))
   const nudged: string[] = []
   for (const root of roots) {
-    const missing = [...(wrapsOf.get(root.id) ?? [])].filter(
-      ([keyEpoch]) => !held.some((row) => row.rootId === root.id && row.epoch === keyEpoch)
-    )
-    if (missing.length === 0) continue
     const key = `${installId}:${root.id}`
     if (now - (lastMissingNudge.get(key) ?? 0) < MISSING_WRAP_NUDGE_MS) continue
-    if (!(await treeReaders(database, root)).has(installId)) continue
+    const unheld = [...(wrapsOf.get(root.id) ?? [])].filter(
+      ([keyEpoch]) => !held.some((row) => row.rootId === root.id && row.epoch === keyEpoch)
+    )
+    if (unheld.length === 0) continue
+    const readers = await treeReaders(database, root)
+    const reader = readers.get(installId)
+    if (!reader) continue
+    const missing = unheld.filter(([keyEpoch, wraps]) => readsEpoch(root, reader, keyEpoch, wraps, readers))
+    if (missing.length === 0) continue
     lastMissingNudge.set(key, now)
     if (lastMissingNudge.size > 10_000) lastMissingNudge.clear()
     const holderInstalls = [...new Set(missing.flatMap(([, wraps]) => [...wraps.installs]))]
