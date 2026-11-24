@@ -2,6 +2,7 @@ package com.exponential.app.ui.agent
 
 import com.exponential.app.data.homeComposerChatTeamIdsFlow
 import com.exponential.app.data.teamByTeamFlow
+import com.exponential.app.domain.SlashPrompt
 import com.exponential.app.data.routeSubject
 import com.exponential.app.data.routeTeamIdFlow
 import android.net.Uri
