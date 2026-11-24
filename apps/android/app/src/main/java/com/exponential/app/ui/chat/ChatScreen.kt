@@ -141,7 +141,7 @@ fun ChatScreen(
     val view by viewModel.view.collectAsStateWithLifecycle()
     val root by viewModel.root.collectAsStateWithLifecycle()
     if (com.exponential.app.ui.session.rememberSessionMissing(viewModel.rootId, root != null || view != null)) {
-        com.exponential.app.ui.session.SessionNotFound(onBack = onBack, onOpenAgentHome = onOpenAgentHome)
+        com.exponential.app.ui.session.SessionNotFound(onBack = leave, onOpenAgentHome = onOpenAgentHome)
         return
     }
     val isAgent by viewModel.isAgent.collectAsStateWithLifecycle()
