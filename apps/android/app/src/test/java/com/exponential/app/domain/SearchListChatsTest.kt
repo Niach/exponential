@@ -71,6 +71,26 @@ class SearchListChatsTest {
         assertEquals(ids.str("chatRow"), SearchList.Chats.TestIds.CHAT_ROW)
     }
 
+    /** #NEW-133: `suggestion` (the constants and every case). */
+    @Test
+    fun `suggestion replays the suggestion cases`() {
+        val spec = fixture.getValue("suggestion").jsonObject
+        assertEquals(spec.str("icon"), SearchList.Suggestion.ICON)
+        assertEquals(spec.str("label"), SearchList.Suggestion.LABEL)
+        assertEquals(spec.str("testId"), SearchList.Suggestion.TEST_ID)
+        val cases = spec.getValue("cases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val members = case.getValue("members").jsonArray.map { it.jsonObject }.map {
+                IssueSearchPhrase.Member(name = it.str("name"), email = it.str("email"))
+            }
+            val now = IssueSearch.epochMs(case.str("now"))
+            val got = SearchList.suggestion(case.str("text")!!, members, now)
+            val want = (case["expected"] as? JsonObject)?.let { SearchList.SearchSuggestion(it.str("query")!!, it.str("label")!!) }
+            assertEquals(case.name(), want, got)
+        }
+    }
+
     @Test
     fun `globalSections replays sectionCases`() {
         for (case in cases("sectionCases")) {
