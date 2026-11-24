@@ -1118,6 +1118,10 @@ pub fn calls_quiet(blocks: &[Value]) -> bool {
 /// says `quiet` after a step, keeps working (a tool call) and says it
 /// again; interrupting THAT cut live runs mid-work ("I've stopped as you
 /// asked") on every device.
+/// #FEED-274: the `quiet` calls in a row (no prompt, no work between them)
+/// that make a loop the [`QuietGuard`] interrupts. The FEED-240 loop ran 17.
+pub const QUIET_LOOP: u32 = 4;
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct QuietGuard {
     quiet_calls: u32,
@@ -1135,11 +1139,15 @@ impl QuietGuard {
         self.quiet_calls = 0;
     }
 
-    /// A `quiet` call; `true` = it repeats one with no prompt and no work in
-    /// between, so the running turn must be interrupted.
+    /// A `quiet` call; `true` = the [`QUIET_LOOP`]th in a row with no prompt
+    /// and no work in between, so the running turn must be interrupted.
+    /// #FEED-274: a model that says `quiet` twice in a row (measured on a
+    /// moved worker) is no loop: the CLI ends that turn by itself, and an
+    /// interrupt there reads to the model as "the user doesn't want to
+    /// proceed … STOP" and it answered "I've stopped as you asked".
     pub fn on_quiet(&mut self) -> bool {
         self.quiet_calls = self.quiet_calls.saturating_add(1);
-        self.quiet_calls > 1
+        self.quiet_calls >= QUIET_LOOP
     }
 }
 
@@ -1903,22 +1911,27 @@ mod tests {
     }
 
     /// #EXP-1828 regression: the FEED-240 loop. A routine event, the agent
-    /// answers quiet; a re-wake with no new message (the reminder, a
-    /// continuation) and a second quiet stops the turn; every further one
-    /// too. The next real message re-arms one quiet answer.
+    /// answers quiet; re-wakes with no new message (the reminder, a
+    /// continuation) and quiet again and again stop the turn; every further
+    /// one too. The next real message re-arms the quiet answers.
+    /// #FEED-274: a double (or triple) quiet is no loop: never a stop.
     #[test]
-    fn a_second_quiet_without_a_new_message_stops_the_turn() {
+    fn a_quiet_loop_without_a_new_message_stops_the_turn() {
         let mut guard = QuietGuard::default();
         guard.on_prompt();
         assert!(!guard.on_quiet(), "the first quiet is the answer");
-        assert!(guard.on_quiet(), "a re-woken quiet is the loop");
+        assert!(!guard.on_quiet(), "a second one in a row is no loop yet");
+        assert!(!guard.on_quiet());
+        assert!(guard.on_quiet(), "the fourth in a row is the loop");
         assert!(guard.on_quiet());
         guard.on_prompt();
         assert!(!guard.on_quiet(), "a new message gets its own quiet answer");
-        // #FEED-246: work between two quiets is no loop.
+        // #FEED-246: work between quiets is no loop.
         guard.on_work();
         assert!(!guard.on_quiet(), "a quiet after real work is an answer");
-        assert!(guard.on_quiet(), "and a bare repeat after it is the loop again");
+        assert!(!guard.on_quiet());
+        assert!(!guard.on_quiet());
+        assert!(guard.on_quiet(), "and a bare run after it is the loop again");
         // Back-to-back routine events, each answered quiet: never a stop.
         for _ in 0..17 {
             guard.on_prompt();

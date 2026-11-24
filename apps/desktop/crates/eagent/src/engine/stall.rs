@@ -128,7 +128,21 @@ impl StallWatchdog {
         let minutes = silent_for.as_secs() / 60;
         format!(
             "Interrupted after {minutes} minutes without progress: the turn produced nothing, so \
-             the engine cancelled it. Send a message to pick it back up."
+             the engine cancelled it and told the agent to carry on."
+        )
+    }
+
+    /// #FEED-274: what the AGENT is told once the turn this watchdog
+    /// interrupted has settled. The CLI words the interrupt as the user's
+    /// ("STOP what you are doing and wait for the user"), and an agent left
+    /// with that halted and reported "I've stopped as you asked".
+    pub fn agent_note(silent_for: Duration) -> String {
+        let minutes = silent_for.as_secs() / 60;
+        format!(
+            "Note from Exponential: this device interrupted your last step, not a person. It had \
+             produced nothing for {minutes} minutes, so the engine cancelled it; the CLI words that \
+             interrupt as the user's. Nobody asked you to stop. Carry on with your task from where \
+             you were; if a command hung, run it another way (in the background, or with a timeout)."
         )
     }
 
