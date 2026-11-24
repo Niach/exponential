@@ -178,8 +178,7 @@ fun IssueComments(
     val rows = remember(timeline, expandedRuns) { collapseTimeline(timeline, expandedRuns) }
     // Team members for @mention autocomplete.
     val mentionMembers = remember(state.usersById) {
-        state.usersById.values
-            .map { MentionMember(it.name ?: it.email, it.email) }
+        com.exponential.app.ui.markdown.mentionMembers(state.usersById.values.toList())
     }
 
     // No extra horizontal padding: the screen already pads 20dp, so the comment list

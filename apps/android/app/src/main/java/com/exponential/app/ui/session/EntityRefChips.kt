@@ -25,6 +25,7 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.PromptEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.SessionEntity
+import com.exponential.app.data.db.TeamMemberEntity
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.ui.components.AgentRunMark
@@ -86,7 +87,31 @@ class EntityRefResolver(
     val db: Flow<ExponentialDatabase?>,
     val teamId: String?,
     val userId: String?,
-)
+    /** #EXP-2097 (agent-settings.json `assistant.chatTeams`): the teams the
+     *  chat's lists read; the session's own team while it is synced. */
+    val chatTeamIds: List<String> = listOfNotNull(teamId),
+) {
+    // #EXP-2097: a board, prompt, label or status ref names a row of ITS OWN
+    // team (the Assistant's chat sits in a personal team that never syncs),
+    // so each resolves by id over every synced row, as issue refs do.
+    fun board(boards: List<BoardEntity>, id: String): BoardEntity? = boards.firstOrNull { it.id == id }
+
+    fun prompt(prompts: List<PromptEntity>, id: String): PromptEntity? = prompts.firstOrNull { it.id == id }
+
+    fun label(labels: List<LabelEntity>, id: String): LabelEntity? = labels.firstOrNull { it.id == id }
+
+    /** The status row [id], resolved among its own team's rows (its
+     *  pie-clock reads its place among that team's started statuses). */
+    fun status(rows: List<IssueStatusEntity>, id: String): ResolvedIssueStatus? {
+        val own = rows.firstOrNull { it.id == id }?.teamId ?: return null
+        return IssueStatusResolver.teamStatuses(rows.filter { it.teamId == own }).firstOrNull { it.rowId == id }
+    }
+
+    /** A member has no team of their own: the role is their row in the
+     *  first chat team that has them ([memberships] = the user's rows). */
+    fun memberRole(memberships: List<TeamMemberEntity>, userId: String): String? =
+        chatTeamIds.firstNotNullOfOrNull { team -> memberships.firstOrNull { it.teamId == team && it.userId == userId } }?.role
+}
 
 val LocalEntityRefResolver = staticCompositionLocalOf<EntityRefResolver?> { null }
 
@@ -249,30 +274,23 @@ private fun teamStatuses(ofBoardId: String? = null): List<ResolvedIssueStatus> {
     }
 }
 
+// #EXP-2097: every synced row (the viewer's teams'); a ref resolves by id
+// through [EntityRefResolver], so it reads its own team, never the session's.
 @Composable
-private fun teamLabels(): List<LabelEntity> {
-    val teamId = LocalEntityRefResolver.current?.teamId
-    val rows by observeScoped(teamId, emptyList<LabelEntity>()) { db ->
-        if (teamId == null) flowOf(emptyList()) else db.labelDao().observeByTeam(teamId)
-    }
+private fun syncedLabels(): List<LabelEntity> {
+    val rows by observeScoped(Unit, emptyList<LabelEntity>()) { it.labelDao().observeAll() }
     return rows
 }
 
 @Composable
-private fun teamBoards(): List<BoardEntity> {
-    val teamId = LocalEntityRefResolver.current?.teamId
-    val rows by observeScoped(teamId, emptyList<BoardEntity>()) { db ->
-        if (teamId == null) flowOf(emptyList()) else db.boardDao().observeByTeam(teamId)
-    }
+private fun syncedBoards(): List<BoardEntity> {
+    val rows by observeScoped(Unit, emptyList<BoardEntity>()) { it.boardDao().observeAll() }
     return rows
 }
 
 @Composable
-private fun teamPrompts(): List<PromptEntity> {
-    val teamId = LocalEntityRefResolver.current?.teamId
-    val rows by observeScoped(teamId, emptyList<PromptEntity>()) { db ->
-        if (teamId == null) flowOf(emptyList()) else db.promptDao().observeByTeam(teamId)
-    }
+private fun syncedPrompts(): List<PromptEntity> {
+    val rows by observeScoped(Unit, emptyList<PromptEntity>()) { it.promptDao().observeAll() }
     return rows
 }
 
@@ -286,7 +304,7 @@ private fun IssueCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
         return
     }
     val statuses = teamStatuses(ofBoardId = row.boardId)
-    val labels = teamLabels()
+    val labels = syncedLabels()
     val joins by observeScoped(row.id, emptyList()) { it.issueLabelDao().observeByIssue(row.id) }
     val status = remember(row, statuses) { IssueStatusResolver.resolve(row, statuses) }
     val priority = remember(row.priority) { IssuePriority.fromWire(row.priority) }
@@ -312,12 +330,11 @@ private fun IssueCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 
 @Composable
 private fun BoardCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
-    val boards = teamBoards()
-    val board = boards.firstOrNull { it.id == ref.id } ?: run {
+    val board = LocalEntityRefResolver.current?.board(syncedBoards(), ref.id) ?: run {
         SlimCard(ref, onOpen = { open(EntityTarget.Board(ref.id)) })
         return
     }
-    val statuses = teamStatuses()
+    val statuses = teamStatuses(ofBoardId = board.id)
     val issues by observeScoped(board.id, emptyList<IssueEntity>()) { it.issueDao().observeByBoard(board.id) }
     val openIssues = remember(issues) {
         issues.filter { IssueStatus.fromWire(it.status) !in CLOSED_STATUSES }
@@ -345,7 +362,7 @@ private fun BoardCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 
 @Composable
 private fun PromptCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
-    val prompt = teamPrompts().firstOrNull { it.id == ref.id } ?: run {
+    val prompt = LocalEntityRefResolver.current?.prompt(syncedPrompts(), ref.id) ?: run {
         SlimCard(ref, onOpen = { open(EntityTarget.Prompts) })
         return
     }
@@ -374,7 +391,7 @@ private fun CommentCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
     val viaApp by observeScoped(row.viaAppId, null) { db ->
         row.viaAppId?.let { db.appDao().observeById(it) } ?: flowOf(null)
     }
-    val statuses = teamStatuses()
+    val statuses = teamStatuses(ofBoardId = issue?.boardId)
     val name = commentAuthorName(row, author, reporterName = null)
     EntityPreviewCard(
         icon = { UserAvatar(author, name, size = 24.dp, userId = row.authorId) },
@@ -458,7 +475,7 @@ private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 
 @Composable
 private fun LabelCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
-    val label = teamLabels().firstOrNull { it.id == ref.id } ?: run {
+    val label = LocalEntityRefResolver.current?.label(syncedLabels(), ref.id) ?: run {
         SlimCard(ref, onOpen = { open(teamSettingsTarget("label")) })
         return
     }
@@ -473,7 +490,8 @@ private fun LabelCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 
 @Composable
 private fun StatusCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
-    val status = teamStatuses().firstOrNull { it.rowId == ref.id } ?: run {
+    val statusRows by observeScoped(Unit, emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() }
+    val status = LocalEntityRefResolver.current?.status(statusRows, ref.id) ?: run {
         SlimCard(ref, onOpen = { open(teamSettingsTarget("status")) })
         return
     }
@@ -514,16 +532,14 @@ private fun DeviceCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
 
 @Composable
 private fun MemberCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
-    val teamId = LocalEntityRefResolver.current?.teamId
+    val resolver = LocalEntityRefResolver.current
     val user by observeScoped(ref.id, null) { it.userDao().observeById(ref.id) }
-    val members by observeScoped(teamId, emptyList()) { db ->
-        if (teamId == null) flowOf(emptyList()) else db.teamMemberDao().observeByTeam(teamId)
-    }
+    val members by observeScoped(ref.id, emptyList()) { it.teamMemberDao().observeByUser(ref.id) }
     val row = user ?: run {
         SlimCard(ref, onOpen = { open(teamSettingsTarget("member")) })
         return
     }
-    val role = members.firstOrNull { it.userId == row.id }?.role
+    val role = resolver?.memberRole(members, row.id)
     val name = userDisplayName(row, row.id)
     EntityPreviewCard(
         icon = { UserAvatar(row, name, size = 24.dp) },

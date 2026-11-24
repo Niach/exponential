@@ -10,6 +10,7 @@ import {
   launchPick,
   mergeTeamPicks,
   teamPick,
+  assistantChatMembers,
   assistantChatTeams,
   assistantMoveOf,
   assistantOwnDevices,
@@ -314,6 +315,11 @@ describe(`#EXP-2079 the Assistant's chat reads the turn's teams (assistant.chatT
   for (const c of fixture.assistant.chatTeams.cases) {
     test(c.name, () => {
       expect(assistantChatTeams(c)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.chatTeams.memberCases) {
+    test(`members: ${c.name}`, () => {
+      expect(assistantChatMembers(c.members).map((m) => m.id)).toEqual(c.expected)
     })
   }
   for (const c of fixture.assistant.chatTeams.deviceCases) {
