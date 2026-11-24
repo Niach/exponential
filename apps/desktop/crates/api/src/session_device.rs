@@ -714,6 +714,7 @@ mod tests {
                 voice_policy: true,
                 screen_memory: true,
                 call: false,
+                awaits_message: false,
                 sealed_text: Some("exp-sealed:v1:1:AAAA".to_string()),
                 sealed_attachments: vec!["![a.png](/api/attachments/a-1)".to_string()],
                 // EXP-1542: the move it continues, handed off.
