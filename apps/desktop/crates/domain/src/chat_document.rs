@@ -30,14 +30,27 @@ fn embed_surface(surface: Option<&CardSurface>, answered: Option<&serde_json::Va
 }
 
 /// The domain's chat rows as the chat model's; `messages` = the rows'
-/// messages by id (their time), `name` = a person's display name.
-pub fn rows(rows: &[SessionChatRow], messages: &HashMap<&str, &MessageRow>, name: impl Fn(Option<&str>) -> Option<String>) -> Vec<ChatRowInput> {
-    rows.iter().filter_map(|row| chat_row(row, messages, &name)).collect()
+/// messages by id (their time), `name` = a person's display name,
+/// `viewer_id` = who reads (an action marker says `You` for their own press).
+pub fn rows(rows: &[SessionChatRow], messages: &HashMap<&str, &MessageRow>, name: impl Fn(Option<&str>) -> Option<String>, viewer_id: Option<&str>) -> Vec<ChatRowInput> {
+    rows.iter().filter_map(|row| chat_row(row, messages, &name, viewer_id)).collect()
 }
 
-fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &impl Fn(Option<&str>) -> Option<String>) -> Option<ChatRowInput> {
+/// #EXP-2077 (chat-express.json ACTIONS DRAW): an action row without a body
+/// is THE inline marker `copy.actionMarker`: `You` for the viewer's own
+/// press, else the member's name.
+fn is_action_marker(row: &SessionChatRow) -> bool {
+    matches!(row, SessionChatRow::Message { action: Some(_), body, .. } if crate::transcript_grouping::is_blank_text(body))
+}
+
+fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &impl Fn(Option<&str>) -> Option<String>, viewer_id: Option<&str>) -> Option<ChatRowInput> {
     let at = |id: &str| clock(messages.get(id).and_then(|m| m.created_at.as_deref()));
     Some(match row {
+        SessionChatRow::Message { id, author_id, action: Some(action), .. } if is_action_marker(row) => {
+            let own = author_id.is_none() || author_id.as_deref() == viewer_id;
+            let author = (!own).then(|| name(author_id.as_deref()).unwrap_or_else(|| crate::transcript_grouping::copy().former_member.clone()));
+            ChatRowInput::Marker { id: id.clone(), label: crate::chat_express::action_marker(&action.name, author.as_deref()), group: None }
+        }
         SessionChatRow::Message { id, author, author_id, body, queued, .. } => ChatRowInput::Message {
             id: id.clone(),
             author: author.clone(),
@@ -56,12 +69,13 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             text: card.kind_word.clone(),
             target: Some(card.session_id.clone()),
             surface: None,
+            group: None,
         },
         SessionChatRow::Report { id, session_id, text, .. } => {
-            ChatRowInput::Card { id: id.clone(), icon: "session-tree".into(), title: text.clone(), text: String::new(), target: Some(session_id.clone()), surface: None }
+            ChatRowInput::Card { id: id.clone(), icon: "session-tree".into(), title: text.clone(), text: String::new(), target: Some(session_id.clone()), surface: None, group: None }
         }
         SessionChatRow::Suggestions { id, session_id, header, .. } => {
-            ChatRowInput::Card { id: id.clone(), icon: "list-checks".into(), title: header.clone(), text: String::new(), target: Some(session_id.clone()), surface: None }
+            ChatRowInput::Card { id: id.clone(), icon: "list-checks".into(), title: header.clone(), text: String::new(), target: Some(session_id.clone()), surface: None, group: None }
         }
         SessionChatRow::Question { id, question, options, custom, multi, surface, answer, answers, surface_data, answered, dismissed, .. } => ChatRowInput::Question {
             id: id.clone(),
@@ -84,6 +98,7 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             },
             target: Some(session_id.clone()),
             surface: embed_surface(surface.as_ref(), surface_data.as_ref()),
+            group: None,
         },
         SessionChatRow::Subagent { id, title, status } => ChatRowInput::Line {
             id: id.clone(),
@@ -94,7 +109,7 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             ChatRowInput::Picture { id: id.clone(), attachment_id: attachment_id.clone(), caption: caption.clone() }
         }
         // #EXP-1772: an event line is THE inline marker.
-        SessionChatRow::Event { id, text, .. } => ChatRowInput::Marker { id: id.clone(), label: text.clone() },
+        SessionChatRow::Event { id, text, .. } => ChatRowInput::Marker { id: id.clone(), label: text.clone(), group: None },
         SessionChatRow::Divider { id, kind, at } => {
             let time = clock(Some(at));
             let label = if time.is_empty() { kind.label().to_string() } else { format!("{} · {time}", kind.label()) };
@@ -111,30 +126,164 @@ fn chat_row(row: &SessionChatRow, messages: &HashMap<&str, &MessageRow>, name: &
             text: String::new(),
             target: Some(session_id.clone()),
             surface: embed_surface(Some(surface), None),
+            group: None,
         },
     })
 }
 
 /// What an Embed's inner `event` on a chat card asks of the host (lane Q,
 /// `ede_chat {action: card, messageId, name, context}`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CardReply {
-    /// The person's next message into `session_id` (the IDE's surface card:
-    /// `chats::surface_reply`).
-    Send { session_id: String, text: String },
+    /// ONE person message into `session_id` (chat-express.json ACTIONS,
+    /// the IDE's `send_surface_action`): `text` = its body (blank = none)
+    /// and THE `action` card.
+    Send { session_id: String, text: String, card: crate::chat_express::ActionCard },
+    /// Nothing is posted: THE failed-action toast `copy.actionTooLarge`.
+    TooLarge,
 }
 
-/// THE card rule the IDE follows: an `exponential_show` surface's `reply`
-/// event with text posts that text as the person's next message; a plan's or
-/// question's inline surface has no transport (plan-card.json: its events
-/// stay in the card, the options and the plan page answer it), and every
-/// other event is ignored.
-pub fn card_reply(rows: &[SessionChatRow], message_id: &str, name: Option<&str>, context: Option<&serde_json::Value>) -> Option<CardReply> {
-    let text = crate::chats::surface_reply(name, context)?;
-    match rows.iter().find(|row| row.id() == message_id)? {
-        SessionChatRow::Surface { session_id, .. } => Some(CardReply::Send { session_id: session_id.clone(), text }),
-        _ => None,
+/// The id of the row that draws surface `surface_id` of Express block
+/// `block` (`m:<message id>#<n>`): the Embed's `messageId`, which
+/// [`card_reply`] reads back.
+pub fn block_row_id(block: &str, surface_id: &str) -> String {
+    format!("{block}@{surface_id}")
+}
+
+/// A block row's id back to its origin, when `rows` holds the agent
+/// message it names (card-less, never an action row).
+fn block_origin(rows: &[SessionChatRow], row_id: &str) -> Option<crate::chat_express::ActionOrigin> {
+    let (block, surface_id) = row_id.split_once('@')?;
+    let (row_key, n) = block.rsplit_once('#')?;
+    let message_id = row_key.strip_prefix("m:")?;
+    if surface_id.is_empty() || n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
     }
+    rows.iter().find(|row| matches!(row, SessionChatRow::Message { id, author, action: None, .. } if id == message_id && author == crate::contract::MESSAGE_AUTHOR_KIND_AGENT))?;
+    Some(crate::chat_express::ActionOrigin { surface_id: surface_id.to_string(), block: Some(block.to_string()), message_id: Some(message_id.to_string()) })
+}
+
+/// THE rule the IDE follows (#EXP-2067 chat-express.json ACTIONS,
+/// `chat_express::surface_action`): EVERY event an `exponential_show`
+/// surface or an Express block's surface fires posts ONE person message
+/// with THE `action` card (a `reply`'s text as its body). `row_id` = the
+/// card's message (a show surface: into its own session) or a block row
+/// ([`block_row_id`]: into `chat_session`, the session whose transcript
+/// draws it). A plan's or question's inline surface has no transport
+/// (plan-card.json: its events stay in the card, the options and the plan
+/// page answer it). The Embed hands `{name, context}` alone, so an event's
+/// `userMessage` never reaches here: a `reply` reads its `context.text`.
+pub fn card_reply(rows: &[SessionChatRow], chat_session: &str, row_id: &str, name: Option<&str>, context: Option<&serde_json::Value>) -> Option<CardReply> {
+    use crate::chat_express::{show_action_origin, surface_action, ActionPost};
+    let (session_id, origin) = match rows.iter().find(|row| row.id() == row_id) {
+        Some(SessionChatRow::Surface { session_id, .. }) => (session_id.clone(), show_action_origin(row_id)),
+        Some(_) => return None,
+        None => (chat_session.to_string(), block_origin(rows, row_id)?),
+    };
+    Some(match surface_action(name, context, None, &origin)? {
+        ActionPost::Post { body, card } => CardReply::Send { session_id, text: body, card },
+        ActionPost::TooLarge => CardReply::TooLarge,
+    })
+}
+
+/// #EXP-2077 (chat-express.json DRAW): one segment of an agent's row, as
+/// the host split it (`coding::express_blocks::ExpressRow`, the SDK half).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExpressSegment {
+    /// A run of prose between blocks: THE bubble, markdown as today.
+    Prose(String),
+    Block(ExpressBlock),
+}
+
+/// One Express block as the document draws it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExpressBlock {
+    /// `m:<message id>#<n>`.
+    pub key: String,
+    /// The surfaces it created, in creation order: each id and its card
+    /// as the Embed takes it (`{version, root, data}`).
+    pub surfaces: Vec<(String, serde_json::Value)>,
+    /// Not closed and still streaming.
+    pub open: bool,
+    /// `failed` / `tooMany` / `tooLarge`: THE marker under its surfaces.
+    pub failed: bool,
+}
+
+/// THE surface card skeleton's stand-in: the frame at the IDE's empty
+/// height (`surface_frame`: 48, the frame's padding 12 around it).
+fn skeleton_surface() -> serde_json::Value {
+    serde_json::json!({"version": "1.0", "root": {"id": "root", "component": "Box", "style": {"height": 24}}})
+}
+
+/// #EXP-2077 (chat-express.json WHICH ROWS, DRAW): the rows with every
+/// card-less agent message that holds Express blocks drawn as its
+/// segments in order, like the IDE's main lane (`express_view::row_column`):
+/// each prose run THE bubble, each block one surface card frame per
+/// surface (no title; the skeleton while an open block has none), THE
+/// inline marker `copy.blockFailed` under a failed one. The segments stay
+/// ONE sender group: the name, avatar and tail on the first only, the
+/// `HH:mm` on the LAST prose bubble, `layout.blockGap` between them.
+/// `split(row_key, text)` = the row's segments (`None` = no block: the row
+/// as it is); it runs after [`group`], on the grouped rows.
+pub fn express(out: Vec<ChatRowInput>, rows: &[SessionChatRow], split: &mut dyn FnMut(&str, &str) -> Option<Vec<ExpressSegment>>) -> Vec<ChatRowInput> {
+    use crate::chat_express::CHAT_EXPRESS;
+    let agent: std::collections::HashSet<&str> = rows
+        .iter()
+        .filter_map(|row| match row {
+            SessionChatRow::Message { id, author, action: None, .. } if author == crate::contract::MESSAGE_AUTHOR_KIND_AGENT => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+    let block_gap = CHAT_EXPRESS.layout.block_gap.round().max(0.0) as u32;
+    let mut drawn = Vec::with_capacity(out.len());
+    for row in out {
+        let ChatRowInput::Message { id, author, body, name, time, queued, group, status, highlight } = row else {
+            drawn.push(row);
+            continue;
+        };
+        let segments = agent.contains(id.as_str()).then(|| split(&crate::chat_express::synced_row_key(&id), &body)).flatten();
+        let Some(segments) = segments else {
+            drawn.push(ChatRowInput::Message { id, author, body, name, time, queued, group, status, highlight });
+            continue;
+        };
+        let lead = group.clone().unwrap_or_default();
+        // A later segment: the sender's column, no name, avatar or tail again.
+        let after = ChatGroup { side: lead.side.clone(), avatar: None, indent: lead.indent, link: lead.link.clone(), gap: block_gap, tail: false };
+        // A frame or marker: the column alone (the avatar beside the row's first segment).
+        let aside = |first: bool| ChatGroup { side: None, avatar: lead.avatar.clone().filter(|_| first), indent: lead.indent, link: None, gap: if first { lead.gap } else { block_gap }, tail: false };
+        let last_prose = segments.iter().rposition(|segment| matches!(segment, ExpressSegment::Prose(_)));
+        let start = drawn.len();
+        for (index, segment) in segments.into_iter().enumerate() {
+            let first = drawn.len() == start;
+            match segment {
+                ExpressSegment::Prose(text) => drawn.push(ChatRowInput::Message {
+                    id: if index == 0 { id.clone() } else { format!("{id}~{index}") },
+                    author: author.clone(),
+                    body: text,
+                    name: name.clone().filter(|_| first),
+                    time: if Some(index) == last_prose { time.clone() } else { String::new() },
+                    queued,
+                    group: if first { group.clone() } else { Some(after.clone()) },
+                    status: None,
+                    highlight: None,
+                }),
+                ExpressSegment::Block(block) => {
+                    let skeleton = block.surfaces.is_empty() && block.open;
+                    let frames = block.surfaces.into_iter().chain(skeleton.then(|| (String::new(), skeleton_surface())));
+                    for (surface_id, surface) in frames {
+                        let first = drawn.len() == start;
+                        drawn.push(ChatRowInput::Card { id: block_row_id(&block.key, &surface_id), icon: String::new(), title: String::new(), text: String::new(), target: None, surface: Some(surface), group: Some(aside(first)) });
+                    }
+                    if block.failed {
+                        let first = drawn.len() == start;
+                        drawn.push(ChatRowInput::Marker { id: format!("{}!", block.key), label: CHAT_EXPRESS.copy.block_failed.clone(), group: Some(aside(first)) });
+                    }
+                }
+            }
+        }
+        let _ = (status, highlight);
+    }
+    drawn
 }
 
 /// A conversation row as the grouping reads it (transcript-grouping.json):
@@ -143,6 +292,8 @@ pub fn card_reply(rows: &[SessionChatRow], message_id: &str, name: Option<&str>,
 pub fn transcript_item(row: &SessionChatRow) -> crate::transcript_grouping::TranscriptItem {
     use crate::transcript_grouping::TranscriptItem;
     match row {
+        // #EXP-2077: a press without a body is THE marker, never a bubble.
+        SessionChatRow::Message { id, .. } if is_action_marker(row) => TranscriptItem::full(id.as_str()),
         SessionChatRow::Message { id, author, author_id, author_session_id, .. } => TranscriptItem::message(id.as_str(), author, author_id.as_deref(), author_session_id.as_deref()),
         SessionChatRow::Report { id, session_id, .. } => TranscriptItem::message(id.as_str(), crate::contract::MESSAGE_AUTHOR_KIND_AGENT, None, Some(session_id.as_str())),
         SessionChatRow::Subagent { id, .. } => TranscriptItem::trace(id.as_str()),
@@ -563,8 +714,8 @@ mod tests {
     fn a_person_s_message_carries_their_name_and_the_time() {
         let m = message("m1", "2026-11-08T09:14:00.000Z");
         let messages = HashMap::from([("m1", &m)]);
-        let row = SessionChatRow::Message { id: "m1".into(), author: "user".into(), author_id: Some("u1".into()), body: "hi".into(), queued: false, author_session_id: None, xref: None };
-        let out = rows(&[row], &messages, |id| (id == Some("u1")).then(|| "Dana".to_string()));
+        let row = SessionChatRow::Message { id: "m1".into(), author: "user".into(), author_id: Some("u1".into()), body: "hi".into(), queued: false, author_session_id: None, xref: None, action: None };
+        let out = rows(&[row], &messages, |id| (id == Some("u1")).then(|| "Dana".to_string()), None);
         let ChatRowInput::Message { name, time, .. } = &out[0] else { panic!("{out:?}") };
         assert_eq!(name.as_deref(), Some("Dana"));
         assert_eq!(time, &clock(Some("2026-11-08T09:14:00.000Z")));
@@ -573,9 +724,9 @@ mod tests {
 
     #[test]
     fn an_agent_has_no_name_and_a_divider_reads_its_label_and_time() {
-        let agent = SessionChatRow::Message { id: "m2".into(), author: "agent".into(), author_id: None, body: "done".into(), queued: false, author_session_id: None, xref: None };
+        let agent = SessionChatRow::Message { id: "m2".into(), author: "agent".into(), author_id: None, body: "done".into(), queued: false, author_session_id: None, xref: None, action: None };
         let divider = SessionChatRow::Divider { id: "d1".into(), kind: DividerKind::Compact, at: "bad".into() };
-        let out = rows(&[agent, divider], &HashMap::new(), |_| Some("never".into()));
+        let out = rows(&[agent, divider], &HashMap::new(), |_| Some("never".into()), None);
         assert!(matches!(&out[0], ChatRowInput::Message { name: None, .. }));
         assert_eq!(out[1], ChatRowInput::Pill { id: "d1".into(), icon: DividerKind::Compact.icon().into(), label: DividerKind::Compact.label().into() });
     }
@@ -596,11 +747,11 @@ mod tests {
             answered,
             dismissed,
         };
-        let waiting = |row| matches!(rows(&[row], &HashMap::new(), |_| None)[0], ChatRowInput::Question { waiting: true, .. });
+        let waiting = |row| matches!(rows(&[row], &HashMap::new(), |_| None, None)[0], ChatRowInput::Question { waiting: true, .. });
         assert!(waiting(q(false, None, None)));
         assert!(!waiting(q(true, None, None)));
         assert!(!waiting(q(false, Some(true), None)));
-        let ChatRowInput::Question { answer, .. } = &rows(&[q(true, None, Some(vec!["A".into(), "B".into()]))], &HashMap::new(), |_| None)[0] else { panic!() };
+        let ChatRowInput::Question { answer, .. } = &rows(&[q(true, None, Some(vec!["A".into(), "B".into()]))], &HashMap::new(), |_| None, None)[0] else { panic!() };
         assert_eq!(answer.as_deref(), Some("A, B"));
     }
 
@@ -610,9 +761,9 @@ mod tests {
     #[test]
     fn the_rows_group_like_the_ide_transcript() {
         use crate::transcript_grouping::{SenderKind, TranscriptAgent, TranscriptChat, TranscriptInput};
-        let msg = |id: &str, author: &str, author_id: Option<&str>| SessionChatRow::Message { id: id.into(), author: author.into(), author_id: author_id.map(str::to_string), body: id.into(), queued: false, author_session_id: None, xref: None };
+        let msg = |id: &str, author: &str, author_id: Option<&str>| SessionChatRow::Message { id: id.into(), author: author.into(), author_id: author_id.map(str::to_string), body: id.into(), queued: false, author_session_id: None, xref: None, action: None };
         let chat = vec![msg("m1", "user", Some("u1")), msg("m2", "agent", None), msg("m3", "agent", None)];
-        let mut out = rows(&chat, &HashMap::new(), |_| None);
+        let mut out = rows(&chat, &HashMap::new(), |_| None, None);
         let transcript = TranscriptInput {
             viewer_id: Some("u1".into()),
             chat: TranscriptChat { session_id: "s1".into(), title: "Triage".into(), agent_id: Some("a1".into()), ..Default::default() },
@@ -642,7 +793,7 @@ mod tests {
             feedback: None,
             surface_data: None,
         };
-        let ChatRowInput::Card { title, text, target, .. } = &rows(&[plan], &HashMap::new(), |_| None)[0] else { panic!() };
+        let ChatRowInput::Card { title, text, target, .. } = &rows(&[plan], &HashMap::new(), |_| None, None)[0] else { panic!() };
         assert_eq!(title, &crate::plan_page::plan_row_label("# Lazy-load the editor\n\nsteps"));
         assert_eq!(text, &crate::plan_page::PLAN_PAGE.copy.needs_you);
         assert_eq!(target.as_deref(), Some("s"));
@@ -659,7 +810,7 @@ mod tests {
     #[test]
     fn a_show_card_carries_its_surface_with_its_own_data() {
         let row = SessionChatRow::Surface { id: "m1".into(), session_id: "s".into(), title: None, surface: card_surface() };
-        let ChatRowInput::Card { title, surface, target, .. } = &rows(&[row], &HashMap::new(), |_| None)[0] else { panic!() };
+        let ChatRowInput::Card { title, surface, target, .. } = &rows(&[row], &HashMap::new(), |_| None, None)[0] else { panic!() };
         assert_eq!(title, &crate::plan_card::PLAN_CARD.copy.surface, "no title = the Preview word");
         assert_eq!(target.as_deref(), Some("s"));
         let surface = surface.as_ref().expect("a surface");
@@ -696,7 +847,7 @@ mod tests {
             dismissed: None,
         };
         let session = SessionChatRow::Report { id: "r".into(), session_id: "s".into(), text: "Report".into(), summary: String::new(), xref: crate::session_tree::SessionXref { kind: "report".into(), session_id: "s".into(), name: "Child".into(), agent_id: None } };
-        let out = rows(&[plan, question, session], &HashMap::new(), |_| None);
+        let out = rows(&[plan, question, session], &HashMap::new(), |_| None, None);
         let ChatRowInput::Card { surface: Some(plan), .. } = &out[0] else { panic!("{out:?}") };
         assert_eq!(plan["data"], answered.unwrap(), "the answered model wins");
         let ChatRowInput::Question { surface: Some(question), .. } = &out[1] else { panic!("{out:?}") };
@@ -721,10 +872,138 @@ mod tests {
         };
         let rows = [surface, plan];
         let reply = serde_json::json!({"text": " Ship "});
-        assert_eq!(card_reply(&rows, "m1", Some("reply"), Some(&reply)), Some(CardReply::Send { session_id: "s1".into(), text: "Ship".into() }));
-        assert_eq!(card_reply(&rows, "m1", Some("other"), Some(&reply)), None, "only reply answers");
-        assert_eq!(card_reply(&rows, "m1", Some("reply"), Some(&serde_json::json!({"text": " "}))), None, "a blank reply posts nothing");
-        assert_eq!(card_reply(&rows, "p", Some("reply"), Some(&reply)), None, "a plan's surface stays in its card");
-        assert_eq!(card_reply(&rows, "gone", Some("reply"), Some(&reply)), None);
+        let card = |name: &str, context: serde_json::Value| crate::chat_express::ActionCard {
+            kind: "action".into(),
+            name: name.into(),
+            context: context.as_object().cloned(),
+            surface_id: "show:m1".into(),
+            block: None,
+            message_id: Some("m1".into()),
+        };
+        // chat-express.json: a show surface's press posts THE action card
+        // into the card's own session, a reply's text as the body.
+        assert_eq!(card_reply(&rows, "chat", "m1", Some("reply"), Some(&reply)), Some(CardReply::Send { session_id: "s1".into(), text: "Ship".into(), card: card("reply", reply.clone()) }));
+        let other = serde_json::json!({"rep": "Ana"});
+        assert_eq!(
+            card_reply(&rows, "chat", "m1", Some("save_deal"), Some(&other)),
+            Some(CardReply::Send { session_id: "s1".into(), text: String::new(), card: card("save_deal", other.clone()) }),
+            "every other event reaches the agent too, without a body"
+        );
+        let blank = serde_json::json!({"text": " "});
+        assert_eq!(card_reply(&rows, "chat", "m1", Some("reply"), Some(&blank)), Some(CardReply::Send { session_id: "s1".into(), text: String::new(), card: card("reply", blank.clone()) }), "a reply with no text still reaches the agent");
+        assert_eq!(card_reply(&rows, "chat", "m1", None, Some(&reply)), None, "no event name posts nothing");
+        assert_eq!(card_reply(&rows, "chat", "p", Some("reply"), Some(&reply)), None, "a plan's surface stays in its card");
+        assert_eq!(card_reply(&rows, "chat", "gone", Some("reply"), Some(&reply)), None);
+        // Too large: nothing posted, the toast.
+        let limits = &crate::chat_express::CHAT_EXPRESS.limits;
+        let big = serde_json::json!({"text": "x".repeat(limits.action_context_max_bytes + 1)});
+        assert_eq!(card_reply(&rows, "chat", "m1", Some("reply"), Some(&big)), Some(CardReply::TooLarge));
+        assert_eq!(card_reply(&rows, "chat", "m1", Some(&"n".repeat(limits.action_name_max + 1)), None), Some(CardReply::TooLarge));
+    }
+
+    fn agent_message(id: &str, body: &str) -> SessionChatRow {
+        SessionChatRow::Message { id: id.into(), author: "agent".into(), author_id: None, body: body.into(), queued: false, author_session_id: None, xref: None, action: None }
+    }
+
+    /// chat-express.json ACTIONS: a block surface's event posts into the
+    /// session whose transcript draws the row, naming its block and message.
+    #[test]
+    fn a_block_surface_s_event_posts_the_action_card_into_the_chat() {
+        let own = SessionChatRow::Message { id: "u1".into(), author: "user".into(), author_id: Some("me".into()), body: "<a2ui>".into(), queued: false, author_session_id: None, xref: None, action: None };
+        let rows = [agent_message("m1", "text"), own];
+        let context = serde_json::json!({"rep": "Ana"});
+        let post = card_reply(&rows, "chat", &block_row_id("m:m1#2", "deal"), Some("save_deal"), Some(&context));
+        let expected = crate::chat_express::ActionCard { kind: "action".into(), name: "save_deal".into(), context: context.as_object().cloned(), surface_id: "deal".into(), block: Some("m:m1#2".into()), message_id: Some("m1".into()) };
+        assert_eq!(post, Some(CardReply::Send { session_id: "chat".into(), text: String::new(), card: expected }));
+        // The default surface of a block is its key.
+        let Some(CardReply::Send { text, card, .. }) = card_reply(&rows, "chat", &block_row_id("m:m1#1", "m:m1#1"), Some("reply"), Some(&serde_json::json!({"text": "Ship it"}))) else { panic!() };
+        assert_eq!((text.as_str(), card.surface_id.as_str(), card.block.as_deref()), ("Ship it", "m:m1#1", Some("m:m1#1")));
+        // Only an agent's row has blocks; the skeleton and the marker fire nothing.
+        for id in [block_row_id("m:u1#1", "m:u1#1"), block_row_id("m:gone#1", "x"), block_row_id("m:m1#1", ""), "m:m1#1!".to_string(), block_row_id("m:m1#x", "s"), block_row_id("n:s:m1#1", "s")] {
+            assert_eq!(card_reply(&rows, "chat", &id, Some("reply"), Some(&context)), None, "{id}");
+        }
+    }
+
+    /// chat-express.json ACTIONS DRAW: a body = the author's bubble, none =
+    /// THE inline marker (`You` for the viewer, else the member's name).
+    #[test]
+    fn an_action_row_is_its_author_s_bubble_or_the_marker() {
+        let action = |id: &str, author_id: &str, body: &str| SessionChatRow::Message {
+            id: id.into(),
+            author: "user".into(),
+            author_id: Some(author_id.into()),
+            body: body.into(),
+            queued: false,
+            author_session_id: None,
+            xref: None,
+            action: Some(crate::session_tree::SessionChatAction { name: "save_deal".into() }),
+        };
+        let chat = [action("a1", "me", "Ship it"), action("a2", "me", ""), action("a3", "u2", "\u{200b}"), action("a4", "gone", "")];
+        let out = rows(&chat, &HashMap::new(), |id| (id == Some("u2")).then(|| "Dana".to_string()), Some("me"));
+        assert!(matches!(&out[0], ChatRowInput::Message { body, author, .. } if body == "Ship it" && author == "user"));
+        assert_eq!(out[1], ChatRowInput::Marker { id: "a2".into(), label: "You pressed save_deal".into(), group: None });
+        assert_eq!(out[2], ChatRowInput::Marker { id: "a3".into(), label: "Dana pressed save_deal".into(), group: None });
+        let ChatRowInput::Marker { label, .. } = &out[3] else { panic!("{out:?}") };
+        assert_eq!(label, &format!("{} pressed save_deal", crate::transcript_grouping::copy().former_member));
+        // The marker is a full row of the grouping, the bubble a message.
+        use crate::transcript_grouping::TranscriptItem;
+        assert_eq!(transcript_item(&chat[1]), TranscriptItem::full("a2"));
+        assert_ne!(transcript_item(&chat[0]), TranscriptItem::full("a1"));
+    }
+
+    /// chat-express.json DRAW: a row with blocks = its segments in order,
+    /// ONE sender group.
+    #[test]
+    fn an_agent_row_with_blocks_draws_its_segments_in_one_sender_group() {
+        let chat = [agent_message("m1", "raw one"), agent_message("m2", "plain"), SessionChatRow::Message { id: "u1".into(), author: "user".into(), author_id: None, body: "raw user".into(), queued: false, author_session_id: None, xref: None, action: None }];
+        let lead = ChatGroup { side: Some("in".into()), avatar: Some("avatar:a".into()), indent: true, link: None, gap: 12, tail: true };
+        let message = |id: &str, author: &str, body: &str| ChatRowInput::Message { id: id.into(), author: author.into(), body: body.into(), name: Some("Triage".into()), time: "09:02".into(), queued: false, group: Some(lead.clone()), status: None, highlight: None };
+        let out = vec![message("m1", "agent", "raw one"), message("m2", "agent", "plain"), message("u1", "user", "raw user")];
+        let surface = |text: &str| serde_json::json!({"version": "1.0", "root": {"id": "root", "component": "Text", "props": {"text": text}}});
+        let mut asked = Vec::new();
+        let mut split = |key: &str, text: &str| {
+            asked.push((key.to_string(), text.to_string()));
+            (key == "m:m1").then(|| {
+                vec![
+                    ExpressSegment::Prose("Here is the build:".into()),
+                    ExpressSegment::Block(ExpressBlock { key: "m:m1#1".into(), surfaces: vec![("m:m1#1".into(), surface("green")), ("deal".into(), surface("deal"))], open: false, failed: true }),
+                    ExpressSegment::Prose("Ship it?".into()),
+                    ExpressSegment::Block(ExpressBlock { key: "m:m1#2".into(), surfaces: vec![], open: true, failed: false }),
+                ]
+            })
+        };
+        let drawn = express(out, &chat, &mut split);
+        assert_eq!(asked, vec![("m:m1".to_string(), "raw one".to_string()), ("m:m2".to_string(), "plain".to_string())], "only the agent's rows are read for blocks");
+        let ids: Vec<&str> = drawn.iter().map(|row| match row { ChatRowInput::Message { id, .. } | ChatRowInput::Card { id, .. } | ChatRowInput::Marker { id, .. } => id.as_str(), _ => "" }).collect();
+        assert_eq!(ids, ["m1", "m:m1#1@m:m1#1", "m:m1#1@deal", "m:m1#1!", "m1~2", "m:m1#2@", "m2", "u1"]);
+        let after = ChatGroup { side: Some("in".into()), avatar: None, indent: true, link: None, gap: 8, tail: false };
+        let aside = ChatGroup { side: None, avatar: None, indent: true, link: None, gap: 8, tail: false };
+        // The first segment keeps the name, avatar, tail and gap; no time (not the last prose).
+        assert_eq!(drawn[0], ChatRowInput::Message { id: "m1".into(), author: "agent".into(), body: "Here is the build:".into(), name: Some("Triage".into()), time: String::new(), queued: false, group: Some(lead.clone()), status: None, highlight: None });
+        // One frame per surface, no title, in the sender's column.
+        assert_eq!(drawn[1], ChatRowInput::Card { id: "m:m1#1@m:m1#1".into(), icon: String::new(), title: String::new(), text: String::new(), target: None, surface: Some(surface("green")), group: Some(aside.clone()) });
+        assert!(matches!(&drawn[2], ChatRowInput::Card { surface: Some(s), group: Some(g), .. } if *s == surface("deal") && *g == aside));
+        // THE marker under a failed block's surfaces.
+        assert_eq!(drawn[3], ChatRowInput::Marker { id: "m:m1#1!".into(), label: "This view could not be drawn".into(), group: Some(aside.clone()) });
+        // The last prose carries the time; no name, avatar or tail again.
+        assert_eq!(drawn[4], ChatRowInput::Message { id: "m1~2".into(), author: "agent".into(), body: "Ship it?".into(), name: None, time: "09:02".into(), queued: false, group: Some(after), status: None, highlight: None });
+        // An open block without a surface: the skeleton frame.
+        assert!(matches!(&drawn[5], ChatRowInput::Card { surface: Some(s), group: Some(g), .. } if s["root"]["component"] == "Box" && *g == aside));
+        // A row without blocks and a person's row stay as they are.
+        assert_eq!(drawn[6], message("m2", "agent", "plain"));
+        assert_eq!(drawn[7], message("u1", "user", "raw user"));
+    }
+
+    /// A row that starts with a block: the frame takes the group's avatar
+    /// and gap; a row without prose shows no time.
+    #[test]
+    fn a_row_that_is_a_block_alone_keeps_the_avatar_and_shows_no_time() {
+        let chat = [agent_message("m1", "raw")];
+        let lead = ChatGroup { side: Some("in".into()), avatar: Some("avatar:a".into()), indent: true, link: None, gap: 12, tail: true };
+        let out = vec![ChatRowInput::Message { id: "m1".into(), author: "agent".into(), body: "raw".into(), name: Some("Triage".into()), time: "09:02".into(), queued: false, group: Some(lead), status: None, highlight: None }];
+        let surface = serde_json::json!({"version": "1.0", "root": {"id": "root", "component": "Text"}});
+        let mut split = |_: &str, _: &str| Some(vec![ExpressSegment::Block(ExpressBlock { key: "m:m1#1".into(), surfaces: vec![("m:m1#1".into(), surface.clone())], open: false, failed: false })]);
+        let drawn = express(out, &chat, &mut split);
+        assert_eq!(drawn, vec![ChatRowInput::Card { id: "m:m1#1@m:m1#1".into(), icon: String::new(), title: String::new(), text: String::new(), target: None, surface: Some(surface.clone()), group: Some(ChatGroup { side: None, avatar: Some("avatar:a".into()), indent: true, link: None, gap: 12, tail: false }) }]);
     }
 }

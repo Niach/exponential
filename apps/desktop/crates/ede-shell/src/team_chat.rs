@@ -143,7 +143,7 @@ pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
     input.busy = view.busy;
     input.session_id = Some(root.id.clone());
     input.marks = marks(&rows.account, root);
-    input.rows = crate::chat::rows(&view.rows, &by_id, |id| Some(author_label(id.and_then(|id| users.get(id).copied()))));
+    input.rows = crate::chat::rows(&view.rows, &by_id, |id| Some(author_label(id.and_then(|id| users.get(id).copied()))), Some(rows.account.user_id.as_str()));
     // #EDE-65 lane O: the IDE transcript's grouping (avatars, names, gaps).
     let transcript = domain::transcript_grouping::TranscriptInput {
         viewer_id: Some(rows.account.user_id.clone()),
@@ -154,6 +154,8 @@ pub fn input(rows: &TeamRows, chat: &TeamChat, now_ms: i64) -> ChatInput {
     };
     let icons: HashMap<String, String> = input.agents.iter().map(|a| (a.id.clone(), a.icon.clone())).collect();
     crate::chat::group(&mut input.rows, &view.rows, transcript, |sender| Some(avatar_icon(sender, &icons)));
+    // #EXP-2077: an agent's row with Express blocks = its segments.
+    input.rows = crate::chat::express(std::mem::take(&mut input.rows), &view.rows, &mut crate::chat_express::split);
     input
 }
 
@@ -208,17 +210,25 @@ fn session_chat<'a>(rows: &'a TeamRows, chat: &TeamChat, now_ms: i64) -> Option<
     Some((root, view, keyed))
 }
 
-/// Lane Q: what an Embed's inner event on card `message_id` asks
-/// (`domain::chat_document::card_reply` over the open session's rows).
+/// Lane Q, #EXP-2077: what an Embed's inner event on chat row `message_id`
+/// asks (`domain::chat_document::card_reply` over the open session's rows:
+/// a show card, an Express block's surface).
 pub fn card_reply(rows: &TeamRows, chat: &TeamChat, message_id: &str, name: &str, context: &serde_json::Value, now_ms: i64) -> Option<crate::chat::CardReply> {
-    let (_, view, _) = session_chat(rows, chat, now_ms)?;
-    crate::chat::card_reply(&view.rows, message_id, Some(name), Some(context))
+    let (root, view, _) = session_chat(rows, chat, now_ms)?;
+    crate::chat::card_reply(&view.rows, &root.id, message_id, Some(name), Some(context))
 }
 
-/// A card reply's send: the text into the card's session.
-pub fn reply_input(chat: &TeamChat, reply: &crate::chat::CardReply) -> api::sessions::SendInput {
-    let crate::chat::CardReply::Send { session_id, text } = reply;
-    api::sessions::SendInput { team_id: Some(chat.team_id.clone()), session_id: Some(session_id.clone()), text: Some(text.clone()), ..Default::default() }
+/// A card reply's send (chat-express.json ACTIONS): the body (blank =
+/// none) into the reply's session, and THE `action` card it carries, still
+/// clear ([`Wire::action_card`] is its wire). `None` = too large: nothing
+/// is sent.
+pub fn reply_input(chat: &TeamChat, reply: &crate::chat::CardReply) -> Option<(api::sessions::SendInput, serde_json::Value)> {
+    let crate::chat::CardReply::Send { session_id, text, card } = reply else { return None };
+    let card = serde_json::to_value(card).ok()?;
+    let text = Some(text.clone()).filter(|text| !text.trim().is_empty());
+    // The clear card rides the input until the wire is known (`send_tree`
+    // reads it: a card alone is content to seal too).
+    Some((api::sessions::SendInput { team_id: Some(chat.team_id.clone()), session_id: Some(session_id.clone()), text, action_card: Some(card.clone()), ..Default::default() }, card))
 }
 
 /// A person's label (the IDE's `author_label`): the name, else the email.
@@ -287,7 +297,7 @@ pub enum SendTree {
 
 /// The send's [`SendTree`] off the synced rows.
 pub fn send_tree(rows: &AccountRows, input: &api::sessions::SendInput) -> SendTree {
-    if input.text.is_none() {
+    if input.text.is_none() && input.action_card.is_none() {
         return SendTree::None;
     }
     if let Some(session) = &input.session_id {
@@ -380,6 +390,19 @@ impl Wire {
             Wire::Sealed { root_id, epoch, public } => {
                 let text = domain::sealed::with_attachment_embeds(text, attachment_ids, domain::sealed::recorded_upload);
                 enet_core::sealed::seal_body(public, *epoch, &text).map_err(|err| format!("{root_id}: {err}"))
+            }
+        }
+    }
+
+    /// #EXP-2067: THE `action` card that leaves: itself into a clear tree,
+    /// else its envelope ALONE, `{kind: "action", sealed}` (`sessions.send`
+    /// `actionCard`, the IDE's `action_envelope`: every field lives inside).
+    pub fn action_card(&self, card: &serde_json::Value) -> Result<serde_json::Value, String> {
+        match self {
+            Wire::Clear => Ok(card.clone()),
+            Wire::Sealed { root_id, epoch, public } => {
+                let sealed = enet_core::sealed::seal_card(public, *epoch, card).map_err(|err| format!("{root_id}: {err}"))?;
+                Ok(serde_json::json!({"kind": "action", "sealed": sealed.get("sealed").cloned().unwrap_or(serde_json::Value::Null)}))
             }
         }
     }
@@ -490,7 +513,7 @@ pub fn demo_input() -> ChatInput {
         agents,
         rows: vec![
             message("m1", "agent", "Two new widget reports on Product Feedback. FB-8 is a duplicate of FB-3, merged it. FB-9 needs code, so I started a chat:", "09:02"),
-            uicore_model::chat::ChatRowInput::Card { id: "c1".into(), icon: "coding-running".into(), title: "Sort today's widget reports".into(), text: "Working".into(), target: Some("s2".into()), surface: None },
+            uicore_model::chat::ChatRowInput::Card { id: "c1".into(), icon: "coding-running".into(), title: "Sort today's widget reports".into(), text: "Working".into(), target: Some("s2".into()), surface: None, group: None },
             message("m2", "user", "Label the Android ones too, and check the board every hour.", "09:14"),
             message("m3", "agent", "Done, 3 issues labelled android.", "09:14"),
             // Lane Q: an agent's result card (`exponential_show`), drawn in an Embed.
@@ -501,6 +524,7 @@ pub fn demo_input() -> ChatInput {
                 text: String::new(),
                 target: Some("s1".into()),
                 surface: Some(demo_card()),
+                group: None,
             },
         ],
         ..Default::default()
@@ -836,10 +860,82 @@ mod tests {
         let card = input(&rows, &open, 0).rows.into_iter().find(|r| matches!(r, uicore_model::chat::ChatRowInput::Card { id, .. } if id == "m4"));
         let Some(uicore_model::chat::ChatRowInput::Card { title, surface: Some(surface), .. }) = card else { panic!("{card:?}") };
         assert_eq!((title.as_str(), &surface["data"]["new"]), ("Reports", &json!("2")));
+        // chat-express.json ACTIONS: the reply's text is the body, THE
+        // action card rides with it; every other event is forwarded too.
         let reply = card_reply(&rows, &open, "m4", "reply", &json!({"text": "Label the rest too"}), 0).expect("a reply");
-        let send = reply_input(&open, &reply);
+        let (send, card) = reply_input(&open, &reply).expect("a send");
         assert_eq!((send.team_id.as_deref(), send.session_id.as_deref(), send.text.as_deref()), (Some("t1"), Some("s1"), Some("Label the rest too")));
-        assert!(card_reply(&rows, &open, "m4", "picked", &json!({"text": "x"}), 0).is_none(), "only reply answers");
+        assert_eq!(card, json!({"kind": "action", "name": "reply", "context": {"text": "Label the rest too"}, "surfaceId": "show:m4", "block": null, "messageId": "m4"}));
+        assert_eq!(send.action_card.as_ref(), Some(&card));
+        let picked = card_reply(&rows, &open, "m4", "picked", &json!({"id": 7}), 0).expect("every event is forwarded");
+        let (send, card) = reply_input(&open, &picked).unwrap();
+        assert_eq!((send.text, &card["name"], &card["context"]), (None, &json!("picked"), &json!({"id": 7})));
         assert!(card_reply(&rows, &open, "m2", "reply", &json!({"text": "x"}), 0).is_none(), "a message is no card");
+        assert!(reply_input(&open, &crate::chat::CardReply::TooLarge).is_none(), "too large: nothing is sent");
+    }
+
+    const BLOCK: &str = "Here is the build:\n<a2ui>\nroot = Stack(children=[title, ship])\ntitle = Text(text=\"Build 1482 is green\")\nship = Button(label=\"Ship it\", on={press: Event(\"reply\", {text: \"Ship it\"})})\n</a2ui>\nShip it?";
+
+    /// #EXP-2077 (chat-express.json DRAW, ACTIONS): an agent's row with a
+    /// block draws its prose bubbles and the block's frame in one sender
+    /// group; the frame's press posts into the chat's root; an action row
+    /// is its author's bubble or THE marker.
+    #[test]
+    fn an_agent_row_with_a_block_draws_its_segments_and_its_press_posts_the_action() {
+        use uicore_model::chat::ChatRowInput;
+        let mut rows = rows();
+        let message = |value: serde_json::Value| -> MessageRow { serde_json::from_value(value).unwrap() };
+        rows.messages.push(message(json!({"id": "m7", "conversation_id": "c1", "session_id": "s1", "root_id": "s1", "author_kind": "agent", "body": BLOCK, "created_at": "2026-11-08T09:20:00Z"})));
+        rows.messages.push(message(json!({"id": "m8", "conversation_id": "c1", "session_id": "s1", "root_id": "s1", "author_kind": "user", "author_id": "u1", "body": "Ship it", "created_at": "2026-11-08T09:21:00Z", "consumed_at": "2026-11-08T09:21:01Z",
+            "card": {"kind": "action", "name": "reply", "context": {"text": "Ship it"}, "surfaceId": "m:m7#1", "block": "m:m7#1", "messageId": "m7"}})));
+        rows.messages.push(message(json!({"id": "m9", "conversation_id": "c1", "session_id": "s1", "root_id": "s1", "author_kind": "user", "author_id": "u1", "body": "", "created_at": "2026-11-08T09:22:00Z",
+            "card": {"kind": "action", "name": "save_deal", "context": null, "surfaceId": "m:m7#1", "block": "m:m7#1", "messageId": "m7"}})));
+        let open = chat(Some("s1"));
+        let drawn = input(&rows, &open, 0).rows;
+        let at = drawn.iter().position(|row| matches!(row, ChatRowInput::Message { id, .. } if id == "m7")).expect("the row's first prose");
+        let ChatRowInput::Message { body, time, group: Some(lead), .. } = &drawn[at] else { panic!() };
+        assert_eq!((body.as_str(), time.as_str()), ("Here is the build:", ""), "the time waits for the last prose");
+        let ChatRowInput::Card { id, title, text, target, surface: Some(surface), group: Some(frame), .. } = &drawn[at + 1] else { panic!("{:?}", drawn[at + 1]) };
+        assert_eq!((id.as_str(), title.as_str(), text.as_str(), target), ("m:m7#1@m:m7#1", "", "", &None));
+        assert_eq!((frame.indent, frame.gap, frame.avatar.as_deref()), (lead.indent, 8, None), "the frame sits in the sender's column");
+        assert_eq!(surface["root"]["children"][1]["props"]["label"], "Ship it");
+        let ChatRowInput::Message { id, body, time, name, group: Some(after), .. } = &drawn[at + 2] else { panic!("{:?}", drawn[at + 2]) };
+        assert_eq!((id.as_str(), body.as_str(), name, after.gap, after.tail), ("m7~2", "Ship it?", &None, 8, false));
+        assert!(!time.is_empty(), "the last prose carries the time");
+        // The action rows: the viewer's bubble with its body, else THE marker.
+        assert!(matches!(&drawn[at + 3], ChatRowInput::Message { id, author, body, .. } if id == "m8" && author == "user" && body == "Ship it"), "{:?}", drawn[at + 3]);
+        assert_eq!(drawn[at + 4], ChatRowInput::Marker { id: "m9".into(), label: "You pressed save_deal".into(), group: None });
+        // As the document binds it: a card with a surface and no title.
+        let view = uicore_model::chat::chat_view(&input(&rows, &open, 0));
+        let bound = crate::chat::chatting(&view);
+        let frame = bound["rows"].as_array().unwrap().iter().find(|row| row["id"] == "m:m7#1@m:m7#1").expect("the frame's row");
+        assert_eq!((&frame["kind"], &frame["title"], &frame["indent"], &frame["gap"]), (&json!("card"), &json!(""), &json!(lead.indent), &json!(8)));
+        assert_eq!(frame["surface"]["version"], eui_core::catalog::A2UI_VERSION);
+        // The frame's press: into the chat's root, naming its block and message.
+        let press = card_reply(&rows, &open, "m:m7#1@m:m7#1", "reply", &json!({"text": "Ship it"}), 0).expect("a block's event is forwarded");
+        let (send, card) = reply_input(&open, &press).unwrap();
+        assert_eq!((send.session_id.as_deref(), send.text.as_deref()), (Some("s1"), Some("Ship it")));
+        assert_eq!(card, json!({"kind": "action", "name": "reply", "context": {"text": "Ship it"}, "surfaceId": "m:m7#1", "block": "m:m7#1", "messageId": "m7"}));
+    }
+
+    /// #EXP-2067: into a keyed tree THE action card leaves as its envelope
+    /// alone (every field inside the seal), also when it goes without text.
+    #[test]
+    fn an_action_card_is_sealed_into_a_keyed_tree() {
+        let key = enet_core::sealed::generate_tree_key();
+        let mut r = rows();
+        r.account.sessions = vec![root_row(json!({"seal_public_key": key.public_key(), "seal_epoch": 2}))];
+        let card = json!({"kind": "action", "name": "save_deal", "context": {"rep": "Ana"}, "surfaceId": "m:m7#1", "block": "m:m7#1", "messageId": "m7"});
+        let alone = api::sessions::SendInput { text: None, action_card: Some(card.clone()), ..into(ROOT) };
+        let tree = send_tree(&r.account, &alone);
+        assert!(matches!(tree, SendTree::Keyed { epoch: 2, .. }), "a card alone is content to seal: {tree:?}");
+        let wire = wire_for(&FakeServer::new(None, None), &tree).unwrap();
+        let sealed = wire.action_card(&card).unwrap();
+        assert_eq!(sealed.as_object().unwrap().keys().collect::<Vec<_>>(), ["kind", "sealed"], "the envelope alone");
+        assert_eq!(sealed["kind"], "action");
+        let opened = enet_core::sealed::open_card(&sealed, &|e| (e == 2).then_some(key.secret));
+        assert_eq!(opened.status, sync::sealed::OpenStatus::Opened);
+        assert_eq!(opened.card, card);
+        assert_eq!(Wire::Clear.action_card(&card).unwrap(), card, "a clear tree takes it as it is");
     }
 }
