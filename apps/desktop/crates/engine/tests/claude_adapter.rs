@@ -871,19 +871,23 @@ async fn the_argv_pins_the_permission_mode_and_the_reaper_anchor() {
     assert!(run
         .argv_value("--settings")
         .is_some_and(|path| path.contains("claude-hooks/1/row-1.settings.json")));
-    // The MCP server rides inline with the key left as an env reference.
-    let mcp = run.argv_value("--mcp-config").expect("--mcp-config is emitted");
-    assert!(mcp.contains("${EXP_MCP_TOKEN}"), "the key must not land on the argv: {mcp}");
+    // #FEED-308: the MCP document rides a FILE beside the settings file
+    // (never argv: Windows' command line ends at 32,767 characters), with
+    // the key left as an env reference.
+    let mcp_file = run.argv_value("--mcp-config").expect("--mcp-config is emitted");
+    assert!(mcp_file.contains("claude-hooks/1/mcp-") && mcp_file.ends_with(".json"), "{mcp_file}");
+    let mcp = std::fs::read_to_string(mcp_file).expect("the MCP document is written");
+    assert!(mcp.contains("${EXP_MCP_TOKEN}"), "the key must not land on disk: {mcp}");
     assert!(mcp.contains("X-Exp-Session-Id"));
     assert!(!mcp.contains("expu_test-key"));
     assert!(run.argv.iter().any(|arg| arg == "--strict-mcp-config"));
-    // EXP-763: the run playbook, appended to the system prompt. The fixture
-    // records argv one LINE per entry, so only the playbook's first line is
-    // addressable here.
-    assert_eq!(
-        run.argv_value("--append-system-prompt"),
-        coding::skill::RUN_SKILL.lines().next()
-    );
+    // EXP-763: the run playbook, appended to the system prompt, as a file
+    // too (#FEED-308).
+    let prompt_file = run.argv_value("--append-system-prompt-file").expect("--append-system-prompt-file is emitted");
+    assert!(prompt_file.contains("claude-hooks/1/prompt-") && prompt_file.ends_with(".md"), "{prompt_file}");
+    assert!(std::fs::read_to_string(prompt_file).expect("the append is written").starts_with(coding::skill::RUN_SKILL.lines().next().unwrap()));
+    assert!(!run.argv.iter().any(|arg| arg == "--append-system-prompt"));
+    assert!(run.argv.iter().all(|arg| arg.len() < 1024), "no text rides the argv: {:?}", run.argv);
     // EXP-784: the `--session-id` pin is claude's OWN uuid, decoupled from
     // the ACP session id (a `/clear` moves the former, never the latter);
     // it reaches the run record through the response's `_meta`.

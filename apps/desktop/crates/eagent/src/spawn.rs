@@ -293,6 +293,8 @@ pub fn winsize(cols: u16, rows: u16, cell_px: (u32, u32)) -> PtySize {
 /// an emulator corrects it via [`Pty::resize`] once it knows the real
 /// metrics (`terminal::pty::open` passes the emulator's default cell).
 pub fn open_pty(spec: &SpawnSpec, cols: u16, rows: u16, cell_px: (u32, u32)) -> io::Result<Pty> {
+    // #FEED-308: a line the system would refuse fails here, naming the argument.
+    crate::command_line::check_spawn(&spec.program, &spec.args, &spec.env)?;
     let cmd = build_command(spec);
     let pair = native_pty_system().openpty(winsize(cols, rows, cell_px)).map_err(pty_err)?;
     let child = pair
