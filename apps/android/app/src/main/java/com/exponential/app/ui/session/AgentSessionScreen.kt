@@ -262,6 +262,7 @@ import com.exponential.app.ui.agent.ComposerPlusMenuSheet
 import com.exponential.app.ui.agent.AgentIssuePickerPage
 import com.exponential.app.ui.agent.AgentIssueInsertPage
 import com.exponential.app.ui.agent.insertIssueRef
+import com.exponential.app.ui.agent.IssueOption
 import com.exponential.app.ui.agent.issueOption
 import com.exponential.app.domain.ComposerMenuConditions
 import com.exponential.app.domain.ComposerMenuEntry
