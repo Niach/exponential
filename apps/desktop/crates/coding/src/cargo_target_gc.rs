@@ -1224,10 +1224,13 @@ mod tests {
         // Off: nothing walked, however low.
         fs::write(tmp.0.join("settings.json"), r#"{"cargoSweep":{"enabled":false,"freeDiskGb":100000000}}"#).unwrap();
         assert_eq!(sweep_if_due(&clone, &tmp.0), None);
-        // Low (any disk is below 100 PB): swept once, then throttled.
+        // Low (any disk is below 100 PB): swept once, then throttled. Under
+        // half of it too (#EXP-1996): the 30-min floor, so foo 3 (1.5 h)
+        // goes as well.
         fs::write(tmp.0.join("settings.json"), r#"{"cargoSweep":{"freeDiskGb":100000000}}"#).unwrap();
         let report = sweep_if_due(&clone, &tmp.0).expect("due");
-        assert_eq!(report.bytes_freed, 2 * 112 + 2 * 40 + 15 + 40 + 112);
+        assert_eq!(report.min_age, URGENT_MIN_AGE);
+        assert_eq!(report.bytes_freed, 3 * 112 + 2 * 40 + 15 + 40 + 112);
         let record = last_sweep(&tmp.0).expect("recorded");
         assert_eq!(record.freed_bytes, report.bytes_freed);
         assert!(!record.dry_run);
