@@ -18,42 +18,65 @@ HTTP, one of two credentials:
   `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported`
   includes `none`), and every authorization passes the consent page that
   writes the grant (`lib/auth/mcp-authorize-guard.ts`, `lib/emcp/scope.ts`).
-  Client ID Metadata Documents are NOT served yet (INT-14).
+  Client ID Metadata Documents are NOT served yet (NEW-24, not in the
+  2026-11-24 batch).
 
-Five tools carry an MCP Apps binding (`_meta.ui.resourceUri`, the stable
-`io.modelcontextprotocol/ui` extension, protocol 2026-01-26), each to a
-`ui://exponential/*` resource of MIME `text/html;profile=mcp-app`:
+Five noun tools carry an MCP Apps binding (`_meta.ui.resourceUri`, the stable
+`io.modelcontextprotocol/ui` extension, protocol 2026-01-26) to one of FOUR
+`ui://exponential/*` resources of MIME `text/html;profile=mcp-app`
+(`lib/emcp/apps.ts`). A host binds the view to the whole noun, so the view
+reads the call's `op` and draws nothing for the ops it has no screen for
+(`packages/mcp-apps/src/view-screen.ts`). The session views (`run`, `runs`)
+went with EXP-1291.
 
 | Tool | Resource | View |
 | --- | --- | --- |
-| `exponential_issues` op `show` (+ `_meta["openai/ui"].entrypoints: global`) | `ui://exponential/issues` | issue list, opens an issue in place |
-| `exponential_sessions` op `get` | `ui://exponential/run` | run report, changes, steer composer |
-| `exponential_sessions` op `list` | `ui://exponential/runs` | runs list |
-| `exponential_notifications` op `list` | `ui://exponential/inbox` | inbox |
-| `exponential_devices` op `list` | `ui://exponential/devices` | devices + agent accounts |
+| `exponential_issues` (+ `_meta["openai/ui"].entrypoints: global`) | `ui://exponential/issues` | issue list (`list`, `show`; `show` opens full size), an issue in place (`get`, `create`, `update`, `update_status`, a list row) |
+| `exponential_notifications` | `ui://exponential/inbox` | inbox; a row opens its issue in place |
+| `exponential_devices` | `ui://exponential/devices` | devices, agent accounts, account sign-in |
+| `exponential_show`, `exponential_apps` | `ui://exponential/genui` | an inline genUI card; a team app running; the apps list |
 
 Each resource is its OWN built document (`packages/mcp-apps`, one vite pass
-per view, script and stylesheet inlined, nothing shared at runtime; NEW-24)
-with the view stamped into its `exp-view` meta tag. Bytes on 2026-11-24
-(master `4b3d0b09bf` before, one bundle per view after):
+per view, script and stylesheet inlined, nothing shared at runtime) with the
+view stamped into its `exp-view` meta tag. Bytes on 2026-11-24:
 
-| View | Before | After |
+| View | One document for all (master `4b3d0b09bf`) | Per view (NEW-24, master `cc6dbc61f3`) |
 | --- | --- | --- |
-| `issues` | 4,535,127 (`app.html`) | 2,349,327 (`issues.html`) |
-| `inbox` | 4,535,127 (`app.html`) | 2,347,740 (`inbox.html`) |
-| `devices` | 4,535,127 (`app.html`) | 808,753 (`devices.html`) |
-| `genui` | 4,814,372 (`genui.html`) | 3,174,425 (`genui.html`) |
+| `issues` | 4,535,127 (`app.html`) | 2,355,337 (`issues.html`) |
+| `inbox` | 4,535,127 (`app.html`) | 2,353,744 (`inbox.html`) |
+| `devices` | 4,535,127 (`app.html`) | 814,563 (`devices.html`) |
+| `genui` | 4,814,372 (`genui.html`) | 3,180,392 (`genui.html`) |
 
 The split alone saved nothing: the workspace packages declare no
 `sideEffects`, so the `@exp/ui` barrel carried the catalogue's specimens and
 every fixture into each document. The views' build marks those modules pure
 (`vite.config.ts` `PURE_MODULES`). What is left in `issues` and `inbox` is the
-eUI renderer their markdown draws with (the Motion wasm alone is 635 kB
-inlined); both are still over OpenClaw's 2 MiB cap.
+eUI renderer their Markdown draws with (the Motion wasm alone is 635 kB
+inlined). `issues`, `inbox` and `genui` are still over OpenClaw's 2 MiB cap:
+NEW-140.
 
-Its `_meta.ui` carries `prefersBorder: true` and a
-CSP of `resourceDomains: [app origin, fonts.googleapis.com, fonts.gstatic.com]`;
-no `connectDomains`: data only ever arrives through the host's `tools/call`.
+A resource's `_meta.ui` carries `prefersBorder: true` and a CSP of
+`resourceDomains: [app origin, fonts.googleapis.com, fonts.gstatic.com]`; no
+`connectDomains`: data only ever arrives through the host's `tools/call`.
+
+What a view takes from the host (`ui/initialize` and every
+`ui/notifications/host-context-changed`):
+
+- `hostContext.theme` toggles `html.dark`; a host that names none gets dark,
+  as the app is everywhere. Light is the `exponential` genUI theme's own
+  light mode (`host-theme.ts`, `styles.css`).
+- `hostContext.styles.variables` (`--color-background-primary`,
+  `--color-text-primary`, `--color-border-primary`, `--font-sans`,
+  `--border-radius-md`, …) are set on the root and our tokens fall back to
+  ours where the host names none; `styles.css.fonts` is added once.
+- `hostContext.safeAreaInsets` pad the view's root.
+- Display modes: the view declares `inline` and `fullscreen` and asks for
+  `fullscreen` on `exponential_issues {op: "show"}` and for a running app.
+- `hostContext.toolInfo.id` keys the call's last screen in `sessionStorage`.
+  When the host answers `ui/initialize` but sends no result within 5 s (45 s
+  once the call's input arrived), or refuses the view's first `tools/call`,
+  the view is READ-ONLY: that last screen, every action off, one line "This
+  view expired · relaunch it from the chat" (`lease.ts`).
 
 A request that carries a well-formed `X-Exp-Session-Id` header (every coding
 run Exponential launches) gets NO resources and NO bindings
@@ -66,7 +89,7 @@ Probe it yourself (read-only):
 ```bash
 # anonymous: 401 + the protected-resource pointer
 curl -si -X POST https://app.exponential.at/api/mcp | grep -i www-authenticate
-# with a key: the five resources and one view's size
+# with a key: the four resources and one view's size
 post() { curl -s https://app.exponential.at/api/mcp -X POST \
   -H "Authorization: Bearer $EXP_TOKEN" -H 'content-type: application/json' \
   -H 'accept: application/json, text/event-stream' --data "$1"; }
@@ -74,25 +97,74 @@ post '{"jsonrpc":"2.0","id":1,"method":"resources/list","params":{}}'
 post '{"jsonrpc":"2.0","id":2,"method":"resources/read","params":{"uri":"ui://exponential/issues"}}' | wc -c
 ```
 
-## 2. Host matrix (verified 2026-10-07)
+## 2. Host matrix
+
+### Verified by rendering (2026-11-24)
+
+No GUI login to claude.ai, ChatGPT, Cursor or VS Code exists in the sessions
+that build this, so what is verified is what real MCP Apps host code draws
+locally, in headless Chromium (Playwright), against a stand-in server with
+the tools, bindings and answer shapes of `/api/mcp`
+(`packages/mcp-apps/scripts/connector-harness.ts`; no database, no account,
+never prod):
+
+- **ext-apps basic-host**: the reference host of the MCP Apps repository
+  (`modelcontextprotocol/ext-apps` `examples/basic-host`, commit `ea3e9d0`,
+  SDK 2.1.0): the double-iframe sandbox on its own origin, the resource's CSP
+  as an HTTP header, `hostContext.theme` from the browser's colour scheme and
+  the full set of style variables. It always passes a context and never
+  expires a view.
+- **lease-host** (`packages/mcp-apps/scripts/lease-host.ts`): OUR stand-in
+  for the two states the reference host cannot produce: a host that answers
+  `ui/initialize` with an empty context, and a host whose lease ran out (the
+  same call mounted again in the page: no input, no result, every
+  `tools/call` refused). It follows OpenClaw's documented behaviour; it is not
+  OpenClaw.
+
+`node scripts/host-matrix.mjs <dir>` draws every cell and writes
+`matrix.json`. A cell passes when the view reaches its screen, `html.dark`
+matches the state, no page error and no toast appear, and (expired) the one
+line is there over the kept screen.
+
+| View (call) | Dark (basic-host) | Light (basic-host) | No host context (lease-host) | Expired lease (lease-host) |
+| --- | --- | --- | --- | --- |
+| issues (`exponential_issues` `list`) | pass | pass | pass, dark | pass, read-only |
+| issue (`exponential_issues` `get`) | pass | pass | pass, dark | pass, read-only |
+| inbox (`exponential_notifications` `list`) | pass | pass | pass, dark | pass, read-only |
+| devices (`exponential_devices` `list`) | pass | pass | pass, dark | pass, read-only |
+| genui card (`exponential_show`) | pass | pass | pass, dark | pass, read-only |
+| genui app (`exponential_apps` `get`) | pass | pass | pass, dark | pass, read-only |
+
+Seen in the expired cells: only the screen the tool result drew is kept.
+What a view fetched itself afterwards is not, so an expired issue list shows
+placeholder avatars and an expired app shows empty records.
+
+Not verified by this matrix: any production host (claude.ai, Claude Desktop,
+Claude iOS/Android, ChatGPT, Cursor, VS Code, OpenClaw, Goose, Postman,
+M365 Copilot), OAuth through a host, the real `/api/mcp` (the harness stands
+in), the 2 MiB cap, and a sandbox without `allow-same-origin` (no
+`sessionStorage`: an expired view then shows the line alone). MCPJam's
+inspector (`@mcpjam/inspector` 3.24.1) starts headless but opens on a
+sign-in page (login.mcpjam.com), so it was not used. Section 7 lists what a
+person's accounts still have to show.
+
+### What each host documents (2026-10-07)
 
 "Draws" means the host fetches the `ui://` resource a tool names and mounts
-it. "Compatible" means the protocol facts above match what the host documents;
-end-to-end rendering in the hosts marked "untested" still needs a person's
-account (the checklist is in section 7).
+it. "Compatible" means the protocol facts above match what the host documents.
 
 | Host | Draws MCP Apps | Facts | Our views |
 | --- | --- | --- | --- |
-| claude.ai, Claude Desktop **Chat**, Claude iOS/Android | Yes | Official support matrix. Double iframe (mobile: native WebView), honours `_meta.ui.csp`, asks the person to Allow each server's app once, passes style variables + `hostContext.theme` (light and dark), display modes `inline`/`fullscreen`/`pip`, tool results over ~150k chars are spilled to the sandbox FS and never reach the app. `ui.domain` is optional (only an app running its OWN OAuth needs it; value = first 32 hex of sha256(server URL) + `.claudemcpcontent.com`). The connector must be OAuth; the server is added under Customize → Connectors (Pro/Max/Team/Enterprise). | Compatible via DCR; untested end-to-end. Known gap: the views force dark (`app.tsx` adds `html.dark`) and ignore the host's tokens, which clashes in light mode. |
+| claude.ai, Claude Desktop **Chat**, Claude iOS/Android | Yes | Official support matrix. Double iframe (mobile: native WebView), honours `_meta.ui.csp`, asks the person to Allow each server's app once, passes style variables + `hostContext.theme` (light and dark), display modes `inline`/`fullscreen`/`pip`, tool results over ~150k chars are spilled to the sandbox FS and never reach the app. `ui.domain` is optional (only an app running its OWN OAuth needs it; value = first 32 hex of sha256(server URL) + `.claudemcpcontent.com`). The connector must be OAuth; the server is added under Customize → Connectors (Pro/Max/Team/Enterprise). | Compatible via DCR; not rendered there. Theme and style variables are taken since NEW-24 (proven with the reference host only). |
 | Claude Code: CLI, IDE extensions, **Desktop Code tab** | **No** | anthropic/claude-code#95149 (open, 2026-09-17): Claude Code drops the UI and shows the text result; image blocks render, HTML does not. The Code tab adds connectors and plugins, not app rendering. | Text only. The answer for Claude Code is a mod (section 4), drawn from the same data. |
 | Claude Cowork | Not documented | Treat as no. | |
-| ChatGPT (web, desktop, mobile) | Yes | Standard MCP Apps keys plus `openai/*` aliases; our `openai/ui` global entrypoint applies. OAuth 2.1 mandatory, PKCE S256 advertised, **CIMD preferred, DCR fallback**; redirect `https://chatgpt.com/connector_platform_oauth_redirect`. Added via Developer mode or the app directory (OpenAI review). | Compatible via DCR; untested. No "ChatGPT plugin" exists or is needed: the server IS the app. Distribution is a plugin bundle (section 5) + directory submission. |
+| ChatGPT (web, desktop, mobile) | Yes | Standard MCP Apps keys plus `openai/*` aliases; our `openai/ui` global entrypoint applies. OAuth 2.1 mandatory, PKCE S256 advertised, **CIMD preferred, DCR fallback**; redirect `https://chatgpt.com/connector_platform_oauth_redirect`. Added via Developer mode or the app directory (OpenAI review). | Compatible via DCR; not rendered there. No "ChatGPT plugin" exists or is needed: the server IS the app. Distribution is a plugin bundle (section 5) + directory submission. |
 | Codex CLI / Codex app / IDE extension | **No** | openai/codex#21019: rendering sits behind `enable_mcp_apps`; tools and resources work. Codex plugins (skills + MCP + hooks) load in Codex CLI/app and ChatGPT, not the IDE extension. | Text only. |
-| Cursor ≥ 2.6 (2026-03-03) | Yes | Sandboxed iframe + postMessage; `structuredContent` since 3.0; team marketplaces for plugins. | Compatible; untested. |
-| VS Code GitHub Copilot Chat | Yes | Official support matrix. | Compatible; untested. |
-| OpenClaw (Control UI) | Yes, `mcp.apps.enabled` | Double-iframe proxy on a separate sandbox origin, resources capped at **2 MiB**, 4 requests in flight, 120 requests/min, 30 tool calls/min per view, app HTML + results live in a **10-minute in-memory view lease**. An expired transcript preview shows a recovery message; a pinned or reconstructed card is **read-only** (the host refetches the `ui://` document but grants no tool calls); entrypoint panels offer Relaunch. | The only host EXP-1183 tested. After the lease our view sits on its skeleton (it never receives a `tool-result`) or shows tool errors on interaction: INT-12. |
+| Cursor ≥ 2.6 (2026-03-03) | Yes | Sandboxed iframe + postMessage; `structuredContent` since 3.0; team marketplaces for plugins. | Compatible; not rendered there. |
+| VS Code GitHub Copilot Chat | Yes | Official support matrix. | Compatible; not rendered there. |
+| OpenClaw (Control UI) | Yes, `mcp.apps.enabled` | Double-iframe proxy on a separate sandbox origin, resources capped at **2 MiB**, 4 requests in flight, 120 requests/min, 30 tool calls/min per view, app HTML + results live in a **10-minute in-memory view lease**. An expired transcript preview shows a recovery message; a pinned or reconstructed card is **read-only** (the host refetches the `ui://` document but grants no tool calls); entrypoint panels offer Relaunch. | The only host EXP-1183 tested (2026-10). Since NEW-24 an expired view is read-only instead of a skeleton (proven with lease-host, not in OpenClaw). `issues`, `inbox` and `genui` are over the 2 MiB cap: NEW-140. |
 | pi (coding agent) | No MCP natively | MCP arrives through extensions (`pi-mcp-extension` and friends: tools only, resources "v2"). pi's own TUI is rich: widgets, overlays, `SelectList`, `Markdown`, `Image` (Kitty/iTerm2). | A pi extension draws our data with pi-tui components (section 6). |
-| Goose, Postman, MCPJam, Microsoft 365 Copilot, Archestra, PostHog Code | Yes (matrix) | | Compatible; untested. |
+| Goose, Postman, MCPJam, Microsoft 365 Copilot, Archestra, PostHog Code | Yes (matrix) | | Compatible; not rendered there. |
 
 Sources: modelcontextprotocol.io/extensions/apps and /extensions/client-matrix;
 claude.com/docs/connectors/building/mcp-apps/{getting-started,design-guidelines,troubleshooting};
@@ -265,24 +337,29 @@ DELETES a device-less row after 2 h without a heartbeat, and the attended
 started by a foreign harness needs an accepted agent id, a heartbeat from the
 extension, a sweep exemption and the `sessions_end` gate.
 
-## 7. Verification checklist (needs a person's accounts)
+## 7. What still needs a person's accounts
 
-For each host, connect prod `/api/mcp` and ask for the issue list:
+Section 2 proves the views against the reference host. These need a login
+nobody but Danny has; record each outcome in section 2 with the date.
 
-1. **claude.ai / Claude Desktop**: Customize → Connectors → Add custom
-   connector → `https://app.exponential.at/api/mcp` → consent page → ask
-   "show my open issues" → Allow the app. Check: renders, light-mode legibility,
-   row opens an issue, Start coding, fullscreen. Developer tools: Help →
-   Troubleshooting → Enable Developer Mode, inspect the inner iframe.
-2. **ChatGPT**: Settings → Apps → Developer mode → add the server (OAuth) →
-   same prompt. Check the global entrypoint opens without a model call.
-3. **Cursor ≥ 2.6** and **VS Code Copilot Chat**: add the server as a remote
-   MCP server, same prompt.
-4. **OpenClaw**: `openclaw plugins install clawhub:@exponential/openclaw-plugin`,
-   `openclaw config set mcp.apps.enabled true --strict-json`; wait 10 minutes,
-   reopen the card: the read-only state.
-
-Record the outcome per host in the matrix above with the date.
+- [ ] **claude.ai / Claude Desktop Chat**: Customize → Connectors → Add custom
+  connector → `https://app.exponential.at/api/mcp` → consent page → "show my
+  open issues" → Allow the app. The card draws; switch Claude to light and
+  to dark and the card follows; a row opens an issue; fullscreen. Developer
+  tools: Help → Troubleshooting → Enable Developer Mode, inspect the inner
+  iframe.
+- [ ] **Claude iOS or Android**: the same connector (added on web first): the
+  card draws in the WebView and keeps clear of the safe area.
+- [ ] **ChatGPT**: Settings → Apps → Developer mode → add the server (OAuth,
+  DCR) → the same prompt. The global entrypoint opens the issue list without
+  a model call; light and dark.
+- [ ] **Cursor ≥ 2.6** and **VS Code Copilot Chat**: add the server as a
+  remote MCP server, the same prompt.
+- [ ] **OpenClaw**: `openclaw plugins install clawhub:@exponential/openclaw-plugin`,
+  `openclaw config set mcp.apps.enabled true --strict-json`. Which views load
+  at all (the 2 MiB cap, NEW-140); then wait 10 minutes and reopen the card:
+  the read-only state with the last screen, or the line alone if the sandbox
+  has no `sessionStorage`.
 
 ## 8. Later, not now
 
