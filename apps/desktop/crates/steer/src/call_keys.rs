@@ -137,6 +137,12 @@ pub trait CallKeyOps: Send + Sync + 'static {
     fn pull(&self, root_id: &str);
     /// Answer the pending wraps of THIS root (a new install of the caller).
     fn answer_pending(&self, root_id: &str) -> Result<(), String>;
+    /// #EXP-1950 (install-trust.json `callCases`): `Err` = the call ends
+    /// (`rollback` below a verified epoch in every mode; once mandatory, a
+    /// held key that is not `verified` or `legacy`). Default: no rule.
+    fn call_rule(&self, _root_id: &str, _epoch: u32) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// The no-rollback rule's own reason in the log, so support can tell it from
@@ -151,8 +157,10 @@ fn held_secret(ops: &dyn CallKeyOps, root_id: &str, epoch: u32, pull_every: Dura
         log::warn!("call keys: {EPOCH_BELOW_HELD}: the server names epoch {epoch} of {root_id}, this install holds {held}");
         return Err(EPOCH_BELOW_HELD.into());
     }
+    ops.call_rule(root_id, epoch)?;
     loop {
         if let Some(secret) = ops.secret(root_id, epoch) {
+            ops.call_rule(root_id, epoch)?;
             return Ok(secret);
         }
         if stop.load(Ordering::SeqCst) {
@@ -160,6 +168,7 @@ fn held_secret(ops: &dyn CallKeyOps, root_id: &str, epoch: u32, pull_every: Dura
         }
         ops.pull(root_id);
         if let Some(secret) = ops.secret(root_id, epoch) {
+            ops.call_rule(root_id, epoch)?;
             return Ok(secret);
         }
         let waited = std::time::Instant::now();
@@ -368,7 +377,12 @@ impl CallKeyOps for InstallKeyOps {
     }
 
     fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
-        coding::sealing::adopt_new_root(root_id, seal);
+        // #EXP-1950: through the holder, which signs the seal's wraps again.
+        use coding::sealing::SealService as _;
+        match self.node.key_holder() {
+            Some(holder) => holder.adopt(root_id, seal),
+            None => coding::sealing::adopt_new_root(root_id, seal),
+        }
     }
 
     fn ensure_key(&self, root_id: &str) -> Result<u32, String> {
@@ -401,6 +415,10 @@ impl CallKeyOps for InstallKeyOps {
 
     fn answer_pending(&self, root_id: &str) -> Result<(), String> {
         self.key_holder()?.answer_pending_for(root_id).map(|_| ()).map_err(|err| err.to_string())
+    }
+
+    fn call_rule(&self, root_id: &str, epoch: u32) -> Result<(), String> {
+        self.key_holder()?.call_secret(root_id, epoch).map(|_| ())
     }
 }
 

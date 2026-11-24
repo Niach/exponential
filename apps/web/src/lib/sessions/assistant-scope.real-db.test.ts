@@ -2,7 +2,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { agents, devices, messages, sessions, teamMembers, teams } from "@/db/schema"
+import { agents, boards, devices, issues, messages, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
 // #EXP-1720 (packages/eagent/fixtures/tree.json `treeTeams`, emcp
@@ -252,5 +252,94 @@ describe.skipIf(!ready.ok)(`#EXP-1720 the Assistant's teams`, () => {
     const inA = await sendSession({ userId: w.me, input: { teamId: w.a, deviceId: w.deviceId, text: `A work.` } })
     const watched = await db.transaction((tx) => watchSessions(tx, w.conv, [inB.sessionId, inA.sessionId]))
     expect(watched).toEqual([inB.sessionId])
+  })
+})
+
+// #EXP-2082 (agent-settings.json `assistant.chatTeams` (1), (5)): a message
+// names the issues of its TREE's teams (`#IDENT` refs, an issue forwarded to
+// a conversation, which is what `sessions.linkIssues` does for one).
+async function issueIn(teamId: string, creatorId: string): Promise<string> {
+  const [board] = await db.insert(boards).values({ teamId, name: `Exp`, slug: `exp-${id8()}`, prefix: `EXP` }).returning()
+  const [issue] = await db
+    .insert(issues)
+    .values({ boardId: board!.id, teamId, title: `An issue`, description: `Read me.`, creatorId })
+    .returning()
+  return issue!.id
+}
+
+describe.skipIf(!ready.ok)(`#EXP-2082 the issues a message may name are the tree's teams'`, () => {
+  const REFUSED = `Every issue must belong to the session's team`
+
+  it(`the Assistant's conversation takes a ref and a link in each of the member's teams, never a foreign team's`, async () => {
+    const w = await world()
+    const [inA, inB, inForeign] = [await issueIn(w.a, w.me), await issueIn(w.b, w.me), await issueIn(w.foreign, w.me)]
+    for (const issueId of [inA, inB]) {
+      const ref = await sendSession({ userId: w.me, input: { sessionId: w.conv, text: `See it.`, refIssueIds: [issueId] } })
+      const [row] = await db.select({ refs: messages.refIssueIds }).from(messages).where(eq(messages.id, ref.messageId!))
+      expect(row!.refs).toEqual([issueId])
+      // What `sessions.linkIssues` sends for a conversation (it links nothing).
+      const link = await sendSession({ userId: w.me, input: { sessionId: w.conv, issueIds: [issueId] } })
+      const [brief] = await db.select({ brief: messages.issueBrief }).from(messages).where(eq(messages.id, link.messageId!))
+      expect(brief!.brief).toContain(`An issue`)
+    }
+    await expect(
+      sendSession({ userId: w.me, input: { sessionId: w.conv, text: `Theirs.`, refIssueIds: [inForeign] } })
+    ).rejects.toThrow(REFUSED)
+    await expect(sendSession({ userId: w.me, input: { sessionId: w.conv, issueIds: [inForeign] } })).rejects.toThrow(REFUSED)
+    // The first message to the Assistant (no conversation yet) reads them too.
+    await db.delete(sessions).where(eq(sessions.id, w.conv))
+    const first = await sendSession({ userId: w.me, input: { agentId: w.assistant.id, text: `Start.`, issueIds: [inB], refIssueIds: [inA] } })
+    expect(first.messageId).toBeTruthy()
+    await db.delete(sessions).where(eq(sessions.id, first.sessionId))
+    await expect(
+      sendSession({ userId: w.me, input: { agentId: w.assistant.id, text: `Start.`, issueIds: [inForeign] } })
+    ).rejects.toThrow(REFUSED)
+  })
+
+  it(`with a pick of B only it refuses A's; the pick a call carries is the one its refs are checked against`, async () => {
+    const w = await world()
+    const [inA, inB] = [await issueIn(w.a, w.me), await issueIn(w.b, w.me)]
+    // The same call narrows to B and names A: refused, and nothing stored.
+    await expect(
+      sendSession({ userId: w.me, input: { sessionId: w.conv, text: `A.`, refIssueIds: [inA], scopeTeamIds: [w.b] } })
+    ).rejects.toThrow(REFUSED)
+    await expect(
+      sendSession({ userId: w.me, input: { sessionId: w.conv, issueIds: [inA], scopeTeamIds: [w.b] } })
+    ).rejects.toThrow(REFUSED)
+    const [kept] = await db.select({ scope: sessions.scopeTeamIds }).from(sessions).where(eq(sessions.id, w.conv))
+    expect(kept!.scope).toBeNull()
+    await sendSession({ userId: w.me, input: { sessionId: w.conv, text: `B.`, refIssueIds: [inB], scopeTeamIds: [w.b] } })
+    await expect(
+      sendSession({ userId: w.me, input: { sessionId: w.conv, text: `A.`, refIssueIds: [inA] } })
+    ).rejects.toThrow(REFUSED)
+    await expect(sendSession({ userId: w.me, input: { sessionId: w.conv, issueIds: [inA] } })).rejects.toThrow(REFUSED)
+    // The same call widens again and names A: taken.
+    const widened = await sendSession({
+      userId: w.me,
+      input: { sessionId: w.conv, text: `A again.`, refIssueIds: [inA], scopeTeamIds: null },
+    })
+    expect(widened.messageId).toBeTruthy()
+  })
+
+  it(`a team agent's tree and a pick-less plain chat still refuse another team's; a picked team's ref is taken (#EXP-2027)`, async () => {
+    const w = await world()
+    const [inA, inB] = [await issueIn(w.a, w.me), await issueIn(w.b, w.me)]
+    const agentConv = await sendSession({ userId: w.me, input: { agentId: w.teamAgent.id, text: `Hi.`, refIssueIds: [inA] } })
+    await expect(
+      sendSession({ userId: w.me, input: { sessionId: agentConv.sessionId, text: `B.`, refIssueIds: [inB] } })
+    ).rejects.toThrow(REFUSED)
+    await expect(sendSession({ userId: w.me, input: { sessionId: agentConv.sessionId, issueIds: [inB] } })).rejects.toThrow(REFUSED)
+    const chat = await sendSession({ userId: w.me, input: { teamId: w.a, deviceId: w.deviceId, text: `Work.`, refIssueIds: [inA] } })
+    await expect(
+      sendSession({ userId: w.me, input: { sessionId: chat.sessionId, text: `B.`, refIssueIds: [inB] } })
+    ).rejects.toThrow(REFUSED)
+    // A LINK on a worker stays its own team's (the lifecycle is one team's).
+    await expect(sendSession({ userId: w.me, input: { sessionId: chat.sessionId, issueIds: [inB] } })).rejects.toThrow(REFUSED)
+    const picked = await sendSession({
+      userId: w.me,
+      input: { sessionId: chat.sessionId, text: `B too.`, refIssueIds: [inB], scopeTeamIds: [w.b] },
+    })
+    expect(picked.messageId).toBeTruthy()
+    await expect(sendSession({ userId: w.me, input: { sessionId: chat.sessionId, issueIds: [inB] } })).rejects.toThrow(REFUSED)
   })
 })

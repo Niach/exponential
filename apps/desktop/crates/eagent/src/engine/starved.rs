@@ -78,6 +78,108 @@ fn full_avg10(pressure: &str) -> Option<f64> {
         .ok()
 }
 
+/// #FEED-306: overrides the cgroup2 mount [`device_pressure`] reads, from
+/// the launch's spawn env (tests: a fake cgroup tree).
+pub const CGROUP_ROOT_ENV: &str = "EXP_CGROUP_ROOT";
+
+/// `memory.pressure`'s `some avg10` (percent of the last 10 s in which at
+/// least one task of the cgroup stalled on memory) at which a slice reads
+/// under pressure at a failed start (2026-11-24: mint's `expbg.slice` at
+/// 77–82 %).
+pub const SOME_PRESSURE_PERCENT: f64 = 50.0;
+
+/// #FEED-306: the memory pressure a failed start ran into: the cgroup over
+/// its `memory.high` (or stalling on memory), how much it holds against
+/// its limit, and the child cgroup holding the most of it (2026-11-24: a
+/// session scope's runaway cargo build, 12.6 of expbg.slice's 16.4 GB).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DevicePressure {
+    /// The cgroup's last path component (`expbg.slice`).
+    pub cgroup: String,
+    pub current: u64,
+    /// Its `memory.high`, else its `memory.max` (`None` = neither set).
+    pub limit: Option<u64>,
+    /// Its child cgroup with the largest `memory.current`, and that.
+    pub top: Option<(String, u64)>,
+}
+
+impl DevicePressure {
+    /// `Device is under memory pressure (expbg.slice 17.2 GB of 16.0 GB;
+    /// run-exp-52fdfc7f.scope holds 12.6 GB)`.
+    pub fn describe(&self) -> String {
+        let limit = self.limit.map(|limit| format!(" of {}", gb(limit))).unwrap_or_default();
+        let top = self.top.as_ref().map(|(name, bytes)| format!("; {name} holds {}", gb(*bytes))).unwrap_or_default();
+        format!("Device is under memory pressure ({} {}{limit}{top})", self.cgroup, gb(self.current))
+    }
+}
+
+/// Bytes as GB the way systemd's `MemoryHigh=16G` counts them (GiB).
+fn gb(bytes: u64) -> String {
+    format!("{:.1} GB", bytes as f64 / (1u64 << 30) as f64)
+}
+
+/// #FEED-306: the memory pressure `pid`'s cgroups are under right now, read
+/// at a failed start ([`device_pressure_under`]). `None` off Linux, when
+/// unreadable, or when there is none.
+pub fn device_pressure(pid: u32, root: &Path) -> Option<DevicePressure> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok()?;
+    device_pressure_under(root, own_cgroup(&cgroup)?)
+}
+
+/// [`device_pressure`] over a cgroup tree at `root`, from the process's own
+/// cgroup up: the first one over its `memory.high`; else the nearest that
+/// sets a limit and stalls on memory ([`FULL_PRESSURE_PERCENT`] full or
+/// [`SOME_PRESSURE_PERCENT`] some: unlike [`starved_under`], a SLICE's
+/// pressure counts here, the start failed and the device is why); else the
+/// nearest stalling at all.
+pub fn device_pressure_under(root: &Path, cgroup: &str) -> Option<DevicePressure> {
+    let parts: Vec<&str> = cgroup.split('/').filter(|part| !part.is_empty()).collect();
+    let dirs: Vec<std::path::PathBuf> =
+        (1..=parts.len()).rev().map(|depth| root.join(parts[..depth].join("/"))).collect();
+    let number = |dir: &Path, file: &str| {
+        std::fs::read_to_string(dir.join(file)).ok().and_then(|text| text.trim().parse::<u64>().ok())
+    };
+    let limit = |dir: &Path| number(dir, "memory.high").or_else(|| number(dir, "memory.max"));
+    let stalling = |dir: &Path| {
+        std::fs::read_to_string(dir.join("memory.pressure")).ok().is_some_and(|pressure| {
+            full_avg10(&pressure).is_some_and(|full| full >= FULL_PRESSURE_PERCENT)
+                || some_avg10(&pressure).is_some_and(|some| some >= SOME_PRESSURE_PERCENT)
+        })
+    };
+    let over_high = |dir: &Path| matches!((number(dir, "memory.current"), number(dir, "memory.high")), (Some(current), Some(high)) if current > high);
+    let dir = dirs
+        .iter()
+        .find(|dir| over_high(dir))
+        .or_else(|| dirs.iter().find(|dir| limit(dir).is_some() && stalling(dir)))
+        .or_else(|| dirs.iter().find(|dir| stalling(dir)))?;
+    let top = std::fs::read_dir(dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| Some((entry.file_name().to_string_lossy().into_owned(), number(&entry.path(), "memory.current")?)))
+        .max_by_key(|(_, bytes)| *bytes);
+    Some(DevicePressure {
+        cgroup: dir.file_name()?.to_string_lossy().into_owned(),
+        current: number(dir, "memory.current")?,
+        limit: limit(dir),
+        top,
+    })
+}
+
+/// `some avg10=<x>` of a `memory.pressure` file.
+fn some_avg10(pressure: &str) -> Option<f64> {
+    pressure
+        .lines()
+        .find(|line| line.starts_with("some "))?
+        .split_whitespace()
+        .find_map(|field| field.strip_prefix("avg10="))?
+        .parse()
+        .ok()
+}
+
 /// How a startup wait ended ([`StartClock::tick`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StartEnd {
@@ -165,6 +267,51 @@ mod tests {
         cgroup(&root, scope, "300000000\n", "max\n", "12.50");
         assert_eq!(starved_under(&root, &format!("/{scope}")).as_deref(), Some("run-exp-s1-1x0.scope"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #FEED-306 regression: mint's expbg.slice sat over its memory.high
+    /// for four hours (one session scope's cargo build held 12.6 GB of it)
+    /// and every failed start read "answered nothing for 90s". The failure
+    /// names the slice, its use against its cap, and the biggest scope.
+    #[test]
+    fn a_failed_start_names_the_pressured_slice_and_its_biggest_scope() {
+        let root = tree("device");
+        let slice = "user.slice/user@1000.service/expbg.slice";
+        let scope = format!("{slice}/run-exp-new.scope");
+        cgroup(&root, "user.slice", "30000000000\n", "max\n", "0.00");
+        cgroup(&root, "user.slice/user@1000.service", "20000000000\n", "max\n", "0.00");
+        // 16.4 GiB against a 16 GiB high.
+        cgroup(&root, slice, "17609365913\n", "17179869184\n", "5.00");
+        cgroup(&root, &scope, "52428800\n", "max\n", "0.00");
+        // 12.6 GiB in the runaway build's scope.
+        cgroup(&root, &format!("{slice}/run-exp-52fdfc7f.scope"), "13529146982\n", "max\n", "0.00");
+        cgroup(&root, &format!("{slice}/run-exp-other.scope"), "1073741824\n", "max\n", "0.00");
+        let found = device_pressure_under(&root, &format!("/{scope}")).expect("expbg.slice is over its high");
+        assert_eq!(found.cgroup, "expbg.slice");
+        assert_eq!(found.top, Some(("run-exp-52fdfc7f.scope".to_string(), 13_529_146_982)));
+        assert_eq!(
+            found.describe(),
+            "Device is under memory pressure (expbg.slice 16.4 GB of 16.0 GB; run-exp-52fdfc7f.scope holds 12.6 GB)"
+        );
+        // Under its high but stalling (`some` 80 %): still the slice, by
+        // its pressure, which `starved_under` leaves to the run's own scope.
+        cgroup(&root, slice, "16106127360\n", "17179869184\n", "2.00");
+        std::fs::write(
+            root.join(slice).join("memory.pressure"),
+            "some avg10=80.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=2.00 avg60=0.00 avg300=0.00 total=0\n",
+        )
+        .unwrap();
+        assert_eq!(device_pressure_under(&root, &format!("/{scope}")).map(|found| found.cgroup).as_deref(), Some("expbg.slice"));
+        // Calm: no pressure, the plain reason stands.
+        cgroup(&root, slice, "8000000000\n", "17179869184\n", "0.00");
+        assert_eq!(device_pressure_under(&root, &format!("/{scope}")), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_slice_without_a_cap_is_named_without_one() {
+        let pressure = DevicePressure { cgroup: "user.slice".into(), current: 3 << 30, limit: None, top: None };
+        assert_eq!(pressure.describe(), "Device is under memory pressure (user.slice 3.0 GB)");
     }
 
     #[test]

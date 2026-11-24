@@ -316,7 +316,7 @@ struct SessionComposerCard<Draft: SessionComposerDraft>: View {
             account: controls.account,
             device: controls.device,
             mcp: controls.mcp,
-            teamId: controls.teamId,
+            teamIds: controls.teamIds,
             onPickIssue: { issue in
                 if let identifier = issue.identifier {
                     editor.insertTextAtCaret("#\(identifier) ")

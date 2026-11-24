@@ -444,13 +444,20 @@ fun AgentSettingsScreen(
     val editable = if (assistant) agent?.ownerId == me else isOwner
     // NEW-99 (`runsOnCases`): an Assistant's Runs on lists desktops only
     // (its device is the voice device); a bound non-desktop stays listed.
+    // THE rows (`runsOnRowCases`, web `deviceRows`): an offline device stays
+    // listed, `Offline` and disabled unless bound; an unmatched bound id leads.
     val pickerDevices = remember(deviceList, deviceId, assistant) {
-        val ids = AgentSettings.runsOnDeviceIds(
+        val byId = deviceList.associateBy { it.deviceId }
+        AgentSettings.runsOnRows(
             deviceList.map { AgentSettings.RunsOnDevice(it.deviceId, it.kind) },
+            { byId[it]?.online == true },
             deviceId,
             assistant,
-        ).toSet()
-        deviceList.filter { it.deviceId in ids }.map { it.toPickerDevice(startGate = false) }
+        ).map { row ->
+            byId[row.id]?.toPickerDevice(startGate = false)
+                ?.copy(description = row.description, disabled = row.disabled)
+                ?: DevicePickerDevice(id = row.id, name = row.id)
+        }
     }
 
     var confirmDelete by remember { mutableStateOf(false) }

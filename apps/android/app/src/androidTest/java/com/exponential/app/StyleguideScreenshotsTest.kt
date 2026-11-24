@@ -184,7 +184,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_apps · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
- *   sg_chat-results · sg_plan-page · sg_needs-you · sg_results-tab ·
+ *   sg_session-synced-tail · sg_chat-results · sg_plan-page · sg_needs-you · sg_results-tab ·
  *   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
  *   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
  *   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558) ·
@@ -388,6 +388,8 @@ class StyleguideScreenshotsTest {
         // (` + <n-1>` with more, session-title.json `titles`), matched on the
         // issue title; the issue-less private spike keeps its stored title.
         private const val PRIVATE_CHAT_TITLE = "Spike: offline queue"
+        /** #EXP-2075: FB-9's chat (DEMO_AWAY_SESSION_ID), on the offline build server. */
+        private const val AWAY_CHAT_TITLE = "Sort today's widget reports"
         private const val RECENT_CHAT_TITLE = "Fix flaky scroll restore on the issue list"
         private const val COLD_START_CHAT_TITLE = "Reduce cold start below 800 ms"
         private const val COLD_START_REPLY_FRAGMENT = "Board snapshot cache"
@@ -1408,6 +1410,30 @@ class StyleguideScreenshotsTest {
                 Espresso.pressBack()
                 flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
                 flow.settle(longer = true)
+            }
+        }
+
+        // --- sg_session-synced-tail (#EXP-2075, steer-enet.json SYNCED TAIL):
+        // FB-9's chat runs on the seeded build server, which is offline, so
+        // its Chat tab is a NOT-live transcript drawing the synced messages:
+        // the agent's line with its view, then a teammate's presses (THE
+        // inline marker, then his bubble). The marker is the gate.
+        if (ScreenshotFlow.isShotWanted("sg_session-synced-tail")) {
+            step("session-synced-tail") {
+                composeRule.onNode(hasTestTag("tab-chats")).performClick()
+                flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
+                flow.settle(longer = true)
+                val awayRow = hasTestTag(Chats.TestIds.CHAT_ROW) and hasText(AWAY_CHAT_TITLE, substring = true)
+                composeRule.onNode(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST)).performScrollToNode(awayRow)
+                flow.settle()
+                tapClearOfBar(awayRow)
+                flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
+                flow.waitFor(hasTestTag("express-action-marker"), SYNC_TIMEOUT)
+                flow.settle(longer = true)
+                flow.screenshot("sg_session-synced-tail")
+                Espresso.pressBack()
+                flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
+                flow.settle()
             }
         }
 

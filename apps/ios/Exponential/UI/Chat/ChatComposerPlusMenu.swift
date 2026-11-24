@@ -28,8 +28,9 @@ struct ChatComposerPlusMenu: View {
     var device: SessionComposerFooter.DeviceMenu?
     /// #EXP-1793: an agent chat's MCP servers page; nil = no row.
     var mcp: SessionComposerFooter.McpMenu?
-    /// The team whose issues the Issue page searches; nil = no page.
-    var teamId: String?
+    /// The teams whose issues the Issue page searches (the chat's teams,
+    /// #EXP-2079); empty = no page.
+    var teamIds: [String] = []
     /// The Issue page's pick (the host inserts `#IDENT` at the caret).
     var onPickIssue: (IssueEntity) -> Void = { _ in }
     /// #EXP-1434: the Prompts page's rows (the team's prompts, the `/`
@@ -128,7 +129,7 @@ struct ChatComposerPlusMenu: View {
             // #EXP-1793: THE launch composer's MCP server picker rows.
             if let mcp {
                 GlassPickerContent(
-                    items: McpServerPicker<EmptyView>.items(mcp.servers),
+                    items: McpServerPicker<EmptyView>.items(mcp.servers, teamNames: mcp.teamNames),
                     mode: .multi,
                     value: Set(mcp.picked),
                     onChange: { picked in
@@ -140,8 +141,8 @@ struct ChatComposerPlusMenu: View {
                 .pickerCheckMarks()
             }
         default:
-            if let teamId {
-                ChatIssueSearchList(teamId: teamId, onPick: onPickIssue)
+            if !teamIds.isEmpty {
+                ChatIssueSearchList(teamIds: teamIds, onPick: onPickIssue)
             }
         }
     }

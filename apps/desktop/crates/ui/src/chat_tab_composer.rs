@@ -636,7 +636,8 @@ impl SteerSessionView {
             let _span = tracing::trace_span!("composer.frame").entered();
             self.composer_frame(cx)
         };
-        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
+        // #EXP-2079: the composer's text reads the chat teams (links).
+        let team_id = self.ref_team_id(cx);
         let steer = cx.entity().downgrade();
         // #EXP-1535 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=session-account`):
         // the menu opens once with Account › open.
@@ -751,7 +752,9 @@ impl SteerSessionView {
     /// team's members for `@`, its open issues for `#`, the emoji for `:`.
     fn mention_menu(&self, draft: &str, cx: &App) -> Option<Value> {
         let token = domain::typeahead::detect_trigger(draft, draft.len())?;
-        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone()).filter(|_| sync::Store::try_global(cx).is_some());
+        // #EXP-2079 (agent-settings.json `assistant.chatTeams` (1), (2)):
+        // the members and the open issues of the CHAT TEAMS.
+        let team_id = self.ref_team_id(cx).filter(|_| sync::Store::try_global(cx).is_some());
         let mut members = Vec::new();
         let mut issues = Vec::new();
         if let Some(team_id) = team_id.as_deref() {
@@ -759,11 +762,14 @@ impl SteerSessionView {
                 domain::typeahead::CompletionTrigger::Mention => {
                     let collections = sync::Store::global(cx).collections();
                     let users = collections.users.read(cx);
+                    // One row per person (a member of several chat teams).
+                    let mut seen = std::collections::HashSet::new();
                     members = collections
                         .team_members
                         .read(cx)
                         .iter()
-                        .filter(|member| member.team_id == team_id)
+                        .filter(|member| domain::agent_settings::chat_teams_has(team_id, &member.team_id))
+                        .filter(|member| seen.insert(member.user_id.clone()))
                         .filter_map(|member| users.get(&member.user_id))
                         .filter_map(|user| {
                             let email = user.email.clone()?;
@@ -805,7 +811,7 @@ impl SteerSessionView {
         } else {
             ComposerSurface::Session
         };
-        let team_id = self.row.as_ref().and_then(|row| row.team_id.clone()).filter(|_| sync::Store::try_global(cx).is_some());
+        let team_id = self.ref_team_id(cx).filter(|_| sync::Store::try_global(cx).is_some());
         let prompts: Vec<slash_commands::SlashPrompt> = team_id
             .as_deref()
             .map(|team_id| crate::queries::team_prompts(cx, team_id).0.iter().map(slash_commands::SlashPrompt::from).collect())
@@ -1140,7 +1146,7 @@ impl SteerSessionView {
             PlusAction::AddFile => self.pick_files(window, cx),
             PlusAction::Issue(identifier) => insert(self, crate::picker::search_list::typeahead_insert(&identifier), window, cx),
             PlusAction::Prompt(id) => {
-                let team_id = self.row.as_ref().and_then(|row| row.team_id.clone());
+                let team_id = self.ref_team_id(cx);
                 let prompt = team_id
                     .and_then(|team_id| crate::queries::team_prompts(cx, &team_id).0.iter().find(|p| p.id == id).map(slash_commands::SlashPrompt::from));
                 let Some(prompt) = prompt else { return };

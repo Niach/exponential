@@ -1691,6 +1691,70 @@ async fn a_cli_silent_twice_fails_the_start_with_the_reason() {
     assert_eq!(count, 3, "two restarts, then the failure");
 }
 
+/// #FEED-306 regression: on 2026-11-24 mint's expbg.slice sat over its
+/// memory.high for four hours (a runaway build held 12.6 GB of it), and
+/// every failed start said only "answered nothing for 90s". A start that
+/// fails while its cgroups are under memory pressure names the slice, its
+/// use against its cap and the scope holding the most. The fake claude
+/// builds the fake cgroup tree (`EXP_CGROUP_ROOT`) around its OWN cgroup
+/// path: on a systemd host the child runs in a run scope of its own, never
+/// in this test's cgroup (the gate's runner, 2026-11-24).
+#[tokio::test]
+async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_scope() {
+    if std::fs::read_to_string("/proc/self/cgroup").map_or(true, |text| !text.lines().any(|line| line.starts_with("0::"))) {
+        eprintln!("no cgroup v2 here: nothing to check");
+        return;
+    }
+    let _session = one_session_at_a_time();
+    let work = workdir("silent-pressure");
+    let fake_root = work.0.join("cgroup").display().to_string();
+    let slice_file = work.0.join("slice.txt");
+    let slice_env = slice_file.display().to_string();
+    let spawns = work.0.join("spawns.txt").display().to_string();
+    let spec = spec_env(
+        &Path::new(FIXTURES).join("basic"),
+        &work.0,
+        false,
+        &[
+            ("EXP_FAKE_CLAUDE_HANGS", "5"),
+            ("EXP_FAKE_CLAUDE_SPAWNS", spawns.as_str()),
+            (engine::starved::CGROUP_ROOT_ENV, fake_root.as_str()),
+            ("EXP_FAKE_CLAUDE_PRESSURE", slice_env.as_str()),
+            (engine::adapters::claude::START_TIMEOUT_ENV, "2000"),
+            (engine::adapters::claude::START_BACKOFF_ENV, "0"),
+        ],
+    );
+    let adapter = ClaudeAgent::new(spec).expect("the adapter builds");
+    let error = Client
+        .v1()
+        .name("feed306-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let started = cx.send_request(NewSessionRequest::new(std::env::temp_dir())).block_task().await;
+            Ok::<_, Error>(started.err().map(|error| format!("{error:?}")))
+        })
+        .await
+        .expect("the connection runs cleanly")
+        .expect("the start fails");
+    let Ok(slice_name) = std::fs::read_to_string(&slice_file).map(|name| name.trim().to_string()) else {
+        eprintln!("the fake claude's cgroup has no parent slice: nothing to check");
+        return;
+    };
+    let wall = format!(
+        "Device is under memory pressure ({slice_name} 16.4 GB of 16.0 GB; run-exp-hog.scope holds 12.6 GB): claude did not start, it answered nothing at startup, 3 times in a row"
+    );
+    assert!(error.contains(&wall), "{error}");
+}
+
 /// #FEED-246 regression: a worker said `quiet` after one step, kept working
 /// (a Bash call) and said `quiet` again. That is no loop: the turn runs to
 /// its own end and the CLI never sees an interrupt (it used to, and the

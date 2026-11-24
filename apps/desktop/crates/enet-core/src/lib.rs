@@ -57,6 +57,16 @@ mod ticket;
 mod util;
 #[cfg(feature = "node")]
 pub mod wrap_sig;
+#[cfg(feature = "node")]
+pub mod install_trust;
+/// #EXP-1950: install-trust.json `copy` (no eNet needed: the daemon's doctor row).
+pub mod install_trust_copy {
+    pub const NEW_INSTALL: &str = "New install";
+    pub const RESET: &str = "Reset";
+    pub const APPROVE: &str = "Approve";
+    pub const REMOVE: &str = "Remove";
+    pub const WAITING: &str = "Waiting for approval";
+}
 
 #[cfg(feature = "node")]
 pub use access::Access;

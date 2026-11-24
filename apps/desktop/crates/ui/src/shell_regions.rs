@@ -293,7 +293,8 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
         let _span = tracing::trace_span!("rail.needs_you").entered();
         crate::needs_you::counts_by_team(cx)
     };
-    input.needs_you = needs_you.values().sum();
+    // #EXP-2082: the rows once (the Assistant's cards sit in every team's list).
+    input.needs_you = crate::needs_you::total_count(cx);
     let sessions: Vec<domain::rows::SessionRow> = collections.sessions.read(cx).iter().filter(|s| s.parent_id.is_none()).cloned().collect();
     // ONE pass for every team (was per team, and every placed session's tree
     // walked all synced sessions: O(placed × sessions) per refresh).

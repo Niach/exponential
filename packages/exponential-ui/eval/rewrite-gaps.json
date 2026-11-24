@@ -143,6 +143,7 @@
     { "id": "composer-dialog-menu", "class": "expressible", "with": "the same Menu with submenus inside a Dialog; that a desktop dialog's menu needs a window of its own is the host's (the gpui renderer), not the catalog's" },
     { "id": "composer-slash-menu", "class": "expressible", "with": "SearchList in a Popover" },
     { "id": "session-slash-menu", "class": "expressible", "with": "SearchList in a Popover" },
+    { "id": "session-synced-tail", "class": "expressible", "with": "Box bubbles (Markdown, a meta time) + the Express surface (Buttons) + Separator markers (the press, the offline line), as chat-transcript" },
     { "id": "work-card", "class": "expressible", "with": "Card over a Row (icon, name, kind, elapsed) + Meter + Collapsible phases + Trace" },
     { "id": "script-card", "class": "expressible", "with": "Collapsible + Trace + TraceItem + CodeBlock" },
     { "id": "sealed-locked", "class": "expressible", "with": "Badge (the glass pill) + Icon (lock) + Text (italic muted preview)" },

@@ -118,7 +118,7 @@ impl RefResolver {
                 let needle = email.to_lowercase();
                 members
                     .iter()
-                    .filter(|m| m.team_id == ws_members)
+                    .filter(|m| domain::agent_settings::chat_teams_has(&ws_members, &m.team_id))
                     .filter_map(|m| users.get(&m.user_id))
                     .find(|u| {
                         u.email
@@ -133,18 +133,23 @@ impl RefResolver {
                 // sorts every issue of the team, and a streaming transcript
                 // asks this once per bare `EXP-nnn` token per frame.
                 let boards = collections.boards.read(cx);
-                let board_ids: HashSet<&str> = boards
+                // #EXP-2079 (`assistant.chatTeams` (1)): `ws_issues` may be
+                // a chat teams key; an identifier found in several teams is
+                // the first team's in the key's order.
+                let board_rank: HashMap<&str, usize> = boards
                     .iter()
-                    .filter(|board| board.team_id == ws_issues)
-                    .map(|board| board.id.as_str())
+                    .filter_map(|board| {
+                        Some((board.id.as_str(), domain::agent_settings::chat_teams_rank(&ws_issues, &board.team_id)?))
+                    })
                     .collect();
                 collections
                     .issues
                     .read(cx)
                     .iter()
-                    .filter(|issue| board_ids.contains(issue.board_id.as_str()))
-                    .find(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
-                    .map(|issue| {
+                    .filter(|issue| issue.identifier.eq_ignore_ascii_case(identifier))
+                    .filter_map(|issue| Some((*board_rank.get(issue.board_id.as_str())?, issue)))
+                    .min_by_key(|(rank, _)| *rank)
+                    .map(|(_, issue)| {
                         // EXP-423: resolve status → glyph + tint per render,
                         // exactly like the wysiwyg snapshot (refs.rs).
                         let status = crate::queries::resolve_issue_status(cx, issue);

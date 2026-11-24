@@ -8803,6 +8803,44 @@
       }
     },
     {
+      "id": "session-synced-tail",
+      "group": "coding",
+      "title": "Session · synced tail",
+      "blurb": "A transcript whose device is away (steer-enet.json SYNCED TAIL, #EXP-2075): the session's synced messages draw as its rows, the agent's line with its view, a teammate's press on it as THE inline marker and as their bubble, then the device-offline marker.",
+      "order": 95,
+      "web": {
+        "route": "/t/$teamSlug/sessions/$awaySessionId",
+        "anchor": {
+          "text": "pressed add_test",
+          "timeoutMs": 30000
+        },
+        "settleMs": 2500
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_session-synced-tail",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_session-synced-tail",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "chat:$awaySession"
+        },
+        "anchorDelayMs": 2500
+      },
+      "notes": {
+        "web": "`$awaySessionId` resolves to DEMO_AWAY_SESSION_ID: FB-9's chat on the seeded build server, which is offline, so no feed ever arrives and the Chat tab draws the synced tail. No relay stub needed.",
+        "web-mobile": "Inherits web.",
+        "ios": "The LIVE walk: FB-9's chat from Chats, gated on the press marker.",
+        "android": "See ios.",
+        "desktop": "`chat:$awaySession`: the same chat on its Chat tab."
+      }
+    },
+    {
       "id": "chat-results",
       "group": "coding",
       "title": "Chat · Results",

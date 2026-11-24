@@ -389,9 +389,10 @@ impl CardSurfaceHost {
         Self { team_id, link_base, ..Self::new(cx) }
     }
 
-    /// The host of a card in `session_id`: that session's team.
+    /// The host of a card in `session_id`: that session's chat teams.
     pub(crate) fn for_session(session_id: &str, cx: &App) -> Self {
-        let team_id = crate::session_data::session(session_id, cx).and_then(|row| row.team_id.clone());
+        // #EXP-2079 (`assistant.chatTeams` (1), (7)): the card's chat teams.
+        let team_id = crate::session_data::session(session_id, cx).and_then(|row| crate::chat_teams::session_key(&row, cx));
         let link_base = crate::links::team_link_base(team_id.as_deref(), cx);
         Self { team_id, link_base, ..Self::new(cx) }
     }
