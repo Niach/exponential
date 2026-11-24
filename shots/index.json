@@ -7085,6 +7085,20 @@
       }
     },
     "session-synced-tail": {
+      "android": {
+        "file": "shots/session-synced-tail/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 48086,
+        "sha256": "446d33be09126bd51e09db4bde49cfed236645ac79a599c88ab364f721880040"
+      },
+      "desktop": {
+        "file": "shots/session-synced-tail/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 61762,
+        "sha256": "62a54621dd6e6a8040a33f807595ce513cf3eeebd4b09f168e7c0f8d7b952fb1"
+      },
       "ios": {
         "file": "shots/session-synced-tail/ios.webp",
         "width": 828,
