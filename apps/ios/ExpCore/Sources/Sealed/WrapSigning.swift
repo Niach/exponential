@@ -40,7 +40,10 @@ public enum TreePublicKeys {
     /// the key of the secret it HOLDS, never the one a server names.
     public static func of(secret: Data) -> String? {
         guard let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: secret) else { return nil }
-        return InstallRegistration.base64Url(key.publicKey.rawRepresentation)
+        return key.publicKey.rawRepresentation.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }
 
