@@ -83,10 +83,30 @@ public protocol TreeReaderDirectory: Sendable {
     func list(accountId: String, teamId: String) async throws -> [InstallEntry]
 }
 
+/// #EXP-1950 (fixtures/install-trust.json): install approval. The server
+/// stores and relays; this install judges every signature itself
+/// (`InstallTrust.reconcile`). A fake (a lying server) in the tests.
+public protocol InstallTrustApi: Sendable {
+    func trust(accountId: String, installId: String) async throws -> TrustAnswer
+    func requestApproval(accountId: String, installId: String) async throws
+    func claimRoot(accountId: String, installId: String, signature: String) async throws
+    /// `approve` an own install, confirm (`reset`) or turn down (`decline`) a team-mate's new root.
+    func approve(accountId: String, installId: String, subjectInstallId: String, kind: ApprovalKind, signature: String) async throws
+    /// A New install row's Remove: its wraps go, its trees rotate.
+    func revoke(accountId: String, installId: String) async throws
+}
+
 private struct InstallsTeamInput: Encodable { let teamId: String }
 private struct InstallIdInput: Encodable { let installId: String }
+private struct ClaimRootInput: Encodable { let installId: String; let signature: String }
+private struct ApproveInstallInput: Encodable {
+    let installId: String
+    let subjectInstallId: String
+    let kind: String
+    let signature: String
+}
 
-public final class InstallsApi: InstallsRegistry, TreeReaderDirectory {
+public final class InstallsApi: InstallsRegistry, TreeReaderDirectory, InstallTrustApi {
     let trpc: TrpcClient
 
     public init(trpc: TrpcClient) {
@@ -107,5 +127,23 @@ public final class InstallsApi: InstallsRegistry, TreeReaderDirectory {
 
     public func revoke(accountId: String, installId: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "installs.revoke", input: InstallIdInput(installId: installId))
+    }
+
+    public func trust(accountId: String, installId: String) async throws -> TrustAnswer {
+        try await trpc.query(accountId: accountId, path: "installs.trust", input: InstallIdInput(installId: installId))
+    }
+
+    public func requestApproval(accountId: String, installId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "installs.requestApproval", input: InstallIdInput(installId: installId))
+    }
+
+    public func claimRoot(accountId: String, installId: String, signature: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "installs.claimRoot", input: ClaimRootInput(installId: installId, signature: signature))
+    }
+
+    public func approve(accountId: String, installId: String, subjectInstallId: String, kind: ApprovalKind, signature: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "installs.approve", input: ApproveInstallInput(
+            installId: installId, subjectInstallId: subjectInstallId, kind: kind.rawValue, signature: signature
+        ))
     }
 }

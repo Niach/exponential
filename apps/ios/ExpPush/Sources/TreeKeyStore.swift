@@ -127,3 +127,32 @@ public final class MemoryTreeKeySecretStorage: TreeKeySecretStorage, @unchecked 
 
     public func deleteAll() { lock.withLock { items.removeAll() } }
 }
+
+/// #EXP-1950 (install-trust.json `TrustStore`): the pin store, one JSON item
+/// per account, beside the tree keys in the keychain, but in the APP's own
+/// access group (`<team>.<bundle id>`, `AfterFirstUnlockThisDeviceOnly`,
+/// never synced): no extension reads it (the Notification Service Extension
+/// opens pushes with the tree keys alone, the share extension trusts nobody).
+public final class InstallTrustPinStore: Sendable {
+    /// Apple team prefix (as `PushKeyStore`'s).
+    private static let teamPrefix = "V6W7BVCSM8"
+    private let storage: TreeKeySecretStorage
+
+    public init(storage: TreeKeySecretStorage) {
+        self.storage = storage
+    }
+
+    public convenience init(bundleIdentifier: String? = Bundle.main.bundleIdentifier) {
+        self.init(storage: KeychainTreeKeySecretStorage(
+            service: "at.exponential.installtrust",
+            group: bundleIdentifier.map { "\(Self.teamPrefix).\($0)" }
+        ))
+    }
+
+    public func load(account: String) -> Data? { storage.all()[account] }
+
+    @discardableResult
+    public func save(account: String, data: Data) -> Bool { storage.put(account: account, data: data) }
+
+    public func removeAll() { storage.deleteAll() }
+}
