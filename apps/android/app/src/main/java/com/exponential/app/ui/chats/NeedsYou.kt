@@ -66,6 +66,9 @@ import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.chats.ChatsViewModel
+import com.exponential.app.ui.session.InstallTrustViewModel
+import com.exponential.app.ui.session.InstallWaiting
+import com.exponential.app.ui.session.LivePendingInstalls
 
 // #FEED-191 NEEDS YOU ×Android (fixtures/needs-you.json; web
 // `packages/ui/src/needs-you.tsx`, iOS ExpUI `NeedsYou.swift`): the model is
@@ -204,7 +207,11 @@ fun LazyListScope.needsYouList(
     }
 }
 
-/** The page's stateless body (the `needs-you` walk and the live route). */
+/** The page's stateless body (the `needs-you` walk, the `install-approval`
+ *  and `install-waiting` specimens and the live route). #EXP-1950: the
+ *  pending installs' band ([band], [pendingInstalls] rows) above the list;
+ *  an install waiting for approval ([waitingCode]) shows THE waiting
+ *  EmptyState instead. */
 @Composable
 fun NeedsYouPageContent(
     rows: List<NeedsYou.Row>,
@@ -214,6 +221,9 @@ fun NeedsYouPageContent(
     inboxUnread: Int,
     modifier: Modifier = Modifier,
     onAction: (NeedsYou.Row, MergeTrain.StuckAction) -> Unit = { _, _ -> },
+    waitingCode: String? = null,
+    pendingInstalls: Int = 0,
+    band: @Composable () -> Unit = {},
 ) {
     val shell = LocalPageHeaderActions.current
     LazyColumn(
@@ -231,7 +241,22 @@ fun NeedsYouPageContent(
                 ),
             )
         }
-        needsYouList(rows, onOpen, onAction)
+        when {
+            rows.isEmpty() && waitingCode != null -> item(key = "__install_waiting__") {
+                Box(Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) {
+                    InstallWaiting(waitingCode)
+                }
+            }
+            rows.isEmpty() && pendingInstalls == 0 -> needsYouList(rows, onOpen, onAction)
+            else -> {
+                if (waitingCode != null) {
+                    item(key = "__install_waiting__") { InstallWaiting(waitingCode, Modifier.padding(horizontal = 16.dp)) }
+                } else if (pendingInstalls > 0) {
+                    item(key = "__pending_installs__") { Box(Modifier.padding(horizontal = 16.dp)) { band() } }
+                }
+                if (rows.isNotEmpty()) needsYouList(rows, onOpen, onAction)
+            }
+        }
     }
 }
 
@@ -243,8 +268,12 @@ fun NeedsYouPage(
     onOpenInbox: () -> Unit,
     inboxUnread: Int,
     viewModel: ChatsViewModel = hiltViewModel(),
+    trustViewModel: InstallTrustViewModel = hiltViewModel(),
 ) {
     val rows by viewModel.needsYouRows.collectAsStateWithLifecycle()
+    // #EXP-1950: the installs waiting for this install's approval sit on top;
+    // this install waiting itself shows its code.
+    val trust by trustViewModel.snapshot.collectAsStateWithLifecycle()
     val pullRequests by viewModel.needsYouPullRequests.collectAsStateWithLifecycle()
     // #EXP-1710: a stuck row's Merge now asks `merge-now-pr`, Close PR asks
     // close-pr.json's confirm (the chat's); Retry resumes at once.
@@ -278,6 +307,9 @@ fun NeedsYouPage(
                     MergeTrain.StuckAction.ClosePr -> closeFor = row
                 }
             },
+            waitingCode = trust.code?.takeIf { trust.waiting },
+            pendingInstalls = trust.rows.size,
+            band = { LivePendingInstalls(viewModel = trustViewModel) },
         )
     }
     approveFor?.let { id -> pullRequests.firstOrNull { it.id == id } }?.let { pr ->

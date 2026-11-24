@@ -61,8 +61,38 @@ private object InstallsEmptyInput
 @Serializable
 data class RevokeInstallInput(val installId: String)
 
+/** #EXP-1950 (fixtures/install-trust.json): an `approve` of an install that existed, carried by the root claim. */
+@Serializable
+data class RootClaimApproval(val subjectInstallId: String, val signature: String)
+
+@Serializable
+data class ClaimRootInput(val installId: String, val signature: String, val approvals: List<RootClaimApproval>? = null)
+
+@Serializable
+data class ApproveInstallInput(val installId: String, val subjectInstallId: String, val kind: String, val signature: String)
+
+@Serializable
+private data class InstallIdInput(val installId: String)
+
+/**
+ * #EXP-1950 (fixtures/install-trust.json): install approval. The server
+ * stores and relays; this install judges every signature itself
+ * ([com.exponential.app.data.sealed.InstallTrust.reconcile]). A fake (a lying server) in the tests.
+ */
+interface InstallTrustApi {
+    suspend fun trust(accountId: String, installId: String): com.exponential.app.data.sealed.TrustAnswer
+    suspend fun requestApproval(accountId: String, installId: String)
+    suspend fun claimRoot(accountId: String, installId: String, signature: String, approvals: List<RootClaimApproval>)
+
+    /** `approve` an own install, confirm (`reset`) or turn down (`decline`) a team-mate's new root. */
+    suspend fun approve(accountId: String, installId: String, subjectInstallId: String, kind: com.exponential.app.data.sealed.ApprovalKind, signature: String)
+
+    /** A New install row's Remove: its wraps go, its trees rotate. */
+    suspend fun revoke(accountId: String, installId: String)
+}
+
 @Singleton
-class InstallsApi @Inject constructor(private val trpc: TrpcClient) {
+class InstallsApi @Inject constructor(private val trpc: TrpcClient) : InstallTrustApi {
     suspend fun register(accountId: String, input: RegisterInstallInput): String =
         trpc.mutation(
             accountId,
@@ -99,12 +129,49 @@ class InstallsApi @Inject constructor(private val trpc: TrpcClient) {
             outputSerializer = ListSerializer(OwnInstall.serializer()),
         )
 
-    suspend fun revoke(accountId: String, installId: String) {
+    override suspend fun revoke(accountId: String, installId: String) {
         trpc.mutationUnit(
             accountId,
             path = "installs.revoke",
             input = RevokeInstallInput(installId),
             inputSerializer = RevokeInstallInput.serializer(),
+        )
+    }
+
+    override suspend fun trust(accountId: String, installId: String): com.exponential.app.data.sealed.TrustAnswer =
+        trpc.query(
+            accountId,
+            path = "installs.trust",
+            input = InstallIdInput(installId),
+            inputSerializer = InstallIdInput.serializer(),
+            outputSerializer = com.exponential.app.data.sealed.TrustAnswer.serializer(),
+        )
+
+    override suspend fun requestApproval(accountId: String, installId: String) {
+        trpc.mutationUnit(accountId, path = "installs.requestApproval", input = InstallIdInput(installId), inputSerializer = InstallIdInput.serializer())
+    }
+
+    override suspend fun claimRoot(accountId: String, installId: String, signature: String, approvals: List<RootClaimApproval>) {
+        trpc.mutationUnit(
+            accountId,
+            path = "installs.claimRoot",
+            input = ClaimRootInput(installId, signature, approvals.takeIf { it.isNotEmpty() }),
+            inputSerializer = ClaimRootInput.serializer(),
+        )
+    }
+
+    override suspend fun approve(
+        accountId: String,
+        installId: String,
+        subjectInstallId: String,
+        kind: com.exponential.app.data.sealed.ApprovalKind,
+        signature: String,
+    ) {
+        trpc.mutationUnit(
+            accountId,
+            path = "installs.approve",
+            input = ApproveInstallInput(installId, subjectInstallId, kind.wire, signature),
+            inputSerializer = ApproveInstallInput.serializer(),
         )
     }
 }
