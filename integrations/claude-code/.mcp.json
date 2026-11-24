@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "exponential": {
+      "type": "http",
+      "url": "${user_config.instance}/api/mcp"
+    }
+  }
+}
