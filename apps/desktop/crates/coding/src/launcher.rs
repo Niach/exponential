@@ -955,6 +955,9 @@ pub enum DisabledReason {
     /// not read, the local key store), as opposed to the server refusing it
     /// (an HTTP 4xx) or a tree with no team.
     AgentKeyUnavailable { message: String, retry: bool },
+    /// #EXP-2118: the device's loopback MCP gateway could not start, so the
+    /// session's agent would reach the server unsealed. It does not run.
+    GatewayUnavailable { message: String },
 }
 
 impl DisabledReason {
@@ -968,7 +971,8 @@ impl DisabledReason {
             }
             DisabledReason::TokenDenied { message } => message.clone(),
             DisabledReason::AccountSwitchRefused { message } => message.clone(),
-            DisabledReason::AgentKeyUnavailable { message, .. } => message.clone(),
+            DisabledReason::AgentKeyUnavailable { message, .. }
+            | DisabledReason::GatewayUnavailable { message } => message.clone(),
             DisabledReason::AcpUnavailable { label, note } => match note {
                 Some(note) => format!("{label} cannot run a session here: {note}"),
                 None => format!("{label} cannot run a session on this machine."),
@@ -986,7 +990,9 @@ impl DisabledReason {
     /// refused), and they are consumed with it.
     pub fn passes_by_itself(&self) -> bool {
         match self {
-            DisabledReason::DoctorFailed(_) | DisabledReason::AcpUnavailable { .. } => true,
+            DisabledReason::DoctorFailed(_)
+            | DisabledReason::AcpUnavailable { .. }
+            | DisabledReason::GatewayUnavailable { .. } => true,
             DisabledReason::AgentKeyUnavailable { retry, .. } => *retry,
             DisabledReason::GithubAppMissing { .. }
             | DisabledReason::TokenDenied { .. }
@@ -1219,18 +1225,19 @@ fn mcp_url(base_url: &str) -> String {
 }
 
 /// EXP-1458: where a launched session's agent reaches Exponential's MCP —
-/// `(base URL, bearer)` with `{base}/api/mcp` the endpoint. While this
-/// process seals (a [`crate::sealing::service`] is installed or expected) that is the
-/// device's loopback MCP GATEWAY (`codemode::gateway_grant`): the agent
+/// `(base URL, bearer)` with `{base}/api/mcp` the endpoint: ALWAYS the
+/// device's loopback MCP GATEWAY (`codemode::gateway_grant`). The agent
 /// holds a per-run gateway token and the real `expu_` key stays in the
 /// grant, which forwards every call upstream through
 /// [`crate::mcp_gateway::SealingTransform`] (content sealed on the way up,
-/// opened on the way back). No service, or no loopback port = the direct
-/// wiring, unchanged. `codemode::revoke` (the engine's run end) drops the
-/// grant with the run's code-mode token. #EXP-2028: on the direct wiring the
-/// agent holds the key itself, so a plain chat's key is bound to its session
-/// ([`SessionKeyScope::Session`]): the server clamps every request on it to
-/// the session's tree, with or without `X-Exp-Session-Id`.
+/// opened on the way back). #EXP-2118: the route never depends on whether
+/// the key holder runs at the launch: an agent keeps its route for life,
+/// while the gateway decides per CALL (a clear tree takes plaintext, any
+/// other waits for the holder, then fails with the reason; nothing leaves
+/// in clear). No loopback port = only a clear tree is wired directly, any
+/// other session does not run ([`DisabledReason::GatewayUnavailable`]).
+/// `codemode::revoke` (the engine's run end) drops the grant with the run's
+/// code-mode token.
 #[cfg(not(test))]
 fn gateway_allowed_here() -> bool {
     true
@@ -1249,14 +1256,10 @@ fn gateway_allowed_here() -> bool {
     GATEWAY_IN_TEST.with(std::cell::Cell::get)
 }
 
-fn mcp_route(deps: &CodingDeps, row: &SessionRow, personal_key: &str) -> (String, String) {
+fn mcp_route(deps: &CodingDeps, row: &SessionRow, personal_key: &str) -> Result<(String, String), DisabledReason> {
     let direct = || (deps.trpc.base_url().to_string(), personal_key.to_string());
-    // #FEED-184: a key holder still COMING counts: an agent launched before
-    // the install registered (a boot while offline) is wired through the
-    // gateway too, which waits for the holder; wired directly it would send
-    // in clear for the whole life of its process.
-    if !crate::sealing::service_expected() || !gateway_allowed_here() {
-        return direct();
+    if !gateway_allowed_here() {
+        return Ok(direct());
     }
     let upstream = codemode::Upstream {
         name: crate::mcp_servers::RESERVED_CONFIG_KEY.to_string(),
@@ -1271,11 +1274,25 @@ fn mcp_route(deps: &CodingDeps, row: &SessionRow, personal_key: &str) -> (String
         row.root_id_or_self(),
         Some(Arc::clone(&deps.trpc)),
     ));
-    match codemode::gateway_grant(&row.id, &row.id, upstream, transform) {
-        Ok(grant) => (grant.url, grant.token),
+    gateway_or_direct(row, codemode::gateway_grant(&row.id, &row.id, upstream, transform), direct)
+}
+
+/// [`mcp_route`]'s answer for the gateway `grant`: without one only a clear
+/// tree (plaintext is its legal wire) is wired directly.
+fn gateway_or_direct(
+    row: &SessionRow,
+    grant: Result<codemode::Grant, String>,
+    direct: impl FnOnce() -> (String, String),
+) -> Result<(String, String), DisabledReason> {
+    match grant {
+        Ok(grant) => Ok((grant.url, grant.token)),
+        Err(reason) if row.clear_tree || crate::sealing::tree_clear(row.root_id_or_self()) => {
+            log::warn!("coding: the MCP gateway is unavailable, wiring {} (a clear tree) directly: {reason}", row.id);
+            Ok(direct())
+        }
         Err(reason) => {
-            log::warn!("coding: the MCP gateway is unavailable, wiring {} directly: {reason}", row.id);
-            direct()
+            log::warn!("coding: the MCP gateway is unavailable, {} does not run: {reason}", row.id);
+            Err(DisabledReason::GatewayUnavailable { message: format!("The session can't run on this device: its encryption gateway could not start ({reason}).") })
         }
     }
 }
@@ -2366,10 +2383,12 @@ fn prepare_session(
     }
 
     // Step 3 — the EXP-474 ignore guard, then the per-agent MCP wiring
-    // pinned to the row (EXP-1458: through the device's MCP gateway when
-    // this process seals).
+    // pinned to the row (EXP-1458: through the device's MCP gateway).
     guard_agent_mcp(agent, &cwd, false)?;
-    let (mcp_base, mcp_key) = mcp_route(deps, row, &personal_key);
+    let (mcp_base, mcp_key) = match mcp_route(deps, row, &personal_key) {
+        Ok(route) => route,
+        Err(reason) => return Ok(Prepared::Disabled(reason)),
+    };
     let agent_mcp = wire_agent_mcp(
         agent,
         &cwd,
@@ -3093,12 +3112,15 @@ fn prepare_resume(
         Err(reason) => return Ok(Prepared::Disabled(reason)),
     };
     guard_agent_mcp(agent, &cwd, false)?;
-    // EXP-1458: through the device's MCP gateway when this process seals
+    // EXP-1458: through the device's MCP gateway
     // (never for a `/btw` aside, which carries no `exponential` entry).
     let (mcp_base, mcp_key) = if record.is_aside() {
         (deps.trpc.base_url().to_string(), personal_key.to_string())
     } else {
-        mcp_route(deps, row, &personal_key)
+        match mcp_route(deps, row, &personal_key) {
+            Ok(route) => route,
+            Err(reason) => return Ok(Prepared::Disabled(reason)),
+        }
     };
     let agent_mcp = wire_agent_mcp(
         agent,
@@ -4823,18 +4845,32 @@ mod tests {
         assert!(!prepared.spawn.env.iter().any(|(_, v)| v == "expu_seeded"), "{:?}", prepared.spawn.env);
         codemode::revoke("sess-gw");
 
-        // No service: the direct wiring, unchanged.
+        // #EXP-2118: no holder, none expected yet (a pickup in the daemon's
+        // first seconds): the gateway all the same, never the direct wiring
+        // that would send in clear for the agent's whole life.
         let (base, _captured) = canned_server_recording(repo_calls());
         let mut deps = make_deps(&base, &dir.0, fake_worktrees(&worktree));
         deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        crate::sealing::expect_service(false);
         GATEWAY_IN_TEST.with(|on| on.set(true));
         let prepared = ready(launch(session_request(row("sess-gw2", Some("repo-happy")), &["EXP-42"]), &deps));
         GATEWAY_IN_TEST.with(|on| on.set(false));
         match &prepared.acp.mcp {
-            AgentMcp::ClaudeInline { url, .. } => assert_eq!(url, &mcp_url(&base)),
+            AgentMcp::ClaudeInline { url, .. } => assert!(url.ends_with("/gateway/api/mcp"), "{url}"),
             other => panic!("{other:?}"),
         }
-        assert!(prepared.spawn.env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_seeded".to_string())));
+        assert!(!prepared.spawn.env.iter().any(|(_, v)| v == "expu_seeded"), "{:?}", prepared.spawn.env);
+        codemode::revoke("sess-gw2");
+
+        // No gateway at all: a sealed tree's session does not run, a clear
+        // tree's is wired directly.
+        let direct = || ("https://x".to_string(), "expu_k".to_string());
+        let refused = gateway_or_direct(&row("sess-gw4", None), Err("no port".into()), direct).unwrap_err();
+        assert!(matches!(&refused, DisabledReason::GatewayUnavailable { message } if message.contains("no port")));
+        assert!(refused.passes_by_itself(), "its messages stay pending");
+        let mut clear = row("sess-gw5", None);
+        clear.clear_tree = true;
+        assert_eq!(gateway_or_direct(&clear, Err("no port".into()), direct).unwrap(), direct());
 
         // #FEED-184: a key holder still COMING (a boot while offline: the
         // agent launches before the install registers) is the gateway too,
