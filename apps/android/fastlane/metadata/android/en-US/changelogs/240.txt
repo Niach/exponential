@@ -1,0 +1,5 @@
+- New devices need your OK: a new install shows a short code and waits until you approve it on a device you already use. Devices you already have are trusted automatically.
+- Issue search takes filters such as is:open or created:7d, and a sentence becomes filters
+- The + › Issue list shows each issue's own status
+- Previews of boards, prompts, labels and people work in your Assistant's chat
+- A reply arriving together with a subagent's report no longer goes missing
