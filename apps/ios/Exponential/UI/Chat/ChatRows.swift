@@ -594,7 +594,12 @@ struct ChatRows: Sendable {
         let xrefAgents = xrefAgentIds.isEmpty
             ? []
             : try AgentDefinitionEntity.filter(Array(xrefAgentIds).contains(Column("id"))).fetchAll(db)
-        let authorIds = Set(messages.compactMap(\.authorId))
+        // A shared chat's feed names any member of its team, one without a
+        // message of their own too (#EXP-2119: who answered a card).
+        var authorIds = Set(messages.compactMap(\.authorId))
+        if root.shared {
+            authorIds.formUnion(try TeamMemberEntity.filter(Column("team_id") == root.teamId).fetchAll(db).map(\.userId))
+        }
         let users = authorIds.isEmpty
             ? []
             : try UserEntity.filter(Array(authorIds).contains(Column("id"))).fetchAll(db)
