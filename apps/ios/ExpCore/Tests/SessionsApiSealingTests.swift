@@ -331,7 +331,7 @@ final class SessionsApiSealingTests: XCTestCase {
             ).save(conn)
             for (id, card) in [("sealed", #"{"kind":"question","sealed":"x"}"#), ("plain", #"{"kind":"question","question":"Ship?"}"#)] {
                 let row: [String: Any] = [
-                    "id": id, "root_id": "keyless", "session_id": "keyless", "team_id": "t", "kind": "card", "body": "",
+                    "id": id, "conversation_id": "c", "root_id": "keyless", "session_id": "keyless", "team_id": "t", "author_kind": "agent", "body": "", "attachments": "[]",
                     "card": card, "created_at": "x", "updated_at": "x",
                 ]
                 try JSONDecoder().decode(MessageEntity.self, from: try JSONSerialization.data(withJSONObject: row)).save(conn)

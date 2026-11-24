@@ -66,27 +66,30 @@ final class InstallTrustFixtureTests: XCTestCase {
         let server = try Self.cases(f, "serverCases")
         XCTAssertGreaterThanOrEqual(server.count, 6)
         for c in server {
+            let name = try Self.text(c, "name")
             XCTAssertEqual(keyMakerWaits(
                 chained: c["chained"] as? Bool ?? false, asked: c["asked"] as? Bool ?? false,
                 accountChain: c["accountChain"] as? Bool ?? false, registration: c["registration"] as? Bool ?? false
-            ), try XCTUnwrap(c["waits"] as? Bool), try Self.text(c, "name"))
+            ), try XCTUnwrap(c["waits"] as? Bool), name)
         }
         let maker = try Self.cases(f, "makerCases")
         XCTAssertGreaterThanOrEqual(maker.count, 12)
         for c in maker {
-            XCTAssertEqual(keyMakerStep(
+            let name = try Self.text(c, "name")
+            XCTAssertEqual(try keyMakerStep(
                 joined: try XCTUnwrap(c["joined"] as? Bool), write: try XCTUnwrap(KeyWrite(rawValue: try Self.text(c, "write"))),
                 refused: c["refused"] as? Bool ?? false
-            ).rawValue, try Self.text(c, "step"), try Self.text(c, "name"))
+            ).rawValue, try Self.text(c, "step"), name)
         }
         let stranded = try Self.cases(f, "strandedCases")
         XCTAssertGreaterThanOrEqual(stranded.count, 7)
         for c in stranded {
-            XCTAssertEqual(strandedRotationEpoch(
+            let name = try Self.text(c, "name")
+            XCTAssertEqual(try strandedRotationEpoch(
                 flagged: (c["flagged"] as? Int).map(UInt32.init), current: (c["current"] as? Int).map(UInt32.init),
                 held: try XCTUnwrap(c["held"] as? Bool), stranded: try XCTUnwrap(c["stranded"] as? Bool),
                 joined: try XCTUnwrap(c["joined"] as? Bool), left: try XCTUnwrap(c["left"] as? Bool)
-            ), (c["epoch"] as? Int).map(UInt32.init), try Self.text(c, "name"))
+            ), (c["epoch"] as? Int).map(UInt32.init), name)
         }
     }
 
