@@ -508,6 +508,13 @@ fn merge_team_rows<'a>(lists: impl IntoIterator<Item = &'a NeedsYouRows>) -> Nee
     out
 }
 
+/// #EXP-2082: the Needs you total (the rail badge, the app icon): the
+/// all-teams rows, each once ([`merge_team_rows`]); never the sum of the
+/// per-team counts, which counts the viewer's personal-team rows per team.
+pub(crate) fn total_count(cx: &mut App) -> usize {
+    rows_in_all_teams(cx).rows.len()
+}
+
 pub(crate) fn counts_by_team(cx: &mut App) -> std::collections::BTreeMap<String, usize> {
     let Some(store) = Store::try_global(cx) else {
         return Default::default();
@@ -783,6 +790,9 @@ mod tests {
         let merged = merge_team_rows([&a, &b]);
         let ids: Vec<&str> = merged.rows.iter().map(|row| row.message_id.as_str()).collect();
         assert_eq!(ids, ["q-assistant", "q-a", "q-b"]);
+        // The badge counts these rows (3), never the per-team sum (4).
+        assert_eq!(merged.rows.len(), 3);
+        assert_eq!(a.rows.len() + b.rows.len(), 4);
     }
 
     /// #EXP-1710 (web `withStuckRows`): a stuck PR replaces its ready row
