@@ -7,6 +7,8 @@ import { useMemberTeams } from "@/components/home/use-member-teams"
 import { useCrossTeamNeedsYou, useOpenNeedsYouIn, type CrossTeamNeedsYouRow } from "@/hooks/use-needs-you"
 import { useTeamMemberships } from "@/hooks/use-team-data"
 import { pageTitle } from "@/lib/page-title"
+import { InstallWaiting, PendingInstalls } from "@/components/devices/install-approval"
+import { useInstallTrust } from "@/lib/enet/use-install-trust"
 
 // #EXP-2027 (sidebar-tree.json ROOT `needs-you`): the TEAM-LESS Needs you page
 // of web md+ (#FEED-191 needs-you.json, the content card, no header): every
@@ -40,12 +42,16 @@ function NeedsYouRoute() {
   )
   // #EXP-1710: an `approval` ready PR row's press = Needs approval.
   const press = useNeedsYouPress(open)
+  // #EXP-1950: the installs waiting for this install's approval sit on top;
+  // this install waiting itself shows its code.
+  const installTrust = useInstallTrust()
   return (
     <div className="h-full overflow-y-auto">
       <div className={`mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 py-4 ${FAB_CLEARANCE_CLASS}`}>
+        {installTrust.status === `waiting` && installTrust.code ? <InstallWaiting code={installTrust.code} /> : <PendingInstalls trust={installTrust} />}
         {memberTeams.teamIds.length === 0 || (!isReady && rows.length === 0) ? (
           <SkeletonRows />
-        ) : (
+        ) : rows.length === 0 && (installTrust.rows.length > 0 || installTrust.status === `waiting`) ? null : (
           <NeedsYouList
             rows={rows}
             onOpen={press.press}

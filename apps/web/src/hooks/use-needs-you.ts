@@ -14,6 +14,7 @@ import { useAgents, useDigestMessages, useSessionTitles, useTeamSessions } from 
 import { useGroupChatIds, useTeamAgentRows } from "@/hooks/use-agent-row"
 import { sessionTarget } from "@/lib/session-back"
 import type { Device } from "@/db/schema"
+import { useInstallTrust } from "@/lib/enet/use-install-trust"
 import { prMergeState, type PullRequestRow, type SessionRow, type TreeMessage } from "@/lib/session-tree"
 
 // #FEED-191 NEEDS YOU (fixtures/needs-you.json): every plan and question
@@ -292,6 +293,8 @@ export function useNeedsYouCounts(
   const now = useNow(60_000).getTime()
   const inputs = useMemo(() => waitingInputs(messages), [messages])
   const groupChatIds = useGroupChatIds()
+  // #EXP-1950: installs waiting for approval are rows of every team's Needs you.
+  const pendingInstalls = useInstallTrust().rows.length
   return useMemo(() => {
     const byTeam = new Map<string, number>()
     const seen = new Set<string>()
@@ -312,12 +315,12 @@ export function useNeedsYouCounts(
         owner: false,
         mergeMode: (modes.get(teamId) ?? `auto`) as TeamMergeMode,
       })
-      byTeam.set(teamId, rows.length)
+      byTeam.set(teamId, rows.length + pendingInstalls)
       for (const row of rows) seen.add(`${row.kind}:${row.messageId}`)
     }
-    return { byTeam, total: seen.size }
+    return { byTeam, total: seen.size + pendingInstalls }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions, inputs, prRows, teamRows, deviceRows, now, me, personal, teamIds.join(`,`), groupChatIds])
+  }, [sessions, inputs, prRows, teamRows, deviceRows, now, me, personal, teamIds.join(`,`), groupChatIds, pendingInstalls])
 }
 
 /** Fold the stuck PRs (merge-train `stuckRow`) into `needsYou()`'s rows: a

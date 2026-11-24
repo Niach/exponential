@@ -20,8 +20,10 @@ import {
 } from "./current-key-holder"
 import { loadIdentity } from "./identity-store"
 import { deriveInstallSecret } from "./install-key"
+import { InstallTrust, type TrustApi } from "./install-trust"
 import { CachedKeys, KeyHolder, PENDING_INTERVAL_MS, type SessionKeysApi } from "./key-holder"
 import { indexedDbTreeKeyStore } from "./tree-key-store"
+import { indexedDbTrustStore } from "./trust-store"
 
 /** How often a tab without an install yet looks again (the node's tab may
  *  still be registering it). */
@@ -35,6 +37,16 @@ const api: SessionKeysApi = {
   wrap: (input) => trpc.sessionKeys.wrap.mutate(input, quiet),
   create: (input) => trpc.sessionKeys.create.mutate(input, quiet),
   due: (input) => trpc.sessionKeys.due.query(input, quiet),
+  resign: (input) => trpc.sessionKeys.resign.mutate(input, quiet),
+}
+
+/** #EXP-1950: install approval (`installs.trust` & co.). */
+const trustApi: TrustApi = {
+  trust: (input) => trpc.installs.trust.query(input, quiet),
+  requestApproval: (input) => trpc.installs.requestApproval.mutate(input, quiet),
+  claimRoot: (input) => trpc.installs.claimRoot.mutate(input, quiet),
+  approve: (input) => trpc.installs.approve.mutate(input, quiet),
+  revoke: (input) => trpc.installs.revoke.mutate(input, quiet),
 }
 
 let leader = false
@@ -60,19 +72,20 @@ export function setKeyLeader(isLeader: boolean) {
   syncLeaderLoop()
 }
 
-async function resolveInstall(userId: string): Promise<{ installId: string; secret: Uint8Array } | undefined> {
+async function resolveInstall(userId: string): Promise<{ installId: string; secret: Uint8Array; identity: Uint8Array } | undefined> {
   const identity = await loadIdentity(userId)
   if (!identity) return undefined
   const secret = await deriveInstallSecret(identity)
-  identity.fill(0)
   const x25519Public = b64urlEncode(pushPublicKey(secret))
   const mine = await trpc.installs.mine.query(undefined, quiet)
   const row = mine.find((r) => r.x25519Public === x25519Public && !r.revokedAt)
   if (!row) {
     secret.fill(0)
+    identity.fill(0)
     return undefined
   }
-  return { installId: row.installId, secret }
+  // #EXP-1950: the identity stays in memory with the holder: it signs every wrap.
+  return { installId: row.installId, secret, identity }
 }
 
 export function useKeyHolder(userId: string | undefined) {
@@ -98,13 +111,17 @@ export function useKeyHolder(userId: string | undefined) {
         }, RESOLVE_RETRY_MS)
         return
       }
-      own = new KeyHolder(userId, found.installId, found.secret, { api, store: indexedDbTreeKeyStore })
+      const trust = new InstallTrust(userId, found.installId, found.identity, { api: trustApi, io: indexedDbTrustStore })
+      await trust.load()
+      own = new KeyHolder(userId, found.installId, found.secret, { api, store: indexedDbTreeKeyStore, identity: found.identity, trust })
       own.subscribe(emitKeyChange)
+      trust.subscribe(emitKeyChange)
       // The holder takes over only once it holds the cache: no locked flash.
       await own.loadCache()
       if (stopped) return
       setCurrentKeyHolder(own)
       dropCache()
+      await trust.sync().catch(() => {})
       await own.refresh().catch(() => {})
       if (!stopped) syncLeaderLoop()
     }

@@ -416,8 +416,8 @@ describe.skipIf(!ready.ok)(`team agents as group chats (#EXP-1990)`, () => {
   }, 60_000)
 
   // #EXP-2119: an owner's NEW install reads the whole ended chat, whatever
-  // its key did: a chat rotated before the switch stopped rotating (staging's
-  // four) has its history under epoch 1 and nobody's public key of it kept.
+  // its key did. `kept` false: rotated before a rotation kept the older public
+  // key (staging's four).
   it(`a new install of the owner gets every epoch of an old chat`, async () => {
     const owner = await user()
     const mate = await user()

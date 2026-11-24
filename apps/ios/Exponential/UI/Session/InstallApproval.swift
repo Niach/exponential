@@ -76,13 +76,16 @@ struct PendingInstalls: View {
     }
 }
 
-/// This install, not approved yet: THE page EmptyState with its own code.
+/// This install, not approved yet: THE page EmptyState with its own code,
+/// where install-trust.json `waiting` stands it (web `max-w-md pt-[20vh]`).
 struct InstallWaiting: View {
     let code: String
 
     var body: some View {
         CiSurface(surfaceId: InstallApprovalView.TestIds.waiting, tree: InstallApprovalView.waitingTree(code: code)) { _, _, _ in }
+            .frame(maxWidth: InstallApprovalView.Waiting.maxWidth)
             .frame(maxWidth: .infinity)
+            .padding(.top, UIScreen.main.bounds.height * InstallApprovalView.Waiting.topOffset)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(InstallApprovalView.TestIds.waiting)
     }
@@ -102,7 +105,7 @@ struct InstallWaitingGate: View {
     var body: some View {
         let trust = deps.installTrust.snapshot(accountId)
         let _ = keysChanged
-        ZStack {
+        ZStack(alignment: .top) {
             if sealed, trust.waiting, let code = trust.code, deps.treeKeyHolder.held(rootId: rootId).isEmpty {
                 AppBackground()
                 InstallWaiting(code: code)
@@ -157,10 +160,20 @@ struct LivePendingInstalls: View {
 /// waiting with its code, over THE Needs you page content.
 struct InstallTrustSpecimens: View {
     let waiting: Bool
+    /// The pushed page: the header with its back control.
+    @State private var path: [Int] = []
 
     private static let rows = InstallTrustSpecimenRows.rows
 
     var body: some View {
+        NavigationStack(path: $path) {
+            AppBackground()
+                .navigationDestination(for: Int.self) { _ in page.bareBackButton() }
+        }
+        .onAppear { path = [1] }
+    }
+
+    private var page: some View {
         ZStack {
             AppBackground()
             NeedsYouPageContent(
@@ -172,5 +185,6 @@ struct InstallTrustSpecimens: View {
                 PendingInstalls(rows: Self.rows, onApprove: { _ in }, onRemove: { _ in })
             }
         }
+        .pageHeader(NeedsYou.Copy.entry, pushed: true)
     }
 }

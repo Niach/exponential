@@ -50,6 +50,13 @@ export interface SteerTicketClaims {
   /** NEW-55: the agent the call talks to (caller tickets): forwarded in the
    * `call_ring` so the voice device knows whose conversation to open. */
   agentId?: string
+  /** EXP-1859: on a CALLER ticket, `turn` = a one-turn call (a wake phrase
+   * heard on the voice device); absent = an ordinary call. Forwarded in the
+   * `call_ring`. */
+  mode?: `call` | `turn`
+  /** EXP-1859: on a turn CALLER ticket, the wake phrase heard (the host
+   * drops it from the transcript). Forwarded in the `call_ring`. */
+  phrase?: string
   /** #EXP-1525: on a TUNNEL ticket, the session it carries. */
   sessionId?: string
   role: SteerRole

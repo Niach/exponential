@@ -4133,6 +4133,11 @@ export const userVoiceSettings = pgTable(`user_voice_settings`, {
   meetingStartedAt: timestamp(`meeting_started_at`, { withTimezone: true }),
   // #FEED-163: the meeting's auto-stop in hours (meeting.json `autoStop.hoursValues`).
   meetingAutoStopHours: integer(`meeting_auto_stop_hours`).notNull().default(4),
+  // #EXP-1859 (agent-settings.json `voice.wake`): the team agents the member
+  // switched on to listen on the voice device, in order (<= `maxIds`; an
+  // agent deleted or left behind is skipped on read). Written only by
+  // voice.wakeAgent.
+  wakeAgentIds: jsonb(`wake_agent_ids`).$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   ...timestamps,
 }, (table) => [
   check(`user_voice_settings_language_check`, sql`${table.language} IN ('en', 'de')`),
