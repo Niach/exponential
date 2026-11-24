@@ -105,7 +105,7 @@ fun PhoneDock(
                 .padding(top = DiscTop)
                 .background(DesignTokens.Palette.Popover)
                 .drawBehind {
-                    drawLine(GlassTokens.StrokeStrong, Offset.Zero, Offset(size.width, 0f), GlassTokens.Hairline.toPx().coerceAtLeast(1f))
+                    drawLine(GlassTokens.StrokeCard, Offset.Zero, Offset(size.width, 0f), GlassTokens.Hairline.toPx().coerceAtLeast(1f))
                 }
                 // One surface: a press between the cells never reaches the page.
                 .pointerInput(Unit) { awaitEachGesture { awaitFirstDown(requireUnconsumed = false) } },
@@ -114,7 +114,7 @@ fun PhoneDock(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(top = DiscTop)
+                .padding(top = DiscTop, start = 6.dp, end = 6.dp)
                 .height(dock.HEIGHT.dp),
         ) {
             Chats.Shell.TABS.forEach { tab ->
@@ -167,7 +167,7 @@ private fun RowScope.DockCell(
             Icon(icon, contentDescription = null, modifier = Modifier.size(dock.ICON.dp), tint = tint)
             CountBadge(
                 badge,
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = 8.dp, y = (-6).dp),
+                modifier = Modifier.align(Alignment.TopStart).offset(x = (dock.ICON / 2 + 4).dp, y = (-6).dp),
                 testTag = "${tabTestTag(tab)}-badge",
             )
         }
@@ -202,8 +202,8 @@ private fun AssistantDisc(selected: Boolean, onClick: () -> Unit, modifier: Modi
                     val glow = ring + dock.GLOW.dp.toPx()
                     drawCircle(
                         Brush.radialGradient(
-                            0f to foreground.copy(alpha = 0.22f),
-                            ring / glow to foreground.copy(alpha = 0.22f),
+                            0f to foreground.copy(alpha = 0.18f),
+                            ring / glow to foreground.copy(alpha = 0.18f),
                             1f to Color.Transparent,
                             center = center,
                             radius = glow,
@@ -215,8 +215,8 @@ private fun AssistantDisc(selected: Boolean, onClick: () -> Unit, modifier: Modi
             }
             .padding(dock.RING.dp)
             .clip(CircleShape)
-            .background(GlassTokens.OpaqueCardFill)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, CircleShape)
+            .background(DesignTokens.Palette.Card)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, CircleShape)
             .testTag(Chats.TestIds.TAB_ASSISTANT)
             .semantics {
                 this.selected = selected
@@ -269,7 +269,7 @@ fun PhoneNewMenu(
                 .clip(shape)
                 .background(GlassMenuDefaults.ContainerColor)
                 .border(GlassTokens.Hairline, GlassTokens.StrokeStrong, shape)
-                .padding(vertical = 6.dp)
+                .padding(6.dp)
                 .testTag(Chats.TestIds.NEW_MENU),
         ) {
             menu.ITEMS.forEach { item ->
@@ -281,7 +281,7 @@ fun PhoneNewMenu(
                         .alpha(if (enabled) 1f else TextEmphasis.Tertiary)
                         .testTag("${Chats.TestIds.NEW_MENU_ROW}-$item")
                         .clickable(enabled = enabled) { onPick(item) }
-                        .padding(horizontal = 20.dp),
+                        .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
@@ -293,7 +293,7 @@ fun PhoneNewMenu(
                     )
                     Text(
                         Chats.Copy.NEW_MENU.getValue(item),
-                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, letterSpacing = 0.sp),
+                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, letterSpacing = 0.sp),
                         color = GlassMenuDefaults.TextColor,
                     )
                 }

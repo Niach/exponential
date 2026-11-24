@@ -1187,7 +1187,7 @@ class StyleguideScreenshotsTest {
             // Draft pill, `What should this app do?` with the starter pills and
             // the composer open on `Describe your app…` (the keyboard put away
             // so the starters show, as on iOS).
-            if (ScreenshotFlow.anyRequested("sg_app-draft")) {
+            if (ScreenshotFlow.anyRequested("sg_app-draft", "sg_app-import")) {
                 openAppRun(DEMO_DRAFT_APP_SLUG)
                 openEditorFromRun()
                 flow.waitFor(hasTestTag(SessionScreen.TestIds.TABS), NAV_TIMEOUT)
@@ -1196,6 +1196,23 @@ class StyleguideScreenshotsTest {
                 Espresso.closeSoftKeyboard()
                 flow.settle()
                 flow.screenshot("sg_app-draft")
+                // --- sg_app-import (VAPP-121, app-export.json `capture`): the
+                // draft's Start from a template = the import sheet, holding the
+                // fixture's capture text and the server's ONE issue.
+                if (ScreenshotFlow.anyRequested("sg_app-import")) {
+                    composeRule.onNode(hasTestTag(com.exponential.app.domain.AppTemplates.TestIds.FROM_TEMPLATE)).performClick()
+                    flow.waitFor(hasTestTag("app-import-text"), NAV_TIMEOUT)
+                    composeRule.onNode(hasTestTag("app-import-text")).performTextInput(APP_IMPORT_CAPTURE_TEXT)
+                    Espresso.closeSoftKeyboard()
+                    flow.waitFor(hasText(APP_IMPORT_CAPTURE_ISSUE), SYNC_TIMEOUT)
+                    flow.settle()
+                    flow.screenshot("sg_app-import")
+                    Espresso.pressBack()
+                    flow.settle()
+                    if (flow.exists(hasTestTag("app-import-dialog"))) Espresso.pressBack()
+                    flow.waitForGone(hasTestTag("app-import-dialog"), NAV_TIMEOUT)
+                    flow.settle()
+                }
                 Espresso.pressBack()
                 flow.settle()
                 leaveAppRun()
