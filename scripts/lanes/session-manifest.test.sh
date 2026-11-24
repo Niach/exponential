@@ -31,4 +31,10 @@ if EXP_MCP_SESSION_ID=../etc sh "$m" add dir /tmp/x 2>/dev/null && [ -e "$root/e
 ( . "$m"; EXP_MCP_SESSION_ID=other session_manifest_add dir /tmp/other-dd )
 [ "$(cat "$root/manifests/other")" = "$(printf 'dir\t/tmp/other-dd')" ] && ok "sourced, session_manifest_add appends" || no "sourced, session_manifest_add appends"
 
+# #FEED-306: lane.sh lists its pid while it runs and drops it at its end.
+EXP_MCP_SESSION_ID=lanes sh "$m" add lane 4242
+if EXP_MCP_SESSION_ID=lanes sh "$m" add lane 42x 2>/dev/null; then no "a lane is a pid"; else ok "a lane is a pid"; fi
+( . "$m"; EXP_MCP_SESSION_ID=lanes session_manifest_add dir /tmp/lanes-dd; EXP_MCP_SESSION_ID=lanes session_manifest_remove lane 4242 )
+[ "$(cat "$root/manifests/lanes")" = "$(printf 'dir\t/tmp/lanes-dd')" ] && ok "remove drops exactly its line" || no "remove drops exactly its line ($(cat "$root/manifests/lanes"))"
+
 [ "$fails" -eq 0 ] && echo "all session manifest checks passed" || { echo "$fails session manifest check(s) failed"; exit 1; }
