@@ -177,7 +177,7 @@ fn rev(worktree: &Path, spec: &str) -> Option<String> {
 }
 
 /// The worktree's own git dir (`<clone>/.git/worktrees/<name>`).
-fn git_dir(worktree: &Path) -> Option<PathBuf> {
+pub(crate) fn git_dir(worktree: &Path) -> Option<PathBuf> {
     git(worktree, &["rev-parse", "--absolute-git-dir"], "git rev-parse --git-dir")
         .ok()
         .map(|out| PathBuf::from(out.trim()))
@@ -185,7 +185,7 @@ fn git_dir(worktree: &Path) -> Option<PathBuf> {
 
 /// A history-rewriting operation is half done: pushing now would publish
 /// its intermediate state.
-fn op_in_progress(git_dir: &Path) -> bool {
+pub(crate) fn op_in_progress(git_dir: &Path) -> bool {
     ["rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"]
         .iter()
         .any(|marker| git_dir.join(marker).exists())
