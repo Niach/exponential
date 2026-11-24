@@ -924,7 +924,7 @@ pub(crate) struct SteerSessionView {
     /// synthetic rows right after the feed's last row; and the inputs they
     /// were read at (rows, feed epoch, feed generation, unreachable).
     synced_tail: Vec<SyncedTailRow>,
-    synced_tail_key: Option<(usize, u64, u64, bool)>,
+    synced_tail_key: Option<(usize, u64, u64, bool, Vec<String>)>,
     /// #EXP-1998 (find-in-chat.json): every message the tail would draw
     /// with no cap (find in chat counts them), oldest first.
     pub(crate) synced_tail_all: Vec<String>,
@@ -6637,13 +6637,15 @@ impl SteerSessionView {
         // The OFFLINE LINE's condition: an empty feed takes the tail only
         // while its live transcript cannot be loaded.
         let unreachable = if self.row_ended() { self.phase.is_device_offline() } else { self.host_away(cx) };
-        let key = (Rc::as_ptr(&rows) as usize, self.feed_epoch, self.feed.generation(), unreachable);
-        if self.synced_tail_key == Some(key) {
+        // #EXP-2119: a held own row (HANDOFF) draws once, as the own tail's.
+        let held: Vec<String> = self.own_tail.iter().filter_map(|bubble| bubble.message_id.clone()).collect();
+        let key = (Rc::as_ptr(&rows) as usize, self.feed_epoch, self.feed.generation(), unreachable, held);
+        if self.synced_tail_key.as_ref() == Some(&key) {
             return;
         }
         // #EXP-1998: every drawable one (find in chat counts them), then the
         // newest `SYNCED_TAIL_MAX` or every one from find's landing on.
-        let mut all = synced_tail_rows(live, unreachable, self.feed.items(), &rows);
+        let mut all = without_held(synced_tail_rows(live, unreachable, self.feed.items(), &rows), &key.4);
         self.synced_tail_all = all.iter().map(|row| row.id.clone()).collect();
         let ids: Vec<&str> = self.synced_tail_all.iter().map(String::as_str).collect();
         let skip = chat_find::widened_skip(&ids, steer::enet_steer::SYNCED_TAIL_MAX, self.find_widen.as_deref());
@@ -11278,6 +11280,13 @@ fn dev_subagent() -> Option<&'static str> {
         .as_deref()
 }
 
+/// The synced tail without the own rows the own tail still draws (web
+/// `agent-session.tsx` `handoff.ids`): one bubble per message id.
+fn without_held(mut tail: Vec<SyncedTailRow>, held: &[String]) -> Vec<SyncedTailRow> {
+    tail.retain(|row| !held.contains(&row.id));
+    tail
+}
+
 fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: &[domain::rows::MessageRow]) -> Vec<SyncedTailRow> {
     use steer::enet_steer::{synced_tail, SyncedTailRow as Row, TailFeedRow};
     if live {
@@ -11630,6 +11639,12 @@ mod tests {
         let tail = synced_tail_rows(false, false, &recorded, &synced);
         assert_eq!(tail.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m2"]);
         assert_eq!(tail[0].author_id.as_deref(), Some("u-mira"));
+        // #EXP-2119: the viewer's consumed line a dropped feed has no echo of
+        // is the own tail's (HANDOFF): never drawn by both.
+        let mine = [message("m3", "u-alex", "One more", "2026-11-23T10:00:07.000Z")];
+        let rows = synced_tail_rows(false, false, &recorded, &mine);
+        assert_eq!(rows.len(), 1);
+        assert!(without_held(rows, &["m3".to_string()]).is_empty());
     }
 
     /// #EXP-2075 (steer-enet.json SYNCED TAIL): a teammate's consumed press,

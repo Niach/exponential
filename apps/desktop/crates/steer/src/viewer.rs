@@ -1422,6 +1422,11 @@ async fn run_leg(
                 }
                 let path = (tag.as_deref() == Some("activity_reset")).then_some(path);
                 let bye = tag.as_deref() == Some("bye");
+                // #EXP-2119: a SUSPENDED run goes on (a daemon restart, an
+                // account switch): a drop that is redialed, never the end.
+                if bye && suspended_bye(&text) {
+                    break LegFailure::Dropped("closed");
+                }
                 let _ = msgs.send(LegMsg::Frame { carrier, gen, text, path });
                 if bye {
                     // The device dropped this viewer with it.
@@ -1441,6 +1446,12 @@ async fn run_leg(
         }
     };
     let _ = msgs.send(LegMsg::Failed { carrier, gen, failure });
+}
+
+/// The `bye` of a run its host suspended (`engine::SUSPEND_OUTCOME`): the
+/// same session comes back on this install.
+fn suspended_bye(text: &str) -> bool {
+    matches!(ViewerFrame::parse(text), Some(ViewerFrame::Bye { outcome: Some(outcome) }) if outcome == "suspended")
 }
 
 fn frame_tag(text: &str) -> Option<String> {
@@ -1728,6 +1739,15 @@ mod tests {
         assert!(!redial_is_a_start(CarrierState { active: None, relay_open: true }, false));
         assert!(!redial_is_a_start(CarrierState { active: Some(Carrier::Relay), relay_open: true }, false));
         assert!(!redial_is_a_start(CarrierState { active: Some(Carrier::Enet), relay_open: false }, false));
+    }
+
+    /// #EXP-2119: only a suspended run's `bye` is a drop.
+    #[test]
+    fn a_suspended_bye_is_redialed() {
+        assert!(suspended_bye(r#"{"t":"bye","outcome":"suspended"}"#));
+        for end in [r#"{"t":"bye","outcome":"ended"}"#, r#"{"t":"bye","outcome":"history"}"#, r#"{"t":"bye","outcome":"exit:0"}"#, r#"{"t":"bye"}"#, r#"{"t":"keepalive"}"#] {
+            assert!(!suspended_bye(end), "{end}");
+        }
     }
 
     #[test]
