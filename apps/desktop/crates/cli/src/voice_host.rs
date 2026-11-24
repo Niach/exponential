@@ -1168,7 +1168,12 @@ impl Ring for DaemonNet {
     }
 
     fn ticket(&self, call_id: &str, agent_id: &str) -> Result<api::voice::CallTicket, String> {
-        api::voice::voice_call_host_ticket_for(&self.deps.trpc, call_id, &self.deps.device_id, agent_id).map_err(|err| format!("the call host ticket was refused: {err}"))
+        // #FEED-268: how long the ring waited for its ticket (the relay
+        // gives up on a ring nobody joins in `ringTimeoutMs`).
+        let asked = Instant::now();
+        let ticket = api::voice::voice_call_host_ticket_for(&self.deps.trpc, call_id, &self.deps.device_id, agent_id).map_err(|err| format!("the call host ticket was refused: {err}"))?;
+        log::info!("[voice] call {call_id}: the host ticket came after {} ms (sealed {})", asked.elapsed().as_millis(), ticket.seal);
+        Ok(ticket)
     }
 
     fn agent(&self, agent_id: &str) -> Result<api::agents::Agent, String> {
@@ -1218,7 +1223,7 @@ impl Ring for DaemonNet {
             };
             steer::call_keys::CallSealing { call_id: call_id.to_string(), agent_id: agent_id.to_string(), device_id: self.deps.device_id.clone(), caller_target: None, keys }
         });
-        Box::new(steer::call_host::connect_sealed(&self.deps.runtime, ticket.url, sealing, move |event| {
+        Box::new(steer::call_host::connect_sealed(&self.deps.runtime, ticket.url, call_id, sealing, move |event| {
             let _ = events.send(Input::Link { call_id: id.clone(), event });
         }))
     }

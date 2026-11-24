@@ -47,7 +47,7 @@ import { getSteerRelayConfig, mintSteerTicket, relayPostNudge } from "@/lib/stee
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { callSpeechOf } from "@/lib/voice-call/availability"
 import { callSealPlatformOf, callSealPlatforms } from "@/lib/voice-call/seal-switch"
-import { mintCallId, verifyCallId } from "@/lib/voice-call-id"
+import { callLogTag, mintCallId, verifyCallId } from "@/lib/voice-call-id"
 import { meetingAgentIsPrivate, MEETING_SHARED_REFUSED, postMeetingStopNote } from "@/lib/sessions/meeting-access"
 import { voiceAssistantOf } from "@/lib/agents/assistant"
 import { endCallSession, startCallSession } from "@/lib/sessions/call"
@@ -528,6 +528,8 @@ export const voiceRouter = router({
         busy: false,
       })
       if (!target.enabled || !target.device) {
+        // #FEED-268: a call that never rang leaves its reason here.
+        console.info(`[voice] startCall refused: member=${userId} platform=${input.platform} agent=${input.agentId}: ${target.reason ?? `no device can take the call`}`)
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: target.reason ?? `` })
       }
       if (target.local) {
@@ -571,6 +573,9 @@ export const voiceRouter = router({
       if (`disabled` in minted) {
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
       }
+      // #FEED-268: the call's own line (the count line above stays id-free):
+      // its tag is the id's random head, which the relay and the device log too.
+      console.info(`[voice] call ${callLogTag(callId)}: minted for member=${userId} platform=${from ?? input.platform} agent=${input.agentId} device=${target.device} fallback=${target.fallback} sealed=${sealed}`)
       return {
         callId,
         ticket: minted.ticket,
@@ -650,16 +655,20 @@ export const voiceRouter = router({
       if (!(await memberAgent(ctx.db, userId, input.agentId))) {
         throw new TRPCError({ code: `NOT_FOUND`, message: `That agent isn't in your teams` })
       }
-      return startCallSession({ userId, agentId: input.agentId, callId: input.callId ?? null })
+      const started = await startCallSession({ userId, agentId: input.agentId, callId: input.callId ?? null })
+      console.info(`[voice] call ${callLogTag(input.callId)}: call session for member=${userId} agent=${input.agentId}: ${started ? `given` : `none (the chat takes the call)`}`)
+      return started
     }),
 
   // #EXP-1961: the hang-up (either side, a drop too): the call session is
   // asked for its summary, which reaches the chat as a waking report card.
   callEnded: authedProcedure
     .input(z.object({ sessionId: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => ({
-      ended: await endCallSession({ userId: ctx.session.user.id, sessionId: input.sessionId }),
-    })),
+    .mutation(async ({ ctx, input }) => {
+      const ended = await endCallSession({ userId: ctx.session.user.id, sessionId: input.sessionId })
+      console.info(`[voice] call session ${input.sessionId}: the host reported the hang-up (ended=${ended})`)
+      return { ended }
+    }),
 
   // NEW-55: the voice device answers a `call_ring`. Minted for the member
   // alone; the relay admits it only into a ringing call on a device this
@@ -724,6 +733,7 @@ export const voiceRouter = router({
       if (`disabled` in minted) {
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
       }
+      console.info(`[voice] call ${callLogTag(input.callId)}: host ticket for member=${userId} device=${deviceId} sealed=${vouched.sealed}`)
       return { callId: input.callId, ticket: minted.ticket, url: minted.url, relayUrl: config.url, seal: vouched.sealed }
     }),
 })

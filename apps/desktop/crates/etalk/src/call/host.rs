@@ -227,6 +227,27 @@ pub struct CallHost {
     queued: usize,
     /// What the worker says for the call now (the opening or a reply).
     speaking: Option<String>,
+    /// #FEED-268: what the end line counts (never a word of the call).
+    utterances: u32,
+    replies: u32,
+}
+
+/// #FEED-268: who ended a call and why, as the end line names it
+/// (voice-call.json `hangUpRules`): a reason-less `call_end` is the caller's
+/// End call; `idle` and `max_length` are the relay's (or this host's own
+/// socket); `dropped` is the relay saying the caller's socket went away.
+fn ended_by(event: &CallEvent, remote: bool) -> (&'static str, String) {
+    match event {
+        CallEvent::End => (if remote { "host" } else { "user" }, "hung_up".into()),
+        CallEvent::HungUp(None) => ("caller", "hung_up".into()),
+        CallEvent::HungUp(Some(reason)) => match reason.as_str() {
+            "dropped" => ("caller", "dropped".into()),
+            "idle" | "max_length" => ("relay", reason.clone()),
+            _ => ("link", reason.clone()),
+        },
+        CallEvent::Failed(code) => ("host", format!("failed:{code}")),
+        _ => ("host", "other".into()),
+    }
 }
 
 impl CallHost {
@@ -264,6 +285,8 @@ impl CallHost {
             held: Vec::new(),
             queued: 0,
             speaking: None,
+            utterances: 0,
+            replies: 0,
         }
     }
 
@@ -380,6 +403,9 @@ impl CallHost {
             }
             HostInput::Timer { timer } => self.fire(timer, now, &mut out),
             HostInput::Listening => {
+                if self.listening_at.is_none() {
+                    log::info!("[voice] call {}: the worker listens {} ms after the ring started", self.label, now.saturating_sub(self.started.unwrap_or(now)));
+                }
                 self.listening_at = Some(now);
                 self.check_voice(now, &mut out);
             }
@@ -449,6 +475,7 @@ impl CallHost {
             return;
         }
         self.started = Some(now);
+        log::info!("[voice] call {}: ringing ({}, answers after {} ms at the earliest)", self.label, if self.remote { "streamed from a caller" } else { "run here" }, self.ring_ms);
         // A call run here rings on its own output until the opening (at
         // most `maxRingMs`); a streamed one rings on the caller.
         let ring_ms = if self.remote { 0 } else { VOICE_CALL.constants.max_ring_ms as u32 };
@@ -572,6 +599,13 @@ impl CallHost {
     /// session too).
     fn pick_up(&mut self, now: u64, out: &mut Vec<HostEffect>) {
         self.answered_at = Some(now);
+        let opening = self.opening.is_some() && self.session.is_some();
+        log::info!(
+            "[voice] call {}: answered {} ms after the ring started ({})",
+            self.label,
+            now.saturating_sub(self.started.unwrap_or(now)),
+            if opening { "the opening line is said" } else { "picked up listening" }
+        );
         match self.opening.clone().filter(|_| self.session.is_some()) {
             Some((_, id, text)) => {
                 self.opening_said = Some(id.clone());
@@ -602,6 +636,7 @@ impl CallHost {
             self.queued += 1;
         }
         self.sent = true;
+        self.utterances += 1;
         let event = if busy { CallEvent::Queued { count: self.queued, text: text.clone() } } else { CallEvent::Said(text.clone()) };
         self.step(event, now, out);
         if self.session_pending {
@@ -656,6 +691,7 @@ impl CallHost {
             return;
         }
         self.speaking = Some(id.clone());
+        self.replies += 1;
         // The agent took the queued lines in with this turn.
         self.queued = 0;
         out.push(HostEffect::Speak { id, text: text.clone() });
@@ -691,8 +727,20 @@ impl CallHost {
         for text in std::mem::take(&mut self.held) {
             out.push(HostEffect::Send { text, session: None });
         }
+        // #FEED-268: ONE line that says who ended it, why and how far it got.
+        let (by, reason) = ended_by(&event, self.remote);
+        let phase = self.state.phase;
         self.step(event, now, out);
-        log::info!("[voice] call {}: ended", self.label);
+        log::info!(
+            "[voice] call {}: ended by={by} reason={reason} phase={phase:?} answered={} lasted={} ms listening={} heard={} utterances={} replies={}",
+            self.label,
+            self.answered_at.is_some(),
+            now.saturating_sub(self.started.unwrap_or(now)),
+            self.listening_at.is_some(),
+            self.heard,
+            self.utterances,
+            self.replies,
+        );
     }
 
     /// Fail the call with `code`: a streamed caller hears the code BEFORE
