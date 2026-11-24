@@ -18,10 +18,12 @@ vi.mock(`@/lib/collections`, () => ({
   issueCollection: {
     values: () =>
       [
-        { id: `00000000-0000-4000-8000-000000000077`, identifier: `EXP-7`, teamId: `t` },
-        { id: `00000000-0000-4000-8000-000000000088`, identifier: `EXP-7`, teamId: `u` },
+        // Real-shaped: the issues shape carries no team_id (#EXP-2082).
+        { id: `00000000-0000-4000-8000-000000000077`, identifier: `EXP-7`, boardId: `b-t` },
+        { id: `00000000-0000-4000-8000-000000000088`, identifier: `EXP-7`, boardId: `b-u` },
       ][Symbol.iterator](),
   },
+  boardCollection: { get: (id: string) => ({ "b-t": { id, teamId: `t` }, "b-u": { id, teamId: `u` } })[id] },
   // #EXP-2079: the card's session sits in a team that is not synced (the
   // Assistant's conversation in its member's personal team): its refs
   // resolve over the chat teams, the first team's on a clash.

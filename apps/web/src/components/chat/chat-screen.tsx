@@ -63,6 +63,7 @@ import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import type { MessagePage } from "@/hooks/use-session-tree"
 import { useBoardsForTeams, useTeamsUsers } from "@/hooks/use-team-data"
 import { useSessionChatTeams, useSessionOwnDevices } from "@/hooks/use-chat-teams"
+import { syncedIssueTeamId } from "@/lib/chat-teams"
 import { ChatTeamsScope } from "@/components/chat/chat-teams-scope"
 import { useSession } from "@/hooks/use-session"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -315,7 +316,7 @@ function ChatScreenBody({
   // first); an issue row that has not synced draws NO glyph, never Backlog.
   const issueStatus = (issue: Issue | undefined) => {
     if (!issue) return null
-    const status = statusesOf(issue.teamId).resolve(issue)
+    const status = statusesOf(syncedIssueTeamId(issue) ?? ``).resolve(issue)
     return {
       icon: status.icon,
       colorClass: statusColorClass(status),
@@ -462,7 +463,7 @@ function ChatScreenBody({
   // #EXP-2079 (`assistant.chatTeams` (5)): New issue files into the chat's
   // first issue's board, else the first chat team with a board (that team's
   // flow picks the board); no such team = the page's team (its no-board copy).
-  const newIssueTeamId = firstIssue?.teamId ?? boards[0]?.teamId
+  const newIssueTeamId = syncedIssueTeamId(firstIssue) ?? boards[0]?.teamId
   const newIssueTeamSlug = chatTeams.teams.find((row) => row.id === newIssueTeamId)?.slug ?? teamSlug
   const menu = useChatTabMenu({
     rootId: root.id,
