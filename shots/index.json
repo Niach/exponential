@@ -1063,6 +1063,13 @@
       }
     },
     "assistant-tab": {
+      "android": {
+        "file": "shots/assistant-tab/android.webp",
+        "width": 876,
+        "height": 1800,
+        "bytes": 39138,
+        "sha256": "5927ca7b28b9d6a13c79cff6958ec45477421cb98250ef73c1c318ff51856475"
+      },
       "ios": {
         "file": "shots/assistant-tab/ios.webp",
         "width": 828,
@@ -1666,10 +1673,10 @@
     "chats": {
       "android": {
         "file": "shots/chats/android.webp",
-        "width": 810,
+        "width": 876,
         "height": 1800,
-        "bytes": 52374,
-        "sha256": "df3d0837bf676f8c7ef09b1e92ef6b887c501354c15f8d90afb98cd7ee8457aa"
+        "bytes": 53196,
+        "sha256": "ae2a0f3dc026f9c7e2260df4a453b417aa50c72610f57b4249ad75ee1b0ab5ca"
       },
       "desktop": {
         "file": "shots/chats/desktop.webp",
@@ -7701,10 +7708,10 @@
     "settings-root": {
       "android": {
         "file": "shots/settings-root/android.webp",
-        "width": 810,
+        "width": 876,
         "height": 1800,
-        "bytes": 27310,
-        "sha256": "f680fa0b1f41cc27e0580b7775b9930e257d7368c0fc02e66cc8567a4b9c0cd8"
+        "bytes": 33362,
+        "sha256": "191b58a243551f45a1c013562bebdf762a67dabcae7b774eb98685ce97752be8"
       },
       "ios": {
         "file": "shots/settings-root/ios.webp",
@@ -8122,6 +8129,13 @@
       }
     },
     "team": {
+      "android": {
+        "file": "shots/team/android.webp",
+        "width": 876,
+        "height": 1800,
+        "bytes": 32522,
+        "sha256": "38fd3ea11d76f02fa7a03a46f0773a9de3823028736bbb3b44c2e46204efbf46"
+      },
       "ios": {
         "file": "shots/team/ios.webp",
         "width": 828,
@@ -8154,6 +8168,13 @@
       }
     },
     "teams": {
+      "android": {
+        "file": "shots/teams/android.webp",
+        "width": 876,
+        "height": 1800,
+        "bytes": 19636,
+        "sha256": "6189ee156d751fbd32c25867771305e616d302755ac75c3754f4debfe16204f2"
+      },
       "ios": {
         "file": "shots/teams/ios.webp",
         "width": 828,

@@ -116,27 +116,7 @@ final class SearchViewModel {
 
     func startObserving() {
         stopObserving() // restartable: the view re-arms on every appear
-<<<<<<< HEAD
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
-=======
-        if teamId != self.teamId {
-            self.teamId = teamId
-            index = nil
-            local = []
-            localQuery = ""
-            serverHits = []
-            serverHitsQuery = ""
-            results = []
-            suggestion = nil
-            endTranslation()
-            members = []
-            teamStatuses = []
-            chatHits = []
-            chatHitsQuery = ""
-            chatRows = []
-        }
-        guard let teamId, let pool = try? db.pool(forAccountId: accountId) else { return }
->>>>>>> origin/master
 
         let statusObservation = ValueObservation.tracking { db -> [String: [ResolvedIssueStatus]] in
             let byTeam = Dictionary(grouping: try IssueStatusEntity.fetchAll(db), by: \.teamId)
