@@ -172,6 +172,24 @@ pub fn ring_tone(rate: u32, ms: u32) -> Vec<f32> {
         .collect()
 }
 
+/// EXP-1859 (talk-listen.json `wake.multi` `tone`): the wake's short tone
+/// on this machine's output, off the listening thread (the turn's
+/// microphone is already open and keeps running).
+fn wake_tone() {
+    std::thread::spawn(|| {
+        let rate = etalk_crispasr::QWEN3_TTS_RATE;
+        match sink::open(rate) {
+            Ok(sink) => {
+                if let Err(err) = sink.push(&wake::wake_tone(rate)) {
+                    eprintln!("wake word: the tone did not play: {err}");
+                }
+                sink.finish();
+            }
+            Err(err) => eprintln!("wake word: the tone's output did not open: {err}"),
+        }
+    });
+}
+
 /// Where an event goes: stdout in the worker, a list in the tests.
 pub(crate) type Emitter = Arc<dyn Fn(&Event) + Send + Sync>;
 
@@ -550,6 +568,7 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             let shared = shared.clone();
             Arc::new(move || shared.voice_settled.load(Ordering::SeqCst))
         },
+        tone: Arc::new(wake_tone),
     };
     let (listen, listener) = listener::spawn(hearing, links);
 
@@ -660,8 +679,8 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
                 shared.close_call_out(Some(&id));
                 let _ = listen.send(listener::Job::Hangup { id });
             }
-            Request::Wake { phrase, language } => {
-                let _ = listen.send(listener::Job::Wake { phrase, language });
+            Request::Wake { phrase, language, listeners } => {
+                let _ = listen.send(listener::Job::Wake { phrase, language, listeners });
             }
             Request::Meeting { id, language, phrase, you_label, selection, capability } => {
                 listening.begin_meeting(&id);

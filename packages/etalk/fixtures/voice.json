@@ -1043,6 +1043,12 @@
       "text": "Downloading voice… 120 MB of 351 MB"
     }
   ],
+  "wakeLabelCases": [
+    { "_": "EXP-1859 (wake phrases per agent): the tray's and the rail's Wake word item names every phrase the voice device listens for (agent-settings.json `voice.wake` `wakeListeners`, the voice agent's first) through the shared picker summary (`a`, `a, b`, `a, b +N`); context `wakePhrases` = the listeners' phrases after the voice agent's (absent = none, the label as before).", "phrase": "Hey Ops", "wakePhrases": [], "label": "Wake word · Hey Ops" },
+    { "phrase": "Hey Ops", "wakePhrases": ["Hey Triage"], "label": "Wake word · Hey Ops, Hey Triage" },
+    { "phrase": "Hey Ops", "wakePhrases": ["Hey Triage", "Hey Studio"], "label": "Wake word · Hey Ops, Hey Triage +1" },
+    { "phrase": "Hey Ops", "wakePhrases": ["Hey Triage", "Hey Studio", "Hey Ada", "Hey Kim"], "label": "Wake word · Hey Ops, Hey Triage +3" }
+  ],
   "trayMenuCases": [
     {
       "name": "another device has no tray",

@@ -488,6 +488,30 @@ impl TalkHost for ExponentialHost {
         Some(voice_inputs(&resolved, |clip_id| self.clips.path(clip_id, cx)))
     }
 
+    /// EXP-1859 (agent-settings.json `voice.wake`): who the voice device
+    /// listens for: `wakeListeners` over the synced agents.
+    fn wake_listeners(&self, settings: &VoiceSettings, cx: &App) -> Vec<etalk::WakeListener> {
+        let Some(store) = Store::try_global(cx) else { return Vec::new() };
+        let rows = store.collections().agents.read(cx);
+        let agents: Vec<domain::agent_settings::WakeAgent<'_>> = rows.iter().map(domain::agent_settings::WakeAgent::of).collect();
+        let input = domain::agent_settings::WakeSettings {
+            voice_device_id: settings.voice_device_id.as_deref(),
+            agent_id: settings.agent_id.as_deref(),
+            wake_word: settings.wake_word,
+            wake_agent_ids: &settings.wake_agent_ids,
+            member: domain::agent_settings::MemberVoice {
+                language: settings.language(),
+                voice_file: &settings.voice_file,
+                voice_transcript: &settings.voice_transcript,
+                wake_phrase: &settings.wake_phrase,
+            },
+        };
+        domain::agent_settings::wake_listeners(&input, &agents)
+            .into_iter()
+            .map(|listener| etalk::WakeListener { agent_id: listener.agent_id, phrase: listener.phrase, language: listener.language })
+            .collect()
+    }
+
     fn conversation(&self, agent_id: &str, cx: &App) -> Option<String> {
         crate::session_data::my_conversation(agent_id, cx).map(|row| row.id)
     }
