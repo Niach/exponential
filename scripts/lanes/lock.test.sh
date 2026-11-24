@@ -19,6 +19,10 @@ export EXP_LANE_LOCK_ROOT="$root"
 printf '#!/bin/sh\nexit 0\n' > "$root/no-sweep"
 chmod +x "$root/no-sweep"
 export LANE_SWEEP_CLI="$root/no-sweep"
+# #EXP-2092: a variable set for ONE call of a lock.sh function goes in a
+# subshell, `(VAR=x; fn …)`, never `VAR=x fn …`: before a FUNCTION, sh keeps
+# the assignment afterwards, and macOS's sh (bash 3.2) exports it to every
+# later lane.sh too.
 fails=0
 ok() { echo "ok - $1"; }
 no() { echo "not ok - $1"; fails=$((fails + 1)); }
@@ -69,7 +73,7 @@ host=$(lane_lock_host)
 sh -c 'exit 0' & deadpid=$!; wait "$deadpid"
 mkdir "$root/dead" && echo "gone 1 $deadpid $host" > "$root/dead/owner"
 LANE_LOCK_POLL_SECONDS=0
-LANE_LOCK_PID=$$ take_lock "$root/dead" me 2>/dev/null && [ "$(lock_owner "$root/dead")" = me ] && ok "take_lock takes over a dead holder's lock" || no "take_lock takes over a dead holder's lock"
+(LANE_LOCK_PID=$$; take_lock "$root/dead" me 2>/dev/null) && [ "$(lock_owner "$root/dead")" = me ] && ok "take_lock takes over a dead holder's lock" || no "take_lock takes over a dead holder's lock"
 [ "$(cut -d' ' -f3 "$root/dead/owner")" = "$$" ] && ok "the owner file records the holder's pid" || no "the owner file records the holder's pid"
 [ "$(cut -d' ' -f4 "$root/dead/owner")" = "$host" ] && ok "the owner file records the host" || no "the owner file records the host"
 [ ! -e "$root/dead.takeover" ] && ok "the takeover mutex is gone" || no "the takeover mutex is gone"
@@ -138,10 +142,10 @@ rm -f "$root/exp-lane-slots" "$XDG_CONFIG_HOME/exponential/lane-slots"
 # #EXP-1844: who holds a lane, for how long, and a max hold for heavy.
 log="$root/state/exponential/lanes.log"
 now=$(date +%s)
-EXP_MCP_SESSION_ID=abcdef12-3456-7890-abcd-ef1234567890 LANE_LOCK_PID=$$ take_lock "$root/exp-perf-heavy-1" me
+(EXP_MCP_SESSION_ID=abcdef12-3456-7890-abcd-ef1234567890; LANE_LOCK_PID=$$; take_lock "$root/exp-perf-heavy-1" me)
 [ "$(lock_field "$root/exp-perf-heavy-1" 5)" = abcdef12 ] && ok "the owner file records the session" || no "the owner file records the session"
 grep -q "exp-perf-heavy-1 take owner=me session=abcdef12 pid=$$ waited=0s" "$log" && ok "a take is logged" || no "a take is logged"
-LANE_LOCK_PID=$$ release_lock "$root/exp-perf-heavy-1" me
+(LANE_LOCK_PID=$$; release_lock "$root/exp-perf-heavy-1" me)
 grep -q "exp-perf-heavy-1 release owner=me .* held=[0-9]*s" "$log" && ok "a release is logged with its hold time" || no "a release is logged with its hold time"
 
 mkdir "$root/described" && echo "other $((now - 125)) $$ $host sess1234" > "$root/described/owner"
@@ -175,27 +179,27 @@ grep -q "exp-perf-heavy-1 handover owner=slow session=sess0001 pid=$slowpid held
 # A holder that is no lane.sh (a person's shell that took the lock by hand)
 # is never killed: the handover is refused, the slot stays.
 mkdir "$root/exp-perf-heavy-1" && echo "slow $((now - 100)) $$ $host sess0001" > "$root/exp-perf-heavy-1/owner"
-if LANE_MAX_HOLD_SECONDS=60 try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null; then no "an overdue holder that is no lane.sh keeps its slot"; else ok "an overdue holder that is no lane.sh keeps its slot"; fi
+if (LANE_MAX_HOLD_SECONDS=60; try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null); then no "an overdue holder that is no lane.sh keeps its slot"; else ok "an overdue holder that is no lane.sh keeps its slot"; fi
 [ "$(lock_owner "$root/exp-perf-heavy-1")" = slow ] && ok "the refused handover leaves the lock" || no "the refused handover leaves the lock"
 grep -q "exp-perf-heavy-1 handover-refused owner=slow .* why=not-a-lane-job" "$log" && ok "a refused handover is logged" || no "a refused handover is logged"
 # One that survives TERM and KILL (KILL refused: another user's) keeps it too.
 fake_holder "$root/stuck.pid"
 stuckpid=$(cat "$root/stuck.pid")
 echo "stuck $((now - 100)) $stuckpid $host sess0009" > "$root/exp-perf-heavy-1/owner"
-if (kill() { return 0; }; lane_any_alive() { return 0; }; LANE_MAX_HOLD_SECONDS=60 LANE_KILL_GRACE_SECONDS=0 try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null); then no "a holder that does not end keeps its slot"; else ok "a holder that does not end keeps its slot"; fi
+if (kill() { return 0; }; lane_any_alive() { return 0; }; LANE_MAX_HOLD_SECONDS=60; LANE_KILL_GRACE_SECONDS=0; try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null); then no "a holder that does not end keeps its slot"; else ok "a holder that does not end keeps its slot"; fi
 [ "$(lock_owner "$root/exp-perf-heavy-1")" = stuck ] && ok "never two heavy jobs: the survivor's lock stays" || no "never two heavy jobs: the survivor's lock stays"
 grep -q "handover-refused owner=stuck .* why=still-running" "$log" && ok "a survivor's refusal is logged" || no "a survivor's refusal is logged"
 kill "$stuckpid" "$(cat "$root/stuck.pid.child")" 2>/dev/null; wait "$stuckpid" 2>/dev/null
 rm -rf "$root/exp-perf-heavy-1"
 mkdir "$root/exp-perf-heavy-1" && echo "slow $((now - 100)) $$ $host sess0001" > "$root/exp-perf-heavy-1/owner"
-if LANE_MAX_HOLD_SECONDS=0 try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null; then no "LANE_MAX_HOLD_SECONDS=0 never hands over"; else ok "LANE_MAX_HOLD_SECONDS=0 never hands over"; fi
-if LANE_MAX_HOLD_SECONDS=600 try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null; then no "a heavy holder within its max hold keeps the slot"; else ok "a heavy holder within its max hold keeps the slot"; fi
+if (LANE_MAX_HOLD_SECONDS=0; try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null); then no "LANE_MAX_HOLD_SECONDS=0 never hands over"; else ok "LANE_MAX_HOLD_SECONDS=0 never hands over"; fi
+if (LANE_MAX_HOLD_SECONDS=600; try_take_lock "$root/exp-perf-heavy-1" fast 2>/dev/null); then no "a heavy holder within its max hold keeps the slot"; else ok "a heavy holder within its max hold keeps the slot"; fi
 rm -rf "$root/exp-perf-heavy-1"
 mkdir "$root/exp-ios-sim-1" && echo "sim $((now - 100000)) $$ $host sess0002" > "$root/exp-ios-sim-1/owner"
-if LANE_MAX_HOLD_SECONDS=60 try_take_lock "$root/exp-ios-sim-1" fast 2>/dev/null; then no "a device lane is never handed over"; else ok "a device lane is never handed over"; fi
+if (LANE_MAX_HOLD_SECONDS=60; try_take_lock "$root/exp-ios-sim-1" fast 2>/dev/null); then no "a device lane is never handed over"; else ok "a device lane is never handed over"; fi
 rm -rf "$root/exp-ios-sim-1"
 mkdir "$root/handed" && echo "me $now 1 $host -" > "$root/handed/owner"
-if LANE_LOCK_PID=$$ release_lock "$root/handed" me 2>/dev/null; then no "a handed-over holder never frees the new holder's lock"; else ok "a handed-over holder never frees the new holder's lock"; fi
+if (LANE_LOCK_PID=$$; release_lock "$root/handed" me 2>/dev/null); then no "a handed-over holder never frees the new holder's lock"; else ok "a handed-over holder never frees the new holder's lock"; fi
 
 # The holder is warned at its deadline; with nobody waiting its command
 # runs to the end.
@@ -215,6 +219,9 @@ echo "$status" | grep -q "^heavy slot 1: held by busy (session sess0003, pid $$)
 echo "$status" | grep -q "exp-perf-heavy-1: queued (session waiter99, pid [0-9]*) for" && ok "status prints the waiters" || no "status prints the waiters ($status)"
 echo "$status" | grep -q "^ios slot 1: free" && ok "status prints a free lane" || no "status prints a free lane"
 grep -q "exp-perf-heavy-1 wait owner=queued session=waiter99 .* holder=busy holder_session=sess0003" "$log" && ok "a wait is logged with the holder" || no "a wait is logged with the holder"
+# #EXP-2092: the 60 s max hold of the checks above must not reach this waiter
+# (it did on macOS: the 5 min holder counted as overdue).
+grep -q "handover-refused owner=busy " "$log" && no "a check's max hold never reaches a later run" || ok "a check's max hold never reaches a later run"
 rm -rf "$root/exp-perf-heavy-1"
 wait "$waiter"
 grep -q "take owner=queued session=waiter99 pid=[0-9]* waited=[0-9]*s" "$log" && ok "the waiter's take is logged with its wait" || no "the waiter's take is logged with its wait"
