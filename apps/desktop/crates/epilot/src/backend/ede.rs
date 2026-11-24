@@ -628,6 +628,26 @@ impl Session {
     }
 
     /// A space grant for `run` over `root`, kept ([`KEPT`]).
+    /// #EXP-2098: the keeper's renewal of `run`'s kept grant. It only adds
+    /// to a space still kept: one closed since the round read it
+    /// ([`close_space`] took it out of [`KEPT`] before it returned) is
+    /// never put back, and the grant minted for it is revoked at once.
+    fn renew_kept(&self, root: &mut Client, run: &str, timing: Timing) -> Result<(), String> {
+        let now = (timing.now)();
+        let expires_at = now + timing.ttl.as_millis() as i64;
+        let session = SessionId::new(run).map_err(|err| err.to_string())?;
+        let token = root.mint(session, SPACE_CAPABILITIES.to_vec(), Some(expires_at)).map_err(e("eDE grant"))?.token;
+        {
+            let mut kept = lock(&KEPT);
+            if let Some(entry) = kept.get_mut(run).filter(|entry| entry.socket == self.socket) {
+                entry.grants.retain(|grant| grant.expires_at > now);
+                entry.grants.push(RunGrant { socket: self.socket.clone(), token, expires_at });
+                return Ok(());
+            }
+        }
+        revoke_token(root, token)
+    }
+
     fn mint_kept(&self, root: &mut Client, run: &str, timing: Timing) -> Result<Token, String> {
         let now = (timing.now)();
         let expires_at = now + timing.ttl.as_millis() as i64;
@@ -771,12 +791,8 @@ impl Session {
             match self.root_token().and_then(|root| self.connect_token(root)) {
                 Ok(mut root) => {
                     for run in due {
-                        if let Err(err) = self.mint_kept(&mut root, &run, timing) {
+                        if let Err(err) = self.renew_kept(&mut root, &run, timing) {
                             log::debug!("computer use: a kept agent space's eDE grant was not renewed: {err}");
-                        }
-                        // Closed while this minted: what was minted ends too.
-                        if !lock(&KEPT).contains_key(&run) {
-                            self.close_spaces(&[run]);
                         }
                     }
                 }
@@ -1618,6 +1634,9 @@ mod tests {
         /// Per session: its ticks in a row without a live space grant.
         expired_ticks: Arc<Mutex<HashMap<String, u32>>>,
         clock: Option<fn() -> i64>,
+        /// #EXP-2098: a mint is logged, then answered only once this is
+        /// free: a test that holds it stops a mint half way.
+        mint_gate: Arc<Mutex<()>>,
     }
 
     impl Faked {
@@ -1682,12 +1701,15 @@ mod tests {
         let spaces = Arc::new(Mutex::new((0u32, HashMap::<String, SpaceInfo>::new())));
         let (mints, revoked) = (Arc::new(Mutex::new(Vec::new())), Arc::new(Mutex::new(std::collections::HashSet::new())));
         let (seen, end, forgets, rooted) = (log.clone(), end_spaces.clone(), forget.clone(), roots.clone());
+        let mint_gate = Arc::new(Mutex::new(()));
+        let gate = mint_gate.clone();
         let (all_minted, all_spaces, all_mints, all_revoked) = (minted.clone(), spaces.clone(), mints.clone(), revoked.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { return };
                 let (log, minted, spaces, end, root) = (seen.clone(), minted.clone(), spaces.clone(), end.clone(), root.clone());
                 let (forgets, forgotten, rooted, mints, revoked) = (forgets.clone(), forgotten.clone(), rooted.clone(), mints.clone(), revoked.clone());
+                let gate = gate.clone();
                 std::thread::spawn(move || {
                     let mut me = SessionId::new("s").unwrap();
                     let mut is_root = false;
@@ -1760,6 +1782,7 @@ mod tests {
                             }
                             Request::MintGrant { session_id, expires_at, capabilities, .. } => {
                                 log.lock().unwrap().push(format!("mint {session_id} {}", expires_at.is_some()));
+                                drop(gate.lock().unwrap_or_else(|p| p.into_inner()));
                                 // Numbered past the forgotten ones: a new grant is never an old one.
                                 let past = forgotten.lock().unwrap().len();
                                 let token = Token::new(format!("{:064x}", minted.lock().unwrap().len() + past + 1)).unwrap();
@@ -1849,6 +1872,7 @@ mod tests {
             spaces: all_spaces,
             expired_ticks: Default::default(),
             clock: fake.clock,
+            mint_gate,
         }
     }
 
@@ -2078,6 +2102,46 @@ mod tests {
         std::thread::sleep(Duration::from_millis(700));
         assert_eq!(mints(&faked), closed, "the keeper outlived the space");
         assert!(!lock(&KEEPERS).contains_key(&faked.session.socket), "nothing kept, no keeper");
+        let _ = std::fs::remove_dir_all(&faked.dir);
+    }
+
+    /// #EXP-2098: a space closed while the keeper's round mints its next
+    /// grant stays closed: `close_space` took it out of the kept ones
+    /// before it returned, the round does not put it back, and the grant
+    /// it minted meanwhile is revoked. (The round read the space as due,
+    /// its mint waits at the compositor, the close runs through, then the
+    /// mint answers.)
+    #[test]
+    fn a_space_closed_while_the_keeper_mints_stays_closed() {
+        static CLOCK: AtomicI64 = AtomicI64::new(0);
+        fn clock() -> i64 {
+            CLOCK.load(Ordering::SeqCst)
+        }
+        CLOCK.store(now_ms(), Ordering::SeqCst);
+        let faked = fake_socket_of(Fake::READY);
+        let run = "epilot-test-keeper-c";
+        let timing = on_clock(clock);
+        drop(open_space(&faked.session, admitted(run), Target::Space(1), timing).unwrap());
+        assert!(kept(&faked, run) && mints(&faked) == 1);
+        // Its grant is due, and the round's mint stops at the compositor.
+        CLOCK.fetch_add(SPACE_GRANT_RENEW.as_millis() as i64, Ordering::SeqCst);
+        let gate = faked.mint_gate.lock().unwrap();
+        let session = faked.session.clone();
+        let round = std::thread::spawn(move || session.keeper_round(timing));
+        until("the round minted nothing", || mints(&faked) == 2);
+        close_space(&faked.session, run);
+        assert!(!kept(&faked, run), "close_space returned with the space still kept");
+        drop(gate);
+        round.join().unwrap();
+        assert!(!kept(&faked, run), "the keeper's round kept a closed space again");
+        assert!(kept_spaces(&faked.session).is_empty());
+        let minted: std::collections::HashSet<String> = faked.grants.lock().unwrap().keys().cloned().collect();
+        assert_eq!(*faked.revoked.lock().unwrap(), minted, "both grants of the closed space are revoked");
+        assert_eq!(creates(&faked), 1);
+        // The next round has nothing to renew.
+        CLOCK.fetch_add(SPACE_GRANT_TTL.as_millis() as i64, Ordering::SeqCst);
+        faked.session.keeper_round(timing);
+        assert_eq!(mints(&faked), 2);
         let _ = std::fs::remove_dir_all(&faked.dir);
     }
 
