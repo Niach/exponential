@@ -172,9 +172,10 @@ documentation only.
 
 While a game runs, CI drops to ONE Docker runner instead of stopping. Every
 `app-steam-*.scope` pulls in `exp-gaming.service`. Its `gaming-ci.sh hold`
-stops one runner, runner-2 first, as soon as that runner is between jobs, never
-mid-job. When the last game scope ends, systemd stops the unit and
-`gaming-ci.sh release` starts the runner again. A stopped runner is offline, so
+stops runner-2, and only runner-2, as soon as it is between jobs, never
+mid-job, and starts runner-1 again if something else took it down. When the
+last game scope ends, systemd stops the unit and `gaming-ci.sh release` starts
+runner-2 again, also when its mark was lost to a reboot or a kill. A stopped runner is offline, so
 `pick-runner.yml` overflows to GitHub-hosted sooner. The mint-ci daemon is held
 to one job by its device runner settings. Log:
 `~/.local/state/exponential/gaming-ci.log`.
