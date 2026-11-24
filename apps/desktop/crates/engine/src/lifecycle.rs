@@ -1357,6 +1357,9 @@ fn tick_stall(
             // shows up as the turn simply stopping, and an unattended run
             // loses that work with nobody able to tell why.
             ctx.notice(crate::stall::StallWatchdog::interrupt_notice(silent));
+            // #FEED-274: and the agent hears it was the device, once the
+            // cancelled turn has settled.
+            ctx.device_interrupted(crate::stall::StallWatchdog::agent_note(silent));
             // EXP-784: an INTERRUPT, not a Stop — the steers queued behind
             // the wedged turn are what the watchdog is rescuing.
             let _ = commands.send(EngineCommand::Interrupt);

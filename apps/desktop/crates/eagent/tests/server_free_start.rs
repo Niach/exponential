@@ -676,6 +676,7 @@ fn start_adapter<A: ConnectTo<Client> + 'static>(
         personal_key: None,
         persistent: false,
         seed_message_id: None,
+        start_note: None,
         rotation_host: false,
         publish: false,
         local_sink: None,

@@ -157,6 +157,7 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
         tab_title: "claude · EXP-12".to_string(),
         tab_title_prefix: "EXP-12".to_string(),
         seed_message_id: None,
+        start_note: None,
         bypass_permissions: true,
         plan_mode: false,
         agent: coding::CodingAgent::Claude,
@@ -171,6 +172,11 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
 }
 
 fn start(scenario: &str, seed: Option<String>) -> Harness {
+    start_noted(scenario, seed, None)
+}
+
+/// [`start`] for a run the pickup relaunched with a note (#EXP-2085).
+fn start_noted(scenario: &str, seed: Option<String>, start_note: Option<String>) -> Harness {
     let work = std::env::temp_dir().join(format!(
         "exp-claude-engine-{scenario}-{}",
         uuid::Uuid::new_v4().simple()
@@ -185,7 +191,7 @@ fn start(scenario: &str, seed: Option<String>) -> Harness {
         .expect("the adapter builds");
     let session = engine::start_with(
         EngineStart {
-            prepared: prepared(&session_id, &work, seed),
+            prepared: coding::PreparedLaunch { start_note, ..prepared(&session_id, &work, seed) },
             trpc: Arc::new(api::TrpcClient::new("http://127.0.0.1:1", Arc::new(|| None))),
             runtime: Arc::clone(&runtime),
             data_dir: work.clone(),
@@ -685,4 +691,126 @@ fn a_new_command_mid_turn_waits_for_the_turn_end() {
         .collect();
     assert_eq!(rows.iter().filter(|text| text.as_str() == "/new").count(), 1, "{rows:?}");
     assert!(!rows.iter().any(|text| text == "/clear"), "{rows:?}");
+}
+
+/// What the fake CLI was sent as user messages, in order.
+fn user_lines(work: &Path) -> Vec<String> {
+    std::fs::read_to_string(work.join("stdin.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|line| line["type"] == "user")
+        .map(|line| {
+            let content = &line["message"]["content"];
+            content
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| content[0]["text"].as_str().unwrap_or_default().to_string())
+        })
+        .collect()
+}
+
+/// #EXP-2085 regression: the host stops the agent (a between-turn relaunch
+/// for a changed pick, effort or computer use) while a `run_in_background`
+/// shell of the run is still listed. The shell dies with the CLI, but the
+/// `background_tasks` slot kept naming it: the relay's latest-wins slot and
+/// every client showed the dead run's "1 to do" card for hours. The run's
+/// end now closes the slot (an EMPTY list) and keeps what it took down for
+/// the relaunch note.
+#[test]
+fn a_run_that_ends_closes_its_background_task_slot_and_names_what_it_ended() {
+    let _session = one_session_at_a_time();
+    let harness = start("background-shell", None);
+    until("the seeded turn slot", || !events_of(&harness.sink, "turn").is_empty());
+    harness
+        .session
+        .send_prompt("Launch the dev server shell in the background and wait for it.".to_string());
+    until("the first turn to end", || ended_turns(&harness.sink) >= 1);
+    until("the shell background list", || {
+        events_of(&harness.sink, "background_tasks").iter().any(has_any_task)
+    });
+    assert!(harness.session.ended_background_tasks().is_empty(), "a live run ended nothing");
+    assert_eq!(harness.session.background_tasks().len(), 1);
+
+    harness.session.kill("suspended");
+    harness.session.wait_timeout(Duration::from_secs(5)).expect("the run ends");
+
+    let lists = events_of(&harness.sink, "background_tasks");
+    assert!(
+        lists.last().is_some_and(|list| !has_any_task(list)),
+        "the slot closes with the run: {lists:?}"
+    );
+    let ended: Vec<String> =
+        harness.session.ended_background_tasks().into_iter().map(|task| task.description).collect();
+    assert_eq!(ended, vec!["bun dev".to_string()]);
+    assert!(!harness.session.agent_busy());
+}
+
+/// #EXP-2085: the relaunch note reaches both readers once: the person as a
+/// notice in the feed, the agent as the lead of its first input (never as
+/// part of the announced message row).
+#[test]
+fn a_relaunch_note_is_a_feed_notice_and_leads_the_agents_first_input() {
+    let _session = one_session_at_a_time();
+    let note = "Note from Exponential: this device restarted the agent between turns.";
+    let harness = start_noted("basic", Some("Carry on with the build.".to_string()), Some(note.to_string()));
+    until("the seed turn to end", || ended_turns(&harness.sink) >= 1);
+    let notices: Vec<String> = events_of(&harness.sink, "narration")
+        .iter()
+        .map(|row| row["text"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(notices.iter().any(|text| text == note), "the person reads it in the feed: {notices:?}");
+    assert_eq!(user_lines(&harness.work), vec![format!("{note}\n\nCarry on with the build.")]);
+    let rows: Vec<String> = events_of(&harness.sink, "user_message")
+        .iter()
+        .map(|row| row["text"].as_str().unwrap_or_default().to_string())
+        .collect();
+    // (The fixture also replays its own recorded user line.)
+    assert_eq!(rows.first().map(String::as_str), Some("Carry on with the build."), "{rows:?}");
+    assert!(!rows.iter().any(|text| text.contains("Note from Exponential")), "never in a message row: {rows:?}");
+}
+
+/// #FEED-274 regression: the device interrupts a turn itself (here the quiet
+/// guard; the stall watchdog takes the same path). The CLI words EVERY
+/// interrupt as the user's ("The user doesn't want to proceed … STOP what
+/// you are doing and wait for the user"), so the agent halted and reported
+/// "I've stopped as you asked" with no stop in its transcript. Once the
+/// interrupted turn has settled the host now tells the agent it was the
+/// device, as its next input, exactly once.
+#[test]
+fn a_turn_the_device_interrupted_is_followed_by_a_line_saying_it_was_the_device() {
+    let _session = one_session_at_a_time();
+    let harness = start("quiet-loop", None);
+    until("the seeded turn slot", || !events_of(&harness.sink, "turn").is_empty());
+    harness.session.send_prompt("Dismissed: the ask card.".to_string());
+    until("the interrupted turn to end", || ended_turns(&harness.sink) >= 1);
+    until("the agent to be told", || user_lines(&harness.work).len() >= 2);
+    std::thread::sleep(Duration::from_millis(300));
+    let lines = user_lines(&harness.work);
+    assert_eq!(lines.len(), 2, "told once: {lines:?}");
+    assert_eq!(lines[1], engine::adapters::claude::QUIET_INTERRUPT_NOTE);
+    assert!(lines[1].contains("not a person") && lines[1].contains("Nobody asked you to stop"));
+}
+
+/// #FEED-289: a start on a login past its weekly limit, replayed from the
+/// real CLI (2.1.327, captured 2026-11-24 on an exhausted login: `rejected`
+/// `seven_day` event, the synthetic notice, an `is_error` result with
+/// `api_error_status` 429). The seed turn runs and ends, and the run reads
+/// walled: `rate_limit`, the weekly window and its reset, which the
+/// lifecycle forwards to the row. Never an idle run with nothing said.
+#[test]
+fn a_start_on_an_exhausted_login_walls_the_run() {
+    let _session = one_session_at_a_time();
+    let harness = start("usage-wall-start", Some("Fix the failing test.".to_string()));
+    until("the seed turn to end", || ended_turns(&harness.sink) >= 1);
+    until("the wall", || harness.session.blocked_wall().is_some());
+    let wall = harness.session.blocked_wall().expect("the run reads walled");
+    assert_eq!((wall.kind.as_str(), wall.agent.as_str(), wall.window.as_str()), ("rate_limit", "claude", "weekly"));
+    assert_eq!(wall.resets_at.as_deref(), Some("2100-01-01T00:00:00.000Z"));
+    let limits = events_of(&harness.sink, "rate_limit");
+    assert!(
+        limits.iter().any(|slot| slot["message"] == "You've hit your weekly limit · resets 8pm (Europe/Berlin)"),
+        "{limits:?}"
+    );
+    assert!(events_of(&harness.sink, "narration").is_empty(), "the notice is state, never prose");
 }
