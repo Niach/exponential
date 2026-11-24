@@ -41,7 +41,8 @@ import { JoinTeamDialog } from "@/components/join-team-dialog"
 import { AddDeviceDialog } from "@/components/add-device-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
 import { SidebarRunningSection, type SidebarChats, type SidebarRunningTeam } from "@/components/team/sidebar-running"
-import { SidebarRootRows, SidebarTeamsGroup, sidebarActive, useSidebarAssistant } from "@/components/team/sidebar-tree"
+import { SidebarRootRows, SidebarTeamsGroup, sidebarActive } from "@/components/team/sidebar-tree"
+import { useSidebarAssistant } from "@/hooks/use-sidebar-assistant"
 import { mainPanelEdge } from "@/components/team/app-shell"
 import { UserAvatar, UserMenuItems } from "@/components/team/sidebar-shared"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
@@ -129,6 +130,8 @@ export function TeamSidebar({
   const boardTarget = resolveBoardTarget(teamSlug, boards, boardSlug)
   const openNewDraft = useOpenNewDraft(teamSlug)
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
+  // #EXP-2124: the account row's right-click opens its click menu.
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
   // EXP-1022: the card's visibility lives here because the scroll content
   // reserves room under its last row only while the card floats over it.
   const whatsNew = useWhatsNew()
@@ -354,11 +357,15 @@ export function TeamSidebar({
                       block, like the IDE's rail gear; #EXP-2027: the
                       personal settings. */}
                   <div className="flex items-center gap-1">
-                    <DropdownMenu>
+                    <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen}>
                       <DropdownMenuTrigger asChild>
                         <SidebarMenuButton
                           className="min-w-0 flex-1"
                           aria-label="User menu"
+                          onContextMenu={(event) => {
+                            event.preventDefault()
+                            setUserMenuOpen(true)
+                          }}
                         >
                           <UserAvatar />
                           {/* First name only (EXP-311) — the full name + email

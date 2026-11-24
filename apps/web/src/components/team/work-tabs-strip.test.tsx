@@ -15,18 +15,46 @@ const tabs = vi.hoisted(() => ({
   value: [] as unknown[],
 }))
 const issues = vi.hoisted(() => ({ value: [] as unknown[] }))
+const apps = vi.hoisted(() => ({ value: [] as unknown[] }))
+const devices = vi.hoisted(() => ({ value: [] as unknown[] }))
+const assistant = vi.hoisted(() => ({ value: null as unknown }))
+const memberships = vi.hoisted(() => ({
+  myTeams: [] as unknown[],
+  memberships: [] as unknown[],
+}))
 
 vi.mock(`@tanstack/react-router`, () => ({
   useNavigate: () => navigate,
   useRouterState: () => pathname.value,
 }))
+// Each live query answers with the rows of the collection it reads.
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
-  return { ...actual, useLiveQuery: () => ({ data: issues.value }) }
+  return {
+    ...actual,
+    useLiveQuery: (build: (query: unknown) => unknown) => {
+      let source: { rows?: () => unknown[] } | undefined
+      const chain: Record<string, unknown> = {}
+      for (const verb of [`where`, `select`, `orderBy`, `limit`, `join`]) chain[verb] = () => chain
+      const built = build({
+        from: (sources: Record<string, { rows?: () => unknown[] }>) => {
+          source = Object.values(sources)[0]
+          return chain
+        },
+      })
+      return { data: built === undefined ? undefined : (source?.rows?.() ?? []) }
+    },
+  }
 })
 vi.mock(`@/lib/collections`, () => ({
-  issueCollection: {},
-  sessionCollection: { get: () => ({ cli: `claude` }) },
+  issueCollection: { rows: () => issues.value },
+  appCollection: { rows: () => apps.value },
+  deviceCollection: { rows: () => devices.value },
+  sessionCollection: { get: () => ({ cli: `claude` }), rows: () => [] },
+}))
+vi.mock(`@/hooks/use-sidebar-assistant`, () => ({ useSidebarAssistant: () => assistant.value }))
+vi.mock(`@/hooks/use-team-data`, () => ({
+  useTeamMemberships: () => memberships,
 }))
 const chatGroups = vi.hoisted(() => ({ value: [] as unknown[] }))
 const agents = vi.hoisted(() => ({ value: [] as unknown[] }))
@@ -37,6 +65,9 @@ vi.mock(`@/hooks/use-session-tree`, () => ({
   }),
   useAgents: () => ({ agents: agents.value, isReady: true }),
   useSessionTitles: () => ({ titles: new Map(), held: new Set(), ready: true }),
+  useTeamSessions: () => ({ sessions: [], isReady: true }),
+  useDigestMessages: () => ({ messages: [], isReady: true }),
+  useSessionReads: () => new Map(),
 }))
 vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 vi.mock(`@/hooks/use-session`, () => ({ useSession: () => ({ data: { user: { id: `me` } } }) }))
@@ -157,24 +188,23 @@ describe(`WorkTabsStrip New run (EXP-1255)`, () => {
     expect(close.className).toContain(`focus-visible:opacity-100`)
   })
 
-  it(`puts the "+" after the last tab and the "+N", and it opens a New run tab`, () => {
+  it(`puts the "+" after the last tab and the "+N"`, () => {
     tabs.value = [issueTab]
     renderStrip()
     const plus = screen.getByTestId(`work-tabs-new-run`)
-    expect(plus.getAttribute(`aria-label`)).toBe(`New session`)
+    expect(plus.getAttribute(`aria-label`)).toBe(`New tab`)
     const tab = screen.getByTestId(`work-tab-issue:i1`)
     expect(tab.compareDocumentPosition(plus) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(plus.nextElementSibling).toBeNull()
-    fireEvent.click(plus)
-    expect(openNewRunPage).toHaveBeenCalledWith(navigate)
   })
 
-  it(`draws the New run chip, active on Home`, () => {
+  it(`draws Home's chip (the New session tab), active on Home`, () => {
     tabs.value = [issueTab, { kind: `new`, from: null }]
     pathname.value = `/home`
     renderStrip()
     const chip = screen.getByTestId(`work-tab-new`)
-    expect(chip.textContent).toContain(`New session`)
+    expect(chip.textContent).toContain(`Home`)
+    expect(chip.textContent).not.toContain(`New session`)
     expect(chip.getAttribute(`data-active`)).toBe(`true`)
     expect(screen.getByTestId(`work-tab-issue:i1`).getAttribute(`data-active`)).toBeNull()
   })
@@ -283,5 +313,167 @@ describe(`WorkTabsStrip across teams (#EXP-2027)`, () => {
     pathname.value = `/t/beta/boards/web/issues/EXP-1`
     renderStrip()
     expect(screen.getByTestId(`work-tab-issue:i1`).getAttribute(`data-active`)).toBeNull()
+  })
+})
+
+// #EXP-2124 (sidebar-menus.json `newTabCases`): the "+" opens THE new-tab
+// menu: the Assistant first, a separator, then one submenu per team holding
+// THE New list for that viewer.
+describe(`WorkTabsStrip new-tab menu (#EXP-2124)`, () => {
+  beforeEach(() => {
+    navigate.mockClear()
+    openNewRunPage.mockClear()
+    tabs.value = []
+    pathname.value = `/home`
+    assistant.value = { agentId: `as1`, name: `Ada`, teamId: `t1`, teamSlug: `acme`, href: `/t/acme/agents/as1` }
+    memberships.myTeams = [
+      { id: `t1`, slug: `acme`, name: `Acme`, iconUrl: null, kind: `team` },
+      { id: `t2`, slug: `beta`, name: `Beta`, iconUrl: null, kind: `team` },
+    ]
+    memberships.memberships = [
+      { teamId: `t1`, role: `member` },
+      { teamId: `t2`, role: `owner` },
+    ]
+  })
+
+  function openPlus() {
+    renderStrip()
+    fireEvent.pointerDown(screen.getByTestId(`work-tabs-new-run`), { button: 0, pointerType: `mouse` })
+  }
+
+  function submenuRows(teamId: string): string[] {
+    const trigger = screen.getByTestId(`new-tab-team-${teamId}`)
+    trigger.focus()
+    fireEvent.keyDown(trigger, { key: `ArrowRight` })
+    return screen.getAllByTestId(/^sidebar-new-/).map((row) => row.textContent ?? ``)
+  }
+
+  it(`lists the Assistant, then one submenu per team`, () => {
+    openPlus()
+    expect(openNewRunPage).not.toHaveBeenCalled()
+    const rows = screen.getAllByRole(`menuitem`).map((node) => node.textContent)
+    expect(rows).toEqual([`Ada`, `Acme`, `Beta`])
+    expect(screen.getAllByRole(`separator`).length).toBe(1)
+    fireEvent.click(screen.getByTestId(`new-tab-assistant`))
+    expect(navigate).toHaveBeenCalledWith({ href: `/t/acme/agents/as1` })
+  })
+
+  it(`holds THE New list: Chat for a member`, () => {
+    openPlus()
+    expect(submenuRows(`t1`)).toEqual([`Chat`])
+  })
+
+  it(`holds THE New list: Chat, Agent, App, Board for an owner`, () => {
+    openPlus()
+    expect(submenuRows(`t2`)).toEqual([`Chat`, `Agent`, `App`, `Board`])
+  })
+
+  it(`has no Assistant row while the viewer has none`, () => {
+    assistant.value = null
+    openPlus()
+    expect(screen.getAllByRole(`menuitem`).map((node) => node.textContent)).toEqual([`Acme`, `Beta`])
+    expect(screen.queryByTestId(`new-tab-assistant`)).toBeNull()
+  })
+})
+
+// #EXP-2124: pages are tabs: a board, an app, a device and the list pages,
+// each THE strip chip with its own lead + name, active on its own route.
+describe(`WorkTabsStrip page chips (#EXP-2124)`, () => {
+  beforeEach(() => {
+    navigate.mockClear()
+    issues.value = []
+    apps.value = [{ id: `a1`, slug: `notes`, name: `Notes`, icon: null, color: `#22c55e`, teamId: `t1`, deletedAt: null }]
+    devices.value = [{ id: `row-1`, deviceId: `d1`, label: `Studio Mac`, kind: `desktop` }]
+    pathname.value = `/home`
+  })
+
+  function renderWithBoard() {
+    return render(
+      <WorkTabsStrip
+        teams={[{ id: `t1`, slug: `acme` }]}
+        boards={[{ id: `b1`, slug: `web`, teamId: `t1`, name: `Web`, color: `#ef4444`, icon: null }] as never}
+        team={null}
+        teamSlug="acme"
+      />
+    )
+  }
+
+  it(`draws a board chip: its icon in its color + its name, and opens its page`, () => {
+    tabs.value = [{ kind: `board`, boardId: `b1`, from: null, ...T }]
+    pathname.value = `/t/acme/boards/web`
+    renderWithBoard()
+    const chip = screen.getByTestId(`work-tab-board:b1`)
+    expect(chip.textContent).toContain(`Web`)
+    expect(chip.getAttribute(`data-active`)).toBe(`true`)
+    expect(chip.querySelector(`svg`)?.getAttribute(`style`)).toContain(`color`)
+    fireEvent.click(within(chip).getByText(`Web`))
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/boards/$boardSlug`,
+      params: { teamSlug: `acme`, boardSlug: `web` },
+      search: {},
+    })
+  })
+
+  it(`draws an app chip, active on any of its screens`, () => {
+    tabs.value = [{ kind: `app`, appId: `a1`, from: null, ...T }]
+    pathname.value = `/t/acme/apps/notes/list`
+    renderWithBoard()
+    const chip = screen.getByTestId(`work-tab-app:a1`)
+    expect(chip.textContent).toContain(`Notes`)
+    expect(chip.getAttribute(`data-active`)).toBe(`true`)
+    fireEvent.click(within(chip).getByText(`Notes`))
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/t/$teamSlug/apps/$appSlug`,
+      params: { teamSlug: `acme`, appSlug: `notes` },
+      search: {},
+    })
+  })
+
+  it(`draws a device chip with its name, active on its page`, () => {
+    tabs.value = [{ kind: `device`, deviceId: `d1`, from: null }]
+    pathname.value = `/devices/d1`
+    renderWithBoard()
+    const chip = screen.getByTestId(`work-tab-device:d1`)
+    expect(chip.textContent).toContain(`Studio Mac`)
+    expect(chip.getAttribute(`data-active`)).toBe(`true`)
+    fireEvent.click(within(chip).getByText(`Studio Mac`))
+    expect(navigate).toHaveBeenCalledWith({
+      to: `/devices/$deviceId`,
+      params: { deviceId: `d1` },
+      search: {},
+    })
+  })
+
+  it(`draws the list pages' chips with their nav labels`, () => {
+    tabs.value = [
+      { kind: `page`, page: `needs-you`, from: null },
+      { kind: `page`, page: `chats`, from: null },
+      { kind: `page`, page: `drafts`, from: null },
+    ]
+    pathname.value = `/chats`
+    renderWithBoard()
+    expect(screen.getByTestId(`work-tab-page:needs-you`).textContent).toContain(`Needs you`)
+    expect(screen.getByTestId(`work-tab-page:drafts`).textContent).toContain(`Drafts`)
+    const chats = screen.getByTestId(`work-tab-page:chats`)
+    expect(chats.textContent).toContain(`Chats`)
+    expect(chats.getAttribute(`data-active`)).toBe(`true`)
+    expect(screen.getByTestId(`work-tab-page:drafts`).getAttribute(`data-active`)).toBeNull()
+  })
+
+  it(`keeps an unknown board, app or device as a placeholder`, () => {
+    apps.value = []
+    devices.value = []
+    tabs.value = [
+      { kind: `board`, boardId: `b9`, from: null, ...T },
+      { kind: `app`, appId: `a9`, from: null, ...T },
+      { kind: `device`, deviceId: `d9`, from: null },
+    ]
+    renderWithBoard()
+    for (const key of [`board:b9`, `app:a9`, `device:d9`]) {
+      expect(
+        screen.getByTestId(`work-tab-${key}`).querySelector(`[data-testid=work-tab-title-placeholder]`),
+        key
+      ).not.toBeNull()
+    }
   })
 })

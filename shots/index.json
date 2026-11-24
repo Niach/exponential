@@ -6167,6 +6167,15 @@
         "sha256": "439c95b62b8d285fddacf4d4918956a14929becb6e2131546bf46b1ec3a9f2c8"
       }
     },
+    "new-tab-menu": {
+      "web": {
+        "file": "shots/new-tab-menu/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 42718,
+        "sha256": "c1f92db53854d558ebece63502b342f6708484e19f4a593c75fa112c1914e553"
+      }
+    },
     "onboarding": {
       "android": {
         "file": "shots/onboarding/android.webp",
@@ -8034,6 +8043,24 @@
         "sha256": "53dc42056943c60244f55cc49a19855e79fb07f139370372a9704f771e95e005"
       }
     },
+    "sidebar-board-menu": {
+      "web": {
+        "file": "shots/sidebar-board-menu/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 41848,
+        "sha256": "68df7bc8dd4002627f5413c0a3aa2327599b0fe3ec016b12096242191bc57573"
+      }
+    },
+    "sidebar-device-menu": {
+      "web": {
+        "file": "shots/sidebar-device-menu/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 40006,
+        "sha256": "a38e1f61b4ed9f32f1090c80234e8073be45358ceeed78fcba73a30bba1bd008"
+      }
+    },
     "sidebar-team-menu": {
       "desktop": {
         "file": "shots/sidebar-team-menu/desktop.webp",
@@ -8046,8 +8073,8 @@
         "file": "shots/sidebar-team-menu/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 39036,
-        "sha256": "f9c43a017769a1f3fa9964178eff3aeb8378c5ff82ebc080747d23c79355101a"
+        "bytes": 38964,
+        "sha256": "2614c162a55d1970187c86e7db31d7cc6271d38c79838b25b287c485c8c67626"
       }
     },
     "sidebar-tree": {
@@ -8062,8 +8089,8 @@
         "file": "shots/sidebar-tree/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 37198,
-        "sha256": "dc648675ab714dd71cf70754bf4f24c1d672ad42643173e3bc2ddd7d0c7a148e"
+        "bytes": 37504,
+        "sha256": "0d3bbb4e8b36e959d78d1cabcb0fddf1e08f8cd74c66ae269827cb04fb1a21a2"
       }
     },
     "sign-in": {
