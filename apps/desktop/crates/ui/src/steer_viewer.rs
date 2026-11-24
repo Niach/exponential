@@ -6592,7 +6592,8 @@ impl SteerSessionView {
         // moves the feed's generation every frame.)
         let feed_empty = self.feed.is_empty();
         let may_hold = !feed_empty && crate::session_outbox::may_hold(&viewer, now_ms, &rows);
-        let echoes: Vec<domain::message_delivery::HandoffEcho> = may_hold
+        let pending = !feed_empty && rows.iter().any(|row| row.is_from_user() && row.is_queued());
+        let echoes: Vec<domain::message_delivery::HandoffEcho> = (may_hold || pending)
             .then(|| self.feed.items())
             .into_iter()
             .flatten()
@@ -6606,6 +6607,11 @@ impl SteerSessionView {
         let (held, expiry) =
             crate::session_outbox::held_rows(&viewer, now_ms, feed_empty, &rows, &echoes);
         self.own_tail = crate::session_outbox::own_tail(&viewer, &rows, &held, &kept);
+        // #EXP-2119: a row the transcript echoes already is not drawn twice.
+        if pending {
+            let echoed = crate::session_outbox::echoed_pending(now_ms, &rows, &echoes);
+            self.own_tail.retain(|bubble| bubble.message_id.as_ref().is_none_or(|id| !echoed.contains(id)));
+        }
         // The reconcile may have dropped entries (a new revision).
         self.own_tail_key = Some((key.0, crate::session_outbox::revision(cx), key.2, key.3, key.4));
         if expiry != self.own_tail_expiry {
