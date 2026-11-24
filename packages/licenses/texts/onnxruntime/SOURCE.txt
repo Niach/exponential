@@ -1,0 +1,15 @@
+The licence and the third-party notices of ONNX Runtime 1.31.1, the runtime
+inside onnxruntime-web's WebAssembly binary (ort-wasm-simd-threaded.wasm, the
+web image's embedder, #NEW-134). The npm package ships neither file, so they
+are vendored verbatim from the same release's Python wheel, where Microsoft
+ships both:
+
+  onnxruntime-1.31.1-cp311-cp311-manylinux_2_28_x86_64.whl
+    https://files.pythonhosted.org/packages/b4/1d/0f85ee31a3d93f2243a5cc29252becf858f53ac5cfa6c9c15d9ffe107eea/onnxruntime-1.31.1-cp311-cp311-manylinux_2_28_x86_64.whl
+    sha256 5752bd508126ae7c49894d3b9d2e83f0c3d487319246d04c444b393308d7ad7f
+
+  LICENSE.txt               <- onnxruntime/LICENSE
+  THIRD_PARTY_NOTICES.txt   <- onnxruntime/ThirdPartyNotices.txt
+
+Regenerate when onnxruntime-web is bumped: unzip the two members out of the
+wheel of the SAME version. Do not hand-edit these files.

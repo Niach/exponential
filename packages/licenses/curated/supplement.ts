@@ -292,6 +292,29 @@ export const VENDORED: CuratedEntry[] = [
       { label: `Emscripten — MIT and University of Illinois/NCSA`, path: `packages/licenses/texts/emscripten/LICENSE.txt` },
     ],
   },
+  // #NEW-134: semantic issue search embeds issues INSIDE the web server. Two
+  // things in the published web image are in no dependency graph: the model's
+  // weights (fetched at image build, apps/web/embedder/model.json) and what
+  // onnxruntime-web's WebAssembly binary was compiled from. Neither reaches a
+  // browser: the embedder runs server-side only.
+  {
+    title: `multilingual-e5-small (embedding model, web server image)`,
+    clients: [`web`],
+    body: [
+      `The web server image (ghcr.io/niach/exponential-web) contains the weights and the tokenizer of multilingual-e5-small by Liang Wang, Nan Yang, Xiaolong Huang, Linjun Yang, Rangan Majumder and Furu Wei (Microsoft; https://huggingface.co/intfloat/multilingual-e5-small, MIT), as the 8-bit quantised ONNX export published for Transformers.js (https://huggingface.co/Xenova/multilingual-e5-small, commit 761b726dd34fb83930e26aab4e9ac3899aa1fa78: onnx/model_quantized.onnx and tokenizer.json), unmodified. The model derives from Multilingual-MiniLM-L12-H384 (Microsoft, MIT) and its tokenizer from XLM-RoBERTa (MIT). The server computes one embedding per issue with it, locally; no issue text and no embedding is sent to a third party. The MIT License is reproduced above with the npm components.`,
+    ],
+  },
+  {
+    title: `ONNX Runtime (inside onnxruntime-web, web server image)`,
+    clients: [`web`],
+    body: [
+      `The embedding model runs on onnxruntime-web 1.31.1 (MIT, listed with the npm components), whose WebAssembly binary (ort-wasm-simd-threaded.wasm) is ONNX Runtime 1.31.1 by Microsoft (https://onnxruntime.ai, MIT) compiled with Emscripten, together with the third-party components its notices list. The npm package ships neither file, so both are reproduced below from the same release's Python wheel. Those notices cover every build of ONNX Runtime; components for hardware back ends the WebAssembly build does not contain are listed there all the same. Eigen (MPL-2.0) is among them, unmodified; its source is available from https://gitlab.com/libeigen/eigen.`,
+    ],
+    reproduce: [
+      { label: `MIT License — ONNX Runtime`, path: `packages/licenses/texts/onnxruntime/LICENSE.txt` },
+      { label: `ONNX Runtime third-party notices`, path: `packages/licenses/texts/onnxruntime/THIRD_PARTY_NOTICES.txt` },
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

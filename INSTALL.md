@@ -113,6 +113,7 @@ All configured by appending vars to `.env` (the whole file reaches the web conta
   Two notes on networking: the relay's port 4002 is deliberately **not published** to the host — if you carried a `STEER_RELAY_URL=ws://<host>:4002` over from an older setup, change it to the `/steer` form above or nothing can reach the relay. And the web container's own relay calls (device lists, remote start, kill) go straight to the relay over the compose network (`STEER_RELAY_INTERNAL_URL`, defaulted to `http://steer-relay:4002` in the compose file) rather than out through public DNS and back in — home routers often lack hairpin NAT, which would otherwise leave remote start broken while phones and desktops connect fine.
 
 - **Response hardening** (`SECURITY_HEADERS_ENABLED`, default **on**): the web image stamps CSP, HSTS, `nosniff`, `X-Frame-Options` and `Referrer-Policy` on every response, because the bundled Caddy sets none. Self-hosted HSTS is `max-age` only (no `includeSubDomains`, so sibling subdomains of your apex are untouched), and with a plain `http://` `APP_URL` the CSP also allows `ws:` for the LAN steer relay. Set `SECURITY_HEADERS_ENABLED=false` when a proxy in front already sets its own CSP/HSTS: two CSPs do not merge, browsers enforce the **intersection**, which typically breaks avatars or the steer socket.
+- **Semantic issue search** (on by default with this compose file, nothing to configure): the web container computes one embedding per issue itself, with a small multilingual model baked into the image. No issue text and no embedding leaves your server, and nothing is downloaded at runtime. It needs the pgvector extension, which is why the compose file runs `ghcr.io/niach/exponential-postgres:18-pgvector0.8.7`: the stock `postgres:18-alpine` image plus pgvector, nothing else. Existing issues are embedded in the background after the first start (about a minute per hundred issues). While the model is loaded the web container uses about 0.6 GB more memory; it is unloaded after five idle minutes. `ISSUE_EMBEDDINGS=off` in `.env` turns it off. See [Semantic issue search](#semantic-issue-search-the-postgres-image) under Upgrading if your install predates it.
 - **Push notifications: cloud only for the store mobile apps**, see [Limitations](#limitations).
 
 ## Upgrading
@@ -127,9 +128,19 @@ The image self-migrates on boot. No other steps. `latest` tracks upstream `maste
 
 The reverse floor matters too: native clients updated from the stores or the desktop self-updater expect a server at least as new as the release they shipped with (since iOS 0.14.23 / Android 0.14.25 / desktop 0.14.30 they attach steering images through `/api/sessions/{id}/files`, which needs web v0.18.53 or newer). Upgrade the server before, or together with, the clients.
 
+### Semantic issue search: the Postgres image
+
+The compose file's database image changed from `postgres:18-alpine` to `ghcr.io/niach/exponential-postgres:18-pgvector0.8.7`. That image **is** `postgres:18-alpine` with the pgvector extension's files added (same Alpine/musl base, same data directory, same entrypoint and flags; built from [`infra/postgres/Dockerfile`](https://github.com/Niach/exponential/blob/master/infra/postgres/Dockerfile)), so it opens your existing `pgdata` volume as it is: no dump, no restore. `docker compose pull && docker compose up -d` is the whole switch; on its next start the web container creates the extension and the `issue_embeddings` table and embeds your issues in the background.
+
+**You do not have to switch.** An install that keeps `postgres:18-alpine` (or any Postgres without pgvector) upgrades, boots and migrates exactly as before: nothing in the migrations needs the extension, and issue search simply stays lexical.
+
+To go **back** to the stock image after the extension was created, drop it first, or Postgres can no longer read the embeddings table: `docker compose exec postgres psql -U postgres -d exponential -c 'DROP EXTENSION vector CASCADE'` (this deletes only the embeddings; they are recomputed if you switch again).
+
+Do not use the upstream `pgvector/pgvector` image on an existing volume: it is Debian-based, and a different C library under an existing data directory silently changes text sort order and corrupts text indexes.
+
 ### PostgreSQL 17 → 18 (one time)
 
-The compose file now runs `postgres:18-alpine` on a new volume, `pgdata`, mounted at `/var/lib/postgresql`. A PG 18 server cannot open a PG 17 data directory, so the data moves over with a dump and a restore. The old `postgres_data` volume is never touched, which is also the rollback. Do this **before** pulling the new compose file:
+The compose file runs PostgreSQL 18 (`postgres:18-alpine`, since the section above with pgvector added) on a new volume, `pgdata`, mounted at `/var/lib/postgresql`. A PG 18 server cannot open a PG 17 data directory, so the data moves over with a dump and a restore. The old `postgres_data` volume is never touched, which is also the rollback. Do this **before** pulling the new compose file:
 
 ```sh
 # 1. Dump the roles and the database while the old (PG 17) stack still runs

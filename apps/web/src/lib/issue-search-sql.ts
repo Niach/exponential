@@ -48,7 +48,10 @@ export type IssueSearchScope =
 
 const ISSUE_TSVECTOR = sql`to_tsvector('english', coalesce(i.title, '') || ' ' || coalesce(i.description, ''))`
 
-function scopeSql(alias: `i` | `c`, scope: IssueSearchScope): SQL {
+/** The scope's predicate over issue alias `i` or comment alias `c`. Exported
+ *  for the semantic branch (#NEW-134, lib/issue-embeddings/store.ts): one
+ *  rule for who sees which issue, whatever matched it. */
+export function scopeSql(alias: `i` | `c`, scope: IssueSearchScope): SQL {
   const col = (name: string) => sql.raw(`${alias}.${name}`)
   // #EXP-1797: a trashed issue never matches: its own deleted_at on `i`, the
   // container-trash mirror (board_deleted_at, which carries the issue's

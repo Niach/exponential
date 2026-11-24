@@ -2,7 +2,15 @@ name: "exponential"
 
 services:
   postgres:
-    image: postgres:18-alpine
+    # #NEW-134: postgres:18-alpine + pgvector (infra/postgres/Dockerfile; same
+    # libc, data directory and flags as the stock image, so the existing
+    # `pgdata` volume just works). Built locally on the first `up` (a minute);
+    # CI publishes the same image under this name.
+    image: ghcr.io/niach/exponential-postgres:18-pgvector0.8.7
+    build:
+      context: ./infra/postgres
+      args:
+        PG_MAJOR: "18"
     restart: unless-stopped
     environment:
       POSTGRES_DB: exponential

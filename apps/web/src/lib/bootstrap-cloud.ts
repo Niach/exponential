@@ -11,6 +11,8 @@ import { reconcileBuiltinSkills } from "@/lib/skills/builtin"
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
 // required at runtime (which Vite also can't tree-shake for browser builds).
 import triggersSql from "@/db/out/custom/0001_triggers.sql?raw"
+// #NEW-134: optional (pgvector); a no-op on a Postgres without the extension.
+import issueEmbeddingsSql from "@/db/out/custom/0002_issue_embeddings.sql?raw"
 
 function parseAdminEmails(): string[] {
   const raw = process.env.INITIAL_ADMIN_EMAILS
@@ -54,7 +56,10 @@ async function promoteInitialAdmins() {
 // exist ONLY via this path — swallowing a failure would leave the instance
 // running trigger-less until the next restart (REV-18).
 async function applyCustomSql() {
-  for (const [name, content] of [[`0001_triggers.sql`, triggersSql]] as const) {
+  for (const [name, content] of [
+    [`0001_triggers.sql`, triggersSql],
+    [`0002_issue_embeddings.sql`, issueEmbeddingsSql],
+  ] as const) {
     if (!content) continue
     try {
       await db.execute(sql.raw(content))
@@ -96,6 +101,8 @@ let bootstrapPromise: Promise<void> | null = null
 // bootstrapCloud() below is the only production caller.
 export async function runBootstrapPass(): Promise<void> {
   await applyCustomSql()
+  // #NEW-134: 0002 may just have created the embeddings table.
+  await import(`@/lib/issue-embeddings/store`).then((m) => m.resetIssueEmbeddingsAvailability())
   await promoteInitialAdmins()
   // FEED-159: a deploy that made an action owner-only or destructive strips
   // the grants apps still store for it.

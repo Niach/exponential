@@ -688,3 +688,63 @@ The curated supplement (`packages/licenses/curated/supplement.ts`, `FONTS`)
 lists `web`, `ios` and `android` beside `desktop` and `site`, so the OFL text
 (`apps/desktop/assets/fonts/JetBrainsMono-OFL.txt`) is reproduced in each of
 those clients' `NOTICES.txt`.
+
+## Semantic issue search: the embedding model and its runtime (#NEW-134, 2026-11-24)
+
+Semantic issue search computes one embedding per issue **inside the web
+server** (a worker thread of the web process). No issue text and no vector is
+sent to a third party, and the running server downloads nothing: everything
+below is in the published web image (`ghcr.io/niach/exponential-web`), which is
+also the self-host distribution. None of it reaches a browser.
+
+### What the image ships
+
+- **multilingual-e5-small** (Wang, Yang, Huang, Yang, Majumder, Wei; Microsoft;
+  `intfloat/multilingual-e5-small`, **MIT**): the weights and the tokenizer, as
+  the 8-bit quantised ONNX export published for Transformers.js
+  (`Xenova/multilingual-e5-small`, commit
+  `761b726dd34fb83930e26aab4e9ac3899aa1fa78`: `onnx/model_quantized.onnx`,
+  118 MB, and `tokenizer.json`, 17 MB), unmodified. The image build fetches
+  the two files from that commit and checks their sha256
+  (`apps/web/embedder/model.json`); a changed file fails the build. The
+  conversion repository carries no licence of its own: it is a format
+  conversion of the MIT model and names it as its base. The model derives
+  from Multilingual-MiniLM-L12-H384 (Microsoft, MIT) and uses the XLM-RoBERTa
+  tokenizer (MIT).
+- **onnxruntime-web** 1.31.1 (**MIT**, Microsoft) with `onnxruntime-common`,
+  and its declared npm dependencies (`flatbuffers` Apache-2.0, `protobufjs`
+  BSD-3-Clause, `long` Apache-2.0, `guid-typescript` ISC, `platform` MIT), all
+  in `collect:npm`'s inventory. Only the Node build and the plain WASM backend
+  are kept in the image (the Dockerfile deletes the WebGPU / WebGL / JSPI
+  builds). The WASM binary is **ONNX Runtime** 1.31.1 compiled with
+  Emscripten: its `LICENSE` and `ThirdPartyNotices.txt` are in no npm package,
+  so they are vendored verbatim from the same release's Python wheel
+  (`packages/licenses/texts/onnxruntime/`, source and sha256 in `SOURCE.txt`)
+  and reproduced in the web notice. Those notices list every build's
+  components; Eigen (**MPL-2.0**, unmodified) is among them, with its source
+  URL named in the notice.
+- **@huggingface/tokenizers** 0.2.0 (**Apache-2.0**), pure JavaScript, no
+  dependencies. Pinned exactly: `apps/web/embedder/tokenizer.mjs` swaps the
+  Unigram model's vocabulary lookup for a smaller one (memory), without
+  changing the library's files.
+
+No telemetry: onnxruntime-web has none, and Transformers.js (which would look
+models up on the Hugging Face Hub) is not used at all.
+
+### Determination (2026-11-24)
+
+Everything is MIT, Apache-2.0, BSD-3-Clause or ISC, plus MPL-2.0 Eigen inside
+the unmodified ONNX Runtime binary (file-level copyleft, no source of ours
+touched, source URL given). Shipping the weights in the image is redistribution
+under MIT: the curated supplement (`VENDORED`, client `web`) names the authors,
+both repositories and the pinned commit, and the MIT text is in the notice.
+
+### The database image: pgvector
+
+`ghcr.io/niach/exponential-postgres` (`infra/postgres/Dockerfile`) is the
+official `postgres:<major>-alpine` image plus **pgvector** 0.8.7
+(`pgvector/pgvector`, the **PostgreSQL License**, Copyright (c) 1996-2026
+PostgreSQL Global Development Group), built from the release tarball pinned by
+sha256, unmodified. Its `LICENSE` ships in the image at
+`/usr/local/share/doc/pgvector/LICENSE`. The image is a database server, not a
+client: it has no `NOTICES.txt`, like the stock Postgres image it extends.
