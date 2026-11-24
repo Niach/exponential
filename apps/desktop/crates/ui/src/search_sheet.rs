@@ -329,6 +329,9 @@ struct SearchSheetView {
     /// resize (the viewport follows a frame later) is not re-requested.
     last_requested_height: Option<Pixels>,
     _subscription: gpui::Subscription,
+    /// #NEW-136: the doctor's report (the claude login) landing or changing
+    /// re-reads the top row.
+    _doctor: gpui::Subscription,
 }
 
 impl SearchSheetView {
@@ -363,6 +366,26 @@ impl SearchSheetView {
                 }
             },
         );
+        let doctor = cx.observe(&crate::coding_flow::CodingHub::global(cx), |this: &mut Self, _, cx| {
+            if this.translating.is_some() {
+                return;
+            }
+            let had = this.lead.is_some();
+            let searched = this.searched.clone();
+            this.lead = lead_for(&searched, cx);
+            if had != this.lead.is_some() {
+                cx.notify();
+            }
+        });
+        // DEV-ONLY (the EXP_DEV_* family): `EXP_DEV_SEARCH_PICK=<ms>` picks
+        // the top row that long after the palette opened, as Enter would.
+        if let Some(delay) = std::env::var("EXP_DEV_SEARCH_PICK").ok().and_then(|ms| ms.trim().parse::<u64>().ok()) {
+            cx.spawn_in(window, async move |this, cx| {
+                cx.background_executor().timer(Duration::from_millis(delay)).await;
+                let _ = this.update_in(cx, |this, window, cx| this.open_selected(window, cx));
+            })
+            .detach();
+        }
         let mut this = Self {
             team_id,
             teams: Store::global(cx).collections().teams_sorted(cx).into_iter().map(|team| team.id).collect(),
@@ -379,6 +402,7 @@ impl SearchSheetView {
             max_height,
             last_requested_height: None,
             _subscription: subscription,
+            _doctor: doctor,
         };
         this.search(window, cx);
         this
