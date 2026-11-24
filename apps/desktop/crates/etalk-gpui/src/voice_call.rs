@@ -98,6 +98,9 @@ struct Active {
     /// S-3: when rang and ready answered it (the timer counts from here),
     /// on the controller's clock.
     answered_at: Option<u64>,
+    /// EXP-1859: a TURN call streamed in (a wake turn of another desktop):
+    /// no panel, no pill, no busy telephone, no toast.
+    turn: bool,
 }
 
 /// S-3: what changes many times a second (the microphone's level, the
@@ -171,9 +174,14 @@ pub fn entity(cx: &App) -> Option<Entity<VoiceCall>> {
     global(cx)
 }
 
-/// A call runs on this device.
+/// A call runs on this device (EXP-1859: a turn call too: it holds the worker).
 pub fn active(cx: &App) -> bool {
     global(cx).is_some_and(|entity| entity.read(cx).active.is_some())
+}
+
+/// A call with surfaces runs on this device (EXP-1859: a turn call has none).
+pub fn shown(cx: &App) -> bool {
+    global(cx).is_some_and(|entity| entity.read(cx).active.as_ref().is_some_and(|active| !active.turn))
 }
 
 /// The agent of the running call whose speech runs HERE (EXP-1857: a
@@ -237,7 +245,7 @@ pub(crate) fn not_spoken(id: String, cx: &mut App) {
 /// S-3: THIS client runs a call with `agent_id` (its telephone shows the
 /// panel instead of dialing).
 pub fn runs_for(agent_id: &str, cx: &App) -> bool {
-    global(cx).is_some_and(|entity| entity.read(cx).active.as_ref().is_some_and(|active| active.agent_id == agent_id))
+    global(cx).is_some_and(|entity| entity.read(cx).active.as_ref().is_some_and(|active| active.agent_id == agent_id && !active.turn))
 }
 
 /// S-3: what the call surfaces show now (None = no call).
@@ -368,7 +376,7 @@ pub fn start(agent_id: String, cx: &mut App) {
     let Some(entity) = global(cx) else { return };
     let device = target.name.unwrap_or_default();
     if target.local {
-        entity.update(cx, |this, cx| this.begin(agent_id, None, None, device, target.fallback, cx));
+        entity.update(cx, |this, cx| this.begin(agent_id, None, None, device, target.fallback, None, cx));
     } else {
         entity.update(cx, |this, cx| this.dial(agent_id, device, target.fallback, cx));
     }
@@ -422,8 +430,10 @@ pub(crate) fn ring_answer(meeting_here: bool, busy: bool, speech: Option<SpeechS
 }
 
 /// The relay rang this device (`call_ring` on the control socket): a phone,
-/// web or another desktop streams a call to `agent_id`.
-pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
+/// web or another desktop streams a call to `agent_id`. EXP-1859: `turn` =
+/// the ring's `mode: turn` with its wake phrase: a one-turn call, answered
+/// without a ring or a surface.
+pub fn on_ring(call_id: String, agent_id: String, turn: Option<String>, cx: &mut App) {
     // #EXP-1941: a vouched call id is answered once. An honest relay never
     // rings an id twice and a redial mints a new one.
     if global(cx).is_some_and(|entity| entity.read(cx).answered.answered(&call_id, process_ms())) {
@@ -479,7 +489,7 @@ pub fn on_ring(call_id: String, agent_id: String, cx: &mut App) {
             // #EXP-1981: the call session names the ring's call id. A sealed
             // call is here only once its first frame opened: its key source
             // adopted (or created) the chat before, so the server finds it.
-            this.begin(agent_id, Some(call_id), Some(host), device, false, cx);
+            this.begin(agent_id, Some(call_id), Some(host), device, false, turn, cx);
             true
         });
         if !matches!(started, Ok(true)) {
@@ -561,6 +571,8 @@ pub fn owns(event: &etalk::Event, cx: &App) -> bool {
     let Some(active) = this.active.as_ref() else { return false };
     match event {
         etalk::Event::Said { id, .. } | etalk::Event::SpeechStarted { id } | etalk::Event::CallListening { id } => *id == active.id,
+        // EXP-1859: a turn call that heard only the phrase.
+        etalk::Event::Empty { id } => *id == active.id,
         etalk::Event::Level { id, .. } | etalk::Event::Partial { id, .. } | etalk::Event::ListenFailed { id, .. } => *id == active.id,
         etalk::Event::SpeechAudio { .. } => active.host.is_some(),
         etalk::Event::DialAudio { id, .. } => *id == active.id,
@@ -664,9 +676,9 @@ impl VoiceCall {
                         host.flush();
                     }
                 }
-                HostEffect::Listen { id, language, remote, ring_ms, .. } => {
+                HostEffect::Listen { id, language, remote, ring_ms, turn } => {
                     if let Some(client) = client.as_ref() {
-                        client.call(id, language, remote, ring_ms);
+                        client.call_for(id, language, remote, ring_ms, turn);
                     }
                 }
                 HostEffect::Mute { id, muted } => {
@@ -701,13 +713,18 @@ impl VoiceCall {
                 }
                 HostEffect::Send { text, session } => self.send(&agent_id, text, session, cx),
                 HostEffect::CallEnded { session } => host::call_ended(&session, cx),
+                // EXP-1859: a turn call has no surface here, a toast neither.
+                HostEffect::Toast { .. } if self.active.as_ref().is_some_and(|active| active.turn) => {}
                 HostEffect::Toast { text } => self.toast(text, cx),
             }
         }
         let mut ended = false;
         if let Some(active) = self.active.as_mut() {
             if let Some(call) = active.call.as_ref() {
-                self.state = call.state().clone();
+                // EXP-1859: a turn call never shows: the surfaces' state stays hidden.
+                if !active.turn {
+                    self.state = call.state().clone();
+                }
                 active.answered_at = call.answered_at();
                 ended = call.ended();
             }
@@ -812,7 +829,18 @@ impl VoiceCall {
     /// (`call_id` = the ring's server call id; #EXP-1981: None for a local
     /// call, whose call session is asked without one).
     /// `device` = this desktop's name, `fallback` = not the agent's own.
-    fn begin(&mut self, agent_id: String, call_id: Option<String>, host: Option<Box<dyn CallLink>>, device: String, fallback: bool, cx: &mut Context<Self>) {
+    /// EXP-1859: `turn` = a turn call's wake phrase (streamed in only).
+    #[allow(clippy::too_many_arguments)]
+    fn begin(
+        &mut self,
+        agent_id: String,
+        call_id: Option<String>,
+        host: Option<Box<dyn CallLink>>,
+        device: String,
+        fallback: bool,
+        turn: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         if crate::speak_replies::client(cx).is_none() {
             return;
         }
@@ -838,10 +866,15 @@ impl VoiceCall {
             session: None,
             // FEED-276: `ready` waits for the agent's own voice.
             voice: crate::speak_replies::clip_of(&agent_id, cx),
-            turn: None,
+            turn: turn.clone(),
         };
         if let Some(active) = self.active.as_mut() {
+            active.turn = turn.is_some();
             active.call = Some(CallHost::new(start));
+        }
+        // EXP-1859: a turn call: no ring, no call session, no surface to tick.
+        if turn.is_some() {
+            return self.host_input(HostInput::Begin, cx);
         }
         // S-3: it rings (a LOCAL call on this device while the worker warms
         // up, EXP-1423: until the opening, at most `maxRingMs`; a remote one
@@ -1002,7 +1035,7 @@ impl VoiceCall {
     fn open(&mut self, agent_id: String, host: Option<Box<dyn CallLink>>, cx: &mut Context<Self>) -> String {
         self.counter += 1;
         let id = format!("call-{}", self.counter);
-        self.active = Some(Active { id: id.clone(), agent_id, call: None, host, dialled: false, dial: None, answered_at: None });
+        self.active = Some(Active { id: id.clone(), agent_id, call: None, host, dialled: false, dial: None, answered_at: None, turn: false });
         self.due = None;
         self.live.update(cx, |live, _| *live = CallLive::default());
         id
@@ -1215,6 +1248,7 @@ impl VoiceCall {
             etalk::Event::Partial { text, .. } => self.host_input(HostInput::Partial { text }, cx),
             etalk::Event::SpeechStarted { .. } => self.host_input(HostInput::SpeechStarted, cx),
             etalk::Event::Said { text, .. } => self.host_input(HostInput::Said { text }, cx),
+            etalk::Event::Empty { .. } => self.host_input(HostInput::Empty, cx),
             // EXP-1857: a dialled call's microphone, echo-cancelled: up to
             // the host (silence while muted) and the wave.
             etalk::Event::DialAudio { pcm, .. } => {
@@ -2204,7 +2238,7 @@ mod tests {
             // A streamed call: the relay rings, the link waits for the caller.
             let streamed = start.remote.then(|| {
                 let streamed = rig.incoming_call();
-                cx.update(|cx| on_ring(format!("c-{number}"), AGENT.into(), cx));
+                cx.update(|cx| on_ring(format!("c-{number}"), AGENT.into(), None, cx));
                 cx.run_until_parked();
                 streamed
             });
@@ -2326,6 +2360,82 @@ mod tests {
         assert!(replayed >= 25, "{replayed} rows");
     }
 
+    /// EXP-1859: a ring with `mode: turn` is a turn call: the worker hears
+    /// ONE turn, the caller gets rang + ready at once, the utterance is sent
+    /// into the chat, the first reply is spoken and its end hangs up; no
+    /// surface shows (no call state, no telephone, no toast).
+    #[gpui::test]
+    async fn a_turn_ring_runs_one_turn_without_a_surface(cx: &mut gpui::TestAppContext) {
+        use crate::test_support::{Row, CONVERSATION};
+        let rig = Rig::install(settings(), cx);
+        let (caller, link) = rig.incoming_call();
+        cx.update(|cx| on_ring("c-turn".into(), AGENT.into(), Some("Hey Ops".into()), cx));
+        cx.run_until_parked();
+        rig.requests();
+        caller.send(CallLinkEvent::Ready).unwrap();
+        cx.run_until_parked();
+        let id = cx.update(|cx| global(cx).unwrap().read(cx).active.as_ref().expect("the turn call began").id.clone());
+        let calls: Vec<etalk::Request> = rig.requests().into_iter().filter(|request| matches!(request, etalk::Request::Call { .. })).collect();
+        assert_eq!(calls, [etalk::Request::Call { id: id.clone(), language: "en".into(), remote: true, ring_ms: 0, turn: Some("Hey Ops".into()) }]);
+        assert_eq!(std::mem::take(&mut *link.borrow_mut()), [r#"event {"t":"rang"}"#, r#"event {"t":"ready"}"#], "no ring: rang and ready at once");
+        assert!(rig.session_asks().is_empty(), "a turn call asks for no call session");
+        cx.update(|cx| {
+            assert!(active(cx) && !shown(cx) && !runs_for(AGENT, cx), "it holds the worker and shows nothing");
+            assert_eq!(phase(cx), CallPhase::Hidden, "no panel, no pill");
+            assert!(face(cx).is_none());
+        });
+        rig.worker(etalk::Event::CallListening { id: id.clone() }, cx);
+        rig.worker(etalk::Event::Said { id: id.clone(), text: "What's new?".into() }, cx);
+        assert_eq!(rig.sent(), [(Some(CONVERSATION.to_string()), "What's new?".to_string())], "into the chat");
+        assert_eq!(std::mem::take(&mut *link.borrow_mut()), [r#"event {"t":"said","text":"What's new?"}"#]);
+        // The first reply after the send is the turn's: spoken on the stream.
+        rig.row(Row { id: "m-1".into(), author_kind: "agent", body: "Two issues. Both small.".into(), has_card: false, created_at: "2026-11-17T10:00:05.000Z".into(), session_id: None }, cx);
+        assert_eq!(rig.spoken(), ["m-1"]);
+        assert_eq!(std::mem::take(&mut *link.borrow_mut()), [r#"event {"t":"replyStarted","text":"Two issues."}"#]);
+        rig.worker(etalk::Event::Finished { id: "m-1".into(), stopped: false }, cx);
+        assert_eq!(std::mem::take(&mut *link.borrow_mut()), [r#"event {"t":"replyFinished"}"#, "end"], "its end hangs up, reason-less");
+        assert!(rig.requests().iter().any(|request| matches!(request, etalk::Request::Hangup { id: hung } if *hung == id)));
+        cx.update(|cx| {
+            assert!(!active(cx));
+            assert!(global(cx).unwrap().read(cx).toasts.is_empty(), "a turn's end is silent");
+        });
+    }
+
+    /// EXP-1859: only the phrase (the worker's Empty): nothing is sent and
+    /// the host hangs up at once; a failure tells the caller its code and
+    /// raises no toast here.
+    #[gpui::test]
+    async fn a_turn_call_with_only_the_phrase_hangs_up(cx: &mut gpui::TestAppContext) {
+        let rig = Rig::install(settings(), cx);
+        let turn = |name: &str, cx: &mut gpui::TestAppContext| {
+            let (caller, link) = rig.incoming_call();
+            cx.update(|cx| on_ring(name.into(), AGENT.into(), Some("Hey Ops".into()), cx));
+            cx.run_until_parked();
+            caller.send(CallLinkEvent::Ready).unwrap();
+            cx.run_until_parked();
+            let id = cx.update(|cx| global(cx).unwrap().read(cx).active.as_ref().expect("the turn call began").id.clone());
+            link.borrow_mut().clear();
+            (caller, link, id)
+        };
+        let (_caller, link, id) = turn("c-1", cx);
+        cx.update(|cx| assert!(owns(&etalk::Event::Empty { id: id.clone() }, cx), "the call's own Empty, never push to talk's"));
+        rig.worker(etalk::Event::Empty { id }, cx);
+        assert_eq!(std::mem::take(&mut *link.borrow_mut()), ["end"]);
+        assert!(rig.sent().is_empty(), "nothing sent");
+        cx.update(|cx| assert!(!active(cx)));
+        let (_caller, link, _id) = turn("c-2", cx);
+        cx.update(|cx| global(cx).unwrap().update(cx, |this, cx| this.fail("dropped", cx)));
+        cx.run_until_parked();
+        let told = std::mem::take(&mut *link.borrow_mut());
+        assert_eq!(told.len(), 2, "{told:?}");
+        assert!(told[0].contains(r#""t":"failed""#) && told[0].contains(r#""code":"dropped""#), "{told:?}");
+        assert_eq!(told[1], "end");
+        cx.update(|cx| {
+            assert!(!active(cx));
+            assert!(global(cx).unwrap().read(cx).toasts.is_empty(), "no toast on the host of a turn");
+        });
+    }
+
     /// #EXP-1936: while the call still rings no reply is the call's: the
     /// answer to a message typed before it is not read aloud (a Speak would
     /// end the ring tone, and the greeting would cut it off).
@@ -2368,7 +2478,7 @@ mod tests {
         rung(cx);
         let (caller, link) = rig.incoming_call();
         caller.send(CallLinkEvent::Ready).unwrap();
-        cx.update(|cx| on_ring("c-2".into(), AGENT.into(), cx));
+        cx.update(|cx| on_ring("c-2".into(), AGENT.into(), None, cx));
         cx.run_until_parked();
         assert_eq!(*link.borrow(), [format!("event {}", host_failed_event("busy")), "end".to_string()]);
         cx.update(|cx| assert!(active(cx) && phase(cx) == CallPhase::Ringing, "the call here goes on"));
@@ -2385,7 +2495,7 @@ mod tests {
         let rig = Rig::install(settings(), cx);
         rig.with_call_session("call-s");
         let (caller, _link) = rig.incoming_call();
-        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), cx));
+        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), None, cx));
         cx.run_until_parked();
         assert!(rig.session_asks().is_empty(), "nothing before the caller is on the line");
         caller.send(CallLinkEvent::Ready).unwrap();
@@ -2436,7 +2546,7 @@ mod tests {
         rig.with_call_session("call-s");
         rig.requests();
         let (caller, link) = rig.incoming_refused_call("unavailable");
-        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), cx));
+        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), None, cx));
         cx.run_until_parked();
         caller.send(CallLinkEvent::Ready).unwrap();
         cx.executor().advance_clock(Duration::from_millis(100));
@@ -2455,7 +2565,7 @@ mod tests {
     async fn a_send_that_can_never_be_stored_ends_the_call(cx: &mut gpui::TestAppContext) {
         let rig = Rig::install(settings(), cx);
         let (caller, link) = rig.incoming_call();
-        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), cx));
+        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), None, cx));
         cx.run_until_parked();
         caller.send(CallLinkEvent::Ready).unwrap();
         cx.run_until_parked();
@@ -2480,7 +2590,7 @@ mod tests {
     async fn a_ring_names_its_agent_and_a_call_id_is_answered_once(cx: &mut gpui::TestAppContext) {
         let rig = Rig::install(settings(), cx);
         let (caller, link) = rig.incoming_call();
-        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), cx));
+        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), None, cx));
         cx.run_until_parked();
         assert_eq!(rig.connects(), [("c-1".to_string(), AGENT.to_string(), false)]);
         caller.send(CallLinkEvent::Ready).unwrap();
@@ -2488,7 +2598,7 @@ mod tests {
         cx.update(|cx| assert!(active(cx), "the rung call began"));
         // A ring during it is refused, refuse-only.
         rig.incoming_call();
-        cx.update(|cx| on_ring("c-2".into(), AGENT.into(), cx));
+        cx.update(|cx| on_ring("c-2".into(), AGENT.into(), None, cx));
         cx.run_until_parked();
         assert_eq!(rig.connects(), [("c-2".to_string(), AGENT.to_string(), true)]);
         // The caller hangs up; the relay rings the same vouched id again.
@@ -2497,7 +2607,7 @@ mod tests {
         cx.update(|cx| assert!(!active(cx)));
         assert!(link.borrow().iter().all(|line| line != "end"), "the caller ended it");
         rig.incoming_call();
-        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), cx));
+        cx.update(|cx| on_ring("c-1".into(), AGENT.into(), None, cx));
         cx.run_until_parked();
         assert!(rig.connects().is_empty(), "no ticket is asked for a call id answered before");
         cx.update(|cx| assert!(!active(cx)));
