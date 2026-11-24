@@ -125,13 +125,14 @@ afterAll(async () => {
 
 describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzle's migrator (#EXP-1989)`, () => {
   it(`moves an install that never set the switch, leaves who already moved, then holds one Assistant per owner`, async () => {
-    const total = (JSON.parse(readFileSync(join(OUT, `meta`, `_journal.json`), `utf8`)) as { entries: unknown[] }).entries.length
+    const entries = (JSON.parse(readFileSync(join(OUT, `meta`, `_journal.json`), `utf8`)) as { entries: Array<{ tag: string }> }).entries
+    const total = entries.length
     await admin(`CREATE DATABASE "${names.moved}"`)
     // The release before: every migration up to 0292, then its boot's triggers.
     await on(names.moved, async (db, pool) => {
       await migrate(db, { migrationsFolder: folderBefore() })
       await pool.query(readFileSync(join(OUT, `custom`, `0001_triggers.sql`), `utf8`))
-      expect(await applied(pool)).toBe(total - 1)
+      expect(await applied(pool)).toBe(entries.findIndex((entry) => entry.tag === TAG))
       expect(await indexDef(pool)).toMatch(TEAM_OWNER_INDEX)
     })
     // An empty install of that release, for the second case.
@@ -220,7 +221,12 @@ describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzl
       const rA = await root({ teamId: teamA, agentId: asA.id, userId: me, deviceId, shared: true, lastActivityAt: `2026-11-18T09:00:00Z`, publicKey: tree.publicKey, skillIds: [skA], mcpServerIds: [mcpA] })
       const rB = await root({ teamId: teamB, agentId: asB.id, userId: me, deviceId, lastActivityAt: `2026-11-10T09:00:00Z`, skillIds: [skB, skB2], mcpServerIds: [mcpB] })
       for (const reader of [myPhone, matePhone]) {
-        await db.insert(sessionKeys).values({ rootId: rA, epoch: 1, installId: reader.id, wrapped: wrapTreeKey(reader.x25519Public, tree.secret) })
+        // Raw: the schema has columns this release did not (0298).
+        await pool.query(`INSERT INTO session_keys (root_id, epoch, install_id, wrapped) VALUES ($1, 1, $2, $3)`, [
+          rA,
+          reader.id,
+          wrapTreeKey(reader.x25519Public, tree.secret),
+        ])
       }
       const sealed = sealBody(tree.publicKey, 1, `the plan for Friday`)
       await say(rA, teamA, me, sealed, true)
