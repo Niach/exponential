@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-import { Button, GLASS_CARD_CLASS, ListEmpty, Skeleton, cn } from "@exp/ui"
+import { Button, ColorModeProvider, GLASS_CARD_CLASS, ListEmpty, Skeleton, cn, type ColorMode } from "@exp/ui"
 import { actionsFromBridge, McpActionsProvider } from "./actions"
 import { AppBridge, type DisplayMode, type HostContext, type ToolResult } from "./bridge"
 import type { DevicesView } from "./devices-view"
+import { applyColorMode, applyHostContext } from "./host-theme"
 import type { IssueDetailView } from "./issue-detail-view"
 import type { InboxView } from "./inbox-view"
 import type { IssueListView } from "./issue-list-view"
@@ -14,6 +15,7 @@ import {
   type DeviceRow,
   type NotificationRow,
 } from "./model"
+import { EXPIRED_LINE, useViewLease } from "./lease"
 import { defaultDisplayMode, listRows, screenForCall, type ListPage } from "./view-screen"
 
 /** #NEW-24: the views that have a document of their own (`<view>.html`,
@@ -65,24 +67,35 @@ const LIST_TOOL: Partial<Record<AppView, string>> = {
 export function App({ view, views }: { view: AppView; views: AppViews }) {
   const [screen, setScreen] = useState<Screen>({ kind: `waiting` })
   const [mode, setMode] = useState<DisplayMode>(`inline`)
+  const [theme, setTheme] = useState<ColorMode>(`dark`)
   const [loadingMore, setLoadingMore] = useState(false)
   const bridge = useRef<AppBridge | null>(null)
   const root = useRef<HTMLDivElement>(null)
   // The call's own arguments (tool-input arrives before its result).
   const input = useRef<Record<string, unknown>>({})
   const available = useRef<readonly DisplayMode[]>([])
+  // #NEW-24: read-only once the host's lease on the view expired (lease.ts).
+  const lease = useViewLease<Screen>(view)
+  const leaseRef = useRef(lease)
+  leaseRef.current = lease
 
   useEffect(() => {
     const context = (next: HostContext) => {
+      leaseRef.current.onContext(next)
+      // #NEW-24: the host's theme, style variables and safe area.
+      const named = applyHostContext(next)
+      if (named) setTheme(named)
       if (next.availableDisplayModes) available.current = next.availableDisplayModes
       if (next.displayMode) setMode(next.displayMode)
     }
     const instance = new AppBridge({
       onToolInput: (args) => {
         input.current = args
+        leaseRef.current.onToolInput()
       },
       onHostContext: context,
       onToolResult: (result) => {
+        leaseRef.current.onToolResult()
         const op = typeof input.current.op === `string` ? input.current.op : undefined
         const call = screenForCall(view, op, result)
         if (call.kind === `none`) return setScreen({ kind: `none` })
@@ -115,11 +128,11 @@ export function App({ view, views }: { view: AppView; views: AppViews }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view])
 
-  // Exponential is dark on every client (the web forces `html.dark`), so the
-  // views are too, whatever the host's own theme: they read as the app.
+  // Exponential is dark on every client, so dark is the fallback: a host
+  // that names a theme gets its own (#NEW-24, host-theme.ts).
   useLayoutEffect(() => {
-    document.documentElement.classList.add(`dark`)
-  }, [])
+    applyColorMode(theme)
+  }, [theme])
 
   // Inline, the host sizes the frame to the content; full size, the frame is
   // the host's and the view scrolls inside it.
@@ -133,18 +146,28 @@ export function App({ view, views }: { view: AppView; views: AppViews }) {
     return () => observer.disconnect()
   }, [])
 
+  // Every tools/call of the view goes through the lease: none once it
+  // expired, and a refused first call expires it.
+  const callTool = useMemo(
+    () =>
+      leaseRef.current.guard((name, args) =>
+        bridge.current ? bridge.current.callTool(name, args) : Promise.reject(new Error(`No MCP Apps host.`))
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+  // The call's last screen, for the read-only state.
+  useEffect(() => {
+    if (screen.kind === `issues` || screen.kind === `inbox` || screen.kind === `devices` || screen.kind === `issue`) lease.keep(screen)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen])
+
   const openLink = (url: string) => bridge.current?.openLink(url)
   // Stable for the view's lifetime: views key effects on `call`.
   const actions = useMemo(
     () =>
-      actionsFromBridge(
-        (name, args) =>
-          bridge.current
-            ? bridge.current.callTool(name, args)
-            : Promise.reject(new Error(`No MCP Apps host.`)),
-        (url) => bridge.current?.openLink(url)
-      ),
-    []
+      actionsFromBridge(callTool, (url) => bridge.current?.openLink(url)),
+    [callTool]
   )
   const backTo = (back: ListScreen | undefined) =>
     back ? () => setScreen(back) : undefined
@@ -152,12 +175,13 @@ export function App({ view, views }: { view: AppView; views: AppViews }) {
   // A list row opens its detail through the host (the detail tool), and the
   // detail's back arrow returns to the list it came from.
   async function open(id: string, back: ListScreen | undefined) {
-    const instance = bridge.current
-    if (!instance) return
+    if (!bridge.current) return
     try {
-      const next = issueScreen(await instance.callTool(MCP_APP_VIEW_TOOL.issue, { id }))
+      const next = issueScreen(await callTool(MCP_APP_VIEW_TOOL.issue, { id }))
       setScreen(next.kind === `issue` ? { ...next, back } : next)
     } catch (error) {
+      // An expired view keeps the screen it has.
+      if (leaseRef.current.isExpired()) return
       setScreen({
         kind: `error`,
         message: error instanceof Error ? error.message : String(error),
@@ -173,18 +197,22 @@ export function App({ view, views }: { view: AppView; views: AppViews }) {
     setLoadingMore(true)
     try {
       const args = { ...input.current, op: input.current.op ?? `list`, offset: next, limit: current.page?.limit }
-      const page = listRows(await bridge.current.callTool(tool, args))
+      const page = listRows(await callTool(tool, args))
       if (!page) return
       setScreen((shown) => {
         if (shown.kind === `issues`) return { ...shown, issues: [...shown.issues, ...(page.rows as IssueRow[])], page: page.page }
         if (shown.kind === `inbox`) return { ...shown, notifications: [...shown.notifications, ...(page.rows as NotificationRow[])], page: page.page }
         return shown
       })
+    } catch {
+      // A refused page leaves the list as it is.
     } finally {
       setLoadingMore(false)
     }
   }
 
+  // Read-only: the call's last screen when this page never drew one.
+  const shown: Screen = lease.expired && screen.kind === `waiting` && lease.restored ? lease.restored : screen
   const full = mode === `fullscreen`
   const showMore = (current: Extract<ListScreen, { kind: `issues` | `inbox` }>) =>
     current.page?.nextOffset != null && (
@@ -202,64 +230,70 @@ export function App({ view, views }: { view: AppView; views: AppViews }) {
     )
 
   return (
+    <ColorModeProvider value={theme}>
     <McpActionsProvider value={actions}>
       <div
         ref={root}
         data-display-mode={mode}
-        data-screen={screen.kind}
+        data-screen={shown.kind}
+        data-expired={lease.expired || undefined}
         // Inline: the app's own card (GlassCard), the glass fill and hairline
         // over the host's ground. Full size: the app's page, edge to edge,
         // scrolling inside the host's pane.
         className={cn(
           `font-sans text-foreground antialiased`,
-          screen.kind === `none`
+          shown.kind === `none`
             ? `hidden`
             : full
               ? `flex h-screen flex-col overflow-y-auto bg-background`
               : cn(GLASS_CARD_CLASS, `overflow-hidden`)
         )}
       >
-        {screen.kind === `waiting` && (
+        {lease.expired && <ListEmpty data-testid="view-expired">{EXPIRED_LINE}</ListEmpty>}
+        <div className="contents" inert={lease.expired}>
+        {shown.kind === `waiting` && !lease.expired && (
           <div className="flex flex-col gap-2 p-4">
             <Skeleton className="h-6 w-1/3" />
             <Skeleton className="h-10 w-full" />
             <Skeleton className="h-10 w-full" />
           </div>
         )}
-        {screen.kind === `error` && <ListEmpty>{screen.message}</ListEmpty>}
-        {screen.kind === `issues` && views.IssueListView && (
+        {shown.kind === `error` && <ListEmpty>{shown.message}</ListEmpty>}
+        {shown.kind === `issues` && views.IssueListView && (
           <div className={cn(full && `mx-auto w-full max-w-5xl py-2`)}>
             <views.IssueListView
-              issues={screen.issues}
-              onOpen={(row) => void open(row.id, screen)}
+              issues={shown.issues}
+              onOpen={(row) => void open(row.id, shown)}
             />
-            {showMore(screen)}
+            {showMore(shown)}
           </div>
         )}
-        {screen.kind === `inbox` && views.InboxView && (
+        {shown.kind === `inbox` && views.InboxView && (
           <div className={cn(full && `mx-auto w-full max-w-3xl py-2`)}>
             <views.InboxView
-              notifications={screen.notifications}
-              onOpen={(row) => row.issueId && void open(row.issueId, screen)}
+              notifications={shown.notifications}
+              onOpen={(row) => row.issueId && void open(row.issueId, shown)}
             />
-            {showMore(screen)}
+            {showMore(shown)}
           </div>
         )}
-        {screen.kind === `issue` && views.IssueDetailView && (
+        {shown.kind === `issue` && views.IssueDetailView && (
           <div className={cn(full && `mx-auto w-full max-w-4xl py-2`)}>
             <views.IssueDetailView
-              issue={screen.issue}
+              issue={shown.issue}
               onOpenLink={openLink}
-              onBack={backTo(screen.back)}
+              onBack={backTo(shown.back)}
             />
           </div>
         )}
-        {screen.kind === `devices` && views.DevicesView && (
+        {shown.kind === `devices` && views.DevicesView && (
           <div className={cn(full && `mx-auto w-full max-w-5xl py-2`)}>
-            <views.DevicesView devices={screen.devices} />
+            <views.DevicesView devices={shown.devices} />
           </div>
         )}
+        </div>
       </div>
     </McpActionsProvider>
+    </ColorModeProvider>
   )
 }
