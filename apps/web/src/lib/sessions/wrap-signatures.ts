@@ -24,6 +24,9 @@ export interface SignedColumns {
   signerEndpointId: string | null
 }
 
+/** 64 bytes as unpadded base64url. */
+const SIGNATURE_RE = /^[A-Za-z0-9_-]{86}$/
+
 const UNSIGNED: SignedColumns = { signature: null, signerEndpointId: null }
 
 /** The columns of each wrap of one (root, epoch, key), in order: a signed
@@ -44,8 +47,10 @@ export function signedWrapColumns(
 }
 
 /** `sessionKeys.wrap`: the columns of its signed wraps by `root\nepoch\ntarget`.
- *  Only wraps of a root's CURRENT epoch are checked here (the only ones
- *  `pending` lists); any other pair is refused by the pending rule. */
+ *  A wrap of a superseded epoch is checked against the public key its wraps
+ *  kept; where none was kept (#EXP-2119) the server cannot check it and
+ *  stores it as it is (the recipient's `acceptWrap` checks it). Any pair
+ *  `pending` does not list is refused by the pending rule. */
 export async function signedPendingWraps(
   database: Reader,
   signer: { endpointId: string },
@@ -61,10 +66,27 @@ export async function signedPendingWraps(
       .filter((row) => targets.includes(row.id))
       .map((row) => [row.id, row.endpointId])
   )
+  const older = signed.filter((wrap) => roots.some((root) => root.id === wrap.rootId && root.sealEpoch !== null && wrap.epoch < root.sealEpoch))
+  const keptKeys =
+    older.length === 0
+      ? []
+      : await database
+          .select({ rootId: sessionKeys.rootId, epoch: sessionKeys.epoch, treePublicKey: sessionKeys.treePublicKey })
+          .from(sessionKeys)
+          .where(and(inArray(sessionKeys.rootId, [...new Set(older.map((wrap) => wrap.rootId))]), isNotNull(sessionKeys.treePublicKey)))
   for (const wrap of signed) {
     const root = roots.find((row) => row.id === wrap.rootId)
-    if (!root || root.sealEpoch !== wrap.epoch || !root.sealPublicKey || !endpointOf.has(wrap.targetInstallId)) continue
-    const [columns] = signedWrapColumns(signer.endpointId, { rootId: root.id, epoch: wrap.epoch, treePublicKey: root.sealPublicKey }, [
+    if (!root || root.sealEpoch === null || wrap.epoch > root.sealEpoch || !root.sealPublicKey || !endpointOf.has(wrap.targetInstallId)) continue
+    const treePublicKey =
+      wrap.epoch === root.sealEpoch
+        ? root.sealPublicKey
+        : keptKeys.find((row) => row.rootId === wrap.rootId && row.epoch === wrap.epoch)?.treePublicKey
+    if (!treePublicKey) {
+      if (!SIGNATURE_RE.test(wrap.signature!)) throw new TRPCError({ code: `BAD_REQUEST`, message: WRAP_SIGNATURE_REFUSAL })
+      out.set(`${wrap.rootId}\n${wrap.epoch}\n${wrap.targetInstallId}`, { signature: wrap.signature!, signerEndpointId: signer.endpointId })
+      continue
+    }
+    const [columns] = signedWrapColumns(signer.endpointId, { rootId: root.id, epoch: wrap.epoch, treePublicKey }, [
       { recipientEndpointId: endpointOf.get(wrap.targetInstallId)!, wrapped: wrap.wrapped, signature: wrap.signature },
     ])
     out.set(`${wrap.rootId}\n${wrap.epoch}\n${wrap.targetInstallId}`, columns!)

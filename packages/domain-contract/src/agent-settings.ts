@@ -512,7 +512,7 @@ export function assistantMoveOf(assistants: readonly MoveAssistantLike[], roots:
 export const GROUP_CHAT = fixture.groupChat
 /** #EXP-1990 (`groupChat.clientFloor`): the oldest build per platform that
  *  opens a team agent's chat by `agents.groupChatId`. */
-export const GROUP_CHAT_CLIENT_FLOOR = fixture.groupChat.clientFloor as Record<`desktop` | `android` | `ios`, string>
+export const GROUP_CHAT_CLIENT_FLOOR = fixture.groupChat.clientFloor as Record<`desktop` | `cli` | `android` | `ios`, string>
 
 export interface AgentChatSessionLike {
   id: string
