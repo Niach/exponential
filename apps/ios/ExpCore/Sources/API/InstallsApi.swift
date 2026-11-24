@@ -77,10 +77,16 @@ public protocol InstallsRegistry: Sendable {
     func revoke(accountId: String, installId: String) async throws
 }
 
+/// The install lists a tree key holder reads its readers from (a fake in tests).
+public protocol TreeReaderDirectory: Sendable {
+    func mine(accountId: String) async throws -> [InstallEntry]
+    func list(accountId: String, teamId: String) async throws -> [InstallEntry]
+}
+
 private struct InstallsTeamInput: Encodable { let teamId: String }
 private struct InstallIdInput: Encodable { let installId: String }
 
-public final class InstallsApi: InstallsRegistry {
+public final class InstallsApi: InstallsRegistry, TreeReaderDirectory {
     let trpc: TrpcClient
 
     public init(trpc: TrpcClient) {
