@@ -353,6 +353,8 @@ jobs:
       # call sockets against a scripted relay (its tests/ run nodes too). And
       # etalk: `seal.modeCases` replays there; without its one test that is
       # flaky under load (the_sweep_skips_a_download_in_progress_elsewhere).
+      # #EXP-1950: the facade's wrap_sig_fixture replays wrap-signature.json
+      # (the step after it: the push-only build, where it fails closed).
       # #EXP-76: ONE invocation, ONE feature set, so every crate builds once;
       # eagent, coding, ui and enet-core stay lib-only. None of these crates has a doc test.
       - name: eCore, Engine, coding and UI tests
@@ -368,6 +370,11 @@ jobs:
           -p epilot -p epilot-screen -p emcp -p enet-core -p exponential-net-ffi -p steer -p etalk
           --features eengine/sqlite,eengine/hub,eengine-ffi/hub,eagent/local-model,ecode/github,ecode/exponential,ecode/workflows,emcp/codemode
           -E 'kind(lib) | not (package(eagent) | package(coding) | package(ui) | package(enet-core) | package(steer) | (package(exponential-net-ffi) & binary(facade)) | test(the_sweep_skips_a_download_in_progress_elsewhere))'
+      # #EXP-1950: the push-only facade (the iOS Notification Service
+      # Extension's): sealed content replays, the wrap signature fails closed.
+      - name: P2P push-only facade tests
+        working-directory: apps/desktop
+        run: cargo test --locked -p exponential-net-ffi --no-default-features --test wrap_sig_fixture --test sealed_fixture
       # #ERR-4: the vendored gpui-pre-linux's own patch tests, never upstream's
       # other tests (vendor/gpui-pre-linux/PATCHES.md). A path dependency
       # outside the workspace, so nextest's package filters cannot name it.

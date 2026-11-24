@@ -2876,6 +2876,75 @@ public func FfiConverterTypeEnetRecord_lower(_ value: EnetRecord) -> RustBuffer 
 }
 
 
+/**
+ * A wrap as `sessionKeys.mine` answers it.
+ */
+public struct EnetServedWrap: Equatable, Hashable {
+    public var rootId: String
+    public var epoch: UInt32
+    public var wrapped: String
+    public var signature: String?
+    public var signerEndpointId: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(rootId: String, epoch: UInt32, wrapped: String, signature: String?, signerEndpointId: String?) {
+        self.rootId = rootId
+        self.epoch = epoch
+        self.wrapped = wrapped
+        self.signature = signature
+        self.signerEndpointId = signerEndpointId
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EnetServedWrap: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetServedWrap: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetServedWrap {
+        return
+            try EnetServedWrap(
+                rootId: FfiConverterString.read(from: &buf), 
+                epoch: FfiConverterUInt32.read(from: &buf), 
+                wrapped: FfiConverterString.read(from: &buf), 
+                signature: FfiConverterOptionString.read(from: &buf), 
+                signerEndpointId: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EnetServedWrap, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.rootId, into: &buf)
+        FfiConverterUInt32.write(value.epoch, into: &buf)
+        FfiConverterString.write(value.wrapped, into: &buf)
+        FfiConverterOptionString.write(value.signature, into: &buf)
+        FfiConverterOptionString.write(value.signerEndpointId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetServedWrap_lift(_ buf: RustBuffer) throws -> EnetServedWrap {
+    return try FfiConverterTypeEnetServedWrap.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetServedWrap_lower(_ value: EnetServedWrap) -> RustBuffer {
+    return FfiConverterTypeEnetServedWrap.lower(value)
+}
+
+
 public struct EnetTicket: Equatable, Hashable {
     public var endpointId: String
     public var relays: [String]
@@ -2988,6 +3057,99 @@ public func FfiConverterTypeEnetTreeKey_lift(_ buf: RustBuffer) throws -> EnetTr
 #endif
 public func FfiConverterTypeEnetTreeKey_lower(_ value: EnetTreeKey) -> RustBuffer {
     return FfiConverterTypeEnetTreeKey.lower(value)
+}
+
+
+/**
+ * What a wrap signature covers.
+ */
+public struct EnetWrapStatement: Equatable, Hashable {
+    /**
+     * The tree's root id (a UUID, any casing).
+     */
+    public var rootId: String
+    public var epoch: UInt32
+    /**
+     * base64url of that epoch's 32-byte tree public key.
+     */
+    public var treePublicKey: String
+    /**
+     * The recipient install's endpoint id (lowercase hex).
+     */
+    public var recipientEndpointId: String
+    /**
+     * `session_keys.wrapped` (base64url of 81 bytes).
+     */
+    public var wrapped: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The tree's root id (a UUID, any casing).
+         */rootId: String, epoch: UInt32, 
+        /**
+         * base64url of that epoch's 32-byte tree public key.
+         */treePublicKey: String, 
+        /**
+         * The recipient install's endpoint id (lowercase hex).
+         */recipientEndpointId: String, 
+        /**
+         * `session_keys.wrapped` (base64url of 81 bytes).
+         */wrapped: String) {
+        self.rootId = rootId
+        self.epoch = epoch
+        self.treePublicKey = treePublicKey
+        self.recipientEndpointId = recipientEndpointId
+        self.wrapped = wrapped
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EnetWrapStatement: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetWrapStatement: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetWrapStatement {
+        return
+            try EnetWrapStatement(
+                rootId: FfiConverterString.read(from: &buf), 
+                epoch: FfiConverterUInt32.read(from: &buf), 
+                treePublicKey: FfiConverterString.read(from: &buf), 
+                recipientEndpointId: FfiConverterString.read(from: &buf), 
+                wrapped: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EnetWrapStatement, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.rootId, into: &buf)
+        FfiConverterUInt32.write(value.epoch, into: &buf)
+        FfiConverterString.write(value.treePublicKey, into: &buf)
+        FfiConverterString.write(value.recipientEndpointId, into: &buf)
+        FfiConverterString.write(value.wrapped, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetWrapStatement_lift(_ buf: RustBuffer) throws -> EnetWrapStatement {
+    return try FfiConverterTypeEnetWrapStatement.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetWrapStatement_lower(_ value: EnetWrapStatement) -> RustBuffer {
+    return FfiConverterTypeEnetWrapStatement.lower(value)
 }
 
 
@@ -3479,6 +3641,256 @@ public func FfiConverterTypeEnetSealStatus_lower(_ value: EnetSealStatus) -> Rus
 }
 
 
+
+
+public enum EnetVouchVerdict: Equatable, Hashable {
+    
+    case verified
+    /**
+     * Never `Unopened`: a vouch opens nothing.
+     */
+    case refused(reason: EnetWrapRefusal
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension EnetVouchVerdict: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetVouchVerdict: FfiConverterRustBuffer {
+    typealias SwiftType = EnetVouchVerdict
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetVouchVerdict {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .verified
+        
+        case 2: return .refused(reason: try FfiConverterTypeEnetWrapRefusal.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: EnetVouchVerdict, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .verified:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .refused(reason):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeEnetWrapRefusal.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetVouchVerdict_lift(_ buf: RustBuffer) throws -> EnetVouchVerdict {
+    return try FfiConverterTypeEnetVouchVerdict.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetVouchVerdict_lower(_ value: EnetVouchVerdict) -> RustBuffer {
+    return FfiConverterTypeEnetVouchVerdict.lower(value)
+}
+
+
+
+/**
+ * Why a wrap (or a vouch) is not kept: the fixture's `refusals`.
+ */
+
+public enum EnetWrapRefusal: Equatable, Hashable {
+    
+    case malformed
+    case unsigned
+    case unpinned
+    case unopened
+    case signature
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension EnetWrapRefusal: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetWrapRefusal: FfiConverterRustBuffer {
+    typealias SwiftType = EnetWrapRefusal
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetWrapRefusal {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .malformed
+        
+        case 2: return .unsigned
+        
+        case 3: return .unpinned
+        
+        case 4: return .unopened
+        
+        case 5: return .signature
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: EnetWrapRefusal, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .malformed:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .unsigned:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .unpinned:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .unopened:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .signature:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetWrapRefusal_lift(_ buf: RustBuffer) throws -> EnetWrapRefusal {
+    return try FfiConverterTypeEnetWrapRefusal.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetWrapRefusal_lower(_ value: EnetWrapRefusal) -> RustBuffer {
+    return FfiConverterTypeEnetWrapRefusal.lower(value)
+}
+
+
+
+
+public enum EnetWrapVerdict: Equatable, Hashable {
+    
+    case verified(secret: Data, treePublicKey: String, signerEndpointId: String
+    )
+    /**
+     * Kept without a signature (only where none is required).
+     */
+    case unsigned(secret: Data, treePublicKey: String
+    )
+    case refused(reason: EnetWrapRefusal
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension EnetWrapVerdict: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEnetWrapVerdict: FfiConverterRustBuffer {
+    typealias SwiftType = EnetWrapVerdict
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EnetWrapVerdict {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .verified(secret: try FfiConverterData.read(from: &buf), treePublicKey: try FfiConverterString.read(from: &buf), signerEndpointId: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 2: return .unsigned(secret: try FfiConverterData.read(from: &buf), treePublicKey: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .refused(reason: try FfiConverterTypeEnetWrapRefusal.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: EnetWrapVerdict, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .verified(secret,treePublicKey,signerEndpointId):
+            writeInt(&buf, Int32(1))
+            FfiConverterData.write(secret, into: &buf)
+            FfiConverterString.write(treePublicKey, into: &buf)
+            FfiConverterString.write(signerEndpointId, into: &buf)
+            
+        
+        case let .unsigned(secret,treePublicKey):
+            writeInt(&buf, Int32(2))
+            FfiConverterData.write(secret, into: &buf)
+            FfiConverterString.write(treePublicKey, into: &buf)
+            
+        
+        case let .refused(reason):
+            writeInt(&buf, Int32(3))
+            FfiConverterTypeEnetWrapRefusal.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetWrapVerdict_lift(_ buf: RustBuffer) throws -> EnetWrapVerdict {
+    return try FfiConverterTypeEnetWrapVerdict.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEnetWrapVerdict_lower(_ value: EnetWrapVerdict) -> RustBuffer {
+    return FfiConverterTypeEnetWrapVerdict.lower(value)
+}
+
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -3961,6 +4373,81 @@ public func parseTicket(ticket: String)throws  -> EnetTicket  {
     )
 })
 }
+/**
+ * Whether an install that holds NO secret of (root, epoch) may seal to
+ * `statement.tree_public_key`: a pinned install's signed wrap of that epoch,
+ * made for ANOTHER install, names that key.
+ */
+public func acceptVouch(statement: EnetWrapStatement, signature: String?, signerEndpointId: String?, pins: [String])throws  -> EnetVouchVerdict  {
+    return try  FfiConverterTypeEnetVouchVerdict_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_accept_vouch(
+        FfiConverterTypeEnetWrapStatement_lower(statement),
+        FfiConverterOptionString.lower(signature),
+        FfiConverterOptionString.lower(signerEndpointId),
+        FfiConverterSequenceString.lower(pins),uniffiCallStatus
+    )
+})
+}
+/**
+ * Whether this install keeps a served wrap: it builds the signed message
+ * ITSELF (the root and epoch it asked for, the public key of the secret it
+ * unwrapped, its own endpoint id from `identity`, the bytes). `pins` = the
+ * endpoint ids it has pinned. A wrap that carries a signature must pass with
+ * it, also where none is `required`. `Invalid` only for an identity or an
+ * install secret that is not 32 bytes.
+ */
+public func acceptWrap(wrap: EnetServedWrap, identity: Data, installSecret: Data, pins: [String], required: Bool)throws  -> EnetWrapVerdict  {
+    return try  FfiConverterTypeEnetWrapVerdict_lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_accept_wrap(
+        FfiConverterTypeEnetServedWrap_lower(wrap),
+        FfiConverterData.lower(identity),
+        FfiConverterData.lower(installSecret),
+        FfiConverterSequenceString.lower(pins),
+        FfiConverterBool.lower(required),uniffiCallStatus
+    )
+})
+}
+/**
+ * `session_keys.signature`: the identity's (32 bytes) signature over the
+ * statement, base64url (86 chars). `Invalid` on a malformed statement.
+ */
+public func signWrap(identity: Data, statement: EnetWrapStatement)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_sign_wrap(
+        FfiConverterData.lower(identity),
+        FfiConverterTypeEnetWrapStatement_lower(statement),uniffiCallStatus
+    )
+})
+}
+/**
+ * Whether `signature` is `signer_endpoint_id`'s over the statement
+ * (strict ed25519). Says nothing about the signer being trusted:
+ * `acceptWrap` and `acceptVouch` ask the pins.
+ */
+public func verifyWrapSignature(statement: EnetWrapStatement, signature: String, signerEndpointId: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_verify_wrap_signature(
+        FfiConverterTypeEnetWrapStatement_lower(statement),
+        FfiConverterString.lower(signature),
+        FfiConverterString.lower(signerEndpointId),uniffiCallStatus
+    )
+})
+}
+/**
+ * The 186 bytes a wrap's signer signs (`Invalid` when a field is malformed).
+ */
+public func wrapSignatureMessage(statement: EnetWrapStatement)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_net_ffi_fn_func_wrap_signature_message(
+        FfiConverterTypeEnetWrapStatement_lower(statement),uniffiCallStatus
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -4029,6 +4516,21 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_func_parse_ticket() != 60060) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_accept_vouch() != 208) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_accept_wrap() != 40686) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_sign_wrap() != 37586) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_verify_wrap_signature() != 37704) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_func_wrap_signature_message() != 18525) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_method_enetcallhandshake_finish() != 40253) {
