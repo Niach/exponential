@@ -125,13 +125,16 @@ afterAll(async () => {
 
 describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzle's migrator (#EXP-1989)`, () => {
   it(`moves an install that never set the switch, leaves who already moved, then holds one Assistant per owner`, async () => {
-    const total = (JSON.parse(readFileSync(join(OUT, `meta`, `_journal.json`), `utf8`)) as { entries: unknown[] }).entries.length
+    const journal = (JSON.parse(readFileSync(join(OUT, `meta`, `_journal.json`), `utf8`)) as { entries: Array<{ tag: string }> }).entries
+    const total = journal.length
+    // The release before holds every migration ahead of this one (later ones may follow it).
+    const before = journal.findIndex((entry) => entry.tag === TAG)
     await admin(`CREATE DATABASE "${names.moved}"`)
     // The release before: every migration up to 0292, then its boot's triggers.
     await on(names.moved, async (db, pool) => {
       await migrate(db, { migrationsFolder: folderBefore() })
       await pool.query(readFileSync(join(OUT, `custom`, `0001_triggers.sql`), `utf8`))
-      expect(await applied(pool)).toBe(total - 1)
+      expect(await applied(pool)).toBe(before)
       expect(await indexDef(pool)).toMatch(TEAM_OWNER_INDEX)
     })
     // An empty install of that release, for the second case.

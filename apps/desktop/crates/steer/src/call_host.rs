@@ -123,6 +123,77 @@ where
     }
 }
 
+/// #FEED-268: what ONE call socket saw, for the lines its pairing and its
+/// close write: the call id, counts and instants. Never a frame's content.
+pub(crate) struct LinkLog {
+    side: &'static str,
+    label: String,
+    opened: std::time::Instant,
+    ready_ms: Option<u128>,
+    frames: u64,
+    first_ms: Option<u128>,
+    last: Option<std::time::Instant>,
+    lost_ms: u64,
+    closed: bool,
+}
+
+impl LinkLog {
+    pub(crate) fn new(side: &'static str, label: String) -> Self {
+        LinkLog { side, label, opened: std::time::Instant::now(), ready_ms: None, frames: 0, first_ms: None, last: None, lost_ms: 0, closed: false }
+    }
+
+    /// The pair is up (`call_ready`, or sealed: the first frame that opened).
+    pub(crate) fn ready(&mut self) {
+        if self.ready_ms.is_none() {
+            let ms = self.opened.elapsed().as_millis();
+            self.ready_ms = Some(ms);
+            log::info!("call {} {}: the other side is on the line after {ms} ms", self.side, self.label);
+        }
+    }
+
+    /// One decoded audio frame of the other side.
+    pub(crate) fn audio(&mut self) {
+        self.frames += 1;
+        self.last = Some(std::time::Instant::now());
+        if self.first_ms.is_none() {
+            let ms = self.opened.elapsed().as_millis();
+            self.first_ms = Some(ms);
+            log::info!("call {} {}: the other side's first audio after {ms} ms", self.side, self.label);
+        }
+    }
+
+    pub(crate) fn lost(&mut self, ms: u32) {
+        self.lost_ms += u64::from(ms);
+    }
+
+    /// The socket is over: ONE line, the first reason wins.
+    pub(crate) fn close(&mut self, how: &str) {
+        if std::mem::replace(&mut self.closed, true) {
+            return;
+        }
+        let never = || "never".to_string();
+        log::info!(
+            "call {} {}: socket closed ({how}) after {} ms: paired={} audio_frames={} first_audio={} last_audio={} lost={} ms",
+            self.side,
+            self.label,
+            self.opened.elapsed().as_millis(),
+            self.ready_ms.map_or_else(never, |ms| format!("{ms} ms")),
+            self.frames,
+            self.first_ms.map_or_else(never, |ms| format!("{ms} ms")),
+            self.last.map_or_else(never, |at| format!("{} ms before the close", at.elapsed().as_millis())),
+            self.lost_ms,
+        );
+    }
+}
+
+/// How a `call_end` reads in the close line (voice-call.json `hangUpRules`).
+pub(crate) fn call_end_text(reason: Option<&str>) -> String {
+    match reason {
+        Some(reason) => format!("call_end reason={reason}"),
+        None => "call_end without a reason: the other side hung up".to_string(),
+    }
+}
+
 /// What the socket reports to the IDE.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CallHostEvent {
@@ -425,7 +496,7 @@ pub fn connect(
     url: String,
     on_event: impl Fn(CallHostEvent) + Send + Sync + 'static,
 ) -> CallHost {
-    connect_sealed(runtime, url, None, on_event)
+    connect_sealed(runtime, url, "", None, on_event)
 }
 
 /// #EXP-1941: [`connect`] for a host the server told the call's mode.
@@ -435,17 +506,38 @@ pub fn connect(
 /// caller frame OPENED (never at `call_ready`), and sends nothing but that
 /// hello and a clear `failed` before. Never clear: no key within
 /// `seal.handshakeMs` ends the call `no_key`.
+/// `call_id` names the call in this socket's log lines (#FEED-268).
 pub fn connect_sealed(
     runtime: &Arc<SteerRuntime>,
     url: String,
+    call_id: &str,
     sealing: Option<CallSealing>,
     on_event: impl Fn(CallHostEvent) + Send + Sync + 'static,
 ) -> CallHost {
     let (tx, rx) = flume::unbounded::<Outbound>();
+    let seen = Arc::new(std::sync::Mutex::new(LinkLog::new("host", call_id.to_string())));
+    let (log, sealed) = (Arc::clone(&seen), sealing.is_some());
+    log::info!("call host {call_id}: joining the relay ({})", if sealed { "sealed" } else { "clear" });
+    // #FEED-268: every event passes the log first (counts, never content).
+    let on_event = move |event: CallHostEvent| {
+        {
+            let mut log = log.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            match &event {
+                CallHostEvent::Ready => log.ready(),
+                CallHostEvent::Audio(_) => log.audio(),
+                CallHostEvent::Lost { ms } => log.lost(*ms),
+                CallHostEvent::Mute(_) => {}
+                CallHostEvent::Ended { reason } => log.close(&call_end_text(reason.as_deref())),
+                CallHostEvent::Dropped(err) => log.close(&format!("dropped: {err}")),
+            }
+        }
+        on_event(event);
+    };
     runtime.handle().spawn(async move {
         if let Err(err) = run(&url, &rx, &on_event, Timing::fixture(), sealing.as_ref()).await {
             on_event(CallHostEvent::Dropped(err));
         }
+        seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).close("this host hung up");
     });
     CallHost { tx }
 }

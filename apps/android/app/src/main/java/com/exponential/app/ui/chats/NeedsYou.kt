@@ -44,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.MergeTrain
 import com.exponential.app.domain.NavBadges
+import com.exponential.app.domain.InstallApprovalView
 import com.exponential.app.domain.NeedsYou
 import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.GlassAlert
@@ -242,17 +243,15 @@ fun NeedsYouPageContent(
             )
         }
         when {
-            rows.isEmpty() && waitingCode != null -> item(key = "__install_waiting__") {
-                Box(Modifier.fillMaxWidth().height(320.dp), contentAlignment = Alignment.Center) {
-                    InstallWaiting(waitingCode)
-                }
-            }
-            rows.isEmpty() && pendingInstalls == 0 -> needsYouList(rows, onOpen, onAction)
+            rows.isEmpty() && waitingCode == null && pendingInstalls == 0 -> needsYouList(rows, onOpen, onAction)
             else -> {
                 if (waitingCode != null) {
                     item(key = "__install_waiting__") { InstallWaiting(waitingCode, Modifier.padding(horizontal = 16.dp)) }
                 } else if (pendingInstalls > 0) {
                     item(key = "__pending_installs__") { Box(Modifier.padding(horizontal = 16.dp)) { band() } }
+                }
+                if (rows.isNotEmpty() && (waitingCode != null || pendingInstalls > 0)) {
+                    item(key = "__install_gap__") { Spacer(Modifier.height(InstallApprovalView.Waiting.LIST_GAP.dp)) }
                 }
                 if (rows.isNotEmpty()) needsYouList(rows, onOpen, onAction)
             }

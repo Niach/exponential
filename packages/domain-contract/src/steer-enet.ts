@@ -248,7 +248,8 @@ function epochMs(iso: string | null): number | null {
  * #FEED-260 (steer-enet.json SYNCED TAIL): the synced messages a NOT-live
  * transcript draws after its feed, oldest first (createdAt, then id), the
  * newest [max]: card-less with a non-blank body, the agent's or a person's
- * CONSUMED input, later than the feed's newest known row time, and not
+ * CONSUMED input, not earlier than the feed's newest known row time
+ * (#EXP-2101: the same instant counts), and not
  * already held by the feed (an agent line equal to, a prefix of or prefixed
  * by a narration; an input equal to a feed input; #EXP-2084 another
  * session's line the feed holds as that session's input, whatever its time).
@@ -312,7 +313,8 @@ export function steerSyncedTail<T extends SteerSyncedMessage>(input: {
       }
       if (feedAt === null) return true
       const created = epochMs(m.createdAt)
-      return created !== null && created > feedAt
+      // #EXP-2101: a row of the feed's newest instant counts too.
+      return created !== null && created >= feedAt
     })
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   if (input.feed.length === 0 && !tail.some((m) => m.authorKind === `agent`)) return []

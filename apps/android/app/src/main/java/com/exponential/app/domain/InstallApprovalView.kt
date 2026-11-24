@@ -37,6 +37,14 @@ object InstallApprovalView {
     /** The fixture's `icon` (the waiting EmptyState's glyph). */
     const val ICON = "ui-private"
 
+    /** The fixture's `waiting`: where the waiting state stands (a share of the
+     *  window's height), its column, the gap above the Needs you rows. */
+    object Waiting {
+        const val TOP_OFFSET = 0.2f
+        const val MAX_WIDTH = 448
+        const val LIST_GAP = 12
+    }
+
     /** Events the rows fire (context `id` = the row's install id). */
     object Events {
         const val APPROVE = "approve"

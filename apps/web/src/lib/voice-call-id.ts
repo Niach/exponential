@@ -109,3 +109,11 @@ export function verifyCallId(callId: string, binding: CallIdBinding, now: Date =
   }
   return match
 }
+
+/** #FEED-268: a call in the server's log: the first eight hex digits of its
+ *  id (random bytes, never the MAC half), the tag the relay logs too and the
+ *  head of the whole id a device's log holds. Anything that is no call id
+ *  (a call a desktop runs itself names its own, `call-3`) reads `local`. */
+export function callLogTag(callId: string | null | undefined): string {
+  return callId && UUID.test(callId) ? callId.slice(0, 8).toLowerCase() : `local`
+}

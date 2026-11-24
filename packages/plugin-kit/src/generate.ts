@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
-import { claudeMcpJson, openclawServers } from "./mcp-entry"
+import { claudeCodeMcpJson, claudeMcpJson, openclawServers } from "./mcp-entry"
 import { renderPlaybook } from "./playbook"
 import { renderOpenClawTheme } from "./theme/openclaw"
 import { renderToneColors } from "./theme/colors"
@@ -39,14 +39,33 @@ export function outputs(): Output[] {
     { path: `packages/plugin-kit/src/model/core/colors.ts`, content: renderToneColors() },
     { path: `integrations/claude/.mcp.json`, content: claudeMcpJson() },
     { path: `integrations/claude/skills/exponential/SKILL.md`, content: renderPlaybook(`claude`) },
+    { path: `integrations/claude-code/.mcp.json`, content: claudeCodeMcpJson() },
+    { path: `integrations/claude-code/skills/exponential/SKILL.md`, content: renderPlaybook(`claude-code`) },
     { path: `integrations/openclaw/openclaw.plugin.json`, content: openclawManifest() },
     { path: `integrations/openclaw/skills/exponential/SKILL.md`, content: renderPlaybook(`openclaw`) },
     { path: `integrations/openclaw/themes/exponential.json`, content: renderOpenClawTheme() },
   ]
 }
 
+const CORE = `packages/plugin-kit/src/model/core`
+const MOD_KIT = `integrations/claude-code/hooks/kit`
+
+/** A hooks module imports only files of its own plugin, so the mods carry a
+ *  copy of the dependency-free core (`colors.ts` as rendered above). */
+function modKit(): OutputFolder {
+  const colors = outputs().find((output) => output.path === `${CORE}/colors.ts`)!
+  const files = readdirSync(join(REPO_ROOT, CORE))
+    .filter((name) => name.endsWith(`.ts`) && !name.endsWith(`.test.ts`))
+    .sort()
+    .map((name) => ({
+      path: `${MOD_KIT}/${name}`,
+      content: `// GENERATED from ${CORE}/${name} (bun run plugin-kit:generate). Do not edit.\n${name === `colors.ts` ? colors.content : read(`${CORE}/${name}`)}`,
+    }))
+  return { path: MOD_KIT, files }
+}
+
 export function outputFolders(): OutputFolder[] {
-  return []
+  return [modKit()]
 }
 
 /** Every file under `dir`, relative, sorted. */

@@ -24,6 +24,7 @@ import { useEnsureAssistant } from "@/hooks/use-ensure-assistant"
 import { useEnteringRows } from "@/hooks/use-entering-rows"
 import { useIssueSearch } from "@/hooks/use-issue-search"
 import { useNeedsYou } from "@/hooks/use-needs-you"
+import { useInstallTrust } from "@/lib/enet/use-install-trust"
 import { useTeamSessions } from "@/hooks/use-session-tree"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
@@ -79,6 +80,8 @@ function ChatsPage() {
   const me = authSession?.user?.id ?? null
   const { list, agentRows, appRows, cliOf, waitingOf, wallOf, marksOf, isReady } = useChatList(team?.id, me, view)
   const needsYou = useNeedsYou(team?.id, me)
+  // #EXP-1950: installs waiting for approval count as Needs you rows.
+  const pendingInstalls = useInstallTrust().rows.length
   // S-3: the viewer's Assistant exists once the list mounts (first use).
   useEnsureAssistant(team?.id)
   const entering = useEnteringRows(list.rows.map((row) => row.sessionId))
@@ -185,9 +188,9 @@ function ChatsPage() {
               emptyTitle={archivedView ? COPY.archived.empty : undefined}
               flat={archivedView}
               entry={
-                isMobile && !archivedView && needsYou.rows.length > 0 ? (
+                isMobile && !archivedView && needsYou.rows.length + pendingInstalls > 0 ? (
                   <NeedsYouEntryRow
-                    count={needsYou.rows.length}
+                    count={needsYou.rows.length + pendingInstalls}
                     onOpen={() => void navigate({ to: `/t/$teamSlug/needs-you`, params: { teamSlug } })}
                   />
                 ) : undefined

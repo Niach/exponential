@@ -219,7 +219,7 @@ private fun samePress(a: ChatExpress.ActionCard, b: ChatExpress.ActionCard): Boo
  * #FEED-260 (fixtures/steer-enet.json "SYNCED TAIL", TS `steerSyncedTail`):
  * the synced messages a NOT-live transcript draws after its feed, oldest
  * first (createdAt, then id), the newest [max]: card-less with a non-blank
- * body, the agent's or a person's CONSUMED input, later than the feed's
+ * body, the agent's or a person's CONSUMED input, not earlier than the feed's
  * newest known row time, not already held by the feed (an agent line equal
  * to, a prefix of or prefixed by a narration; an input equal to a feed
  * input; #EXP-2084 another session's line the feed holds as that session's
@@ -272,7 +272,8 @@ fun <T> steerSyncedTail(
                 m.authorKind == "user" -> if (m.consumedAt == null || body in inputs) return@filter false
                 else -> return@filter false
             }
-            feedAt == null || (m.createdAtMs != null && m.createdAtMs > feedAt)
+            // #EXP-2101: a row of the feed's newest instant counts too.
+            feedAt == null || (m.createdAtMs != null && m.createdAtMs >= feedAt)
         }
         .sortedWith(compareBy<Pair<T, SteerTailMessage>>({ it.second.createdAt }, { it.second.id }))
     if (feed.isEmpty() && tail.none { it.second.authorKind == "agent" }) return emptyList()

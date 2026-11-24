@@ -122,6 +122,17 @@ describe(`identity store`, () => {
       new Uint8Array(32).fill(3)
     )
   })
+
+  it(`#EXP-1950 decision (e): only a MINTED identity runs \`minted\` (its pin store is written first); a found one does not`, async () => {
+    const store = memoryStore()
+    const minted = vi.fn(async (_: Uint8Array) => {
+      expect(store.map.has(`u1`)).toBe(false) // before the identity is stored
+    })
+    const first = await loadOrCreateIdentity(`u1`, () => new Uint8Array(32).fill(1), store, minted)
+    expect(minted).toHaveBeenCalledWith(first)
+    await loadOrCreateIdentity(`u1`, () => new Uint8Array(32).fill(2), store, minted)
+    expect(minted).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe(`WebInstall`, () => {

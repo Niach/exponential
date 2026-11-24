@@ -125,6 +125,9 @@ import com.exponential.app.ui.styleguide.NeedsYouSpecimenScreen
 import com.exponential.app.ui.styleguide.NeedsYouSpecimenTestId
 import com.exponential.app.ui.styleguide.ResultsTabSpecimenScreen
 import com.exponential.app.ui.styleguide.ResultsTabSpecimenTestId
+import com.exponential.app.ui.styleguide.InstallApprovalSpecimenTestId
+import com.exponential.app.ui.styleguide.InstallTrustSpecimenScreen
+import com.exponential.app.ui.styleguide.InstallWaitingSpecimenTestId
 import com.exponential.app.ui.styleguide.PlanPageSpecimenScreen
 import com.exponential.app.ui.styleguide.PlanPageSpecimenTestId
 import com.exponential.app.ui.styleguide.TraceSpecimenKind
@@ -185,6 +188,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
  *   sg_session-synced-tail · sg_chat-results · sg_plan-page · sg_needs-you · sg_results-tab ·
+ *   sg_install-approval · sg_install-waiting (#EXP-1950) ·
  *   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
  *   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
  *   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558) ·
@@ -301,6 +305,8 @@ class StyleguideScreenshotsTest {
             "sg_os-live-activity", "sg_os-live-activity-island", "sg_os-notification-actions",
             // #FEED-191: THE Needs you entry + list, THE Results tab body.
             "sg_needs-you", "sg_results-tab",
+            // #EXP-1950: the approval rows + the waiting state (install-trust.json).
+            "sg_install-approval", "sg_install-waiting",
         )
 
         /** #EXP-1384: the Board tab's root is up (its All issues tab, #EXP-1836). */
@@ -2114,6 +2120,13 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_needs-you")
         show(ResultsTabSpecimenTestId) { ResultsTabSpecimenScreen() }
         flow.screenshot("sg_results-tab")
+        // --- sg_install-approval · sg_install-waiting (#EXP-1950,
+        // install-trust.json): the fixture's rows over THE Needs you page,
+        // then this install waiting with its code.
+        show(InstallApprovalSpecimenTestId) { InstallTrustSpecimenScreen(waiting = false) }
+        flow.screenshot("sg_install-approval")
+        show(InstallWaitingSpecimenTestId) { InstallTrustSpecimenScreen(waiting = true) }
+        flow.screenshot("sg_install-waiting")
         // --- sg_os-live-activity · sg_os-live-activity-island ·
         // sg_os-notification-actions (#EXP-1639, #EXP-1641): the OS draws
         // them (a promoted ProgressStyle Live Update + its status-bar chip;
