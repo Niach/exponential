@@ -55,9 +55,9 @@ const WEB_CALL_KEYS: CallKeySource = {
   secret: async (rootId, epoch) => {
     const holder = currentKeyHolder()
     if (!holder) return null
-    // Not throttled: a call waits on this pull, and it nudges the devices that hold the key.
-    if (!holder.keysFor(rootId).has(epoch)) await holder.refresh([rootId])
-    return holder.keysFor(rootId).get(epoch) ?? null
+    // Not throttled: a call waits on this pull, and it nudges the devices
+    // that hold the key. #EXP-1950: the keyring only (`callSecret`).
+    return holder.callSecret(rootId, epoch)
   },
   highestEpoch: (rootId) => currentKeyHolder()?.current(rootId)?.epoch ?? null,
 }

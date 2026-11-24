@@ -7,7 +7,7 @@
 //! only lands a DESCRIPTION in context until the model decides to read the
 //! body, and the MCP `instructions` string is capped at 2k chars. Each agent
 //! has an additive text channel that is rebuilt on every launch, resume
-//! included: claude `--append-system-prompt`, codex `developer_instructions`
+//! included: claude `--append-system-prompt-file`, codex `developer_instructions`
 //! (its own developer message, additive to AGENTS.md; `-c` on the PTY,
 //! `developerInstructions` on `thread/start`/`thread/resume` in the
 //! app-server). Both take TEXT, so nothing

@@ -122,6 +122,21 @@ interface CallRoom {
   /** #EXP-1941: the host sent a `hello` event, so the ends seal this call
    *  (the relay reads the event's `t`, never its `data`). */
   sealed: boolean
+  /** #FEED-268: what the call's log lines count: instants and frame counts,
+   *  never a frame's content. */
+  rangAt: number
+  pairedAt: number | null
+  framesUp: number
+  framesDown: number
+  lastUpAt: number | null
+  lastDownAt: number | null
+}
+
+/** #FEED-268: a call in the log = the first eight hex digits of its id (the
+ *  random half, never the MAC bytes): enough to find the same call in a
+ *  device's log, where the whole id stands. */
+function callTag(callId: string | undefined): string {
+  return callId ? callId.slice(0, 8) : `?`
 }
 
 /** NEW-55: a peer with more than this queued SKIPS audio frames instead of
@@ -344,6 +359,13 @@ export class Hub {
       return this.dropBinary(conn, `rate`, data.length)
     }
     call.lastFrameAt = Date.now()
+    if (up) {
+      call.framesUp += 1
+      call.lastUpAt = call.lastFrameAt
+    } else {
+      call.framesDown += 1
+      call.lastDownAt = call.lastFrameAt
+    }
     // Realtime: a saturated peer skips the frame rather than queueing it.
     if (peer.sock.bufferedAmount() > CALL_HIGH_WATER) {
       this.callFramesSkipped += 1
@@ -802,6 +824,9 @@ export class Hub {
    *  close — the shape EXP-773's history refusals use, so a client never
    *  mistakes it for a drop. */
   private refuseCall(conn: Conn, code: string) {
+    // #FEED-268: who was refused and why (a host that joins after the ring
+    // timed out reads `no_such_call` here).
+    console.info(`[call ${callTag(conn.claims.callId)}] refused ${conn.claims.role}: ${code}`)
     conn.sock.send(frame({ t: `error`, code }))
     conn.sock.send(frame({ t: `bye`, outcome: code }))
     conn.sock.close(CLOSE_SESSION_ENDED, code)
@@ -851,11 +876,18 @@ export class Hub {
       idleTimer: null,
       lastFrameAt: 0,
       sealed: false,
+      rangAt: now,
+      pairedAt: null,
+      framesUp: 0,
+      framesDown: 0,
+      lastUpAt: null,
+      lastDownAt: null,
     }
     call.ringTimer = setTimeout(() => {
       call.ringTimer = null
       if (this.calls.get(callId) !== call) return
       this.callNoAnswer += 1
+      console.info(`[call ${callTag(callId)}] no host joined within ${CALL_RING_TIMEOUT_MS} ms`)
       this.removeCall(call)
       conn.callId = undefined
       this.refuseCall(conn, `no_answer`)
@@ -863,8 +895,20 @@ export class Hub {
     conn.callId = callId
     this.calls.set(callId, call)
     this.callsByDevice.set(key, callId)
-    control.sock.send(frame({ t: `call_ring`, callId, agentId }))
+    // EXP-1859: a TURN call (a wake phrase heard on the voice device) says
+    // its mode and phrase; an ordinary call's ring carries neither.
+    const { mode, phrase } = conn.claims
+    control.sock.send(
+      frame({
+        t: `call_ring`,
+        callId,
+        agentId,
+        ...(mode === `call` || mode === `turn` ? { mode } : {}),
+        ...(typeof phrase === `string` && phrase ? { phrase } : {}),
+      })
+    )
     this.callRings += 1
+    console.info(`[call ${callTag(callId)}] ring: sent to the device's control socket`)
   }
 
   /** The voice device answers: admitted only into a RINGING room, and only
@@ -915,6 +959,22 @@ export class Hub {
     const ready = frame({ t: `call_ready` })
     call.caller.sock.send(ready)
     conn.sock.send(ready)
+    call.pairedAt = call.lastFrameAt
+    console.info(`[call ${callTag(call.callId)}] paired: the host joined ${call.pairedAt - call.rangAt} ms after the ring`)
+  }
+
+  /** #FEED-268: ONE line per call that ended: who ended it, why, and what
+   *  the room saw (instants and counts only). */
+  private logCallEnd(call: CallRoom, by: string, reason: string) {
+    const now = Date.now()
+    const ago = (at: number | null | undefined) => (at == null ? `never` : `${now - at} ms ago`)
+    console.info(
+      `[call ${callTag(call.callId)}] ended by=${by} reason=${reason} paired=${
+        call.pairedAt === null ? `never` : `${call.pairedAt - call.rangAt} ms`
+      } lasted=${now - call.rangAt} ms sealed=${call.sealed} up=${call.framesUp} down=${call.framesDown} last_up=${ago(
+        call.lastUpAt
+      )} last_down=${ago(call.lastDownAt)} caller_seen=${ago(call.caller.lastSeenAt)} host_seen=${ago(call.host?.lastSeenAt)}`
+    )
   }
 
   /** Hang up: the OTHER side gets `call_end` (the sender's reason, or
@@ -927,6 +987,9 @@ export class Hub {
     reason: string | undefined,
     closeFrom: boolean
   ) {
+    // A socket that went away says `dropped`; a `call_end` without a reason
+    // is that side's End call.
+    this.logCallEnd(call, from === call.caller ? `caller` : `host`, closeFrom ? (reason ?? `hung_up`) : `socket_closed`)
     this.removeCall(call)
     const end = frame({
       t: `call_end`,
@@ -949,6 +1012,7 @@ export class Hub {
   private expireCall(call: CallRoom, reason: string) {
     if (this.calls.get(call.callId) !== call) return
     this.callsExpired += 1
+    this.logCallEnd(call, `relay`, reason)
     this.removeCall(call)
     const end = frame({ t: `call_end`, reason })
     for (const member of [call.caller, call.host]) {

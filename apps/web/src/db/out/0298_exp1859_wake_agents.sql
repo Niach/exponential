@@ -1,0 +1,1 @@
+ALTER TABLE "user_voice_settings" ADD COLUMN "wake_agent_ids" jsonb DEFAULT '[]'::jsonb NOT NULL;

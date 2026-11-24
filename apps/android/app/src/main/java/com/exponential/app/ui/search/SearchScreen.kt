@@ -58,6 +58,7 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.SearchListInput
 import com.exponential.app.ui.components.SearchListRows
 import com.exponential.app.ui.components.picker.PickerItem
+import com.exponential.app.ui.components.picker.PickerItemBody
 import com.exponential.app.ui.markdown.IssueSearchRowBody
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
@@ -99,6 +100,14 @@ fun SearchScreen(
         onOpenChatHit(pick, pick.sessionId == row.rootId)
     }
 
+    // #NEW-133 (search-list.json SUGGESTION): picking the `Search: <query>`
+    // row rewrites the field; the focus stays, the search re-runs.
+    val suggestion = state.suggestion
+    val applySuggestion: (SearchList.SearchSuggestion) -> Unit = {
+        query = it.query
+        viewModel.setQuery(it.query)
+    }
+
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // SLOP-28 (EXP-1259 D4): THE search list — its input row (focused
@@ -119,6 +128,8 @@ fun SearchScreen(
                     val issue = state.results.firstOrNull()
                     val chat = state.chats.firstOrNull()
                     when {
+                        // The top row is the suggestion while it shows.
+                        suggestion != null -> applySuggestion(suggestion)
                         issue != null -> onOpenIssue(issue.issue.id)
                         chat != null && state.sections.titled -> openChat(chat)
                     }
@@ -140,39 +151,47 @@ fun SearchScreen(
             // Android (web `lib/issue-search.ts`; `issue-search-surfaces.test.ts` greps this file).
             when {
                 // #EDE-99: with a store, ONE list of titled Sections (Issues, Chats).
-                state.sections.titled && state.query.isNotEmpty() -> if (state.sections.empty) {
+                state.sections.titled && state.query.isNotEmpty() -> if (state.sections.empty && suggestion == null) {
                     EmptyState(title = SearchList.Chats.Copy.NO_RESULTS, icon = ExpIcons.navSearch)
                 } else {
                     SearchSections(
                         state = state,
                         onOpenIssue = onOpenIssue,
                         onOpenChat = openChat,
+                        onPickSuggestion = applySuggestion,
                         modifier = Modifier.weight(1f).padding(top = 4.dp, bottom = 8.dp),
                     )
                 }
                 state.query.isEmpty() -> EmptyState(
                     title = "Search issues across all your boards.",
-                    description = "Matches identifiers, titles, full text, and by:creator.",
+                    description = SEARCH_EMPTY_DETAIL,
                     icon = ExpIcons.navSearch,
                 )
-                state.results.isEmpty() -> EmptyState(
+                state.results.isEmpty() && suggestion == null -> EmptyState(
                     title = "No issues match",
                     icon = ExpIcons.navSearch,
                 )
                 else -> {
                     val byId = state.results.associateBy { it.issue.id }
                     SearchListRows(
-                        items = state.results.map { result ->
+                        items = listOfNotNull(suggestion?.let(::suggestionItem)) + state.results.map { result ->
                             PickerItem(value = result.issue.id, label = result.issue.title)
                         },
-                        onPick = { item -> onOpenIssue(item.value) },
+                        onPick = { item ->
+                            if (item.value == SUGGESTION_VALUE) suggestion?.let(applySuggestion) else onOpenIssue(item.value)
+                        },
+                        rowTestTag = { item -> SearchList.Suggestion.TEST_ID.takeIf { item.value == SUGGESTION_VALUE } },
                         // A whole screen: the rows fill it, the page ground fades.
                         capHeight = false,
                         fadeColor = GlassTokens.BackgroundBottom,
                         modifier = Modifier.weight(1f).padding(top = 4.dp, bottom = 8.dp),
                         renderItem = { item ->
-                            byId[item.value]?.let { result ->
+                            val result = byId[item.value]
+                            if (result != null) {
                                 IssueSearchRowBody(result.issue.identifier, result.issue.title, result.status)
+                            } else {
+                                // The suggestion: the Picker's ACTION row (icon + name).
+                                PickerItemBody(item)
                             }
                         },
                     )
@@ -181,6 +200,23 @@ fun SearchScreen(
         }
     }
 }
+
+/**
+ * EXP-922 + #NEW-133: the empty-query detail, ONE constant (web
+ * `ISSUE_SEARCH_EMPTY_DETAIL`; `issue-search-surfaces.test.ts` greps it here).
+ */
+private const val SEARCH_EMPTY_DETAIL =
+    "Matches identifiers, titles and full text. Filter with by:, is:, status:, created: and updated:."
+
+/** The suggestion row's value (never an issue id or a chat key). */
+private const val SUGGESTION_VALUE = "search-suggestion"
+
+/** #NEW-133: the suggestion as the Picker's ACTION row: icon by concept + `Search: <query>`. */
+private fun suggestionItem(suggestion: SearchList.SearchSuggestion): PickerItem<String> = PickerItem(
+    value = SUGGESTION_VALUE,
+    label = suggestion.label,
+    icon = ExpIcons.byConcept(SearchList.Suggestion.ICON) ?: ExpIcons.navSearch,
+)
 
 /**
  * #EDE-99 (search-list.json CHATS): the global search as genUI Sections:
@@ -194,6 +230,7 @@ private fun SearchSections(
     state: SearchState,
     onOpenIssue: (String) -> Unit,
     onOpenChat: (SearchList.ChatRow) -> Unit,
+    onPickSuggestion: (SearchList.SearchSuggestion) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
@@ -201,7 +238,21 @@ private fun SearchSections(
         modifier = modifier.fillMaxWidth().testTag(SearchList.LIST_TEST_ID),
         contentPadding = PaddingValues(vertical = 4.dp),
     ) {
-        var first = true
+        // #NEW-133: the suggestion row leads, above the first section header.
+        val suggestion = state.suggestion
+        if (suggestion != null) {
+            item(key = SUGGESTION_VALUE) {
+                Box(Modifier.testTag(SearchList.Suggestion.TEST_ID)) {
+                    PickerRow(
+                        item = suggestionItem(suggestion),
+                        mark = PickerMark.None,
+                        onClick = { onPickSuggestion(suggestion) },
+                        highlighted = true,
+                    )
+                }
+            }
+        }
+        var first = suggestion == null
         for (section in state.sections.sections) {
             val title = if (section.key == SearchList.SectionKey.Issues) SearchList.Chats.Copy.ISSUES else SearchList.Chats.Copy.CHATS
             val tag = if (section.key == SearchList.SectionKey.Issues) SearchList.Chats.TestIds.ISSUES else SearchList.Chats.TestIds.CHATS

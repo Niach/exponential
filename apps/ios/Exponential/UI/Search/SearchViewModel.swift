@@ -33,6 +33,10 @@ final class SearchViewModel {
     /// What the page renders — always state, never computed in a body.
     private(set) var results: [Result] = []
 
+    /// #NEW-133 (search-list.json SUGGESTION): the action row a recognised
+    /// sentence puts on top, computed with the rank (off the main actor).
+    private(set) var suggestion: SearchList.Suggestion?
+
     /// A rank is still owed for the typed query (the debounce, the detached
     /// rank, or the index not built yet): the page keeps its rows and never
     /// shows the empty state meanwhile (feedback-states.json: no false
@@ -64,6 +68,9 @@ final class SearchViewModel {
     private var query = ""
     /// The issues, prepared once per snapshot.
     private var index: IssueSearch.Index<IssueEntity>?
+    /// The synced users (the rows that feed the creator names): the phrase
+    /// grammar's members.
+    private var members: [IssueSearchPhrase.Member] = []
     // The local rank for `localQuery` and the server's relevance-ordered
     // hits for `serverHitsQuery`; `publish` merges them only while both
     // belong to the current query, so a stale half never bleeds in.
@@ -140,13 +147,17 @@ final class SearchViewModel {
                 )
             }
             previous.index = index
-            return index
+            let members = snapshot.members.values
+                .sorted { $0.id < $1.id }
+                .map { IssueSearchPhrase.Member(name: $0.name, email: $0.email) }
+            return (index: index, members: members)
         }
         issueTask = Task { [weak self] in
             do {
-                for try await index in observation.values(in: pool) {
+                for try await prepared in observation.values(in: pool) {
                     guard let self else { return }
-                    self.index = index
+                    self.index = prepared.index
+                    self.members = prepared.members
                     // A synced change re-ranks the query on screen at once.
                     self.scheduleRank(debounce: false)
                 }
@@ -186,6 +197,7 @@ final class SearchViewModel {
             serverHits = []
             serverHitsQuery = ""
             results = []
+            suggestion = nil
             return
         }
         scheduleRank(debounce: true)
@@ -289,15 +301,21 @@ final class SearchViewModel {
         rankTask = nil
         let query = query
         guard !query.isEmpty, let index else { return }
+        let members = members
         rankTask = Task { [weak self] in
             if debounce {
                 try? await Task.sleep(for: Self.rankDebounce)
                 guard !Task.isCancelled else { return }
             }
-            let ranked = await Task.detached(priority: .userInitiated) {
-                index.rank(query: query, limit: Self.resultLimit)
+            let (ranked, suggestion) = await Task.detached(priority: .userInitiated) {
+                let now = Date()
+                return (
+                    index.rank(query: query, limit: Self.resultLimit, now: now),
+                    SearchList.suggestion(text: query, members: members, now: now)
+                )
             }.value
             guard let self, !Task.isCancelled, self.query == query, self.index === index else { return }
+            self.suggestion = suggestion
             self.local = ranked
             self.localQuery = query
             self.publish()

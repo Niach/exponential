@@ -16,6 +16,7 @@ import { useMemberNeedsYouCounts } from "@/hooks/use-app-icon-badge"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 import { useTeamMemberships } from "@/hooks/use-team-data"
 import { SIDEBAR_TEAM_LIST_ATTR, sidebarTeamDrop } from "@/hooks/use-sidebar-tree"
+import { useInstallTrust } from "@/lib/enet/use-install-trust"
 import { pageTitle } from "@/lib/page-title"
 import { canSteerSession } from "@/lib/session-account-switch"
 import { CHATS_LIST_COPY } from "@/lib/session-tree"
@@ -85,6 +86,8 @@ function ChatsRoute() {
   const unread = useUnreadNotificationCount()
   const issueSearch = useIssueSearch()
   const needsYou = useMemberNeedsYouCounts()
+  // #EXP-1950: installs waiting for approval count as Needs you rows.
+  const waiting = needsYou.total + useInstallTrust().rows.length
   const entering = useEnteringRows(list.rows.map((row) => row.sessionId))
 
   /** A row's team slug (the default team for one outside the member teams:
@@ -212,8 +215,8 @@ function ChatsRoute() {
               onRowClick={onRowClick}
               onSelectToggle={isMobile ? undefined : onSelectToggle}
               entry={
-                isMobile && !archivedView && needsYou.total > 0 ? (
-                  <NeedsYouEntryRow count={needsYou.total} onOpen={() => void navigate({ to: `/needs-you` })} />
+                isMobile && !archivedView && waiting > 0 ? (
+                  <NeedsYouEntryRow count={waiting} onOpen={() => void navigate({ to: `/needs-you` })} />
                 ) : undefined
               }
             />
