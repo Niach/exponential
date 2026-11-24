@@ -6376,14 +6376,15 @@ impl SteerSessionView {
             // is empty while these show).
             let item = ORPHAN_ROW_BASE - count + index as FeedItemId;
             let sizes = crate::session_chat::transcript_sizes();
-            let width = self.user_bubble_width(&text, sizes.avatar + sizes.avatar_gap, own, window);
+            let name = layout.filter(|layout| !own && layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name());
+            let width = self.user_bubble_width(&text, name.as_deref(), sizes.avatar + sizes.avatar_gap, own, window);
             let bubble = crate::session_chat::message_bubble(
                 crate::session_chat::MessageBubble {
                     id: SharedString::from(format!("steer-sent-input-{id}")),
                     body: self.render_user_message(item, &text, Some(&domain::find_in_chat::message_key(&id)), cx),
                     time,
                     own,
-                    name: layout.filter(|layout| !own && layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
+                    name,
                     link: None,
                     // #FEED-237: a consumed input = processed into the
                     // session (message-delivery.json `read`); the
@@ -6654,14 +6655,15 @@ impl SteerSessionView {
         // name), never the viewer's.
         let own = layout.as_ref().is_none_or(|layout| layout.side == domain::transcript_grouping::TranscriptSide::Own);
         let sizes = crate::session_chat::transcript_sizes();
-        let width = self.user_bubble_width(&row.text, sizes.avatar + sizes.avatar_gap, own, window);
+        let name = layout.as_ref().filter(|layout| !own && layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name());
+        let width = self.user_bubble_width(&row.text, name.as_deref(), sizes.avatar + sizes.avatar_gap, own, window);
         let bubble = crate::session_chat::message_bubble(
             crate::session_chat::MessageBubble {
                 id: SharedString::from(format!("steer-synced-tail-{}", row.id)),
                 body: self.render_user_message(row_id, &row.text, Some(&domain::find_in_chat::message_key(&row.id)), cx),
                 time: row.at.map(crate::session_chat::clock_ms).unwrap_or_default(),
                 own,
-                name: layout.as_ref().filter(|layout| !own && layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
+                name,
                 link: None,
                 // A consumed input = processed into the session
                 // (message-delivery.json `read`).
@@ -6691,7 +6693,7 @@ impl SteerSessionView {
     ) -> AnyElement {
         use domain::message_delivery::{bubble_actions, BubbleAction};
         let sizes = crate::session_chat::transcript_sizes();
-        let width = self.user_bubble_width(&bubble.text, sizes.avatar + sizes.avatar_gap, true, window);
+        let width = self.user_bubble_width(&bubble.text, None, sizes.avatar + sizes.avatar_gap, true, window);
         let session_id = self.session_id.clone();
         let target = bubble.clone();
         let actions = if self.may_message { bubble_actions(bubble.state, bubble.stored) } else { Vec::new() };
@@ -7095,7 +7097,9 @@ impl SteerSessionView {
                 // #FEED-239: the own avatar narrows the own column too.
                 let sizes = crate::session_chat::transcript_sizes();
                 let inset = sizes.avatar + sizes.avatar_gap;
-                let width = self.user_bubble_width(body, inset, own, window);
+                let name = layout.filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name());
+                // A relay's name sits above the bubble, never inside it.
+                let width = self.user_bubble_width(body, name.as_deref().filter(|_| !relay && !own), inset, own, window);
                 crate::session_chat::message_bubble(
                     crate::session_chat::MessageBubble {
                         id: SharedString::from(format!("steer-bubble-{}", item.id)),
@@ -7107,7 +7111,7 @@ impl SteerSessionView {
                         // #EXP-1756: the bubble's `HH:mm` (transcript-grouping.json).
                         time: at.map(crate::session_chat::clock_ms).unwrap_or_default(),
                         own,
-                        name: layout.filter(|layout| layout.name).and_then(|layout| layout.sender.as_ref()).map(|sender| sender.display_name()),
+                        name,
                         link: layout.and_then(|layout| layout.sender.as_ref()).and_then(|sender| sender.link.clone()),
                         // #FEED-237: the echo of the viewer's own turn = two checks.
                         status: own.then_some(domain::message_delivery::DeliveryState::Read),
@@ -7314,33 +7318,36 @@ impl SteerSessionView {
     /// bubble `maxWidth.own`) of the transcript column. A bubble
     /// sized to its content wrapped every word once the EXP-787 column gave
     /// it a min-content measure; a definite width is the recorded-px
-    /// pattern every wrapped text in this crate ends up on.
-    fn user_bubble_width(&self, text: &str, inset: f32, own: bool, window: &Window) -> Pixels {
+    /// pattern every wrapped text in this crate ends up on. #EXP-2075: a
+    /// teammate's bubble also fits its author line (`name`, drawn inside it).
+    fn user_bubble_width(&self, text: &str, name: Option<&str>, inset: f32, own: bool, window: &Window) -> Pixels {
         let parsed = steer::image_message::parse_steer_message(text);
         let font = window.text_style().font();
+        let shape = |line: &str, font: gpui::Font, size: f32| {
+            let run = gpui::TextRun {
+                len: line.len(),
+                font,
+                color: gpui::black(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            window.text_system().shape_line(SharedString::from(line.to_string()), px(size), &[run], None).width
+        };
         let mut longest = px(0.);
         for line in parsed.text.lines() {
             let line = line.trim_end();
             if line.is_empty() {
                 continue;
             }
-            let run = gpui::TextRun {
-                len: line.len(),
-                font: font.clone(),
-                color: gpui::black(),
-                background_color: None,
-                underline: None,
-                strikethrough: None,
-            };
-            let width = window
-                .text_system()
-                .shape_line(
-                    SharedString::from(line.to_string()),
-                    px(transcript::BODY_SIZE),
-                    &[run],
-                    None,
-                )
-                .width;
+            let width = shape(line, font.clone(), transcript::BODY_SIZE);
+            if width > longest {
+                longest = width;
+            }
+        }
+        if let Some(name) = name.map(str::trim).filter(|name| !name.is_empty()) {
+            let medium = gpui::Font { weight: gpui::FontWeight::MEDIUM, ..font.clone() };
+            let width = shape(name, medium, crate::session_chat::transcript_sizes().name_size);
             if width > longest {
                 longest = width;
             }
@@ -7359,8 +7366,9 @@ impl SteerSessionView {
         let sizes = crate::session_chat::transcript_sizes();
         let share = if own { sizes.max_width.own } else { sizes.max_width.wide };
         let cap = px((column * share).max(USER_BUBBLE_MIN_W));
-        // px_3 both sides + the 1px stroke each side.
-        let padded = longest + px(2. * 12. + 2.);
+        // The bubble's 14 px both sides (`message_bubble`) + the 1px stroke
+        // each side, plus 1 px so a shaped line that rounds up never wraps.
+        let padded = longest + px(2. * 14. + 2. + 1.);
         if padded > cap {
             cap
         } else if padded < px(USER_BUBBLE_MIN_W) {
