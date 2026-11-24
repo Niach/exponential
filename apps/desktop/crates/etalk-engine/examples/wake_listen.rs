@@ -42,7 +42,7 @@ use etalk::{Event, ListenFailure};
 use etalk_engine::capture::{offer, read_wav, Resampler, CAPACITY};
 use etalk_engine::listen::RATE;
 use etalk_engine::listener::{self, Ears, Engines, Hearing, Job, Links, Listening, Mic, SileroVad};
-use etalk_engine::wake::{scan, ModelDetector, WakeScanner};
+use etalk_engine::wake::{scan, Listener, SetDetector, WakeScanner};
 
 /// A quiet room: low-passed noise at about -55 dBFS, at `rate`.
 fn room(rate: usize, seconds: usize) -> Vec<f32> {
@@ -203,7 +203,7 @@ fn idle(data_dir: PathBuf, phrase: String, seconds: u64, settle: u64, rate: usiz
     let chunk = (rate * chunk_ms / 1000).max(1);
     let (jobs, thread) =
         listener::spawn(move || FileEars { ears: Ears::new(ears_dir), audio: Arc::new(audio), rate, chunk }, links);
-    jobs.send(Job::Wake { phrase: phrase.clone(), language: "en".into() }).expect("the listening thread");
+    jobs.send(Job::Wake { phrase: phrase.clone(), language: "en".into(), listeners: Vec::new() }).expect("the listening thread");
     let deadline = Instant::now() + Duration::from_secs(1800);
     let model_ready = || !has_model || std::fs::read_dir(wakeword_dir(&data_dir)).is_ok_and(|dir| dir.flatten().filter(|entry| entry.path().extension().is_some_and(|ext| ext == "onnx")).count() >= 3);
     while !(listening.load(Ordering::SeqCst) && model_ready()) {
@@ -276,10 +276,11 @@ fn clips(data_dir: PathBuf, phrase: String, classifier: Option<(PathBuf, f32)>, 
         let audio = [&quiet[..lead * RATE], clip.as_slice(), &quiet[..RATE * 2]].concat();
         let mut vad = engines.vad().expect("vad");
         let mut scanner = WakeScanner::for_model();
-        let mut model = ModelDetector(detector());
+        let mut model = SetDetector::model(0, detector());
+        let listeners = [Listener::new("", phrase.as_str(), "en")];
         let mut wakes = Vec::new();
         for (index, chunk) in audio.chunks(RATE / 50).enumerate() {
-            if scan(&mut scanner, &mut model, &mut vad, &mut engines, chunk, &phrase, "en", false).expect("scan").is_some() {
+            if scan(&mut scanner, &mut model, &mut vad, &mut engines, chunk, &listeners, false).expect("scan").is_some() {
                 wakes.push((index + 1) * (RATE / 50) - lead * RATE);
             }
         }
