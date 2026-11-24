@@ -18,11 +18,14 @@ import { Route as Char91DotwellKnownChar93AppleAppSiteAssociationRouteImport } f
 import { Route as Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRouteImport } from './routes/[.well-known]/assetlinks[.]json'
 import { Route as Char91DotwellKnownChar93OauthAuthorizationServerRouteImport } from './routes/[.well-known]/oauth-authorization-server'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
+import { Route as AppAssistantRouteImport } from './routes/_app/assistant'
 import { Route as AppChatsRouteImport } from './routes/_app/chats'
 import { Route as AppDraftsRouteImport } from './routes/_app/drafts'
 import { Route as AppHomeRouteImport } from './routes/_app/home'
+import { Route as AppInboxRouteImport } from './routes/_app/inbox'
 import { Route as AppNeedsYouRouteImport } from './routes/_app/needs-you'
 import { Route as AppSettingsRouteRouteImport } from './routes/_app/settings/route'
+import { Route as AppTeamsRouteImport } from './routes/_app/teams'
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as AuthenticatedExponentialUiKitchenSinkRouteImport } from './routes/_authenticated/exponential-ui-kitchen-sink'
 import { Route as AuthenticatedOnboardingRouteImport } from './routes/_authenticated/onboarding'
@@ -46,6 +49,7 @@ import { Route as InviteTokenRouteImport } from './routes/invite/$token'
 import { Route as STokenRouteImport } from './routes/s/$token'
 import { Route as SupportTokenRouteImport } from './routes/support/$token'
 import { Route as TTeamSlugRouteRouteImport } from './routes/t/$teamSlug/route'
+import { Route as AppDevicesIndexRouteImport } from './routes/_app/devices/index'
 import { Route as AppSettingsIndexRouteImport } from './routes/_app/settings/index'
 import { Route as AppSettingsAccountRouteImport } from './routes/_app/settings/account'
 import { Route as AppSettingsAssistantRouteImport } from './routes/_app/settings/assistant'
@@ -236,6 +240,11 @@ const Char91DotwellKnownChar93OauthProtectedResourceRoute =
     path: '/.well-known/oauth-protected-resource',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AppAssistantRoute = AppAssistantRouteImport.update({
+  id: '/assistant',
+  path: '/assistant',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppChatsRoute = AppChatsRouteImport.update({
   id: '/chats',
   path: '/chats',
@@ -251,6 +260,11 @@ const AppHomeRoute = AppHomeRouteImport.update({
   path: '/home',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInboxRoute = AppInboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppNeedsYouRoute = AppNeedsYouRouteImport.update({
   id: '/needs-you',
   path: '/needs-you',
@@ -259,6 +273,11 @@ const AppNeedsYouRoute = AppNeedsYouRouteImport.update({
 const AppSettingsRouteRoute = AppSettingsRouteRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTeamsRoute = AppTeamsRouteImport.update({
+  id: '/teams',
+  path: '/teams',
   getParentRoute: () => AppRoute,
 } as any)
 const AuthenticatedAdminRouteRoute = AuthenticatedAdminRouteRouteImport.update({
@@ -376,6 +395,11 @@ const TTeamSlugRouteRoute = TTeamSlugRouteRouteImport.update({
   id: '/t/$teamSlug',
   path: '/t/$teamSlug',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AppDevicesIndexRoute = AppDevicesIndexRouteImport.update({
+  id: '/devices/',
+  path: '/devices/',
+  getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsIndexRoute = AppSettingsIndexRouteImport.update({
   id: '/',
@@ -1151,10 +1175,13 @@ export interface FileRoutesByFullPath {
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/assistant': typeof AppAssistantRoute
   '/chats': typeof AppChatsRoute
   '/drafts': typeof AppDraftsRoute
   '/home': typeof AppHomeRoute
+  '/inbox': typeof AppInboxRoute
   '/needs-you': typeof AppNeedsYouRoute
+  '/teams': typeof AppTeamsRoute
   '/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/share': typeof AuthenticatedShareRoute
@@ -1247,6 +1274,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
+  '/devices/': typeof AppDevicesIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/monitoring/': typeof ApiMonitoringIndexRoute
@@ -1327,10 +1355,13 @@ export interface FileRoutesByTo {
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/assistant': typeof AppAssistantRoute
   '/chats': typeof AppChatsRoute
   '/drafts': typeof AppDraftsRoute
   '/home': typeof AppHomeRoute
+  '/inbox': typeof AppInboxRoute
   '/needs-you': typeof AppNeedsYouRoute
+  '/teams': typeof AppTeamsRoute
   '/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/onboarding': typeof AuthenticatedOnboardingRoute
   '/share': typeof AuthenticatedShareRoute
@@ -1422,6 +1453,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
+  '/devices': typeof AppDevicesIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/api/monitoring': typeof ApiMonitoringIndexRoute
@@ -1508,10 +1540,13 @@ export interface FileRoutesById {
   '/.well-known/assetlinks.json': typeof Char91DotwellKnownChar93AssetlinksChar91DotChar93jsonRoute
   '/.well-known/oauth-authorization-server': typeof Char91DotwellKnownChar93OauthAuthorizationServerRoute
   '/.well-known/oauth-protected-resource': typeof Char91DotwellKnownChar93OauthProtectedResourceRoute
+  '/_app/assistant': typeof AppAssistantRoute
   '/_app/chats': typeof AppChatsRoute
   '/_app/drafts': typeof AppDraftsRoute
   '/_app/home': typeof AppHomeRoute
+  '/_app/inbox': typeof AppInboxRoute
   '/_app/needs-you': typeof AppNeedsYouRoute
+  '/_app/teams': typeof AppTeamsRoute
   '/_authenticated/exponential-ui-kitchen-sink': typeof AuthenticatedExponentialUiKitchenSinkRoute
   '/_authenticated/onboarding': typeof AuthenticatedOnboardingRoute
   '/_authenticated/share': typeof AuthenticatedShareRoute
@@ -1604,6 +1639,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/devices': typeof TTeamSlugDevicesRoute
   '/t/$teamSlug/needs-you': typeof TTeamSlugNeedsYouRoute
   '/t/$teamSlug/team': typeof TTeamSlugTeamRoute
+  '/_app/devices/': typeof AppDevicesIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/api/monitoring/': typeof ApiMonitoringIndexRoute
@@ -1689,10 +1725,13 @@ export interface FileRouteTypes {
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/assistant'
     | '/chats'
     | '/drafts'
     | '/home'
+    | '/inbox'
     | '/needs-you'
+    | '/teams'
     | '/exponential-ui-kitchen-sink'
     | '/onboarding'
     | '/share'
@@ -1785,6 +1824,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
+    | '/devices/'
     | '/settings/'
     | '/admin/'
     | '/api/monitoring/'
@@ -1865,10 +1905,13 @@ export interface FileRouteTypes {
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/assistant'
     | '/chats'
     | '/drafts'
     | '/home'
+    | '/inbox'
     | '/needs-you'
+    | '/teams'
     | '/exponential-ui-kitchen-sink'
     | '/onboarding'
     | '/share'
@@ -1960,6 +2003,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
+    | '/devices'
     | '/settings'
     | '/admin'
     | '/api/monitoring'
@@ -2045,10 +2089,13 @@ export interface FileRouteTypes {
     | '/.well-known/assetlinks.json'
     | '/.well-known/oauth-authorization-server'
     | '/.well-known/oauth-protected-resource'
+    | '/_app/assistant'
     | '/_app/chats'
     | '/_app/drafts'
     | '/_app/home'
+    | '/_app/inbox'
     | '/_app/needs-you'
+    | '/_app/teams'
     | '/_authenticated/exponential-ui-kitchen-sink'
     | '/_authenticated/onboarding'
     | '/_authenticated/share'
@@ -2141,6 +2188,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/devices'
     | '/t/$teamSlug/needs-you'
     | '/t/$teamSlug/team'
+    | '/_app/devices/'
     | '/_app/settings/'
     | '/_authenticated/admin/'
     | '/api/monitoring/'
@@ -2380,6 +2428,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/assistant': {
+      id: '/_app/assistant'
+      path: '/assistant'
+      fullPath: '/assistant'
+      preLoaderRoute: typeof AppAssistantRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/chats': {
       id: '/_app/chats'
       path: '/chats'
@@ -2401,6 +2456,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppHomeRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/inbox': {
+      id: '/_app/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof AppInboxRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/needs-you': {
       id: '/_app/needs-you'
       path: '/needs-you'
@@ -2413,6 +2475,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/teams': {
+      id: '/_app/teams'
+      path: '/teams'
+      fullPath: '/teams'
+      preLoaderRoute: typeof AppTeamsRouteImport
       parentRoute: typeof AppRoute
     }
     '/_authenticated/admin': {
@@ -2575,6 +2644,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/t/$teamSlug'
       preLoaderRoute: typeof TTeamSlugRouteRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_app/devices/': {
+      id: '/_app/devices/'
+      path: '/devices'
+      fullPath: '/devices/'
+      preLoaderRoute: typeof AppDevicesIndexRouteImport
+      parentRoute: typeof AppRoute
     }
     '/_app/settings/': {
       id: '/_app/settings/'
@@ -3594,20 +3670,28 @@ const AppSettingsRouteRouteWithChildren =
 
 interface AppRouteChildren {
   AppSettingsRouteRoute: typeof AppSettingsRouteRouteWithChildren
+  AppAssistantRoute: typeof AppAssistantRoute
   AppChatsRoute: typeof AppChatsRoute
   AppDraftsRoute: typeof AppDraftsRoute
   AppHomeRoute: typeof AppHomeRoute
+  AppInboxRoute: typeof AppInboxRoute
   AppNeedsYouRoute: typeof AppNeedsYouRoute
+  AppTeamsRoute: typeof AppTeamsRoute
+  AppDevicesIndexRoute: typeof AppDevicesIndexRoute
   AppDevicesDeviceIdSettingsRoute: typeof AppDevicesDeviceIdSettingsRoute
   AppDevicesDeviceIdIndexRoute: typeof AppDevicesDeviceIdIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppSettingsRouteRoute: AppSettingsRouteRouteWithChildren,
+  AppAssistantRoute: AppAssistantRoute,
   AppChatsRoute: AppChatsRoute,
   AppDraftsRoute: AppDraftsRoute,
   AppHomeRoute: AppHomeRoute,
+  AppInboxRoute: AppInboxRoute,
   AppNeedsYouRoute: AppNeedsYouRoute,
+  AppTeamsRoute: AppTeamsRoute,
+  AppDevicesIndexRoute: AppDevicesIndexRoute,
   AppDevicesDeviceIdSettingsRoute: AppDevicesDeviceIdSettingsRoute,
   AppDevicesDeviceIdIndexRoute: AppDevicesDeviceIdIndexRoute,
 }

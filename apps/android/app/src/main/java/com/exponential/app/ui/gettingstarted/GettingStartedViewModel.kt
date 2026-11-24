@@ -2,7 +2,8 @@ package com.exponential.app.ui.gettingstarted
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.ARG_TEAM
+import com.exponential.app.data.screenTeamFlow
 import com.exponential.app.data.api.IntegrationsApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -43,13 +44,18 @@ import kotlinx.coroutines.flow.flowOn
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class GettingStartedViewModel @Inject constructor(
+    savedStateHandle: androidx.lifecycle.SavedStateHandle,
     private val auth: AuthRepository,
     holder: DatabaseHolder,
-    private val selection: TeamSelection,
     private val integrationsApi: IntegrationsApi,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
+
+    /** #EXP-2109: the team this screen shows ([screenTeamFlow]; no active team). */
+    private val screenTeam: StateFlow<String?> =
+        screenTeamFlow(dbFlow, savedStateHandle)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, savedStateHandle.get<String>(ARG_TEAM))
 
     /**
      * The GitHub install status TAGGED with the team it was read for; null
@@ -83,7 +89,7 @@ class GettingStartedViewModel @Inject constructor(
     }
 
     /**
-     * The owner-gated step (invite) needs the caller's role in the SELECTED
+     * The owner-gated step (invite) needs the caller's role in that
      * team — the same resolution `TeamPermissions` performs, off the same
      * member rows.
      */
@@ -125,7 +131,7 @@ class GettingStartedViewModel @Inject constructor(
         signals,
         _githubStatus,
         isOwner,
-        selection.selectedId,
+        screenTeam,
     ) { base, status, owner, teamId ->
         // The status only counts for the team it was read for.
         val github = status?.takeIf { it.first == teamId }?.second
@@ -149,7 +155,7 @@ class GettingStartedViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            combine(auth.activeAccountId, selection.selectedId) { accountId, teamId ->
+            combine(auth.activeAccountId, screenTeam) { accountId, teamId ->
                 accountId to teamId
             }.distinctUntilChanged().collectLatest { (accountId, teamId) ->
                 if (accountId == null || teamId == null) return@collectLatest
@@ -168,11 +174,11 @@ class GettingStartedViewModel @Inject constructor(
         .map { it?.trimEnd('/') }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** The active team, for the create-board action's target. */
-    val selectedTeamId: StateFlow<String?> = selection.selectedId
+    /** The team, for the create-board action's target. */
+    val selectedTeamId: StateFlow<String?> = screenTeam
 
     private fun <T> teamScoped(empty: T, query: (ExponentialDatabase, String) -> Flow<T>): Flow<T> =
-        combine(dbFlow, selection.selectedId) { db, teamId -> db to teamId }
+        combine(dbFlow, screenTeam) { db, teamId -> db to teamId }
             .flatMapLatest { (db, teamId) ->
                 if (db == null || teamId == null) flowOf(empty) else query(db, teamId)
             }

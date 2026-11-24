@@ -282,13 +282,23 @@ public struct PrFile: Decodable, Sendable, Identifiable {
 // MARK: - Server search (issues.search)
 
 public struct SearchIssuesInput: Encodable, Sendable {
-    public let teamId: String
+    /// Exactly one of `teamId` and `teamIds` is sent.
+    public let teamId: String?
+    public let teamIds: [String]?
     public let query: String
     /// Server default 20, max 50. Omitted from the JSON when nil.
     public var limit: Int?
 
     public init(teamId: String, query: String, limit: Int? = nil) {
         self.teamId = teamId
+        teamIds = nil
+        self.query = query
+        self.limit = limit
+    }
+
+    public init(teamIds: [String], query: String, limit: Int? = nil) {
+        teamId = nil
+        self.teamIds = teamIds
         self.query = query
         self.limit = limit
     }
@@ -462,6 +472,15 @@ public final class IssuesApi: Sendable {
             accountId: accountId,
             path: "issues.search",
             input: SearchIssuesInput(teamId: teamId, query: query, limit: limit)
+        )
+    }
+
+    /// #EXP-2109: `search` over several teams in one request.
+    public func search(accountId: String, teamIds: [String], query: String, limit: Int? = nil) async throws -> [SearchIssueHit] {
+        try await trpc.query(
+            accountId: accountId,
+            path: "issues.search",
+            input: SearchIssuesInput(teamIds: teamIds, query: query, limit: limit)
         )
     }
 

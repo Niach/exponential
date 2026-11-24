@@ -71,11 +71,9 @@ final class StoreScreenshots: XCTestCase {
         // EXP-1267: a reused session, no login UI; false = the UI fallback ran.
         let injected = launchSignedIn(app)
 
-        // The app lands on the Agent tab — switch to the Board tab (#NEW-12:
-        // the iPad's sidebar row).
-        let issuesTab = shellEntry(app, "tab-board", within: Wait.sync)
-        expect(issuesTab, within: 1, "Tab bar never appeared — did the sign-in land?")
-        issuesTab.tap()
+        // The app lands on Chats: the board is Teams › Acme › Mobile App
+        // (#NEW-12: the iPad's sidebar row).
+        showBoard(app)
 
         // Wait for the board: the FIRST sync after sign-in is the one long
         // wait of the run. 01_board itself is captured LAST — after a UI
@@ -207,9 +205,7 @@ final class StoreScreenshots: XCTestCase {
         // pushes). Wait for a real notification group — capturing the
         // "You're all caught up" empty state would silently ship an empty
         // store shot.
-        let chatsTab = shellEntry(app, "tab-chats", within: Wait.nav)
-        expect(chatsTab, within: 1, "Chats tab missing")
-        chatsTab.tap()
+        showTab(app, "tab-chats", root: "chats-inbox")
         let inboxButton = app.buttons["chats-inbox"]
         expect(inboxButton, within: Wait.nav, "The Chats header has no inbox button")
         inboxButton.tap()

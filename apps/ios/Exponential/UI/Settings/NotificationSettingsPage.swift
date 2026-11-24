@@ -153,9 +153,7 @@ struct NotificationSettingsPage: View {
             .listSectionSpacing(8)
             .tint(DesignTokens.Palette.primary)
         }
-        .navigationTitle(SettingsNav.page("notifications")?.label ?? "Notifications")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .pageHeader(SettingsNav.page("notifications")?.label ?? "Notifications", pushed: true)
         .task(id: accountId) { await model.load(deps: deps) }
         .task(id: accountId) { await model.observe(deps: deps) }
         .accessibilityElement(children: .contain)

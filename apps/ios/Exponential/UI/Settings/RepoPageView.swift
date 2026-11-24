@@ -36,7 +36,6 @@ struct RepoPageView: View {
                     .padding(16)
                 }
                 // Add secret and the switches clear the floating tab bar.
-                .tabBarBottomInset()
             }
         }
         .navigationBarTitleDisplayMode(.inline)

@@ -14,6 +14,7 @@
     "migrate:contract": "bun scripts/apply-contract-steps.ts",
     "backfill:default-branches": "bun scripts/backfill-default-branches.ts",
     "check:device-shares": "bun scripts/check-device-shares.ts",
+    "repair:stranded-keys": "bun scripts/repair-stranded-keys.ts",
     "embeddings:model": "bun embedder/fetch-model.mjs",
     "embeddings:backfill": "bun scripts/backfill-issue-embeddings.ts",
     "audit:device-first-seen": "bun scripts/audit-device-first-seen.ts",

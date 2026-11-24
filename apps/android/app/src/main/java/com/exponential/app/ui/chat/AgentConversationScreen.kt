@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
@@ -45,14 +44,9 @@ import com.exponential.app.domain.SessionScreen
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.uploadedImageIds
 import com.exponential.app.domain.uploadedSteerFiles
-import com.exponential.app.ui.components.ComposerSubmitButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
-import com.exponential.app.ui.components.FloatingComposer
-import com.exponential.app.ui.components.GlassComposer
-import com.exponential.app.ui.components.GlassTextField
-import com.exponential.app.ui.components.HeaderEdgeChrome
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.icons.ExpIcons
@@ -412,7 +406,8 @@ private const val NOT_FOUND_DETAIL = "It may still be syncing, or it was deleted
 
 @Composable
 fun AgentConversationScreen(
-    onBack: () -> Unit,
+    /** Null = the Assistant tab's root: no back control. */
+    onBack: (() -> Unit)?,
     /** The conversation exists (synced, or my first send created it): open it in place. */
     onOpenConversation: (sessionId: String) -> Unit,
     /** #FEED-239: open on the settings item (a row's `…` › Agent settings). */
@@ -483,7 +478,7 @@ fun AgentConversationScreen(
         counts = SessionScreen.Counts(),
     )
     if (screen.open == SessionScreen.Open.Settings && row != null) {
-        AgentSettingsItem(agentId = viewModel.agentId, onClose = { openKind = null }, onDeleted = onBack)
+        AgentSettingsItem(agentId = viewModel.agentId, onClose = { openKind = null }, onDeleted = onBack ?: {})
         return
     }
     // #FEED-239: THE `…`: its settings only until the conversation exists

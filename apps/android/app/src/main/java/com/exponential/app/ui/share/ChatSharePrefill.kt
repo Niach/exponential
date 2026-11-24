@@ -2,7 +2,7 @@ package com.exponential.app.ui.share
 
 import android.content.Context
 import com.exponential.app.data.ChatShare
-import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.ShellState
 import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.domain.ShareTargets
 import com.exponential.app.domain.STEER_ATTACHMENT_REJECTED
@@ -17,14 +17,14 @@ import kotlinx.coroutines.withContext
 @dagger.hilt.EntryPoint
 @dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
 internal interface ShareSelectionEntryPoint {
-    fun teamSelection(): TeamSelection
+    fun shellState(): ShellState
 }
 
 /** The app-singleton holding the waiting [ChatShare], for the composers. */
-internal fun shareSelection(context: Context): TeamSelection =
+internal fun shareSelection(context: Context): ShellState =
     dagger.hilt.android.EntryPointAccessors
         .fromApplication(context.applicationContext, ShareSelectionEntryPoint::class.java)
-        .teamSelection()
+        .shellState()
 
 /** share-targets.json `shareChatText`: what the payload leaves in the composer. */
 fun chatShareText(share: DeepLinkBus.Target.ShareContent): String = ShareTargets.shareChatText(

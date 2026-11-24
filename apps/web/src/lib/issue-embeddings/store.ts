@@ -76,6 +76,10 @@ export interface NearestIssueOptions {
   readonly k?: number
   /** Cosine distance above which a neighbour is not a match (default 0.2). */
   readonly maxDistance?: number
+  /** #NEW-135: one more predicate over issue alias `i` (the query's filter
+   *  tokens, ids already listed): a neighbour failing it is skipped, not
+   *  counted against `k`. */
+  readonly filter?: SQL
 }
 
 /**
@@ -114,7 +118,8 @@ export function nearestIssuesSql(
     join issues i on i.id = e.issue_id
     where ${team}e.model = ${ISSUE_EMBEDDING_MODEL}
       and ${scopeSql(`i`, scope)}
-      and (e.embedding <=> ${query}) <= ${maxDistance}
+      and (e.embedding <=> ${query}) <= ${maxDistance}${options.filter ? sql`
+      and (${options.filter})` : sql``}
     order by e.embedding <=> ${query}
     limit ${k}`
 }

@@ -80,7 +80,6 @@ internal fun <T> groupByResolvedStatus(
 private data class MineScope(
     val db: com.exponential.app.data.db.ExponentialDatabase?,
     val userId: String?,
-    val team: String?,
     val boardId: String?,
 )
 
@@ -96,12 +95,7 @@ class MyIssuesViewModel @Inject constructor(
     holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val issuesApi: IssuesApi,
-    selection: com.exponential.app.data.TeamSelection,
 ) : ViewModel() {
-
-    /** Session 58cb32df (chats.json): ONE active team drives every phone
-     *  screen (null = every team, before one resolves). */
-    private val activeTeam = selection.selectedId
 
     /** #EXP-1836 (chats.json `boardMineCases`): the board's My issues = the
      *  viewer's assigned issues on THIS board (`Chats.boardMineIssues`); the
@@ -135,8 +129,8 @@ class MyIssuesViewModel @Inject constructor(
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val state: StateFlow<MyIssuesState> =
-        combine(dbFlow, auth.userId, activeTeam, board) { db, userId, team, boardId -> MineScope(db, userId, team, boardId) }
-            .flatMapLatest { (db, userId, team, boardId) ->
+        combine(dbFlow, auth.userId, board) { db, userId, boardId -> MineScope(db, userId, boardId) }
+            .flatMapLatest { (db, userId, boardId) ->
                 if (db == null || userId == null || boardId == null) {
                     flowOf(MyIssuesState(loaded = true))
                 } else {
@@ -153,7 +147,7 @@ class MyIssuesViewModel @Inject constructor(
                                 boardOf = { it.boardId },
                                 assigneeOf = { it.assigneeId },
                             ),
-                            boards.filter { team == null || it.teamId == team }, labelJoins.first, labelJoins.second,
+                            boards, labelJoins.first, labelJoins.second,
                             statuses, graph.first, graph.second,
                         )
                     }

@@ -5,7 +5,7 @@
 // each registration and approval signature itself (`reconcileTrust`) and
 // shows only the rows it can verify. The server checks a signature it is
 // given against the caller's own install (a bug catcher, not the protection).
-import { verifyApproval, type ApprovalKind, type ServedApproval, type ServedInstall } from "@exp/domain-contract/install-trust"
+import { keyMakerWaits, verifyApproval, type ApprovalKind, type ServedApproval, type ServedInstall } from "@exp/domain-contract/install-trust"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { installApprovals, installs, teamMembers, teams, type Install } from "@/db/schema"
@@ -93,6 +93,37 @@ async function chainedInstalls(database: Reader, installIds: string[]): Promise<
     .from(installApprovals)
     .where(and(inArray(installApprovals.subjectInstallId, installIds), inArray(installApprovals.kind, [`root`, `approve`])))
   return new Set(rows.filter((row) => installIds.includes(row.subjectInstallId)).map((row) => row.subjectInstallId))
+}
+
+type WaitingFields = Pick<Install, `id` | `userId` | `approvalRequestedAt` | `registrationSignature`>
+
+/** #EXP-2123 (install-trust.json `keyMaker.serverCases`): the ids among
+ *  `rows` (live installs) the server lists as WAITING for approval (the New
+ *  install rule of `waitingInstalls`), in a fixed number of queries. */
+export async function waitingInstallIds(database: Reader, rows: readonly WaitingFields[]): Promise<Set<string>> {
+  if (rows.length === 0) return new Set()
+  const userIds = [...new Set(rows.map((row) => row.userId))]
+  const own = (
+    await database.select({ id: installs.id, userId: installs.userId, revokedAt: installs.revokedAt }).from(installs).where(inArray(installs.userId, userIds))
+  ).filter((row) => userIds.includes(row.userId) && !row.revokedAt)
+  const chained = await chainedInstalls(database, [...new Set([...rows.map((row) => row.id), ...own.map((row) => row.id)])])
+  return new Set(
+    rows
+      .filter((row) =>
+        keyMakerWaits({
+          chained: chained.has(row.id),
+          asked: !!row.approvalRequestedAt,
+          accountChain: own.some((other) => other.userId === row.userId && other.id !== row.id && chained.has(other.id)),
+          registration: !!row.registrationSignature,
+        })
+      )
+      .map((row) => row.id)
+  )
+}
+
+/** #EXP-2123: an install that waits for approval makes no chat key. */
+export async function installWaits(database: Reader, install: WaitingFields): Promise<boolean> {
+  return (await waitingInstallIds(database, [install])).has(install.id)
 }
 
 /** `installs.claimRoot`: the install starts its account's chain (the first

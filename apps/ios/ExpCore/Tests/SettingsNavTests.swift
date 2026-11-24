@@ -109,6 +109,18 @@ final class SettingsNavTests: XCTestCase {
         XCTAssertEqual(SettingsNav.page("labels")?.label, "Labels")
     }
 
+    /// #EXP-2109 `nav.phone`.
+    func testPhoneNavMatchesTheFixture() throws {
+        let phone = try XCTUnwrap(try nav()["phone"] as? [String: [String]])
+        XCTAssertEqual(phone, [
+            "settings": SettingsNav.phoneSettings,
+            "team": SettingsNav.phoneTeam.map(\.rawValue),
+        ])
+        for id in SettingsNav.phoneSettings { XCTAssertNotNil(SettingsNav.page(id), id) }
+        XCTAssertFalse(SettingsNav.visiblePhoneTeam(isOwner: false).contains(.general))
+        XCTAssertEqual(SettingsNav.visiblePhoneTeam(isOwner: true), SettingsNav.phoneTeam)
+    }
+
     func testNavCasesMatchTheFixture() throws {
         let cases = try XCTUnwrap(try nav()["navCases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)

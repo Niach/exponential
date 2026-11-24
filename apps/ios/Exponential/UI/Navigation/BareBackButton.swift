@@ -6,7 +6,7 @@ import UIKit
 /// (web-mobile, Android), never the system's Liquid Glass circle. The system
 /// chevron stands down and the arrow rides a leading item that opts out of
 /// the shared item glass; a pushed page header (`pageHeader(pushed: true)`)
-/// hands its large title up so it sits right after the arrow in the SAME
+/// hands its glyph and title up so they sit right after the arrow in the SAME
 /// item. Hiding the system back control also disables UIKit's edge swipe,
 /// so the modifier re-arms it.
 extension View {
@@ -15,10 +15,15 @@ extension View {
     }
 }
 
-/// A pushed page header's large title, for the bare back item.
-struct PushedLargeTitleKey: PreferenceKey {
-    static let defaultValue: String? = nil
-    static func reduce(value: inout String?, nextValue: () -> String?) {
+/// A pushed page header's glyph and title, for the bare back item.
+struct PushedTitleKey: PreferenceKey {
+    struct Title: Equatable {
+        let text: String
+        var glyph: PageHeaderGlyphKind?
+    }
+
+    static let defaultValue: Title? = nil
+    static func reduce(value: inout Title?, nextValue: () -> Title?) {
         value = value ?? nextValue()
     }
 }
@@ -26,12 +31,12 @@ struct PushedLargeTitleKey: PreferenceKey {
 private struct BareBackButton: ViewModifier {
     let enabled: Bool
     @Environment(\.dismiss) private var dismiss
-    @State private var pushedTitle: String?
+    @State private var pushedTitle: PushedTitleKey.Title?
 
     func body(content: Content) -> some View {
         if enabled {
             content
-                .onPreferenceChange(PushedLargeTitleKey.self) { title in
+                .onPreferenceChange(PushedTitleKey.self) { title in
                     MainActor.assumeIsolated { pushedTitle = title }
                 }
                 .navigationBarBackButtonHidden(true)
@@ -50,12 +55,7 @@ private struct BareBackButton: ViewModifier {
                         // The system control's id: UI tests find Back by it.
                         .accessibilityIdentifier("BackButton")
                         if let pushedTitle {
-                            Text(pushedTitle)
-                                .font(.system(size: 34, weight: .bold))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                                .fixedSize()
-                                .accessibilityAddTraits(.isHeader)
+                            PageHeaderDetailTitle(title: pushedTitle)
                         }
                     }
                 }

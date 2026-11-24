@@ -130,6 +130,9 @@ fun ChatHeader(
                 if (onBack != null) {
                     ChatHeaderButton(ExpIcons.uiBack, "Back", onClick = onBack)
                     Spacer(Modifier.width(gap))
+                } else {
+                    // A tab's root (the Assistant's): the disc on the page's 16dp edge.
+                    Spacer(Modifier.width(8.dp))
                 }
                 lead()
                 Spacer(Modifier.width(Chats.Shell.ChatHeader.DISC_GAP.dp))

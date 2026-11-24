@@ -9,12 +9,19 @@ import { describe, expect, it } from "vitest"
 // observable against a live Postgres, so this locks the source instead; the
 // term itself (an escaped, wildcard-free ILIKE) is covered by
 // issue-search-sql.test.ts.
-const SOURCE = readFileSync(join(import.meta.dirname, `issues.ts`), `utf8`)
+// #NEW-135: the query moved, whole, into the one search both the procedure
+// and MCP run (lib/issue-embeddings/search.ts `lexical`).
+const SOURCE = readFileSync(join(import.meta.dirname, `..`, `issue-embeddings`, `search.ts`), `utf8`)
+const ROUTER = readFileSync(join(import.meta.dirname, `issues.ts`), `utf8`)
 
 describe(`issues.search ordering`, () => {
+  it(`the procedure lists the shared search`, () => {
+    expect(ROUTER).toContain(`return searchIssues(`)
+  })
+
   it(`sorts an exact identifier hit above ts_rank`, () => {
-    const exact = SOURCE.indexOf(`issueSearchIdentifierExactSql(input.query)`)
-    const rank = SOURCE.indexOf(`issueSearchRankSql(input.query)`)
+    const exact = SOURCE.indexOf(`issueSearchIdentifierExactSql(query)`)
+    const rank = SOURCE.indexOf(`issueSearchRankSql(query)`)
     expect(exact).toBeGreaterThan(-1)
     expect(rank).toBeGreaterThan(-1)
     expect(exact).toBeLessThan(rank)
@@ -26,9 +33,9 @@ describe(`issues.search ordering`, () => {
   // — otherwise the hits spliced in behind the local ranking arrive in a
   // different order than the rows above them.
   it(`sorts undone issues above done ones, between the exact hit and ts_rank`, () => {
-    const exact = SOURCE.indexOf(`issueSearchIdentifierExactSql(input.query)`)
+    const exact = SOURCE.indexOf(`issueSearchIdentifierExactSql(query)`)
     const open = SOURCE.indexOf(`issueSearchOpenSql()`)
-    const rank = SOURCE.indexOf(`issueSearchRankSql(input.query)`)
+    const rank = SOURCE.indexOf(`issueSearchRankSql(query)`)
     expect(open).toBeGreaterThan(-1)
     expect(exact).toBeLessThan(open)
     expect(open).toBeLessThan(rank)

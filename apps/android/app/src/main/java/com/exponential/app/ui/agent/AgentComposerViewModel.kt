@@ -7,7 +7,8 @@ import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.crossTeamOrder
+import com.exponential.app.data.firstTeamIdFlow
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.McpServersApi
 import com.exponential.app.data.api.toSkillOption
@@ -209,7 +210,6 @@ class AgentComposerViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val auth: AuthRepository,
     private val holder: DatabaseHolder,
-    selection: TeamSelection,
     private val steerLaunch: SteerLaunchDelegate,
     private val store: SteerConnectionStore,
     private val imagesApi: IssueImagesApi,
@@ -225,9 +225,8 @@ class AgentComposerViewModel @Inject constructor(
 
     /** S-3: the composer home calls `agents.ensureAssistant` on mount. */
     fun ensureAssistant() {
-        val team = teamId.value
         viewModelScope.launch {
-            com.exponential.app.data.api.AssistantEnsurer.ensure(agentsApi, auth.activeAccountId.value, team)
+            com.exponential.app.data.api.AssistantEnsurer.ensureForAccount(agentsApi, auth.activeAccountId.value)
         }
     }
 
@@ -237,14 +236,61 @@ class AgentComposerViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
+    // ── S-3: the agent row's pick (the recipient) ───────────────────────────
+    /** The picked team agent (null = Temporary session: today's launch). It
+     *  is NOT a subject (EXP-1450): the issue chips stay beside it and ride
+     *  the send as `issueIds`. */
+    private val _recipient = MutableStateFlow<String?>(null)
+    val recipient: StateFlow<String?> = _recipient
+
+    /** The member teams in THE team order (sidebar-tree.json `teams`). */
+    private val memberTeams: StateFlow<List<com.exponential.app.data.db.TeamEntity>> =
+        dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.TeamEntity>()) { it.teamDao().observeAll() }
+            .map(::crossTeamOrder)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** The composer's own team before any pick: its seed subject's (EXP-1186:
+     *  an issue or prompt starts in ITS team), else the first member team. It
+     *  keys the draft, so a pick never loses the typing. */
+    private val homeTeamId: StateFlow<String?> =
+        routeTeamIdFlow(dbFlow, savedStateHandle, firstTeamIdFlow(dbFlow))
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** #EXP-2109 (sidebar-tree.json HOME): a plain chat's Teams pick, at least
+     *  one team (null = untouched: [homeTeamId]). */
+    private val _plainPick = MutableStateFlow<List<String>?>(null)
+    val plainTeamIds: StateFlow<List<String>> = combine(memberTeams, homeTeamId, _plainPick) { teams, home, pick ->
+        teams.map { it.id }.filter { pick != null && it in pick }.ifEmpty { listOfNotNull(home) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** The pick's change; null = every team checked, still a list. */
+    fun setPlainTeams(next: List<String>?) {
+        _plainPick.value = next ?: memberTeams.value.map { it.id }
+    }
+
+    /** A subject picked beside a team agent starts in that agent's team. */
+    fun keepTeamForLaunch() {
+        teamId.value?.let { _plainPick.value = listOf(it) }
+    }
+
     /**
-     * The team: the pools, the start's teamId, the upload scope. The
-     * SELECTED team, unless the seed names a team-owned subject (EXP-1186: a
-     * cross-team Actions/Reviews row starts in ITS team, [routeTeamIdFlow]).
+     * The team everything team-scoped follows (the pools, the start's teamId,
+     * the upload scope): a team agent's own team, else the plain chat's first
+     * picked one (the Assistant's sends carry their own Teams pick).
      */
-    val teamId: StateFlow<String?> =
-        routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId)
-            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
+    val teamId: StateFlow<String?> = combine(
+        plainTeamIds,
+        homeTeamId,
+        _recipient,
+        dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
+    ) { plain, home, recipient, agents ->
+        val agent = recipient?.let { id -> agents.firstOrNull { it.id == id } }
+        when {
+            recipient == null -> plain.firstOrNull()
+            agent != null && !agent.isAssistant -> agent.teamId
+            else -> home
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /** #EXP-2079 (agent-settings.json `assistant.chatTeams`): the teams the
      *  `#` issues and `@` members read: [teamId] unless that is the unsynced
@@ -254,12 +300,13 @@ class AgentComposerViewModel @Inject constructor(
     private val chatTeamIds: StateFlow<List<String>> =
         chatTeamIdsFlow(
             dbFlow,
-            teamId,
+            // A message to the Assistant reads every team's issues and members.
+            combine(teamId, _recipient, homeTeamId) { team, recipient, home -> team.takeUnless { recipient != null && it == home } },
             (routeSubject { savedStateHandle.get<String>(it) } as? com.exponential.app.data.RouteSubject.Chat)?.let { chat ->
                 dbFlow.scopedQuery<List<String>?>(null) { db -> db.sessionDao().observeById(chat.id).map { it?.scopeTeamIdList } }
             } ?: flowOf(null),
         ).flowOn(Dispatchers.Default)
-            .stateIn(viewModelScope, SharingStarted.Eagerly, listOfNotNull(selection.selectedId.value))
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // ── The shared launch rails ─────────────────────────────────────────────
     val steerEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
@@ -373,7 +420,7 @@ class AgentComposerViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            combine(auth.activeAccountId, teamId) { account, team -> account to team }.collect { (account, team) ->
+            combine(auth.activeAccountId, homeTeamId) { account, team -> account to team }.collect { (account, team) ->
                 draftBinding.bind(
                     account,
                     team?.let { com.exponential.app.domain.ComposerDraft.Target(com.exponential.app.domain.ComposerDraft.Kind.NewChat, it) },
@@ -685,13 +732,6 @@ class AgentComposerViewModel @Inject constructor(
         steerLaunch.clearFailure()
     }
 
-    // ── S-3: the agent row's pick (the recipient) ───────────────────────────
-    /** The picked team agent (null = Temporary session: today's launch). It
-     *  is NOT a subject (EXP-1450): the issue chips stay beside it and ride
-     *  the send as `issueIds`. */
-    private val _recipient = MutableStateFlow<String?>(null)
-    val recipient: StateFlow<String?> = _recipient
-
     // ── #EXP-1715: the Assistant's Teams pick (composer-menu.json `teamsPick`)
     private val _teamsPick = MutableStateFlow<List<String>?>(null)
     /** The pick while the recipient is the viewer's Assistant; null = every team. */
@@ -701,11 +741,10 @@ class AgentComposerViewModel @Inject constructor(
         _teamsPick.value = next
     }
 
-    /** The viewer's synced teams, the pick's rows (the switcher's order). */
-    val pickTeams: StateFlow<List<PickTeam>> =
-        dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.TeamEntity>()) { it.teamDao().observeAll() }
-            .map(::pickTeams)
-            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** The viewer's member teams, the pick's rows. */
+    val pickTeams: StateFlow<List<PickTeam>> = memberTeams
+        .map(::pickTeams)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The row's resolved agent (null = Temporary session). Never touches
      *  the subject: a late agents snapshot must not drop a seeded prompt. */
@@ -891,6 +930,7 @@ class AgentComposerViewModel @Inject constructor(
                 _mcpServers.value = emptyList()
                 _mcpServerIds.value = emptyList()
                 _skillPick.value = null
+                _chatRepoId.value = ""
                 val accountId = auth.activeAccountId.value
                 if (team == null || accountId == null) return@collectLatest
                 val servers = runCatching { mcpServersApi.list(accountId, team) }
@@ -925,7 +965,7 @@ class AgentComposerViewModel @Inject constructor(
 
     /**
      * EXP-1291: the composer's runner pickers + subject as ONE `sessions.send`
-     * NEW ROOT input (in the ACTIVE team, on the settled device). [text] is
+     * NEW ROOT input (in the picked team, on the settled device). [text] is
      * the composed prompt (image embeds included), [attachmentIds] the
      * uploaded files. Ultracode and computer use ride only where the agent /
      * device reads them (S-3: no plan mode).
@@ -963,6 +1003,8 @@ class AgentComposerViewModel @Inject constructor(
             ),
             mcpServerIds = _mcpServerIds.value,
             skillIds = skillIds.value,
+            // #EXP-2109: a plain chat's other picked teams ride along.
+            scopeTeamIds = plainTeamIds.value.filter { it != teamId },
         )
     }
 

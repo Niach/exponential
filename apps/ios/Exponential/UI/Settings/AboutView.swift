@@ -25,8 +25,7 @@ struct AboutView: View {
                 .padding(.bottom, 24)
             }
         }
-        .navigationTitle("About")
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .pageHeader("About", pushed: true)
     }
 
     private var appSection: some View {
