@@ -15,19 +15,29 @@ import { useInstallTrust, type InstallTrustView } from "@/lib/enet/use-install-t
 // The code is derived from the row's endpoint id on THIS install, never read
 // from the server. A failed action = the toast (feedback-states.json).
 
-function pendingRow(row: TrustRow, title: string): NestedNode {
+/** One install's row (install-trust.json `row`): the Row (label, the code,
+ *  the Badge), the two Buttons on their own line under it, so the code keeps
+ *  the row's width and is never truncated (down to 320 pt). */
+export function pendingRow(row: TrustRow, title: string): NestedNode {
   const copy = INSTALL_TRUST_COPY
   return {
     id: `install-${row.installId}`,
-    component: `Row`,
-    props: { title, subtitle: row.code },
-    slots: {
-      trailing: {
+    component: `Stack`,
+    props: { direction: `vertical`, gap: `sm` },
+    children: [
+      {
+        id: `install-${row.installId}-row`,
+        component: `Row`,
+        props: { title, subtitle: row.code },
+        slots: {
+          trailing: { id: `install-${row.installId}-badge`, component: `Badge`, props: { text: copy[row.kind], variant: `secondary` } },
+        },
+      },
+      {
         id: `install-${row.installId}-actions`,
         component: `Stack`,
         props: { direction: `horizontal`, gap: `sm` },
         children: [
-          { id: `install-${row.installId}-badge`, component: `Badge`, props: { text: copy[row.kind], variant: `secondary` } },
           {
             id: `install-${row.installId}-approve`,
             component: `Button`,
@@ -42,7 +52,7 @@ function pendingRow(row: TrustRow, title: string): NestedNode {
           },
         ],
       },
-    },
+    ],
   }
 }
 
