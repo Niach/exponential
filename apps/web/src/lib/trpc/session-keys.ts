@@ -475,8 +475,8 @@ export const sessionKeysRouter = router({
       const readersOf = await treeReadersMany(ctx.db, [...roots, ...stranded])
       const reads = (root: Session) => readersOf.get(root.id)?.has(input.installId)
       return [
-        ...roots.filter(reads).map((root) => ({ rootId: root.id, epoch: root.sealEpoch!, stranded: false })),
-        ...stranded.filter(reads).map((root) => ({ rootId: root.id, epoch: root.sealEpoch!, stranded: true })),
+        ...roots.filter(reads).map((root): { rootId: string; epoch: number; stranded?: true } => ({ rootId: root.id, epoch: root.sealEpoch! })),
+        ...stranded.filter(reads).map((root) => ({ rootId: root.id, epoch: root.sealEpoch!, stranded: true as const })),
       ].slice(0, input.limit)
     }),
 
