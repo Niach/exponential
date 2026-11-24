@@ -496,6 +496,10 @@
       "reason": "not in the resolved graph for any target in deny.toml — an optional or platform-gated dependency cargo never builds for us"
     },
     {
+      "package": "stall-watch@0.14.177",
+      "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
+    },
+    {
       "package": "steer@0.14.177",
       "reason": "workspace member — Exponential's own Apache-2.0 code, covered by the repository LICENSE"
     },
