@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-25-desktop-cli-0-14-179`,
+    date: `2026-11-25`,
+    title: `Spoken words in a call stay encrypted`,
+    summary: `Desktop and CLI 0.14.179: what you say in a voice call is never sent unencrypted, even when its encryption is not ready.`,
+    body: `- **Voice calls**: when the app or the daemon could not encrypt what you said in a call, it sent the words unencrypted. Now nothing leaves the device in that case.
+- **Everything from 0.14.178**: new devices need your OK, sessions start again on Windows, and cards stay encrypted.`,
+  },
+  {
     id: `2026-11-24-sidebar-menus`,
     date: `2026-11-24`,
     title: `Sidebar menus`,
