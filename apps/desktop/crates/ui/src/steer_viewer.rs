@@ -2164,6 +2164,9 @@ impl SteerSessionView {
         {
             let _span = tracing::trace_span!("steer.synced_tail").entered();
             self.refresh_synced_tail(focus.is_none(), cx);
+            // #EXP-2119: a held own row (HANDOFF) the tail draws is the
+            // tail's, in its place among the agent's lines: never twice.
+            without_synced(&mut self.own_tail, &self.synced_tail);
             self.offline_line = self.offline_line_label(focus.is_none(), cx);
         }
         // #EXP-1736: who sent each row (the bubbles, the avatars, the gaps);
@@ -2728,6 +2731,7 @@ impl SteerSessionView {
         // to running redials under `Starting` again.
         if let (Some(row), Some(handle)) = (row.as_ref(), self.source.handle()) {
             handle.note_session_status(row.is_ended());
+            handle.note_persistent(row.is_persistent());
         }
         if row.as_ref().is_some_and(domain::rows::SessionRow::is_ended) {
             // EXP-724: a run that ended mid-compaction never sends `ended`.
@@ -2793,6 +2797,7 @@ impl SteerSessionView {
         let empty = crate::queries::SessionDevicePresentation {
             label: None,
             offline: false,
+            online: false,
         };
         let (Some(row), Some(store)) = (self.row.as_ref(), sync::Store::try_global(cx)) else {
             return empty;
@@ -6136,11 +6141,15 @@ impl SteerSessionView {
                         row.busy,
                         host_away,
                         row.started_at.as_deref().is_some_and(|at| !at.is_empty()),
+                        false,
                     ) == steer::enet_steer::NoFeedState::Waiting
                 });
+            // #EXP-2119 (NO FEED): an ended row whose device is ONLINE has no
+            // transcript to send: never "offline".
+            let online = self.device(cx).online;
             let body: AnyElement = if never_held {
                 div().into_any_element()
-            } else if self.phase.is_device_offline() {
+            } else if self.phase.is_device_offline() && !online {
                 // VAPP-171: an ended row no device fed — the machine that
                 // holds its transcript, named (×4).
                 centered(vec![div()
@@ -6184,9 +6193,9 @@ impl SteerSessionView {
                         ))
                         .into_any_element(),
                 ])
-            } else if self.phase == ViewerPhase::Starting
+            } else if (self.phase == ViewerPhase::Starting || self.phase.is_device_offline())
                 && self.row.as_ref().is_some_and(|row| {
-                    steer::enet_steer::no_feed_state(row.is_ended(), row.busy)
+                    steer::enet_steer::no_feed_state_held(row.is_ended(), row.busy, host_away, true, online)
                         == steer::enet_steer::NoFeedState::Idle
                 })
             {
@@ -6587,7 +6596,8 @@ impl SteerSessionView {
         // moves the feed's generation every frame.)
         let feed_empty = self.feed.is_empty();
         let may_hold = !feed_empty && crate::session_outbox::may_hold(&viewer, now_ms, &rows);
-        let echoes: Vec<domain::message_delivery::HandoffEcho> = may_hold
+        let pending = !feed_empty && rows.iter().any(|row| row.is_from_user() && row.is_queued());
+        let echoes: Vec<domain::message_delivery::HandoffEcho> = (may_hold || pending)
             .then(|| self.feed.items())
             .into_iter()
             .flatten()
@@ -6601,6 +6611,11 @@ impl SteerSessionView {
         let (held, expiry) =
             crate::session_outbox::held_rows(&viewer, now_ms, feed_empty, &rows, &echoes);
         self.own_tail = crate::session_outbox::own_tail(&viewer, &rows, &held, &kept);
+        // #EXP-2119: a row the transcript echoes already is not drawn twice.
+        if pending {
+            let echoed = crate::session_outbox::echoed_pending(now_ms, &rows, &echoes);
+            self.own_tail.retain(|bubble| bubble.message_id.as_ref().is_none_or(|id| !echoed.contains(id)));
+        }
         // The reconcile may have dropped entries (a new revision).
         self.own_tail_key = Some((key.0, crate::session_outbox::revision(cx), key.2, key.3, key.4));
         if expiry != self.own_tail_expiry {
@@ -6658,6 +6673,7 @@ impl SteerSessionView {
             self.row_ended(),
             self.phase.is_device_offline(),
             self.host_away(cx),
+            self.device(cx).online,
         );
         (main && line).then(|| steer::enet_steer::no_feed_away(self.device(cx).label.as_deref()).0)
     }
@@ -11272,6 +11288,12 @@ fn dev_subagent() -> Option<&'static str> {
         .as_deref()
 }
 
+/// The own tail without the rows the synced tail draws: one bubble per
+/// message id.
+fn without_synced(own: &mut Vec<crate::session_outbox::OwnBubble>, synced: &[SyncedTailRow]) {
+    own.retain(|bubble| bubble.message_id.as_ref().is_none_or(|id| synced.iter().all(|row| row.id != *id)));
+}
+
 fn synced_tail_rows(live: bool, unreachable: bool, feed: &[FeedItem], messages: &[domain::rows::MessageRow]) -> Vec<SyncedTailRow> {
     use steer::enet_steer::{synced_tail, SyncedTailRow as Row, TailFeedRow};
     if live {
@@ -11624,6 +11646,15 @@ mod tests {
         let tail = synced_tail_rows(false, false, &recorded, &synced);
         assert_eq!(tail.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), ["m2"]);
         assert_eq!(tail[0].author_id.as_deref(), Some("u-mira"));
+        // #EXP-2119: the viewer's consumed line a dropped feed has no echo of
+        // is held by the HANDOFF too: drawn by the tail alone.
+        let mine = [message("m3", "u-alex", "One more", "2026-11-23T10:00:07.000Z")];
+        let rows = synced_tail_rows(false, false, &recorded, &mine);
+        assert_eq!(rows.len(), 1);
+        let mut own = crate::session_outbox::own_tail("u-alex", &mine, &["m3".to_string()], &[]);
+        assert_eq!(own.len(), 1);
+        without_synced(&mut own, &rows);
+        assert!(own.is_empty());
     }
 
     /// #EXP-2075 (steer-enet.json SYNCED TAIL): a teammate's consumed press,

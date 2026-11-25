@@ -21,7 +21,15 @@ vi.mock(`@tanstack/react-router`, () => ({
   useRouterState: ({ select }: { select: (s: unknown) => unknown }) =>
     select({ location }),
 }))
+// #EXP-2124: the Active rows' menu reads the placed sessions and THE chat
+// delete; neither is under test here.
+vi.mock(`@tanstack/react-db`, () => ({ and: () => null, eq: () => null, useLiveQuery: () => ({ data: [] }) }))
+vi.mock(`@/components/chat/chat-menu`, () => ({
+  useCanDeleteChat: () => false,
+  useChatActions: () => ({ requestDelete: () => {}, dialog: null }),
+}))
 vi.mock(`@/lib/collections`, () => ({
+  sidebarLayoutCollection: {},
   sessionCollection: {
     get: (id: string) =>
       id === `s-child` ? { id, rootId: `t-run`, cli: `claude` } : { id, rootId: id, cli: `claude` },

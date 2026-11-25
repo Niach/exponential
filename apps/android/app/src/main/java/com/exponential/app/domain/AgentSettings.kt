@@ -697,7 +697,9 @@ object AgentVoiceSection {
     const val ROW_CLIP = "clip"
     const val ROW_TRANSCRIPT = "transcript"
     const val ROW_WAKE_PHRASE = "wake-phrase"
-    val ROWS = listOf(ROW_LANGUAGE, ROW_CLIP, ROW_TRANSCRIPT, ROW_WAKE_PHRASE)
+    /** #EXP-1859: a TEAM agent's page only (the Assistant's keeps the member Wake word row). */
+    const val ROW_WAKE_WORD = "wake-word"
+    val ROWS = listOf(ROW_LANGUAGE, ROW_CLIP, ROW_TRANSCRIPT, ROW_WAKE_PHRASE, ROW_WAKE_WORD)
 
     object Copy {
         const val LABEL = "Voice"
@@ -734,6 +736,7 @@ object AgentVoiceSection {
         const val CLIP_REMOVE = "agent-voice-clip-remove"
         const val TRANSCRIPT = "agent-voice-transcript"
         const val WAKE_PHRASE = "agent-voice-wake-phrase"
+        const val WAKE_WORD = "agent-voice-wake-word"
     }
 
     fun clipUploadPath(agentId: String): String = ClipUpload.ROUTE.replace("{agentId}", agentId)
@@ -846,4 +849,183 @@ fun agentVoiceOf(role: String?, name: String, voice: AgentVoiceLike?, member: Me
         )
     }
     return ResolvedAgentVoice(language, null, AgentVoiceSection.Copy.CLIP_BUILT_IN, own.transcript ?: "", wakePhrase)
+}
+
+/**
+ * #EXP-1859 (agent-settings.json `voice.wake`, TS `wakeListeners` /
+ * `wakeRow` / `wakeToggle` / `wakeClash` / `wakePhraseClash`): wake phrases
+ * per agent. The member's voice device listens for the voice agent, then the
+ * team agents of `wakeAgentIds` that fit (at most [MAX_LISTENERS]); a team
+ * agent's `wake-word` row reads [row] and flips through [toggle].
+ */
+object AgentWake {
+    const val MAX_LISTENERS = 5
+    const val MAX_IDS = 32
+    /** talk-listen.json `wake.constants.maxEditRatio`. */
+    const val MAX_EDIT_RATIO = 0.25
+
+    object Copy {
+        const val WAKE_WORD = "Wake word"
+        const val ERROR_TOO_SHORT = "The wake phrase needs at least 6 letters"
+        const val ERROR_CLASH = "Sounds like {agent}'s wake phrase"
+        const val ERROR_CAP = "At most 5 agents listen at once"
+    }
+
+    data class AgentLike(val id: String, val role: String?, val name: String, val voice: AgentVoiceLike?)
+
+    data class SettingsLike(
+        val voiceDeviceId: String?,
+        /** The voice agent (the member's Assistant). */
+        val agentId: String?,
+        val wakeWord: Boolean,
+        val wakeAgentIds: List<String>,
+        val member: MemberVoiceLike,
+    )
+
+    data class Input(val settings: SettingsLike, val agents: List<AgentLike>)
+
+    data class Listener(val agentId: String, val phrase: String, val language: String)
+
+    data class Row(val on: Boolean, val error: String?)
+
+    data class Toggle(val wakeWord: Boolean, val wakeAgentIds: List<String>, val error: String?)
+
+    // The same table as the desktop's `wake_words` (etalk-engine wake.rs).
+    private val FOLD: Map<String, String> = buildMap {
+        "äáàâå".forEach { put(it.toString(), "a") }
+        "öóòô".forEach { put(it.toString(), "o") }
+        "üúùû".forEach { put(it.toString(), "u") }
+        "éèêë".forEach { put(it.toString(), "e") }
+        "íìîï".forEach { put(it.toString(), "i") }
+        put("ç", "c"); put("ñ", "n"); put("ß", "ss")
+    }
+
+    /** A phrase's letters (talk-listen.json `wake.words` joined without
+     *  spaces): letters and digits, lower case, accents folded. */
+    fun letters(phrase: String): String {
+        val out = StringBuilder()
+        var i = 0
+        while (i < phrase.length) {
+            val cp = phrase.codePointAt(i)
+            i += Character.charCount(cp)
+            if (!Character.isLetterOrDigit(cp)) continue
+            val lower = String(Character.toChars(cp)).lowercase()
+            var j = 0
+            while (j < lower.length) {
+                val c = lower.codePointAt(j)
+                j += Character.charCount(c)
+                val one = String(Character.toChars(c))
+                out.append(FOLD[one] ?: one)
+            }
+        }
+        return out.toString()
+    }
+
+    private fun codePoints(text: String): IntArray = text.codePoints().toArray()
+
+    private fun levenshtein(a: IntArray, b: IntArray): Int {
+        val row = IntArray(b.size + 1) { it }
+        for (i in a.indices) {
+            var diagonal = row[0]
+            row[0] = i + 1
+            for (j in b.indices) {
+                val above = row[j + 1]
+                row[j + 1] = minOf(above + 1, row[j] + 1, diagonal + if (a[i] == b[j]) 0 else 1)
+                diagonal = above
+            }
+        }
+        return row[b.size]
+    }
+
+    /** `clashCases`: alike enough for the matcher to take one for the other,
+     *  or one starting with the other. */
+    fun clash(a: String, b: String): Boolean {
+        val left = codePoints(letters(a))
+        val right = codePoints(letters(b))
+        val (short, long) = if (right.size < left.size) right to left else left to right
+        val tolerance = kotlin.math.floor(short.size * MAX_EDIT_RATIO).toInt()
+        return minOf(levenshtein(short, long), levenshtein(short, long.copyOfRange(0, minOf(short.size, long.size)))) <= tolerance
+    }
+
+    /** The phrase an agent wakes with: its voice's ([agentVoiceOf]), else `Hey {name}`. */
+    fun wakePhraseOf(agent: AgentLike, member: MemberVoiceLike): String {
+        val phrase = agentVoiceOf(agent.role, agent.name, agent.voice, member).wakePhrase
+        return if (phrase.isNotBlank()) phrase else AgentVoiceSection.wakePhrasePlaceholder(agent.name)
+    }
+
+    /** voice.json `wakePhraseError` for a resolved phrase: too few letters. */
+    private fun tooShort(phrase: String): Boolean =
+        codePoints(phrase.trim()).count { Character.isLetter(it) } < AgentVoiceSection.Limits.WAKE_PHRASE_MIN_LETTERS
+
+    private fun isTeamAgent(agent: AgentLike): Boolean = agent.role != DomainContract.agentRoleAssistant
+
+    private data class Named(val listener: Listener, val name: String)
+
+    private fun refusal(agent: AgentLike, input: Input, listeners: List<Named>): String? {
+        val phrase = wakePhraseOf(agent, input.settings.member)
+        if (tooShort(phrase)) return Copy.ERROR_TOO_SHORT
+        listeners.firstOrNull { clash(it.listener.phrase, phrase) }?.let { return Copy.ERROR_CLASH.replace("{agent}", it.name) }
+        if (listeners.size >= MAX_LISTENERS) return Copy.ERROR_CAP
+        return null
+    }
+
+    private fun named(agent: AgentLike, member: MemberVoiceLike): Named = Named(
+        Listener(agent.id, wakePhraseOf(agent, member), agentVoiceOf(agent.role, agent.name, agent.voice, member).language),
+        agent.name,
+    )
+
+    private fun namedListeners(input: Input): List<Named> {
+        val s = input.settings
+        if (!s.wakeWord || s.voiceDeviceId.isNullOrEmpty() || s.agentId.isNullOrEmpty()) return emptyList()
+        val voiceAgent = input.agents.firstOrNull { it.id == s.agentId } ?: return emptyList()
+        val out = mutableListOf(named(voiceAgent, s.member))
+        for (id in s.wakeAgentIds) {
+            val agent = input.agents.firstOrNull { it.id == id } ?: continue
+            if (!isTeamAgent(agent) || out.any { it.listener.agentId == id }) continue
+            if (refusal(agent, input, out) != null) continue
+            out += named(agent, s.member)
+        }
+        return out
+    }
+
+    /** `listenersCases`: who the voice device listens for, in order. */
+    fun listeners(input: Input): List<Listener> = namedListeners(input).map { it.listener }
+
+    /** `rowCases`: a team agent's Wake word row: on, and why it does not
+     *  listen (null = it does, or it is off). */
+    fun row(input: Input, agentId: String): Row {
+        val s = input.settings
+        val on = s.wakeWord && agentId in s.wakeAgentIds
+        if (!on) return Row(false, null)
+        val agent = input.agents.firstOrNull { it.id == agentId }
+        if (agent == null || !isTeamAgent(agent)) return Row(true, null)
+        val index = s.wakeAgentIds.indexOf(agentId)
+        val before = namedListeners(input.copy(settings = s.copy(wakeAgentIds = s.wakeAgentIds.take(index))))
+        if (before.any { it.listener.agentId == agentId }) return Row(true, null)
+        return Row(true, refusal(agent, input, before))
+    }
+
+    /** `toggleCases`: a flip. Off drops the id (Wake word as it was); on
+     *  appends it once and turns Wake word on, unless refused (unchanged,
+     *  `error` = the copy). Not a team agent = the server's NOT_FOUND. */
+    fun toggle(input: Input, agentId: String, on: Boolean): Toggle {
+        val s = input.settings
+        val ids = s.wakeAgentIds
+        if (!on) return Toggle(s.wakeWord, ids.filter { it != agentId }, null)
+        val agent = input.agents.firstOrNull { it.id == agentId }
+        if (agent == null || !isTeamAgent(agent)) return Toggle(s.wakeWord, ids, null)
+        val others = ids.filter { it != agentId }
+        val listeners = namedListeners(input.copy(settings = s.copy(wakeWord = true, wakeAgentIds = others)))
+            .filter { it.listener.agentId != agentId }
+        val error = refusal(agent, input, listeners)
+        if (error != null) return Toggle(s.wakeWord, ids, error)
+        return Toggle(true, if (agentId in ids) ids else ids + agentId, null)
+    }
+
+    /** `phraseClashCases`: the first OTHER team agent whose phrase [phrase]
+     *  sounds like (an Assistant never counts); null = none. */
+    fun phraseClash(phrase: String, agentId: String, agents: List<AgentLike>): String? {
+        val member = MemberVoiceLike(language = "", voiceFile = "", voiceTranscript = "", wakePhrase = "")
+        return agents.firstOrNull { it.id != agentId && isTeamAgent(it) && clash(wakePhraseOf(it, member), phrase) }?.name
+    }
 }

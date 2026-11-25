@@ -77,6 +77,10 @@ use crate::{Backoff, SteerRuntime};
 /// be reached: the transcript lives on that machine.
 pub const DEVICE_OFFLINE: &str = "device_offline";
 
+/// The `bye` outcome of a run its host suspended (`engine::SUSPEND_OUTCOME`):
+/// the same session comes back.
+pub const SUSPENDED: &str = "suspended";
+
 /// Steer `input` frames stay under 8 KiB; chunk well under that. The cap
 /// is measured in UTF-16 code units — every client validates against a JS
 /// string's `length` — so the chunker counts UTF-16 units too (web
@@ -211,6 +215,7 @@ impl ViewerPhase {
     /// Whether the loop has stopped for good.
     pub fn is_terminal(&self) -> bool {
         !self.is_device_offline()
+            && !self.is_suspended()
             && matches!(
                 self,
                 ViewerPhase::Ended { .. } | ViewerPhase::Unauthorized { .. }
@@ -221,6 +226,13 @@ impl ViewerPhase {
     /// redials.
     pub fn is_device_offline(&self) -> bool {
         matches!(self, ViewerPhase::Ended { outcome: Some(outcome) } if outcome == DEVICE_OFFLINE)
+    }
+
+    /// #EXP-2119: the run's host suspended it (a daemon restart, an idle
+    /// engine): the transcript holds, the loop redials on a kick, a row wake
+    /// or the stale beat, like the device-offline end.
+    pub fn is_suspended(&self) -> bool {
+        matches!(self, ViewerPhase::Ended { outcome: Some(outcome) } if outcome == SUSPENDED)
     }
 
     fn device_offline() -> Self {
@@ -330,6 +342,7 @@ pub struct ViewerHandle {
     session_ended: Arc<AtomicBool>,
     /// #EXP-1703: the host device is offline in presence.
     host_offline: Arc<AtomicBool>,
+    persistent: Arc<AtomicBool>,
     carrier: Arc<AtomicU8>,
 }
 
@@ -481,6 +494,13 @@ impl ViewerHandle {
         self.host_offline.store(offline, Ordering::SeqCst);
     }
 
+    /// #EXP-2119: the session is PERSISTENT (an agent's conversation): its
+    /// run's `bye` (a restart that took the agent down with it, `exit:143`)
+    /// is not its end while the row lives.
+    pub fn note_persistent(&self, persistent: bool) {
+        self.persistent.store(persistent, Ordering::SeqCst);
+    }
+
     /// Close the connection for good (the tab closed, the app is signing
     /// out). Idempotent.
     pub fn shutdown(&self) {
@@ -589,6 +609,7 @@ pub fn spawn_viewer_with(
     let connected = Arc::new(AtomicBool::new(false));
     let session_ended = Arc::new(AtomicBool::new(false));
     let host_offline = Arc::new(AtomicBool::new(false));
+    let persistent = Arc::new(AtomicBool::new(false));
     let carrier = Arc::new(AtomicU8::new(0));
     let handle = ViewerHandle {
         cmd_tx,
@@ -597,6 +618,7 @@ pub fn spawn_viewer_with(
         running: running.clone(),
         session_ended: session_ended.clone(),
         host_offline: host_offline.clone(),
+        persistent: persistent.clone(),
         carrier: carrier.clone(),
     };
     runtime.handle().spawn(run_viewer_loop(
@@ -609,6 +631,7 @@ pub fn spawn_viewer_with(
         connected,
         session_ended,
         host_offline,
+        persistent,
         carrier,
     ));
     handle
@@ -764,6 +787,8 @@ struct Run {
     session_ended: Arc<AtomicBool>,
     /// #EXP-1703: [`ViewerHandle::note_host_offline`].
     host_offline: Arc<AtomicBool>,
+    /// #EXP-2119: [`ViewerHandle::note_persistent`].
+    persistent: Arc<AtomicBool>,
     carrier_flag: Arc<AtomicU8>,
     phases: Phases,
     backoff: Backoff,
@@ -785,6 +810,8 @@ struct Run {
     /// ROW WAKE landed while an eNet dial was out: that dial's NO FEED
     /// redials at once (cleared by a feed).
     row_woke: bool,
+    /// #EXP-2119: the host suspended the run (its `bye`); cleared by a feed.
+    suspended: bool,
     stats: ViewStats,
 }
 
@@ -799,6 +826,7 @@ async fn run_viewer_loop(
     connected: Arc<AtomicBool>,
     session_ended: Arc<AtomicBool>,
     host_offline: Arc<AtomicBool>,
+    persistent: Arc<AtomicBool>,
     carrier_flag: Arc<AtomicU8>,
 ) {
     let (legs_tx, legs_rx) = flume::unbounded();
@@ -813,6 +841,7 @@ async fn run_viewer_loop(
         connected,
         session_ended,
         host_offline,
+        persistent,
         carrier_flag,
         carriers: CarrierState::INITIAL,
         enet_leg: None,
@@ -827,6 +856,7 @@ async fn run_viewer_loop(
         relay_failed: false,
         lost: None,
         row_woke: false,
+        suspended: false,
         stats: ViewStats::new(),
     };
     run.phases.set(ViewerPhase::Connecting);
@@ -858,6 +888,10 @@ async fn run_viewer_loop(
                 // `run` holds a sender: the channel never closes.
                 let Ok(msg) = msg else { continue };
                 if let Some(outcome) = run.leg_msg(msg) {
+                    if run.comes_back(outcome.as_deref()) {
+                        run.suspend();
+                        continue;
+                    }
                     run.close();
                     stop(&run.running, &mut run.phases, ViewerPhase::Ended { outcome });
                     return;
@@ -937,13 +971,43 @@ impl Run {
         apply
     }
 
+    /// #EXP-2119: whether a `bye` says the RUN is over, not the session: a
+    /// suspended run, or a persistent session's whose row still lives (a
+    /// person's kill and a served journal are ends).
+    fn comes_back(&self, outcome: Option<&str>) -> bool {
+        outcome == Some(SUSPENDED)
+            || (self.persistent.load(Ordering::SeqCst)
+                && !self.session_ended.load(Ordering::SeqCst)
+                && !matches!(outcome, Some("killed") | Some(crate::history::HISTORY_OUTCOME)))
+    }
+
+    /// #EXP-2119: the active carrier's `bye` of a run that comes back: both legs go, the
+    /// transcript holds under [`ViewerPhase::is_suspended`] (no lost banner),
+    /// ONE redial per stale beat, sooner on a kick or a row wake.
+    fn suspend(&mut self) {
+        for leg in [self.enet_leg.take(), self.relay_leg.take()].into_iter().flatten() {
+            let _ = leg.out.send(LegOut::Close);
+        }
+        let before = self.carriers.active;
+        self.carriers = CarrierState::INITIAL;
+        self.sync_active(before);
+        self.suspended = true;
+        self.lost = None;
+        self.stall_at = None;
+        self.relay_reopen_at = None;
+        self.relay_attempt = 0;
+        self.backoff.reset();
+        self.phases.set(ViewerPhase::Ended { outcome: Some(SUSPENDED.to_string()) });
+        self.enet_redial_at = Some(Instant::now() + self.timings.offline_redial);
+    }
+
     /// The next eNet redial's wait: the `startingRetry` backoff (reset by a
     /// feed, see [`Run::apply`]). VAPP-169: under the device-offline copy
     /// (both carriers failed, the row ended) the slow beat; #EXP-1703: so
     /// does a live row's NO FEED while its host is offline in presence.
     fn redial_delay(&mut self) -> Duration {
         let away = self.session_ended.load(Ordering::SeqCst) || self.host_offline.load(Ordering::SeqCst);
-        if away && self.relay_failed {
+        if self.suspended || away && self.relay_failed {
             self.timings.offline_redial
         } else {
             self.backoff.next_delay_equal_jitter()
@@ -1135,6 +1199,19 @@ impl Run {
         if !(self.enet_failed && self.relay_failed) {
             return;
         }
+        // #EXP-2119: a suspended run's failed redial waits for the next beat;
+        // the relay is not retried on its own meanwhile.
+        if self.suspended && !self.session_ended.load(Ordering::SeqCst) {
+            if let Some(leg) = self.relay_leg.take() {
+                let _ = leg.out.send(LegOut::Close);
+            }
+            self.carriers = CarrierState::INITIAL;
+            self.relay_reopen_at = None;
+            if self.enet_leg.is_none() && self.enet_redial_at.is_none() {
+                self.enet_redial_at = Some(Instant::now() + self.timings.offline_redial);
+            }
+            return;
+        }
         // #EXP-1678 STARTING REDIAL: NO FEED always has an eNet redial due
         // (a kick cuts it short).
         if self.enet_leg.is_none() && self.enet_redial_at.is_none() {
@@ -1155,6 +1232,7 @@ impl Run {
         if matches!(frame, Some(ViewerFrame::Activity { .. } | ViewerFrame::ActivityReset)) {
             if !self.phases.is(&ViewerPhase::Live) {
                 self.phases.set(ViewerPhase::Live);
+                self.suspended = false;
                 self.backoff.reset();
                 self.row_woke = false;
             }
@@ -1196,6 +1274,7 @@ impl Run {
     /// is left alone (its legs watch their own staleness).
     fn kick(&mut self) {
         let now = Instant::now();
+        self.suspended = false;
         if self.enet_leg.is_none() && self.carriers.active != Some(Carrier::Enet) {
             self.enet_redial_at = Some(now);
         }
@@ -1212,6 +1291,9 @@ impl Run {
             return;
         }
         self.backoff.reset();
+        // #EXP-2119: the run is back: a suspended feed redials like a
+        // starting one until it lands, no longer once per stale beat.
+        self.suspended = false;
         if self.enet_leg.is_some() {
             self.row_woke = true;
         } else {
@@ -1734,6 +1816,9 @@ mod tests {
     fn the_device_offline_end_is_not_terminal() {
         assert!(!ViewerPhase::device_offline().is_terminal());
         assert!(ViewerPhase::device_offline().is_device_offline());
+        // #EXP-2119: neither is a suspended run's.
+        let suspended = ViewerPhase::Ended { outcome: Some(SUSPENDED.into()) };
+        assert!(suspended.is_suspended() && !suspended.is_terminal() && !suspended.is_device_offline());
         assert!(ViewerPhase::Ended { outcome: Some("history".into()) }.is_terminal());
         assert!(ViewerPhase::Ended { outcome: None }.is_terminal());
     }

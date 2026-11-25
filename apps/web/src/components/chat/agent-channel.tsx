@@ -3,6 +3,7 @@ import { useEffect, useState } from "react"
 import { Navigate, useNavigate } from "@tanstack/react-router"
 import {
   FAB_CLEARANCE_CLASS,
+  agentGlyph,
   BoardGlyph,
   conceptIcon,
   EmptyState,
@@ -143,7 +144,7 @@ export function AgentChannel({
       {assistant ? (
         <ExponentialLogo variant="light" className="h-auto size-5 text-foreground" />
       ) : (
-        <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className="size-5" />
+        <BoardGlyph board={agentGlyph(agent)} className="size-5" />
       )}
     </span>
   )
@@ -188,7 +189,7 @@ export function AgentChannel({
           assistant ? (
             <ExponentialLogo variant="light" />
           ) : (
-            <BoardGlyph board={{ icon: agent.icon, color: agent.color }} />
+            <BoardGlyph board={agentGlyph(agent)} />
           )
         }
       />

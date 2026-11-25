@@ -90,14 +90,17 @@ pub fn no_feed_state(ended: bool, busy: bool) -> NoFeedState {
 /// EXP-1487 / #EXP-1703 (TS `steerNoFeedState`): ended first, then a host
 /// device offline in presence (`away`), then busy = starting, else idle.
 pub fn no_feed_state_on(ended: bool, busy: bool, device_offline: bool) -> NoFeedState {
-    no_feed_state_held(ended, busy, device_offline, true)
+    no_feed_state_held(ended, busy, device_offline, true, false)
 }
 
 /// #EXP-2000 (TS `steerNoFeedState` with `started`): as [`no_feed_state_on`],
 /// but an idle row no device picked up yet (`started` false = `startedAt`
-/// null) is [`NoFeedState::Waiting`], never the idle copy.
-pub fn no_feed_state_held(ended: bool, busy: bool, device_offline: bool, started: bool) -> NoFeedState {
+/// null) is [`NoFeedState::Waiting`], never the idle copy. #EXP-2119: an
+/// ended row whose device is ONLINE in presence (`device_online`; unknown =
+/// false) has no transcript to send: the idle copy, never "offline".
+pub fn no_feed_state_held(ended: bool, busy: bool, device_offline: bool, started: bool, device_online: bool) -> NoFeedState {
     match (ended, device_offline, busy) {
+        (true, _, _) if device_online => NoFeedState::Idle,
         (true, _, _) => NoFeedState::Offline,
         (false, true, _) => NoFeedState::Away,
         (false, false, true) => NoFeedState::Starting,
@@ -292,8 +295,8 @@ pub fn synced_tail<'r, T>(
 /// not-live transcript showing `rows` ends with THE inline marker reading
 /// `noFeedAway.title`: an ended row whose last dial said NO FEED, a row not
 /// ended whose device is offline.
-pub fn offline_line(live: bool, rows: usize, ended: bool, no_feed: bool, device_offline: bool) -> bool {
-    if live || rows == 0 {
+pub fn offline_line(live: bool, rows: usize, ended: bool, no_feed: bool, device_offline: bool, device_online: bool) -> bool {
+    if live || rows == 0 || device_online {
         return false;
     }
     if ended { no_feed } else { device_offline }
@@ -1373,11 +1376,13 @@ mod tests {
             let device_offline = case["deviceOffline"].as_bool().unwrap_or(false);
             // #EXP-2000: `started` absent = true.
             let started = case["started"].as_bool().unwrap_or(true);
-            assert_eq!(no_feed_state_held(ended, busy, device_offline, started), state, "{}", case["name"]);
-            if started {
+            // #EXP-2119: `deviceOnline` absent = false.
+            let device_online = case["deviceOnline"].as_bool().unwrap_or(false);
+            assert_eq!(no_feed_state_held(ended, busy, device_offline, started, device_online), state, "{}", case["name"]);
+            if started && !device_online {
                 assert_eq!(no_feed_state_on(ended, busy, device_offline), state, "{}", case["name"]);
             }
-            if !device_offline && started {
+            if !device_offline && started && !device_online {
                 assert_eq!(no_feed_state(ended, busy), state, "{}", case["name"]);
             }
         }
@@ -1464,7 +1469,8 @@ mod tests {
                 case["rows"].as_u64().unwrap() as usize,
                 case["ended"].as_bool().unwrap(),
                 case["noFeed"].as_bool().unwrap(),
-                case["deviceOffline"].as_bool().unwrap(),
+                case["deviceOffline"].as_bool().unwrap_or(false),
+                case["deviceOnline"].as_bool().unwrap_or(false),
             );
             assert_eq!(line, case["line"].as_bool().unwrap(), "{}", case["name"]);
         }

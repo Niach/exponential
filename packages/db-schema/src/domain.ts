@@ -1373,6 +1373,8 @@ export const questionCardSchema = z
 export type MessageCard =
   | {
       kind: `question`
+      /** #EXP-2119: the person who answered (server-written, clear). */
+      answeredBy?: string | null
       question: string
       options?: QuestionCardOption[]
       /** EXP-1322 sidecar, parallel to `options`; absent when no option has a description. */
@@ -1397,6 +1399,8 @@ export type MessageCard =
     }
   | {
       kind: `plan`
+      /** #EXP-2119: the person who answered (server-written, clear). */
+      answeredBy?: string | null
       plan: string
       /** EXP-1280: the upload namespace, the choice questions, the inline surface. */
       pictures?: PlanCardPicture[] | null

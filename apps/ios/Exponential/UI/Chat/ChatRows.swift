@@ -594,7 +594,12 @@ struct ChatRows: Sendable {
         let xrefAgents = xrefAgentIds.isEmpty
             ? []
             : try AgentDefinitionEntity.filter(Array(xrefAgentIds).contains(Column("id"))).fetchAll(db)
-        let authorIds = Set(messages.compactMap(\.authorId))
+        // A shared chat's feed names any member of its team, one without a
+        // message of their own too (#EXP-2119: who answered a card).
+        var authorIds = Set(messages.compactMap(\.authorId))
+        if root.shared {
+            authorIds.formUnion(try TeamMemberEntity.filter(Column("team_id") == root.teamId).fetchAll(db).map(\.userId))
+        }
         let users = authorIds.isEmpty
             ? []
             : try UserEntity.filter(Array(authorIds).contains(Column("id"))).fetchAll(db)
@@ -712,7 +717,7 @@ struct ChatRows: Sendable {
                 FROM "messages" "m"
                 WHERE "m"."root_id" = ?1 AND "m"."session_id" IS NOT NULL AND "m"."session_id" <> ''
                 """, arguments: [id]) ?? "",
-            try stamp(db, table: "users", where: "\"id\" IN (SELECT \"author_id\" FROM \"messages\" WHERE \"root_id\" = ?1)", id),
+            try stamp(db, table: "users", where: "\"id\" IN (SELECT \"author_id\" FROM \"messages\" WHERE \"root_id\" = ?1) OR \"id\" IN (SELECT \"user_id\" FROM \"team_members\" WHERE \"team_id\" = (SELECT \"team_id\" FROM \"sessions\" WHERE \"id\" = ?1))", id),
             try digest(db, table: "session_issues", where: "\"session_id\" = ?1", id),
             try stamp(db, table: "issues", where: "\"id\" IN (SELECT \"issue_id\" FROM \"session_issues\" WHERE \"session_id\" = ?1)", id),
             try stamp(db, table: "issue_relations", where: "\"type\" = 'parent'", nil),

@@ -6,6 +6,8 @@
 //! - `voice.update(partial)` → the stored settings (mutation; the server
 //!   refuses a device that is not the member's desktop or an agent outside
 //!   the member's teams, and applies clearOnNone).
+//! - #EXP-1859 `voice.wakeAgent({agentId, on})` → the stored settings
+//!   (mutation; one team agent's wake phrase on/off).
 //!
 //! The same settings ride every `devices.heartbeat` as `voice`, which is how
 //! the IDE learns of a change made on another client.
@@ -204,6 +206,21 @@ struct StartCallInput<'a> {
     /// Not sent when false: today's input.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     seal: bool,
+    /// #EXP-1859: skipped when None, so an older server still accepts it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mode: Option<StartCallMode>,
+    /// #EXP-1859: the wake phrase that opened a `turn` (at most 64 chars).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    phrase: Option<&'a str>,
+}
+
+/// #EXP-1859: `voice.startCall`'s `mode`: a full call, or ONE turn opened by
+/// an agent's wake phrase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StartCallMode {
+    Call,
+    Turn,
 }
 
 /// EXP-1857: `voice.startCall`'s answer: the caller's ticket URL and the
@@ -236,7 +253,13 @@ pub fn voice_start_call(trpc: &TrpcClient, agent_id: &str, device_id: &str) -> R
 /// first, `coding::sealing`'s service wait; only a caller that can never
 /// hold keys dials without the claim). The answer's `seal` is the mode.
 pub fn voice_start_call_claiming(trpc: &TrpcClient, agent_id: &str, device_id: &str, seal: bool) -> Result<StartedCall, ApiError> {
-    trpc.mutation("voice.startCall", &StartCallInput { agent_id, platform: "desktop", device_id, seal })
+    trpc.mutation("voice.startCall", &StartCallInput { agent_id, platform: "desktop", device_id, seal, mode: None, phrase: None })
+}
+
+/// #EXP-1859: [`voice_start_call_claiming`] as ONE `Turn` opened by a heard
+/// wake phrase (`phrase` = the listener's); the claim holds as for a call.
+pub fn voice_start_turn(trpc: &TrpcClient, agent_id: &str, device_id: &str, phrase: &str, seal: bool) -> Result<StartedCall, ApiError> {
+    trpc.mutation("voice.startCall", &StartCallInput { agent_id, platform: "desktop", device_id, seal, mode: Some(StartCallMode::Turn), phrase: Some(phrase) })
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -274,6 +297,21 @@ pub fn voice_call_conversation(
     trpc.mutation("voice.callConversation", &CallConversationInput { agent_id, seal, call_id, device_id })
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WakeAgentInput<'a> {
+    agent_id: &'a str,
+    on: bool,
+}
+
+/// #EXP-1859: `voice.wakeAgent({agentId, on})` — mutation; the `wake-word`
+/// row's flip (agent-settings.json `voice.wake` `wakeToggle`), answering the
+/// new settings. Refused with `BAD_REQUEST` (the copy as the message: too
+/// short, clash, cap) or `NOT_FOUND` (not a team agent of the member's teams).
+pub fn voice_wake_agent(trpc: &TrpcClient, agent_id: &str, on: bool) -> Result<VoiceSettings, ApiError> {
+    trpc.mutation("voice.wakeAgent", &WakeAgentInput { agent_id, on })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,22 +337,32 @@ mod tests {
         assert_eq!(serde_json::to_string(&host).unwrap(), r#"{"callId":"c1","deviceId":"d-mac"}"#);
         let old = CallHostTicketInput { call_id: "c1", device_id: None, agent_id: None };
         assert_eq!(serde_json::to_string(&old).unwrap(), r#"{"callId":"c1"}"#);
-        let start = StartCallInput { agent_id: "a1", platform: "desktop", device_id: "d-mac", seal: false };
+        let start = StartCallInput { agent_id: "a1", platform: "desktop", device_id: "d-mac", seal: false, mode: None, phrase: None };
         assert_eq!(serde_json::to_string(&start).unwrap(), r#"{"agentId":"a1","platform":"desktop","deviceId":"d-mac"}"#);
         // #EXP-1941: the claim and the ring's agent are new fields; without
         // them the inputs above are today's, byte for byte.
-        let claiming = StartCallInput { agent_id: "a1", platform: "desktop", device_id: "d-mac", seal: true };
+        let claiming = StartCallInput { agent_id: "a1", platform: "desktop", device_id: "d-mac", seal: true, mode: None, phrase: None };
         assert_eq!(serde_json::to_string(&claiming).unwrap(), r#"{"agentId":"a1","platform":"desktop","deviceId":"d-mac","seal":true}"#);
         let naming = CallHostTicketInput { call_id: "c1", device_id: Some("d-mac"), agent_id: Some("a1") };
         assert_eq!(serde_json::to_string(&naming).unwrap(), r#"{"callId":"c1","deviceId":"d-mac","agentId":"a1"}"#);
         let ticket: CallTicket = serde_json::from_str(r#"{"url":"wss://r/x?ticket=t","seal":true}"#).unwrap();
         assert!(ticket.seal && !serde_json::from_str::<CallTicket>(r#"{"url":"u"}"#).unwrap().seal, "an older server names no mode");
+        let turn = StartCallInput { agent_id: "a1", platform: "desktop", device_id: "d-mac", seal: false, mode: Some(StartCallMode::Turn), phrase: Some("Hey Ops") };
+        assert_eq!(serde_json::to_string(&turn).unwrap(), r#"{"agentId":"a1","platform":"desktop","deviceId":"d-mac","mode":"turn","phrase":"Hey Ops"}"#);
+        assert_eq!(serde_json::to_string(&StartCallMode::Call).unwrap(), r#""call""#);
         let started: StartedCall = serde_json::from_str(
             r#"{"callId":"c1","ticket":"t","url":"wss://r/x?ticket=t","relayUrl":"wss://r","deviceId":"d-mint","device":"mint","fallback":true}"#,
         )
         .unwrap();
         assert_eq!((started.device.as_str(), started.fallback, started.url.as_str()), ("mint", true, "wss://r/x?ticket=t"));
         assert!(!started.seal, "an older server names no mode: today's wire");
+    }
+
+    /// #EXP-1859: the `wake-word` row's flip.
+    #[test]
+    fn wake_agent_input_names_the_agent_and_the_flip() {
+        let input = WakeAgentInput { agent_id: "a-ops", on: true };
+        assert_eq!(serde_json::to_string(&input).unwrap(), r#"{"agentId":"a-ops","on":true}"#);
     }
 
     #[test]

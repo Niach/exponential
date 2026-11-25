@@ -1038,6 +1038,9 @@ pub(crate) struct SessionDevicePresentation {
     /// window. Always `false` when no `devices` row resolves — an unknown
     /// machine is never accused of being offline.
     pub offline: bool,
+    /// #EXP-2119: the resolved machine IS online in presence (`false` when no
+    /// `devices` row resolves).
+    pub online: bool,
 }
 
 /// Resolve `session`'s host machine against the synced `devices` rows
@@ -1048,13 +1051,18 @@ pub(crate) fn session_device_presentation<'a>(
     now_ms: i64,
 ) -> SessionDevicePresentation {
     match session_device_row(session, devices) {
-        Some(row) => SessionDevicePresentation {
-            label: row.label.clone().filter(|label| !label.trim().is_empty()),
-            offline: !crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms),
-        },
+        Some(row) => {
+            let online = crate::device_settings::row_is_online(row.last_seen_at.as_deref(), now_ms);
+            SessionDevicePresentation {
+                label: row.label.clone().filter(|label| !label.trim().is_empty()),
+                offline: !online,
+                online,
+            }
+        }
         None => SessionDevicePresentation {
             label: None,
             offline: false,
+            online: false,
         },
     }
 }

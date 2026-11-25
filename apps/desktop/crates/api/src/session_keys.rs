@@ -53,7 +53,9 @@ pub struct HeldKey {
     pub signer_endpoint_id: Option<String>,
 }
 
-/// A reader still missing the current epoch's wrap (`pending`).
+/// A reader still missing a wrap of an epoch this install holds (`pending`):
+/// the current one, or (#EXP-2119) a superseded one. `public_key` is empty
+/// for a superseded epoch the server knows no key of.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingWrap {
@@ -139,6 +141,9 @@ struct PendingInput<'a> {
     /// one pass over all roots is capped and sorted by root id).
     #[serde(skip_serializing_if = "Option::is_none")]
     root_ids: Option<&'a [String]>,
+    /// #EXP-2119 (`rotation` OLDER EPOCHS): also pairs of a superseded epoch
+    /// the server knows no public key of (an older server strips it).
+    older_epochs: bool,
 }
 
 #[derive(Serialize)]
@@ -177,10 +182,10 @@ pub fn mine(trpc: &TrpcClient, install_id: &str, root_ids: Option<&[String]>) ->
     trpc.query_with_input("sessionKeys.mine", &MineInput { install_id, root_ids })
 }
 
-/// `sessionKeys.pending`: readers without the current epoch's wrap on trees
-/// this install holds. Automatic: answer every pair with [`wrap`].
+/// `sessionKeys.pending`: readers without the wrap of an epoch (current, and
+/// #EXP-2119 older ones) on trees this install holds. Automatic: answer every pair with [`wrap`].
 pub fn pending(trpc: &TrpcClient, install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError> {
-    trpc.query_with_input("sessionKeys.pending", &PendingInput { install_id, limit: PENDING_MAX, root_ids })
+    trpc.query_with_input("sessionKeys.pending", &PendingInput { install_id, limit: PENDING_MAX, root_ids, older_epochs: true })
 }
 
 /// `sessionKeys.wrap`: only pairs `pending` lists.
@@ -283,11 +288,11 @@ mod tests {
         let json = serde_json::to_value(MineInput { install_id: "i", root_ids: None }).unwrap();
         assert_eq!(json, serde_json::json!({"installId":"i"}));
         // #EXP-1941: `pending` by root; without roots the input is today's.
-        let json = serde_json::to_value(PendingInput { install_id: "i", limit: PENDING_MAX, root_ids: None }).unwrap();
-        assert_eq!(json, serde_json::json!({"installId":"i","limit":200}));
+        let json = serde_json::to_value(PendingInput { install_id: "i", limit: PENDING_MAX, root_ids: None, older_epochs: true }).unwrap();
+        assert_eq!(json, serde_json::json!({"installId":"i","limit":200,"olderEpochs":true}));
         let roots = ["r".to_string()];
-        let json = serde_json::to_value(PendingInput { install_id: "i", limit: PENDING_MAX, root_ids: Some(&roots) }).unwrap();
-        assert_eq!(json, serde_json::json!({"installId":"i","limit":200,"rootIds":["r"]}));
+        let json = serde_json::to_value(PendingInput { install_id: "i", limit: PENDING_MAX, root_ids: Some(&roots), older_epochs: true }).unwrap();
+        assert_eq!(json, serde_json::json!({"installId":"i","limit":200,"rootIds":["r"],"olderEpochs":true}));
         let rows: Vec<PendingWrap> = serde_json::from_str(
             r#"[{"rootId":"r","epoch":2,"publicKey":"k","targetInstallId":"t","targetX25519Public":"x"}]"#,
         )

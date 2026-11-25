@@ -47,7 +47,7 @@ export async function isGroupChat(
  * Re-stamps whole trees' visibility (`shared` and its mirrors on messages,
  * conversations and issue links). A tree turning shared: what a private
  * chat's bus wrote in full goes neutral for its new readers (#EXP-1409). A
- * tree turning private keeps only its readers' key wraps (#FEED-177).
+ * tree turning private keeps only its readers' key wraps (#FEED-177);
  */
 export async function restampTreesInTx(tx: Tx, rootIds: string[], shared: boolean): Promise<void> {
   if (rootIds.length === 0) return
@@ -107,6 +107,8 @@ export async function endPrivateConversationsInTx(tx: Tx, agentId?: string): Pro
   // Detached: no cascade takes the tree with its agent, and it reads as an
   // ended chat (titled after the agent, as every conversation is).
   await tx.update(sessions).set({ agentId: null }).where(inArray(sessions.rootId, rootIds))
+  // #EXP-2119: due for a rotation (its member may write on): a holder rotates
+  // it, the old epoch stays readable to the member (OLDER EPOCHS).
   await restampTreesInTx(tx, rootIds, false)
   return rootIds
 }

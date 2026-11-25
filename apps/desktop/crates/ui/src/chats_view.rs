@@ -302,14 +302,32 @@ type OnSelect = std::rc::Rc<dyn Fn(&str, bool, &mut Window, &mut App)>;
 /// #EXP-2027 (sidebar-tree.json): the Chats page spans every team: a row
 /// wears its team's mark (its image, else the team glyph), as in the
 /// sidebar; the viewer's Assistant wears none.
-type TeamMarks = std::rc::Rc<std::collections::HashMap<String, Option<crate::markdown::CachedImage>>>;
+pub(crate) type TeamMarks = std::rc::Rc<std::collections::HashMap<String, Option<crate::markdown::CachedImage>>>;
 
 /// The size of a Chats row's team mark (the sidebar's row glyph).
 const TEAM_MARK_PX: f32 = 16.;
 
 fn team_mark(marks: &TeamMarks, team_id: Option<&str>) -> Option<gpui::AnyElement> {
+    team_mark_of(marks, team_id, TEAM_MARK_PX)
+}
+
+/// A team's mark out of [`team_marks`] (Needs you draws it too); none
+/// outside the member teams (the Assistant's personal team).
+pub(crate) fn team_mark_of(marks: &TeamMarks, team_id: Option<&str>, size: f32) -> Option<gpui::AnyElement> {
     let image = marks.get(team_id?)?.clone();
-    Some(crate::user_avatar::team_avatar_of(image, TEAM_MARK_PX))
+    Some(crate::user_avatar::team_avatar_of(image, size))
+}
+
+/// Each member team's image, loaded once per render.
+pub(crate) fn team_marks(cx: &mut App) -> TeamMarks {
+    std::rc::Rc::new(
+        sync::Store::try_global(cx)
+            .map(|store| store.collections().teams_sorted(cx))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|team| (team.id.clone(), crate::user_avatar::team_image(team.icon_url.as_deref(), cx)))
+            .collect(),
+    )
 }
 
 /// #EXP-2027 (sidebar-tree.json `drop`): a Chats row dragged onto its
@@ -430,14 +448,7 @@ impl Render for ChatsView {
         let view_kind = self.view;
         let rows = self.visible_rows(&model);
         // #EXP-2027: each team's mark, loaded once per render.
-        let marks: TeamMarks = std::rc::Rc::new(
-            sync::Store::try_global(cx)
-                .map(|store| store.collections().teams_sorted(cx))
-                .unwrap_or_default()
-                .into_iter()
-                .map(|team| (team.id.clone(), crate::user_avatar::team_image(team.icon_url.as_deref(), cx)))
-                .collect(),
-        );
+        let marks = team_marks(cx);
         // The selection keeps only rows still in the list, in list order.
         if ready && !self.selected.is_empty() {
             let kept: Vec<String> = rows

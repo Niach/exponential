@@ -418,7 +418,7 @@ impl BoardDetailPane {
     /// until an owner unarchives it from this settings section, and nothing is
     /// ever deleted. The nav clamps the now-stale `Board(id)` selection away
     /// on the next boards delta.
-    fn open_archive_dialog(
+    pub(crate) fn open_archive_dialog(
         board_id: String,
         board_name: String,
         window: &mut Window,
