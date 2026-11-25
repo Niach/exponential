@@ -51,11 +51,6 @@ pub(crate) fn session_is_working(session: &SessionRow) -> bool {
     domain::session_tree::session_state(session) == domain::session_tree::SessionState::Working
 }
 
-/// A non-ended session that waits on a person (a question or a plan).
-pub(crate) fn session_needs_you(session: &SessionRow) -> bool {
-    session.needs_input && !session.is_ended()
-}
-
 /// `updated_at`, else `created_at` — ISO strings from one source sort
 /// lexicographically.
 fn activity_key(session: &SessionRow) -> &str {
@@ -207,6 +202,13 @@ pub(crate) fn in_team_or_personal(session: &SessionRow, team_id: &str, team_ids:
         }
         None => false,
     }
+}
+
+/// Needs you's scope: every member team's sessions, plus the viewer's own in
+/// their personal team. Nothing before the teams sync.
+pub(crate) fn in_teams_or_personal(session: &SessionRow, team_ids: &[String], me: Option<&str>) -> bool {
+    let Some(team) = session.team_id.as_deref().filter(|_| !team_ids.is_empty()) else { return false };
+    team_ids.iter().any(|id| id == team) || (me.is_some() && session.user_id.as_deref() == me)
 }
 
 /// #EXP-1714 (`domain::agent_settings::agents_in_team`): the agent rows
@@ -1841,7 +1843,20 @@ pub(crate) fn agent_unread_counts(team_id: &str, cx: &App) -> HashMap<String, us
 /// sidebar Agents row carries: its unread agent replies, attention while a
 /// live conversation needs you.
 pub(crate) fn conversation_badge(conversation: &SessionRow, cx: &App) -> domain::nav_badges::CountBadgeValue {
-    let needs_you = !conversation.is_ended() && conversation.needs_input;
+    session_badge(conversation, domain::session_tree::session_asks(conversation), cx)
+}
+
+/// A placed root's badge: its chat row's (`row_badge`: its own unread agent
+/// messages, attention while any live session of its tree (`ids`) asks).
+pub(crate) fn root_badge(root: &SessionRow, ids: &[String], cx: &App) -> domain::nav_badges::CountBadgeValue {
+    let asks = Store::try_global(cx).is_some_and(|store| {
+        let sessions = store.collections().sessions.read(cx);
+        ids.iter().filter_map(|id| sessions.get(id)).any(domain::session_tree::session_asks)
+    });
+    session_badge(root, asks, cx)
+}
+
+fn session_badge(conversation: &SessionRow, needs_you: bool, cx: &App) -> domain::nav_badges::CountBadgeValue {
     let Some(store) = Store::try_global(cx) else {
         return domain::nav_badges::row_badge(0, needs_you);
     };

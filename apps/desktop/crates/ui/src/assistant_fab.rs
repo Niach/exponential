@@ -364,10 +364,9 @@ impl AssistantFab {
     }
 
     fn refresh(&mut self, cx: &mut gpui::Context<Self>) {
-        // #EXP-1987: the member's Assistant whatever team is current (the
-        // team's own row before the move, the global one after it).
-        let team = crate::navigation::screen_team_id(&self.nav, cx);
-        let derived = crate::session_data::my_assistant_anywhere(team.as_deref(), cx)
+        // #EXP-1987: the sidebar's Assistant row's own read, whatever team
+        // the screen names.
+        let derived = crate::session_data::my_assistant_anywhere(None, cx)
             .map(|assistant| {
                 let badge = crate::session_data::my_conversation(&assistant.id, cx)
                     .map(|conversation| crate::session_data::conversation_badge(&conversation, cx))

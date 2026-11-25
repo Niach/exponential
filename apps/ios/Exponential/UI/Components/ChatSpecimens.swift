@@ -236,6 +236,8 @@ struct PhoneTabBarSpecimens: View {
         PhoneDock(
             selected: selected,
             chatsBadge: NavBadges.Value(count: 2, tone: .attention),
+            teamsBadge: NavBadges.Value(count: 1, tone: .attention),
+            assistantBadge: NavBadges.Value(count: 3, tone: .muted),
             newOpen: .constant(newOpen),
             specimen: true
         )

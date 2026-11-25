@@ -55584,6 +55584,270 @@
       }
     },
     {
+      "name": "AvatarBadge/example",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar_badge_child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "default"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "default"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/size=sm",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar_badge_child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "sm"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "sm"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/size=default",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar_badge_child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "default"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "default"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/size=lg",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar_badge_child",
+                "component": "Text",
+                "props": {
+                  "text": "Child"
+                },
+                "children": []
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "lg"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "lg"
+          }
+        }
+      }
+    },
+    {
       "name": "Stack/bound:direction",
       "input": {
         "id": "stack",
@@ -87476,6 +87740,1701 @@
             "status": {
               "@path": "/status"
             }
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/sm+icon",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "team",
+            "component": "Icon",
+            "props": {
+              "name": "ui-team",
+              "label": "Acme"
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "team",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-team",
+                          "label": "Acme",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 10,
+                          "height": 10
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 10,
+                      "height": 10,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 2.5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "sm"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -5,
+                  "bottom": -5,
+                  "width": 12,
+                  "height": 12,
+                  "borderRadius": 3.5,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "sm"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "sm"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "sm"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/sm+image",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "team",
+            "component": "Image",
+            "props": {
+              "alt": "Acme"
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "team",
+                        "component": "Image",
+                        "props": {
+                          "alt": "Acme",
+                          "width": 10,
+                          "height": 10
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 10,
+                          "height": 10,
+                          "borderRadius": 2.5
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 10,
+                      "height": 10,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 2.5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "sm"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -5,
+                  "bottom": -5,
+                  "width": 12,
+                  "height": 12,
+                  "borderRadius": 3.5,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "sm"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "sm"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "sm"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/sm+avatar",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "other",
+            "component": "Avatar",
+            "props": {
+              "name": "Bob",
+              "seed": "demo-bob"
+            },
+            "style": {
+              "opacity": 0.5,
+              "width": 12
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "other",
+                        "component": "Avatar",
+                        "props": {
+                          "name": "Bob",
+                          "seed": "demo-bob",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 12,
+                          "height": 10,
+                          "opacity": 0.5
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 10,
+                      "height": 10,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 2.5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "sm"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -5,
+                  "bottom": -5,
+                  "width": 12,
+                  "height": 12,
+                  "borderRadius": 3.5,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "sm"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "sm"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "sm"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/sm+box",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "dot",
+            "component": "Box",
+            "style": {
+              "width": 8,
+              "height": 8
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dot",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "width": 8,
+                          "height": 8
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 10,
+                      "height": 10,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 2.5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "sm"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -5,
+                  "bottom": -5,
+                  "width": 12,
+                  "height": 12,
+                  "borderRadius": 3.5,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "sm"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "sm"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "sm"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/default+icon",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "team",
+            "component": "Icon",
+            "props": {
+              "name": "ui-team",
+              "label": "Acme"
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "team",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-team",
+                          "label": "Acme",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 14,
+                          "height": 14
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 3.5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "default"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -5,
+                  "bottom": -5,
+                  "width": 18,
+                  "height": 18,
+                  "borderRadius": 5.5,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "default"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "default"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "default"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/default+image",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "team",
+            "component": "Image",
+            "props": {
+              "alt": "Acme"
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "team",
+                        "component": "Image",
+                        "props": {
+                          "alt": "Acme",
+                          "width": 14,
+                          "height": 14
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 14,
+                          "height": 14,
+                          "borderRadius": 3.5
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 3.5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "default"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -5,
+                  "bottom": -5,
+                  "width": 18,
+                  "height": 18,
+                  "borderRadius": 5.5,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "default"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "default"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "default"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/default+avatar",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "other",
+            "component": "Avatar",
+            "props": {
+              "name": "Bob",
+              "seed": "demo-bob"
+            },
+            "style": {
+              "opacity": 0.5,
+              "width": 12
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "other",
+                        "component": "Avatar",
+                        "props": {
+                          "name": "Bob",
+                          "seed": "demo-bob",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 12,
+                          "height": 14,
+                          "opacity": 0.5
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 3.5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "default"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -5,
+                  "bottom": -5,
+                  "width": 18,
+                  "height": 18,
+                  "borderRadius": 5.5,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "default"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "default"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "default"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/default+box",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "dot",
+            "component": "Box",
+            "style": {
+              "width": 8,
+              "height": 8
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dot",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "width": 8,
+                          "height": 8
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 14,
+                      "height": 14,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 3.5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "default"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -5,
+                  "bottom": -5,
+                  "width": 18,
+                  "height": 18,
+                  "borderRadius": 5.5,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "default"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "default"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "default"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/lg+icon",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "team",
+            "component": "Icon",
+            "props": {
+              "name": "ui-team",
+              "label": "Acme"
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "team",
+                        "component": "Icon",
+                        "props": {
+                          "name": "ui-team",
+                          "label": "Acme",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 20,
+                          "height": 20
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "lg"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -4,
+                  "bottom": -4,
+                  "width": 24,
+                  "height": 24,
+                  "borderRadius": 7,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "lg"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "lg"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "lg"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/lg+image",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "team",
+            "component": "Image",
+            "props": {
+              "alt": "Acme"
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "team",
+                        "component": "Image",
+                        "props": {
+                          "alt": "Acme",
+                          "width": 20,
+                          "height": 20
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 20,
+                          "height": 20,
+                          "borderRadius": 5
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "lg"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -4,
+                  "bottom": -4,
+                  "width": 24,
+                  "height": 24,
+                  "borderRadius": 7,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "lg"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "lg"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "lg"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/lg+avatar",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "other",
+            "component": "Avatar",
+            "props": {
+              "name": "Bob",
+              "seed": "demo-bob"
+            },
+            "style": {
+              "opacity": 0.5,
+              "width": 12
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "other",
+                        "component": "Avatar",
+                        "props": {
+                          "name": "Bob",
+                          "seed": "demo-bob",
+                          "size": "sm"
+                        },
+                        "children": [],
+                        "style": {
+                          "width": 12,
+                          "height": 20,
+                          "opacity": 0.5
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "lg"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -4,
+                  "bottom": -4,
+                  "width": 24,
+                  "height": 24,
+                  "borderRadius": 7,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "lg"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "lg"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "lg"
+          }
+        }
+      }
+    },
+    {
+      "name": "AvatarBadge/lg+box",
+      "input": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "avatar",
+            "component": "Avatar",
+            "props": {
+              "name": "Ada Lovelace",
+              "seed": "demo-ada"
+            }
+          }
+        ],
+        "slots": {
+          "badge": {
+            "id": "dot",
+            "component": "Box",
+            "style": {
+              "width": 8,
+              "height": 8
+            }
+          }
+        }
+      },
+      "expected": {
+        "id": "avatar_badge",
+        "component": "Box",
+        "props": {},
+        "children": [
+          {
+            "id": "avatar_badge.anchor",
+            "component": "Box",
+            "props": {},
+            "children": [
+              {
+                "id": "avatar",
+                "component": "Avatar",
+                "props": {
+                  "name": "Ada Lovelace",
+                  "seed": "demo-ada"
+                },
+                "children": []
+              },
+              {
+                "id": "avatar_badge.anchor.tile",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "avatar_badge.anchor.tile.mark",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "dot",
+                        "component": "Box",
+                        "props": {},
+                        "children": [],
+                        "style": {
+                          "width": 8,
+                          "height": 8
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 20,
+                      "height": 20,
+                      "flexShrink": 0,
+                      "overflow": "hidden",
+                      "borderRadius": 5
+                    },
+                    "recipe": {
+                      "macro": "AvatarBadge",
+                      "part": "mark",
+                      "props": {
+                        "size": "lg"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "position": "absolute",
+                  "right": -4,
+                  "bottom": -4,
+                  "width": 24,
+                  "height": 24,
+                  "borderRadius": 7,
+                  "alignItems": "center",
+                  "justifyContent": "center"
+                },
+                "recipe": {
+                  "macro": "AvatarBadge",
+                  "part": "tile",
+                  "props": {
+                    "size": "lg"
+                  }
+                }
+              }
+            ],
+            "style": {
+              "display": "flex",
+              "position": "relative",
+              "flexShrink": 0
+            },
+            "recipe": {
+              "macro": "AvatarBadge",
+              "part": "anchor",
+              "props": {
+                "size": "lg"
+              }
+            }
+          }
+        ],
+        "style": {
+          "display": "flex",
+          "flexDirection": "row",
+          "alignItems": "center",
+          "flexShrink": 0
+        },
+        "recipe": {
+          "macro": "AvatarBadge",
+          "part": "root",
+          "props": {
+            "size": "lg"
           }
         }
       }

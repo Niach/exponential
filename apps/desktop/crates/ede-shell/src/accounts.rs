@@ -74,7 +74,7 @@ enum Saved {
 /// #VAPP-273: the members (the viewer's role), the apps (the team's
 /// published packages) and their records, for a connected desktop;
 /// #EDE-65: what the tray's inbox and Needs you read (`inbox::SHAPES`),
-/// and the viewer's read marks (the rail's unread dot, the IDE's rule).
+/// and the viewer's read marks (the rail's unread count, the IDE's rule).
 pub(crate) const SHAPES: &[&str] = &[
     "teams",
     "team_members",

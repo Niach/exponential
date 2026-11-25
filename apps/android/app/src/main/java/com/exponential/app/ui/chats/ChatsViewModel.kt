@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
  * over every member team; the phone list = [Chats.chatList] over its
  * groups, the Agents section = [Chats.agentChatRows] over
  * [SessionTree.listAgents], the Apps section (#EXP-1733) = [Chats.appChatRows]
- * over every member team's apps, the Needs you entry and page = [NeedsYou.needsYou]. The menus' calls (Stop = `sessions.end` on the
+ * over every member team's apps, the Needs you entry and page = [needsYouRead]. The menus' calls (Stop = `sessions.end` on the
  * root, Delete = `sessions.delete`, the agent's turn Stop = `sessions.stop`,
  * Compact / New conversation = the builtin lines through `sessions.send`)
  * live here too.
@@ -91,7 +91,7 @@ class ChatsViewModel @Inject constructor(
     private val ownedTeams: Flow<Set<String>> =
         com.exponential.app.data.ownedTeamIdsFlow(dbFlow, auth.userId)
 
-    // One shared query per table: the list, rowMeta, the nav dots and the
+    // One shared query per table: the list, the nav badges and the
     // PR rows all read these, so they must not each re-run them (and the
     // digest parsing) on every sync tick.
     private val sessionRows = dbFlow.scopedQuery(emptyList()) { it.sessionDao().observeAll() }
@@ -143,7 +143,7 @@ class ChatsViewModel @Inject constructor(
         sessionRows.combine(digestMessagesById) { rows, byId ->
             rows.flatMap { row -> byId[row.id].orEmpty() }
         },
-        // EXP-1323: the viewer's read marks (bold rows + the nav dot).
+        // EXP-1323: the viewer's read marks (bold rows + the badges).
         dbFlow.scopedQuery(emptyList()) { it.sessionReadDao().observeAll() }.map { it.map(SessionTree::sessionRead) },
     ) { s, links, issues, messages, reads -> Inputs(s, links, issues, messages, reads) }
         .flowOn(Dispatchers.Default)
@@ -191,22 +191,6 @@ class ChatsViewModel @Inject constructor(
         }
     }.distinctUntilChanged().flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NavBadges.NONE)
-
-    /** Each listed row's glyph + identifier, keyed by root session id. */
-    val rowMeta: StateFlow<Map<String, ChatRowMeta>> = combine(
-        groups,
-        inputs,
-        sessionRows,
-        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
-    ) { g, input, rows, devices ->
-        chatRowMeta(
-            g,
-            input.links,
-            input.issues,
-            rows.associate { it.id to it.cli },
-            devices.associate { it.deviceId to ChatRowDevice(it.label, it.icon, it.kind == "server") },
-        )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
 
     /**
      * EXP-1309 (web `chatRowWord` ×4): each listed row's ONE quiet word off
@@ -261,22 +245,6 @@ class ChatsViewModel @Inject constructor(
     }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
 
     /**
-     * NEW-41 (`chat-list.json`, web `rowLead`): each listed root's PR
-     * glyph off the synced pull requests it opened, by root id: any open PR
-     * (a stacked one too) = [ChatRowPrLead.Open], else any merged one =
-     * [ChatRowPrLead.Merged]; none = absent.
-     */
-    val prLeads: StateFlow<Map<String, ChatRowPrLead>> = combine(
-        groups,
-        pullRequestRows,
-    ) { g, prs ->
-        val byRoot = prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId }
-        g.flatMap { it.rows }.mapNotNull { row ->
-            chatRowPrLead(byRoot[row.sessionId].orEmpty().map { it.state })?.let { row.sessionId to it }
-        }.toMap()
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
-
-    /**
      * The phone home's Running band (`composer-home.json`: phones keep their
      * Running list of LIVE OWN sessions; never Recent): the caller's own
      * chats in Needs you then Running, every team, list order.
@@ -328,53 +296,42 @@ class ChatsViewModel @Inject constructor(
         }
 
     /** #FEED-191 (needs-you.json): every plan, question and ready PR waiting on
-     *  the viewer in EVERY member team (#EXP-2109; web `useCrossTeamNeedsYou`:
-     *  each team folded with its own merge mode and owner flag, the viewer's
-     *  Assistant's once), plans and questions first, then the PRs, newest
-     *  first; a session named by THE session title, an agent conversation by
-     *  its agent; only the digests' waiting kinds. */
-    val needsYouRows: StateFlow<List<NeedsYou.Row>> = combine(
-        combine(inputs, needsYouTeamFacts()) { input, facts -> input to facts },
+     *  the viewer, ONE read over every member team and the Assistant's home
+     *  ([needsYouRead]): the list, its entry and the team rows alike. */
+    val needsYou: StateFlow<NeedsYouRead> = combine(
+        inputs,
         agentDefinitions,
         pullRequestRows,
-        auth.userId,
-        minuteClock,
-    ) { (input, facts), definitions, prs, me, now ->
-        val titleOf = SessionTree.titler(input.links, input.issues, input.messages)
-        fun fold(sessions: List<SessionTree.Session>, team: TeamEntity?) = needsYouFold(
-            sessions, input.links, input.issues, input.messages, definitions,
-            if (team == null) emptyList() else prs, team?.id, me, now,
-            mergeMode = team?.mergeMode ?: MergeTrain.MODE_AUTO,
-            owner = team != null && team.id in facts.owned,
-            devices = facts.devices,
-            titleOf = titleOf,
-        )
-        val teamIds = facts.teams.mapTo(HashSet()) { it.id }
-        // The viewer's own sessions in no synced team: their Assistant's.
-        val personal = input.sessions.filter { teamIds.isNotEmpty() && it.teamId !in teamIds && it.userId == me }
-        (facts.teams.flatMap { fold(input.sessions, it) } + fold(personal, null))
-            .sortedWith(
-                compareBy<NeedsYou.Row> { it.kind == NeedsYou.Kind.Pr }
-                    .thenByDescending { WireTimestamps.parseEpochMs(it.createdAt) ?: 0L }
-                    .thenByDescending { it.messageId },
+        combine(
+            dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
+            ownedTeams,
+            dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
+            ::Triple,
+        ),
+        combine(auth.userId, minuteClock, ::Pair),
+    ) { input, definitions, prs, (teamRows, owned, devices), (me, now) ->
+        com.exponential.app.domain.perfTrace("ChatsViewModel.needsYou") {
+            needsYouRead(
+                sessions = input.sessions,
+                links = input.links,
+                issues = input.issues,
+                messages = input.messages,
+                definitions = definitions,
+                pullRequests = prs,
+                teams = teamRows,
+                owned = owned,
+                devices = devices,
+                me = me,
+                now = now,
             )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyList())
+        }
+    }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, NeedsYouRead())
 
-    /** #EXP-1710: what the Needs you fold reads beyond the list's inputs. */
-    private data class NeedsYouTeamFacts(
-        val teams: List<TeamEntity>,
-        /** The teams the viewer owns. */
-        val owned: Set<String>,
-        val devices: List<DeviceEntity>,
-    )
-
-    /** The member teams (their merge modes), the ones the viewer owns, and the
-     *  synced devices (a stuck row's offline clock). */
-    private fun needsYouTeamFacts(): Flow<NeedsYouTeamFacts> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
-        ownedTeams,
-        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
-    ) { teams, owned, devices -> NeedsYouTeamFacts(teams, owned, devices) }
+    /** Every conversation's `rowBadge` by root session id ([Chats.rowBadges]):
+     *  the agent rows, the placed session rows, the dock's Assistant disc. */
+    val rowBadges: StateFlow<Map<String, NavBadges.Badge>> = inputs
+        .map { Chats.rowBadges(it.sessions, it.messages, it.reads) }
+        .distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
 
     /** #EXP-1710: the synced pull requests a Needs you PR row acts on (the
      *  row's PR + its team's stack pool for THE pill's confirm and Merge now). */
@@ -621,70 +578,52 @@ class ChatsViewModel @Inject constructor(
     /** The member teams, name order — the per-team bands. */
     val teams: StateFlow<List<TeamEntity>> = dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /**
-     * #FEED-232: team id → that team's needs-you rows' length (the team
-     * picker's attention badge), off every team's digests, not just the
-     * active one's.
-     */
-    val needsYouByTeam: StateFlow<Map<String, Int>> = combine(
-        combine(sessions, sessionRows, digestMessagesById) { s, rows, byId ->
-            s to rows.flatMap { row -> byId[row.id].orEmpty() }
-        },
-        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
-        agentDefinitions,
-        pullRequestRows,
-        combine(auth.userId, minuteClock) { me, now -> me to now },
-    ) { (s, messages), teamRows, definitions, prs, (me, now) ->
-        val teamIds = teamRows.map { it.id }
-        // #ERR-28: every team's fold names its rows off ONE index of the digests.
-        val titleOf = SessionTree.titler(emptyList(), emptyList(), messages)
-        teamRows.associate { team ->
-            team.id to needsYouFold(
-                s, emptyList(), emptyList(), messages, definitions, prs, team.id, me, now,
-                teamIds = teamIds,
-                mergeMode = team.mergeMode,
-                titleOf = titleOf,
-            ).size
-        }
-    }.distinctUntilChanged().flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 }
 
-/** #FEED-191: [NeedsYou.needsYou] over the synced rows of [team] (null = every
- *  team, while none is active). */
-internal fun needsYouFold(
+/** #FEED-191: THE Needs you rows and each row's team. */
+data class NeedsYouRead(
+    val rows: List<NeedsYou.Row> = emptyList(),
+    /** [rows]' session teams by row id; an Assistant's row's is no member team. */
+    val teamOf: Map<String, String> = emptyMap(),
+    /** The member teams' ids. */
+    val teams: List<String> = emptyList(),
+) {
+    /** `needsYouCounts` (nav-badges.json); [installs] = [InstallTrustSnapshot.installs]. */
+    fun counts(installs: Int): NavBadges.NeedsYouCounts =
+        NavBadges.needsYouCounts(rows.map { teamOf[it.messageId] }, teams, installs)
+}
+
+/** [NeedsYou.needsYou] over the synced rows of every member team and the
+ *  Assistant's home TOGETHER (the viewer's own sessions in no synced team): an
+ *  ask mirrored into the Assistant's chat is one row with its origin. Each PR
+ *  reads its own team's merge mode and owner flag. */
+internal fun needsYouRead(
     sessions: List<SessionTree.Session>,
     links: List<SessionTree.SessionIssue>,
     issues: List<SessionTree.Issue>,
     messages: List<SessionTree.Message>,
     definitions: List<SessionTree.AgentDefinition>,
     pullRequests: List<PullRequestEntity>,
-    team: String?,
+    /** The member teams. */
+    teams: List<TeamEntity>,
+    /** The ones the viewer owns. */
+    owned: Set<String>,
+    /** #EXP-1710: the synced devices (a stuck row's `Device offline`). */
+    devices: List<DeviceEntity>,
     me: String?,
     now: Long,
-    /** #EXP-1714: the synced teams' ids — the viewer's own sessions in none
-     *  of them (their personal team: the global Assistant) count in every team. */
-    teamIds: Collection<String> = emptyList(),
-    /** #EXP-1710: the team's contract teamMergeMode. */
-    mergeMode: String = MergeTrain.MODE_AUTO,
-    owner: Boolean = false,
-    /** #EXP-1710: the synced devices (a stuck row's `Device offline`). */
-    devices: List<DeviceEntity> = emptyList(),
-    /** #ERR-28: the rows' titles, indexed once by a caller that folds per team. */
-    titleOf: (SessionTree.Session) -> String = SessionTree.titler(links, issues, messages),
-): List<NeedsYou.Row> {
-    val inTeam = sessions.filter {
-        team == null || com.exponential.app.domain.AgentSettings.Assistant.inTeamOrPersonal(it.teamId, it.userId, team, teamIds, me)
-    }
-    val ids = inTeam.mapTo(HashSet()) { it.id }
+): NeedsYouRead {
+    val teamById = teams.associateBy { it.id }
+    val mine = sessions.filter { it.teamId in teamById || (teamById.isNotEmpty() && it.userId == me) }
+    val ids = mine.mapTo(HashSet()) { it.id }
+    val titleOf = SessionTree.titler(links, issues, messages)
     val agentNames = definitions.associate { it.id to it.name }
     val sessionsById = sessions.associateBy { it.id }
     val devicesById = devices.associateBy { it.deviceId }
-    return NeedsYou.needsYou(
+    val rows = NeedsYou.needsYou(
         now = now,
         me = me,
-        sessions = inTeam.map { session ->
+        sessions = mine.map { session ->
             NeedsYou.SessionInput(
                 id = session.id,
                 rootId = session.rootId,
@@ -708,7 +647,8 @@ internal fun needsYouFold(
                 card = message.card,
             )
         },
-        pullRequests = pullRequests.filter { team == null || it.teamId == team }.map { pr ->
+        pullRequests = pullRequests.mapNotNull { pr ->
+            val team = teamById[pr.teamId] ?: return@mapNotNull null
             NeedsYou.PullRequestInput(
                 id = pr.id,
                 rootSessionId = pr.rootSessionId,
@@ -721,12 +661,18 @@ internal fun needsYouFold(
                 mergeState = MergeTrain.prMergeState(pr.state, pr.mergeState),
                 holdReason = pr.mergeHold,
                 deviceOfflineSince = openerOfflineSince(pr, sessionsById, devicesById, now),
+                mergeMode = team.mergeMode,
+                owner = team.id in owned,
             )
         },
-        mergeMode = mergeMode,
-        owner = owner,
+        mergeMode = null,
         // #EXP-1990 (needs-you.json): a team agent's group chat counts for every member.
         groupChatIds = definitions.mapNotNull { it.groupChatId?.takeIf { id -> id.isNotEmpty() } },
+    )
+    return NeedsYouRead(
+        rows = rows,
+        teamOf = rows.mapNotNull { row -> sessionsById[row.sessionId]?.let { row.messageId to it.teamId } }.toMap(),
+        teams = teams.map { it.id },
     )
 }
 
@@ -768,8 +714,6 @@ internal const val SELECTION_THING = "every chat"
 /** `sessions.setRead` / `setArchived` take up to 200 ids per call. */
 private const val SELECTION_BATCH = 200
 
-/** A Chats row's extras: the first linked issue's identifier, the root's
- *  agent (its brand mark) and the root's device (the trailing icon). */
 /** NEW-41: the PR glyph a Chats-tab row's lead wears (web `rowLead`). */
 enum class ChatRowPrLead { Open, Merged }
 
@@ -779,41 +723,4 @@ fun chatRowPrLead(states: List<String>): ChatRowPrLead? = when {
     states.any { it == DomainContract.prStateOpen } -> ChatRowPrLead.Open
     states.any { it == DomainContract.prStateMerged } -> ChatRowPrLead.Merged
     else -> null
-}
-
-data class ChatRowMeta(
-    val identifier: String?,
-    val agent: String?,
-    val device: ChatRowDevice? = null,
-)
-
-/** EXP-1318: the synced device a root runs on — its name (the icon's
- *  label) and its icon pick, drawn like the Devices screen draws it. */
-data class ChatRowDevice(val name: String, val icon: String?, val isServer: Boolean)
-
-/**
- * The extras each [SessionTree.ChatsListRow] draws beside its title: the
- * mono identifier of the root's FIRST linked issue (chat order) and the
- * root's agent; the mark's state = [SessionTree.chatRowMarkState] (EXP-1312).
- */
-fun chatRowMeta(
-    groups: List<SessionTree.ChatsListGroup>,
-    links: List<SessionTree.SessionIssue>,
-    issues: List<SessionTree.Issue>,
-    agentByRoot: Map<String, String?>,
-    /** Synced devices by steer `device_id`; a root on an unknown one draws none. */
-    devices: Map<String, ChatRowDevice> = emptyMap(),
-): Map<String, ChatRowMeta> {
-    val issueById = issues.associateBy { it.id }
-    val linksByRoot = links.groupBy { it.sessionId }
-    return groups.flatMap { it.rows }.associate { row ->
-        val first = linksByRoot[row.sessionId].orEmpty()
-            .sortedWith(compareBy<SessionTree.SessionIssue>({ it.sortOrder }, { it.issueId }))
-            .firstNotNullOfOrNull { issueById[it.issueId] }
-        row.sessionId to ChatRowMeta(
-            first?.identifier,
-            agentByRoot[row.sessionId],
-            row.deviceId?.let { devices[it] },
-        )
-    }
 }

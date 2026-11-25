@@ -14,7 +14,7 @@ import com.exponential.app.ui.styleguide.RESULTS_SPECIMEN
 import com.exponential.app.ui.chat.resultPictureSet
 import com.exponential.app.ui.chat.resultThumbWidth
 import com.exponential.app.ui.chats.chatDisplayedRows
-import com.exponential.app.ui.chats.needsYouFold
+import com.exponential.app.ui.chats.needsYouRead
 import com.exponential.app.ui.chats.openerOfflineSince
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -187,15 +187,17 @@ class NeedsYouResultsUiTest {
     )
 
     @Test
-    fun `the fold reads the active team, names an agent conversation by its agent, counts ready PRs`() {
-        val rows = needsYouFold(
-            sessions = listOf(session("s1"), session("elsewhere", team = "t2"), session("agent", agentId = "a1")),
+    fun `one read spans the teams, names an agent conversation by its agent, counts ready PRs by their team's mode`() {
+        val read = needsYouRead(
+            sessions = listOf(session("s1"), session("elsewhere", team = "t2"), session("agent", agentId = "a1"), session("gone", team = "left").copy(userId = "other")),
             links = emptyList(),
             issues = emptyList(),
             messages = listOf(
                 waiting("q1", "s1", "question"),
                 waiting("q2", "elsewhere", "question"),
                 waiting("q3", "agent", "question"),
+                // A team the viewer left: not theirs.
+                waiting("q4", "gone", "question"),
             ),
             definitions = listOf(SessionTree.AgentDefinition("a1", "t1", "Triage", null, null, 0.0)),
             pullRequests = listOf(
@@ -208,16 +210,82 @@ class NeedsYouResultsUiTest {
                     checksState = "success", createdAt = "2027-01-15T07:30:00.000Z",
                 ),
             ),
-            team = "t1",
+            // #EXP-1710: ready PR rows hold only in `approval` mode.
+            teams = listOf(team("t1", "approval"), team("t2", "auto")),
+            owned = emptySet(),
+            devices = emptyList(),
             me = "me",
             now = 1_800_000_000_000L,
-            // #EXP-1710: ready PR rows hold only in `approval` mode.
-            mergeMode = "approval",
         )
-        assertEquals(listOf("q3", "q1", "pr1"), rows.map { it.messageId })
-        assertEquals(NeedsYou.Kind.Pr, rows[2].kind)
-        assertEquals("#7", rows[2].meta)
+        val rows = read.rows
+        assertEquals(listOf("q3", "q2", "q1", "pr1"), rows.map { it.messageId })
+        assertEquals(NeedsYou.Kind.Pr, rows[3].kind)
+        assertEquals("#7", rows[3].meta)
         assertEquals("Triage", rows[0].chat)
+        assertEquals(
+            com.exponential.app.domain.NavBadges.NeedsYouCounts(5, mapOf("t1" to 3, "t2" to 1)),
+            read.counts(installs = 1),
+        )
+    }
+
+    private fun team(id: String, mode: String = "auto") = com.exponential.app.data.db.TeamEntity(
+        id = id, name = id, slug = id, mergeMode = mode, createdAt = "", updatedAt = "",
+    )
+
+    // A team chat's question mirrored into the Assistant's chat (its home is
+    // no member team): one row, the origin's, counted in its team only.
+    @Test
+    fun `an ask mirrored into the Assistant's chat is one row of its origin's team`() {
+        val mirror = SessionTree.Message(
+            id = "m1", sessionId = "assistant", authorKind = "agent", authorId = null, body = "",
+            card = Json.parseToJsonElement(
+                """{"kind":"ask","sessionId":"s1","messageId":"q1","question":"Which?","options":["A"]}""",
+            ).jsonObject,
+            answeredAt = null, consumedAt = null, createdAt = "2027-01-15T07:00:00.000Z", authorSessionId = "s1",
+        )
+        val read = needsYouRead(
+            sessions = listOf(session("s1"), session("assistant", team = "home", agentId = "a1")),
+            links = emptyList(), issues = emptyList(),
+            messages = listOf(waiting("q1", "s1", "question"), mirror, waiting("own", "assistant", "question")),
+            definitions = listOf(SessionTree.AgentDefinition("a1", "home", "Assistant", null, null, 0.0)),
+            pullRequests = emptyList(), teams = listOf(team("t1"), team("t2")), owned = emptySet(), devices = emptyList(),
+            me = "me", now = 1_800_000_000_000L,
+        )
+        assertEquals(setOf("q1", "own"), read.rows.map { it.messageId }.toSet())
+        assertEquals(
+            com.exponential.app.domain.NavBadges.NeedsYouCounts(2, mapOf("t1" to 1, "t2" to 0)),
+            read.counts(installs = 0),
+        )
+    }
+
+    // Every conversation's `rowBadge`: event cards and walls never count.
+    @Test
+    fun `row badges count a root's own agent messages and its asks`() {
+        fun message(id: String, sessionId: String, card: String? = null) = SessionTree.Message(
+            id = id, sessionId = sessionId, authorKind = "agent", authorId = null, body = "x",
+            card = card?.let { Json.parseToJsonElement(it).jsonObject },
+            answeredAt = null, consumedAt = null, createdAt = "2027-01-15T07:00:00.000Z", authorSessionId = sessionId,
+        )
+        val badges = com.exponential.app.domain.Chats.rowBadges(
+            sessions = listOf(
+                session("a"), session("read"), session("asks"),
+                session("child").copy(parentId = "asks", rootId = "asks", needsInput = true),
+                session("agent", agentId = "x"),
+                session("agent-child").copy(parentId = "agent", rootId = "agent", needsInput = true),
+            ),
+            messages = listOf(
+                message("1", "a"), message("2", "a"), message("3", "a", """{"kind":"event"}"""),
+                message("4", "read"), message("5", "child"),
+            ),
+            reads = listOf(SessionTree.SessionRead("read", "2027-01-15T08:00:00.000Z", null)),
+        )
+        assertEquals(
+            mapOf(
+                "a" to com.exponential.app.domain.NavBadges.Badge(2, com.exponential.app.domain.NavBadges.Tone.Muted),
+                "asks" to com.exponential.app.domain.NavBadges.Badge(1, com.exponential.app.domain.NavBadges.Tone.Attention),
+            ),
+            badges,
+        )
     }
 
     // #EXP-1710 (merge-train.json NEEDS YOU): `auto` mode drops the ready
@@ -239,11 +307,11 @@ class NeedsYouResultsUiTest {
                 id = "d1", userId = "me", deviceId = "dev-1", lastSeenAt = "2027-01-15T07:59:00.000Z",
             ),
         )
-        fun fold(mode: String, owner: Boolean, devs: List<com.exponential.app.data.db.DeviceEntity>) = needsYouFold(
+        fun fold(mode: String, owner: Boolean, devs: List<com.exponential.app.data.db.DeviceEntity>) = needsYouRead(
             sessions = listOf(opener, child), links = emptyList(), issues = emptyList(), messages = emptyList(),
-            definitions = emptyList(), pullRequests = listOf(ready, held, conflict), team = "t1", me = "me", now = now,
-            mergeMode = mode, owner = owner, devices = devs,
-        )
+            definitions = emptyList(), pullRequests = listOf(ready, held, conflict), me = "me", now = now,
+            teams = listOf(team("t1", mode)), owned = if (owner) setOf("t1") else emptySet(), devices = devs,
+        ).rows
         val auto = fold("auto", owner = true, devs = devices)
         assertEquals(setOf("held", "conflict"), auto.map { it.messageId }.toSet())
         val stuck = auto.first { it.messageId == "held" }

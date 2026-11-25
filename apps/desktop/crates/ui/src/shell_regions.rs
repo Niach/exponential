@@ -104,34 +104,14 @@ fn screen_key(screen: Option<&Screen>, active_board: Option<&str>, cx: &App) -> 
     }
 }
 
-/// The Chats row's count (`nav_badges::chats_badge`).
-fn chats_count(team_id: &str, cx: &mut App) -> IdeCount {
-    let badge = crate::session_data::rail_chats_count(team_id, cx);
-    let tone = match badge.tone {
-        domain::nav_badges::CountBadgeTone::Attention => IdeTone::Attention,
-        domain::nav_badges::CountBadgeTone::Muted => IdeTone::Muted,
-    };
-    IdeCount { count: badge.count, tone }
-}
-
 /// A count as the glyph name the hosts paint: `ide:count:<tone>:<label>`.
 fn count_icon(label: Option<&str>, tone: &str) -> Value {
     label.map(|label| json!(format!("ide:count:{tone}:{label}"))).unwrap_or(Value::Null)
 }
 
-/// `<tone>:<label>` back to THE count badge (`99+` reads as past the cap).
+/// `<tone>:<label>` back to THE count badge.
 fn parse_count(rest: &str) -> Option<crate::sidebar::RailBadge> {
-    let (tone, label) = rest.split_once(':')?;
-    let tone = match tone {
-        "attention" => crate::surface::BadgeTone::Attention,
-        "muted" => crate::surface::BadgeTone::Muted,
-        _ => return None,
-    };
-    let count = match label.strip_suffix('+') {
-        Some(cap) => cap.parse::<usize>().ok()? + 1,
-        None => label.parse().ok()?,
-    };
-    Some(crate::sidebar::RailBadge::Count(count, tone))
+    uicore_gpui::glyphs::parse_count(rest).map(|(count, tone)| crate::sidebar::RailBadge::Count(count, tone))
 }
 
 /// #EXP-1616: an Exponential (`ecode`) PR's repository name, read off its
@@ -320,10 +300,9 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
     input.chats.tone = if chats_attention { IdeTone::Attention } else { IdeTone::Muted };
     let needs_you = {
         let _span = tracing::trace_span!("rail.needs_you").entered();
-        crate::needs_you::counts_by_team(cx)
+        crate::needs_you::counts(cx)
     };
-    // #EXP-2082: the rows once (the Assistant's cards sit in every team's list).
-    input.needs_you = crate::needs_you::total_count(cx);
+    input.needs_you = needs_you.total;
     let sessions: Vec<domain::rows::SessionRow> = collections.sessions.read(cx).iter().filter(|s| s.parent_id.is_none()).cloned().collect();
     // ONE pass for every team (was per team, and every placed session's tree
     // walked all synced sessions: O(placed × sessions) per refresh).
@@ -378,7 +357,10 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
             glyphs.insert(icon.clone(), Glyph::Run(agent, state));
             let tree: Vec<String> = trees.get(&session.id).cloned().unwrap_or_default();
             let name = crate::session_data::session_title_of(&session.id, cx).unwrap_or_else(|| domain::session_tree::SESSION_CHAT.copy.untitled.clone());
-            items.push(IdeItemInput { kind: "session".into(), id: session.id.clone(), name, icon, session_ids: tree, ..Default::default() });
+            // A placed session wears its chat row's badge.
+            let badge = crate::session_data::root_badge(session, &tree, cx);
+            let needs_you = badge.tone == domain::nav_badges::CountBadgeTone::Attention;
+            items.push(IdeItemInput { kind: "session".into(), id: session.id.clone(), name, icon, session_ids: tree, needs_you, unread: badge.count, ..Default::default() });
         }
         input.closed.extend(entries.iter().filter(|e| e.kind == SidebarEntryKind::Folder && !crate::ui_prefs::sidebar_folder_open(&sidebar_folder_open_key(team_id, &e.id))).map(|e| e.id.clone()));
         input.teams.push(IdeTeamInput {
@@ -387,7 +369,7 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
             mark,
             open: crate::ui_prefs::sidebar_folder_open(&domain::sidebar_tree::sidebar_team_open_key(team_id)),
             owner: crate::settings::is_owner(cx, team_id),
-            needs_you: needs_you.get(team_id).copied().unwrap_or(0),
+            needs_you: needs_you.teams.get(team_id).copied().unwrap_or(0),
             items,
             layout: entries.into_iter().map(layout_entry).collect(),
         });
@@ -418,7 +400,7 @@ fn gather(nav: &Entity<Navigation>, marks: &mut TeamMarks, cx: &mut App) -> (Ide
                 extras.deletable.insert(row.root_id.clone());
             }
 
-            input.active.push(IdeActiveInput { id: row.root_id, title: row.title, icon, session_ids: row.session_ids, unread: row.unread, team_mark, team: Some(team.id.clone()) });
+            input.active.push(IdeActiveInput { id: row.root_id, title: row.title, icon, session_ids: row.session_ids, team_mark, team: Some(team.id.clone()) });
         }
     }
     (input, glyphs, extras)
@@ -480,6 +462,14 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     }
     value["computer"] = json!("ide:computer");
     value["signedIn"] = json!(true);
+    // THE TEAM MARK ON A ROW (nav-badges.json): on the glyph.
+    for list in ["devices", "active"] {
+        for row in value[list].as_array_mut().into_iter().flatten() {
+            if let Some(mark) = row["teamMark"].as_str().map(str::to_string) {
+                row["icon"] = json!(format!("{TEAM_MARKED}{}|{mark}|{}", row["id"].as_str().unwrap_or_default(), row["icon"].as_str().unwrap_or_default()));
+            }
+        }
+    }
     for row in value["active"].as_array_mut().into_iter().flatten() {
         let device = format!("ide:device:{}", row["id"].as_str().unwrap_or_default());
         row["deviceIcon"] = if glyphs.contains_key(&device) { json!(device) } else { Value::Null };
@@ -488,6 +478,9 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     value["gettingStarted"] = json!(extras.getting_started);
     value
 }
+
+/// A glyph wearing a team's mark: `ide:marked:<row>|<team mark>|<glyph>`.
+const TEAM_MARKED: &str = "ide:marked:";
 
 /// #EXP-2124: the Assistant row's glyph (the IDE paints the brand mark,
 /// web `AssistantMark`).
@@ -1631,6 +1624,21 @@ impl HostPlugin for RegionHost {
             let corner = crate::sidebar::rail_badge_element(parse_count(badge.strip_prefix("count:")?)?, 12., cx);
             return Some(uicore_gpui::glyphs::cornered(inner, corner, size));
         }
+        if let Some((mark, glyph)) = name.strip_prefix(TEAM_MARKED).and_then(|rest| rest.split_once('|')).and_then(|(_, rest)| rest.split_once('|')) {
+            let inner = self.icon_element(glyph, size, color, cx).or_else(|| {
+                let path = crate::exponential_ui_host::icon_path(glyph)?;
+                Some(gpui::svg().path(path).size(gpui::px(size)).text_color(color).into_any_element())
+            })?;
+            let team = match self.glyphs.borrow().get(mark) {
+                Some(Glyph::Team(team, _)) => Some(team.clone()),
+                _ => None,
+            };
+            let team = team.map(|team| crate::user_avatar::RowTeam {
+                name: sync::Store::try_global(cx).and_then(|store| store.collections().teams.read(cx).get(&team).map(|row| row.name.clone())).unwrap_or_default().into(),
+                image: self.team_marks.borrow().get(&team).cloned().flatten(),
+            });
+            return Some(crate::user_avatar::with_team_mark(name, inner, size, team.as_ref(), crate::user_avatar::sidebar_ground(), cx));
+        }
         let glyphs = self.glyphs.borrow();
         let element = match glyphs.get(name)? {
             Glyph::Board(board) => {
@@ -2334,7 +2342,7 @@ impl HeaderRegion {
 
     /// #EXP-2027: the brand (no team is active: the team switcher is gone;
     /// its menu keeps the Local desktops), the inbox, search and New issue.
-    pub(crate) fn refresh(&mut self, nav: &Entity<Navigation>, _needs_you: &std::collections::BTreeMap<String, usize>, cx: &mut gpui::Context<Self>) {
+    pub(crate) fn refresh(&mut self, nav: &Entity<Navigation>, cx: &mut gpui::Context<Self>) {
         let locals = crate::local_desktops::entries(cx);
         let on_local = locals.iter().any(|(_, _, current)| *current);
         let sections = vec![json!({
@@ -2639,7 +2647,7 @@ mod tests {
             devices: vec![IdeDeviceInput { id: "d1".into(), name: "Mint".into(), icon: String::new(), online: true, team_mark: None }, IdeDeviceInput { id: "d2".into(), name: "Box".into(), icon: String::new(), online: false, team_mark: Some("ide:team:t1".into()) }],
             devices_open: true,
             teams: vec![team("t1", true)],
-            active: vec![IdeActiveInput { id: "s1".into(), title: "Chat".into(), icon: String::new(), session_ids: vec!["s1".into()], unread: false, team_mark: None, team: Some("t1".into()) }],
+            active: vec![IdeActiveInput { id: "s1".into(), title: "Chat".into(), icon: String::new(), session_ids: vec!["s1".into()], team_mark: None, team: Some("t1".into()) }],
             assistant: Some(uicore_model::ide::IdeAssistantInput { id: "as1".into(), name: "Bro".into(), unread: 0, needs_you: false }),
             ..Default::default()
         };

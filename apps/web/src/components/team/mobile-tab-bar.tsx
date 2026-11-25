@@ -8,6 +8,7 @@ import {
   PhoneDockTab,
   PhoneNewMenu,
   conceptIcon,
+  useIsMobile,
   type PhoneNewItem,
 } from "@exp/ui"
 import type { Board } from "@/db/schema"
@@ -20,7 +21,8 @@ import { draftOriginFrom, newDraftNavigation } from "@/lib/issue-draft-page"
 import { phonePagePlace } from "@/lib/phone-page"
 import { useChromeHeightVar } from "@/hooks/use-chrome-height-var"
 import { useMobileChrome } from "@/hooks/use-mobile-chrome"
-import { useChatsBadge } from "@/hooks/use-nav-counts"
+import { useChatsBadge, useTeamsTabBadge } from "@/hooks/use-nav-counts"
+import { useSidebarAssistant } from "@/hooks/use-sidebar-assistant"
 
 const ChatsIcon = conceptIcon(CHATS_SHELL.tabIcons.chats as `nav-chats`)
 const TeamsIcon = conceptIcon(CHATS_SHELL.tabIcons.teams as `ui-team`)
@@ -124,6 +126,8 @@ function useTyping(enabled: boolean): boolean {
   return typing
 }
 
+const NO_TEAMS: readonly string[] = []
+
 // #EXP-2109 (chats.json `shell.dock`, ×3 with iOS and Android): THE phone
 // bottom bar, docked: Chats · Teams · the Assistant · New (a popup: Issue,
 // Chat) · Settings. No active team: the Chats badge counts every team.
@@ -135,7 +139,12 @@ export function MobileTabBar() {
   const { data: session } = useSession()
   const { teams, teamIds } = useMemberTeams(session?.user?.id)
   const { boards } = useBoardsForTeams(teamIds)
+  const me = session?.user?.id
+  const isMobile = useIsMobile()
   const chats = useChatsBadge(teamIds)
+  const teamsTab = useTeamsTabBadge(isMobile ? teamIds : NO_TEAMS, me)
+  // nav-badges.json `assistant`: the sidebar row's own badge.
+  const assistant = useSidebarAssistant(teams[0], teams[0]?.slug ?? ``, me)
   // EXP-698 r5: a multi-selection replaces the bar with the bulk bar.
   const { bulkBarPresent } = useMobileChrome()
   const { tab } = phonePagePlace(pathname)
@@ -215,11 +224,12 @@ export function MobileTabBar() {
           label={CHATS_COPY.tabs.teams}
           icon={<TeamsIcon />}
           selected={!open && tab === `teams`}
+          badge={teamsTab}
           data-testid={CHATS_TEST_IDS.tabTeams}
         >
           <Link to="/teams" />
         </PhoneDockTab>
-        <PhoneDockAssistant asChild selected={!open && onAssistant} data-testid={CHATS_TEST_IDS.tabAssistant}>
+        <PhoneDockAssistant asChild selected={!open && onAssistant} badge={assistant?.badge} data-testid={CHATS_TEST_IDS.tabAssistant}>
           <Link to="/assistant" />
         </PhoneDockAssistant>
         <PhoneDockTab

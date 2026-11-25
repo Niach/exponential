@@ -272,9 +272,10 @@ struct TabletSidebar: View {
     // MARK: - Entries
 
     private var needsYouCount: Int {
-        // #EXP-1950: installs waiting for approval count as Needs you rows.
-        lists.needsYou(me: deps.auth.userId, now: now).count
-            + deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").rows.count
+        lists.needsYouCounts(
+            me: deps.auth.userId, now: now,
+            installs: deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").waitingRows
+        ).total
     }
 
     @ViewBuilder
@@ -293,7 +294,7 @@ struct TabletSidebar: View {
             row(.drafts, title: "Drafts", badge: NavBadges.Value(count: draftCount, tone: .muted)) { glyph(AppIcons.navDrafts) }
         }
         if let assistant = lists.assistant {
-            row(.agentChannel(assistant.agentId), title: assistant.name, badge: lists.agentBadge(assistant)) {
+            row(.agentChannel(assistant.agentId), title: assistant.name, badge: lists.assistantBadge) {
                 ExpLogoMark(size: 18, color: .white)
             }
         }
@@ -321,6 +322,11 @@ struct TabletSidebar: View {
             let lead: Chats.ChatLead = chat.needsYou ? .needsYou : chat.busy ? .working : .waiting
             return AnyView(row(.chat(chat.rootId), title: chat.title, bold: chat.unread) {
                 ChatLeadMark(lead: lead, cli: lists.clis[chat.sessionId], size: 18)
+                    .teamCorner(
+                        teamState.team(lists.chatRoots[chat.rootId]?.teamId)
+                            .map { ChatRowTeam(name: $0.name, iconUrl: $0.iconUrl) },
+                        lead: 18
+                    )
             })
         }
     }

@@ -52,7 +52,44 @@ export function rowBadge(row: { unreadCount: number; needsYou: boolean }): Count
   return unread > 0 ? { count: unread, tone: `muted` } : NONE
 }
 
-/** The OS app icon (`appIconCases`): every team's needs-you rows summed. */
-export function appIconBadge(teams: readonly { needsYou: number }[]): number {
-  return teams.reduce((sum, t) => sum + Math.max(0, t.needsYou), 0)
+/** A parent's badge over the rows it hides (`sumCases`): a folded folder, the
+ *  phones' Teams tab. Attention while a counted row needs the viewer. */
+export function sumBadges(rows: readonly CountBadgeValue[]): CountBadgeValue {
+  const lit = rows.filter((row) => row.count > 0)
+  if (lit.length === 0) return NONE
+  return {
+    count: lit.reduce((sum, row) => sum + row.count, 0),
+    tone: lit.some((row) => row.tone === `attention`) ? `attention` : `muted`,
+  }
+}
+
+/** A team row (`teamCases`): its share of Needs you, and while folded its
+ *  hidden rows' muted counts (the attention ones are in the share). */
+export function teamBadge(team: { needsYou: number; open: boolean; rows: readonly CountBadgeValue[] }): CountBadgeValue {
+  const hidden = team.open ? [] : team.rows.filter((row) => row.tone === `muted`)
+  return sumBadges([{ count: team.needsYou, tone: `attention` }, ...hidden])
+}
+
+/** Needs you (`needsYouCases`): `rows` = THE list over every member team and
+ *  the Assistant's home, each with its session's team; a row outside `teams`
+ *  (the Assistant's) and the waiting installs belong to no team. */
+export function needsYouCounts(input: {
+  rows: readonly { teamId: string | null }[]
+  teams: readonly string[]
+  installs: number
+}): { total: number; teams: Record<string, number> } {
+  const teams: Record<string, number> = Object.fromEntries(input.teams.map((id) => [id, 0]))
+  for (const { teamId } of input.rows) if (teamId !== null && teamId in teams) teams[teamId] += 1
+  return { total: input.rows.length + Math.max(0, input.installs), teams }
+}
+
+/** The OS app icon (`appIconCases`): every account's Needs you total. */
+export function appIconBadge(accounts: readonly { needsYou: number }[]): number {
+  return accounts.reduce((sum, a) => sum + Math.max(0, a.needsYou), 0)
+}
+
+/** A row's team mark on its lead (`teamMark.leadCases`), bottom right. */
+export function teamMarkOf(lead: number): { mark: number; ring: number; offset: number } {
+  const { mark, ring, offset } = fixture.teamMark.sizes.find((row) => row.lead <= lead) ?? fixture.teamMark.sizes[fixture.teamMark.sizes.length - 1]!
+  return { mark, ring, offset }
 }

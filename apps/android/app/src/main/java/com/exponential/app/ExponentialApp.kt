@@ -51,6 +51,7 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var steerConnectionStore: SteerConnectionStore
     @Inject lateinit var chatStores: com.exponential.app.data.chatstore.ChatStoreManager
     @Inject lateinit var directShareShortcuts: com.exponential.app.data.share.DirectShareShortcuts
+    @Inject lateinit var appIconBadge: com.exponential.app.data.push.AppIconBadge
     // #EXP-1830: the home screen widgets' data + drawing.
     @Inject lateinit var homeWidgetsRefresher: com.exponential.app.widget.HomeWidgetsRefresher
     @Inject lateinit var systemSearchIndexer: com.exponential.app.data.search.SystemSearchIndexer
@@ -142,6 +143,8 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
                 // draft now (web's `pagehide`).
                 composerDrafts.flushAll()
                 syncManager.setForeground(false)
+                // The launcher shows next: its number as the app last knew it.
+                appIconBadge.refresh()
                 steerConnectionStore.setForeground(false)
                 chatStores.setForeground(false)
             }

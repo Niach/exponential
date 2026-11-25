@@ -2,14 +2,13 @@ import { useCallback, useMemo } from "react"
 import { isGroupChatRoot } from "@/lib/group-chat"
 import { useNavigate } from "@tanstack/react-router"
 import { needsYou, type NeedsYouMessageInput, type NeedsYouRow, type NeedsYouSessionInput } from "@exp/domain-contract/needs-you"
+import { needsYouCounts } from "@exp/domain-contract/nav-badges"
 import { resultAge } from "@exp/domain-contract/results-tab"
 import { offlineSince, stuckRow, type HoldReason, type StuckRow, type TeamMergeMode } from "@exp/domain-contract/merge-train"
 import { useLiveQuery } from "@tanstack/react-db"
-import { useTeamPullRequestsByRoot } from "@/components/chat/chats-list"
 import { deviceCollection, pullRequestCollection, sessionCollection, teamCollection } from "@/lib/collections"
 import { resolveSessionDevice } from "@/lib/session-device"
 import { useNow } from "@/hooks/use-now"
-import { useTeamById } from "@/hooks/use-team-data"
 import { useAgents, useDigestMessages, useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
 import { useGroupChatIds, useTeamAgentRows } from "@/hooks/use-agent-row"
 import { sessionTarget } from "@/lib/session-back"
@@ -46,76 +45,13 @@ const iso = (value: unknown): string => {
 const isWaitingKind = (card: { kind?: unknown } | null | undefined) =>
   card?.kind === `plan` || card?.kind === `question` || card?.kind === `ask`
 
-export function useNeedsYou(
-  teamId: string | null | undefined,
-  me: string | null | undefined,
-  owner = false
-): { rows: NeedsYouListRow[]; isReady: boolean } {
-  // #EXP-1714: the team's sessions + the viewer's global Assistant's (its
-  // conversation lives in their personal team, never a synced team).
-  const teamAgents = useTeamAgentRows(teamId ? [teamId] : [], me)
-  const personal = teamAgents.find((agent) => agent.teamId !== teamId)?.teamId ?? null
-  const teamIds = useMemo(() => (teamId ? (personal ? [teamId, personal] : [teamId]) : []), [teamId, personal])
-  const { rows: sessions, isReady: sessionsReady } = useTeamSessions(teamIds)
-  const { agents } = useAgents(teamId ?? undefined, me)
-  const { messages, isReady: digestsReady } = useDigestMessages({ teamIds })
-  const { all: pullRequests } = useTeamPullRequestsByRoot(teamId ?? undefined)
-  const now = useNow(60_000).getTime()
-  const { data: deviceRows } = useLiveQuery((query) => query.from({ d: deviceCollection }), [])
-  // #EXP-1710: `auto` (the default) = no ready-to-merge PR waits for a person.
-  const mergeMode = (useTeamById(teamId)?.mergeMode ?? `auto`) as TeamMergeMode
-
-  const inputs = useMemo(() => waitingInputs(messages), [messages])
-  const groupChatIds = useGroupChatIds()
-
-  // THE session title, read only for the sessions holding a card (and roots).
-  const byId = useMemo(() => new Map(sessions.map((row) => [row.id, row])), [sessions])
-  const titled = useMemo(() => {
-    const ids = new Set<string>()
-    const add = (id: unknown) => {
-      const row = typeof id === `string` ? byId.get(id) : undefined
-      if (!row) return
-      ids.add(row.id)
-      ids.add(row.rootId ?? row.id)
-    }
-    for (const message of inputs) {
-      add(message.sessionId)
-      add(message.card?.sessionId)
-    }
-    for (const pr of pullRequests) add(pr.rootSessionId)
-    return [...ids]
-      .sort()
-      .map((id) => byId.get(id))
-      .filter((row): row is SessionRow => row !== undefined)
-  }, [inputs, pullRequests, byId])
-  const { titles } = useSessionTitles(titled)
-
-  const rows = useMemo(() => {
-    const agentNames = new Map(agents.map((agent) => [agent.agentId, agent.name]))
-    return needsYouListRows({
-      sessions,
-      nameOf: (row) => (row.agentId ? agentNames.get(row.agentId) : undefined) ?? titles.get(row.id) ?? row.title ?? ``,
-      messages: inputs,
-      pullRequests,
-      devices: (deviceRows ?? []) as Device[],
-      now,
-      me: me ?? null,
-      groupChatIds,
-      owner,
-      mergeMode,
-    })
-  }, [sessions, agents, titles, inputs, pullRequests, now, me, owner, deviceRows, mergeMode, groupChatIds])
-
-  return { rows, isReady: sessionsReady && digestsReady }
-}
-
 /** #EXP-2027: a Needs you row of the team-less page, with its team (null =
  *  the viewer's Assistant's, whose home is their personal team). */
 export type CrossTeamNeedsYouRow = NeedsYouListRow & { teamId: string | null }
 
 /** #EXP-2027 (sidebar-tree.json ROOT `needs-you`): EVERY member team's Needs
- *  you rows (each counted like `useNeedsYou`, its owner flag its own team's),
- *  the viewer's Assistant's once, in team order. */
+ *  you rows and the
+ *  viewer's Assistant's (`crossTeamRows`), newest first. */
 export function useCrossTeamNeedsYou(
   teamIds: readonly string[],
   me: string | null | undefined,
@@ -170,22 +106,18 @@ export function useCrossTeamNeedsYou(
     const nameOf = (row: SessionRow) =>
       (row.agentId ? agentNames.get(row.agentId) : undefined) ?? titles.get(row.id) ?? row.title ?? ``
     const modes = new Map(((teamRows ?? []) as { id: string; mergeMode?: string | null }[]).map((t) => [t.id, t.mergeMode]))
-    const groups: (string | null)[] = [...teamIds, ...(personal ? [null] : [])]
-    const all = groups.flatMap((teamId): CrossTeamNeedsYouRow[] => {
-      const own = sessions.filter((row) => row.teamId === (teamId ?? personal))
-      const ids = new Set(own.map((row) => row.id))
-      return needsYouListRows({
-        sessions: own,
-        nameOf,
-        messages: inputs.filter((message) => ids.has(message.sessionId)),
-        pullRequests: teamId ? pullRequests.filter((pr) => pr.teamId === teamId) : [],
-        devices: (deviceRows ?? []) as Device[],
-        now,
-        me: me ?? null,
+    const all = crossTeamRows({
+      teamIds,
+      sessions,
+      nameOf,
+      messages: inputs,
+      pullRequests,
+      modes,
+      devices: (deviceRows ?? []) as Device[],
+      now,
+      me: me ?? null,
       groupChatIds,
-        owner: teamId ? ownerOf(teamId) : false,
-        mergeMode: ((teamId ? modes.get(teamId) : null) ?? `auto`) as TeamMergeMode,
-      }).map((row) => ({ ...row, teamId }))
+      ownerOf,
     })
     // needs-you.json across the teams: plans and questions on top, then the
     // PR rows, each group newest first.
@@ -195,7 +127,7 @@ export function useCrossTeamNeedsYou(
         Date.parse(right.createdAt) - Date.parse(left.createdAt)
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions, agents, titles, inputs, pullRequests, deviceRows, teamRows, now, me, personal, key, ownerOf, groupChatIds])
+  }, [sessions, agents, titles, inputs, pullRequests, deviceRows, teamRows, now, me, key, ownerOf, groupChatIds])
 
   return { rows, isReady: sessionsReady && digestsReady }
 }
@@ -270,10 +202,52 @@ export function needsYouListRows(input: {
   return withApprovals(folded, pullRequests, mergeMode)
 }
 
-/** #FEED-232 (nav-badges.json): every listed team's Needs you rows' length
- *  (the team picker) and their distinct total (the OS app icon), over the
- *  shapes every member team already syncs. Each team counts like
- *  `useNeedsYou` (its sessions + the viewer's global Assistant's). */
+/** nav-badges.json NEEDS YOU: THE rows over every member team and the
+ *  Assistant's home in ONE read (an ask mirrored into the Assistant's chat is
+ *  its origin's row), each with its session's team (null = the Assistant's).
+ *  The PR rows fold per team: merge mode and owner are the team's. */
+export function crossTeamRows(input: {
+  teamIds: readonly string[]
+  /** Every member team's sessions and the Assistant's home's. */
+  sessions: readonly SessionRow[]
+  nameOf: (row: SessionRow) => string
+  messages: readonly NeedsYouMessageInput[]
+  pullRequests: readonly PullRequestRow[]
+  modes: ReadonlyMap<string, string | null | undefined>
+  devices: readonly Device[]
+  now: number
+  me: string | null
+  groupChatIds: readonly string[]
+  ownerOf: (teamId: string) => boolean
+}): CrossTeamNeedsYouRow[] {
+  const { teamIds, sessions, pullRequests, modes, ownerOf, ...shared } = input
+  const teamOf = new Map(sessions.map((row) => [row.id, row.teamId]))
+  const decisions = needsYouListRows({ ...shared, sessions, pullRequests: [], owner: false, mergeMode: `auto` }).map(
+    (row): CrossTeamNeedsYouRow => {
+      const teamId = teamOf.get(row.sessionId)
+      return { ...row, teamId: teamId && teamIds.includes(teamId) ? teamId : null }
+    }
+  )
+  const prs = teamIds.flatMap((teamId): CrossTeamNeedsYouRow[] => {
+    const own = pullRequests.filter((pr) => pr.teamId === teamId)
+    if (own.length === 0) return []
+    return needsYouListRows({
+      ...shared,
+      sessions: sessions.filter((row) => row.teamId === teamId),
+      messages: [],
+      pullRequests: own,
+      owner: ownerOf(teamId),
+      mergeMode: (modes.get(teamId) ?? `auto`) as TeamMergeMode,
+    }).map((row) => ({ ...row, teamId }))
+  })
+  return [...decisions, ...prs]
+}
+
+const notOwner = () => false
+
+/** #FEED-232 (nav-badges.json `needsYouCases`): each member team's share of
+ *  Needs you and the total (the entry, the OS app icon), off the shapes every
+ *  member team already syncs: the page's own rows. */
 export function useNeedsYouCounts(
   teamIds: readonly string[],
   me: string | null | undefined
@@ -293,34 +267,28 @@ export function useNeedsYouCounts(
   const now = useNow(60_000).getTime()
   const inputs = useMemo(() => waitingInputs(messages), [messages])
   const groupChatIds = useGroupChatIds()
-  // #EXP-1950: installs waiting for approval are rows of every team's Needs you.
-  const pendingInstalls = useInstallTrust().rows.length
+  // #EXP-1950: the installs waiting for approval; this install waiting itself
+  // lists none.
+  const installTrust = useInstallTrust()
+  const installs = installTrust.status === `waiting` ? 0 : installTrust.rows.length
   return useMemo(() => {
-    const byTeam = new Map<string, number>()
-    const seen = new Set<string>()
-    const prs = (prRows ?? []) as PullRequestRow[]
-    const modes = new Map(((teamRows ?? []) as { id: string; mergeMode?: string | null }[]).map((t) => [t.id, t.mergeMode]))
-    for (const teamId of teamIds) {
-      const own = sessions.filter((row) => row.teamId === teamId || row.teamId === personal)
-      const ids = new Set(own.map((row) => row.id))
-      const rows = needsYouListRows({
-        sessions: own,
-        nameOf: () => ``,
-        messages: inputs.filter((message) => ids.has(message.sessionId)),
-        pullRequests: prs.filter((pr) => pr.teamId === teamId),
-        devices: (deviceRows ?? []) as Device[],
-        now,
-        me: me ?? null,
+    const rows = crossTeamRows({
+      teamIds,
+      sessions,
+      nameOf: () => ``,
+      messages: inputs,
+      pullRequests: (prRows ?? []) as PullRequestRow[],
+      modes: new Map(((teamRows ?? []) as { id: string; mergeMode?: string | null }[]).map((t) => [t.id, t.mergeMode])),
+      devices: (deviceRows ?? []) as Device[],
+      now,
+      me: me ?? null,
       groupChatIds,
-        owner: false,
-        mergeMode: (modes.get(teamId) ?? `auto`) as TeamMergeMode,
-      })
-      byTeam.set(teamId, rows.length + pendingInstalls)
-      for (const row of rows) seen.add(`${row.kind}:${row.messageId}`)
-    }
-    return { byTeam, total: seen.size + pendingInstalls }
+      ownerOf: notOwner,
+    })
+    const counts = needsYouCounts({ rows, teams: teamIds, installs })
+    return { byTeam: new Map(Object.entries(counts.teams)), total: counts.total }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessions, inputs, prRows, teamRows, deviceRows, now, me, personal, teamIds.join(`,`), groupChatIds, pendingInstalls])
+  }, [sessions, inputs, prRows, teamRows, deviceRows, now, me, teamIds.join(`,`), groupChatIds, installs])
 }
 
 /** Fold the stuck PRs (merge-train `stuckRow`) into `needsYou()`'s rows: a

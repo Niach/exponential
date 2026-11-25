@@ -247,6 +247,7 @@ struct TeamTreeList: View {
             CountBadge(badge(row))
         case .folder:
             if !row.open {
+                CountBadge(badge(row))
                 Text("\(row.count)")
                     .font(.subheadline)
                     .monospacedDigit()
@@ -324,9 +325,14 @@ struct TeamTreeList: View {
     }
 
     private func badge(_ row: SidebarTree.PhoneRow) -> NavBadges.Value {
-        row.kind == .team
-            ? NavBadges.Value(count: lists.needsYou(teamId: row.id, me: deps.auth.userId, now: now).count, tone: .attention)
-            : TeamTreeRowValues.badge(row, lists: lists)
+        switch row.kind {
+        case .team:
+            tree.teamBadge(row.id, open: row.open, teamState: teamState, lists: lists, me: deps.auth.userId, now: now)
+        case .folder:
+            row.open ? .none : tree.folderBadge(row.id, teamId: row.teamId, teamState: teamState, lists: lists)
+        case let .item(kind):
+            tree.itemBadge(row.id, kind: kind, lists: lists)
+        }
     }
 
     private func tap(_ row: SidebarTree.PhoneRow) {
@@ -560,19 +566,6 @@ enum TeamTreeRowValues {
         case .item(.agent): tree.agent(row.id)?.name ?? ""
         case .item(.app): tree.app(row.id)?.name ?? ""
         case .item(.session): lists.chatRoots[row.id]?.title ?? ""
-        }
-    }
-
-    static func badge(_ row: SidebarTree.PhoneRow, lists: SessionListsModel) -> NavBadges.Value {
-        switch row.kind {
-        case .item(.agent):
-            lists.agents.first { $0.agentId == row.id }.map(lists.agentBadge) ?? .none
-        case .item(.session):
-            NavBadges.rowBadge(
-                unreadCount: Chats.unreadCount(rootId: row.id, messages: lists.chatMessages, reads: lists.reads),
-                needsYou: lists.chatRow(row.id)?.needsYou ?? false
-            )
-        default: .none
         }
     }
 }

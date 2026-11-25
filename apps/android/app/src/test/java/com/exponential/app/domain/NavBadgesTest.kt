@@ -99,14 +99,83 @@ class NavBadgesTest {
         }
     }
 
+    private fun badges(rows: List<JsonObject>) = rows.map { NavBadges.Badge(it.int("count"), tone(it.str("tone")!!)) }
+
+    @Test
+    fun `every sum case matches the fixture`() {
+        for (case in cases("sumCases")) {
+            assertEquals(case.str("name"), expected(case), NavBadges.sumBadges(badges(case.list("input"))))
+        }
+    }
+
+    @Test
+    fun `every team case matches the fixture`() {
+        for (case in cases("teamCases")) {
+            val input = case.getValue("input").jsonObject
+            assertEquals(
+                case.str("name"),
+                expected(case),
+                NavBadges.teamBadge(input.int("needsYou"), input.bool("open"), badges(input.list("rows"))),
+            )
+        }
+    }
+
+    @Test
+    fun `every needs you case matches the fixture`() {
+        for (case in cases("needsYouCases")) {
+            val input = case.getValue("input").jsonObject
+            val e = case.getValue("expected").jsonObject
+            assertEquals(
+                case.str("name"),
+                NavBadges.NeedsYouCounts(e.int("total"), e.getValue("teams").jsonObject.mapValues { it.value.jsonPrimitive.int }),
+                NavBadges.needsYouCounts(
+                    rows = input.list("rows").map { it.str("teamId") },
+                    teams = (input.getValue("teams") as JsonArray).map { it.jsonPrimitive.content },
+                    installs = input.int("installs"),
+                ),
+            )
+        }
+    }
+
     @Test
     fun `every app icon case matches the fixture`() {
         for (case in cases("appIconCases")) {
             assertEquals(
                 case.str("name"),
                 case.int("expected"),
-                NavBadges.appIconBadge(case.list("teams").map { it.int("needsYou") }),
+                NavBadges.appIconBadge(case.list("accounts").map { it.int("needsYou") }),
             )
         }
+    }
+
+    @Test
+    fun `every team mark lead case matches the fixture`() {
+        val leads = fixture.getValue("teamMark").jsonObject.list("leadCases")
+        assertTrue(leads.isNotEmpty())
+        for (case in leads) {
+            val e = case.getValue("expected").jsonObject
+            assertEquals(
+                "lead ${case.int("lead")}",
+                NavBadges.TeamMarkSize(e.int("mark"), e.int("ring"), e.int("offset")),
+                NavBadges.teamMarkOf(case.int("lead").toFloat()),
+            )
+        }
+    }
+
+    /** What each destination's badge is drawn from here; a new id fails. */
+    @Test
+    fun `every destination is known`() {
+        val rows = cases("destinations")
+        assertEquals(
+            listOf(
+                "assistant", "needs-you", "team", "folder", "agent", "session", "teams-tab",
+                "chats", "chat-row", "inbox", "drafts", "app-icon",
+            ),
+            rows.filter { it.bool("badge") }.map { it.str("id") },
+        )
+        assertEquals(
+            listOf("home", "devices", "device", "board", "app", "new", "settings", "search", "work-tab", "active-row"),
+            rows.filter { !it.bool("badge") }.map { it.str("id") },
+        )
     }
 }

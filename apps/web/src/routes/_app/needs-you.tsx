@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react"
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
 import { NEEDS_YOU_COPY, type NeedsYouRow } from "@exp/domain-contract/needs-you"
-import { FAB_CLEARANCE_CLASS, MobileDetailHeader, NeedsYouList, SkeletonRows, TeamAvatar, useIsMobile } from "@exp/ui"
+import { FAB_CLEARANCE_CLASS, MobileDetailHeader, NeedsYouList, SkeletonRows, useIsMobile } from "@exp/ui"
 import { NeedsYouStuckActions, useNeedsYouPress } from "@/components/needs-you-stuck-actions"
 import { PushedTitle } from "@/components/team/mobile-page-header"
 import { useMemberTeams } from "@/components/home/use-member-teams"
@@ -70,7 +70,7 @@ function NeedsYouRoute() {
             actions={(row) => <NeedsYouStuckActions row={row} />}
             teamOf={(row) => {
               const team = memberTeams.byId.get((row as CrossTeamNeedsYouRow).teamId ?? ``)
-              return team ? <TeamAvatar iconUrl={team.iconUrl} size={14} /> : null
+              return team ? { iconUrl: team.iconUrl, name: team.name } : null
             }}
           />
         )}
