@@ -1,20 +1,23 @@
 //! Round 9 §14.1 (#VAPP-289): a Local desktop's own one-shot A2UI 1.0 pass.
 //! The server's migration never sees this store, and format 5 stops loading
 //! here too, so opening a store rewrites what it holds with `upgrade09` (the
-//! Rust mirror): `apps.package`, `apps.draft_package` (→ format 6),
+//! converter's Rust mirror, private to this crate): `apps.package`, `apps.draft_package` (→ format 6),
 //! `apps.granted_tools` (flat names) and every clear `messages.card` surface
-//! (→ `version: "1.0"`). Sealed cards are left to the display reader.
-//! Idempotent; the marker file next to the store skips it from then on. This
-//! and the migration script are the only callers of `upgrade09`.
+//! (→ `version: "1.0"`). Sealed cards stay as
+//! they are.
+//! Idempotent; the marker file next to the store skips it from then on.
 
 use std::path::Path;
 
 use eui_core::catalog::A2UI_VERSION;
-use eui_core::host::{PACKAGE_FORMAT_VERSION, PACKAGE_FORMAT_VERSION_09};
-use eui_core::upgrade09::{upgrade_card09, upgrade_package_body09};
+use eui_core::host::PACKAGE_FORMAT_VERSION;
 use serde_json::{json, Map, Value};
 
 use crate::store::LocalStore;
+use crate::upgrade09::{upgrade_card09, upgrade_package_body09};
+
+/// The format this pass reads.
+const PACKAGE_FORMAT_VERSION_09: u32 = 5;
 
 /// The marker's file name, beside `local.sqlite`.
 pub const MARKER: &str = "a2ui10.done";

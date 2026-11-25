@@ -81,6 +81,19 @@ fun SurfaceCard(
      *  hairline, glow or inset). */
     chrome: Boolean = true,
 ) {
+    val title = row.title?.trim()?.takeIf { showTitle && it.isNotEmpty() }
+    if (!row.surface.readable) {
+        // plan-card.json `surfaceReadableCases`: the title caption over THE
+        // inline marker, no frame.
+        Column(
+            modifier = modifier.fillMaxWidth().testTag(Chats.TestIds.SURFACE_CARD),
+            verticalArrangement = Arrangement.spacedBy(PlanCard.Look.SURFACE_LABEL_GAP.dp),
+        ) {
+            if (title != null) SurfaceCardTitle(title)
+            FeedMarkerRow(ChatExpress.Copy.BLOCK_FAILED)
+        }
+        return
+    }
     val model = rememberCardSurfaceModel(row.surface) { name, context, userMessage ->
         ChatExpress.surfaceAction(name, context, userMessage, ChatExpress.showActionOrigin(row.id))?.let(onAction)
     }
@@ -89,8 +102,19 @@ fun SurfaceCard(
         model = model,
         animate = animate,
         modifier = modifier,
-        title = row.title?.trim()?.takeIf { showTitle && it.isNotEmpty() },
+        title = title,
         chrome = chrome,
+    )
+}
+
+@Composable
+private fun SurfaceCardTitle(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
     )
 }
 
@@ -175,15 +199,7 @@ fun SurfaceCardFrame(
             .testTag(Chats.TestIds.SURFACE_CARD),
         verticalArrangement = Arrangement.spacedBy(PlanCard.Look.SURFACE_LABEL_GAP.dp),
     ) {
-        if (title != null) {
-            Text(
-                title,
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        if (title != null) SurfaceCardTitle(title)
         Box(
             modifier = if (!chrome) Modifier.fillMaxWidth() else Modifier
                 .fillMaxWidth()

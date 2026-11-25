@@ -232,7 +232,7 @@ pub struct HostOptions {
     /// `read`): its writing controls paint disabled.
     pub read_only: bool,
     /// VAPP-218 (U1): open one of the surface's package screens
-    /// (`app.navigate`, a press or an action's call step, checked by
+    /// (`app_navigate`, a press or an action's call step, checked by
     /// `navigate_target`). `None` = the host draws no screens, so a
     /// navigate is refused.
     pub navigate: Option<NavigateHook>,
@@ -1195,7 +1195,7 @@ impl ExponentialHost {
         self.navigate = navigate;
     }
 
-    /// VAPP-218: `app.navigate {screen, params?}` → the host's shell, when
+    /// VAPP-218: `app_navigate {screen, params?}` → the host's shell, when
     /// the surface's package has that screen. A refusal = FUNCTION_DENIED.
     pub fn navigate(&mut self, call: &FunctionCallInfo, cx: &mut App) -> FunctionOutcome {
         let package_id = self.package_id_of(&call.surface_id).map(str::to_string);
@@ -1236,7 +1236,7 @@ impl ExponentialHost {
     /// VAPP-194: `actions.<name>` = the surface's package action, all or
     /// nothing (the TS `runPackageAction`): the plan over one snapshot (the
     /// args = params, the surface data, `me`, the clock), every host call's
-    /// gate and consent, then the record writes as ONE `records.batch`,
+    /// gate and consent, then the record writes as ONE `records_batch`,
     /// then the sets, then the calls. A failure before the commit lands
     /// nothing. VAPP-271: a `call` step with a `result` runs when the plan
     /// reaches it (its gate first, before the commit; a refusal or a

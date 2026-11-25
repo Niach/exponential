@@ -199,7 +199,7 @@ function appEditor(): StoredEntry[] {
         [`mcp__exponential__exponential_apps_upsert`, `Working hours · Post to the issue`],
         [`mcp__exponential__exponential_apps_publish`, `Working hours · v5`],
       ],
-      `v5: Post to the issue calls exponential.comments.create with the hours and the note; allow it once on the app's settings page and it posts without asking.`,
+      `v5: Post to the issue calls exponential_comments_create with the hours and the note; allow it once on the app's settings page and it posts without asking.`,
       t.fifth
     ),
   ]

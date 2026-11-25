@@ -19,7 +19,7 @@
 //! - Round 9 (A2UI 1.0, `docs/round-9-contract.md`): `routeJson(message,
 //!   trusted)`, `mintSurfaceId`, the `call` / `respond` ops, the renderer →
 //!   agent builders, `rendererCapabilitiesJson`,
-//!   `upgradeCard09`, `a2uiVersion`.
+//!   `a2uiVersion`.
 //!
 //! Round 1:
 //! - `layout(measurer)` calls the measurer WITHOUT holding the surface lock
@@ -3320,18 +3320,6 @@ pub fn card_v10_json(card_json: String) -> Result<String, UiError> {
     })
 }
 
-/// A stored `exponential_show` card (nested `{version?, root, data}`) for
-/// DISPLAY (§18.2): a card with no `version` (sealed, the server cannot
-/// rewrite it) through `upgradeCard09`; `"1.0"` as it is. Nothing is ever
-/// emitted in this form's input.
-#[uniffi::export]
-pub fn upgrade_card09(card_json: String) -> Result<String, UiError> {
-    guarded("upgrade_card09", || {
-        let card: Value = parse(&card_json)?;
-        eui_core::reducer::card_for_display(&card).map(|c| c.to_string()).map_err(invalid)
-    })
-}
-
 /// A package's issues `[{path, message}]` JSON (`catalog_ids` default: the
 /// three built-in catalogs).
 #[uniffi::export]
@@ -3467,7 +3455,7 @@ pub fn run_package_tests_json(package_json: String) -> Result<String, UiError> {
     })
 }
 
-/// VAPP-194: apply a `records.batch` (`eui_core::host::apply_record_batch`)
+/// VAPP-194: apply a `records_batch` (`eui_core::host::apply_record_batch`)
 /// to `rows_json` (record rows) all or nothing, checked against
 /// `records_json` (the package's kinds): `{"rows": [...], "ids": [...]}` or
 /// `{"error": "write <i>: …"}` (`fixtures/actions.json` `batch`). A create
@@ -3684,7 +3672,7 @@ pub fn resolve_screen_json(package_json: String, screen: Option<String>, params_
     })
 }
 
-/// VAPP-218 (U1): an `app.navigate` call's args → `{screen, params}` or
+/// VAPP-218 (U1): an `app_navigate` call's args → `{screen, params}` or
 /// `{error}` (`fixtures/host-router.json` `navigate`).
 #[uniffi::export]
 pub fn navigate_target_json(package_json: String, args_json: String) -> Result<String, UiError> {

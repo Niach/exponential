@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 /// An event the runner handles itself; `None` from [`runner_event`] = not one.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RunnerEvent {
-    /// `runner.navigate {screen}`: the Engine's `app.navigate`.
+    /// `runner.navigate {screen}`: the Engine's `app_navigate`.
     Navigate { screen: String },
     /// `runner.permissions`: paint surface `permissions`.
     Permissions,

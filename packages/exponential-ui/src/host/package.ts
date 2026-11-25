@@ -36,8 +36,6 @@ import type { PackageScreen } from "./screens"
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
  *  A package names it, and it is exactly this one (round 9 §12). */
 export const PACKAGE_FORMAT_VERSION = 6
-/** The 0.9-era format `upgrade09` reads (the stored-data migration, §14). */
-export const PACKAGE_FORMAT_VERSION_09 = 5
 
 /** The core, the core lite, the A2UI basic catalog, then every registered
  *  extension id in order, de-duplicated. */

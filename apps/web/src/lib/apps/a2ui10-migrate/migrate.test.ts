@@ -9,15 +9,15 @@ import { describe, expect, it, vi } from "vitest"
 import { CORE_CATALOG_ID, cardProblems, cardV10, reduceNested, signPackageFile, validatePackage, verifyPackageFile, type NestedNode, type PackageShare, type RecordKind } from "@exponential_app/eui"
 import { declaredActions } from "@exp/domain-contract/app-actions"
 import { APP_PACKAGE_MAX_BYTES } from "@exp/domain-contract/apps"
-import fixture from "./a2ui10-migrate.fixture.json"
+import fixture from "./fixture.json"
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
-const { upgradeGrants, upgradePackageFile, upgradeStagedRows, upgradeStoredCard, upgradeStoredPackage } = await import(`@/lib/apps/a2ui10-migrate`)
+const { upgradeGrants, stagedV09, upgradePackageFile, upgradeStoredCard, upgradeStoredPackage, upgradeTriggers } = await import(`@/lib/apps/a2ui10-migrate`)
 const { APP_CATALOG_IDS, appExtension, appPackageIssues, linkableScreens, migratedPackageIssues } = await import(`@/lib/apps/package`)
 const { guestPackage } = await import(`@/lib/apps/share-links`)
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), `..`, `..`, `..`, `..`, `..`)
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), `..`, `..`, `..`, `..`, `..`, `..`)
 const json = (path: string) => JSON.parse(readFileSync(join(ROOT, path), `utf8`)) as Record<string, unknown>
 const inDir = (dir: string, suffix: string) => readdirSync(join(ROOT, dir)).filter((f) => f.endsWith(suffix)).map((f) => join(dir, f))
 
@@ -154,20 +154,35 @@ describe(`every package the platform ships`, () => {
   })
 })
 
-describe(`upgradeStagedRows`, () => {
-  it(`upgrades what a team import would write, column by column`, async () => {
-    const rows = [
-      { tableName: `apps`, localId: `a`, row: { id: `a`, package: fixture.packages.fieldVisits, draft_package: null, granted_tools: fixture.grants.dotted } },
-      { tableName: `app_versions`, localId: `v`, row: { id: `v`, package: fixture.packages.fieldVisits } },
-      { tableName: `messages`, localId: `m`, row: { id: `m`, card: fixture.cards.surface } },
-      { tableName: `issues`, localId: `i`, row: { id: `i`, package: `not a package` } },
-    ]
-    const [app, version, message, issue] = await upgradeStagedRows(rows)
-    expect((app!.row.package as { formatVersion: number }).formatVersion).toBe(6)
-    expect(app!.row.granted_tools).toEqual([`exponential_issues_update`, `exponential_mcp_servers_list`, `exponential_issues_create`])
-    expect((version!.row.package as { formatVersion: number }).formatVersion).toBe(6)
-    expect((message!.row.card as unknown as { surface: { version: string } }).surface.version).toBe(`1.0`)
-    expect(issue).toEqual(rows[3])
+describe(`upgradeTriggers`, () => {
+  it(`flattens a run binding's action and nothing else`, () => {
+    const wake = { id: `w`, kind: `event`, name: `pr.merged`, prompt: `exponential.issues.create` }
+    const run = (action: string) => ({ id: `r`, kind: `schedule`, cron: `0 8 * * 1`, run: { action, args: { title: `\${firedAt}` } } })
+    expect(upgradeTriggers([wake, run(`exponential.issues.create`)])).toEqual({ kind: `rewrite`, value: [wake, run(`exponential_issues_create`)] })
+    expect(upgradeTriggers([wake, run(`exponential_issues_create`)])).toEqual({ kind: `current` })
+    expect(upgradeTriggers([])).toEqual({ kind: `empty` })
+  })
+})
+
+describe(`stagedV09 (imports.commit)`, () => {
+  it(`names the first 0.9 row a team import would write`, () => {
+    expect(stagedV09([{ tableName: `apps`, row: { package: fixture.packages.fieldVisits } }])).toContain(`format 5`)
+    expect(stagedV09([{ tableName: `apps`, row: { granted_tools: fixture.grants.dotted } }])).toContain(`grants`)
+    expect(stagedV09([{ tableName: `app_versions`, row: { package: fixture.packages.fieldVisits } }])).toContain(`format 5`)
+    expect(stagedV09([{ tableName: `messages`, row: { card: fixture.cards.surface } }])).toContain(`card`)
+    expect(stagedV09([{ tableName: `agents`, row: { triggers: [{ run: { action: `exponential.issues.create` } }] } }])).toContain(`triggers`)
+  })
+
+  it(`takes 1.0 rows, sealed cards and everything else`, () => {
+    expect(
+      stagedV09([
+        { tableName: `apps`, row: { package: { formatVersion: 6 }, draft_package: null, granted_tools: [`exponential_issues_create`] } },
+        { tableName: `messages`, row: { card: { kind: `surface`, surface: { version: `1.0`, root: {} } } } },
+        { tableName: `messages`, row: { card: { kind: `surface`, sealed: `v1:1:abc` } } },
+        { tableName: `messages`, row: { card: null } },
+        { tableName: `issues`, row: { package: { formatVersion: 5 } } },
+      ])
+    ).toBeNull()
   })
 })
 

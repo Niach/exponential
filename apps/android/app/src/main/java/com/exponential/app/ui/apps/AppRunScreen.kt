@@ -48,7 +48,7 @@ import dev.chrisbanes.haze.rememberHazeState
 // back, the app's glyph + name and the `…` (`run.menu`): Edit app (the
 // creator or an owner) → THE EDITOR, Export (published > 0), Delete app
 // (the creator or an owner). Nothing published = the page-size EmptyState
-// `copy.runEmpty`. `app.navigate` keeps the screen in memory (the view
+// `copy.runEmpty`. `app_navigate` keeps the screen in memory (the view
 // model's request); an `appScreen` link opens here on that screen.
 
 @Composable

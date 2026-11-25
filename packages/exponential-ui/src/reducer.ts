@@ -13,7 +13,6 @@ import {
   sharedCatalogView,
 } from "./catalog"
 import { SURFACE_COMPONENT, checkEntry, escapeToken } from "./entry"
-import { upgradeCard09 } from "./upgrade09"
 import { mapBasicComponent } from "./basic-map"
 import { isDynamic } from "./expr"
 import { expandMacros } from "./macros"
@@ -628,14 +627,6 @@ export function cardV10(card: unknown): { card: { version: string; root: NestedN
   if (version === undefined) return { error: `version is required: write "version": "1.0"` }
   if (version === A2UI_VERSION) return { card: card as { version: string; root: NestedNode } }
   return { error: `unsupported version ${typeof version === `string` ? version : JSON.stringify(version)}` }
-}
-
-/** Round 9 §14.1, §18.2: a STORED card for DISPLAY only. A card with no
- *  `version` is one the migration could not rewrite (sealed): it is shown
- *  through `upgradeCard09`. No write path takes this: `cardV10` is the entry. */
-export function cardForDisplay(card: unknown): ReturnType<typeof cardV10> {
-  if (typeof card === `object` && card !== null && !Array.isArray(card) && (card as { version?: unknown }).version === undefined) return { card: upgradeCard09(card) as { version: string; root: NestedNode } }
-  return cardV10(card)
 }
 
 /** Round 9 §13: what a card refuses beyond `reduceNested`'s issues: the entry

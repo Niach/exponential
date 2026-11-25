@@ -39,8 +39,8 @@ export const MOTION_GALLERY = [`pulse-dot`, `progress-ring`, `typing-dots`, `hea
 const SAMPLE_APPS = [`crm`, `leave-planner`, `standup`, `time-tracker`] as const
 
 const DESCRIPTIONS: Record<string, string> = {
-  "exponential-apps": `Build or change an Exponential app (Apps): the package format (formatVersion 5), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps_write upsert) or its records.`,
-  "exponential-genui": `Write genUI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: "catalog"} lists the components and their props.`,
+  "exponential-apps": `Build or change an Exponential app (Apps): the package format (formatVersion 6), record kinds and their policies, named queries, CEL expressions and functions, optional values, actions with require, package tests, exposes, draft vs published, with three complete sample apps as worked examples. Use when writing or editing an app package (exponential_apps_write upsert) or its records.`,
+  "exponential-genui": `Write genUI (A2UI 1.0) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: "catalog"} lists the components and their props.`,
   "exponential-motion": `Animate with Motion: the readable Motion dialect that compiles 1:1 to Lottie, Lottie and dotLottie (.lottie) sources, playback, dotLottie state machines with inputs and events, the exponential motion import/compile/decompile/check/render CLI, and eight worked examples. Use when adding a Motion component to a surface or an app, or converting a Lottie file.`,
 }
 
@@ -181,7 +181,7 @@ function appsSkill(): Files {
       `- Declare every record kind with a schema; pick its \`policy\` (read/create/update/delete: member | author | owners; create never author) before writing screens.`,
       `- A kind's add/edit form or its list of records = ONE \`RecordForm\` / \`RecordTable\` node (\`references/records.md\`, Record macros), never a hand-built Form or Table.`,
       `- Prefer a named query (group, aggregate, running) over summing rows in expressions.`,
-      `- A field not in \`required\` may be missing: guard it (\`has(r.f)\`, \`orElse(r.f, d)\`), else the upsert is refused at that path. Every \`{call: "expr"}\` has a \`default\`.`,
+      `- A field not in \`required\` may be missing: guard it (\`has(r.f)\`, \`orElse(r.f, d)\`), else the upsert is refused at that path. Every \`{"@call": "expr"}\` has a \`default\`.`,
       `- Writes that must land together are one action; check inputs with \`require\` steps.`,
       `- Add a test for every expression, query and action: a failing test refuses the upsert as \`/tests/<i>\`.`,
       `- A spreadsheet to import: \`references/import.md\` (map, dry run, ask, then write in batches).`,

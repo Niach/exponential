@@ -180,7 +180,7 @@ enum Query {
 }
 
 /// VAPP-122: the app a host keeps records for (`records:<kind>`, the
-/// `records.*` writes): the hosting app and its team (an `app=`
+/// `records_*` writes): the hosting app and its team (an `app=`
 /// slug reads another app of the SAME team).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HostScope {
@@ -909,7 +909,7 @@ fn toast_fn() -> HostFunction {
     })
 }
 
-/// VAPP-245: where a record form's write answers (`records.upsert`'s
+/// VAPP-245: where a record form's write answers (`records_upsert`'s
 /// `form {error, close}`): landed = the error clears and the editor closes;
 /// invalid input (BAD_REQUEST) = the message under the form, no toast.
 #[derive(Clone)]
@@ -1704,7 +1704,7 @@ impl IdeHost {
     /// the editor's preview) and the package's
     /// `theme` (the default theme when `None` or unknown). VAPP-122:
     /// `scope` = the app whose records `records:<kind>` reads and
-    /// `records.*` write (`None` = no app: the binding reads no
+    /// `records_*` write (`None` = no app: the binding reads no
     /// rows, a write fails).
     pub(crate) fn with_packages(
         mode: Mode,
@@ -2359,7 +2359,7 @@ mod tests {
     }
 
     /// A row press (a list TEMPLATE instance, `row.0`) reaches
-    /// `harness.toast` through the host.
+    /// `harness_toast` through the host.
     #[gpui::test]
     fn a_row_press_reaches_the_host_function(cx: &mut gpui::TestAppContext) {
         cx.update(gpui_component::init);
@@ -2479,7 +2479,7 @@ mod tests {
         assert_eq!(action_arguments(None, &json!({"op": "x", "text": "hi"})).to_string(), r#"{"op":"x","text":"hi"}"#);
         assert_eq!(action_arguments(None, &json!({"text": "hi"})).to_string(), r#"{"text":"hi"}"#);
         assert_eq!(action_arguments(Some("list"), &Value::Null).to_string(), r#"{"op":"list"}"#);
-        // A grant lets a typed action run without asking; harness.mcp never.
+        // A grant lets a typed action run without asking; harness_mcp never.
         let granted = vec!["exponential_issues_update_status".to_string(), "harness_mcp".to_string()];
         let none = Value::Null;
         assert!(call_granted("exponential_issues_update_status", &none, &granted));

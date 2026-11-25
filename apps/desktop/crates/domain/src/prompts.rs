@@ -724,7 +724,7 @@ pub fn revoke_mcp_client(client: &str) -> Prompt {
 }
 
 /// VAPP-91: a host asking before a surface acts as the person; `tool` = the
-/// MCP tool a `harness.mcp` call runs, else the function's own name. Deny
+/// MCP tool a `harness_mcp` call runs, else the function's own name. Deny
 /// takes Return.
 pub fn exponential_ui_consent(tool: &str) -> Prompt {
     EXPONENTIAL_UI_CONSENT.render("title", Some("body"), &[("tool", tool)])
@@ -833,7 +833,7 @@ mod tests {
         assert!(destructive_tool("acme.close_account", None));
         assert!(!destructive_tool("acme.closeAccount", None));
         assert!(!destructive_tool("exponential_issues", Some("list")));
-        assert!(!destructive_tool("harness.toast", None));
+        assert!(!destructive_tool("harness_toast", None));
         assert_eq!(exponential_ui_consent_destructive("t").actions[1].role, Role::Destructive);
         assert_eq!(exponential_ui_consent_destructive("t").focused().role, Role::Cancel);
     }

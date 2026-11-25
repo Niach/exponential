@@ -54,7 +54,7 @@ nothing from the Exponential app.
 | `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createAppHost` |
 | `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`); the shared web runner (`browser-suites.ts`) and the web-parity check (`parity.ts`: Solid and the web component against React) |
 | `release/` | the npm build + staging scripts and the release runbook (all registries) |
-| `vendor/a2ui/` | the A2UI 1.0 schemas, basic catalog and test cases (`v1_0/`), byte-pinned (see its README); `v0_9/` stays as `upgrade09`'s reference |
+| `vendor/a2ui/` | the A2UI 1.0 schemas, basic catalog and test cases (`v1_0/`), byte-pinned (see its README) |
 | `vendor/json-render/` | attribution for the borrowed description wording |
 
 ## The catalog

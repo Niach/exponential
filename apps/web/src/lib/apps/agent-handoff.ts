@@ -1,6 +1,6 @@
 // #VAPP-236 (eApps A2, docs/spec/apps.md §7.3): an app hands judgement to a
 // TEAM AGENT. One run form, three callers: an automation (as its sponsor),
-// an exposed tool and the `exponential.apps.handoff` action (as the calling
+// an exposed tool and the `exponential_apps_handoff` action (as the calling
 // member). Every hand-off goes through `sessions.send {agentId}` (the one
 // entrypoint: the member's own conversation with that agent, created on
 // first use on the agent's device) tagged `via <app>`, its message the

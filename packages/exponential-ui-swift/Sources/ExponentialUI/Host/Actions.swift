@@ -8,14 +8,14 @@ import ExponentialUICore
 /// writes. A Button's `on.press` names one as the function call
 /// `actions_<name>`; `ExponentialHost.callFunction` runs it: the PLAN
 /// (`run`, one snapshot), every host call's gate, the record writes as ONE
-/// `records.batch`, the data sets, then the calls. This is the direct entry
+/// `records_batch`, the data sets, then the calls. This is the direct entry
 /// for a host (and the tests).
 public enum Actions {
     /// What calling a function does (`functionEffect`).
     public enum Effect: String, Sendable, Equatable {
         /// Every expression and bind-time function.
         case pure
-        /// `set`, `records.upsert` / `.delete` / `.batch`.
+        /// `set`, `records_upsert` / `.delete` / `.batch`.
         case write
         /// `openUrl`, `bind`, every `actions_` `harness_` `exponential_`
         /// `tools_` `upstream_` name and every Engine capability's
@@ -54,7 +54,7 @@ public enum Actions {
         public init(json: JSONValue) { self.json = json }
 
         /// The record writes (`{op: "upsert", kind, data, id?}` |
-        /// `{op: "delete", id}`), passed to `records.batch` unchanged.
+        /// `{op: "delete", id}`), passed to `records_batch` unchanged.
         public var writes: [JSONValue] { json["writes"]?.array ?? [] }
 
         public var sets: [Assignment] {
@@ -134,7 +134,7 @@ public enum Actions {
     /// createdBy, createdAt, updatedAt}`) all or nothing, checked against
     /// `records` (the package's kinds): a create is stamped `me` / `now`
     /// and takes the next of `newIds`. What a host's in-memory store does
-    /// for `records.batch`.
+    /// for `records_batch`.
     public static func applyBatch(
         rows: [JSONValue], writes: [JSONValue], records: JSONValue, me: String?, now: String, newIds: [String]
     ) -> BatchOutcome {

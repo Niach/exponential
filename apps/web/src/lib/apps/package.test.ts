@@ -110,7 +110,7 @@ describe(`validateAppPackage: format version 6`, () => {
     expect(text).toContain(`issues_update_status,`)
     expect(text).not.toContain(`issues.update_status`)
     expect(text).not.toContain(`exp:records`)
-    expect(text).not.toContain(`harness.records`)
+    expect(text).not.toContain(`harness_records`)
   })
 })
 
@@ -163,7 +163,7 @@ describe(`automations are the app agent's triggers (#EXP-1829)`, () => {
     expect(appTriggerIssues([runOn()], pkg({ records }))).toEqual([])
     expect(appTriggerIssues([runOn({ kind: `schedule`, cron: `* * * * *`, record: undefined, op: undefined })], pkg({ records })).map((i) => i.code)).toContain(`scheduleTooOften`)
     expect(appTriggerIssues([runOn({ run: { action: `exponential_apps_records_upsert`, args: {} } })], pkg({ records })).map((i) => i.code)).toContain(`chain`)
-    expect(appTriggerIssues([runOn({ run: { action: `exponential.issues.delete`, args: {} } })], pkg({ records })).map((i) => i.code)).toContain(`destructive`)
+    expect(appTriggerIssues([runOn({ run: { action: `exponential_issues_delete`, args: {} } })], pkg({ records })).map((i) => i.code)).toContain(`destructive`)
     expect(appTriggerIssues([runOn({ record: `nope` })], pkg({ records })).map((i) => i.code)).toContain(`kind`)
   })
 

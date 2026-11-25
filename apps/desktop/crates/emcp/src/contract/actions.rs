@@ -15,7 +15,7 @@ pub fn canonical_action(name: &str) -> String {
     fixture::app_actions()["aliases"][name].as_str().unwrap_or(name).to_string()
 }
 
-/// `exponential.issues.update_status` → (tool, op) (an alias → its new
+/// `exponential_issues_update_status` → (tool, op) (an alias → its new
 /// name's); `None` for anything that is not an offered action.
 pub fn parse_action_name(name: &str) -> Option<(String, Option<String>)> {
     let target = fixture::app_actions()["tools"].get(canonical_action(name))?;

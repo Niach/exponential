@@ -70,7 +70,7 @@ pub struct FunctionPolicy {
     pub default: Option<FunctionDecision>,
 }
 
-/// `harness.*` matches `harness.toast`; anything else is exact.
+/// `harness_*` matches `harness_toast`; anything else is exact.
 pub fn matches_pattern(pattern: &str, name: &str) -> bool {
     match pattern.strip_suffix('*') {
         Some(prefix) => name.starts_with(prefix),

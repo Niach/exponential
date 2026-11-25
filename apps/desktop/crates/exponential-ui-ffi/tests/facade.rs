@@ -1744,7 +1744,7 @@ fn the_package_tests_fixture_replays_through_the_facade() {
 }
 
 /// Round 9: the wire constants, the host-internal gate, the id mint, the two
-/// `call` / `respond` ops and the card display reach the bindings.
+/// `call` / `respond` ops reach the bindings.
 #[test]
 fn round_9_crosses_the_facade() {
     assert_eq!(a2ui_version(), "1.0");
@@ -1774,11 +1774,4 @@ fn round_9_crosses_the_facade() {
     eq(&renderer_function_error_json("c".into(), "EXECUTION_ERROR".into(), "m".into()), &json!({"version": "1.0", "rendererFunctionResponse": {"functionCallId": "c", "error": {"code": "EXECUTION_ERROR", "message": "m"}}}), "error");
     eq(&action_message_with_user_message_json("s".into(), "b".into(), "go".into(), "{}".into(), None, "t".into(), Some("hi".into())).unwrap(), &json!({"version": "1.0", "action": {"name": "go", "surfaceId": "s", "sourceComponentId": "b", "timestamp": "t", "context": {}, "userMessage": "hi"}}), "userMessage");
 
-    // The smoke case the Swift and Kotlin suites replay too (§15).
-    let fixture = fixture("upgrade09.json");
-    let card = fixture["cases"].as_array().unwrap().iter().find(|c| c["kind"] == "card").unwrap();
-    assert_eq!(upgrade_card09(card["input"].to_string()).unwrap(), card["expected"].to_string());
-    let kept = json!({"version": "1.0", "root": {"id": "my_id", "component": "Text", "props": {"text": {"@path": "/t"}}}});
-    assert_eq!(upgrade_card09(kept.to_string()).unwrap(), kept.to_string());
-    assert!(upgrade_card09("not json".into()).is_err());
 }

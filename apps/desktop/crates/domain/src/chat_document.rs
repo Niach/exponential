@@ -19,12 +19,13 @@ pub fn clock(at: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-/// A card's surface as the Embed draws it (`{version?, root, data}`);
+/// A card's surface as the Embed draws it (`{version, root, data}`; `None`
+/// when it is not A2UI 1.0: [`unread_marker`] stands in its place);
 /// `answered` = the data model as the person answered it, which a closed
 /// plan or question card shows instead of the card's own (the IDE's
 /// `ensure_closed_surface`).
 fn embed_surface(surface: Option<&CardSurface>, answered: Option<&serde_json::Value>) -> Option<serde_json::Value> {
-    let surface = surface?;
+    let surface = surface.filter(|surface| surface.readable())?;
     let surface = CardSurface { data: answered.filter(|data| data.is_object()).cloned().or_else(|| surface.data.clone()), ..surface.clone() };
     serde_json::to_value(surface).ok()
 }
@@ -33,7 +34,28 @@ fn embed_surface(surface: Option<&CardSurface>, answered: Option<&serde_json::Va
 /// messages by id (their time), `name` = a person's display name,
 /// `viewer_id` = who reads (an action marker says `You` for their own press).
 pub fn rows(rows: &[SessionChatRow], messages: &HashMap<&str, &MessageRow>, name: impl Fn(Option<&str>) -> Option<String>, viewer_id: Option<&str>) -> Vec<ChatRowInput> {
-    rows.iter().filter_map(|row| chat_row(row, messages, &name, viewer_id)).collect()
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        out.extend(chat_row(row, messages, &name, viewer_id));
+        out.extend(unread_marker(row));
+    }
+    out
+}
+
+/// plan-card.json `surfaceReadableCases`: THE inline marker after a card whose
+/// surface is not A2UI 1.0 (a sealed card the server could not rewrite).
+fn unread_marker(row: &SessionChatRow) -> Option<ChatRowInput> {
+    let (id, surface) = match row {
+        SessionChatRow::Question { id, surface, .. } | SessionChatRow::Plan { id, surface, .. } => (id, surface.as_ref()?),
+        SessionChatRow::Surface { id, surface, .. } => (id, surface),
+        _ => return None,
+    };
+    if surface.readable() {
+        return None;
+    }
+    let express = &crate::chat_express::CHAT_EXPRESS;
+    let group = ChatGroup { gap: express.layout.block_gap.round().max(0.0) as u32, ..Default::default() };
+    Some(ChatRowInput::Marker { id: format!("{id}!"), label: express.copy.block_failed.clone(), group: Some(group) })
 }
 
 /// #EXP-2077 (chat-express.json ACTIONS DRAW): an action row without a body
@@ -819,6 +841,18 @@ mod tests {
             root: serde_json::json!({"id": "r", "component": "Text", "props": {"text": {"@path": "/pick"}}}),
             data: Some(serde_json::json!({"pick": "none"})),
         }
+    }
+
+    /// plan-card.json `surfaceReadableCases`: a card that is not 1.0 keeps its
+    /// own words and carries THE inline marker instead of its surface.
+    #[test]
+    fn a_card_that_is_not_1_0_shows_the_marker() {
+        let old = || CardSurface { version: None, ..card_surface() };
+        let show = SessionChatRow::Surface { id: "m1".into(), session_id: "s".into(), title: Some("Report".into()), surface: old() };
+        let drawn = rows(&[show], &HashMap::new(), |_| None, None);
+        let [ChatRowInput::Card { title, surface: None, .. }, ChatRowInput::Marker { id, label, .. }] = drawn.as_slice() else { panic!("{drawn:?}") };
+        assert_eq!((title.as_str(), id.as_str()), ("Report", "m1!"));
+        assert_eq!(label, &crate::chat_express::CHAT_EXPRESS.copy.block_failed);
     }
 
     #[test]

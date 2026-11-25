@@ -512,13 +512,9 @@ _ = hostRouter.routeJson(messageJson: text(["version": a2uiVersion(), "applyTemp
 check(hostRouter.surfaceIds() == ["d"] && hostRouter.packageIdOf(surfaceId: "d") == "acme.devices", "router state")
 equal(errorMessageJson(code: "INVALID_FUNCTION_CALL", surfaceId: "s", message: "m", path: nil), ["version": "1.0", "error": ["code": "INVALID_FUNCTION_CALL", "surfaceId": "s", "message": "m"]], "errorMessage")
 equal(try! actionMessageJson(surfaceId: "s", componentId: "b", name: "go", contextJson: "{}", payloadJson: nil, timestamp: "t"), ["version": "1.0", "action": ["name": "go", "surfaceId": "s", "sourceComponentId": "b", "timestamp": "t", "context": [String: Any]()]], "actionMessage")
-// Round 9 (§15): the upgrade09 smoke cases, the id mint.
+// Round 9 (§15): the version, the id mint.
 check(a2uiVersion() == "1.0", "a2uiVersion")
 check(hostRouter.mintSurfaceId(base: "d") == "d#1", "mintSurfaceId")
-let upgradeCases = (load("upgrade09.json") as! [String: Any])["cases"] as! [[String: Any]]
-let upgradeCard = upgradeCases.first { $0["kind"] as? String == "card" }!
-equal(try! upgradeCard09(cardJson: text(upgradeCard["input"]!)), upgradeCard["expected"]!, "upgrade09 card")
-equal(try! upgradeCard09(cardJson: text(upgradeCard["expected"]!)), upgradeCard["expected"]!, "a 1.0 card comes back unchanged")
 check(try! templateMessagesJson(packageJson: text(hostPackages["acme.devices"]!), templateId: "nope", surfaceId: "x", dataJson: nil) == nil, "missing template")
 let fnSurface = try! Surface(surfaceId: "f", catalogId: coreCatalogId(), themeId: nil, mode: "light")
 _ = try! fnSurface.setNested(nestedJson: text(["id": "root", "component": "Box", "children": [["id": "b", "component": "Button", "props": ["label": "Go"], "on": ["press": ["functionCall": ["@call": "harness_toast", "args": ["message": ["@path": "/m"]]]]]]]]))

@@ -293,7 +293,7 @@ async function recipeScrollToRepoCi(page: Page): Promise<void> {
  * raises it, as the natives' specimen words it: the seeded Working hours
  * app (nothing granted, `grantedTools: []`), its 8 h "docs, admin" entry
  * on APP-15 opened from the month list, then the entry dialog's Post to the
- * issue, which asks for `exponential.comments.create`. Never answers it.
+ * issue, which asks for `exponential_comments_create`. Never answers it.
  * The entry is in the seed's October: step the month back until it shows.
  */
 async function recipeOpenAppConsent(page: Page): Promise<void> {

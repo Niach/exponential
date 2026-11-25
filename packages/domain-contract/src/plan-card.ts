@@ -43,10 +43,16 @@ export interface PlanCardQuestion {
 
 /** The surface an agent authored: an Exponential UI core NestedNode + data. */
 export interface CardSurface {
-  /** Round 9 §13: `"1.0"`; absent = a stored 0.9 card (sealed: display only). */
+  /** Round 9 §13: `"1.0"`; anything else does not paint (`surfaceReadable`). */
   version?: string
   root: unknown
   data?: Record<string, unknown> | null
+}
+
+/** `surfaceReadableCases`: only A2UI `"1.0"` paints; any other card shows THE
+ *  inline marker (chat-express.json `copy.blockFailed`) in its surface's place. */
+export function surfaceReadable(surface: CardSurface): boolean {
+  return surface.version === `1.0`
 }
 
 export type PlanDecision = `approved` | `rejected`

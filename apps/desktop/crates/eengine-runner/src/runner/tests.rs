@@ -95,7 +95,7 @@ fn a_launch_installs_the_shell_and_opens_the_first_screen() {
 fn a_package_without_screens_opens_its_first_template() {
     let mut pkg = package();
     pkg.as_object_mut().unwrap().remove("screens");
-    pkg["functions"] = json!(["records.*"]);
+    pkg["functions"] = json!(["records_*"]);
     pkg.as_object_mut().unwrap().remove("capabilities");
     let mut r = runner(&pkg);
     let paints = r.launch(Vec::new());
@@ -302,8 +302,6 @@ fn the_photobook_sample_picks_photos_and_exports_a_pdf() {
     }
 
     let file: Value = serde_json::from_slice(include_bytes!("../../../../../../samples/apps/photobook.app.json")).unwrap();
-    // Round 9 §14.1: a signed format 5 file until the pinned signer re-signs it.
-    let file = if file["package"]["formatVersion"] == json!(5) { json!({"package": eui_core::upgrade09::upgrade_package_body09(&file["package"])}) } else { file };
     let tmp = tempfile::tempdir().unwrap();
     let blobs: Arc<FsBlobStore> = Arc::new(FsBlobStore::new(tmp.path().join("files")));
     let jpg = b64(eengine::contract::CAPABILITIES["pdfCases"][3]["blobs"]["jpg1"].as_str().unwrap());

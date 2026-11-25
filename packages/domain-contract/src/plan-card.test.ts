@@ -9,9 +9,11 @@ import {
   resolveUpload,
   stepLabel,
   stepperApplies,
+  surfaceReadable,
   type AskCardLike,
   type CardAnswerInput,
 } from "./plan-card"
+import { cardSurface } from "./session-tree"
 
 describe(`plan-card.json`, () => {
   test.each(fixture.answerTextCases)(`answerText: $name`, (c) => {
@@ -32,6 +34,10 @@ describe(`plan-card.json`, () => {
 
   test.each(fixture.optionRowsCases)(`optionRows: $name`, (c) => {
     expect(optionRows(c.options)).toBe(c.expected)
+  })
+
+  test.each(fixture.surfaceReadableCases)(`surfaceReadable: $name`, (c) => {
+    expect(surfaceReadable(cardSurface(c.surface)!)).toBe(c.expected)
   })
 
   test(`the copy names every answer issue`, () => {

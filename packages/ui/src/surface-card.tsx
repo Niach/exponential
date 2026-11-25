@@ -2,14 +2,14 @@ import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react"
 import { CORE_CATALOG_ID, DEFAULT_THEME_ID, type NestedNode } from "@exponential_app/eui"
 import { ExponentialSurface, useSurface } from "@exponential_app/eui-react"
 import { CHATS_COPY, CHATS_TEST_IDS } from "@exp/domain-contract/chats"
-import type { ActionEvent } from "@exp/domain-contract/chat-express"
-import { PLAN_CARD_GEOMETRY, type CardSurface } from "@exp/domain-contract/plan-card"
+import { EXPRESS_COPY, type ActionEvent } from "@exp/domain-contract/chat-express"
+import { PLAN_CARD_GEOMETRY, surfaceReadable, type CardSurface } from "@exp/domain-contract/plan-card"
 import { SEALED_PLACEHOLDER } from "@exp/domain-contract/sealed-content"
 import fixture from "@exp/domain-contract/fixtures/chats.json"
 import { cn } from "./cn"
 import { useColorMode } from "./color-mode"
 import { conceptIcon } from "./icons.generated"
-import { paintedCard, planCardHost, useCardLinks } from "./plan-card"
+import { planCardHost, useCardLinks } from "./plan-card"
 import { userMessageTime } from "./user-message-bubble"
 
 // Chat 58cb32df (fixtures/chats.json TRANSCRIPT + SURFACE CARD ×4; iOS
@@ -160,7 +160,7 @@ export function SurfaceCardFrame({
       className={cn(`flex w-full max-w-full min-w-0 flex-col`, className)}
       style={{ gap: PLAN_CARD_GEOMETRY.surfaceLabelGap }}
     >
-      {title && <div className="truncate text-[0.6875rem] font-medium text-muted-foreground">{title}</div>}
+      {title && <SurfaceCardTitle title={title} />}
       <div
         className="relative min-w-0 border border-glass-stroke-card bg-glass-card-opaque"
         style={{ borderRadius: PLAN_CARD_GEOMETRY.surfaceRadius, padding: PLAN_CARD_GEOMETRY.surfacePadding }}
@@ -203,11 +203,31 @@ export function SurfaceCard({
   const paintKey = useMemo(() => JSON.stringify(surface), [surface])
   const actionRef = useRef(onAction)
   actionRef.current = onAction
+  // plan-card.json `surfaceReadableCases`: a card that is not A2UI 1.0.
+  if (!surfaceReadable(surface)) return <UnreadCard title={title} className={className} />
   return (
     <SurfaceCardFrame title={title} animate={animate} className={className}>
       <SurfaceCardBody key={paintKey} surface={surface} testKey={testKey} actionRef={actionRef} />
     </SurfaceCardFrame>
   )
+}
+
+/** The title caption over THE inline marker, no frame. */
+function UnreadCard({ title, className }: { title: string | null; className?: string }) {
+  return (
+    <div
+      data-testid={CHATS_TEST_IDS.surfaceCard}
+      className={cn(`flex w-full max-w-full min-w-0 flex-col`, className)}
+      style={{ gap: PLAN_CARD_GEOMETRY.surfaceLabelGap }}
+    >
+      {title && <SurfaceCardTitle title={title} />}
+      <TranscriptMarker label={EXPRESS_COPY.blockFailed} />
+    </div>
+  )
+}
+
+function SurfaceCardTitle({ title }: { title: string }) {
+  return <div className="truncate text-[0.6875rem] font-medium text-muted-foreground">{title}</div>
 }
 
 function SurfaceCardBody({
@@ -219,12 +239,11 @@ function SurfaceCardBody({
   testKey: string
   actionRef: { current: ((event: ActionEvent) => void) | undefined }
 }) {
-  const upgraded = useMemo(() => paintedCard(surface), [surface])
   const state = useSurface({
     surfaceId: `surface-${testKey}`,
     catalogId: CORE_CATALOG_ID,
-    initial: upgraded.root as NestedNode,
-    data: { ...((upgraded.data as Record<string, unknown> | null | undefined) ?? {}) },
+    initial: surface.root as NestedNode,
+    data: { ...((surface.data as Record<string, unknown> | null | undefined) ?? {}) },
   })
   const links = useCardLinks()
   const host = useMemo(() => planCardHost((event) => actionRef.current?.(event), links), [links, actionRef])

@@ -8,7 +8,7 @@ import ExponentialUI
 
 /// VAPP-110: the editor's PREVIEW (web `app-preview.tsx`): the package's
 /// first template rendered through the app host (`ExpAppHost`: `exp:`
-/// bindings over GRDB, `harness.*` behind the consent card, the URL policy)
+/// bindings over GRDB, `harness_*` behind the consent card, the URL policy)
 /// in a frame `preview.radius` / `preview.padding` on the theme's ground. A
 /// new package = a new host (the identity), so every synced upsert repaints;
 /// no package yet = the page-size empty state in the frame.
@@ -36,7 +36,7 @@ struct AppPreview: View {
     /// The package's JSON text; nil = no version yet.
     let packageJSON: String?
     /// VAPP-122: the hosting app and its team (`records:<kind>` reads and
-    /// `records.*` writes the app's own rows).
+    /// `records_*` writes the app's own rows).
     var appId: String?
     var teamId: String?
     /// Release train 2026-10-25: the row's grants are about the HEAD

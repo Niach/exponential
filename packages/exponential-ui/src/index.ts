@@ -5,7 +5,6 @@ export {
   CORE_LITE_CATALOG_ID,
   A2UI_BASIC_CATALOG_ID,
   A2UI_VERSION,
-  ACCEPT_V09,
   SUPPORTED_CATALOG_IDS,
   UNKNOWN_COMPONENT,
   TOKEN_GROUPS,
@@ -142,7 +141,7 @@ export type { ComponentA11y } from "./a11y"
 export type { CodeToken } from "./code"
 export { basicMap, mapBasicComponent, mapBasicIcon, BASIC_TRANSFORM_NAMES } from "./basic-map"
 export type { MappedComponent } from "./basic-map"
-export { reduceSurface, reduceNested, cardV10, cardForDisplay, cardProblems, preorder, RESERVED_KEYS, validVisible, slotAllowed, childTemplate } from "./reducer"
+export { reduceSurface, reduceNested, cardV10, cardProblems, preorder, RESERVED_KEYS, validVisible, slotAllowed, childTemplate } from "./reducer"
 export type { ReduceOptions, ReduceResult } from "./reducer"
 export { defineExtension, validateExtension } from "./extension"
 // VAPP-106: NOT here, each its own entry so the root stays what a renderer
@@ -203,7 +202,6 @@ export type { TreeRow, TreeRowKind, TreeKeyRow, TreeKeyResult } from "./tree"
 // Round 8: the Canvas node's pure core and the Checkbox press rule.
 export * from "./canvas"
 export * from "./checkbox"
-export * from "./upgrade09"
 export { isIdentifier, mangle } from "./ids"
 // #EDE-65: Embed, a sandboxed nested surface (fixtures/embed.json).
 export { EMBED_ERROR_ROOT, EMBED_EVENT, embedCard, embedMount, embedPayload, embedSurfaceId } from "./embed"

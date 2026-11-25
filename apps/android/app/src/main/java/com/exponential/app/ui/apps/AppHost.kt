@@ -162,14 +162,14 @@ import kotlinx.coroutines.withContext
  *    refusal or offline emits nothing (the template's default stays), a
  *    disconnected server raises the "Connect <server>" banner
  *    ([AppUpstreamAnswers], [AppHostBanner]);
- *  - VAPP-122 `records.upsert {kind, data, id?}` and `records.delete {id}`:
+ *  - VAPP-122 `records_upsert {kind, data, id?}` and `records_delete {id}`:
  *    tRPC `apps.records.*` as the viewer, no consent card
  *    (the app's own rows), a refusal = the failed-action toast;
  *    VAPP-235 every write goes through the OFFLINE OUTBOX
  *    ([AppRecordOutbox]): persisted, laid over the synced rows, replayed in
  *    order; alone in the queue it awaits its own outcome (as online), else
  *    it answers from the entry at once;
- *  - VAPP-194 `records.batch {writes}`: a package action's writes as ONE
+ *  - VAPP-194 `records_batch {writes}`: a package action's writes as ONE
  *    `apps.records.batch`; a failed action (that or a false `require`) =
  *    `onActionFailed`'s failed-action toast; VAPP-215 a landed one toasts
  *    Undo for 10 s (`apps.records.undo`, via `app`);

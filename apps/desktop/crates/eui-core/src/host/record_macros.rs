@@ -552,7 +552,7 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
 }
 
 /// VAPP-217: a writing RecordForm / editable RecordTable needs
-/// `records.upsert` (a table also `records.delete`) in `functions`; a
+/// `records_upsert` (a table also `records_delete`) in `functions`; a
 /// RecordTable's `records:<kind>` must pass `sources` when set. At the
 /// macro's component.
 pub fn record_macro_issues(pkg: &Map<String, Value>) -> Vec<(String, String)> {

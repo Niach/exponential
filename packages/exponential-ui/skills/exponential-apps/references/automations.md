@@ -12,7 +12,7 @@
   { "kind": "schedule", "cron": "0 8 * * MON", "tz": "Europe/Vienna",
     "run": { "records": { "op": "upsert", "kind": "rotation", "data": { "startedAt": "${firedAt}" } } } },
   { "kind": "record", "record": "request", "op": "create",
-    "run": { "action": "exponential.comments.create", "args": { "issueId": "${record.issue}", "body": "New request: ${record.title}" } } },
+    "run": { "action": "exponential_comments_create", "args": { "issueId": "${record.issue}", "body": "New request: ${record.title}" } } },
   { "kind": "event", "name": "pr.merged", "prompt": "Log the merge of ${event.title} if it touches billing." }
 ]
 ```
@@ -26,7 +26,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
   - `webhook {name}` (an app's agent only, §7.2): a signed `POST` to the app's hook URL; the body is `${event.body.<path>}`.
 - **What it does:**
   - By default it **wakes the agent**: a `trigger_fired` card into its owner's conversation (the app's root), `prompt` (optional, any agent) as the card's text with its templates filled, record and webhook data in a fenced block marked as data.
-  - With **`run`** (an app's agent only) it runs ONE binding on the server instead, no session: an `exposes` run (`records`, `action`, `upstream`, `agent`) with the same validator (no destructive runs, an action must be granted by an owner, an upstream must be declared, never `exponential.apps.*`). `agent` hands off to ANOTHER team agent (§7.3).
+  - With **`run`** (an app's agent only) it runs ONE binding on the server instead, no session: an `exposes` run (`records`, `action`, `upstream`, `agent`) with the same validator (no destructive runs, an action must be granted by an owner, an upstream must be declared, never `exponential_apps_*`). `agent` hands off to ANOTHER team agent (§7.3).
   - Templates in `prompt` and `run`: `${record.<field>}` (record triggers: its data + `id`; on delete, the data it had), `${event.<field>}` (event and webhook triggers: the payload + `name`), `${firedAt}`.
 - **Executor:** the **server broker** (`runBrokerTool`, the same records service, grants and vault as a tool call), on the **published** version only (V1). A run whose binding the published version cannot run never fires. Every firing of an app's trigger (a run, a wake), and every refusal, is one `mcp_calls` row with `client_id = automation:t_<trigger id>`, `tool` = `records.<op>:<kind>`, the action, `<server>/<tool>` or `agent:<slug>` for a wake (Settings › MCP › Activity, the Events tab's recent runs).
 - **Run-as** (C23, #EXP-1829): a run acts as **the agent's owner** (the app's creator), like every trigger. The owner must still be a member with write access to the app. Upstream runs use the owner's credential; writes read "via <app>" (§9.3). Otherwise the trigger pauses (`sponsorGone`, `sponsorReadOnly`), the team's owners get one notification per pause, and it resumes by itself once the owner can run it again. There is no bot identity (decided 2026-11-01).

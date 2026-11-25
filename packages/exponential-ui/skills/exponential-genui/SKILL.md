@@ -1,20 +1,20 @@
 ---
 name: exponential-genui
-description: "Write genUI (A2UI v0.9) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: \"catalog\"} lists the components and their props."
+description: "Write genUI (A2UI 1.0) surfaces: the component model, bindings and calls, actions, layout and responsive rules, the client functions, style keys, tokens and the built-in themes. Use when composing an exponential_show card, an app template or any genUI surface; exponential_apps {op: \"catalog\"} lists the components and their props."
 ---
 
 # genUI
 
 > Generated from the genUI prompt and catalog (genUI 0.21.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
 
-genUI paints A2UI v0.9 surfaces the same on web, desktop, iOS and Android: an `exponential_show` card, an app template and every other surface use this one model.
+genUI paints A2UI 1.0 surfaces the same on web, desktop, iOS and Android: an `exponential_show` card, an app template and every other surface use this one model.
 
 ## Rules
 
-- Reply with A2UI v0.9 messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one id "root"; resend an id to change it), updateDataModel{surfaceId, path, value} (no value = remove). Keep data in the model; bind to it.
-- A component = {id, component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = its naming field.
-- Include every required prop. A ~ prop takes a binding {path: "/json/pointer"} or a live call {call, args}. visible: false (or bound) hides.
-- An action (on: {event: action}) = {event: {name, context?}} (sent to you; context bindings read after the component's own write) and/or {functionCall: {call, args}} (client-side: a function below or a namespaced host one like app.toast).
+- Reply with A2UI 1.0 messages, each {"version": "1.0", <kind>}: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one id "root"; resend an id to change it), updateDataModel{surfaceId, path, value} (value null removes). Keep data in the model; bind to it.
+- A component = {id (letters, digits, _), component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = its naming field.
+- Include every required prop. A ~ prop takes a binding {"@path": "/json/pointer"} or a live call {"@call": name, args}. visible: false (or bound) hides.
+- An action (on: {event: action}) = {event: {name, context?}} (sent to you; context bindings read after the component's own write) and/or {functionCall: {"@call": name, args}} (client-side: a function below or a flat host one like app_toast).
 - Lay out with Page, Stack, Grid, Card, SplitView, Sidebar, List (past a screen); control row = Toolbar, side-by-side fields = FieldGroup, Cancel/submit row = FormActions; Box + style for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer.
 - Responsive: a ^ prop also takes {base, sm?, md?, lg?, xl?} (from that breakpoint up). Style conditions, one level, narrow first: "@media (min-width: $breakpoint.md)": {…} (also max-width, min-/max-height, in px or $breakpoint.*; orientation: portrait|landscape; hover: hover|none; prefers-reduced-motion: reduce), then ":hover", ":focus-visible", ":pressed". display: "none" hides.
 - Prefer components over Markdown (feature lists = List + Row), labels and tones over colours; a colour is a $color.* token (light and dark apply), never #hex. Built-in copy (Cancel, Search…) is localized: leave it unset.
@@ -37,7 +37,7 @@ Their props are in exponential_apps {op: "catalog"} (only: [names] = just these)
 
 ## References (read on demand)
 
-- `references/functions.md` — the client functions a binding or press calls ({call, args}): validation, formatting, logic.
+- `references/functions.md` — the client functions a binding or press calls ({"@call", args}): validation, formatting, logic.
 - `references/style.md` — the Box style keys, conditions and the token groups.
 - `references/themes.md` — the built-in themes.
 

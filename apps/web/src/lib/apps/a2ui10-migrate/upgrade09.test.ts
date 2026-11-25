@@ -1,8 +1,9 @@
+// @vitest-environment node
 // VAPP-289 (round 9 contract §14): replays fixtures/upgrade09.json against
 // the TS reference, plus determinism and the pattern rename.
 
-import { describe, expect, test } from "bun:test"
-import fixture from "../fixtures/upgrade09.json" with { type: "json" }
+import { describe, expect, test } from "vitest"
+import fixture from "./upgrade09.json"
 import {
   emptyUpgrade09State,
   rename09,

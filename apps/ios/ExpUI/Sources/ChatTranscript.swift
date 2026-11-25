@@ -433,6 +433,23 @@ private func motionDuration(_ name: String) -> TimeInterval {
     }
 }
 
+/// The surface card's title caption (plan-card.json `card`: 2xs medium
+/// muted); nothing when untitled.
+public struct SurfaceCardTitle: View {
+    let title: String?
+
+    public init(title: String?) { self.title = title }
+
+    public var body: some View {
+        if let title, !title.isEmpty {
+            Text(title)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .lineLimit(1)
+        }
+    }
+}
+
 /// THE inline surface card's frame: its own rounded glass frame, max width
 /// the column, the title (if any) as the plan card's surface caption above it. `animate` = the card ARRIVED while the chat was open (its id
 /// was not in the first painted transcript): the frame fades in from
@@ -463,12 +480,7 @@ public struct SurfaceCardFrame<Content: View>: View {
         // `card`: 2xs medium muted, `surfaceLabelGap` ABOVE the frame) ×4;
         // the frame = its `surfaceRadius` + `surfacePadding` ×4.
         VStack(alignment: .leading, spacing: PlanCard.Card.surfaceLabelGap) {
-            if let title, !title.isEmpty {
-                Text(title)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-            }
+            SurfaceCardTitle(title: title)
             content()
                 .padding(PlanCard.Card.surfacePadding)
                 .frame(maxWidth: .infinity, alignment: .leading)

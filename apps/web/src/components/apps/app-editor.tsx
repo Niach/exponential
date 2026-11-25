@@ -242,7 +242,7 @@ export function AppEditor({
   /** VAPP-179: the route's `?frame=` (read once; screenshots open on Phone). */
   requestedFrame?: PreviewFrame | null
   /** VAPP-218: the preview's first screen (null = the package's first); a
-   *  tap or `app.navigate` then moves it in memory (VAPP-242). */
+   *  tap or `app_navigate` then moves it in memory (VAPP-242). */
   requestedScreen?: ScreenRequest | null
 }) {
   const navigate = useNavigate()

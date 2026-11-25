@@ -73,7 +73,7 @@ import localeJson from "../catalog/locale.json" with { type: "json" }
 import type { CatalogSource, ComponentDef, ExtensionDef, FlatComponent, NestedNode, PropSchema, UiNode } from "../src/types"
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), `..`)
-const HOST_JSON = JSON.parse(readFileSync(join(pkgRoot, `catalog/host.json`), `utf8`)) as { a2uiVersion: string; transition: { acceptV09: boolean } }
+const HOST_JSON = JSON.parse(readFileSync(join(pkgRoot, `catalog/host.json`), `utf8`)) as { a2uiVersion: string }
 const repoRoot = join(pkgRoot, `..`, `..`)
 
 // VAPP-106: the generator works on the SOURCE catalog (descriptions, examples,
@@ -334,8 +334,6 @@ export const LITE_CATALOG_ID = ${JSON.stringify(CORE_LITE_CATALOG_ID)}
 export const BASIC_CATALOG_ID = ${JSON.stringify(A2UI_BASIC_CATALOG_ID)}
 /** VAPP-289: the A2UI wire version every core entry accepts and emits (catalog/host.json \`a2uiVersion\`). */
 export const A2UI_VERSION = ${JSON.stringify(HOST_JSON.a2uiVersion)}
-/** VAPP-289 (round 9 §14): false since the flag day: every core entry refuses 0.9 (catalog/host.json \`transition.acceptV09\`). */
-export const ACCEPT_V09: boolean = ${JSON.stringify(HOST_JSON.transition.acceptV09)}
 export const CATALOG_VERSION = ${JSON.stringify(coreCatalog.version)}
 export const UNKNOWN_COMPONENT_NAME = ${JSON.stringify(coreCatalog.unknownComponent)}
 
@@ -481,7 +479,6 @@ public enum ExponentialUICatalog {
 ${scalars.map(([k, v]) => `    public static let ${k}: String = ${JSON.stringify(v)}`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
     public static let componentLite: [Bool] = [${liteFlags.join(`, `)}]
-    public static let acceptV09: Bool = ${HOST_JSON.transition.acceptV09}
 }
 `
 }
@@ -500,7 +497,6 @@ object ExponentialUICatalog {
 ${scalars.map(([k, v]) => `    const val ${k}: String = ${ktString(v)}`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
     val componentLite: List<Boolean> = listOf(${liteFlags.join(`, `)})
-    const val acceptV09: Boolean = ${HOST_JSON.transition.acceptV09}
 }
 `
 }
@@ -561,8 +557,6 @@ function renderRust(icons: string[]): string {
 ${scalars.map(([k, v]) => `pub const ${screaming(k)}: &str = ${JSON.stringify(v)};`).join(`\n`)}
 ${Object.entries(rows).map(([k, v]) => arr(k, v)).join(`\n`)}
 pub const COMPONENT_LITE: &[bool] = &[${liteFlags.join(`, `)}];
-/// VAPP-289 (round 9 §14): false since the flag day: every core entry refuses 0.9.
-pub const ACCEPT_V09: bool = ${HOST_JSON.transition.acceptV09};
 /// The Icon prop's vocabulary (packages/icons/icons.json at generate time).
 ${arr(`iconNames`, icons)}
 /// The catalog source files, embedded (minified, \`$comment\`s dropped); parse once at startup.

@@ -2,7 +2,7 @@
 //! the Rust Engine, the twin of packages/eengine `photobook.test.ts`. A host
 //! runs a package action the way `ExponentialHost` does (eui-core's
 //! `run_action` until the plan is whole, each pending `result` call through
-//! the instance first, then the writes as one `records.batch`, the sets, the
+//! the instance first, then the writes as one `records_batch`, the sets, the
 //! calls); the natives are fakes and nothing reaches the network.
 
 use std::sync::{Arc, Mutex};
@@ -52,15 +52,8 @@ impl Clock for FixedClock {
     }
 }
 
-/// Round 9 §14.1: the committed sample stays a signed format 5 file until the
-/// pinned signer re-signs it (`a2ui10-migrate.ts --apply --files`); until then
-/// this runs its upgrade, unsigned.
 fn sample() -> Value {
-    let file: Value = serde_json::from_str(FILE).unwrap();
-    if file["package"]["formatVersion"] == json!(5) {
-        return json!({"package": eui_core::upgrade09::upgrade_package_body09(&file["package"])});
-    }
-    file
+    serde_json::from_str(FILE).unwrap()
 }
 
 struct Book {

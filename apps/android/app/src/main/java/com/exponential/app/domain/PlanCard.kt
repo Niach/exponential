@@ -9,13 +9,10 @@ import kotlinx.serialization.json.doubleOrNull
 /** EXP-1280: the surface an agent authored: an Exponential UI core NestedNode
  *  ([root]) + its data model ([data]). */
 data class CardSurface(val root: JsonObject, val data: JsonObject?, val version: String? = null) {
-    /** The card the display reader (`upgradeCard09`) takes: the version only
-     *  when the stored card has one, a card without it is the 0.9 form. */
-    fun displayJson(): String =
-        JsonObject(buildMap {
-            version?.let { put("version", JsonPrimitive(it)) }
-            put("root", root)
-        }).toString()
+    /** plan-card.json `surfaceReadableCases`: only A2UI `"1.0"` paints; any
+     *  other card shows THE inline marker (`ChatExpress.Copy.BLOCK_FAILED`) in
+     *  its surface's place. */
+    val readable: Boolean get() = version == "1.0"
 }
 
 /**

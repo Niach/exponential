@@ -99,7 +99,7 @@ fn a_local_instance_runs_its_lifecycle_and_writes_through() {
     assert_eq!(app.call("records_delete", &json!({"id": "n1"}), &[]), CallResult::Value(Value::Null));
     assert!(store.rows("acme.album").unwrap().is_empty());
 
-    // app.navigate opens a declared screen; terminate persists it; a relaunch restores it.
+    // app_navigate opens a declared screen; terminate persists it; a relaunch restores it.
     assert_eq!(app.call("app_navigate", &json!({"screen": "page"}), &[]), CallResult::Value(Value::Null));
     app.event(&LifecycleEvent::Terminate);
     assert!(vault.read(&screen_key("acme.album")).unwrap().contains("page"));

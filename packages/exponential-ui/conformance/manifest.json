@@ -155,7 +155,7 @@
       ],
       "unit": "flow or case",
       "cases": 50,
-      "check": "Route every flow's steps on one router ({trusted, acceptV09}): the ops byte for byte; ids, mint, errors, actions and cards equal the fixture."
+      "check": "Route every flow's steps on one router ({trusted}): the ops byte for byte; ids, mint, errors, actions and cards equal the fixture."
     },
     {
       "id": "bind",

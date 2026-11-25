@@ -38,6 +38,7 @@ pub mod runs;
 pub mod share;
 pub mod store;
 pub mod time;
+pub mod upgrade09;
 
 pub use blobs::FsBlobStore;
 pub use desktops::{ede_legacy_root, machine_root, DesktopEntry, DesktopMeta, Desktops, Imported, LocalDesktop, LocalRepository, SharedAs, TrashedIssue, MIGRATED_MARKER};

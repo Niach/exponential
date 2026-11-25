@@ -240,7 +240,7 @@ class AppEditorViewModel @Inject constructor(
     val initialTab: Apps.EditorTabPick = Apps.editorTab(savedStateHandle.get<String>(Apps.EditorTabs.SEARCH), phone = true)
 
     /** VAPP-218 (apps.json `screens`): the requested screen + params (an
-     *  `appScreen` link, a tab tap, `app.navigate`); null screen = the
+     *  `appScreen` link, a tab tap, `app_navigate`); null screen = the
      *  package's first. `Screens.resolve` picks what shows; kept in memory. */
     data class ScreenRequest(val screen: String?, val params: Map<String, String>)
 

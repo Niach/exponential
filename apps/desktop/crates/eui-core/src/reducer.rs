@@ -971,14 +971,3 @@ pub fn card_v10(card: &Value) -> Result<Value, String> {
         Some(other) => Err(format!("unsupported version {}", serde_json::to_string(other).unwrap_or_default())),
     }
 }
-
-/// Round 9 §14.1, §18.2: a STORED card for DISPLAY only. A card with no
-/// `version` is one the migration could not rewrite (sealed): it is shown
-/// through `upgradeCard09`. No write path takes this: [`card_v10`] is the
-/// entry.
-pub fn card_for_display(card: &Value) -> Result<Value, String> {
-    if card.is_object() && card.get("version").is_none() {
-        return Ok(crate::upgrade09::upgrade_card09(card));
-    }
-    card_v10(card)
-}

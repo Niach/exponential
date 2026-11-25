@@ -19,9 +19,6 @@ pub const CORE_LITE_CATALOG_ID: &str = g::LITE_CATALOG_ID;
 pub const A2UI_BASIC_CATALOG_ID: &str = g::BASIC_CATALOG_ID;
 /// The A2UI wire `version` (round 9: `"1.0"`, `host.json` `a2uiVersion`).
 pub const A2UI_VERSION: &str = g::A2UI_VERSION;
-/// Round 9 §14.1: false since the flag day: every core entry refuses 0.9
-/// input (`host.json` `transition.acceptV09`).
-pub const ACCEPT_V09: bool = g::ACCEPT_V09;
 /// The placeholder component painted for anything unmapped.
 pub const UNKNOWN_COMPONENT: &str = g::UNKNOWN_COMPONENT;
 /// The reserved container `createSurface` implies (round 9 §5.4).

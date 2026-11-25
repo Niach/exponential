@@ -421,11 +421,22 @@ struct SurfaceCardRow: View {
     @State private var handle = PlanCardSurfaceHandle()
 
     var body: some View {
-        SurfaceCardFrame(title: title, animate: animate) {
-            PlanCardSurfaceView(
-                surface: surface, handle: handle, editable: onAction != nil,
-                onAction: onAction, bare: true, staggerChildren: animate
-            )
+        if surface.readable {
+            SurfaceCardFrame(title: title, animate: animate) {
+                PlanCardSurfaceView(
+                    surface: surface, handle: handle, editable: onAction != nil,
+                    onAction: onAction, bare: true, staggerChildren: animate
+                )
+            }
+        } else {
+            // plan-card.json `surfaceReadableCases`: the title caption over
+            // THE inline marker, no frame.
+            VStack(alignment: .leading, spacing: PlanCard.Card.surfaceLabelGap) {
+                SurfaceCardTitle(title: title)
+                TranscriptMarkerRow(label: ChatExpress.Copy.blockFailed)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Chats.TestIds.surfaceCard)
         }
     }
 }

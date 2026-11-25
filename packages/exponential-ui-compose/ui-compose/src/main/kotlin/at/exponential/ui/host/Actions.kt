@@ -12,7 +12,7 @@ import java.util.TimeZone
  * writes. A Button's `on.press` names one as the function call
  * `actions_<name>`; [ExponentialHost.callFunction] runs it: the PLAN ([run],
  * one snapshot), every host call's gate, the record writes as ONE
- * `records.batch`, the data sets, then the calls. This is the direct entry
+ * `records_batch`, the data sets, then the calls. This is the direct entry
  * for a host (and the tests).
  */
 object Actions {
@@ -21,7 +21,7 @@ object Actions {
         /** Every expression and bind-time function. */
         Pure("pure"),
 
-        /** `set`, `records.upsert` / `.delete` / `.batch`. */
+        /** `set`, `records_upsert` / `.delete` / `.batch`. */
         Write("write"),
 
         /** `openUrl`, `bind`, every `actions_` `harness_` `exponential_` `tools_` `upstream_` name and every Engine capability's (`photos_`, `files_`, `print_`, `share_`, …; VAPP-271). */
@@ -50,7 +50,7 @@ object Actions {
         /** One host function call (after the commit). */
         data class Call(val name: String, val args: Map<String, JsonValue>)
 
-        /** The record writes (`{op: "upsert", kind, data, id?}` | `{op: "delete", id}`), passed to `records.batch` unchanged. */
+        /** The record writes (`{op: "upsert", kind, data, id?}` | `{op: "delete", id}`), passed to `records_batch` unchanged. */
         val writes: List<JsonValue> get() = json["writes"]?.array.orEmpty()
 
         val sets: List<Assignment> get() = json["sets"]?.array.orEmpty().map { Assignment(it["path"]?.string.orEmpty(), it["value"] ?: JsonValue.Null) }
@@ -139,7 +139,7 @@ object Actions {
      * createdBy, createdAt, updatedAt}`) all or nothing, checked against
      * [records] (the package's kinds): a create is stamped [me] / [now] and
      * takes the next of [newIds]. What a host's in-memory store does for
-     * `records.batch`.
+     * `records_batch`.
      */
     fun applyBatch(rows: List<JsonValue>, writes: List<JsonValue>, records: JsonValue, me: String?, now: String, newIds: List<String>): BatchOutcome {
         val out = runCatching {

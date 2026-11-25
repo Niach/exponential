@@ -904,8 +904,8 @@ impl AppInstance {
         self.with(|i| i.records_value(&source)).map(|v| text(&v))
     }
 
-    /// A host function call from the app's UI: `records.upsert` /
-    /// `records.delete` / `records.batch`, `app.navigate`, or a capability
+    /// A host function call from the app's UI: `records_upsert` /
+    /// `records_delete` / `records_batch`, `app_navigate`, or a capability
     /// (`<capability>.<tool>`, through the broker). `newIds` = the client
     /// ids of the creates, in order.
     pub fn call(&self, name: String, args_json: String, new_ids: Vec<String>) -> Result<CallResult, EngineError> {

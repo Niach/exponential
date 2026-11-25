@@ -443,20 +443,15 @@ class HostTest {
         assertTrue(h.installPackage("""{"id":"broken","name":"","version":"1","catalogId":"x","templates":{}}""").isNotEmpty())
     }
 
-    /** Round 9 §12: a formatVersion 5 package is installed UPGRADED, and the gate
-     *  narrows with the upgraded `functions` (`records.*` → `records_*`), or every
-     *  flat call its template makes is denied (an app's record form, #VAPP-272). */
+    /** Round 9 §12: a formatVersion 5 package is refused. */
     @Test
-    fun aFormat5PackageNarrowsWithItsUpgradedFunctions() {
-        val pkg = """{"formatVersion":5,"id":"acme.v5","name":"V5","version":"1.0.0","catalogId":"$core","functions":["records.*"],"templates":{"main":{"components":[{"id":"root","component":"Text","text":"hi"}]}}}"""
-        val h = host(HostOptions(transport = MemoryTransport(), packages = listOf(pkg)))
-        h.registerFunction("records_upsert") { _, _ -> null }
-        h.registerFunction("harness_toast") { _, _ -> null }
+    fun aFormat5PackageIsRefused() {
+        val pkg = """{"formatVersion":5,"id":"acme.v5","name":"V5","version":"1.0.0","catalogId":"$core","functions":["records_*"],"templates":{"main":{"components":[{"id":"root","component":"Text","text":"hi"}]}}}"""
+        val h = host(HostOptions(transport = MemoryTransport()))
+        assertTrue(h.installPackage(pkg).any { it["path"]?.string == "/formatVersion" })
         h.connect()
-        h.receive(msg("""{"version":"v0.9","applyTemplate":{"surfaceId":"w1","templateId":"main","packageId":"acme.v5"}}"""), trusted = true)
-        assertNotNull(h.surface("w1"))
-        assertEquals(FunctionDecision.Allow, h.decide("w1", "records_upsert"))
-        assertEquals(FunctionDecision.Deny, h.decide("w1", "harness_toast"))
+        h.receive(msg("""{"version":"1.0","applyTemplate":{"surfaceId":"w1","templateId":"main","packageId":"acme.v5"}}"""), trusted = true)
+        assertNull(h.surface("w1"))
     }
 
     /** Round 9 §1.4: a re-open mints, applies, and only then deletes the old surface. */

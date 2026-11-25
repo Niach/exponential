@@ -82,26 +82,30 @@ export function isCloudInstance(): boolean {
  *  rows that carry one, order of the kept names preserved. */
 export async function stripUngrantableGrants(client: Pick<typeof db, `update`> = db): Promise<void> {
   const keep = sql`${sql.param([...GRANTABLE_ACTIONS])}::text[]`
+  // VAPP-289: a dotted name waits for the A2UI 1.0 migration, which an operator
+  // of the cloud runs after this boot (it grants nothing meanwhile).
+  const kept = (name: string) => sql.raw(`(${name} LIKE 'exponential.%')`)
   await client
     .update(apps)
     .set({
-      grantedTools: sql`COALESCE((SELECT jsonb_agg(t.name ORDER BY t.ord) FROM jsonb_array_elements_text(${apps.grantedTools}) WITH ORDINALITY AS t(name, ord) WHERE t.name = ANY(${keep})), '[]'::jsonb)`,
+      grantedTools: sql`COALESCE((SELECT jsonb_agg(t.name ORDER BY t.ord) FROM jsonb_array_elements_text(${apps.grantedTools}) WITH ORDINALITY AS t(name, ord) WHERE t.name = ANY(${keep}) OR ${kept(`t.name`)}), '[]'::jsonb)`,
       updatedAt: new Date(),
     })
     .where(
-      sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${apps.grantedTools}) AS g(name) WHERE g.name <> ALL(${keep}))`
+      sql`EXISTS (SELECT 1 FROM jsonb_array_elements_text(${apps.grantedTools}) AS g(name) WHERE g.name <> ALL(${keep}) AND NOT ${kept(`g.name`)})`
     )
 }
 
 let bootstrapPromise: Promise<void> | null = null
+let firstAttempt: Promise<void> | null = null
 
 // One attempt of the boot-time work, throwing on failure. Exported for tests;
 // bootstrapCloud() below is the only production caller.
 export async function runBootstrapPass(): Promise<void> {
   await applyCustomSql()
-  // VAPP-289 (round 9 §14.1): one run per instance, cloud and self-host, and
-  // before the grant strip below, which knows flat names alone.
-  await migrateA2ui10Once(db)
+  // VAPP-289 (round 9 §14.1): a self-hosted instance migrates itself, once. On
+  // the cloud an operator runs scripts/a2ui10-migrate.ts, nothing at boot.
+  if (!isCloudInstance()) await migrateA2ui10Once(db)
   await promoteInitialAdmins()
   // FEED-159: a deploy that made an action owner-only or destructive strips
   // the grants apps still store for it.
@@ -132,12 +136,16 @@ const RETRY_MAX_DELAY_MS = 5 * 60 * 1000
 // level every few minutes instead of degrading silently.
 export function bootstrapCloud(): Promise<void> {
   if (bootstrapPromise) return bootstrapPromise
+  let attempted = () => {}
+  firstAttempt = new Promise((resolve) => (attempted = resolve))
   bootstrapPromise = (async () => {
     for (let attempt = 1; ; attempt++) {
       try {
         await runBootstrapPass()
+        attempted()
         return
       } catch (err) {
+        attempted()
         const delayMs = Math.min(
           RETRY_BASE_DELAY_MS * 2 ** (attempt - 1),
           RETRY_MAX_DELAY_MS
@@ -151,6 +159,14 @@ export function bootstrapCloud(): Promise<void> {
     }
   })()
   return bootstrapPromise
+}
+
+/** VAPP-289: what a self-hosted server waits for before it listens: the first
+ *  pass, so it serves migrated data. A failed pass does not hold the server
+ *  back (it keeps retrying). The cloud never waits. */
+export async function bootstrapBeforeListen(): Promise<void> {
+  void bootstrapCloud()
+  if (!isCloudInstance()) await firstAttempt
 }
 
 // Promote a single user if their email matches the admin list. Used by Better

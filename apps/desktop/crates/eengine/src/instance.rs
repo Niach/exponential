@@ -1,7 +1,7 @@
 //! VAPP-261: an `AppInstance`, one running app over a host's providers:
 //! load and verify its package, drive its lifecycle (lifecycle.json) and
 //! carry out the effects, resolve `records:<kind>` sources against the store
-//! with genUI's one records query, dispatch `records.*`, `app.navigate` and
+//! with genUI's one records query, dispatch `records_*`, `app_navigate` and
 //! capability calls (the broker), and keep O1's outbox when the host has a
 //! sync provider (outbox.json: direct writes otherwise).
 
@@ -208,8 +208,8 @@ impl AppInstance {
         eui_core::host::records_value(&row_refs, &query, ctx)
     }
 
-    /// A host function call from the app's UI: `records.upsert` /
-    /// `records.delete` / `records.batch`, `app.navigate`, or a capability
+    /// A host function call from the app's UI: `records_upsert` /
+    /// `records_delete` / `records_batch`, `app_navigate`, or a capability
     /// (`<capability>.<tool>`, through the broker).
     pub fn call(&mut self, name: &str, args: &Value, new_ids: &[String]) -> CallResult {
         let _span = tracing::debug_span!("engine.call", name).entered();

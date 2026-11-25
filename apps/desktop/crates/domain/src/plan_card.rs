@@ -779,6 +779,14 @@ mod tests {
     }
 
     #[test]
+    fn surface_readable_cases() {
+        for case in cases("surfaceReadableCases") {
+            let surface = crate::session_tree::card_surface(Some(&case["surface"]));
+            assert_eq!(surface.map(|s| s.readable()), case["expected"].as_bool(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
     fn option_rows_cases() {
         for case in cases("optionRowsCases") {
             let ids: Vec<Option<String>> = case["options"]

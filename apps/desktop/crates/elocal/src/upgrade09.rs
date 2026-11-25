@@ -1,6 +1,8 @@
-//! Round 9 §14: `upgrade09`, the PURE A2UI 0.9 → 1.0 converter. Mirrors
-//! `packages/exponential-ui/src/upgrade09.ts` (same structure, same
-//! decisions); both replay `fixtures/upgrade09.json`.
+//! Round 9 §14: the PURE A2UI 0.9 → 1.0 converter, here for ONE caller: the
+//! one-shot pass over a Local desktop's store ([`crate::a2ui10`]), which no
+//! server script reaches. No other crate may use it. Mirrors
+//! `apps/web/src/lib/apps/a2ui10-migrate/upgrade09.ts` (same structure, same
+//! decisions); both replay its `upgrade09.json`.
 //!
 //! - [`upgrade_message09`]: an agent → renderer (or host-internal) message,
 //!   threading the per-surface id maps ([`Upgrade09State`]) across a stream;
@@ -18,9 +20,13 @@ use std::collections::{HashMap, HashSet};
 use indexmap::IndexMap;
 use serde_json::{json, Map, Value};
 
-use crate::ident::{is_identifier, mangle};
+use eui_core::ident::{is_identifier, mangle};
 
 type Obj = Map<String, Value>;
+
+fn deep<R>(f: impl FnOnce() -> R) -> R {
+    f()
+}
 
 /// The 1.0 basic catalog id (§9.1).
 pub const BASIC_CATALOG_ID_10: &str = "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json";
@@ -145,7 +151,7 @@ fn returns_of(name: &str) -> Option<String> {
     if VALIDATORS.contains(&name) {
         return Some("validationResult".into());
     }
-    let fns = &crate::catalog::CORE.functions;
+    let fns = &eui_core::catalog::CORE.functions;
     fns.core.get(name).or_else(|| fns.basic.get(name)).and_then(|d| d.get("returns")).and_then(Value::as_str).map(str::to_string)
 }
 
@@ -201,7 +207,7 @@ impl Ctx {
 
 /// §14.3 `dyn`.
 fn dyn_(v: &Value, ctx: &Ctx) -> Value {
-    crate::deep(|| match v {
+    deep(|| match v {
         Value::Array(items) => Value::Array(items.iter().map(|i| dyn_(i, ctx)).collect()),
         Value::Object(o) => {
             if o.len() == 1 && o.get("path").is_some_and(Value::is_string) {
@@ -294,9 +300,9 @@ fn upgrade_accessibility(a11y: &Value, ctx: &Ctx) -> Value {
 // ---------------------------------------------------------------------------
 // Catalog lookups (core component prop schemas)
 
-fn core_prop_schema(component: Option<&Value>, prop: &str) -> Option<&'static crate::types::PropSchema> {
+fn core_prop_schema(component: Option<&Value>, prop: &str) -> Option<&'static eui_core::types::PropSchema> {
     let name = component?.as_str()?;
-    crate::catalog::CORE.components.get(name)?.props.get(prop)
+    eui_core::catalog::CORE.components.get(name)?.props.get(prop)
 }
 
 /// The core props that hold a component id (§5.3).
@@ -503,7 +509,7 @@ fn upgrade_prop(key: &str, value: &Value, component: Option<&Value>, basic: bool
         return rekey.reference(value);
     }
     // A binding or call AT a data prop converts; a literal's inside stays data.
-    if crate::data::is_data_schema(core_prop_schema(component, key)) {
+    if eui_core::data::is_data_schema(core_prop_schema(component, key)) {
         return if is_directive09(value) { dyn_(value, ctx) } else { value.clone() };
     }
     dyn_(value, ctx)
@@ -722,14 +728,14 @@ pub fn upgrade_client_message09(message: &Value) -> Value {
 // Cards (nested {root, data})
 
 fn collect_card_ids(node: &Value, out: &mut Vec<String>) {
-    crate::deep(|| {
+    deep(|| {
         let Some(n) = node.as_object() else { return };
         if let Some(id) = n.get("id").and_then(Value::as_str) {
             out.push(id.to_string());
         }
         if let Some(slots) = n.get("slots").and_then(Value::as_object) {
             let mut names: Vec<&String> = slots.keys().collect();
-            names.sort_by(|a, b| crate::host::utf16_cmp(a, b));
+            names.sort_by(|a, b| eui_core::host::utf16_cmp(a, b));
             for name in names {
                 collect_card_ids(&slots[name.as_str()], out);
             }
@@ -743,7 +749,7 @@ fn collect_card_ids(node: &Value, out: &mut Vec<String>) {
 }
 
 fn upgrade_card_node(node: &Value, rekey: &mut Rekey, ctx: &Ctx) -> Value {
-    crate::deep(|| {
+    deep(|| {
         let Some(n) = node.as_object() else { return node.clone() };
         let component = n.get("component");
         let mut out = Obj::new();
@@ -889,7 +895,7 @@ fn rekey_tools(ids: &[String]) -> ToolMap {
 }
 
 fn rename_expect(value: &Value, ctx: &Ctx) -> Value {
-    crate::deep(|| match value {
+    deep(|| match value {
         Value::String(s) if is_function_name09(s) => Value::String(rename_with(s, &ctx.tools)),
         Value::Array(items) => Value::Array(items.iter().map(|v| rename_expect(v, ctx)).collect()),
         Value::Object(o) => Value::Object(o.iter().map(|(k, v)| (k.clone(), rename_expect(v, ctx))).collect()),

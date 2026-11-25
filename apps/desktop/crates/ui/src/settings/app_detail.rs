@@ -815,7 +815,7 @@ impl AppDetailPane {
                     "name": name,
                     "switch": grantable,
                     "always": !grantable,
-                    "checked": row.granted_tools.iter().any(|g| flat_action(g) == name),
+                    "checked": row.granted_tools.iter().any(|g| *g == name),
                     "disabled": !grant || self.tool_busy.as_deref() == Some(name.as_str()),
                 })
             })
@@ -1221,8 +1221,8 @@ mod tests {
     fn the_app_row_reads_its_grants_tolerantly() {
         let row: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": ["exponential_issues_update"]})).unwrap();
         assert_eq!(row.granted_tools, vec!["exponential_issues_update".to_string()]);
-        let text: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": "[\"exponential.issues.get\"]"})).unwrap();
-        assert_eq!(text.granted_tools, vec!["exponential.issues.get".to_string()]);
+        let text: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": "[\"exponential_issues_get\"]"})).unwrap();
+        assert_eq!(text.granted_tools, vec!["exponential_issues_get".to_string()]);
         for garbage in [json!(null), json!(7), json!({"x": 1})] {
             let row: AppRow = serde_json::from_value(json!({"id": "a", "granted_tools": garbage})).unwrap();
             assert!(row.granted_tools.is_empty());

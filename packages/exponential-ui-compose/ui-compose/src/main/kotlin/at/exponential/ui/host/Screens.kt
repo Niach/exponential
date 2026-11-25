@@ -8,7 +8,7 @@ import at.exponential.ui.json.JsonValue
  * VAPP-218 (eApps U1, spec `docs/spec/apps.md` §5.1): a package's SCREENS,
  * the navigation manifest (`@exponential_app/eui` `src/host/screens.ts`,
  * eui-core `host::screens`, `fixtures/host-router.json` `screens` +
- * `navigate`). The HOST draws the navigation from it; the `app.navigate
+ * `navigate`). The HOST draws the navigation from it; the `app_navigate
  * {screen, params?}` host function opens one, its params landing under
  * `/params/` in the template data.
  */
@@ -59,7 +59,7 @@ object Screens {
         return Resolved(id, out["title"]?.string ?: "", out["icon"]?.string, strings(out["params"]))
     }
 
-    /** An `app.navigate` call's args → the target (screen, params), or the refusal's message. */
+    /** An `app_navigate` call's args → the target (screen, params), or the refusal's message. */
     fun target(pkg: JsonValue, args: Map<String, JsonValue>): Result<Pair<String, Map<String, String>>> {
         val out = JsonValue.parse(runCatching { navigateTargetJson(pkg.json, JsonValue.Obj(args).json) }.getOrNull() ?: """{"error":"navigate takes {screen, params?}"}""")
         out["error"]?.string?.let { return Result.failure(IllegalArgumentException(it)) }

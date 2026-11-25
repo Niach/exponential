@@ -3011,7 +3011,7 @@
       },
       "notes": {
         "web": "The recipe `openAppConsent` raises the REAL card (ConsentCard in lib/exponential-ui-host.tsx): the seeded Working hours app, its 'docs, admin' entry on APP-15, the entry dialog's Post to the issue; the card stacks above the surface's own eUI Dialog (EXP-1631).",
-        "desktop": "EXP-1558: the Working hours app screen (`EXP_DEV_SCREEN=app:working-hours`) with `EXP_DEV_DIALOG=app-consent`: the REAL consent window (exponential_ui_host.rs `consent_hook`, no grants) for the natives' call, exponential.comments.create on APP-15 with 'Logged 8 h: docs, admin'. Never answered.",
+        "desktop": "EXP-1558: the Working hours app screen (`EXP_DEV_SCREEN=app:working-hours`) with `EXP_DEV_DIALOG=app-consent`: the REAL consent window (exponential_ui_host.rs `consent_hook`, no grants) for the natives' call, exponential_comments_create on APP-15 with 'Logged 8 h: docs, admin'. Never answered.",
         "ios": "The capture-only specimen `-uiTestingStyleguide app-consent` (AppConsentSpecimens): the REAL AppConsentCard over a stand-in surface, asked for exponential.comments.create on APP-15 with the words of actionConsent. The painted app surface exposes no rows to XCUITest, so the live walk cannot raise it.",
         "android": "See ios: the capture-only AppConsentSpecimenScreen in captureOnlyScreens (the Compose painter's rows carry no text semantics for the test either).",
         "web-mobile": "Inherits web at the phone's width."

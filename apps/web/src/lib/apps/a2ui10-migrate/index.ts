@@ -1,12 +1,14 @@
 // VAPP-289 (round 9 contract §14.1): the one-shot stored-data migration of the
 // A2UI 1.0 flag day: a dry run from `scripts/a2ui10-migrate.ts`, then this
-// module at boot (`migrateA2ui10Once`, once per instance: a `data_migrations`
-// row) and at a team import's commit (`upgradeStagedRows`).
+// module at boot on a self-hosted instance (`migrateA2ui10Once`, once: a
+// `data_migrations` row). On the cloud only an operator runs the script. The
+// 0.9 converter (`./upgrade09`) lives here and nowhere else in the app.
 //
 // What moves: `apps.package`, `apps.draft_package`, `app_versions.package` →
 // format 6; `apps.granted_tools` → flat names; every clear card surface in
-// `messages.card` → `"version": "1.0"`. A sealed card stays (the server cannot
-// read it): clients show it through `upgradeCard09`.
+// `messages.card` → `"version": "1.0"`; `agents.triggers[].run.action` → flat
+// names. A sealed card stays (the server cannot read it; it is counted):
+// clients show THE inline marker for it (plan-card.json).
 //
 // Safe beside a live server and after a crash. Rows are read outside any
 // transaction and each write compares the fingerprint of the columns it read,
@@ -21,12 +23,16 @@
 
 import { Buffer } from "node:buffer"
 import { eq, sql, type SQL } from "drizzle-orm"
-import { A2UI_VERSION, PACKAGE_FORMAT_VERSION, PACKAGE_FORMAT_VERSION_09, cardV10, signPackageFile, upgradeCard09, upgradePackage09, upgradePackageBody09, verifyPackageFile } from "@exponential_app/eui"
+import { A2UI_VERSION, PACKAGE_FORMAT_VERSION, cardV10, signPackageFile, verifyPackageFile } from "@exponential_app/eui"
 import type { db as appDb } from "@/db/connection"
 import { dataMigrations } from "@/db/schema"
 import { migratedPackageIssues } from "@/lib/apps/package"
 import { validateCardSurface, type CardSurfaceInput } from "@/lib/sessions/plan"
 import { isSealedCard } from "@/lib/sessions/sealed"
+import { upgradeCard09, upgradePackage09, upgradePackageBody09 } from "./upgrade09"
+
+/** The package format the converter reads. */
+export const PACKAGE_FORMAT_VERSION_09 = 5
 
 /** The connection or transaction a run goes through. */
 export type MigrationDb = Pick<typeof appDb, `execute` | `transaction`>
@@ -142,6 +148,22 @@ export function upgradeGrants(value: unknown): Verdict {
   return flat.length === value.length && flat.every((name, i) => name === value[i]) ? { kind: `current` } : { kind: `rewrite`, value: flat }
 }
 
+/** `agents.triggers`: a run binding's action → its flat name. */
+export function upgradeTriggers(value: unknown): Verdict {
+  if (value === null || value === undefined || (Array.isArray(value) && value.length === 0)) return { kind: `empty` }
+  if (!Array.isArray(value)) return { kind: `failed`, reason: `triggers is a list` }
+  let moved = false
+  const next = value.map((trigger) => {
+    const run = isObj(trigger) ? trigger.run : undefined
+    if (!isObj(run) || typeof run.action !== `string`) return trigger
+    const action = flatGrant(run.action)
+    if (action === run.action) return trigger
+    moved = true
+    return { ...(trigger as Record<string, unknown>), run: { ...run, action } }
+  })
+  return moved ? { kind: `rewrite`, value: next } : { kind: `current` }
+}
+
 // ---------------------------------------------------------------------------
 // One table
 
@@ -168,6 +190,7 @@ const TABLES: readonly TableSpec[] = [
       { column: `granted_tools`, plan: upgradeGrants, synced: true },
     ],
   },
+  { table: `agents`, columns: [{ column: `triggers`, plan: upgradeTriggers, synced: true }] },
   { table: `app_versions`, columns: [{ column: `package`, plan: upgradeStoredPackage, synced: false }] },
   {
     table: `messages`,
@@ -367,7 +390,7 @@ export async function runA2ui10Migration(client: MigrationDb, options: Migration
 /** The name of this migration's `data_migrations` row. */
 export const A2UI10_MIGRATION = `a2ui10`
 
-/** Boot (§14.1): one run per instance. Replicas take turns on an advisory
+/** Boot of a self-hosted instance (§14.1): one run. Replicas take turns on an advisory
  *  lock; the marker is written when a run finishes, failures included: a
  *  failed row is in the log and the marker's report, stops nothing, and is
  *  no worse off than before (the operator re-runs the script for it). A
@@ -384,28 +407,18 @@ export async function migrateA2ui10Once(client: MigrationDb): Promise<MigrationR
   })
 }
 
-/** §14.1: a team import writes staged rows straight into `apps`,
- *  `app_versions` and `messages`, so a Local desktop that shares after the
- *  flag day lands at 1.0 too. A value that fails stays as it was staged, like
- *  a row the migration holds back. Pure. */
-export async function upgradeStagedRows<T extends { tableName: string; row: Record<string, unknown> }>(rows: readonly T[]): Promise<T[]> {
-  const plans: Record<string, Record<string, (value: unknown) => Verdict | Promise<Verdict>>> = {
-    apps: { package: upgradeStoredPackage, draft_package: upgradeStoredPackage, granted_tools: upgradeGrants },
-    app_versions: { package: upgradeStoredPackage },
-    messages: { card: upgradeStoredCard },
+/** §14.1: what a team import may not write: staged rows still at A2UI 0.9 (a
+ *  Local desktop older than the flag day; a current one migrates its store
+ *  when it opens). The first one named, or null. Pure. */
+export function stagedV09(rows: readonly { tableName: string; row: Record<string, unknown> }[]): string | null {
+  const format5 = (pkg: unknown) => isObj(pkg) && pkg.formatVersion === PACKAGE_FORMAT_VERSION_09
+  for (const { tableName, row } of rows) {
+    if ((tableName === `apps` || tableName === `app_versions`) && (format5(row.package) || format5(row.draft_package))) return `an app package at format ${PACKAGE_FORMAT_VERSION_09}`
+    if (tableName === `apps` && upgradeGrants(row.granted_tools).kind === `rewrite`) return `an app's grants under their old names`
+    if (tableName === `agents` && upgradeTriggers(row.triggers).kind === `rewrite`) return `an agent's triggers under their old action names`
+    if (tableName === `messages` && isObj(row.card) && !isSealedCard(row.card) && !(`sealedCard` in row.card) && isObj(row.card.surface) && row.card.surface.version !== A2UI_VERSION) return `a card that is not A2UI ${A2UI_VERSION}`
   }
-  const out: T[] = []
-  for (const staged of rows) {
-    const row = { ...staged.row }
-    for (const [column, plan] of Object.entries(plans[staged.tableName] ?? {})) {
-      if (!(column in row)) continue
-      const verdict = await plan(row[column])
-      if (verdict.kind === `rewrite`) row[column] = verdict.value
-      else if (verdict.kind === `failed`) console.warn(`[team-import] ${staged.tableName}.${column} stays as staged: ${verdict.reason}`)
-    }
-    out.push({ ...staged, row })
-  }
-  return out
+  return null
 }
 
 /** The report as the operator reads it. */

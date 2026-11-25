@@ -7,7 +7,7 @@ import { eq, sql } from "drizzle-orm"
 import { HostRouter, availableExtensions, CORE_CATALOG_ID, cardProblems, cardV10, reduceNested, reduceSurface, validatePackage, type AppPackage, type NestedNode } from "@exponential_app/eui"
 import { inRollback, probeRealDb, type RealDbTx } from "@/test/real-db"
 import { dataMigrations } from "@/db/schema"
-import fixture from "./a2ui10-migrate.fixture.json"
+import fixture from "./fixture.json"
 
 // VAPP-289 (round 9 §14.1): the migration against the real migrated Postgres.
 // Each case rolls back and walks its own seeded team only (`teamId`): the

@@ -396,13 +396,10 @@ public struct CardSurface: Equatable, Sendable {
     /// written beside it, key by key).
     public var rootJSON: String { root.compactString }
 
-    /// The card the display reader (`upgradeCard09`) takes: the version only
-    /// when the stored card has one, a card without it is the 0.9 form.
-    public var displayJSON: String {
-        var card: [String: CardJSON] = ["root": root]
-        if let version { card["version"] = .string(version) }
-        return CardJSON.object(card).compactString
-    }
+    /// plan-card.json `surfaceReadableCases`: only A2UI `"1.0"` paints; any
+    /// other card shows THE inline marker (`ChatExpress.Copy.blockFailed`) in
+    /// its surface's place.
+    public var readable: Bool { version == "1.0" }
 }
 
 /// A JSON value carried through the Sendable card model (the surface, its

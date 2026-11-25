@@ -9,7 +9,7 @@
 //     `exp:sessions`, `exp:comments`, `exp:attachments` off fixtures/app-sources.json);
 //   - records: the format's `records:<kind>?…` over the app's own rows
 //     (VAPP-189: the eUI evaluator, @exponential_app/eui/host/query +
-//     fixtures/records-query.json) and `records.upsert/delete/batch`;
+//     fixtures/records-query.json) and `records_upsert/delete/batch`;
 //   - extensions: the app extension (`@exp/ui` appExtensionCatalog +
 //     appReactExtension) and its declarative packages (Devices);
 //   - policy: `harness_mcp` asks first (the consent card), urls through the
@@ -537,7 +537,7 @@ export interface AppHostOptions {
   grantedTools?: () => readonly string[]
   /** Router navigation for same-origin links (a push: back returns here). */
   navigate: (href: string) => void
-  /** VAPP-218: `app.navigate` opens one of the package's screens (the
+  /** VAPP-218: `app_navigate` opens one of the package's screens (the
    *  preview's shell); unset = the host refuses it. */
   navigateScreen?: HostOptions[`navigate`]
   transport?: Transport

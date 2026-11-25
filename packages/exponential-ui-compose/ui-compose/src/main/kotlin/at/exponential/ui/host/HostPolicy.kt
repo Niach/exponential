@@ -19,7 +19,7 @@ enum class FunctionDecision(val wire: String) {
 
 /**
  * The function gate: patterns are exact names or a prefix ending in `*`
- * (`harness.*`). Deny wins, then allow, then ask, then [default].
+ * (`harness_*`). Deny wins, then allow, then ask, then [default].
  */
 data class FunctionPolicy(
     val allow: List<String> = emptyList(),

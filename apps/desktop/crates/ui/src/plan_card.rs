@@ -523,20 +523,6 @@ fn surface_view(message_id: &str, surface: &CardSurface, window: &mut Window, cx
     card_surface_view(&format!("plan-card-{message_id}"), surface, host, window, cx)
 }
 
-/// A card's inline surface (theme exponential, dark, the frame's width)
-/// behind `host`: the plan / question card's [`CardSurfaceHost`], the
-/// surface card's reply host ([`crate::surface_card`]). `None` when the
-/// root does not parse.
-/// Round 9 §14: what a card paints: a stored card without a version is the
-/// 0.9 form, shown through the upgrade for good (a sealed one never migrates).
-pub(crate) fn painted_surface(surface: &CardSurface) -> CardSurface {
-    if surface.version.is_some() {
-        return surface.clone();
-    }
-    let card = eui_core::upgrade09::upgrade_card09(&serde_json::json!({ "root": surface.root }));
-    CardSurface { version: Some(eui_core::catalog::A2UI_VERSION.to_string()), root: card["root"].clone(), data: surface.data.clone() }
-}
-
 /// THE plan card surface painter's options (theme exponential, dark, the
 /// frame's width, Reduce motion): the card's surface, the surface card's,
 /// and #EXP-2067 every Express block surface of a chat.
@@ -560,6 +546,10 @@ pub(crate) fn surface_options(surface_id: &str, host: Rc<dyn HostPlugin>) -> Sur
     }
 }
 
+/// A card's inline surface (theme exponential, dark, the frame's width)
+/// behind `host`: the plan / question card's [`CardSurfaceHost`], the
+/// surface card's reply host ([`crate::surface_card`]). `None` when the
+/// surface is not 1.0 or its root does not parse.
 pub(crate) fn card_surface_view(
     surface_id: &str,
     surface: &CardSurface,
@@ -567,8 +557,10 @@ pub(crate) fn card_surface_view(
     window: &mut Window,
     cx: &mut App,
 ) -> Option<Entity<SurfaceView>> {
+    if !surface.readable() {
+        return None;
+    }
     let message_id = surface_id;
-    let surface = &painted_surface(surface);
     let tree: eui_core::NestedNode = match serde_json::from_value(surface.root.clone()) {
         Ok(tree) => tree,
         Err(error) => {
@@ -599,9 +591,14 @@ pub(crate) fn card_surface_view(
 /// The surface block: the `Preview` label (medium) ABOVE the surface in
 /// its own frame (`card.surface*`; a skeleton-height box until the view
 /// exists).
-pub(crate) fn surface_block(message_id: &str, cx: &App) -> AnyElement {
+/// A surface that is not A2UI 1.0: THE inline marker in the frame's place.
+pub(crate) fn surface_block(message_id: &str, surface: &CardSurface, cx: &App) -> AnyElement {
     let copy = model::copy();
     let card = model::card();
+    if !surface.readable() {
+        let marker = crate::surface_card::unread_marker(message_id, cx);
+        return div().mt(px(card.block_gap)).w_full().min_w_0().child(marker).into_any_element();
+    }
     let view = draft(message_id, cx).and_then(|draft| draft.surface.clone());
     v_flex()
         .id(SharedString::from(format!("{}-{message_id}", model::test_ids().surface)))
@@ -972,8 +969,8 @@ pub(crate) fn plan_sheet(
         }
         None => {
             body = body.child(plan);
-            if facts.surface.is_some() {
-                body = body.child(surface_block(message_id, cx));
+            if let Some(surface) = facts.surface {
+                body = body.child(surface_block(message_id, surface, cx));
             }
             if !stepped {
                 for question in facts.questions {
@@ -1422,8 +1419,8 @@ fn prepare_question(facts: &QuestionFacts, window: &Window, cx: &mut App) {
 fn question_content(facts: &QuestionFacts, interactive: bool, images: &Entity<ImageCache>, window: &Window, cx: &mut App) -> (Vec<AnyElement>, Vec<String>) {
     let message_id = facts.message_id;
     let mut content: Vec<AnyElement> = Vec::new();
-    if facts.surface.is_some() {
-        content.push(surface_block(message_id, cx));
+    if let Some(surface) = facts.surface {
+        content.push(surface_block(message_id, surface, cx));
     }
     let picked = if facts.answered {
         closed_picks(facts.options, facts.answer, facts.answers)

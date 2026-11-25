@@ -76,6 +76,14 @@ class PlanCardTest {
     }
 
     @Test
+    fun `surfaceReadable matches every fixture case`() {
+        for (case in cases("surfaceReadableCases")) {
+            val surface = SessionTree.cardSurface(case["surface"])
+            assertEquals(case.str("name"), case.getValue("expected").jsonPrimitive.boolean, surface?.readable)
+        }
+    }
+
+    @Test
     fun `the copy, test ids and tiles equal the fixture`() {
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(copy.str("answers"), PlanCard.Copy.ANSWERS)
