@@ -543,7 +543,7 @@ pub fn fill_record_macros(components: &[Value], bindings: &[Value], records: Opt
         }
         extra.push(Value::Object(row));
         if editable {
-            extra.push(json!({"id": format!("{id}__rowDelete"), "component": "Button", "icon": "ui-delete", "variant": "ghost", "size": "icon", "accessibility": {"label": "$string.delete"}, "on": {"press": delete_action}}));
+            extra.push(json!({"id": format!("{id}__rowDelete"), "component": "Button", "icon": "ui-delete", "variant": "ghost", "size": "icon", "@accessibility": {"label": "$string.delete"}, "on": {"press": delete_action}}));
         }
         binds.push(json!({"path": format!("{base}/rows"), "source": format!("records:{kind_name}?{query}")}));
     }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { issueDraftPick } from "@exp/domain-contract/issue-draft"
 import { assigneeWrite, type IssueAssignee } from "@/lib/issue-assignee"
 import type { Board, Issue, IssueDraft, User } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
@@ -96,7 +97,7 @@ type WriteMode = `edit` | `leave`
 
 export function useIssueDraftEditor({
   draftId,
-  teamId,
+  teamId: routeTeamId,
   initialBoardId,
   initialStatusId = null,
   initialTitle = ``,
@@ -120,6 +121,11 @@ export function useIssueDraftEditor({
   const [title, setTitleState] = useState(seed?.title ?? initialTitle)
   const [description, setDescriptionState] = useState(seed?.description ?? initialDescription)
   const [boardId, setBoardIdState] = useState(seed?.boardId ?? initialBoardId)
+  // #EXP-2125: a pick of another team's board moves the draft there; the
+  // page's URL (and with it `routeTeamId`, its users and its statuses)
+  // follows, `moving` until it did.
+  const [teamId, setTeamId] = useState(routeTeamId)
+  const moving = teamId !== routeTeamId
   const [statusId, setStatusId] = useState<string | null>(
     seed ? seed.statusId : initialStatusId
   )
@@ -131,7 +137,7 @@ export function useIssueDraftEditor({
   // Applied in the INITIAL state too, so the reopened row's "already
   // written" key below includes it and merely looking at a draft never
   // rewrites it. `users` length 0 = still loading, never a genuine empty.
-  const soleMemberId = users.length === 1 ? users[0].id : null
+  const soleMemberId = !moving && users.length === 1 ? users[0].id : null
   // #EXP-1383: a draft assigned to an agent keeps it (no sole-member
   // default over it); the two columns stay exclusive.
   const [assigneeAgentId, setAssigneeAgentIdState] = useState<string | null>(
@@ -174,7 +180,7 @@ export function useIssueDraftEditor({
     description,
     // A constructed fallback row has no real id — the draft then carries NULL
     // and resolves to the team's Backlog, which is what it means anyway.
-    statusId: isFallbackStatusOption(status) ? null : status.id,
+    statusId: moving || isFallbackStatusOption(status) ? null : status.id,
     priority,
     assigneeId,
     assigneeAgentId,
@@ -564,11 +570,13 @@ export function useIssueDraftEditor({
     files,
     creating,
     uploading: uploadCount > 0,
-    canCreate: canCreateDraft({
-      title,
-      creating,
-      uploading: uploadCount > 0,
-    }),
+    canCreate:
+      !moving &&
+      canCreateDraft({
+        title,
+        creating,
+        uploading: uploadCount > 0,
+      }),
     // EXP-1212: what makes leaving ask. A reopened draft whose files are not
     // known yet counts as content, as it does for the leave write.
     hasContent:
@@ -583,8 +591,16 @@ export function useIssueDraftEditor({
       setDescriptionState(value)
       schedule()
     },
-    setBoardId: (value: string) => {
-      setBoardIdState(value)
+    /** A pick in the board picker (issue-draft.json `picks`): the sole
+     *  member of another team lands with its users (the effect above). */
+    setBoard: (board: { id: string; teamId: string }) => {
+      const next = issueDraftPick({ ...snapshotRef.current, statusId }, board, null)
+      setBoardIdState(next.boardId)
+      setTeamId(next.teamId)
+      setStatusId(next.statusId)
+      setLabelIds([...next.labelIds])
+      setAssigneeIdState(next.assigneeId)
+      setAssigneeAgentIdState(next.assigneeAgentId)
       bumpChips()
     },
     setStatus: (option: StatusRowOption) => {

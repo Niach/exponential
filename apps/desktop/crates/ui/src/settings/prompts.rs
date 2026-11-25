@@ -225,7 +225,7 @@ fn document(ink: &Ink, list_hover: &str, skeleton_fill: &str) -> Value {
     name["style"]["minWidth"] = json!(0);
     name["style"]["flexGrow"] = json!(1);
     name["style"]["flexShrink"] = json!(1);
-    let row = json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("name")}, "on": {"press": {"event": {"name": "open", "context": {"key": path("key")}}}},
+    let row = json!({"id": "row", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": path("name")}, "on": {"press": {"event": {"name": "open", "context": {"key": path("key")}}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "gap": ink.r(0.75), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md, "cursor": "pointer", ":hover": {"backgroundColor": list_hover}},
         "children": [
             {"id": "row_icon", "component": "Icon", "props": {"name": path("icon")}, "style": {"width": glyph, "height": glyph, "color": ink.muted, "flexShrink": 0}},
@@ -784,7 +784,7 @@ fn field_error(chrome: &PageChrome, id: &str, message: Value, visible: Value) ->
 #[allow(clippy::too_many_arguments)]
 fn sm_button(ink: &Ink, id: &str, icon: Option<Value>, label: Value, fill: &str, hover: &str, fg: &str, event: &str, radius: f32) -> Value {
     let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label.clone()}, "style": {"fontSize": ink.r(SM), "lineHeight": ink.r(SM), "color": fg, "flexShrink": 0}});
-    json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
+    json!({"id": id, "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": radius, "backgroundColor": fill, "cursor": "pointer", ":hover": {"backgroundColor": hover}},
         "children": icon.into_iter().chain([text]).collect::<Vec<_>>()})
 }
@@ -793,8 +793,7 @@ fn sm_button(ink: &Ink, id: &str, icon: Option<Value>, label: Value, fill: &str,
 /// (`gap_3`: the icon + name group with its inline error, the body group
 /// with the cap's line, Save), then the owner's Delete.
 fn page_document(ink: &Ink, chrome: &PageChrome) -> Value {
-    let mut band = ink.band("band", "", None);
-    band["children"][0]["props"]["text"] = path("/pane/header");
+    let band = ink.band("band", path("/pane/header"), None);
 
     // Icon and name are ONE row (web parity): the glyph picker leads, the
     // name types straight into the row; a reader sees the glyph.
@@ -893,6 +892,10 @@ mod tests {
             radius: 6.,
             skeleton: "#a1a1aa2e".into(),
         };
+        // #EXP-2132: the page's band says its header (the skill page's too,
+        // off the same `Ink::band`).
+        assert_eq!(ink.band("band", path("/pane/header"), None)["children"][0]["props"]["text"], path("/pane/header"));
+        assert!(page_document(&ink, &chrome)["children"].to_string().contains("\"band_label\""));
         for tree in [document(&ink, "#ffffff0a", "#a1a1aa2e"), page_document(&ink, &chrome)] {
             let bound = super::super::doc::bound_values(&tree);
             let mut surface = eui_core::surface::Surface::new("settings-prompts", Default::default());

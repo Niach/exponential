@@ -100,15 +100,10 @@ fn sweep_scratch_dirs(cx: &mut App) {
             if skills > 0 {
                 log::info!("skills sweep: removed {skills} folder(s)");
             }
-            // EXP-764: the purged runs' steer journals go with their records.
-            for session_id in &report.purged {
-                steer::remove_journal(&data_dir, session_id);
-            }
             if !report.is_noop() {
                 log::info!(
-                    "scratch sweep: removed {} run dir(s), purged {} run(s), dropped {} trust entr(y/ies), kept {} live + {} young",
+                    "scratch sweep: removed {} run dir(s), dropped {} trust entr(y/ies), kept {} live + {} young",
                     report.removed.len(),
-                    report.purged.len(),
                     report.trust_dropped,
                     report.kept_live,
                     report.kept_young
@@ -152,9 +147,10 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             // through, so orphans heal on the next connect instead of
             // blocking "coding now" for the server sweep's 2h window.
             crate::session_registry::reconcile_stale_sessions(account, cx);
-            // EXP-757/764: purge the repo-less runs nothing is running any
-            // more — crashes, older builds: scratch dirs, claude trust
-            // entries, run records, journals. Live runs, ours and a sibling
+            // EXP-757/764: reclaim the scratch dirs of the repo-less runs
+            // nothing is running any more — crashes, older builds — and
+            // their claude trust entries (#EXP-2138: never a run record or a
+            // journal). Live runs, ours and a sibling
             // daemon's, are the keep set. Background: a dir walk plus a
             // `~/.claude.json` rewrite.
             sweep_scratch_dirs(cx);
@@ -162,6 +158,8 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
             claim_timezone(account, cx);
             // #EDE-105: the account's chat store opens and starts filling.
             crate::chat_store::start(&account.id, cx);
+            // #EXP-2138: a deleted chat's leftovers on this machine go.
+            crate::held_gone::start(account, cx);
             true
         }
         Err(err) => {
@@ -250,6 +248,7 @@ pub fn sign_out_active(cx: &mut App) {
     crate::steer_viewer::StreamSlotMemo::clear(cx);
     // #EDE-120: a deliberate sign-out stops the account's chat store and
     // deletes it (it holds chats decrypted); an expiry never comes here.
+    crate::held_gone::stop(cx);
     crate::chat_store::sign_out(&account_id, cx);
     // §08: stop this account's steer control socket before tearing sync down.
     crate::steer_wiring::stop_control_channel(&account_id, cx);

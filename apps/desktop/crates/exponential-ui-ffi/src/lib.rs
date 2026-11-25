@@ -3256,6 +3256,14 @@ pub fn parse_source_json(uri: String) -> Option<String> {
     })
 }
 
+/// Round 9 §6.9: the `rendererFunctionResponse` of a router `call` op,
+/// evaluated at the agent position. `data_json` = the surface's data (`{}`
+/// without one), `available_catalog_ids` = the router's.
+#[uniffi::export]
+pub fn answer_renderer_call_json(op_json: String, data_json: String, available_catalog_ids: Option<Vec<String>>) -> Result<String, UiError> {
+    guarded("answer_renderer_call_json", || Ok(h::answer_renderer_call(&parse(&op_json)?, &parse(&data_json)?, available_catalog_ids.as_deref()).to_string()))
+}
+
 /// The core, the core lite, the basic catalog, then the extension ids.
 #[uniffi::export]
 pub fn supported_catalog_ids_for(extension_ids: Vec<String>) -> Vec<String> {

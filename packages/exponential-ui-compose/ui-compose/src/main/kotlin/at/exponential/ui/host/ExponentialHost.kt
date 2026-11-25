@@ -14,6 +14,7 @@ import at.exponential.ui.ffi.HostCalls
 import at.exponential.ui.ffi.HostRouter
 import at.exponential.ui.ffi.HostZone
 import at.exponential.ui.ffi.actionMessageWithUserMessageJson
+import at.exponential.ui.ffi.answerRendererCallJson
 import at.exponential.ui.ffi.rendererCapabilitiesWithJson
 import at.exponential.ui.ffi.combineDecisions
 import at.exponential.ui.ffi.decideFunction
@@ -573,6 +574,8 @@ class ExponentialHost(
                 }
                 send(message)
             }
+            // Round 9 §6.9: a callRendererFunction that passed the router's checks.
+            "call" -> send(JsonValue.parse(answerRendererCallJson(op.json, surfaces[sid]?.surface?.dataJson() ?: "{}", router.availableCatalogIds())))
         }
     }
 

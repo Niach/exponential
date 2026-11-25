@@ -17,7 +17,7 @@ export const MESSAGES = `{"version":"1.0","createSurface":{"surfaceId":"main","c
 ]}}
 {"version":"1.0","updateDataModel":{"surfaceId":"main","path":"/summary","value":"3 platforms, all checks green."}}`
 
-An agent answers with an interface: a card with the numbers, a form for the missing fields, a button that does the next step. The model decides what to show; the app decides how it looks and what it may do. [A2UI](https://a2ui.org/) is the open protocol for this: the agent sends components from a catalog both sides agree on, a data model and the actions it wants back, all as data. genUI speaks A2UI 1.0 (`"version": "1.0"` on every message, the MIME type `application/a2ui+json`; the spec is pinned and vendored byte for byte).
+An agent answers with an interface: a card with the numbers, a form for the missing fields, a button that does the next step. The model decides what to show; the app decides how it looks and what it may do. [A2UI](https://a2ui.org/) is the open protocol for this: the agent sends components from a catalog both sides agree on, a data model and the actions it wants back, all as data. genUI speaks A2UI 1.0 (pinned and vendored byte for byte).
 
 | Word | What it is |
 |---|---|

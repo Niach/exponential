@@ -27,3 +27,4 @@ export { ExponentialHost, MAX_SENT_ISSUES, PackageError, SurfaceStore, resolveSu
 export type { MessageMetadata, Transport, TransportStatus, HostOptions, HostPolicy, HostTextLink, HostFunction, FunctionCallInfo, FunctionOutcome, HostIssue } from "./runtime"
 export { MemoryTransport, JsonlStreamTransport, SseTransport, WebSocketTransport, McpTransport } from "./transports"
 export type { HttpTransportOptions, McpTransportOptions } from "./transports"
+export { answerRendererCall } from "./renderer-call"

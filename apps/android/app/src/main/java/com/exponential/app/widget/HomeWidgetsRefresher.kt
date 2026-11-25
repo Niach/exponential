@@ -311,11 +311,11 @@ class HomeWidgetsRefresher @Inject constructor(
         }
     }
 
-    /** Sidebar order: team order (name), then the board's sortOrder, then name. */
+    /** Sidebar order: team order (name), then the board's sortOrder, then id. */
     private fun orderedBoards(data: Data): List<BoardEntity> {
         val teamRank = data.teams.sortedBy { it.name.lowercase() }.withIndex().associate { (i, t) -> t.id to i }
         return data.boards.sortedWith(
-            compareBy<BoardEntity> { teamRank[it.teamId] ?: Int.MAX_VALUE }.thenBy { it.sortOrder }.thenBy { it.name },
+            compareBy<BoardEntity> { teamRank[it.teamId] ?: Int.MAX_VALUE }.thenBy { it.sortOrder }.thenBy { it.id },
         )
     }
 

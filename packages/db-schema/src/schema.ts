@@ -3188,7 +3188,7 @@ export const pullRequests = pgTable(
     // EXP-1709 (merge-train.json STATE): the merge train's state of this PR
     // (contract prMergeState), written only by the train worker
     // (`lib/merge-train`). `merge_wait` = what a `checks` PR still waits for
-    // (draft | failing | checks | session | approval, null = ready): the
+    // (draft | failing | checks | session | approval | stack, null = ready): the
     // status pill reads it (`Session working`, `Needs approval`).
     // `merge_attempts` = train bounces; `merge_hold` = the hold reason
     // (person | bounces | timeout | no_checks | conflict, null = none); `merge_queued_since` = the
@@ -3210,6 +3210,12 @@ export const pullRequests = pgTable(
       onDelete: `set null`,
     }),
     mergeApprovedAt: timestamp(`merge_approved_at`, { withTimezone: true }),
+    // #FEED-307 (merge-train.json READINESS, SERVER-ONLY): its stack was
+    // asked for (`stack: true`), so it may ride on its live parent; and the
+    // last change of `base` (a required check that started before it says
+    // nothing about the new base).
+    mergeWithStack: boolean(`merge_with_stack`).notNull().default(false),
+    mergeBaseChangedAt: timestamp(`merge_base_changed_at`, { withTimezone: true }),
     // #FEED-293 (merge-train.json `merge_now`, SERVER-ONLY): the record of
     // the latest Merge now: who forced it (the person, or the person whose
     // agent passed `pr merge {force}`) and the gated checks red right then.

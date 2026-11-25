@@ -1290,7 +1290,7 @@
           "max": 24,
           "step": 0.25,
           "unit": "h",
-          "checks": [
+          "@checks": [
             {
               "condition": {
                 "@call": "and",

@@ -1298,7 +1298,7 @@
             "max": 24,
             "step": 0.25,
             "unit": "h",
-            "checks": [
+            "@checks": [
               {
                 "condition": {
                   "@call": "and",
@@ -2400,6 +2400,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "pR8eFQjS-ZHjx4rKhOZv9PvHy4Wy1IwH6c1K6FsyJ_lrHfZOIMlxJx3TdZCe2XOgD17Px39rO2TVQrDlIYWPCQ"
+    "value": "Xz3rTyjinJfLcnzWlWJACWPHL9YW0OQvqEBp2_mFUXsyvLn-SLbeBTY_oYY1o_bEA2uJPxc10cDRvC4auHsuAQ"
   }
 }

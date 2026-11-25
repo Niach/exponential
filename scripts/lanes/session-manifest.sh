@@ -13,8 +13,9 @@
 # Kinds and values:
 #   sim      a simulator UDID (`xcrun simctl create` prints it): simctl delete
 #   avd      an AVD name: avdmanager delete avd (or its .avd dir + .ini)
-#   dir      an absolute path under a temp dir, Xcode's DerivedData or the
-#            session's worktree: rm -rf (anything else is refused at cleanup)
+#   dir      an absolute path under a temp dir, Xcode's DerivedData, the
+#            session's worktree or ~/.cache/exp-*: rm -rf (anything else is
+#            refused at cleanup)
 #   compose  a compose project name: docker compose -p <name> down --volumes
 #   lane     a running scripts/lanes/lane.sh's pid (#FEED-306, lane.sh adds
 #            and removes its own): its whole process tree is ended (TERM,

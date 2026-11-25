@@ -63,7 +63,6 @@ import com.exponential.app.ui.components.picker.AssigneePicker
 import com.exponential.app.ui.components.picker.BoardPicker
 import com.exponential.app.ui.components.picker.PriorityPicker
 import com.exponential.app.ui.components.picker.StatusPicker
-import com.exponential.app.ui.components.toPickerBoard
 import com.exponential.app.ui.components.toPickerMember
 import com.exponential.app.ui.components.toPickerAgent
 import com.exponential.app.ui.components.actorRow
@@ -122,7 +121,7 @@ fun IssueDraftScreen(
     val assignableAgents by viewModel.assignableAgents.collectAsStateWithLifecycle()
     val soloMemberId by viewModel.soloMemberId.collectAsStateWithLifecycle()
     val board by viewModel.board.collectAsStateWithLifecycle()
-    val teamBoards by viewModel.teamBoards.collectAsStateWithLifecycle()
+    val pickerBoards by viewModel.pickerBoards.collectAsStateWithLifecycle()
     val parentIssue by viewModel.parentIssue.collectAsStateWithLifecycle()
     val busyIds by viewModel.busyIds.collectAsStateWithLifecycle()
     val issueRefCandidates by viewModel.issueRefCandidates.collectAsStateWithLifecycle()
@@ -305,7 +304,7 @@ fun IssueDraftScreen(
     val boardLabel: String? = when {
         shareMode -> shareGroups.flatMap { it.boards }.firstOrNull { it.id == state.boardId }?.name
             ?: if (shareGroupsLoading) "…" else "Choose board"
-        teamBoards.size > 1 -> board?.name
+        pickerBoards.size > 1 -> board?.name
         else -> null
     }
 
@@ -615,7 +614,7 @@ fun IssueDraftScreen(
         } else {
             // Picks directly: nothing exists yet, so no move confirm.
             BoardPicker(
-                boards = teamBoards.map { it.toPickerBoard() },
+                boards = pickerBoards,
                 value = state.boardId,
                 onChange = viewModel::setBoard,
                 open = true,

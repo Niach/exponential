@@ -259,6 +259,23 @@ impl PendingUpdate {
     }
 }
 
+/// #EXP-2144: what the loop's live sessions (`idle_for` = each one's stretch
+/// at rest, `None` = working) mean to [`updater::restart::decide`]: what it
+/// sees and how long nothing has been working. Pure.
+fn update_seen(
+    idle_for: impl IntoIterator<Item = Option<Duration>>,
+    required: bool,
+    unresumable: bool,
+) -> (updater::restart::Observed, Duration) {
+    let mut rested = Duration::MAX;
+    let mut working = false;
+    for idle in idle_for {
+        working |= idle.is_none();
+        rested = rested.min(idle.unwrap_or(Duration::ZERO));
+    }
+    (updater::restart::Observed { required, working, unresumable, ..Default::default() }, rested)
+}
+
 /// EXP-641: whether a gated daemon should (re-)arm the update now. Pure so
 /// the retry cadence is unit-testable: the first attempt is immediate, later
 /// ones wait [`GATED_UPDATE_RETRY`] from the previous arm.
@@ -280,7 +297,7 @@ struct LiveSession {
     session: Arc<RunningSession>,
     /// FEED-36: since when the agent has been between turns (`None` while a
     /// turn is in flight) — the loop's 1 Hz tick keeps it; a pending update
-    /// reads it through [`updater::restart::restart_gate`].
+    /// reads it through [`updater::restart::decide`].
     idle_since: Option<Instant>,
 }
 
@@ -401,10 +418,18 @@ fn run_daemon(args: &[String]) -> CommandResult {
         coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir)).computer_use,
     ));
 
-    // EXP-757 (desktop parity): reclaim the scratch dirs of repo-less runs
-    // nothing runs any more; a live sibling's (the desktop app on this
-    // machine) are the keep set. Nothing is live in THIS process yet.
-    sweep_scratch_dirs(&ctx);
+    // EXP-1794: every claude login onto the one conversation store (whichever
+    // host starts first; spawns wait for its lock).
+    {
+        let data_dir = ctx.data_dir.clone();
+        std::thread::spawn(move || {
+            coding::agent_profiles::migrate_claude_store(&data_dir);
+        });
+    }
+    // EXP-757 (desktop parity): the startup scratch sweep waits for the synced
+    // rows (#EXP-2138, the loop below): a chat that is idle, not over, keeps
+    // its dir.
+    let mut scratch_swept = false;
     // EXP-773/EXP-886: apply the device's "Keep session history" window
     // (settings.json `sessionRetentionDays`, shared with the desktop app) to
     // stored transcripts and resume records. Unlimited, the default, keeps
@@ -510,6 +535,19 @@ fn run_daemon(args: &[String]) -> CommandResult {
         let worker = spawn_daemon_worker(Arc::clone(&pickup), Arc::clone(&synced));
         spawn_delta_drain(manager, Arc::clone(&synced), worker.clone());
         worker
+    });
+
+    // #EXP-2138 (held-gone.json): what this daemon holds of a deleted chat
+    // goes; a kill that says so is heard off the control socket.
+    let held_gone = steer::held_gone::spawn(steer::held_gone::HeldGoneDeps {
+        data_dir: ctx.data_dir.clone(),
+        account_id: ctx.account.id.clone(),
+        api: Arc::new(Arc::clone(&ctx.trpc)),
+        ready: {
+            let synced = Arc::clone(&synced);
+            Arc::new(move || synced.ready(SWEEP_SHAPES))
+        },
+        store: Arc::new(|| None),
     });
 
     // #EXP-1918: started at boot, the unit has no screen until someone
@@ -738,9 +776,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
         // ([`coding::finish_session_worktree`]): removed, its unpushed work
         // parked on `origin/exp/leftover-<id8>` and named in the session's
         // conversation. The git + push run on a side thread, never the loop.
-        // EXP-764: a finished repo-LESS chat has no worktree to judge — it
-        // is purged whole: scratch dir, claude trust entries, run record and
-        // steer journal. A team agent's is kept (EXP-1292: it only idles).
+        // EXP-764: a finished repo-LESS chat has no worktree to judge: its
+        // scratch dir and claude trust entries go. #EXP-2138: its run record
+        // and journal stay. A team agent's is kept (EXP-1292: it only idles).
         {
             let mut guard = lock_sessions(&sessions);
             // EXP-1292: a SUSPENDED run (an account switch re-spawns the
@@ -811,19 +849,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     None if coding::run_registry::get(&ctx.data_dir, &session_id)
                         .is_some_and(|record| record.kind.is_persistent()) => {}
                     None if coding::scratch::is_scratch_dir(&ctx.data_dir, &worktree) => {
-                        let purged = coding::scratch::purge(
-                            &ctx.data_dir,
-                            &session_id,
-                            &worktree,
-                            reaped_at,
-                        );
-                        if purged {
-                            steer::remove_journal(&ctx.data_dir, &session_id);
-                        }
-                        log::info!(
-                            "scratch purge [{session_id}] {}: purged={purged}",
-                            worktree.display()
-                        );
+                        coding::scratch::purge(&ctx.data_dir, &session_id, &worktree, reaped_at);
+                        log::info!("scratch purge [{session_id}] {}", worktree.display());
                     }
                     None => {}
                 }
@@ -852,6 +879,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     let (data_dir, device) = (ctx.data_dir.clone(), device_id.clone());
                     std::thread::spawn(move || coding::session_teardown::settle_spaces(held, &data_dir, &rows, &device));
                 }
+            }
+        }
+        if !scratch_swept && synced.ready(SWEEP_SHAPES) {
+            if let Some(store) = pickup.store() {
+                scratch_swept = true;
+                let keep = open_rows_here(&store, &device_id);
+                let ctx = Arc::clone(&ctx);
+                std::thread::spawn(move || sweep_scratch_dirs(&ctx, keep));
             }
         }
         // S-4: a chat nobody ends (no Stop/End in the UI) gives its agent
@@ -1049,6 +1084,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     if doctor_json.is_some() {
                         sent_doctor = Some(doctor_key.clone());
                     }
+                    // #EXP-2154: a team's agents hear of a low disk (opt-in).
+                    let repos = coding::Settings::load(&coding::Settings::default_path(&ctx.data_dir)).repos_root_path();
+                    coding::disk_alert::beat(&ctx.trpc, &ctx.data_dir, &repos, &device_id);
                     // EXP-641: a beat the server ACCEPTS means the gate is
                     // gone (a rolled-back floor, or we already updated past
                     // it) — clear it, or the daemon polls GitHub every 5 min
@@ -1152,7 +1190,16 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 &ctx.data_dir,
                 super::update::DAEMON_CHECK_INTERVAL_SECS,
             ) {
-                pending_update = Some(PendingUpdate::new(UpdateTrigger::Scheduled));
+                // #EXP-2144: only a build that is there waits for a restart.
+                crate::prefs::set_last_update_check(&ctx.data_dir, crate::prefs::now_epoch());
+                match super::update::check_only() {
+                    Ok(super::update::UpdateCheck::Available { version }) => {
+                        updater::pending::note(&version, std::time::SystemTime::now());
+                        pending_update = Some(PendingUpdate::new(UpdateTrigger::Scheduled));
+                    }
+                    Ok(_) => updater::pending::clear(),
+                    Err(err) => log::warn!("update check failed: {err:#}"),
+                }
             }
         }
         // EXP-681 (EXP-1292 port): under a SUSTAINED gate the shapes are
@@ -1205,32 +1252,46 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 .lock()
                 .map(|claims| !claims.is_empty())
                 .unwrap_or(false);
-            let gate = if updater_busy {
-                if !update_held_by_claims {
-                    log::info!(
-                        "a {trigger:?} update is waiting for an agent sign-in/update command to finish"
-                    );
-                    update_held_by_claims = true;
-                }
-                updater::restart::RestartGate::Wait
-            } else {
-                update_held_by_claims = false;
+            if updater_busy && !update_held_by_claims {
+                log::info!("a {trigger:?} update is waiting for an agent sign-in/update command to finish");
+            }
+            update_held_by_claims = updater_busy;
+            let starting = pickup.starting();
+            let mut gate = {
                 let now = Instant::now();
                 let guard = lock_sessions(&sessions);
-                updater::restart::restart_gate(
-                    guard
-                        .iter()
-                        .filter(|live| !live.session.is_done())
-                        .map(|live| live.idle_since.map(|idle| now.saturating_duration_since(idle))),
-                    now.saturating_duration_since(since),
-                    trigger.immediate(),
-                )
+                let live = guard.iter().filter(|live| !live.session.is_done());
+                let (seen, rested) = update_seen(
+                    live.map(|live| live.idle_since.map(|idle| now.saturating_duration_since(idle))),
+                    trigger.immediate() && !updater_busy,
+                    updater_busy || starting,
+                );
+                updater::restart::decide(&seen, rested, now.saturating_duration_since(since))
             };
+            // #EXP-2144: turns are held for an update that is there, never
+            // for a check that finds nothing.
+            if gate == updater::restart::RestartGate::Drain && !coding::pickup::turns_held() {
+                match super::update::check_only() {
+                    Ok(super::update::UpdateCheck::Available { version }) => {
+                        log::info!("update {version} waited {}m: new turns wait for the restart", since.elapsed().as_secs() / 60);
+                        updater::pending::note(&version, std::time::SystemTime::now());
+                        coding::pickup::hold_turns(true);
+                    }
+                    // Nothing to install: the pass below says so and consumes
+                    // the request.
+                    Ok(_) => gate = updater::restart::RestartGate::Now,
+                    Err(err) => log::warn!("update check before the drain failed: {err:#}"),
+                }
+            } else if gate == updater::restart::RestartGate::Wait {
+                coding::pickup::hold_turns(false);
+            }
             if gate == updater::restart::RestartGate::Now {
                 pending_update = None;
                 match super::update::check_and_install() {
                     Ok(super::update::UpdateOutcome::Updated { version }) => {
                         log::info!("updated to {version} — restarting the daemon");
+                        // Nothing starts beside the suspends.
+                        coding::pickup::hold_turns(true);
                         suspend_for_restart(&sessions, trigger);
                         if let Some(handle) = control.take() {
                             handle.stop();
@@ -1242,6 +1303,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     }
                     Ok(other) => {
                         log::info!("update check: {other:?}");
+                        updater::pending::clear();
                         if trigger == UpdateTrigger::Gated {
                             log::warn!(
                                 "still gated and no newer cli release is installable yet — retrying in {}s",
@@ -1283,6 +1345,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         }
                     }
                 }
+                // Still here (nothing installed, or the exec failed).
+                coding::pickup::hold_turns(false);
             }
         }
 
@@ -1377,9 +1441,6 @@ fn run_daemon(args: &[String]) -> CommandResult {
     if let Some(proxy) = &viewer_proxy {
         proxy.stop();
     }
-    if let Some(enet) = &enet {
-        enet.stop();
-    }
     if let Some(handle) = control.take() {
         handle.stop();
     }
@@ -1393,6 +1454,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
     if let Some(manager) = &sync_manager {
         manager.stop_all();
     }
+    held_gone.stop();
     let live: Vec<Arc<RunningSession>> = lock_sessions(&sessions)
         .iter()
         .map(|entry| Arc::clone(&entry.session))
@@ -1412,6 +1474,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
         let remaining = deadline.saturating_duration_since(Instant::now());
         let _ = session.wait_timeout(remaining.max(Duration::from_millis(50)));
     }
+    // EXP-2130: the key holder goes AFTER the runs: until here an agent still
+    // works (the push above takes up to 20 s) and its last reply is sealed;
+    // without a holder every card of that window was refused unencrypted.
+    if let Some(enet) = &enet {
+        enet.stop();
+    }
+    // EXP-2130: the claims of what ended are free for the next process.
+    pickup.live.prune();
     let reaped = coding::reaper::reap(&ctx.data_dir);
     if reaped > 0 {
         log::info!("reaped {reaped} escaped agent processes");
@@ -1433,7 +1503,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     // the run — until the NEXT start swept it, which for a machine that is
     // shut down for a while is a long time. Synchronous: the process exits on
     // the next line.
-    sweep_scratch_dirs_now(&ctx);
+    if let Some(store) = pickup.store().filter(|_| synced.ready(SWEEP_SHAPES)) {
+        sweep_scratch_dirs(&ctx, open_rows_here(&store, &device_id));
+    }
     let _ = std::fs::remove_file(pidfile(&ctx.data_dir));
     Ok(ExitCode::SUCCESS)
 }
@@ -1687,29 +1759,32 @@ fn dial_control(
             Some(voice) => Arc::new(move |ring: steer::control_channel::CallRing| voice.ring(ring.call_id, ring.agent_id, ring.turn)),
             None => Arc::new(|_ring| {}),
         },
+        {
+            let account_id = ctx.account.id.clone();
+            Arc::new(move |session_id| steer::held_gone::notice(&account_id, session_id))
+        },
     ))
 }
 
-/// EXP-757: the startup pass of [`coding::scratch::sweep`], on its own
-/// thread (a dir walk plus a `~/.claude.json` rewrite — nothing the daemon
-/// loop should wait on).
-fn sweep_scratch_dirs(ctx: &Arc<Ctx>) {
-    let ctx = Arc::clone(ctx);
-    std::thread::spawn(move || {
-        // EXP-1794: every claude login onto the one conversation store
-        // (whichever host starts first; spawns wait for its lock).
-        coding::agent_profiles::migrate_claude_store(&ctx.data_dir);
-        sweep_scratch_dirs_now(&ctx);
-    });
+/// #EXP-2138: the synced sessions of this device that are not over.
+fn open_rows_here(store: &sync::store::ShapeStore, device_id: &str) -> Vec<String> {
+    read_shape_rows::<SessionRow>(store, "sessions")
+        .into_iter()
+        .filter(|row| row.on_device(device_id) && !row.is_ended())
+        .map(|row| row.id)
+        .collect()
 }
 
-/// [`sweep_scratch_dirs`] on the CALLING thread — the quit sweep's shape.
-/// There is no next loop iteration to hand it to, and a detached thread would
-/// simply die with the process before it finished the walk.
-fn sweep_scratch_dirs_now(ctx: &Ctx) {
-    let mut live = registry::live_ids(&ctx.data_dir);
-    // EXP-1487: an idle run (recorded, not ended) keeps its dir, record and
-    // journal: they are its transcript and its resume.
+/// EXP-757: one pass of [`coding::scratch::sweep`], on the CALLING thread (a
+/// dir walk plus a `~/.claude.json` rewrite: the startup pass runs on its own,
+/// the quit pass has no next loop iteration). `keep` = [`open_rows_here`]: an
+/// idle chat's registry entry is dropped when its process goes (a stop, a
+/// re-claim) and only written again when it next runs, so the registry alone
+/// took its dir.
+fn sweep_scratch_dirs(ctx: &Ctx, keep: Vec<String>) {
+    let mut live = keep;
+    live.extend(registry::live_ids(&ctx.data_dir));
+    // EXP-1487: an idle run (recorded, not ended) keeps its dir.
     live.extend(registry::recorded_ids(&ctx.data_dir));
     let report = coding::scratch::sweep(&ctx.data_dir, &live);
     // #EXP-1658: ended runs' team skills folders.
@@ -1717,15 +1792,10 @@ fn sweep_scratch_dirs_now(ctx: &Ctx) {
     if skills > 0 {
         log::info!("skills sweep: removed {skills} folder(s)");
     }
-    // EXP-764: the purged runs' steer journals go with their records.
-    for session_id in &report.purged {
-        steer::remove_journal(&ctx.data_dir, session_id);
-    }
     if !report.is_noop() {
         log::info!(
-            "scratch sweep: removed {} run dir(s), purged {} run(s), dropped {} trust entr(y/ies), kept {} live + {} young",
+            "scratch sweep: removed {} run dir(s), dropped {} trust entr(y/ies), kept {} live + {} young",
             report.removed.len(),
-            report.purged.len(),
             report.trust_dropped,
             report.kept_live,
             report.kept_young
@@ -3255,6 +3325,12 @@ impl DaemonPickup {
             .collect()
     }
 
+    /// #EXP-2144: a start, wake or switch is on its way to an engine (its
+    /// message may be claimed already): a restart now would lose it.
+    fn starting(&self) -> bool {
+        !lock_or_recover(&self.in_flight).is_empty()
+    }
+
     /// The pass's `in_flight` set: attempts running and attempts backing off.
     fn excluded(&self) -> HashSet<String> {
         let now = Instant::now();
@@ -3478,6 +3554,7 @@ impl DaemonHost {
         let excluded = self.pickup.excluded();
         let views = live.live_views();
         let revive_held = live.revive_held();
+        let wall_due = live.wall_due(&self.pickup.ctx.data_dir);
         let mut actions = coding::pickup::plan(coding::pickup::PickupInput {
             device_id: &self.pickup.device_id,
             sessions: rows,
@@ -3485,6 +3562,7 @@ impl DaemonHost {
             live: &views,
             in_flight: &excluded,
             revive_held: &revive_held,
+            wall_due: &wall_due,
             moves,
             member_inputs,
         });
@@ -3492,6 +3570,7 @@ impl DaemonHost {
         // (or whose claim answer was lost) read `running` — plan only
         // launches `queued` ones.
         actions.extend(live.retry_launches(&self.pickup.device_id, rows, &excluded));
+        coding::pickup::drop_held_turns(&mut actions);
         if actions.is_empty() {
             return;
         }
@@ -4444,18 +4523,20 @@ mod tests {
     /// pause between turns, at most the cap — never 2h for an idle chat.
     #[test]
     fn a_pending_update_restarts_within_minutes_whatever_runs() {
-        use updater::restart::{restart_gate, RestartGate, MAX_WAIT, TURN_GAP};
+        use updater::restart::{decide, RestartGate, DRAIN_AFTER, MAX_WAIT, TURN_GAP};
         assert!(UpdateTrigger::Gated.immediate());
         assert!(UpdateTrigger::Now.immediate());
         assert!(!UpdateTrigger::Scheduled.immediate());
         assert!(!UpdateTrigger::Requested.immediate());
         let gate = |trigger: UpdateTrigger, idle: Option<Duration>, waited: Duration| {
-            restart_gate([idle], waited, trigger.immediate())
+            let (seen, rested) = update_seen([idle], trigger.immediate(), false);
+            decide(&seen, rested, waited)
         };
         let mid_turn = None;
         assert_eq!(gate(UpdateTrigger::Gated, mid_turn, Duration::ZERO), RestartGate::Now);
         assert_eq!(gate(UpdateTrigger::Now, mid_turn, Duration::ZERO), RestartGate::Now);
         assert_eq!(gate(UpdateTrigger::Scheduled, mid_turn, Duration::ZERO), RestartGate::Wait);
+        assert_eq!(gate(UpdateTrigger::Scheduled, mid_turn, DRAIN_AFTER), RestartGate::Drain);
         assert_eq!(gate(UpdateTrigger::Scheduled, mid_turn, MAX_WAIT), RestartGate::Now);
         assert_eq!(gate(UpdateTrigger::Requested, Some(TURN_GAP), Duration::ZERO), RestartGate::Now);
         assert!(MAX_WAIT < Duration::from_secs(2 * 60 * 60));

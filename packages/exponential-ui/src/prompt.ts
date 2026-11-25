@@ -10,6 +10,7 @@
 
 import { EXPRESSION_CALL_NAMES } from "./cel-names"
 import { CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, catalogView, coreCatalog, isOffered } from "./catalog"
+import { isCheckMixin } from "./mixins"
 import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
 
 /** The sections of the prompt, in print order (VAPP-108): an agent (or the
@@ -117,9 +118,12 @@ function defaultOf(schema: PropSchema, enums: Record<string, readonly string[]>)
   return `=${JSON.stringify(schema.default)}`
 }
 
+/** A prop as an entry carries it: the check mixin is `@checks` (§5.1). */
+const wireName = (name: string, schema: PropSchema): string => (name === `checks` && isCheckMixin(schema) ? `@${name}` : name)
+
 function propLine(name: string, schema: PropSchema, enums: Record<string, readonly string[]>): string {
   const def = defaultOf(schema, enums)
-  const head = `${name}${marksOf(schema)}: ${typeOf(schema, enums)}${def}`
+  const head = `${wireName(name, schema)}${marksOf(schema)}: ${typeOf(schema, enums)}${def}`
   return name in COMMON_PROPS ? head : `${head} — ${schema.description}`
 }
 
@@ -131,7 +135,7 @@ export function componentBlock(name: string, def: ComponentDef, enums: Record<st
   if (def.events?.length) meta.push(`on: ${def.events.join(`, `)}`)
   const props = Object.entries(def.props).filter(([, s]) => !s.host)
   const body = terse
-    ? [`  props: ${props.map(([p, s]) => `${p}${marksOf(s)}:${typeOf(s, enums)}`).join(`, `)}`]
+    ? [`  props: ${props.map(([p, s]) => `${wireName(p, s)}${marksOf(s)}:${typeOf(s, enums)}`).join(`, `)}`]
     : props.map(([p, s]) => `  ${propLine(p, s, enums)}`)
   return [head, ...(meta.length ? [`  ${meta.join(`; `)}`] : []), ...body].join(`\n`)
 }

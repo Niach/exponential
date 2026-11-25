@@ -408,7 +408,7 @@ fn document(ink: &Ink, tints: &Tints, chrome: &Chrome) -> Value {
         "template": {"component": "run_item", "path": "/pane/runs/rows", "key": "key"}, "children": [item]});
     let none = ink.shell("runs_none", false, path("/pane/runs/none"), vec![ink.text("runs_none_text", json!(copy.no_runs), SM, &ink.muted)]);
     let runs = json!({"id": apps.test_ids.recent_runs, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
-        "children": [ink.band("runs_band", &copy.recent_runs, None), ink.group("runs_group", vec![none, list])]});
+        "children": [ink.band("runs_band", copy.recent_runs.as_str(), None), ink.group("runs_group", vec![none, list])]});
     json!({"id": apps.test_ids.events_tab, "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "maxWidth": apps.editor_tabs.settings_max_width, "gap": ink.r(1.)},
         "children": [triggers, super::app_mcp::webhooks_group(ink, tints), runs]})
 }

@@ -1,5 +1,5 @@
 {
-  "id": "0e618e7c-cab7-40fc-bd70-a9d0faab8b2f",
+  "id": "a4dbc6e6-8a24-474d-9a9c-4e8d3ddb0da4",
   "prevId": "19c50091-41d0-4ae3-b8bb-e26151ad24a3",
   "version": "7",
   "dialect": "postgresql",
@@ -4461,38 +4461,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.data_migrations": {
-      "name": "data_migrations",
-      "schema": "",
-      "columns": {
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "report": {
-          "name": "report",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -11267,6 +11235,19 @@
         },
         "merge_approved_at": {
           "name": "merge_approved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "merge_with_stack": {
+          "name": "merge_with_stack",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "merge_base_changed_at": {
+          "name": "merge_base_changed_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false

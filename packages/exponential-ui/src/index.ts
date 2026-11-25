@@ -57,9 +57,12 @@ export { expandMacros, isResponsiveValue, responsiveAt, propsAt, BREAKPOINTS } f
 // Round 1: bind-time evaluation, built-in strings, locale, the CodeBlock tokenizer.
 export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverlay, bindTree, readPointer, writePointer, writeTokens, POINTER_ISSUES, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES, EFFECT_FUNCTIONS, USER_ACTIVATION_FUNCTIONS, RENDERER_ONLY_FUNCTIONS, VALIDATOR_FUNCTIONS, FunctionFailure, catalogFunctionNames, checkResult, evaluateCall, evaluateCheck, fieldChecks, isHostFunctionName, resolveWithFailure, shownResult } from "./dynamic"
 export { describeSurface, type DescribeOptions, type SurfaceDescription } from "./describe"
-export { allowedCallers, checkArgs, declaredFunction, INDEX_FUNCTION, requiresUserActivation } from "./functions"
+export { agentCallRefusal, nestedCallRefusal, allowedCallers, checkArgs, declaredFunction, INDEX_FUNCTION, requiresUserActivation } from "./functions"
 export type { AllowedCallers } from "./functions"
+export { MALFORMED_TEMPLATE, parseTemplate } from "./format-template"
+export type { TemplatePart } from "./format-template"
 export { ENVELOPE_KEYS, SURFACE_COMPONENT, checkCall, checkDynamicValue, checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "./entry"
+export { MIXIN_NAMES, bareMixin, declaresBare, isCheckMixin, isCheckable } from "./mixins"
 export type { EntryContext, EntryFailure, Envelope } from "./entry"
 // Round 2 (docs/round-2-contract.md): formatting, lists, panels, direction, animation.
 export { displayString, englishFormatter, intlFormatter, formatCompact, formatFunctions, formatPattern, parseDateValue, relativeTimeUnit, currencyDigits, FORMAT_FUNCTION_NAMES, ENGLISH_FORMAT_FUNCTIONS, ENGLISH_DATE_PATTERNS, ENGLISH_TIME_PATTERN, ENGLISH_DATE_TIME_JOIN, fixedOffset, intlZoneOffset } from "./format"
@@ -117,7 +120,7 @@ export { readOnlyTree, readOnlyTemplates, readOnlyDisables, readOnlyDisabledIds,
 export type { TreeGuide } from "./tree-guides"
 export { ANIMATIONS, ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, animatesOpacity, animationTiming, animationFrame, cubicBezier, keyframesCss, animationCss, paintedOpacity } from "./animation"
 export type { AnimationDef, AnimationFrame, AnimationTiming, Keyframe } from "./animation"
-export type { DataScope, FieldChecks, ResolveOptions, ActionOutcome, Failure, FunctionTable, PointerWrite, RouteAnswer, RoutedCall, ValidationResult } from "./dynamic"
+export type { CallPosition, DataScope, FieldChecks, ResolveOptions, ActionOutcome, Failure, FunctionTable, PointerWrite, RouteAnswer, RoutedCall, ValidationResult } from "./dynamic"
 export { DEFAULT_STRINGS, STRING_IDS, parseStringRef, isStringRef, stringTable, formatString, resolveString } from "./strings"
 export { DEFAULT_LOCALE, parseLocale, localeRegion, weekStart, textDirection, RTL_MIRRORED_ICONS, mirrorsInRtl } from "./locale"
 export type { LocaleParts } from "./locale"

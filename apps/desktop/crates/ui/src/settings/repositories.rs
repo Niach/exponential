@@ -1187,7 +1187,7 @@ fn ghost(ink: &Ink, tints: &Tints, id: &str, name: &str, glyph: f32, label: &str
         let (color, alpha) = if on { (&ink.foreground, VALUE_ALPHA) } else { (&ink.muted, 0.5) };
         let mut glyph_node = icon(&format!("{id}_icon"), json!(name), glyph, color);
         glyph_node["style"]["opacity"] = json!(alpha);
-        let mut node = json!({"id": id, "component": "Box", "accessibility": {"label": label},
+        let mut node = json!({"id": id, "component": "Box", "@accessibility": {"label": label},
             "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": CTL_MD_H, "height": CTL_MD_H, "borderRadius": ink.radius_md},
             "children": [glyph_node]});
         if on {
@@ -1310,7 +1310,7 @@ fn repo_row(ink: &Ink, tints: &Tints) -> Value {
         json!({"id": id, "component": "Select", "visible": visible,
             "props": {"triggerVariant": "pill", "name": id, "value": path("branch"), "options": path("branchOptions"), "loading": path("branchLoading"),
                 "searchable": true, "searchPlaceholder": "Search branches...", "emptyText": "No branches found.", "disabled": disabled},
-            "accessibility": {"label": path("branchLabel")},
+            "@accessibility": {"label": path("branchLabel")},
             "style": {"flexShrink": 0, "maxWidth": 240},
             "on": {"open": {"event": {"name": "branches", "context": {"key": path("key")}}}, "change": {"event": {"name": "branch", "context": {"key": path("key")}}}}})
     };
@@ -1370,7 +1370,7 @@ fn repo_row(ink: &Ink, tints: &Tints) -> Value {
             muted("row_shared", path("sharedText"), path("hasShared")),
         ]});
     // #EXP-1616: the row opens its repo page (its controls keep their own presses).
-    json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("name")}, "on": {"press": {"event": {"name": "open", "context": {"key": path("key")}}}},
+    json!({"id": "row", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": path("name")}, "on": {"press": {"event": {"name": "open", "context": {"key": path("key")}}}},
         "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0, "gap": ink.r(0.375), "paddingHorizontal": ink.r(0.75), "paddingVertical": ink.r(0.5), "borderRadius": ink.radius_md, "cursor": "pointer", ":hover": {"backgroundColor": tints.list_hover}},
         "children": [head, banner, links]})
 }

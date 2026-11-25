@@ -236,6 +236,9 @@ function isCoreIdProp(component: unknown, prop: string): boolean {
   return corePropSchema(component, prop)?.type === `componentId`
 }
 
+/** Round 9 §5.1: the check mixin's 1.0 wire key. */
+const WIRE_CHECKS = `@checks`
+
 const BASIC_ID_PROPS = new Set([`child`, `trigger`, `content`])
 
 // ---------------------------------------------------------------------------
@@ -358,7 +361,6 @@ function basicBefore(entry: Obj, ctx: Ctx): { entry: Obj; extraCheck?: Obj } {
 
 /** One component's props (flat entry keys, or a card node's `props`). */
 function upgradeProp(key: string, value: unknown, component: unknown, basic: boolean, rekey: Rekey, ctx: Ctx): unknown {
-  if (key === `checks`) return upgradeChecks(value, ctx)
   if (key === `on`) {
     if (!isObj(value)) return value
     const out: Obj = {}
@@ -397,11 +399,17 @@ function upgradeFlatEntry(raw: unknown, surfaceCatalog: unknown, rekey: Rekey, c
         break
       case `component`:
       case `style`:
-      case `metadata`:
         out[k] = v
         break
+      // Round 9 §5.1: the envelope mixins ride under `@` in 1.0.
+      case `metadata`:
+        out[`@metadata`] = v
+        break
       case `catalogId`:
-        out[k] = upgradeCatalogId(v)
+        out[`@catalogId`] = upgradeCatalogId(v)
+        break
+      case `checks`:
+        out[WIRE_CHECKS] = upgradeChecks(v, ctx)
         break
       case `children`:
         out[k] = rekeyChildren(v, rekey)
@@ -416,13 +424,13 @@ function upgradeFlatEntry(raw: unknown, surfaceCatalog: unknown, rekey: Rekey, c
         out[k] = asPresence(dyn(v, ctx), `visible`)
         break
       case `accessibility`:
-        out[k] = upgradeAccessibility(v, ctx)
+        out[`@accessibility`] = upgradeAccessibility(v, ctx)
         break
       default:
         out[k] = upgradeProp(k, v, entry.component, basic, rekey, ctx)
     }
   }
-  if (extraCheck) out.checks = Array.isArray(out.checks) ? [...out.checks, extraCheck] : [extraCheck]
+  if (extraCheck) out[WIRE_CHECKS] = Array.isArray(out[WIRE_CHECKS]) ? [...(out[WIRE_CHECKS] as unknown[]), extraCheck] : [extraCheck]
   if (basic && entry.component === `TextField` && !own(entry, `value`)) out.value = ``
   return out
 }
@@ -572,8 +580,10 @@ function upgradeCardNode(node: unknown, rekey: Rekey, ctx: Ctx): unknown {
       case `props`:
         if (isObj(v)) {
           const props: Obj = {}
-          for (const [pk, pv] of Object.entries(v)) props[pk] = upgradeProp(pk, pv, node.component, false, rekey, ctx)
+          for (const [pk, pv] of Object.entries(v)) if (pk !== `checks`) props[pk] = upgradeProp(pk, pv, node.component, false, rekey, ctx)
           out[k] = props
+          // Round 9 §13: the check mixin sits at NODE level, right after `props`.
+          if (own(v, `checks`)) out[WIRE_CHECKS] = upgradeChecks(v.checks, ctx)
         } else out[k] = v
         break
       case `children`:
@@ -593,7 +603,11 @@ function upgradeCardNode(node: unknown, rekey: Rekey, ctx: Ctx): unknown {
         out[k] = asPresence(dyn(v, ctx), `visible`)
         break
       case `accessibility`:
-        out[k] = upgradeAccessibility(v, ctx)
+        out[`@accessibility`] = upgradeAccessibility(v, ctx)
+        break
+      case `metadata`:
+      case `catalogId`:
+        out[`@${k}`] = v
         break
       case `on`:
         out[k] = upgradeProp(k, v, node.component, false, rekey, ctx)

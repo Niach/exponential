@@ -9,6 +9,7 @@
 import type { MonitoringConfig } from "./config"
 import { readSendDiagnostics, subscribeSendDiagnostics } from "./preference"
 
+type SdkNotice = import("./client-sdk").SdkNotice
 type Sdk = typeof import("./client-sdk")
 type Enabled = Extract<MonitoringConfig, { enabled: true }>
 
@@ -88,6 +89,11 @@ export function captureClientError(error: unknown): void {
   else if (started && (config !== null || detachEarly) && readSendDiagnostics()) {
     buffer(error)
   }
+}
+
+/** EXP-2111: an event that is no exception; only while diagnostics run. */
+export function captureClientNotice(notice: SdkNotice): void {
+  if (running && sdk) sdk.captureNotice(notice)
 }
 
 /** The signed-in user's id only (no email, no name), or null when signed out. */

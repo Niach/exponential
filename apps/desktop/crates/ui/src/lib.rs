@@ -115,6 +115,7 @@ mod file_tree;
 mod file_viewer;
 mod getting_started;
 mod github_connect;
+mod held_gone;
 mod home_greeting;
 mod icons;
 mod image_actions;

@@ -28,7 +28,7 @@ describe(`ChipInput + FileUpload DOM parity`, () => {
   it(`ChipInput: placeholder when empty, max reached, checks, no label`, async () => {
     await expectDomParity({ tree: { id: `c`, component: `ChipInput`, props: { placeholder: `Add a label`, values: [] } } as NestedNode })
     await expectDomParity({ tree: { id: `c`, component: `ChipInput`, props: { label: `L`, values: [`a`, `b`], max: 2, placeholder: `x` } } as NestedNode })
-    await expectDomParity({ tree: form({ id: `c`, component: `ChipInput`, props: { label: `L`, name: `l`, values: [], checks: [{ "@call": `required`, args: { value: { "@path": `/l` } }, message: `Required` }], validateOn: `change` } } as unknown as NestedNode) })
+    await expectDomParity({ tree: form({ id: `c`, component: `ChipInput`, props: { label: `L`, name: `l`, values: [], validateOn: `change` }, "@checks": [{ "@call": `required`, args: { value: { "@path": `/l` } }, message: `Required` }] } as unknown as NestedNode) })
   })
   it(`FileUpload: files (sizes, URLs, the URL policy), hint, single, disabled with files`, async () => {
     await expectDomParity({ tree: { id: `f`, component: `FileUpload`, props: { label: `Files`, files, hint: `Up to 10 MB`, multiple: true } } as NestedNode })

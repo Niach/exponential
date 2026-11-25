@@ -9,7 +9,6 @@
 //! - [`upgrade_client_message09`]: a renderer → agent `action` / `error`;
 //! - [`upgrade_card09`]: a nested `exponential_show` card `{root, data}`;
 //! - [`upgrade_package09`]: a formatVersion 5 package → 6;
-//! - [`upgrade09_json`]: the one JSON entry the FFI exposes (`upgrade09Json`).
 //!
 //! Output key order follows the input's: a renamed key keeps its place, an
 //! added key goes to the end of its object (`version` is the exception: it
@@ -475,9 +474,6 @@ fn is_directive09(value: &Value) -> bool {
 }
 
 fn upgrade_prop(key: &str, value: &Value, component: Option<&Value>, basic: bool, rekey: &mut Rekey, ctx: &Ctx) -> Value {
-    if key == "checks" {
-        return upgrade_checks(value, ctx);
-    }
     if key == "on" {
         return match value.as_object() {
             Some(o) => Value::Object(o.iter().map(|(event, action)| (event.clone(), upgrade_action(action, ctx))).collect()),
@@ -515,6 +511,13 @@ fn upgrade_prop(key: &str, value: &Value, component: Option<&Value>, basic: bool
     dyn_(value, ctx)
 }
 
+const WIRE_CHECKS: &str = eui_core::reducer::WIRE_CHECKS;
+
+/// Round 9 §5.1: the envelope mixins ride under `@` in 1.0.
+fn wire_key(key: &str) -> String {
+    if eui_core::types::MIXIN_NAMES.contains(&key) { format!("@{key}") } else { key.to_string() }
+}
+
 fn upgrade_flat_entry(raw: &Value, surface_catalog: Option<&Value>, rekey: &mut Rekey, ctx: &Ctx) -> Value {
     let Some(raw) = raw.as_object() else { return raw.clone() };
     let basic = is_basic_id(if raw.contains_key("catalogId") { raw.get("catalogId") } else { surface_catalog });
@@ -526,6 +529,7 @@ fn upgrade_flat_entry(raw: &Value, surface_catalog: Option<&Value>, rekey: &mut 
             "id" => rekey.reference(v),
             "component" | "style" | "metadata" => v.clone(),
             "catalogId" => upgrade_catalog_id(v),
+            "checks" => upgrade_checks(v, ctx),
             "children" => rekey_children(v, rekey),
             "slots" => rekey_slots(v, rekey),
             "template" => rekey_template(v, rekey),
@@ -533,13 +537,13 @@ fn upgrade_flat_entry(raw: &Value, surface_catalog: Option<&Value>, rekey: &mut 
             "accessibility" => upgrade_accessibility(v, ctx),
             _ => upgrade_prop(k, v, component, basic, rekey, ctx),
         };
-        out.insert(k.clone(), value);
+        out.insert(wire_key(k), value);
     }
     if let Some(check) = extra_check {
-        match out.get_mut("checks") {
+        match out.get_mut(WIRE_CHECKS) {
             Some(Value::Array(checks)) => checks.push(check),
             _ => {
-                out.insert("checks".into(), Value::Array(vec![check]));
+                out.insert(WIRE_CHECKS.into(), Value::Array(vec![check]));
             }
         }
     }
@@ -754,11 +758,18 @@ fn upgrade_card_node(node: &Value, rekey: &mut Rekey, ctx: &Ctx) -> Value {
         let component = n.get("component");
         let mut out = Obj::new();
         for (k, v) in n {
+            let mut checks = None;
             let value = match (k.as_str(), v) {
                 ("id", _) => rekey.reference(v),
                 ("props", Value::Object(props)) => {
                     let mut p = Obj::new();
                     for (pk, pv) in props {
+                        // Round 9 §13: the check mixin sits at NODE level,
+                        // right after `props`.
+                        if pk == "checks" {
+                            checks = Some(upgrade_checks(pv, ctx));
+                            continue;
+                        }
                         let value = upgrade_prop(pk, pv, component, false, rekey, ctx);
                         p.insert(pk.clone(), value);
                     }
@@ -779,7 +790,10 @@ fn upgrade_card_node(node: &Value, rekey: &mut Rekey, ctx: &Ctx) -> Value {
                 ("on", _) => upgrade_prop(k, v, component, false, rekey, ctx),
                 _ => v.clone(),
             };
-            out.insert(k.clone(), value);
+            out.insert(if k == "checks" { k.clone() } else { wire_key(k) }, value);
+            if let Some(checks) = checks {
+                out.insert(WIRE_CHECKS.into(), checks);
+            }
         }
         Value::Object(out)
     })
@@ -1076,58 +1090,6 @@ pub fn upgrade_package09(file: &Value, verify: impl FnOnce(&Value) -> PackageVer
     }
 }
 
-/// The verification a core without Ed25519 can do on its own: no
-/// `signature` = `unsigned`, else `invalid` (a host verifies and passes its
-/// answer to [`upgrade09_json`] as `verification`).
-pub fn structural_verification(file: &Value) -> PackageVerification {
-    let status = if file.get("signature").is_none() { "unsigned" } else { "invalid" };
-    PackageVerification { status: status.into(), author: None }
-}
-
-/// The FFI's one entry (`upgrade09Json`):
-/// - `{kind: "message", input, state?}` → `{messages, state}`;
-/// - `{kind: "stream", inputs, state?}` → `{messages, state}` (every output in order);
-/// - `{kind: "client", input}` → the 1.0 message;
-/// - `{kind: "card", input}` → the 1.0 card;
-/// - `{kind: "package", input, verification?: {status, author?}}` →
-///   `{package, status, author?}` (`package` null when invalid; without
-///   `verification`: [`structural_verification`]).
-pub fn upgrade09_json(request: &Value) -> Value {
-    let input = request.get("input").cloned().unwrap_or(Value::Null);
-    let state: Upgrade09State = request.get("state").and_then(|s| serde_json::from_value(s.clone()).ok()).unwrap_or_default();
-    match request.get("kind").and_then(Value::as_str) {
-        Some("message") => {
-            let (messages, state) = upgrade_message09(&input, &state);
-            json!({"messages": messages, "state": state})
-        }
-        Some("stream") => {
-            let mut state = state;
-            let mut messages = Vec::new();
-            for m in request.get("inputs").and_then(Value::as_array).into_iter().flatten() {
-                messages.extend(upgrade_message09_in(m, &mut state));
-            }
-            json!({"messages": messages, "state": state})
-        }
-        Some("client") => upgrade_client_message09(&input),
-        Some("card") => upgrade_card09(&input),
-        Some("package") => {
-            let given = request.get("verification").and_then(Value::as_object).map(|v| PackageVerification {
-                status: v.get("status").and_then(Value::as_str).unwrap_or("invalid").to_string(),
-                author: v.get("author").cloned(),
-            });
-            let u = upgrade_package09(&input, |f| given.unwrap_or_else(|| structural_verification(f)));
-            let mut out = Obj::new();
-            out.insert("package".into(), u.package.unwrap_or(Value::Null));
-            out.insert("status".into(), Value::String(u.status));
-            if let Some(a) = u.author {
-                out.insert("author".into(), a);
-            }
-            Value::Object(out)
-        }
-        _ => json!({"error": "kind is message, stream, client, card or package"}),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1283,7 +1245,7 @@ mod tests {
         assert_eq!(out[3]["visible"], c(json!({"@path": "/x"})));
         assert_eq!(out[4]["visible"], json!({"@call": "eq", "args": {"a": 1, "b": 1}}));
         assert_eq!(out[5]["visible"], c(json!({"@call": "len", "args": {"value": [1]}})));
-        let checks = &out[6]["checks"];
+        let checks = &out[6]["@checks"];
         assert_eq!(checks[0]["condition"], c(json!(true)));
         assert_eq!(checks[1]["condition"], c(json!("x")));
         assert_eq!(checks[2]["condition"], c(json!({"@path": "/v"})));
@@ -1300,7 +1262,7 @@ mod tests {
     #[test]
     fn accessibility_label_and_description() {
         let (out, _) = components(json!([{"id": "a", "component": "Text", "accessibility": {"label": {"path": "/l"}, "description": "d", "live": "polite"}}]));
-        assert_eq!(out[0]["accessibility"], json!({"label": {"@path": "/l"}, "description": "d", "live": "polite"}));
+        assert_eq!(out[0]["@accessibility"], json!({"label": {"@path": "/l"}, "description": "d", "live": "polite"}));
     }
 
     #[test]
@@ -1367,11 +1329,11 @@ mod tests {
         assert_eq!(
             out[0],
             json!({"id": "f_1", "component": "TextField", "label": "A", "value": {"@path": "/a"},
-                "checks": [{"condition": {"@call": "regex", "args": {"value": {"@path": "/a"}, "pattern": "^a$"}}, "message": "Invalid value"}]})
+                "@checks": [{"condition": {"@call": "regex", "args": {"value": {"@path": "/a"}, "pattern": "^a$"}}, "message": "Invalid value"}]})
         );
-        assert_eq!(keys(&out[0]), ["id", "component", "label", "value", "checks"]);
-        assert_eq!(out[1]["checks"][1], json!({"condition": {"@call": "regex", "args": {"value": {"@path": "f-2"}, "pattern": "^b$"}}, "message": "Invalid value"}));
-        assert_eq!(keys(&out[1]), ["id", "component", "label", "checks", "value"]);
+        assert_eq!(keys(&out[0]), ["id", "component", "label", "value", "@checks"]);
+        assert_eq!(out[1]["@checks"][1], json!({"condition": {"@call": "regex", "args": {"value": {"@path": "f-2"}, "pattern": "^b$"}}, "message": "Invalid value"}));
+        assert_eq!(keys(&out[1]), ["id", "component", "label", "@checks", "value"]);
         assert_eq!(out[1]["value"], "");
         assert_eq!(keys(&out[2]), ["id", "component", "label", "value"]);
     }
@@ -1486,22 +1448,6 @@ mod tests {
         assert_eq!(u.status, "valid");
         assert_eq!(u.author, Some(json!({"name": "A", "key": "ed25519:k"})));
         assert_eq!(u.package.unwrap(), json!({"formatVersion": 6, "id": "a", "templates": {}, "author": {"name": "A", "key": "ed25519:k"}}));
-        let mut claim = file.clone();
-        claim.as_object_mut().unwrap().remove("signature");
-        let out = upgrade09_json(&json!({"kind": "package", "input": claim}));
-        assert_eq!(out["status"], "unsigned");
-        assert!(out.get("author").is_none());
-        assert_eq!(out["package"]["author"]["name"], "A");
-        let out = upgrade09_json(&json!({"kind": "package", "input": file}));
-        assert_eq!(out, json!({"package": null, "status": "invalid"}));
     }
 
-    #[test]
-    fn json_entry_stream() {
-        let out = upgrade09_json(&json!({"kind": "stream", "inputs": [
-            {"version": "v0.9", "createSurface": {"surfaceId": "s", "catalogId": "https://a2ui.org/specification/v0_9/basic_catalog.json"}},
-            {"version": "v0.9", "updateComponents": {"surfaceId": "s", "components": [{"id": "f", "component": "TextField", "label": "x"}]}}]}));
-        assert_eq!(out["messages"][1]["updateComponents"]["components"][0]["value"], "");
-        assert_eq!(out["state"], json!({"surfaces": {"s": {"f": "f"}}, "catalogs": {"s": BASIC_CATALOG_ID_10}}));
-    }
 }

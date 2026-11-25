@@ -258,8 +258,8 @@ function epochMs(iso: string | null): number | null {
  * with or without a body; a feed input that parses with `parseActionInput`
  * is that press (its body the parsed one; a bodiless press compared by its
  * card). An empty feed takes the tail only while its live transcript cannot
- * be loaded (`unreachable`, the
- * OFFLINE LINE's condition) and only when it holds an agent line (else
+ * be loaded (`unreachable`,
+ * `steerTailUnreachable`) and only when it holds an agent line (else
  * SENT INPUTS keeps the placeholder). A live feed = none.
  */
 export function steerSyncedTail<T extends SteerSyncedMessage>(input: {
@@ -320,6 +320,15 @@ export function steerSyncedTail<T extends SteerSyncedMessage>(input: {
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   if (input.feed.length === 0 && !tail.some((m) => m.authorKind === `agent`)) return []
   return tail.slice(Math.max(0, tail.length - max))
+}
+
+/**
+ * #EXP-2138 (steer-enet.json SYNCED TAIL, `unreachable`): whether an empty
+ * feed's live transcript cannot be loaded: the last dial said NO FEED, or a
+ * row not ended whose device is offline.
+ */
+export function steerTailUnreachable(input: { ended: boolean; noFeed: boolean; deviceOffline: boolean }): boolean {
+  return input.noFeed || (!input.ended && input.deviceOffline)
 }
 
 /**

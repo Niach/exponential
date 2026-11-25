@@ -801,7 +801,7 @@
           "value": {
             "@path": "/draft/today"
           },
-          "checks": [
+          "@checks": [
             {
               "condition": {
                 "@call": "required",

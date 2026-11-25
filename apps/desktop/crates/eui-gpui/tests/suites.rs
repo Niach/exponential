@@ -89,6 +89,11 @@ fn a2ui10_cases() -> Vec<Case> {
         let got = action_message_with(s("surfaceId"), s("sourceComponentId"), s("name"), i["context"].clone(), i.get("payload").cloned(), s("timestamp"), i.get("userMessage").and_then(Value::as_str));
         out.push((format!("action: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
     }
+    for c in list(&f, "rendererCalls") {
+        let available: Option<Vec<String>> = c.get("available").map(names);
+        let got = eui_core::host::answer_renderer_call(&c["op"], c.get("data").unwrap_or(&json!({})), available.as_deref());
+        out.push((format!("rendererCall: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
+    }
     for c in list(&f, "mint") {
         let mut r = eui_core::host::HostRouter::new::<&str>(&[]);
         let mut result = Ok(());

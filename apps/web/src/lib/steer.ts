@@ -211,13 +211,15 @@ const RELAY_KILL_TIMEOUT_MS = 3_000
  * POST /sessions/:id/kill `{userId, deviceId}` — best-effort kill-switch
  * down the session device's control socket. Never throws: the relay is
  * additive, never load-bearing; the DB row flip (which the desktop watches
- * over Electric) is the durable abort path.
+ * over Electric) is the durable abort path. #EXP-2138: `reason` (held-gone.json)
+ * rides along on a delete; an older relay drops it.
  */
 export async function relayPostKill(
   config: SteerRelayConfig,
   sessionId: string,
   device: RelayDevice,
-  fetchImpl: RelayFetch = globalThis.fetch
+  fetchImpl: RelayFetch = globalThis.fetch,
+  reason?: string
 ): Promise<{ delivered: boolean }> {
   try {
     const res = await fetchImpl(
@@ -228,7 +230,7 @@ export async function relayPostKill(
           "content-type": `application/json`,
           "x-relay-secret": config.secret,
         },
-        body: JSON.stringify({ userId: device.userId, deviceId: device.deviceId }),
+        body: JSON.stringify({ userId: device.userId, deviceId: device.deviceId, ...(reason ? { reason } : {}) }),
         signal: AbortSignal.timeout(RELAY_KILL_TIMEOUT_MS),
       }
     )

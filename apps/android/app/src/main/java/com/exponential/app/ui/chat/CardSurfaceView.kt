@@ -46,6 +46,7 @@ import com.exponential.app.domain.expandTeamLink
 import com.exponential.app.ui.markdown.openCardHref
 import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.markdown.rememberChatIssueTextLinks
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import dagger.hilt.EntryPoint
@@ -242,7 +243,11 @@ fun CardSurfaceView(
     modifier: Modifier = Modifier,
 ) {
     if (!surface.readable) {
-        FeedMarkerRow(ChatExpress.Copy.BLOCK_FAILED, modifier = modifier)
+        FeedMarkerRow(
+            ChatExpress.Copy.BLOCK_FAILED,
+            modifier = modifier,
+            hairline = DesignTokens.Palette.Border.copy(alpha = 0.6f),
+        )
         return
     }
     val model = rememberCardSurfaceModel(surface)

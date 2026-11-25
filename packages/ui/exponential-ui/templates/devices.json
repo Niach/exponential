@@ -64,7 +64,7 @@
             "paddingLeft": "$spacing.md",
             "paddingRight": "$spacing.md"
           },
-          "accessibility": {
+          "@accessibility": {
             "label": {
               "@path": "label"
             }

@@ -792,9 +792,13 @@ private fun RunFaceContent(
     val tailMessages = syncedWindow.messages
     val feedLive = phase == AgentPhase.Live
     // An EMPTY feed takes it only while the live transcript cannot be
-    // loaded (the OFFLINE LINE's condition): a reachable device's replay
-    // is on its way.
-    val tailUnreachable = if (session?.isEnded == true) history == HistoryState.DeviceOffline else hostDevice.offline
+    // loaded (#EXP-2138: the last dial said NO FEED, whatever the row): a
+    // device still being dialled may hold it.
+    val tailUnreachable = com.exponential.app.data.steer.steerTailUnreachable(
+        ended = session?.isEnded == true,
+        noFeed = phase == AgentPhase.Starting || history == HistoryState.DeviceOffline,
+        deviceOffline = hostDevice.offline,
+    )
     // #EXP-1998 (find-in-chat.json): every message the tail would draw with
     // no cap (find in chat counts them); it shows the newest `syncedTailMax`,
     // or every one from the message find in chat landed on ([findWiden],

@@ -264,7 +264,7 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
 }
 
 /// The keys of a nested node besides its props.
-const NODE_KEYS: &[&str] = &["style", "visible", "on", "accessibility", "catalogId", "metadata"];
+const NODE_KEYS: &[&str] = &["style", "visible", "on", "@accessibility", "@catalogId", "@metadata", "@checks"];
 
 /// The nested authoring form → A2UI's flat list, parents first; the top
 /// node's id becomes `root` when `top`. Returns the node's id.
@@ -285,9 +285,7 @@ fn flatten(node: &Value, top: bool, out: &mut Vec<Value>) -> Result<String, Issu
     flat.insert("component".into(), component.into());
     if let Some(props) = n.get("props").and_then(Value::as_object) {
         for (k, v) in props {
-            // #AXC-19: the check mixin rides the wire as `@checks`.
-            let key = if k == "checks" { "@checks".to_string() } else { k.clone() };
-            flat.insert(key, v.clone());
+            flat.insert(k.clone(), v.clone());
         }
     }
     // A `style` PROP is the base the node's `style` overrides (eui-core's
@@ -404,17 +402,12 @@ fn nest(components: &[Value]) -> Result<Value, Vec<Issue>> {
             let mut props = Map::new();
             node.insert("id".into(), id.into());
             node.insert("component".into(), c.get("component").cloned().unwrap_or(Value::Null));
-            let wire_checks = c.contains_key("@checks");
             for (k, v) in c {
                 match k.as_str() {
                     "id" | "component" | "children" | "slots" => {}
                     k if NODE_KEYS.contains(&k) => {
                         node.insert(k.into(), v.clone());
                     }
-                    "@checks" => {
-                        props.insert("checks".into(), v.clone());
-                    }
-                    "checks" if wire_checks => {}
                     _ => {
                         props.insert(k.clone(), v.clone());
                     }

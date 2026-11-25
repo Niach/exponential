@@ -3065,7 +3065,7 @@ describe(`pull request tools (EXP-1291)`, () => {
     expect(inside.isError).toBeFalsy()
   })
 
-  it(`pr_merge defaults to the caller session's PR, queues it and reports its place; stack is accepted and ignored`, async () => {
+  it(`pr_merge defaults to the caller session's PR, queues it and reports its place; stack: true takes its stack (#FEED-307)`, async () => {
     dbRows.current = [callerRow()]
     const result = await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({ stack: true })
     expect(parseOk(result)).toEqual({
@@ -3081,7 +3081,10 @@ describe(`pull request tools (EXP-1291)`, () => {
       userId: USER.id,
       callerSessionId: SESSION,
     })
-    expect(train.queuePullRequest).toHaveBeenCalledWith(PR_ID)
+    expect(train.queuePullRequest).toHaveBeenCalledWith(PR_ID, { stack: true })
+    dbRows.current = [callerRow()]
+    await collectTools(USER, SESSION).get(`exponential_pr_merge`)!({})
+    expect(train.queuePullRequest).toHaveBeenLastCalledWith(PR_ID, { stack: false })
     expect(train.runRepository).toHaveBeenCalled()
   })
 
@@ -3117,7 +3120,7 @@ describe(`pull request tools (EXP-1291)`, () => {
     expect(result).toMatchObject({ mergeNow: true })
     // #FEED-283: an agent's force never lifts a person's Hold.
     // #FEED-293: the force records who passed it.
-    expect(train.mergeNowPullRequest).toHaveBeenCalledWith(expect.any(String), { keepPersonHolds: true, by: USER.id })
+    expect(train.mergeNowPullRequest).toHaveBeenCalledWith(expect.any(String), { keepPersonHolds: true, by: USER.id, stack: false })
   })
 
   it(`#FEED-293: force says plainly it lands past red checks and behind which run; a refusal is no queue`, async () => {

@@ -3,6 +3,9 @@ import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/voice-call.json" with { type: "json" }
 import {
+  CallLog,
+  type CallLogEnd,
+  type CallLogNote,
   callRecordClose,
   callDuration,
   callOpening,
@@ -207,6 +210,29 @@ describe(`#EXP-2017 callerStep (caller.cases)`, () => {
       { do: `toast`, text: fixture.copy.failed.dropped },
     ])
   })
+})
+
+describe(`EXP-2111 the caller's log`, () => {
+  for (const entry of fixture.log.cases) {
+    test(entry.name, () => {
+      const lines: string[] = []
+      let end: CallLogEnd | null = null
+      let now = 0
+      const log = new CallLog(() => now, (line) => lines.push(line), (ended) => (end = ended))
+      let state = CALLER_IDLE
+      for (const step of entry.steps as { at: number; input?: CallerInput; note?: CallLogNote }[]) {
+        now = step.at
+        if (step.note) log.note(step.note)
+        if (step.input) {
+          const stepped = callerStep(state, step.input)
+          log.input(step.input, state, stepped)
+          state = stepped.state
+        }
+      }
+      expect(lines).toEqual(entry.lines)
+      expect(end).toEqual(entry.end as never)
+    })
+  }
 })
 
 describe(`EXP-2110 the durable call record`, () => {

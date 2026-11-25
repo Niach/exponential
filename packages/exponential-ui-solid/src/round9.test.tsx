@@ -21,7 +21,7 @@ describe(`checkSeverities`, () => {
         props: { name: `f` },
         on: { submit: { event: { name: `submit` } }, invalid: { event: { name: `invalid` } } },
         children: [
-          { id: `x`, component: `Input`, props: { label: `X`, name: `x`, value: `v`, validateOn: `submit`, checks: c.checks } },
+          { id: `x`, component: `Input`, props: { label: `X`, name: `x`, value: `v`, validateOn: `submit`}, "@checks": c.checks },
           { id: `go`, component: `Button`, props: { label: `Send`, submit: true } },
         ],
       } as NestedNode)
@@ -41,7 +41,7 @@ describe(`checkSeverities`, () => {
   }
   for (const c of fixture.buttonChecks) {
     it(`Button: ${c.name}`, () => {
-      const root = tree({ id: `b`, component: `Button`, props: { label: `Go`, checks: c.checks } } as NestedNode)
+      const root = tree({ id: `b`, component: `Button`, props: { label: `Go`}, "@checks": c.checks } as NestedNode)
       const { container } = render(() => <ExponentialSurface root={root} data={c.data} theme="neutral" />)
       expect((container.querySelector(`[data-xui-id="b"]`) as HTMLButtonElement).disabled).toBe(c.disabled)
     })
@@ -51,7 +51,7 @@ describe(`checkSeverities`, () => {
 describe(`accessibility + inline Markdown`, () => {
   const paint = (node: Record<string, unknown>, data: Record<string, unknown> = {}) => render(() => <ExponentialSurface root={tree({ id: `n`, ...node } as NestedNode)} data={data} theme="neutral" />).container
   it(`live and hidden`, () => {
-    const c = paint({ component: `Text`, props: { text: `t`, live: `polite` }, accessibility: { live: `assertive`, hidden: { "@path": `/h` } } }, { h: `true` })
+    const c = paint({ component: `Text`, props: { text: `t`, live: `polite` }, "@accessibility": { live: `assertive`, hidden: { "@path": `/h` } } }, { h: `true` })
     const n = c.querySelector(`[data-xui-id="n"]`)!
     expect(n.getAttribute(`aria-live`)).toBe(`assertive`)
     expect(n.getAttribute(`aria-hidden`)).toBe(`true`)

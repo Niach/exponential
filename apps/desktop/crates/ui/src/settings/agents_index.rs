@@ -584,7 +584,7 @@ fn document(ink: &Ink, list_hover: &str, skeleton_fill: &str) -> Value {
     let mut agent_row_style = row_style(ink);
     agent_row_style["cursor"] = json!("pointer");
     agent_row_style[":hover"] = json!({"backgroundColor": list_hover});
-    let agent_row = json!({"id": "agent_row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("name")}, "on": {"press": {"event": {"name": "open", "context": {"key": path("key")}}}},
+    let agent_row = json!({"id": "agent_row", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": path("name")}, "on": {"press": {"event": {"name": "open", "context": {"key": path("key")}}}},
         "style": agent_row_style,
         "children": [
             {"id": "agent_icon", "component": "Icon", "props": {"name": path("icon")}, "style": {"width": glyph, "height": glyph, "color": path("color"), "flexShrink": 0}},

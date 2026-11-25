@@ -384,13 +384,12 @@ describe(`Form`, () => {
           label: `Email`,
           name: `email`,
           value: { "@path": `/email` },
-          checks: [
+        }, "@checks": [
             { condition: { "@call": `required`, args: { value: { "@path": `/email` } } }, message: `Required` },
             { condition: { "@call": `email`, args: { value: { "@path": `/email` } } }, message: `Not an email` },
           ],
-        },
       },
-      { id: `age`, component: `NumberField`, props: { label: `Age`, name: `age`, value: { "@path": `/age` }, checks: [{ condition: { "@call": `numeric`, args: { value: { "@path": `/age` }, min: 18 } }, message: `18+` }] } },
+      { id: `age`, component: `NumberField`, props: { label: `Age`, name: `age`, value: { "@path": `/age` }}, "@checks": [{ condition: { "@call": `numeric`, args: { value: { "@path": `/age` }, min: 18 } }, message: `18+` }] },
       { id: `go`, component: `Button`, props: { label: `Send`, submit: true } },
     ],
   })

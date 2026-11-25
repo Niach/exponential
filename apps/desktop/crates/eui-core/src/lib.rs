@@ -97,6 +97,7 @@ pub mod fold;
 pub mod forced;
 pub mod tree;
 pub mod format;
+pub mod format_template;
 pub mod functions;
 pub mod geometry;
 pub mod hold;

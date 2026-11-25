@@ -15,13 +15,14 @@
 # Deletes ONLY regenerable build output, each step only while free space is still low:
 #   1. Docker build cache above 20 GB, dangling images (never volumes, never containers)
 #   2. scratch cargo targets OUTSIDE any worktree (a dir whose CACHEDIR.TAG cargo wrote,
-#      directly in ~/.cache or /tmp, or one level below /tmp): whole, when nothing
+#      in ~/.cache, /tmp or one level below either): whole, when nothing
 #      wrote to it for two days and no process has it open or as its cwd
 #   3. cargo `deps` files (every profile) and `incremental/` dirs older than a day:
 #      the remaining scratch targets, idle worktrees' `target*` dirs, then the shared
 #      CARGO_TARGET_DIR (a profile only while no build holds its `.cargo-lock`)
 #   4. the CI runners' work dirs (`/tmp/runner-N/work/**/target`): deps files older
-#      than a day and `incremental/`, only while the runner runs no job
+#      than a day and `incremental/`, only while the runner runs no job (their
+#      job hooks, job-cleanup.sh, empty both between jobs)
 #   5. Gradle: build-cache entries older than a day, idle worktrees' Android `build/` dirs
 #   6. /tmp scratch: the user's top-level /tmp entries nothing wrote to for a day
 #      and no process has open (capture stacks, test dirs, logs)
@@ -157,7 +158,8 @@ fi
 SCRATCH=()
 while IFS= read -r -d '' tag; do SCRATCH+=("${tag%/CACHEDIR.TAG}"); done < <(
   find "$HOME/.cache" /tmp -mindepth 2 -maxdepth 2 -user "$ME" -name CACHEDIR.TAG -print0 2>/dev/null
-  find /tmp -mindepth 3 -maxdepth 3 -user "$ME" -name CACHEDIR.TAG -print0 2>/dev/null
+  # #EXP-2150: a session's target sits one level deeper (~/.cache/exp-<id>/target).
+  find "$HOME/.cache" /tmp -mindepth 3 -maxdepth 3 -user "$ME" -name CACHEDIR.TAG -print0 2>/dev/null
 )
 for t in ${SCRATCH[@]+"${SCRATCH[@]}"}; do
   low || break

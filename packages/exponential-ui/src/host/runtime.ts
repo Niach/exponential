@@ -4,14 +4,14 @@
 // renderer (React: `@exponential_app/eui-react` `<HostSurface>`) paints a
 // store and hands its interactions back through `dispatch`.
 
-import { evaluateCall } from "../dynamic"
 import type { Failure, RouteAnswer, RoutedCall } from "../dynamic"
 import { declaredFunction } from "../functions"
 import { tryLoadTheme } from "../theme"
 import type { ResolvedTheme } from "../theme-types"
 import { BUILTIN_THEME_IDS, BUILTIN_THEMES, builtinTheme } from "../themes"
 import type { ExtensionDef, FlatComponent } from "../types"
-import { RENDER_FAILED, actionMessage, callAgentFunctionMessage, errorMessage, rendererFunctionResponse } from "./contract"
+import { RENDER_FAILED, actionMessage, callAgentFunctionMessage, errorMessage } from "./contract"
+import { answerRendererCall } from "./renderer-call"
 import type { ClientMessage, HostOp, InferenceFormat } from "./contract"
 import { INFERENCE_FORMATS } from "./contract"
 import { availableExtensions, rendererCapabilities } from "./package"
@@ -506,11 +506,10 @@ export class ExponentialHost {
   }
 
   /** Round 9 §6.9: run a callRendererFunction that passed the router's
-   *  checks; a throw (or a failing evaluation) answers EXECUTION_ERROR. */
+   *  checks (`answerRendererCall`). */
   private answerCall(op: Extract<HostOp, { op: `call` }>): void {
     const data = op.surfaceId === undefined ? {} : (this.stores.get(op.surfaceId)?.data ?? {})
-    const { value, failure } = evaluateCall({ "@call": op.name, catalogId: op.catalogId, args: op.args }, data, { catalogId: op.catalogId, available: this.router.availableCatalogIds })
-    this.send(rendererFunctionResponse(op.functionCallId, failure ? { error: { code: `EXECUTION_ERROR`, message: failure.message } } : { value }))
+    this.send(answerRendererCall(op, data, this.router.availableCatalogIds))
   }
 
   /** Round 9 §10: an agentFunctionResponse settles its pending call; an

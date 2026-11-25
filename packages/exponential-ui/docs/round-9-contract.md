@@ -9,8 +9,9 @@ every fixture listed in §15. Swift and Kotlin reach the Rust core through
 `exponential-ui-ffi`. The web renderers use the TS core.
 
 Upstream reference: `a2ui-project/a2ui` `main` at
-`1e9ed04b5585721ac6df8313030f9bfb42ccc6fa` (2026-11-06), vendored
-byte-pinned under `vendor/a2ui/v1_0/` (§15). Where upstream and this file
+`a23b19c4f2102695c506adb7d1ded1f5f81a7688` (2026-11-25; first pinned at
+`1e9ed04b`, 2026-11-06, before the `@` envelope keys), vendored byte-pinned
+under `vendor/a2ui/v1_0/` (§15). Where upstream and this file
 differ, this file wins. The divergences are listed in §16. Words: **agent**
 = the server side, **renderer** = the client (upstream 1.0 terminology).
 Where a section says "refused", the refusal code and the path rule come
@@ -25,7 +26,7 @@ from §7.
 | host-internal | `applyTemplate`, `bindDataModel` only through a TRUSTED `route()` | §2 | `host-router.json` |
 | dynamic values | `{"@path"}`, `{"@call", args?, catalogId?}`, literal objects, `@@` escape; no `returnType` on the wire | §3 | `bind-time.json`, `catalog-macros.json` |
 | identifiers | UAX #31 for ids, component, function, prop, arg and extension names | §4, generated `xid` tables | `a2ui10-messages.json` `ids` |
-| components | envelope `ComponentCommon {id, catalogId, accessibility, metadata}`; our extensions become declared core props; `Surface` reserved; `allowedParents/allowedChildren`; mixed catalogs | §5, `core.catalog.json` | `catalog-components.json`, `a2ui10-messages.json` |
+| components | envelope `ComponentCommon {id, component, @catalogId, @accessibility, @metadata}` + `@checks`; our extensions become declared core props; `Surface` reserved; `allowedParents/allowedChildren`; mixed catalogs | §5, `core.catalog.json` | `catalog-components.json`, `a2ui10-messages.json` |
 | functions | catalog function map, `allowedCallers`, `requiresUserActivation`, flat host function names, `@index`, routing, ValidationResult, CheckRule, boolean coercion, failure rules | §6 | `host-policy.json`, `bind-time.json`, `a2ui10-functions.json` |
 | errors | 1.0 codes + ours; exactly one of `surfaceId`/`functionCallId` | §7, `host.json` `clientMessages.errorCodes` | `host-router.json` |
 | theme | `createSurface.metadata.extensions.at_exponential_theme` | §8 | `host-router.json` |
@@ -384,22 +385,43 @@ On the wire they appear only as the authored id (`sourceComponentId`,
 ### 5.1 Envelope and metadata
 
 A component entry is `ComponentCommon` + the catalog component,
-closed (`unevaluatedProperties: false`):
+closed (`unevaluatedProperties: false`). The envelope mixins sit at the ROOT
+of the entry under `@`, so they never collide with a catalog prop; `id` and
+`component` stay bare. A nested card node (§13) carries the same four keys at
+NODE level, next to `props`, its checks included:
 
 | key | type | rule |
 |---|---|---|
 | `id` | identifier | required |
 | `component` | identifier, not `Surface` | required |
-| `catalogId` | string | optional; overrides the surface default (§5.5) |
-| `accessibility` | `{label?: DynamicString, description?: DynamicString, live?: "off"\|"polite"\|"assertive" (default off), hidden?: DynamicBoolean, selected?: DynamicBoolean, expanded?: DynamicBoolean}` (#EXP-1629: `selected` / `expanded`, fixtures/a11y-states.json) | closed object; another key = a reducer issue VALIDATION_FAILED (the key is ignored) |
-| `metadata` | `{extensions?: {<identifier>: any}}` | closed; stored and exposed (`UiNode.metadata`, Rust `UiNode::metadata`), never painted |
+| `@catalogId` | string | optional; overrides the surface default (§5.5) |
+| `@accessibility` | `{label?: DynamicString, description?: DynamicString, live?: "off"\|"polite"\|"assertive" (default off), hidden?: DynamicBoolean, selected?: DynamicBoolean, expanded?: DynamicBoolean}` (#EXP-1629: `selected` / `expanded`, fixtures/a11y-states.json) | closed object; another key = a reducer issue VALIDATION_FAILED (the key is ignored) |
+| `@metadata` | `{extensions?: {<identifier>: any}}` | closed; stored and exposed (`UiNode.metadata`, Rust `UiNode::metadata`), never painted |
+| `@checks` | array of `CheckRule` (§6.6) | on `Checkable` components only; on another one a reducer issue VALIDATION_FAILED `takes no @checks` (the key is ignored) |
 | everything else | declared props of the resolved catalog component | §5.3 |
+
+**Bare mixin names.** A bare `catalogId`, `accessibility`, `metadata` or
+`checks` is an ORDINARY prop when the resolved catalog component declares a
+prop of that name; otherwise the entry is refused (§5.2) with
+`<name> is not a declared prop (write @<name>)` at that key. There is no
+legacy reading: `@` and an undeclared bare key together are refused too. A
+source catalog declares the CHECK MIXIN as an array of the shared `check`
+shape (`Input.checks`, …); that is `@checks`, not a declared prop `checks`.
+The basic catalog declares none. Bare stay `FunctionCall.catalogId`,
+`createSurface.catalogId` / `.metadata`, `action.metadata`, the catalog
+root's and a component definition's `metadata`.
+
+A NORMALIZED node (`UiNode`) is unchanged: `props.checks`, `accessibility`,
+`metadata`. A direct caller of the reducers (no router) gets the same
+refusals as issues (INVALID_MESSAGE, path `/components/<id>/<name>`), the key
+dropped. Issue paths name the wire key (`/components/<id>/@checks/0/…`,
+`/components/<id>/@accessibility/live`).
 
 `metadata.extensions` exists in five scopes:
 
 - the catalog root;
 - `createSurface.metadata`;
-- `ComponentCommon.metadata`;
+- `ComponentCommon.@metadata`;
 - a catalog component definition;
 - `action.metadata`.
 
@@ -416,8 +438,8 @@ upstream; we know no such key and ignore it. Our keys are
 | `at_exponential_component` | catalog component definition | `{kind, group, lite, children, slots?, slotScope?, events?, hidden?, status?}` (the core.catalog.json fields JSON Schema has no word for) |
 
 An `updateComponents` entry replaces the whole stored component, its
-`metadata` included. An entry without `metadata` clears it. This is the
-existing merge-by-id rule.
+`@metadata` included. An entry without `@metadata` clears it. This is the
+existing merge-by-id rule (`a2ui10-messages.json` `surfaces`).
 
 ### 5.2 Entry check (closes the TS/Rust divergence)
 
@@ -428,10 +450,11 @@ ROUTER, before any store sees it. An entry fails if any of these holds:
 - it is not an object;
 - `id` is missing, not a string, or not an identifier;
 - `component` is missing, not a string, not an identifier, or `Surface`;
-- `catalogId` is present and not a string;
-- `metadata` is malformed (not an object, a key other than `extensions`,
+- `@catalogId` is present and not a string;
+- `@metadata` is malformed (not an object, a key other than `extensions`,
   `extensions` not an object, or a non-identifier extension key);
-- a prop name is not an identifier;
+- a bare mixin name the component does not declare (§5.1);
+- a prop name is not an identifier (an `@` key other than the four included);
 - any id reference (§4.2) is not an identifier;
 - it holds a malformed directive (§3.3) or a non-identifier function or
   arg name.
@@ -439,7 +462,7 @@ ROUTER, before any store sees it. An entry fails if any of these holds:
 A failing entry is dropped with ONE
 `error {code: INVALID_MESSAGE, surfaceId, message, path}`. The path is
 `/<kind>/components/<index>` + the pointer to the first failing key in
-check order (`/id`, `/component`, `/catalogId`, `/metadata…`, then props
+check order (`/id`, `/component`, `/@catalogId`, `/@metadata…`, then props
 in key order, depth-first). The rest of the message applies. The Rust
 core no longer refuses a whole `updateComponents` at serde parse time
 (`surface/mod.rs` `apply`). It deserializes entry by entry, with the same
@@ -472,8 +495,8 @@ lifetime. The path is `/components/<authored id>` + `/<prop pointer>`:
 
 Our extensions stop being "reserved keys". Every core component
 DECLARES them as ordinary props in its flat definition (§11), so
-`RESERVED_KEYS` shrinks to the envelope `id, component, catalogId,
-accessibility, metadata`:
+`RESERVED_KEYS` shrinks to the envelope `id, component, @catalogId,
+@accessibility, @metadata, @checks`:
 
 | prop | declared on | schema (leaf `$defs` in `core.schema.json`) |
 |---|---|---|
@@ -482,7 +505,7 @@ accessibility, metadata`:
 | `on` | every component with `events` | `{<event>: EuiAction}`, events = the component's `events` |
 | `style` | every component | `Style` |
 | `visible` | every component | `DynamicBoolean` |
-| `checks` | every component whose source declares `checks` (today Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Select, ChipInput, Button) | array of `CheckRule` (§6.6), via the `Checkable` trait |
+| `@checks` (envelope, §5.1) | every component whose source declares the check mixin (today Input, Textarea, NumberField, Checkbox, Radio, ChoiceTiles, Select, ChipInput, Button) | array of `CheckRule` (§6.6), via the `Checkable` trait |
 
 - `EuiAction` = `{event?: {name, context?, userMessage?}, functionCall?: {"@call", args?, catalogId?}}`,
   at least one of the two. Its `functionCall` names any function (a host
@@ -517,7 +540,7 @@ The AVAILABLE set of a router =
    registered extension ids in order, de-duplicated;
 2. the ids of inline catalogs (§10).
 
-A component's catalog = its own `catalogId`, else the surface default
+A component's catalog = its own `@catalogId`, else the surface default
 (`createSurface.catalogId`), else none. The same rule applies to a call:
 its own `catalogId`, else the surface default. There is no fallback to
 the capabilities.
@@ -597,6 +620,18 @@ validators `required regex length numeric email` become `validationResult`.
 | host functions (§6.3, not catalog-declared) | `rendererOnly` | false (but effectful: §6.4) |
 
 `openUrl.url` = `oneOf [uri string, DataBinding, FunctionCall]`, as upstream.
+
+**`formatString`**. `${<pointer>}`, `${@index(…)}` and calls
+`${fn(name: value, …)}`: args are named, a value is a quoted string (`'` or
+`"`, escapes `\n \t \r` and any escaped character), a number, `true`,
+`false`, `null`, a nested `${…}`, a call or a pointer. `\${` is a literal
+`${`, an unclosed `${` is literal text. `${…}` has no syntax for a catalog: a
+call in it (nested ones too) resolves against the catalog the ENCLOSING
+`formatString` call resolved to, even when the surface default differs;
+`@index` belongs to no catalog. A call nested past `maxDepth` levels or one
+that does not parse fails the template (EXPRESSION_ERROR `formatString:
+malformed expression`), a failing call fails it with its own failure. TS
+`src/format-template.ts`, Rust `format_template.rs`.
 
 ### 6.2 `@index`
 
@@ -848,11 +883,18 @@ except rows 1–2:
 | 6 | the function is declared in that catalog | INVALID_FUNCTION_CALL `unknown function <name>` |
 | 7 | `allowedCallers` ≠ `rendererOnly` | INVALID_FUNCTION_CALL `<name> cannot be called by the agent` |
 | 8 | not `requiresUserActivation` | INVALID_FUNCTION_CALL `<name> needs a user gesture` |
-| 9 | args validate | INVALID_FUNCTION_CALL `args: <first issue>` |
+| 9 | every `@call` NESTED in the args (any depth, checked before any argument expression runs): `allowedCallers` ≠ `rendererOnly` (an undeclared name counts as `rendererOnly`), not `requiresUserActivation` | INVALID_FUNCTION_CALL, the message of row 7 or 8 for that name |
+| 10 | args nest at most `maxDepth` (48) levels (checked in the walk of row 9) | EXECUTION_ERROR `args nested deeper than 48 levels` |
+| 11 | args validate (a binding or a call passes) | INVALID_FUNCTION_CALL `args: <first issue>` |
 
 On success the router emits op `call`. The host resolves `args` against
 the surface's data at `/` (or `{}` without `surfaceId`), runs the function
-and answers `{functionCallId, value}`. A throw answers EXECUTION_ERROR.
+and answers `{functionCallId, value}` (`answerRendererCall`, Rust
+`answer_renderer_call`, FFI `answerRendererCallJson`; `a2ui10-messages.json`
+`rendererCalls`). The evaluation runs at the AGENT position: a call reached
+through a `${…}` expression, or through a value read via `@path`, obeys rows
+7–8 when it evaluates (INVALID_FUNCTION_CALL, never hidden by a `default`).
+Any other failure or a throw answers EXECUTION_ERROR.
 Envelopes are dispatched in arrival order. A synchronous mutation before
 the call applies first, and an async run never blocks later envelopes.
 
@@ -916,6 +958,7 @@ unchanged.
 | `Icon` | `name` ∈ the 60 names \| `{"svgPath": DynamicString}` \| `{"@path"}` | name → `icons[name]` (null → `placeholderIcon`); `{svgPath}` → `placeholderIcon`; `{"@path": p}` → `{"@call": "map", "args": {"value": {"@path": p}, "cases": <the icons table, nulls as placeholderIcon>, "default": "ui-icon-placeholder"}}` |
 | `Video` | + `posterUrl` (DynamicString) | `poster` ← `posterUrl` |
 | `Slider` | + `steps` (integer ≥ 1) | `step` = `(max − min) / steps` when all three are literal numbers (rounded to 1e-9); otherwise `{"@call": "div", "args": {"a": {"@call": "sub", "args": {"a": <max>, "b": <min or 0>}}, "b": <steps>}}`; absent → core default |
+| every `Checkable` one | `checks` → `@checks` (the envelope key) | core `checks` ← `@checks` |
 | `TextField` | + `placeholder`; `value` REQUIRED (missing = a reducer issue VALIDATION_FAILED, painted with `""`); − `validationRegexp` (a reducer issue: unknown prop) | `placeholder` → Input/Textarea `placeholder`; transform `textField` loses its regex step |
 | `weight` | per component | still dropped |
 
@@ -1245,11 +1288,12 @@ A card surface is the NESTED form `{version, root, data}`:
   shows THE inline marker in the surface's place
   (`domain-contract` plan-card.json `surfaceReadableCases`, §18.2).
 - `data` is an object, null or absent.
-- A node is `{id, component, catalogId?, props?, children?, slots?, on?,
-  style?, visible?, accessibility?, metadata?, template?}`.
+- A node is `{id, component, @catalogId?, props?, children?, slots?, on?,
+  style?, visible?, @accessibility?, @metadata?, @checks?, template?}`; an `@`
+  key inside `props` is refused (`<key> sits next to props`).
 - Ids are identifiers.
 - Dynamic values are the 1.0 forms (§3), and function names are flat.
-- `catalogId` may only be the core id. There are no extensions.
+- `@catalogId` may only be the core id. There are no extensions.
 - `validateCardSurface` (apps/web `lib/sessions/plan.ts`) runs the entry
   check on every node plus `reduceNested` and requires zero issues (codes
   included).
@@ -1360,6 +1404,11 @@ is always the FIRST key of a message or card. A package that does not name
 | client `error.code` | FUNCTION_NOT_FOUND → UNKNOWN_FUNCTION, FUNCTION_DENIED → INVALID_FUNCTION_CALL, ACTION_FAILED → EXECUTION_ERROR; others kept |
 | `applyTemplate`, `bindDataModel` | only `version` changes |
 
+**Envelope keys of an entry**: `catalogId` → `@catalogId` (a 0.9 basic id →
+the 1.0 one), `accessibility` → `@accessibility`, `metadata` → `@metadata`,
+`checks` → `@checks`, each in the renamed key's place. A card node's
+`props.checks` moves to the node as `@checks`, right after `props`.
+
 **Dynamic conversion** `dyn(v)` applies only in the 0.9 dynamic positions,
 which are the §3.2 positions read with the 0.9 key names: props except
 `style` and the INSIDE of a literal at an `isDataSchema` prop (a binding or
@@ -1399,13 +1448,13 @@ catalog, before `dyn`):
 - `Text.variant` `h1`–`h5` (N = 1–5): remove `variant`. A literal `text`
   t becomes `"#"×N + " " + t`. A dynamic `text` becomes
   `{"@call": "concat", "args": {"values": ["#"×N + " ", dyn(text)]}}`.
-- `TextField.validationRegexp` P: remove it, and append to `checks`
+- `TextField.validationRegexp` P: remove it, and append to `@checks`
   `{"condition": {"@call": "regex", "args": {"value": V, "pattern": P}}, "message": "Invalid value"}`.
   V = `dyn(value)` when `value` is a 0.9 binding, else
   `{"@path": <the ORIGINAL id>}` (the 0.9 transform's relative path; data
   keys are never re-keyed). The pattern is not validated (a bad one fails
   at run time, §9.3).
-- `TextField` without `value` → `"value": ""` (added after a new `checks`).
+- `TextField` without `value` → `"value": ""` (added after a new `@checks`).
 - Event `context` keys are not escaped (they are data keys); their values
   are `dyn`'d. Props of a component with no catalog definition are all
   dynamic.
@@ -1555,6 +1604,7 @@ Each file is sha256-pinned in `vendor/a2ui/README.md` and
 | severity unspecified for blocking | only `error` blocks (§6.6) |
 | regex: no step cap | + 1,000,000-step cap (§9.3) |
 | no `theme` | `metadata.extensions.at_exponential_theme` |
+| renderers MAY read a bare envelope key during the transition (evolution guide §2.9) | refused: a bare `catalogId` / `accessibility` / `metadata` / `checks` is a declared prop or INVALID_MESSAGE, also beside its `@` key (§5.1) |
 | the renderer emits UNKNOWN_FUNCTION only via the agent | the renderer also emits it (§6.5) |
 
 ## 17. Checklists

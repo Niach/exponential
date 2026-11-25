@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-289 (docs/round-9-contract.md §15, the spec of this file is §1, §2, §4, §5.2, §6.9, §7, §10, §13): the A2UI 1.0 wire, replayed by the TS reference (src/a2ui10.test.ts) and the Rust core; Swift and Kotlin through the FFI (suite `a2ui10`). Inputs hand-written; every `expected` filled by `bun run --filter @exponential_app/eui generate` from src/. `ids`: {id, expected: {identifier: isIdentifier(id), mangle: mangle(id)}}. `packages`: installed by name. `flows`: ONE router per flow, created with extensionIds and registering inlineCatalogs, `packages` installed (`installIssues`), then each step {message, trusted?} goes through route(message, options) and `expected` = the ops, byte for byte; trusted defaults to false. 0.9 is refused at every entry. `mint`: one router per case, steps {create: id} | {delete: id} (expected = the op names) | {mint: base} (expected = the id). `errors`: errorMessage(code, target, message, path?) key order included. `actions`: actionMessage(input) with the painted id, payload → metadata.extensions.at_exponential_payload. `calls`: callAgentFunctionMessage. `responses`: rendererFunctionResponse(id, result). `capabilities`: rendererCapabilities(extensionIds, {inline?}). `cards`: cardV10(input): {error} or {card, problems: cardProblems(root), issues + root: reduceNested(root) at the core catalog}.",
+  "$comment": "VAPP-289 (docs/round-9-contract.md §15, the spec of this file is §1, §2, §4, §5.2, §6.9, §7, §10, §13): the A2UI 1.0 wire, replayed by the TS reference (src/a2ui10.test.ts) and the Rust core; Swift and Kotlin through the FFI (suite `a2ui10`). Inputs hand-written; every `expected` filled by `bun run --filter @exponential_app/eui generate` from src/. `ids`: {id, expected: {identifier: isIdentifier(id), mangle: mangle(id)}}. `packages`: installed by name. `flows`: ONE router per flow, created with extensionIds and registering inlineCatalogs, `packages` installed (`installIssues`), then each step {message, trusted?} goes through route(message, options) and `expected` = the ops, byte for byte; trusted defaults to false. `mint`: one router per case, steps {create: id} | {delete: id} (expected = the op names) | {mint: base} (expected = the id). `errors`: errorMessage(code, target, message, path?) key order included. `actions`: actionMessage(input) with the painted id, payload → metadata.extensions.at_exponential_payload. `calls`: callAgentFunctionMessage. `responses`: rendererFunctionResponse(id, result). `capabilities`: rendererCapabilities(extensionIds, {inline?}). `cards`: cardV10(input): {error} or {card, problems: cardProblems(root), issues + root: reduceNested(root) at the core catalog}. `rendererCalls`: answerRendererCall(op, data ?? {}, available ?? none) = the rendererFunctionResponse of a callRendererFunction that passed the router (§6.9): evaluated at the agent position, a rendererOnly function reached through a `${…}` expression answers INVALID_FUNCTION_CALL, every other failure EXECUTION_ERROR. `surfaces`: one bare surface per case (catalogId core), each step one message; `expected` = the reduced root's metadata after it (null = none): an updateComponents entry without @metadata clears it.",
   "ids": [
     {
       "id": "a",
@@ -1297,7 +1297,7 @@
                 {
                   "id": "a",
                   "component": "Text",
-                  "catalogId": 3
+                  "@catalogId": 3
                 }
               ]
             }
@@ -1406,8 +1406,8 @@
                 "error": {
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "s",
-                  "message": "catalogId is a string",
-                  "path": "/updateComponents/components/9/catalogId"
+                  "message": "@catalogId is a string",
+                  "path": "/updateComponents/components/9/@catalogId"
                 }
               }
             },
@@ -1433,26 +1433,26 @@
                 {
                   "id": "a",
                   "component": "Text",
-                  "metadata": 3
+                  "@metadata": 3
                 },
                 {
                   "id": "a",
                   "component": "Text",
-                  "metadata": {
+                  "@metadata": {
                     "x": 1
                   }
                 },
                 {
                   "id": "a",
                   "component": "Text",
-                  "metadata": {
+                  "@metadata": {
                     "extensions": 3
                   }
                 },
                 {
                   "id": "a",
                   "component": "Text",
-                  "metadata": {
+                  "@metadata": {
                     "extensions": {
                       "a.b": 1
                     }
@@ -1475,7 +1475,7 @@
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "s",
                   "message": "metadata is an object",
-                  "path": "/updateComponents/components/0/metadata"
+                  "path": "/updateComponents/components/0/@metadata"
                 }
               }
             },
@@ -1487,7 +1487,7 @@
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "s",
                   "message": "metadata.x is not allowed",
-                  "path": "/updateComponents/components/1/metadata/x"
+                  "path": "/updateComponents/components/1/@metadata/x"
                 }
               }
             },
@@ -1499,7 +1499,7 @@
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "s",
                   "message": "metadata.extensions is an object",
-                  "path": "/updateComponents/components/2/metadata/extensions"
+                  "path": "/updateComponents/components/2/@metadata/extensions"
                 }
               }
             },
@@ -1511,7 +1511,7 @@
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "s",
                   "message": "extension \"a.b\" is not an identifier (UAX #31)",
-                  "path": "/updateComponents/components/3/metadata/extensions/a.b"
+                  "path": "/updateComponents/components/3/@metadata/extensions/a.b"
                 }
               }
             },
@@ -1967,7 +1967,7 @@
                   "id": "a",
                   "component": "Text",
                   "text": "x",
-                  "accessibility": {
+                  "@accessibility": {
                     "label": {
                       "@path": 3
                     }
@@ -2009,7 +2009,7 @@
                   "code": "INVALID_MESSAGE",
                   "surfaceId": "s",
                   "message": "@path is a string",
-                  "path": "/updateComponents/components/2/accessibility/label/@path"
+                  "path": "/updateComponents/components/2/@accessibility/label/@path"
                 }
               }
             }
@@ -2106,13 +2106,13 @@
                 {
                   "id": "b",
                   "component": "Text",
-                  "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+                  "@catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
                   "text": "Hi"
                 },
                 {
                   "id": "nope",
                   "component": "Text",
-                  "catalogId": "https://x.example/v1",
+                  "@catalogId": "https://x.example/v1",
                   "text": "x"
                 }
               ]
@@ -2133,13 +2133,13 @@
                 {
                   "id": "b",
                   "component": "Text",
-                  "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+                  "@catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
                   "text": "Hi"
                 },
                 {
                   "id": "nope",
                   "component": "Text",
-                  "catalogId": "https://x.example/v1",
+                  "@catalogId": "https://x.example/v1",
                   "text": "x"
                 }
               ]
@@ -3354,6 +3354,1284 @@
           ]
         }
       ]
+    },
+    {
+      "name": "§5.1 the envelope keys: @ only, a bare mixin the component does not declare is refused",
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "ok",
+                  "component": "Input",
+                  "label": "L",
+                  "name": "ok",
+                  "value": {
+                    "@path": "/v"
+                  },
+                  "@catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                  "@accessibility": {
+                    "label": {
+                      "@path": "/l"
+                    },
+                    "live": "polite"
+                  },
+                  "@metadata": {
+                    "extensions": {
+                      "acme": 1
+                    }
+                  },
+                  "@checks": [
+                    {
+                      "condition": {
+                        "@call": "required",
+                        "args": {
+                          "value": {
+                            "@path": "/v"
+                          }
+                        }
+                      },
+                      "message": "Needed"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "components",
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "ok",
+                  "component": "Input",
+                  "label": "L",
+                  "name": "ok",
+                  "value": {
+                    "@path": "/v"
+                  },
+                  "@catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                  "@accessibility": {
+                    "label": {
+                      "@path": "/l"
+                    },
+                    "live": "polite"
+                  },
+                  "@metadata": {
+                    "extensions": {
+                      "acme": 1
+                    }
+                  },
+                  "@checks": [
+                    {
+                      "condition": {
+                        "@call": "required",
+                        "args": {
+                          "value": {
+                            "@path": "/v"
+                          }
+                        }
+                      },
+                      "message": "Needed"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "c",
+                  "component": "Input",
+                  "label": "L",
+                  "name": "c",
+                  "value": {
+                    "@path": "/v"
+                  },
+                  "checks": [
+                    {
+                      "condition": {
+                        "@call": "required",
+                        "args": {
+                          "value": {
+                            "@path": "/v"
+                          }
+                        }
+                      },
+                      "message": "Needed"
+                    }
+                  ]
+                },
+                {
+                  "id": "a",
+                  "component": "Text",
+                  "text": "t",
+                  "accessibility": {
+                    "label": "l"
+                  }
+                },
+                {
+                  "id": "m",
+                  "component": "Text",
+                  "text": "t",
+                  "metadata": {
+                    "extensions": {}
+                  }
+                },
+                {
+                  "id": "k",
+                  "component": "Text",
+                  "text": "t",
+                  "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+                },
+                {
+                  "id": "both",
+                  "component": "Input",
+                  "label": "L",
+                  "name": "both",
+                  "value": {
+                    "@path": "/v"
+                  },
+                  "@checks": [
+                    {
+                      "condition": {
+                        "@call": "required",
+                        "args": {
+                          "value": {
+                            "@path": "/v"
+                          }
+                        }
+                      },
+                      "message": "Needed"
+                    }
+                  ],
+                  "checks": [
+                    {
+                      "condition": {
+                        "@call": "required",
+                        "args": {
+                          "value": {
+                            "@path": "/v"
+                          }
+                        }
+                      },
+                      "message": "Needed"
+                    }
+                  ]
+                },
+                {
+                  "id": "both2",
+                  "component": "Text",
+                  "@metadata": {
+                    "extensions": {}
+                  },
+                  "metadata": {
+                    "extensions": {}
+                  }
+                },
+                {
+                  "id": "unknown",
+                  "component": "Nope",
+                  "metadata": 1
+                },
+                {
+                  "id": "foreign",
+                  "component": "Text",
+                  "@catalogId": "https://x.example/v1",
+                  "checks": []
+                },
+                {
+                  "id": "kept",
+                  "component": "Text",
+                  "text": "t"
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "checks is not a declared prop (write @checks)",
+                  "path": "/updateComponents/components/0/checks"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "accessibility is not a declared prop (write @accessibility)",
+                  "path": "/updateComponents/components/1/accessibility"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "metadata is not a declared prop (write @metadata)",
+                  "path": "/updateComponents/components/2/metadata"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "catalogId is not a declared prop (write @catalogId)",
+                  "path": "/updateComponents/components/3/catalogId"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "checks is not a declared prop (write @checks)",
+                  "path": "/updateComponents/components/4/checks"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "metadata is not a declared prop (write @metadata)",
+                  "path": "/updateComponents/components/5/metadata"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "metadata is not a declared prop (write @metadata)",
+                  "path": "/updateComponents/components/6/metadata"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "checks is not a declared prop (write @checks)",
+                  "path": "/updateComponents/components/7/checks"
+                }
+              }
+            },
+            {
+              "op": "components",
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "kept",
+                  "component": "Text",
+                  "text": "t"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "t1",
+                  "component": "Text",
+                  "@catalogId": 1
+                },
+                {
+                  "id": "t2",
+                  "component": "Text",
+                  "@metadata": {
+                    "theme": 1
+                  }
+                },
+                {
+                  "id": "t3",
+                  "component": "Text",
+                  "@metadata": {
+                    "extensions": {
+                      "1x": 1
+                    }
+                  }
+                },
+                {
+                  "id": "t4",
+                  "component": "Text",
+                  "@accessibility": {
+                    "label": {
+                      "@path": 1
+                    }
+                  }
+                },
+                {
+                  "id": "t5",
+                  "component": "Input",
+                  "label": "L",
+                  "name": "t5",
+                  "value": {
+                    "@path": "/v"
+                  },
+                  "@checks": [
+                    {
+                      "condition": {
+                        "@call": "required",
+                        "args": {
+                          "a b": 1
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "t6",
+                  "component": "Text",
+                  "@style": {}
+                },
+                {
+                  "id": "t7",
+                  "component": "Text",
+                  "@id": "x"
+                },
+                {
+                  "id": "t8",
+                  "component": "Unknown",
+                  "@catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                  "catalogId": "x"
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "@catalogId is a string",
+                  "path": "/updateComponents/components/0/@catalogId"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "metadata.theme is not allowed",
+                  "path": "/updateComponents/components/1/@metadata/theme"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "extension \"1x\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/2/@metadata/extensions/1x"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "@path is a string",
+                  "path": "/updateComponents/components/3/@accessibility/label/@path"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "arg \"a b\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/4/@checks/0/condition/args/a b"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "prop \"@style\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/5/@style"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "s",
+                  "message": "prop \"@id\" is not an identifier (UAX #31)",
+                  "path": "/updateComponents/components/6/@id"
+                }
+              }
+            },
+            {
+              "op": "components",
+              "surfaceId": "s",
+              "components": [
+                {
+                  "id": "t8",
+                  "component": "Unknown",
+                  "@catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                  "catalogId": "x"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "basic",
+              "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "TextField",
+                  "label": "L",
+                  "value": {
+                    "@path": "/v"
+                  },
+                  "@checks": [
+                    {
+                      "condition": {
+                        "@call": "required",
+                        "args": {
+                          "value": {
+                            "@path": "/v"
+                          }
+                        }
+                      },
+                      "message": "Needed"
+                    }
+                  ]
+                },
+                {
+                  "id": "bare",
+                  "component": "TextField",
+                  "label": "L",
+                  "value": {
+                    "@path": "/v"
+                  },
+                  "checks": [
+                    {
+                      "condition": {
+                        "@call": "required",
+                        "args": {
+                          "value": {
+                            "@path": "/v"
+                          }
+                        }
+                      },
+                      "message": "Needed"
+                    }
+                  ]
+                },
+                {
+                  "id": "core",
+                  "component": "Text",
+                  "@catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                  "text": "t",
+                  "accessibility": {
+                    "label": "l"
+                  }
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "basic",
+              "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "basic",
+                  "message": "checks is not a declared prop (write @checks)",
+                  "path": "/createSurface/components/1/checks"
+                }
+              }
+            },
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "error": {
+                  "code": "INVALID_MESSAGE",
+                  "surfaceId": "basic",
+                  "message": "accessibility is not a declared prop (write @accessibility)",
+                  "path": "/createSurface/components/2/accessibility"
+                }
+              }
+            },
+            {
+              "op": "components",
+              "surfaceId": "basic",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "TextField",
+                  "label": "L",
+                  "value": {
+                    "@path": "/v"
+                  },
+                  "@checks": [
+                    {
+                      "condition": {
+                        "@call": "required",
+                        "args": {
+                          "value": {
+                            "@path": "/v"
+                          }
+                        }
+                      },
+                      "message": "Needed"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "m",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "metadata": {
+                "extensions": {
+                  "acme": 1
+                }
+              },
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "t",
+                  "@metadata": {
+                    "extensions": {
+                      "acme": 1
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "m",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "metadata": {
+                "extensions": {
+                  "acme": 1
+                }
+              }
+            },
+            {
+              "op": "components",
+              "surfaceId": "m",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "t",
+                  "@metadata": {
+                    "extensions": {
+                      "acme": 1
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "m",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "t"
+                }
+              ]
+            }
+          },
+          "expected": [
+            {
+              "op": "components",
+              "surfaceId": "m",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "t"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "§6.9 the agent caller boundary: calls nested in the args",
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "createSurface": {
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "dataModel": {
+                "n": 2
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "data",
+              "surfaceId": "s",
+              "path": "",
+              "value": {
+                "n": 2
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "surfaceId": "s",
+              "functionCallId": "c1",
+              "callFunction": {
+                "@call": "concat",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "values": [
+                    {
+                      "@call": "text",
+                      "args": {
+                        "value": {
+                          "@path": "/n"
+                        }
+                      }
+                    },
+                    "x"
+                  ]
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "call",
+              "functionCallId": "c1",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "name": "concat",
+              "args": {
+                "values": [
+                  {
+                    "@call": "text",
+                    "args": {
+                      "value": {
+                        "@path": "/n"
+                      }
+                    }
+                  },
+                  "x"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "surfaceId": "s",
+              "functionCallId": "c2",
+              "callFunction": {
+                "@call": "concat",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "values": [
+                    {
+                      "@call": "openUrl",
+                      "args": {
+                        "url": "https://a.example"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c2",
+                  "error": {
+                    "code": "INVALID_FUNCTION_CALL",
+                    "message": "openUrl cannot be called by the agent"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "surfaceId": "s",
+              "functionCallId": "c3",
+              "callFunction": {
+                "@call": "concat",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "values": [
+                    {
+                      "@call": "text",
+                      "args": {
+                        "value": {
+                          "@call": "set",
+                          "args": {
+                            "path": "/n",
+                            "value": 1
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c3",
+                  "error": {
+                    "code": "INVALID_FUNCTION_CALL",
+                    "message": "set cannot be called by the agent"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "surfaceId": "s",
+              "functionCallId": "c4",
+              "callFunction": {
+                "@call": "coalesce",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "values": [
+                    {
+                      "@call": "records_upsert",
+                      "args": {}
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c4",
+                  "error": {
+                    "code": "INVALID_FUNCTION_CALL",
+                    "message": "records_upsert cannot be called by the agent"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "surfaceId": "s",
+              "functionCallId": "c5",
+              "callFunction": {
+                "@call": "coalesce",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "values": [
+                    {
+                      "deep": [
+                        {
+                          "@call": "bind",
+                          "args": {}
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c5",
+                  "error": {
+                    "code": "INVALID_FUNCTION_CALL",
+                    "message": "bind cannot be called by the agent"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "surfaceId": "s",
+              "functionCallId": "c6",
+              "callFunction": {
+                "@call": "add",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "a": {
+                    "@path": "/n"
+                  },
+                  "b": {
+                    "@call": "len",
+                    "args": {
+                      "value": [
+                        1
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "call",
+              "functionCallId": "c6",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "name": "add",
+              "args": {
+                "a": {
+                  "@path": "/n"
+                },
+                "b": {
+                  "@call": "len",
+                  "args": {
+                    "value": [
+                      1
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "surfaceId": "s",
+              "functionCallId": "c7",
+              "callFunction": {
+                "@call": "add",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "a": {
+                    "@call": "add",
+                    "args": {
+                      "a": {
+                        "@call": "add",
+                        "args": {
+                          "a": {
+                            "@call": "add",
+                            "args": {
+                              "a": {
+                                "@call": "add",
+                                "args": {
+                                  "a": {
+                                    "@call": "add",
+                                    "args": {
+                                      "a": {
+                                        "@call": "add",
+                                        "args": {
+                                          "a": {
+                                            "@call": "add",
+                                            "args": {
+                                              "a": {
+                                                "@call": "add",
+                                                "args": {
+                                                  "a": {
+                                                    "@call": "add",
+                                                    "args": {
+                                                      "a": {
+                                                        "@call": "add",
+                                                        "args": {
+                                                          "a": {
+                                                            "@call": "add",
+                                                            "args": {
+                                                              "a": {
+                                                                "@call": "add",
+                                                                "args": {
+                                                                  "a": {
+                                                                    "@call": "add",
+                                                                    "args": {
+                                                                      "a": {
+                                                                        "@call": "add",
+                                                                        "args": {
+                                                                          "a": {
+                                                                            "@call": "add",
+                                                                            "args": {
+                                                                              "a": {
+                                                                                "@call": "add",
+                                                                                "args": {
+                                                                                  "a": {
+                                                                                    "@call": "add",
+                                                                                    "args": {
+                                                                                      "a": {
+                                                                                        "@call": "add",
+                                                                                        "args": {
+                                                                                          "a": {
+                                                                                            "@call": "add",
+                                                                                            "args": {
+                                                                                              "a": {
+                                                                                                "@call": "add",
+                                                                                                "args": {
+                                                                                                  "a": {
+                                                                                                    "@call": "add",
+                                                                                                    "args": {
+                                                                                                      "a": {
+                                                                                                        "@call": "add",
+                                                                                                        "args": {
+                                                                                                          "a": {
+                                                                                                            "@call": "add",
+                                                                                                            "args": {
+                                                                                                              "a": {
+                                                                                                                "@call": "add",
+                                                                                                                "args": {
+                                                                                                                  "a": {
+                                                                                                                    "@call": "add",
+                                                                                                                    "args": {
+                                                                                                                      "a": {
+                                                                                                                        "@call": "add",
+                                                                                                                        "args": {
+                                                                                                                          "a": {
+                                                                                                                            "@call": "add",
+                                                                                                                            "args": {
+                                                                                                                              "a": {
+                                                                                                                                "@call": "add",
+                                                                                                                                "args": {
+                                                                                                                                  "a": {
+                                                                                                                                    "@call": "add",
+                                                                                                                                    "args": {
+                                                                                                                                      "a": {
+                                                                                                                                        "@call": "add",
+                                                                                                                                        "args": {
+                                                                                                                                          "a": 1,
+                                                                                                                                          "b": 1
+                                                                                                                                        }
+                                                                                                                                      },
+                                                                                                                                      "b": 1
+                                                                                                                                    }
+                                                                                                                                  },
+                                                                                                                                  "b": 1
+                                                                                                                                }
+                                                                                                                              },
+                                                                                                                              "b": 1
+                                                                                                                            }
+                                                                                                                          },
+                                                                                                                          "b": 1
+                                                                                                                        }
+                                                                                                                      },
+                                                                                                                      "b": 1
+                                                                                                                    }
+                                                                                                                  },
+                                                                                                                  "b": 1
+                                                                                                                }
+                                                                                                              },
+                                                                                                              "b": 1
+                                                                                                            }
+                                                                                                          },
+                                                                                                          "b": 1
+                                                                                                        }
+                                                                                                      },
+                                                                                                      "b": 1
+                                                                                                    }
+                                                                                                  },
+                                                                                                  "b": 1
+                                                                                                }
+                                                                                              },
+                                                                                              "b": 1
+                                                                                            }
+                                                                                          },
+                                                                                          "b": 1
+                                                                                        }
+                                                                                      },
+                                                                                      "b": 1
+                                                                                    }
+                                                                                  },
+                                                                                  "b": 1
+                                                                                }
+                                                                              },
+                                                                              "b": 1
+                                                                            }
+                                                                          },
+                                                                          "b": 1
+                                                                        }
+                                                                      },
+                                                                      "b": 1
+                                                                    }
+                                                                  },
+                                                                  "b": 1
+                                                                }
+                                                              },
+                                                              "b": 1
+                                                            }
+                                                          },
+                                                          "b": 1
+                                                        }
+                                                      },
+                                                      "b": 1
+                                                    }
+                                                  },
+                                                  "b": 1
+                                                }
+                                              },
+                                              "b": 1
+                                            }
+                                          },
+                                          "b": 1
+                                        }
+                                      },
+                                      "b": 1
+                                    }
+                                  },
+                                  "b": 1
+                                }
+                              },
+                              "b": 1
+                            }
+                          },
+                          "b": 1
+                        }
+                      },
+                      "b": 1
+                    }
+                  },
+                  "b": 1
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "send",
+              "message": {
+                "version": "1.0",
+                "rendererFunctionResponse": {
+                  "functionCallId": "c7",
+                  "error": {
+                    "code": "EXECUTION_ERROR",
+                    "message": "args nested deeper than 48 levels"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "surfaceId": "s",
+              "functionCallId": "c8",
+              "callFunction": {
+                "@call": "concat",
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+                "args": {
+                  "values": [
+                    {
+                      "@call": "@index"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "call",
+              "functionCallId": "c8",
+              "surfaceId": "s",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+              "name": "concat",
+              "args": {
+                "values": [
+                  {
+                    "@call": "@index"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "callRendererFunction": {
+              "surfaceId": "s",
+              "functionCallId": "c9",
+              "callFunction": {
+                "@call": "formatString",
+                "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+                "args": {
+                  "value": {
+                    "@call": "formatString",
+                    "args": {
+                      "value": "${openUrl(url:'https://a.example')}"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "call",
+              "functionCallId": "c9",
+              "surfaceId": "s",
+              "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+              "name": "formatString",
+              "args": {
+                "value": {
+                  "@call": "formatString",
+                  "args": {
+                    "value": "${openUrl(url:'https://a.example')}"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ],
   "mint": [
@@ -4053,6 +5331,843 @@
       "expected": {
         "error": "a card is a JSON object"
       }
+    },
+    {
+      "name": "the mixins at node level",
+      "input": {
+        "version": "1.0",
+        "root": {
+          "id": "f",
+          "component": "Form",
+          "props": {
+            "name": "f"
+          },
+          "@accessibility": {
+            "label": "Form"
+          },
+          "@metadata": {
+            "extensions": {
+              "acme": 1
+            }
+          },
+          "children": [
+            {
+              "id": "a",
+              "component": "Input",
+              "props": {
+                "label": "A",
+                "name": "a",
+                "value": {
+                  "@path": "/a"
+                }
+              },
+              "@checks": [
+                {
+                  "condition": {
+                    "@call": "required",
+                    "args": {
+                      "value": {
+                        "@path": "/a"
+                      }
+                    }
+                  },
+                  "message": "Needed"
+                }
+              ]
+            }
+          ]
+        },
+        "data": {
+          "a": ""
+        }
+      },
+      "expected": {
+        "card": {
+          "version": "1.0",
+          "root": {
+            "id": "f",
+            "component": "Form",
+            "props": {
+              "name": "f"
+            },
+            "@accessibility": {
+              "label": "Form"
+            },
+            "@metadata": {
+              "extensions": {
+                "acme": 1
+              }
+            },
+            "children": [
+              {
+                "id": "a",
+                "component": "Input",
+                "props": {
+                  "label": "A",
+                  "name": "a",
+                  "value": {
+                    "@path": "/a"
+                  }
+                },
+                "@checks": [
+                  {
+                    "condition": {
+                      "@call": "required",
+                      "args": {
+                        "value": {
+                          "@path": "/a"
+                        }
+                      }
+                    },
+                    "message": "Needed"
+                  }
+                ]
+              }
+            ]
+          },
+          "data": {
+            "a": ""
+          }
+        },
+        "problems": [],
+        "issues": [],
+        "root": {
+          "id": "f",
+          "component": "Form",
+          "props": {
+            "name": "f"
+          },
+          "children": [
+            {
+              "id": "a",
+              "component": "Input",
+              "props": {
+                "label": "A",
+                "name": "a",
+                "value": {
+                  "@path": "/a"
+                },
+                "checks": [
+                  {
+                    "condition": {
+                      "@call": "required",
+                      "args": {
+                        "value": {
+                          "@path": "/a"
+                        }
+                      }
+                    },
+                    "message": "Needed"
+                  }
+                ]
+              },
+              "children": []
+            }
+          ],
+          "accessibility": {
+            "label": "Form"
+          },
+          "metadata": {
+            "extensions": {
+              "acme": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "bare mixins at node level and in props are refused",
+      "input": {
+        "version": "1.0",
+        "root": {
+          "id": "f",
+          "component": "Form",
+          "props": {
+            "name": "f"
+          },
+          "accessibility": {
+            "label": "Form"
+          },
+          "metadata": {},
+          "children": [
+            {
+              "id": "a",
+              "component": "Input",
+              "props": {
+                "label": "A",
+                "name": "a",
+                "checks": [
+                  {
+                    "condition": {
+                      "@call": "required",
+                      "args": {
+                        "value": {
+                          "@path": "/a"
+                        }
+                      }
+                    },
+                    "message": "Needed"
+                  }
+                ]
+              }
+            },
+            {
+              "id": "b",
+              "component": "Text",
+              "props": {
+                "text": "t"
+              },
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "card": {
+          "version": "1.0",
+          "root": {
+            "id": "f",
+            "component": "Form",
+            "props": {
+              "name": "f"
+            },
+            "accessibility": {
+              "label": "Form"
+            },
+            "metadata": {},
+            "children": [
+              {
+                "id": "a",
+                "component": "Input",
+                "props": {
+                  "label": "A",
+                  "name": "a",
+                  "checks": [
+                    {
+                      "condition": {
+                        "@call": "required",
+                        "args": {
+                          "value": {
+                            "@path": "/a"
+                          }
+                        }
+                      },
+                      "message": "Needed"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "b",
+                "component": "Text",
+                "props": {
+                  "text": "t"
+                },
+                "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+              }
+            ]
+          }
+        },
+        "problems": [
+          "f: /accessibility accessibility is not a declared prop (write @accessibility)",
+          "a: /checks checks is not a declared prop (write @checks)",
+          "b: /catalogId catalogId is not a declared prop (write @catalogId)"
+        ],
+        "issues": [
+          {
+            "id": "a",
+            "message": "checks is not a declared prop (write @checks)",
+            "code": "INVALID_MESSAGE",
+            "path": "/components/a/checks"
+          },
+          {
+            "id": "b",
+            "message": "catalogId is not a declared prop (write @catalogId)",
+            "code": "INVALID_MESSAGE",
+            "path": "/components/b/catalogId"
+          },
+          {
+            "id": "f",
+            "message": "accessibility is not a declared prop (write @accessibility)",
+            "code": "INVALID_MESSAGE",
+            "path": "/components/f/accessibility"
+          },
+          {
+            "id": "f",
+            "message": "metadata is not a declared prop (write @metadata)",
+            "code": "INVALID_MESSAGE",
+            "path": "/components/f/metadata"
+          }
+        ],
+        "root": {
+          "id": "f",
+          "component": "Form",
+          "props": {
+            "name": "f"
+          },
+          "children": [
+            {
+              "id": "a",
+              "component": "Input",
+              "props": {
+                "label": "A",
+                "name": "a"
+              },
+              "children": []
+            },
+            {
+              "id": "b",
+              "component": "Text",
+              "props": {
+                "text": "t"
+              },
+              "children": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "@ keys inside props are refused",
+      "input": {
+        "version": "1.0",
+        "root": {
+          "id": "a",
+          "component": "Input",
+          "props": {
+            "label": "A",
+            "name": "a",
+            "@checks": [
+              {
+                "condition": {
+                  "@call": "required",
+                  "args": {
+                    "value": {
+                      "@path": "/a"
+                    }
+                  }
+                },
+                "message": "Needed"
+              }
+            ]
+          }
+        }
+      },
+      "expected": {
+        "card": {
+          "version": "1.0",
+          "root": {
+            "id": "a",
+            "component": "Input",
+            "props": {
+              "label": "A",
+              "name": "a",
+              "@checks": [
+                {
+                  "condition": {
+                    "@call": "required",
+                    "args": {
+                      "value": {
+                        "@path": "/a"
+                      }
+                    }
+                  },
+                  "message": "Needed"
+                }
+              ]
+            }
+          }
+        },
+        "problems": [
+          "a: /props/@checks @checks sits next to props"
+        ],
+        "issues": [
+          {
+            "id": "a",
+            "message": "props.@checks: unknown prop",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/a/@checks"
+          }
+        ],
+        "root": {
+          "id": "a",
+          "component": "Input",
+          "props": {
+            "label": "A",
+            "name": "a",
+            "@checks": [
+              {
+                "condition": {
+                  "@call": "required",
+                  "args": {
+                    "value": {
+                      "@path": "/a"
+                    }
+                  }
+                },
+                "message": "Needed"
+              }
+            ]
+          },
+          "children": []
+        }
+      }
+    },
+    {
+      "name": "@checks on a component that takes none",
+      "input": {
+        "version": "1.0",
+        "root": {
+          "id": "t",
+          "component": "Text",
+          "props": {
+            "text": "t"
+          },
+          "@checks": [
+            {
+              "condition": {
+                "@call": "required",
+                "args": {
+                  "value": {
+                    "@path": "/a"
+                  }
+                }
+              },
+              "message": "Needed"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "card": {
+          "version": "1.0",
+          "root": {
+            "id": "t",
+            "component": "Text",
+            "props": {
+              "text": "t"
+            },
+            "@checks": [
+              {
+                "condition": {
+                  "@call": "required",
+                  "args": {
+                    "value": {
+                      "@path": "/a"
+                    }
+                  }
+                },
+                "message": "Needed"
+              }
+            ]
+          }
+        },
+        "problems": [],
+        "issues": [
+          {
+            "id": "t",
+            "message": "takes no @checks",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/t/@checks"
+          }
+        ],
+        "root": {
+          "id": "t",
+          "component": "Text",
+          "props": {
+            "text": "t"
+          },
+          "children": []
+        }
+      }
+    },
+    {
+      "name": "@checks with an unknown function and a bad shape",
+      "input": {
+        "version": "1.0",
+        "root": {
+          "id": "a",
+          "component": "Input",
+          "props": {
+            "label": "A",
+            "name": "a"
+          },
+          "@checks": [
+            {
+              "condition": {
+                "@call": "nope"
+              }
+            },
+            {
+              "condition": true
+            }
+          ]
+        }
+      },
+      "expected": {
+        "card": {
+          "version": "1.0",
+          "root": {
+            "id": "a",
+            "component": "Input",
+            "props": {
+              "label": "A",
+              "name": "a"
+            },
+            "@checks": [
+              {
+                "condition": {
+                  "@call": "nope"
+                }
+              },
+              {
+                "condition": true
+              }
+            ]
+          }
+        },
+        "problems": [
+          "unknown function nope"
+        ],
+        "issues": [
+          {
+            "id": "a",
+            "message": "props.checks[1].condition: expected a binding or a function call",
+            "code": "VALIDATION_FAILED",
+            "path": "/components/a/@checks/1/condition"
+          }
+        ],
+        "root": {
+          "id": "a",
+          "component": "Input",
+          "props": {
+            "label": "A",
+            "name": "a",
+            "checks": [
+              {
+                "condition": {
+                  "@call": "nope"
+                }
+              },
+              {
+                "condition": true
+              }
+            ]
+          },
+          "children": []
+        }
+      }
+    }
+  ],
+  "rendererCalls": [
+    {
+      "name": "a value",
+      "op": {
+        "op": "call",
+        "functionCallId": "f",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "name": "add",
+        "args": {
+          "a": {
+            "@path": "/n"
+          },
+          "b": 1
+        }
+      },
+      "data": {
+        "n": 2
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "value": 3
+        }
+      }
+    },
+    {
+      "name": "no surface: the data is {}",
+      "op": {
+        "op": "call",
+        "functionCallId": "f",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "name": "coalesce",
+        "args": {
+          "values": [
+            {
+              "@path": "/n"
+            },
+            "none"
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "value": "none"
+        }
+      }
+    },
+    {
+      "name": "a template expression the agent may call",
+      "op": {
+        "op": "call",
+        "functionCallId": "f",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "name": "formatString",
+        "args": {
+          "value": "${add(a: ${/n}, b: 1)}!"
+        }
+      },
+      "data": {
+        "n": 2
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "value": "3!"
+        }
+      }
+    },
+    {
+      "name": "a rendererOnly function in a template expression",
+      "op": {
+        "op": "call",
+        "functionCallId": "f",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "name": "formatString",
+        "args": {
+          "value": "${openUrl(url: 'https://a.example')}"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "error": {
+            "code": "INVALID_FUNCTION_CALL",
+            "message": "openUrl cannot be called by the agent"
+          }
+        }
+      }
+    },
+    {
+      "name": "a rendererOnly function nested in a template expression",
+      "op": {
+        "op": "call",
+        "functionCallId": "f",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "name": "formatString",
+        "args": {
+          "value": "${text(value: ${set(path: '/n', value: 1)})}"
+        }
+      },
+      "data": {
+        "n": 2
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "error": {
+            "code": "INVALID_FUNCTION_CALL",
+            "message": "set cannot be called by the agent"
+          }
+        }
+      }
+    },
+    {
+      "name": "a host function in a template expression",
+      "op": {
+        "op": "call",
+        "functionCallId": "f",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "name": "formatString",
+        "args": {
+          "value": "${records_upsert(kind: 'x')}"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "error": {
+            "code": "INVALID_FUNCTION_CALL",
+            "message": "records_upsert cannot be called by the agent"
+          }
+        }
+      }
+    },
+    {
+      "name": "a template read through @path",
+      "op": {
+        "op": "call",
+        "functionCallId": "f",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "name": "formatString",
+        "args": {
+          "value": {
+            "@path": "/tpl"
+          }
+        }
+      },
+      "data": {
+        "tpl": "${openUrl(url: 'https://a.example')}"
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "error": {
+            "code": "INVALID_FUNCTION_CALL",
+            "message": "openUrl cannot be called by the agent"
+          }
+        }
+      }
+    },
+    {
+      "name": "a default never hides the boundary",
+      "op": {
+        "op": "call",
+        "functionCallId": "f",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "name": "coalesce",
+        "args": {
+          "values": [
+            {
+              "@call": "formatString",
+              "args": {
+                "value": "${openUrl(url: 'x', default: 'd')}"
+              }
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "error": {
+            "code": "INVALID_FUNCTION_CALL",
+            "message": "openUrl cannot be called by the agent"
+          }
+        }
+      }
+    },
+    {
+      "name": "a function the catalog lacks is an execution error",
+      "op": {
+        "op": "call",
+        "functionCallId": "f",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "name": "formatString",
+        "args": {
+          "value": "${add(a: 1, b: 2)}"
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "error": {
+            "code": "EXECUTION_ERROR",
+            "message": "no function add"
+          }
+        }
+      }
+    },
+    {
+      "name": "@index outside a template",
+      "op": {
+        "op": "call",
+        "functionCallId": "f",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "name": "concat",
+        "args": {
+          "values": [
+            {
+              "@call": "@index"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "version": "1.0",
+        "rendererFunctionResponse": {
+          "functionCallId": "f",
+          "error": {
+            "code": "EXECUTION_ERROR",
+            "message": "@index outside a template"
+          }
+        }
+      }
+    }
+  ],
+  "surfaces": [
+    {
+      "name": "an update without @metadata clears it",
+      "steps": [
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "main",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "a",
+                  "@metadata": {
+                    "extensions": {
+                      "acme": 1
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "expected": {
+            "extensions": {
+              "acme": 1
+            }
+          }
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "main",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "b"
+                }
+              ]
+            }
+          },
+          "expected": null
+        },
+        {
+          "message": {
+            "version": "1.0",
+            "updateComponents": {
+              "surfaceId": "main",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": "c",
+                  "@metadata": {}
+                }
+              ]
+            }
+          },
+          "expected": {}
+        }
+      ]
     }
   ]
 }

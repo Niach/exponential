@@ -215,7 +215,7 @@ unpublished until VAPP-91) carries two Apache-2.0 sources:
 - **A2UI** (a2ui-project/a2ui, formerly google/A2UI, Apache-2.0, Google LLC):
   the A2UI **1.0** schemas, basic catalog, test cases and protocol document,
   copied byte-for-byte into `packages/exponential-ui/vendor/a2ui/v1_0/` from
-  `main`, commit `1e9ed04b5585721ac6df8313030f9bfb42ccc6fa` (Round 9,
+  `main`, commit `a23b19c4f2102695c506adb7d1ded1f5f81a7688` (Round 9,
   VAPP-289), with the repository `LICENSE` beside them and every file's sha256
   pinned by `vendor.test.ts`. They are never edited: the basic catalog is MAPPED onto
   ours (`catalog/basic-map.json`), not modified, so Apache-2.0 section 4(b) (a

@@ -320,6 +320,9 @@ fun FeedMarkerRow(
     icon: ImageVector? = null,
     onClick: (() -> Unit)? = null,
     testTag: String = "feed-marker",
+    /** On a card the caller passes the translucent border: the transcript's
+     *  opaque one vanishes on the card fill. */
+    hairline: Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
 ) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     Row(
@@ -337,7 +340,6 @@ fun FeedMarkerRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
         // #EXP-1772: THE marker ×4, a centred label between two hairlines.
-        val hairline = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
         Box(Modifier.weight(1f).height(1.dp).background(hairline))
         if (icon != null) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(12.dp), tint = muted)
@@ -347,6 +349,8 @@ fun FeedMarkerRow(
             style = MaterialTheme.typography.labelMedium.copy(
                 fontSize = DesignTokens.Transcript.ToolSize.sp,
                 lineHeight = DesignTokens.Transcript.ToolLineHeight.sp,
+                // Web's and iOS' marker label is regular.
+                fontWeight = FontWeight.Normal,
             ),
             color = muted,
             // One line like web: the hairlines take the rest of the row.

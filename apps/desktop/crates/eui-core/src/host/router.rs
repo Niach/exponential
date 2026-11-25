@@ -240,8 +240,9 @@ fn basic_id_refs<'a>(component: &str, entry: &'a Map<String, Value>) -> Vec<(Str
 /// `(pointer below the entry, message)`; `None` = it passes. `catalog_id` =
 /// the surface default (the entry's own wins), `view` = the catalogs that
 /// decide its DATA positions and `componentId` props (basic = none). Check
-/// order: the entry is an object, `/id`, `/component`, `/catalogId`,
-/// `/metadata…`, then the other keys in key order. `src/entry.ts checkEntry`.
+/// order: the entry is an object, `/id`, `/component`, `/@catalogId`,
+/// `/@metadata…`, then the other keys in key order (a bare mixin name the
+/// component does not declare included). `src/entry.ts checkEntry`.
 pub fn check_entry(entry: &Value, catalog_id: Option<&str>, view: &crate::catalog::CatalogView) -> Option<(String, String)> {
     let Some(o) = entry.as_object() else { return Some((String::new(), "a component is a JSON object".into())) };
     let Some(id_value) = o.get("id") else { return Some(("/id".into(), "id is required".into())) };
@@ -257,13 +258,13 @@ pub fn check_entry(entry: &Value, catalog_id: Option<&str>, view: &crate::catalo
     if component == crate::catalog::SURFACE_COMPONENT {
         return Some(("/component".into(), "Surface is reserved".into()));
     }
-    if o.get("catalogId").is_some_and(|c| !c.is_string()) {
-        return Some(("/catalogId".into(), "catalogId is a string".into()));
+    if o.get("@catalogId").is_some_and(|c| !c.is_string()) {
+        return Some(("/@catalogId".into(), "@catalogId is a string".into()));
     }
-    if let Some((at, message)) = o.get("metadata").and_then(check_metadata) {
-        return Some((format!("/metadata{at}"), message));
+    if let Some((at, message)) = o.get("@metadata").and_then(check_metadata) {
+        return Some((format!("/@metadata{at}"), message));
     }
-    let catalog = o.get("catalogId").and_then(Value::as_str).or(catalog_id).unwrap_or("");
+    let catalog = o.get("@catalogId").and_then(Value::as_str).or(catalog_id).unwrap_or("");
     let basic = crate::functions::is_basic_catalog(catalog);
     let def = if basic { None } else { view.catalog_component(catalog, component) };
     let refs = if basic { basic_id_refs(component, o) } else { Vec::new() };
@@ -276,16 +277,25 @@ pub fn check_entry(entry: &Value, catalog_id: Option<&str>, view: &crate::catalo
         }
     };
     for (k, v) in o {
-        if matches!(k.as_str(), "id" | "component" | "catalogId" | "metadata") {
+        if matches!(k.as_str(), "id" | "component" | "@catalogId" | "@metadata") {
             continue;
         }
         let at = format!("/{}", esc(k));
-        if !crate::ident::is_identifier(k) {
+        if crate::types::MIXIN_NAMES.contains(&k.as_str()) && !def.is_some_and(|d| d.declares_bare(k)) {
+            return Some((at, crate::types::bare_mixin(k)));
+        }
+        if !matches!(k.as_str(), "@checks" | "@accessibility") && !crate::ident::is_identifier(k) {
             return Some((at, not_id("prop ", k)));
         }
         let dynamic = |v: &Value, at: &str| crate::expr::malformed_directive(v).map(|(below, message)| (format!("{at}{below}"), message));
         match k.as_str() {
-            "accessibility" => {
+            "@checks" => {
+                if let Some(hit) = dynamic(v, &at) {
+                    return Some(hit);
+                }
+                continue;
+            }
+            "@accessibility" => {
                 if let Some(a) = v.as_object() {
                     if let Some(hit) = ["label", "description", "hidden"].iter().find_map(|key| a.get(*key).and_then(|x| dynamic(x, &format!("{at}/{key}")))) {
                         return Some(hit);
@@ -702,13 +712,13 @@ impl HostRouter {
         let Some(signature) = crate::functions::declared_function(catalog_id, name) else {
             return answer(INVALID_FUNCTION_CALL, &format!("unknown function {name}"));
         };
-        if crate::functions::allowed_callers(name) == crate::functions::AllowedCallers::RendererOnly {
-            return answer(INVALID_FUNCTION_CALL, &format!("{name} cannot be called by the agent"));
-        }
-        if crate::functions::requires_user_activation(name) {
-            return answer(INVALID_FUNCTION_CALL, &format!("{name} needs a user gesture"));
+        if let Some(refused) = crate::functions::agent_call_refusal(name) {
+            return answer(INVALID_FUNCTION_CALL, &refused);
         }
         let args = call.get("args").and_then(Value::as_object).cloned().unwrap_or_default();
+        if let Some((code, message)) = crate::functions::nested_call_refusal(&args) {
+            return answer(code, &message);
+        }
         if let Some(issue) = crate::functions::check_args(signature, &args) {
             return answer(INVALID_FUNCTION_CALL, &format!("args: {issue}"));
         }

@@ -49,6 +49,7 @@ pub mod argv;
 // #EXP-1618: the device pushes a session's branch and uncommitted work on its own.
 pub mod auto_push;
 pub mod cargo_target_gc;
+pub mod disk_alert;
 pub mod claude_oauth;
 // EXP-1533: a profile's long-lived `claude setup-token` login.
 pub mod claude_token;
@@ -60,6 +61,7 @@ pub use eagent::codex_trust;
 pub mod computer_place;
 pub mod context_layout;
 pub mod continue_attempts;
+pub mod wall_resume;
 pub mod device_doctor;
 pub mod direct_inbox;
 pub mod doctor;

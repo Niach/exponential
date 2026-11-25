@@ -43,7 +43,7 @@ describe(`Table DOM parity`, () => {
   })
   it(`rowPress without selection, emptyText, empty rows`, async () => {
     await expectDomParity({ tree: { id: `t`, component: `Table`, props: { columns: cols, rows: [], emptyText: `Nothing` }, on: { rowPress: { event: { name: `p` } } } } as unknown as NestedNode })
-    await expectDomParity({ tree: { id: `t`, component: `Table`, props: { columns: cols, rows: [] }, accessibility: { label: `Members` } } as unknown as NestedNode })
+    await expectDomParity({ tree: { id: `t`, component: `Table`, props: { columns: cols, rows: [] }, "@accessibility": { label: `Members` } } as unknown as NestedNode })
   })
   it(`a windowed body (past the threshold), multiple`, async () => {
     const rows = Array.from({ length: 80 }, (_, i) => ({ id: `r${i}`, name: `Row ${i}`, n: i }))

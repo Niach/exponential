@@ -15895,6 +15895,10 @@
         "component": {
           "const": "Unknown"
         },
+        "catalogId": {
+          "type": "string",
+          "description": "Catalog the component was authored against."
+        },
         "style": {
           "$ref": "#/$defs/Style"
         },

@@ -8,7 +8,7 @@
 // functions run through the SURFACE Formatter (round 2 §3: Intl in the
 // surface locale + time zone). Pure, so the host can run it too.
 
-import { BIND_FUNCTIONS, CORE_CATALOG_ID, CORE_FUNCTIONS, EFFECT_FUNCTIONS, EXPRESSION_CALL_NAMES, INDEX_FUNCTION, coerceBoolean, isBinding, isCall, callExpressionFunction, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, readPointer, writePointer } from "@exponential_app/eui"
+import { BIND_FUNCTIONS, CORE_CATALOG_ID, CORE_FUNCTIONS, EFFECT_FUNCTIONS, EXPRESSION_CALL_NAMES, INDEX_FUNCTION, coerceBoolean, isBinding, isCall, callExpressionFunction, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, readPointer, writePointer, MALFORMED_TEMPLATE, catalogFunctionNames, parseTemplate } from "@exponential_app/eui"
 import type { CatalogView, DataBinding, ExtensionDef, Failure, Formatter, FunctionCall, RouteAnswer, RoutedCall } from "@exponential_app/eui"
 
 export type DataModel = Record<string, unknown> | unknown[]
@@ -86,7 +86,8 @@ export function hostPath(path: string | undefined): string | undefined {
   return path === undefined || path === LITERAL_ROWS_ROOT || path.startsWith(`${LITERAL_ROWS_ROOT}/`) ? undefined : path
 }
 
-export type ClientFunction = (args: Record<string, unknown>, ctx: ResolveContext) => unknown
+/** `catalogId` = the catalog the call itself names, if any. */
+export type ClientFunction = (args: Record<string, unknown>, ctx: ResolveContext, catalogId?: string) => unknown
 
 /** Round 9 §6.2: the innermost template item's index. */
 function itemIndex(ctx: ResolveContext): number | undefined {
@@ -95,17 +96,29 @@ function itemIndex(ctx: ResolveContext): number | undefined {
   return m ? Number(m[1]) : undefined
 }
 
-/** `${/path}`, `${rel/path}`, `${@index()}` and `${@index(offset: <n>)}`
- *  interpolations (formatString). */
-function interpolate(text: string, ctx: ResolveContext): string {
-  return text.replace(/\$\{([^}]+)\}/g, (_, expr: string) => {
-    const index = /^@index\(\s*(?:offset\s*:\s*(-?\d+(?:\.\d+)?)\s*)?\)$/.exec(expr.trim())
-    if (index) {
-      const at = itemIndex(ctx)
-      return at === undefined ? `` : String(at + (index[1] ? Number(index[1]) : 0))
+/** Round 9 §5.5: the function a call runs here; one that names its catalog
+ *  runs only what that catalog declares (or the host's own). */
+function localFunction(name: string, own: string | undefined, ctx: ResolveContext): ClientFunction | undefined {
+  const known = ctx.functions?.[name] ?? CLIENT_FUNCTIONS[name]
+  return own !== undefined && known === CLIENT_FUNCTIONS[name] && !catalogFunctionNames(own).has(name) ? undefined : known
+}
+
+/** A `formatString` template (`parseTemplate`): pointers, `${@index()}` and
+ *  `${fn(name: value)}` calls of the catalog the call itself resolved to. */
+function interpolate(text: string, ctx: ResolveContext, catalogId: string): string {
+  let out = ``
+  for (const part of parseTemplate(text, catalogId)) {
+    if (typeof part === `string`) out += part
+    else if (part === null) throw new Error(MALFORMED_TEMPLATE)
+    else {
+      // §6.8: a call nothing answers fails the template (an effect, a name
+      // its catalog lacks with no host to route it).
+      const name = isCall(part) ? part[`@call`] : undefined
+      if (name !== undefined && name !== INDEX_FUNCTION && (EFFECT_FUNCTIONS.has(name) || (!ctx.route && !localFunction(name, catalogId, ctx)))) throw new Error(`no function ${name}`)
+      out += displayString(resolveValue(part, ctx))
     }
-    return displayString(getPointer(ctx.data, absolutePath(expr.trim(), ctx.scope)))
-  })
+  }
+  return out
 }
 
 /** `intlFormatter` builds a new Intl instance per call (~18 µs for a
@@ -191,7 +204,7 @@ const CORE_TABLE: Record<string, ClientFunction> = Object.fromEntries(
 
 export const CLIENT_FUNCTIONS: Record<string, ClientFunction> = {
   ...CORE_TABLE,
-  formatString: ({ value }, ctx) => interpolate(String(value ?? ``), ctx),
+  formatString: ({ value }, ctx, catalogId) => interpolate(String(value ?? ``), ctx, catalogId ?? ctx.catalogId ?? CORE_CATALOG_ID),
   openUrl: ({ url }, ctx) => {
     if (typeof url === `string`) ctx.openUrl?.(url)
     return undefined
@@ -214,12 +227,13 @@ export function resolveValue(value: unknown, ctx: ResolveContext): unknown {
     }
     // Round 9 §6.4: an effect never runs in a reactive position.
     if (EFFECT_FUNCTIONS.has(name) && !Object.prototype.hasOwnProperty.call(ctx.functions ?? {}, name)) return null
-    const fn = ctx.functions?.[name] ?? CLIENT_FUNCTIONS[name]
+    const own = typeof value.catalogId === `string` ? value.catalogId : undefined
+    const fn = localFunction(name, own, ctx)
     if (!fn && !ctx.route) return undefined
     const args: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value.args ?? {})) args[k] = resolveValue(v, ctx)
     if (!fn) {
-      const catalogId = typeof value.catalogId === `string` ? value.catalogId : (ctx.catalogId ?? CORE_CATALOG_ID)
+      const catalogId = own ?? ctx.catalogId ?? CORE_CATALOG_ID
       const answer = ctx.route!({ name, catalogId, args, position: `reactive` })
       if (`value` in answer) return answer.value
       if (args.default !== undefined) return args.default
@@ -227,7 +241,7 @@ export function resolveValue(value: unknown, ctx: ResolveContext): unknown {
       return null
     }
     try {
-      return fn(args, ctx)
+      return fn(args, ctx, own)
     } catch {
       // §6.8: a failing binding resolves to null, siblings stay mounted.
       return args.default !== undefined ? args.default : null

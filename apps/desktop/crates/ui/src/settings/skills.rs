@@ -673,7 +673,7 @@ fn field_error(chrome: &PageChrome, id: &str, message: Value, visible: Value) ->
 fn sm_button(ink: &Ink, id: &str, icon: Option<&str>, label: &str, fill: &str, hover: &str, fg: &str, event: &str, radius: f32) -> Value {
     let glyph = icon.map(|icon| json!({"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": ink.r(SM), "height": ink.r(SM), "color": fg, "flexShrink": 0}}));
     let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label}, "style": {"fontSize": ink.r(SM), "lineHeight": ink.r(SM), "color": fg, "flexShrink": 0}});
-    json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
+    json!({"id": id, "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": radius, "backgroundColor": fill, "cursor": "pointer", ":hover": {"backgroundColor": hover}},
         "children": glyph.into_iter().chain([text]).collect::<Vec<_>>()})
 }
@@ -682,8 +682,7 @@ fn sm_button(ink: &Ink, id: &str, icon: Option<&str>, label: &str, fill: &str, h
 /// group, the body group, the On by default row and Save; `gap_4` before the
 /// owner's Delete.
 fn page_document(ink: &Ink, chrome: &PageChrome) -> Value {
-    let mut band = ink.band("band", "", None);
-    band["children"][0]["props"]["text"] = path("/pane/header");
+    let band = ink.band("band", path("/pane/header"), None);
     let glyph = ink.r(1.);
     let name = json!({"id": "name", "component": "Input", "props": {"label": spec::NAME_LABEL, "name": "name", "variant": "code", "placeholder": spec::NAME_PLACEHOLDER, "value": path("/pane/fields/name"), "disabled": path("/pane/readOnly")},
         "style": {"flexGrow": 1, "flexShrink": 1, "minWidth": 0},

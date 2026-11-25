@@ -63,6 +63,43 @@ pub fn requires_user_activation(name: &str) -> bool {
     name == "openUrl"
 }
 
+/// §6.9: why the AGENT may not call `name` (`None` = it may).
+pub fn agent_call_refusal(name: &str) -> Option<String> {
+    if allowed_callers(name) == AllowedCallers::RendererOnly {
+        return Some(format!("{name} cannot be called by the agent"));
+    }
+    requires_user_activation(name).then(|| format!("{name} needs a user gesture"))
+}
+
+/// §6.9: the calls NESTED in a callRendererFunction's args, checked before
+/// any of them runs: the first one the agent may not call, or args nested
+/// past `maxDepth` levels. (`${…}` expressions are checked when they evaluate.)
+pub fn nested_call_refusal(args: &Map<String, Value>) -> Option<(&'static str, String)> {
+    fn walk(value: &Value, depth: usize) -> Option<(&'static str, String)> {
+        if !(value.is_object() || value.is_array()) {
+            return None;
+        }
+        if depth > crate::limits::MAX_DEPTH {
+            return Some(("EXECUTION_ERROR", format!("args nested deeper than {} levels", crate::limits::MAX_DEPTH)));
+        }
+        match value {
+            Value::Array(items) => items.iter().find_map(|v| walk(v, depth + 1)),
+            Value::Object(o) => {
+                if let Some(refused) = o.get("@call").and_then(Value::as_str).filter(|n| *n != INDEX_FUNCTION).and_then(agent_call_refusal) {
+                    return Some(("INVALID_FUNCTION_CALL", refused));
+                }
+                o.values().find_map(|v| walk(v, depth + 1))
+            }
+            _ => None,
+        }
+    }
+    // The args object is level 1 (the TS twin walks it as one).
+    if let Some(refused) = args.get("@call").and_then(Value::as_str).filter(|n| *n != INDEX_FUNCTION).and_then(agent_call_refusal) {
+        return Some(("INVALID_FUNCTION_CALL", refused));
+    }
+    args.values().find_map(|v| walk(v, 2))
+}
+
 /// §6.1/§6.4: the effectful catalog functions (never in a reactive
 /// position): `set` writes, `bind` is a host effect, `openUrl` needs a gesture.
 pub fn is_effect_function(name: &str) -> bool {
@@ -108,7 +145,8 @@ pub fn check_args(signature: &Value, args: &Map<String, Value>) -> Option<String
             "object" => v.is_object(),
             _ => true,
         };
-        if !ok && !v.is_null() {
+        // A binding or a call shows its type when it evaluates.
+        if !ok && !v.is_null() && !crate::expr::is_dynamic(v) {
             return Some(format!("{k} is not a {ty}"));
         }
     }

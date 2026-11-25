@@ -338,7 +338,7 @@ private fun PlanDocument(
             if (surface != null) {
                 item(key = "surface") {
                     val handle = remember { CardSurfaceHandle() }
-                    CardSurfaceView(surface, handle, inert = true)
+                    CardSurfaceView(surface, handle, inert = true, modifier = Modifier.padding(top = PlanCard.Look.BLOCK_GAP.dp))
                 }
             }
         }

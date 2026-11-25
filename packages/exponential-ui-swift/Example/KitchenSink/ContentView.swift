@@ -214,9 +214,9 @@ final class SinkState: ObservableObject {
     /// first paint without a refused submit's focus.
     static let fieldStates = #"""
     {"id":"field-states","component":"Stack","props":{"gap":"md"},"children":[
-      {"id":"email","component":"Input","props":{"label":"Email","name":"email","value":"ada@","validateOn":"blur","checks":[{"condition":{"@path":"/error"}}]}},
-      {"id":"password","component":"Input","props":{"label":"Password","name":"password","value":"hunter2","validateOn":"blur","checks":[{"condition":{"@path":"/warning"}}]}},
-      {"id":"nickname","component":"Input","props":{"label":"Nickname","name":"nickname","value":"ada","validateOn":"blur","checks":[{"condition":{"@path":"/info"}}]}}
+      {"id":"email","component":"Input","props":{"label":"Email","name":"email","value":"ada@","validateOn":"blur"}, "@checks": [{"condition":{"@path":"/error"}}]},
+      {"id":"password","component":"Input","props":{"label":"Password","name":"password","value":"hunter2","validateOn":"blur"}, "@checks": [{"condition":{"@path":"/warning"}}]},
+      {"id":"nickname","component":"Input","props":{"label":"Nickname","name":"nickname","value":"ada","validateOn":"blur"}, "@checks": [{"condition":{"@path":"/info"}}]}
     ]}
     """#
 

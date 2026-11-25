@@ -739,7 +739,7 @@
           "value": {
             "@path": "/companyDraft/name"
           },
-          "checks": [
+          "@checks": [
             {
               "condition": {
                 "@call": "required",

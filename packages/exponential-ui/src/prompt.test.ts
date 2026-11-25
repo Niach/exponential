@@ -1,5 +1,6 @@
 // VAPP-85: the model-facing prompt and its budget on record.
 
+import { isCheckMixin } from "./mixins"
 import { describe, expect, test } from "bun:test"
 import { EXPRESSION_CALL_NAMES } from "./cel"
 import budget from "../fixtures/prompt-budget.json" with { type: "json" }
@@ -33,7 +34,7 @@ describe(`catalog prompt`, () => {
       for (const [prop, schema] of Object.entries(def.props)) {
         // VAPP-217: a host-filled prop (the record macros') is never authored.
         if (schema.host) expect(full, `${name}.${prop}`).not.toMatch(new RegExp(`\\n${name}: [^\\n]*(\\n  [^\\n]*)*\\n  ${prop}[*~^]*: `))
-        else expect(full, `${name}.${prop}`).toMatch(new RegExp(`\\n  ${prop}[*~^]*: `))
+        else expect(full, `${name}.${prop}`).toMatch(new RegExp(`\\n  ${isCheckMixin(schema) ? `@` : ``}${prop}[*~^]*: `))
       }
     }
     // Round 4: every function with its arguments, the action shapes, updateDataModel, filter, token-only colours.

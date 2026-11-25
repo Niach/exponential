@@ -809,7 +809,7 @@
             "value": {
               "@path": "/draft/today"
             },
-            "checks": [
+            "@checks": [
               {
                 "condition": {
                   "@call": "required",
@@ -1754,6 +1754,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "y-Dfmp9wCSmjFxt-5DEoNeWEdxcyJOfcMV6UAZxNk_b7E9SB1JCY0zZfIsVyIF2XF6f9D3R_2vQXvJr584EhAQ"
+    "value": "oTmcfv-ZT7MaWk9hDzjdnl1LFv1QPYC8-MkhItm0MQBnjpnKu7Hpnxt_fGFCFVlv1B5jBeSmFgusMpWLaU9tAQ"
   }
 }

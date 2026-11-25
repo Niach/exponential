@@ -519,6 +519,9 @@ public final class ExponentialHost {
                 unsupportedCatalog = text.hasPrefix("catalog ") ? String(text.dropFirst(8).prefix { !$0.isWhitespace }) : text
             }
             send(message.json)
+        case "call":
+            // Round 9 §6.9: a callRendererFunction that passed the router's checks.
+            if let answer = try? answerRendererCallJson(opJson: op.json, dataJson: surfaces[surfaceId]?.surface.dataJson() ?? "{}", availableCatalogIds: router.availableCatalogIds()) { send(answer) }
         default:
             break
         }

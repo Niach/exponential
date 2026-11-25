@@ -747,7 +747,7 @@
             "value": {
               "@path": "/companyDraft/name"
             },
-            "checks": [
+            "@checks": [
               {
                 "condition": {
                   "@call": "required",
@@ -2401,6 +2401,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "uwnHA6umUI0R0mTSM7soYAuxzmRAEaW--og8NTDbBMVXXUz9U9BAxlReJgSdSkH-OwxlMtS9OOkcMY3BDBHZCw"
+    "value": "33qwlL1MyEPmw9Im-hvTEsr4ubQMjcpHWo1TQmbZU-5xiCWA1c12my10M21uVutJ85H1YCrtBYlkuwpyR3SJBw"
   }
 }
