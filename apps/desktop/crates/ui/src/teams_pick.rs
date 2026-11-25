@@ -285,15 +285,15 @@ pub(crate) fn team_chips(
                 .when(removable, |chip| {
                     chip.child(
                         crate::composer::composer_tool(
-                        SharedString::from(format!("{prefix}-team-{}-remove", team.id)),
-                        registry::UI_CLOSE,
-                        cx,
-                    )
-                    .tooltip(SharedString::from(format!("Remove {}", team.name)))
-                    .text_color(muted)
-                    .flex_shrink_0()
-                    .disabled(disabled)
-                    .on_click(move |_, window, cx| on_change(next.clone(), window, cx)),
+                            SharedString::from(format!("{prefix}-team-{}-remove", team.id)),
+                            registry::UI_CLOSE,
+                            cx,
+                        )
+                        .tooltip(SharedString::from(format!("Remove {}", team.name)))
+                        .text_color(muted)
+                        .flex_shrink_0()
+                        .disabled(disabled)
+                        .on_click(move |_, window, cx| on_change(next.clone(), window, cx)),
                     )
                 })
                 .into_any_element(),
