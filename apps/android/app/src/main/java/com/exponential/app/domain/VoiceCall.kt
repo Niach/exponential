@@ -977,4 +977,162 @@ object VoiceCall {
             }
         }
     }
+
+    /**
+     * EXP-2111 (voice-call.json `log`): one call's log lines and, when it
+     * ended any other way than [QUIET], its one event. Fed from any thread.
+     */
+    class CallLog(
+        private val now: () -> Long,
+        private val line: (String) -> Unit,
+        private val ended: (End) -> Unit,
+    ) {
+        /** What only the caller's driver sees. */
+        sealed interface Note {
+            data class Ticket(val callId: String?, val fallback: Boolean, val sealed: Boolean) : Note
+            data object SocketOpen : Note
+            data object Up : Note
+            data object Down : Note
+            data class Silent(val ms: Long) : Note
+            data object DialFailed : Note
+            data object NoSeal : Note
+            data object AudioFailed : Note
+        }
+
+        /** A call's end: who, why and how far it got. Never a word or a name. */
+        data class End(
+            val tag: String,
+            val by: String,
+            val reason: String,
+            val stage: String,
+            val phase: String,
+            val answered: Boolean,
+            val sealed: Boolean,
+            val lastedMs: Long,
+            val upFrames: Long,
+            val downFrames: Long,
+            /** Before the end; null = the host was never heard. */
+            val lastDownMs: Long?,
+        ) {
+            val message: String get() = "Voice call ended: $reason"
+        }
+
+        private var tag = "-"
+        private var startedAt = 0L
+        private var answered = false
+        private var over = false
+        private var upFrames = 0L
+        private var downFrames = 0L
+        private var lastDownAt = 0L
+
+        private fun say(text: String) = line("call $tag: $text")
+
+        private fun since(): Long = now() - startedAt
+
+        /** One input of the machine, with the state before it and its answer. */
+        @Synchronized
+        fun input(input: Caller.Input, before: Caller.State, stepped: Caller.Stepped) {
+            if (over || (stepped.state == before && stepped.effects.isEmpty())) return
+            if (input is Caller.Input.Start) {
+                startedAt = now()
+                return say("started (fallback ${input.fallback})")
+            }
+            if (Caller.Effect.Release in stepped.effects) return end(input, before)
+            stage(input)?.let(::say)
+            if (!answered && before.call.phase == Phase.Ringing && stepped.state.call.phase != Phase.Ringing) {
+                answered = true
+                say("answered after ${since()} ms")
+            }
+        }
+
+        private fun stage(input: Caller.Input): String? = when (input) {
+            is Caller.Input.Held -> "the microphone is held"
+            is Caller.Input.Received -> when (val frame = input.frame) {
+                Caller.Frame.Ready -> "call_ready: the host joined after ${since()} ms"
+                is Caller.Frame.HostEvent -> when (frame.event) {
+                    Event.Rang -> "the host rang"
+                    Event.Ready -> "the host's voice is ready"
+                    Event.NoSound -> "the host hears no sound from this microphone"
+                    else -> null
+                }
+                else -> null
+            }
+            else -> null
+        }
+
+        private fun end(input: Caller.Input, before: Caller.State) {
+            over = true
+            val (by, reason) = who(input)
+            val end = End(
+                tag = tag, by = by, reason = reason, stage = before.stage.wire, phase = before.call.phase.name.lowercase(),
+                answered = answered, sealed = before.sealed, lastedMs = since(), upFrames = upFrames, downFrames = downFrames,
+                lastDownMs = if (downFrames == 0L) null else now() - lastDownAt,
+            )
+            say(
+                "ended by=$by reason=$reason stage=${end.stage} phase=${end.phase} answered=$answered lasted=${end.lastedMs} ms " +
+                    "sealed=${end.sealed} up=$upFrames down=$downFrames last_down=${end.lastDownMs?.let { "$it ms ago" } ?: "never"}",
+            )
+            if (reason !in QUIET) ended(end)
+        }
+
+        @Synchronized
+        fun note(note: Note) {
+            if (over) return
+            when (note) {
+                is Note.Ticket -> {
+                    if (!note.callId.isNullOrEmpty()) tag = note.callId.take(8).lowercase()
+                    say("ticket after ${since()} ms (fallback ${note.fallback}, sealed ${note.sealed})")
+                }
+                Note.SocketOpen -> say("the relay socket is open after ${since()} ms")
+                Note.Up -> {
+                    upFrames += 1
+                    if (upFrames == 1L) say("the first microphone frame went out after ${since()} ms")
+                }
+                Note.Down -> {
+                    downFrames += 1
+                    lastDownAt = now()
+                    if (downFrames == 1L) say("the host's first audio frame came after ${since()} ms")
+                }
+                is Note.Silent -> say("the path went silent: nothing from the relay for ${note.ms} ms")
+                Note.DialFailed -> say("the dial failed")
+                Note.NoSeal -> say("the call cannot be sealed here")
+                Note.AudioFailed -> say("the call audio did not start")
+            }
+        }
+
+        companion object {
+            /** Ends that are no event: a hang-up, a person's or the fixture's own refusal. */
+            val QUIET = setOf("hung_up", "refused", "not_granted", "busy", "meeting")
+            private val CODE = Regex("^[A-Za-z][A-Za-z0-9_]{0,31}$")
+
+            private fun code(code: String?): String = when {
+                code.isNullOrEmpty() -> HangUpRules.FAILED_CODE
+                CODE.matches(code) -> code
+                else -> "other"
+            }
+
+            private fun hungUp(reason: String?) = "far" to (if (reason == null) "hung_up" else code(reason))
+
+            /** Who ended the call and why, from the input that did. */
+            private fun who(input: Caller.Input): Pair<String, String> = when (input) {
+                is Caller.Input.Held -> "here" to code(input.code)
+                is Caller.Input.Failed -> "here" to code(input.code)
+                is Caller.Input.Refused -> "server" to "refused"
+                Caller.Input.Closed -> "link" to "socket_closed"
+                Caller.Input.RingTimeout -> "here" to "unavailable"
+                is Caller.Input.Received -> when (val frame = input.frame) {
+                    is Caller.Frame.End -> hungUp(frame.reason)
+                    is Caller.Frame.Error -> "relay" to code(frame.code)
+                    is Caller.Frame.Bye -> "relay" to code(frame.outcome)
+                    is Caller.Frame.HostEvent -> when (val event = frame.event) {
+                        is Event.Failed -> "host" to code(event.code)
+                        is Event.HungUp -> hungUp(event.reason)
+                        else -> hungUp(null)
+                    }
+                    else -> hungUp(null)
+                }
+                else -> "here" to "hung_up"
+            }
+        }
+    }
 }

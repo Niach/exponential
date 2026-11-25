@@ -11,7 +11,7 @@ final class VoiceCallCallerTests: XCTestCase {
 
     private struct Unknown: Error { let t: String? }
 
-    private func cases() throws -> [[String: Any]] {
+    private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()          // ExpCore/Tests/
             .deletingLastPathComponent()          // ExpCore/
@@ -19,8 +19,11 @@ final class VoiceCallCallerTests: XCTestCase {
             .deletingLastPathComponent()          // apps/
             .deletingLastPathComponent()          // the repo root
             .appendingPathComponent("packages/etalk/fixtures/voice-call.json")
-        let fixture = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        let caller = try XCTUnwrap(fixture["caller"] as? [String: Any])
+        return try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+    }
+
+    private func cases() throws -> [[String: Any]] {
+        let caller = try XCTUnwrap(try fixture()["caller"] as? [String: Any])
         let cases = try XCTUnwrap(caller["cases"] as? [[String: Any]])
         XCTAssertGreaterThanOrEqual(cases.count, 31)
         return cases
@@ -81,6 +84,67 @@ final class VoiceCallCallerTests: XCTestCase {
             if let fallback = entry["fallback"] as? Bool { XCTAssertEqual(state.call.fallback, fallback, name) }
             if let muted = entry["muted"] as? Bool { XCTAssertEqual(state.call.muted, muted, name) }
             if let speaker = entry["speaker"] as? Bool { XCTAssertEqual(state.call.speaker, speaker, name) }
+        }
+    }
+
+    private final class Sink: CallLogSink, @unchecked Sendable {
+        var now = 0
+        var lines: [String] = []
+        var ends: [VoiceCall.CallLog.End] = []
+        func nowMs() -> Int { now }
+        func line(_ line: String) { lines.append(line) }
+        func failed(_ end: VoiceCall.CallLog.End) { ends.append(end) }
+    }
+
+    private func note(_ n: [String: Any]) throws -> VoiceCall.CallLog.Note {
+        switch n["n"] as? String {
+        case "ticket": return .ticket(callId: n["callId"] as? String, fallback: try XCTUnwrap(n["fallback"] as? Bool), sealed: try XCTUnwrap(n["sealed"] as? Bool))
+        case "socketOpen": return .socketOpen
+        case "up": return .up
+        case "down": return .down
+        case "silent": return .silent(ms: try XCTUnwrap(n["ms"] as? Int))
+        case "dialFailed": return .dialFailed
+        case "noSeal": return .noSeal
+        case "audioFailed": return .audioFailed
+        case let t: throw Unknown(t: t)
+        }
+    }
+
+    /// EXP-2111: every `log.cases` row: the lines and the one event.
+    func testEveryLogCaseReplays() throws {
+        let log = try XCTUnwrap(try fixture()["log"] as? [String: Any])
+        XCTAssertEqual(VoiceCall.CallLog.quiet, Set(try XCTUnwrap(log["quiet"] as? [String])))
+        let rows = try XCTUnwrap(log["cases"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(rows.count, 13)
+        for row in rows {
+            let name = try XCTUnwrap(row["name"] as? String)
+            let sink = Sink()
+            let call = VoiceCall.CallLog(sink)
+            var state = Caller.State.idle
+            for step in try XCTUnwrap(row["steps"] as? [[String: Any]], name) {
+                sink.now = try XCTUnwrap(step["at"] as? Int, name)
+                if let n = step["note"] as? [String: Any] { call.note(try note(n)) }
+                if let e = step["input"] as? [String: Any] {
+                    let event = try input(e)
+                    let stepped = Caller.step(state, event)
+                    call.input(event, before: state, after: stepped.state, effects: stepped.effects)
+                    state = stepped.state
+                }
+            }
+            XCTAssertEqual(sink.lines, row["lines"] as? [String], name)
+            guard let end = row["end"] as? [String: Any] else {
+                XCTAssertEqual(sink.ends, [], name)
+                continue
+            }
+            let got = try XCTUnwrap(sink.ends.first, name)
+            XCTAssertEqual(sink.ends.count, 1, name)
+            let json: [String: Any] = [
+                "tag": got.tag, "by": got.by, "reason": got.reason, "stage": got.stage, "phase": got.phase, "answered": got.answered,
+                "sealed": got.sealed, "lastedMs": got.lastedMs, "upFrames": got.upFrames, "downFrames": got.downFrames,
+                "lastDownMs": got.lastDownMs.map { $0 as Any } ?? NSNull(),
+            ]
+            XCTAssertEqual(NSDictionary(dictionary: json), NSDictionary(dictionary: end), name)
+            XCTAssertEqual(got.message, (log["message"] as? String)?.replacingOccurrences(of: "{reason}", with: got.reason), name)
         }
     }
 
