@@ -6656,7 +6656,7 @@ impl SteerSessionView {
         self.own_tail = crate::session_outbox::own_tail(&viewer, &rows, &held, &kept);
         // #EXP-2119: a row the transcript echoes already is not drawn twice.
         if pending {
-            let echoed = crate::session_outbox::echoed_pending(now_ms, &rows, &echoes);
+            let echoed = crate::session_outbox::echoed_pending(&rows, &echoes);
             self.own_tail.retain(|bubble| bubble.message_id.as_ref().is_none_or(|id| !echoed.contains(id)));
         }
         // The reconcile may have dropped entries (a new revision).

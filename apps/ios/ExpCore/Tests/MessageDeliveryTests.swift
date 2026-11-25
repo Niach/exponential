@@ -130,6 +130,35 @@ final class MessageDeliveryTests: XCTestCase {
         }
     }
 
+    // #EXP-2129: `echoedPendingCases` (a chat open across a daemon restart:
+    // the woken run's echo is in the feed, the row is still pending).
+    func testReplaysEveryEchoedPendingCase() throws {
+        let cases = try XCTUnwrap(try fixture()["echoedPendingCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = testCase["name"] as? String ?? ""
+            let input = try XCTUnwrap(testCase["input"] as? [String: Any])
+            let rows = try XCTUnwrap(input["rows"] as? [[String: Any]]).map { row in
+                MessageDelivery.HandoffRow(
+                    id: try XCTUnwrap(row["id"] as? String),
+                    authorKind: try XCTUnwrap(row["authorKind"] as? String),
+                    authorId: row["authorId"] as? String,
+                    body: try XCTUnwrap(row["body"] as? String),
+                    createdAt: try XCTUnwrap(row["createdAt"] as? String),
+                    consumedAt: row["consumedAt"] as? String,
+                    hasCard: row["card"].map { !($0 is NSNull) } ?? false
+                )
+            }
+            let echoes = try XCTUnwrap(input["echoes"] as? [[String: Any]]).map { echo in
+                MessageDelivery.HandoffEcho(
+                    text: try XCTUnwrap(echo["text"] as? String),
+                    at: (echo["at"] as? NSNumber)?.doubleValue
+                )
+            }
+            XCTAssertEqual(MessageDelivery.echoedPending(rows: rows, echoes: echoes), testCase["expected"] as? [String], name)
+        }
+    }
+
     func testReplaysEveryHandoffCase() throws {
         let cases = try XCTUnwrap(try fixture()["handoffCases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)

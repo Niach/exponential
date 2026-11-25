@@ -779,8 +779,13 @@ private fun RunFaceContent(
     val teammateTail by viewModel.teammateTail.collectAsStateWithLifecycle()
     // #EXP-2089 (message-delivery.json ORDER): every person's not-consumed
     // rows in ONE list, oldest first, between the held rows and the outbox.
-    val pendingTail = remember(teammateTail, ownTail) {
-        com.exponential.app.domain.MessageDelivery.pendingTail(teammateTail, ownTail)
+    // #EXP-2129: without the ones a restarted run echoed already.
+    val echoedPending by viewModel.echoedPending.collectAsStateWithLifecycle()
+    val pendingTail = remember(teammateTail, ownTail, echoedPending) {
+        com.exponential.app.domain.MessageDelivery.withoutEchoed(
+            com.exponential.app.domain.MessageDelivery.pendingTail(teammateTail, ownTail),
+            echoedPending,
+        )
     }
     // #FEED-260 (steer-enet.json SYNCED TAIL): a NOT-live feed (the stored
     // tail painted at open, a dropped feed's cache, an empty feed) is

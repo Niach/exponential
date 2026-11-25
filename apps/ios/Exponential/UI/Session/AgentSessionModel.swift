@@ -289,6 +289,12 @@ final class AgentSessionModel {
     private(set) var ownHeld: [OwnPendingBubble] = []
     /// The own rows the handoff reads (the own observation's latest).
     @ObservationIgnored private var ownHandoffRows: [MessageDelivery.HandoffRow] = []
+    /// #EXP-2129 ECHOED PENDING (message-delivery.json `echoedPendingCases`):
+    /// the not-consumed rows the transcript echoes already (a restarted run's,
+    /// before the device stamps them); no pending bubble draws them.
+    private(set) var ownEchoed: Set<String> = []
+    /// The teammates' consumed rows that may own one of those echoes.
+    @ObservationIgnored private var teammateConsumedRows: [MessageDelivery.HandoffRow] = []
     /// Re-evaluates the handoff once `handoffMaxMs` after the newest held
     /// row's consumedAt (nothing else would write when an echo never comes).
     @ObservationIgnored private var handoffTimerTask: Task<Void, Never>?
@@ -1067,7 +1073,8 @@ final class AgentSessionModel {
             syncedTailDrawable = []
             return []
         }
-        let own = Set(ownBubbles.compactMap(\.messageId))
+        // An echoed pending row is the feed's, never the tail's.
+        let own = Set(ownHeld.compactMap(\.messageId) + ownPending.compactMap(\.messageId))
         // An EMPTY feed takes it only while the live transcript cannot be
         // loaded (#EXP-2138: the last dial said NO FEED, whatever the row): a
         // device still being dialled may hold it. This client's lost
@@ -1899,9 +1906,8 @@ final class AgentSessionModel {
 
     // MARK: - The outbox (#FEED-237, message-delivery.json)
 
-    /// The own bubbles the transcript draws: a stored row whose `user_message`
-    /// already reached the live transcript is that echo (`read`) before its
-    /// consumed stamp syncs, never a second bubble.
+    /// The own bubbles the transcript draws: a not-consumed row the transcript
+    /// echoes already (ECHOED PENDING) is that echo (`read`), never a second bubble.
     /// #FEED-237 HANDOFF: the held consumed rows first (oldest first), then
     /// the not-consumed rows and the outbox; one bubble per message id.
     var ownBubbles: [OwnPendingBubble] {
@@ -1912,34 +1918,8 @@ final class AgentSessionModel {
     }
 
     private var ownTail: [OwnPendingBubble] {
-        guard ownPending.contains(where: { $0.stored }) else { return ownPending }
-        // #EXP-2089: `member` = the teammate a group chat's line names (nil =
-        // the viewer's, or an unworded line: anyone's).
-        var echoes: [(text: String, at: Double, member: String?)] = []
-        for item in feed.suffix(40) {
-            if case let .userMessage(_, text, _, at) = item {
-                // #EXP-1990: a group chat's echo of a member's line
-                // (`Message from <name> (member <id>): <body>`) = its body.
-                var own = text
-                var member: String?
-                if case let .member(_, userId, body) = TranscriptGrouping.feedInput(text) {
-                    own = body
-                    member = userId == currentUserId ? nil : userId
-                }
-                echoes.append((own.trimmingCharacters(in: .whitespacesAndNewlines), Double(at ?? 0) / 1000, member))
-            }
-        }
-        var used = Set<Int>()
-        return ownPending.filter { bubble in
-            guard bubble.stored else { return true }
-            let since = (bubble.at?.timeIntervalSince1970 ?? 0) - 5
-            guard let index = echoes.indices.first(where: {
-                !used.contains($0) && echoes[$0].text == bubble.text && echoes[$0].at >= since
-                    && (echoes[$0].member == nil || echoes[$0].member == bubble.memberId)
-            }) else { return true }
-            used.insert(index)
-            return false
-        }
+        guard !ownEchoed.isEmpty else { return ownPending }
+        return ownPending.filter { bubble in bubble.messageId.map { !ownEchoed.contains($0) } ?? true }
     }
 
     /// Whether `text` goes out as an outbox bubble: a plain message into
@@ -2044,7 +2024,7 @@ final class AgentSessionModel {
         guard ownObservationTask == nil, let viewerId = currentUserId else { return }
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let id = sessionId
-        let observation = ValueObservation.tracking { db -> ([MessageEntity], [String: String], [MessageOutboxEntity]) in
+        let observation = ValueObservation.tracking { db -> ([MessageEntity], [MessageEntity], [String: String], [MessageOutboxEntity]) in
             // #EXP-2067 (chat-express.json ACTIONS): a press's `action` row
             // is the viewer's own row too (its body, else THE marker).
             let rows = try MessageEntity
@@ -2057,31 +2037,45 @@ final class AgentSessionModel {
                 .limit(50)
                 .fetchAll(db)
                 .filter { $0.card == nil || OwnPendingBubble.actionName($0) != nil }
+            // #EXP-2129: a teammate's consumed row takes its own echo before a
+            // not-consumed one with the same words.
+            let consumed = rows.contains { $0.authorId != viewerId }
+                ? try MessageEntity
+                    .filter(Column("session_id") == id)
+                    .filter(Column("author_kind") == "user")
+                    .filter(Column("author_id") != viewerId && Column("consumed_at") != nil)
+                    .filter(Column("card") == nil)
+                    .order(Column("created_at").desc)
+                    .limit(50)
+                    .fetchAll(db)
+                : []
             let outbox = try MessageOutboxEntity
                 .filter(Column("session_id") == id)
                 .fetchAll(db)
             // #EXP-1954: a sealed own row draws its opened text (or the locked
             // copy), and the outbox and handoff matches compare plaintext.
             let bodies = Dictionary(
-                rows.map { ($0.id, SealedMessage.shownBody($0.body, rootId: $0.rootId)) },
+                (rows + consumed).map { ($0.id, SealedMessage.shownBody($0.body, rootId: $0.rootId)) },
                 uniquingKeysWith: { first, _ in first }
             )
-            return (rows, bodies, outbox)
+            return (rows, consumed, bodies, outbox)
         }
         ownObservationTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
-                    for try await (rows, bodies, outbox) in observation.values(in: pool) {
+                    for try await (rows, consumed, bodies, outbox) in observation.values(in: pool) {
                         guard let self else { return }
                         let built = OwnPendingBubble.build(viewerId: viewerId, rows: rows, bodies: bodies, outbox: outbox)
                         if built.bubbles != self.ownPending { self.ownPending = built.bubbles }
-                        self.ownHandoffRows = rows.map { row in
+                        let handoffRow = { (row: MessageEntity) in
                             MessageDelivery.HandoffRow(
                                 id: row.id, authorKind: row.authorKind, authorId: row.authorId,
                                 body: bodies[row.id] ?? row.body,
                                 createdAt: row.createdAt, consumedAt: row.consumedAt, hasCard: row.card != nil
                             )
                         }
+                        self.ownHandoffRows = rows.map(handoffRow)
+                        self.teammateConsumedRows = consumed.map(handoffRow)
                         self.reevaluateHandoff()
                         if !built.drop.isEmpty {
                             SessionOutbox.shared.remove(accountId: self.accountId, clientIds: built.drop, db: self.db)
@@ -2100,7 +2094,8 @@ final class AgentSessionModel {
     /// #FEED-237 HANDOFF (message-delivery.json): which consumed own rows
     /// still draw their own bubble: until the transcript's echo (a main-lane
     /// person row) appears, never with no feed (SENT INPUTS draws them
-    /// then), never longer than `handoffMaxMs` after the consume. Runs when
+    /// then), never longer than `handoffMaxMs` after the consume; and which
+    /// not-consumed ones it echoes already (ECHOED PENDING). Runs when
     /// the own rows or the feed change, and once more when the newest held
     /// row would expire.
     private func reevaluateHandoff() {
@@ -2114,14 +2109,21 @@ final class AgentSessionModel {
         }
         // Nothing consumed lately (or no feed): no feed walk at all.
         let recent = ownHandoffRows.contains { row in (consumedMs(row) ?? -Double.infinity) >= since }
-        var held: [OwnPendingBubble] = []
-        if recent, !feed.isEmpty, let viewerId = currentUserId {
-            var echoes: [MessageDelivery.HandoffEcho] = []
+        let pending = ownHandoffRows.contains { ($0.consumedAt ?? "").isEmpty }
+        var echoes: [MessageDelivery.HandoffEcho] = []
+        if recent || pending {
             for item in feed {
                 if case let .userMessage(_, text, subagentId, at) = item, subagentId == nil {
                     echoes.append(MessageDelivery.HandoffEcho(text: text, at: at.map { Double($0) }))
                 }
             }
+        }
+        let echoed = pending
+            ? Set(MessageDelivery.echoedPending(rows: ownHandoffRows + teammateConsumedRows, echoes: echoes))
+            : []
+        if echoed != ownEchoed { ownEchoed = echoed }
+        var held: [OwnPendingBubble] = []
+        if recent, !feed.isEmpty, let viewerId = currentUserId {
             let kept = MessageDelivery.ownHandoff(
                 viewerId: viewerId, nowMs: nowMs, feedEmpty: false, rows: ownHandoffRows, echoes: echoes
             )
