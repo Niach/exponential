@@ -22,6 +22,19 @@ final class SyncHealthTests: XCTestCase {
         return h
     }
 
+    /// #EXP-2135: an offline cold start says so at its first failed poll (the
+    /// chat's synced tail stands in at once), long before the banner's grace.
+    func testDisconnectedHasNoGrace() {
+        XCTAssertFalse(SyncDebug.disconnected(nil))
+        let failed = SyncDebug.recordTransportError(AccountHealth(), at: t0)
+        XCTAssertEqual(SyncDebug.health(of: failed, at: t0), .ok)
+        XCTAssertTrue(SyncDebug.disconnected(failed))
+        let back = SyncDebug.record(failed, httpStatus: 200, fromElectric: true, at: t0.addingTimeInterval(1))
+        XCTAssertFalse(SyncDebug.disconnected(back))
+        let unauthorized = SyncDebug.record(AccountHealth(), httpStatus: 401, fromElectric: true, at: t0)
+        XCTAssertFalse(SyncDebug.disconnected(unauthorized))
+    }
+
     func testNoNonSuccessClearsTheBanner() {
         let now = t0.addingTimeInterval(65)
         for status in [500, 502, 503, 504, 400, 409, 426, 304, 302, 0] {

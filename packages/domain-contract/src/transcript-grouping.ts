@@ -4,6 +4,7 @@
 // `domain::transcript_grouping`, iOS ExpCore `TranscriptGrouping.swift`,
 // Android `domain/TranscriptGrouping.kt`.
 
+import contract from "../contract.json" with { type: "json" }
 import fixture from "../fixtures/transcript-grouping.json" with { type: "json" }
 
 export const TRANSCRIPT_LAYOUT = fixture.layout
@@ -180,6 +181,14 @@ const MEMBER_PATTERN = /^Message from (.+?) \(member ([^,)\s]+)\): ([\s\S]*)$/
  *  agent and the transcript know who wrote it. */
 export function memberInput(name: string, userId: string, body: string): string {
   return `Message from ${name} (member ${userId}): ${body}`
+}
+
+/** #FEED-312 (`memberCommandCases`): the body is one of the composer's builtin
+ *  commands, which the device acts on: never worded as a member's line. */
+export function isSteerCommand(body: string): boolean {
+  const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(body.trim())
+  const command = match && contract.steerCommands.commands.find((entry) => entry.name === match[1])
+  return !!command && (!match[2] || command.argHint !== ``)
 }
 
 const MARKERS = fixture.copy.markers as Record<string, string>
