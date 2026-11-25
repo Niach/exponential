@@ -8,7 +8,7 @@ on one disk. On 2026-11-12 GlitchTip's debug-file uploads filled it to 100%
 | --- | --- | --- |
 | Upload only what symbolication reads: an ELF with DWARF goes up as its zlib-compressed debug sections (`objcopy --only-keep-debug --compress-debug-sections=zlib`, same build-id, identical lookups in GlitchTip's `symbolic`) | `.github/scripts/glitchtip-debug-files.sh` | every upload |
 | Delete upload chunks an hour after the upload (GlitchTip waits 24 h) | Coolify service `glitchtip` → scheduled task `glitchtip-chunks`: `python /ops/glitchtip_maintenance.py chunks` in `worker` | hourly, :07 |
-| Keep the newest 3 debug files per family (project, file name without cargo's `-<hash>`, arch, ELF/Mach-O/PDB), nothing younger than 2 days goes | scheduled task `glitchtip-dif-retention`: `GLITCHTIP_DIF_KEEP=3 python /ops/glitchtip_maintenance.py retention` | daily, 03:40 UTC |
+| Keep desktop, CLI, iOS and Android debug files of versions at or above `CLIENT_MIN_VERSION_*` (`/api/version`) and of the last 2 releases; eDE the newest 3 per family. Unknown files stay; a missing floor refuses the run (#EXP-2147, the rules are the script's docstring) | scheduled task `glitchtip-dif-retention`: `GLITCHTIP_DIF_KEEP=3 python /ops/glitchtip_maintenance.py retention --apply` | daily, 03:40 UTC |
 | Alert at 80% used | Coolify → server `hetzner-1`: disk-usage notification threshold 80, checked `*/10 * * * *`, mailed to the team's members | every 10 min, at most one mail a day |
 | Build cache ≤ 5 GB, dangling images; first aid at 90% (chunks now, unused images > 1 day, journal to 100 MB) | `disk-keeper.sh`, root systemd timer `exp-disk-keeper` (`install-disk-keeper.sh`) | every 15 min |
 | Journal ≤ 200 MB | `/etc/systemd/journald.conf.d/exp-size.conf` (`install-disk-keeper.sh`) | always |
@@ -19,20 +19,22 @@ on one disk. On 2026-11-12 GlitchTip's debug-file uploads filled it to 100%
 (`/data/coolify/services/<glitchtip>/ops/glitchtip_maintenance.py`, declared
 as a bind in the service compose). To change it: edit it here, update the
 storage's content in Coolify (Service → worker → Storages, or `coolify service
-storage update`), restart the service. `--dry-run` prints what it would
-delete:
+storage update`), restart the service. Without `--apply` it only prints what
+it would delete:
 
 ```
-ssh root@<hetzner-1> docker exec worker-<glitchtip> python /ops/glitchtip_maintenance.py retention --dry-run
+ssh root@<hetzner-1> docker exec worker-<glitchtip> python /ops/glitchtip_maintenance.py retention
 ```
 
 `GLITCHTIP_DIF_KEEP` (script default 5) and `GLITCHTIP_DIF_MIN_AGE_DAYS`
-(default 2) tune the retention. The worker has NO such env vars: they are set
-inline in the scheduled task's command (`GLITCHTIP_DIF_KEEP=3 python ...`,
-since 2026-11-13, #ERR-21), so change them there. Three releases cover the
-desktop versions events still arrive from; an older build's crash keeps its
-addresses, unsymbolicated. The minimum age wins over KEEP: at several
-releases a day, everything of the last two days stays.
+(default 2) tune eDE's retention. The worker has NO such env vars: they are set
+inline in the scheduled task's command (since 2026-11-13, #ERR-21), so change
+them there. A build below the floor gets HTTP 426, so its crashes lose only
+their symbols. Raising a floor is what frees the disk: with the floor at the
+newest desktop release, two releases ≈ 5 GB stay. Tests:
+`python3 .github/hetzner/test_glitchtip_maintenance.py`.
+
+The memory watch (`MEMORY_WATCH=on` on prod web) also mails below 15 GB free.
 
 Budget (2026-11-13, #ERR-21): a tag uploads only the binary it builds, so
 nothing is uploaded twice. `build-desktop.yml` (`desktop-v*`, `-p app`)
