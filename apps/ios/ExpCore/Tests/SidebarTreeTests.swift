@@ -59,8 +59,7 @@ final class SidebarTreeTests: XCTestCase {
         let copy = try XCTUnwrap(fixture["copy"] as? [String: String])
         typealias C = SidebarTree.Copy
         for (key, value) in [
-            "teams": C.teams, "newTeam": C.newTeam, "joinTeam": C.joinTeam, "new": C.new,
-            "board": C.newBoard, "agent": C.newAgent, "app": C.newApp, "settings": C.settings,
+            "teams": C.teams, "newTeam": C.newTeam, "joinTeam": C.joinTeam,
         ] {
             XCTAssertEqual(copy[key], value, key)
         }
@@ -103,31 +102,39 @@ final class SidebarTreeTests: XCTestCase {
         }
     }
 
-    func testPhoneTeamMenu() throws {
+    func testPhoneRows() throws {
         let phone = try XCTUnwrap(try fixture()["phone"] as? [String: Any])
-        for c in try cases(phone["teamMenu"]) {
+        for c in try cases(phone["rows"]) {
             let name = try string(c, "name")
-            let got = SidebarTree.phoneTeamMenu(owner: try XCTUnwrap(c["owner"] as? Bool)).map { entry -> [String: Any] in
-                ["id": entry.id.rawValue, "children": entry.children.map(\.rawValue)]
+            let teams = try XCTUnwrap(c["teams"] as? [[String: Any]]).map { team in
+                SidebarTree.PhoneTeam(
+                    id: try string(team, "id"), items: try items(team["items"]), entries: try entries(team["entries"]),
+                    open: try XCTUnwrap(team["open"] as? Bool),
+                    closedFolders: Set(try XCTUnwrap(team["closedFolders"] as? [String]))
+                )
             }
-            let expected = try XCTUnwrap(c["expected"] as? NSArray)
-            XCTAssertEqual(got as NSArray, expected, name)
+            let got = SidebarTree.phoneTreeRows(teams).map { row -> [String: Any] in
+                [
+                    "kind": row.kind.rawValue, "id": row.id, "teamId": row.teamId, "depth": row.depth,
+                    "name": row.name.map { $0 as Any } ?? NSNull(), "open": row.open, "count": row.count,
+                ]
+            }
+            XCTAssertEqual(got as NSArray, try XCTUnwrap(c["expected"] as? NSArray), name)
         }
     }
 
-    func testPhonePage() throws {
+    func testPhoneEmpty() throws {
         let phone = try XCTUnwrap(try fixture()["phone"] as? [String: Any])
-        for c in try cases(phone["page"]) {
-            let name = try string(c, "name")
-            let got = SidebarTree.phoneTeamPage(
-                items: try items(c["items"]), entries: try entries(c["entries"]), folderId: c["folderId"] as? String
-            )
-            let json: Any = got.map { rows in
-                rows.map { row -> [String: Any] in
-                    ["kind": row.kind.rawValue, "id": row.id, "name": row.name.map { $0 as Any } ?? NSNull()]
-                } as NSArray
-            } ?? NSNull()
-            XCTAssertEqual(json as? NSObject, c["expected"] as? NSObject, name)
+        for c in try cases(phone["empty"]) {
+            let teams = try XCTUnwrap(c["teams"] as? [[String: Any]]).map {
+                (id: try string($0, "id"), count: try XCTUnwrap($0["count"] as? Int))
+            }
+            XCTAssertEqual(SidebarTree.phoneTeamsEmpty(teams), c["expected"] as? String, try string(c, "name"))
         }
+    }
+
+    func testTeamOpenKey() throws {
+        let keys = try XCTUnwrap(try fixture()["openKeys"] as? [String: String])
+        XCTAssertEqual(SidebarTree.teamOpenKey("t"), keys["team"]?.replacingOccurrences(of: "{teamId}", with: "t"))
     }
 }

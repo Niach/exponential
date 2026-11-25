@@ -1656,7 +1656,7 @@ fn instructions(ink: &Ink, chrome: &Chrome) -> Value {
 
 /// The Assistant's identity: the brand mark, 36 px (never a
 /// stored icon, web `AssistantMark size-9`) + the name.
-fn assistant_identity(ink: &Ink, chrome: &Chrome) -> Value {
+fn assistant_identity(ink: &Ink) -> Value {
     let mark = json!({"id": "assistant_mark", "component": "Box", "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "width": 36, "height": 36, "flexShrink": 0, "borderRadius": 9999},
         "children": [{"id": "assistant_mark_icon", "component": "Icon", "props": {"name": "brand-exponential"}, "style": {"width": 36, "height": 36, "color": ink.foreground}}]});
     let name = json!({"id": "assistant_name", "component": "Input", "props": {"variant": "bare", "label": "Name", "name": "name", "placeholder": AGENT_SETTINGS.copy.name_placeholder.clone(), "value": path("/pane/fields/name")}, "style": {"flexGrow": 1, "minWidth": 0}});
@@ -1711,7 +1711,7 @@ fn document(ink: &Ink, chrome: &Chrome, wake_placeholder: &str, teams: &[(String
     // Identity: the team agent's icon + colour + name, or the Assistant's mark + name.
     let mut agent_identity = identity(ink);
     agent_identity["visible"] = path("/pane/agentPage");
-    let mut mark_identity = assistant_identity(ink, chrome);
+    let mut mark_identity = assistant_identity(ink);
     mark_identity["visible"] = path("/pane/assistant");
     let identity_group = ink.group("identity_group", vec![agent_identity, mark_identity]);
     // Runs on: device, account, model, skills, MCP servers (members read).

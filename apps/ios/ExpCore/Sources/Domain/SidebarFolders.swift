@@ -7,8 +7,8 @@ import Foundation
 ///
 /// One synced `sidebar_layout` row per (member, team, section) node: a FOLDER
 /// (a name, never navigable) or an ITEM entry placing one board, agent or app,
-/// optionally inside a folder. Two layers max. Phones only READ the layout
-/// (`tree` + `rows`); `move` / `ungroup` are mirrored for the fixture replay.
+/// optionally inside a folder. Two layers max. Phones never drag; their row
+/// menus move, group and ungroup (`SidebarMenus`).
 public enum SidebarFolders {
     public static let sections = ["board", "agent", "app"]
     public static let defaultFolderName = "New folder"
@@ -93,6 +93,16 @@ public enum SidebarFolders {
         public var name: String?
         public var open: Bool
         public var count: Int
+
+        public init(kind: Kind, id: String, depth: Int, group: Bool, name: String?, open: Bool, count: Int) {
+            self.kind = kind
+            self.id = id
+            self.depth = depth
+            self.group = group
+            self.name = name
+            self.open = open
+            self.count = count
+        }
     }
 
     private static func ordered(_ a: Entry, _ b: Entry) -> Bool {
@@ -242,6 +252,44 @@ public enum SidebarFolders {
               case let .folder(_, _, children) = tree[index] else { return nil }
         tree.replaceSubrange(index ... index, with: children.map { Node.item(id: $0) })
         return materialize(tree, entries, [folderId], nil)
+    }
+
+    /// Move to folder › New folder (TS `sidebarMoveToNewFolder`): a NEW folder
+    /// holding the item alone, at its place (an item inside a folder: right
+    /// after that folder, deleted when emptied). Nil = no such item.
+    public static func moveToNewFolder(items: [String], entries: [Entry], id: String, newFolderId: String) -> Writes? {
+        var tree = tree(items: items, entries: entries)
+        guard let found = locate(tree, id), case .item = found.node else { return nil }
+        let folder = Node.folder(id: newFolderId, name: defaultFolderName, children: [id])
+        var deletes: [String] = []
+        if let at = found.folder {
+            removeChild(&tree, folder: at, id)
+            tree.insert(folder, at: at + 1)
+            if case let .folder(source, _, children) = tree[at], children.isEmpty {
+                tree.remove(at: at)
+                deletes.append(source)
+            }
+        } else if let at = tree.firstIndex(where: { $0.id == id }) {
+            tree[at] = folder
+        }
+        return materialize(tree, entries, deletes, newFolderId)
+    }
+
+    /// The entries after `writes` (the optimistic overlay, web
+    /// `applySidebarWrites`).
+    public static func apply(_ writes: Writes, to entries: [Entry]) -> [Entry] {
+        var out = entries.filter { !writes.deletes.contains($0.id) }
+        for write in writes.upserts {
+            let at = out.firstIndex { entry in
+                write.id.map { $0 == entry.id } ?? (entry.kind == .item && entry.targetId == write.targetId)
+            }
+            let entry = Entry(
+                id: at.map { out[$0].id } ?? write.id ?? "pending:\(write.targetId ?? "")", kind: write.kind,
+                targetId: write.targetId, parentId: write.parentId, name: write.name, sortOrder: write.sortOrder
+            )
+            if let at { out[at] = entry } else { out.append(entry) }
+        }
+        return out
     }
 
     /// A folder name as saved: trimmed, at most 80 characters, empty = default.

@@ -15,11 +15,6 @@ public enum SidebarTree {
         public static let teams = "Teams"
         public static let newTeam = "New team"
         public static let joinTeam = "Join team"
-        public static let new = "New"
-        public static let newBoard = "Board"
-        public static let newAgent = "Agent"
-        public static let newApp = "App"
-        public static let settings = "Settings"
     }
 
     /// The Teams header's + menu (`teamsMenu`).
@@ -106,61 +101,97 @@ public enum SidebarTree {
             + placed.map { TeamItem(id: $0.id, kind: .session) }
     }
 
+    // MARK: - Open keys
+
+    /// The device-local expanded flag of a team (`openKeys.team`); no flag = OPEN.
+    public static func teamOpenKey(_ teamId: String) -> String { "sidebar-team-open:\(teamId)" }
+
     // MARK: - `phone`
 
-    public enum MenuItem: String, Sendable { case new, settings }
-
-    public struct MenuEntry: Equatable, Sendable {
-        public let id: MenuItem
-        public let children: [ItemKind]
-    }
-
-    /// A phone team page's `…` menu (TS `phoneTeamMenu`).
-    public static func phoneTeamMenu(owner: Bool) -> [MenuEntry] {
-        (owner ? [MenuEntry(id: .new, children: [.board, .agent, .app])] : [])
-            + [MenuEntry(id: .settings, children: [])]
-    }
-
-    public enum RowKind: Equatable, Sendable {
-        case folder
+    public enum RowKind: Equatable, Hashable, Sendable {
+        case team, folder
         case item(ItemKind)
 
         public var rawValue: String {
             switch self {
+            case .team: "team"
             case .folder: "folder"
             case let .item(kind): kind.rawValue
             }
         }
     }
 
-    public struct PhoneRow: Equatable, Sendable, Identifiable {
+    /// One row of the Teams tab (TS `PhoneTreeRow`).
+    public struct PhoneRow: Equatable, Hashable, Sendable, Identifiable {
         public let kind: RowKind
         public let id: String
-        /// A folder's name; nil on an item.
+        public let teamId: String
+        public let depth: Int
+        /// A folder's name; nil on the rest.
         public let name: String?
+        public let open: Bool
+        public let count: Int
+
+        public init(kind: RowKind, id: String, teamId: String, depth: Int, name: String?, open: Bool, count: Int) {
+            self.kind = kind
+            self.id = id
+            self.teamId = teamId
+            self.depth = depth
+            self.name = name
+            self.open = open
+            self.count = count
+        }
     }
 
-    /// One page of the Teams tab (TS `phoneTeamPage`): a team's top level
-    /// (`folderId` nil) or a folder's children; nil = the folder is gone.
-    public static func phoneTeamPage(
-        items: [TeamItem], entries: [SidebarFolders.Entry], folderId: String?
-    ) -> [PhoneRow]? {
-        let kinds = Dictionary(items.map { ($0.id, $0.kind) }, uniquingKeysWith: { _, b in b })
-        func row(_ id: String) -> PhoneRow? {
-            kinds[id].map { PhoneRow(kind: .item($0), id: id, name: nil) }
+    public struct PhoneTeam: Sendable {
+        public let id: String
+        public let items: [TeamItem]
+        public let entries: [SidebarFolders.Entry]
+        public let open: Bool
+        public let closedFolders: Set<String>
+
+        public init(id: String, items: [TeamItem], entries: [SidebarFolders.Entry], open: Bool, closedFolders: Set<String>) {
+            self.id = id
+            self.items = items
+            self.entries = entries
+            self.open = open
+            self.closedFolders = closedFolders
         }
-        let tree = SidebarFolders.tree(items: items.map(\.id), entries: entries)
-        guard let folderId else {
-            return tree.compactMap { node in
-                switch node {
-                case let .folder(id, name, _): PhoneRow(kind: .folder, id: id, name: name)
-                case let .item(id): row(id)
+    }
+
+    /// THE Teams tab (TS `phoneTreeRows`): the teams in order, each its row
+    /// and, while open, its nodes one level deeper.
+    public static func phoneTreeRows(_ teams: [PhoneTeam]) -> [PhoneRow] {
+        teams.flatMap { team -> [PhoneRow] in
+            let kinds = Dictionary(team.items.map { ($0.id, $0.kind) }, uniquingKeysWith: { _, b in b })
+            let rows = SidebarFolders.rows(
+                SidebarFolders.tree(items: team.items.map(\.id), entries: team.entries)
+            ) { !team.closedFolders.contains($0) }
+            let head = PhoneRow(
+                kind: .team, id: team.id, teamId: team.id, depth: 0, name: nil, open: team.open,
+                count: rows.filter { $0.depth == 0 }.count
+            )
+            guard team.open else { return [head] }
+            return [head] + rows.compactMap { row in
+                let kind: RowKind
+                if row.kind == .folder {
+                    kind = .folder
+                } else if let item = kinds[row.id] {
+                    kind = .item(item)
+                } else {
+                    return nil
                 }
+                return PhoneRow(
+                    kind: kind, id: row.id, teamId: team.id, depth: row.depth + 1, name: row.name, open: row.open,
+                    count: row.count
+                )
             }
         }
-        for node in tree {
-            if case let .folder(id, _, children) = node, id == folderId { return children.compactMap(row) }
-        }
-        return nil
+    }
+
+    /// The team whose empty state the Teams tab shows (TS `phoneTeamsEmpty`):
+    /// the viewer's only team, without a node.
+    public static func phoneTeamsEmpty(_ teams: [(id: String, count: Int)]) -> String? {
+        teams.count == 1 && teams[0].count == 0 ? teams[0].id : nil
     }
 }

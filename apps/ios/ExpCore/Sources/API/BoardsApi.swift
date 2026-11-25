@@ -269,6 +269,11 @@ public extension BoardsApi {
         try await trpc.query(accountId: accountId, path: "boards.listDeleted", input: TeamIdInput(teamId: teamId))
     }
 
+    /// `boards.archive` (owner-only).
+    func archive(accountId: String, boardId: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "boards.archive", input: BoardIdInput(boardId: boardId))
+    }
+
     /// `boards.unarchive` (owner-only).
     func unarchive(accountId: String, boardId: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "boards.unarchive", input: BoardIdInput(boardId: boardId))
