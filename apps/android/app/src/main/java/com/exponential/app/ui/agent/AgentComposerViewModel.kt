@@ -295,13 +295,6 @@ class AgentComposerViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    /** S-3: the picked team agent (null = Temporary session: today's
-     *  launch). It is NOT a subject (EXP-1450): the issue chips stay beside
-     *  it and ride the send as `issueIds`. Declared before [chatTeamIds],
-     *  which reads it (Kotlin initialises in declaration order). */
-    private val _recipient = MutableStateFlow<String?>(null)
-    val recipient: StateFlow<String?> = _recipient
-
     // ── #EXP-1715: the Assistant's Teams pick (composer-menu.json `teamsPick`)
     private val _teamsPick = MutableStateFlow<List<String>?>(null)
     /** The pick while the recipient is the viewer's Assistant; null = every team. */

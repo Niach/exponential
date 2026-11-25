@@ -862,19 +862,7 @@ fun AgentScreen(
                         // #EXP-2094: my Assistant's = the chat teams' issues
                         // (the `#` vocabulary, as the chat's + › Issue).
                         issues = if (toMyAssistant) {
-                            issueRefCandidates.map {
-                                IssueOption(
-                                    id = it.issueId,
-                                    identifier = it.identifier,
-                                    title = it.title,
-                                    repositoryId = null,
-                                    status = null,
-                                    priority = null,
-                                    description = it.description,
-                                    createdAt = it.createdAt,
-                                    updatedAt = it.updatedAt,
-                                )
-                            }
+                            issueRefCandidates.map(::issueOption)
                         } else {
                             pool
                         },
