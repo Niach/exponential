@@ -237,13 +237,13 @@ fn two_thousand_streamed_messages_cost_linear() {
 /// per child, then one layout. (apply time, layout time, the surface)
 fn streamed(n: usize) -> (Duration, Duration, Surface) {
     let mut s = Surface::new("t", SurfaceOptions::default());
-    s.apply(&json!({"createSurface": {"surfaceId": "t", "catalogId": CORE}})).unwrap();
+    s.apply(&json!({"version": "1.0", "createSurface": {"surfaceId": "t", "catalogId": CORE}})).unwrap();
     let ids: Vec<String> = (0..n).map(|i| format!("c{i}")).collect();
     s.set_viewport(400.0, 800.0, None);
     let t = cpu_now();
-    s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "root", "component": "List", "children": ids}]}})).unwrap();
+    s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "t", "components": [{"id": "root", "component": "List", "children": ids}]}})).unwrap();
     for i in 0..n {
-        s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": format!("c{i}"), "component": "Text", "text": format!("Row {i}")}]}})).unwrap();
+        s.apply(&json!({"version": "1.0", "updateComponents": {"surfaceId": "t", "components": [{"id": format!("c{i}"), "component": "Text", "text": format!("Row {i}")}]}})).unwrap();
     }
     let apply = cpu_now() - t;
     let t = cpu_now();

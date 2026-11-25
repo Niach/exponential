@@ -156,10 +156,10 @@ function streamingMessages(count: number): Record<string, unknown>[] {
   let cards = 0
   for (let k = 0; k < count; k++) {
     if (k % 2 === 0) {
-      out.push({ updateComponents: { surfaceId: `bench`, components: [...STREAM_ROOT(cards + 1).filter((c) => c.id === `transcript`), ...STREAM_MESSAGE(cards)] } })
+      out.push({ version: `1.0`, updateComponents: { surfaceId: `bench`, components: [...STREAM_ROOT(cards + 1).filter((c) => c.id === `transcript`), ...STREAM_MESSAGE(cards)] } })
       cards++
     } else {
-      out.push({ updateDataModel: { surfaceId: `bench`, path: `/status`, value: { label: `Working… step ${k} of ${count}`, progress: Math.round((100 * (k + 1)) / count) } } })
+      out.push({ version: `1.0`, updateDataModel: { surfaceId: `bench`, path: `/status`, value: { label: `Working… step ${k} of ${count}`, progress: Math.round((100 * (k + 1)) / count) } } })
     }
   }
   return out
@@ -426,7 +426,7 @@ export const SCENARIOS: readonly ScenarioDef[] = [
     data: { generate: { path: `/rows`, count: 1_000, item: { id: `row{i}`, name: `Member {i}`, role: `{i % 3}`, runs: `{i % 97}`, status: `{i % 2}` } } },
     steps: {
       scroll: { count: 20, by: `viewport` },
-      sort: { updateComponents: { surfaceId: `bench`, components: [{ id: `table`, component: `Table`, columns: TABLE_COLUMNS, rows: { "@path": `/rows` }, rowKey: `id`, striped: true, stickyHeader: true, sort: { key: `runs`, direction: `desc` }, style: { height: PHONE.height } }] } },
+      sort: { version: `1.0`, updateComponents: { surfaceId: `bench`, components: [{ id: `table`, component: `Table`, columns: TABLE_COLUMNS, rows: { "@path": `/rows` }, rowKey: `id`, striped: true, stickyHeader: true, sort: { key: `runs`, direction: `desc` }, style: { height: PHONE.height } }] } },
     },
     metrics: [
       FIRST_PAINT,

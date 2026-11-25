@@ -496,7 +496,7 @@ function BenchSuite(): Node {
   // A flat surface (list-100k, streaming, template-10k, table-1k) arrives as
   // the updateComponents it would be streamed in, applied before the attach
   // (the React harness's layout effect re-renders before its first paint).
-  if (`components` in scenario.surface) surface.apply({ updateComponents: { surfaceId: `bench`, components: scenario.surface.components } })
+  if (`components` in scenario.surface) surface.apply({ version: `1.0`, updateComponents: { surfaceId: `bench`, components: scenario.surface.components } })
   const el = surfaceEl({ surfaceId: `bench`, surface, plugin: { icons: harnessIcons }, theme: scenario.theme, mode: scenario.mode, width: scenario.viewport.width, viewportHeight: scenario.viewport.height })
   onAction(el, (e) => void window.__xuiLog.push({ action: e.name, componentId: e.componentId }))
   const rootEl = div(``, el)

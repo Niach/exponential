@@ -36,8 +36,8 @@ Without a server, call `apply()` to feed it A2UI 1.0 messages:
 ```js
 const el = document.createElement("exponential-surface")
 document.body.append(el)
-el.apply({ createSurface: { surfaceId: "main", catalogId } })
-el.apply({ updateComponents: { surfaceId: "main", components } })
+el.apply({ version: "1.0", createSurface: { surfaceId: "main", catalogId } })
+el.apply({ version: "1.0", updateComponents: { surfaceId: "main", components } })
 ```
 
 ## API

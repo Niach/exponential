@@ -20,7 +20,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use eui_core::catalog::{component_def, CatalogView};
 use eui_core::extension::define_extension;
 use eui_core::host::{
-    client_capabilities, combine_decisions, inference_format_of, messages_from_mcp_result_with, renderer_capabilities_with, ExpressDecoder, FrameDecoder, decide_function, decide_url, mcp_action_call, media_request, messages_from_mcp_result, parse_source,
+    client_capabilities, combine_decisions, inference_format_of, messages_from_mcp_result_with, renderer_capabilities_with, ExpressDecoder, FrameDecoder, decide_function, decide_url, media_request, messages_from_mcp_result, parse_source,
     source_with_params, supported_catalog_ids, validate_package, validate_record, Decoded, FunctionDecision, FunctionPolicy, HostRouter, JsonlDecoder, MediaOptions, RouteOptions, SseDecoder, UrlPolicy,
 };
 use eui_core::json;

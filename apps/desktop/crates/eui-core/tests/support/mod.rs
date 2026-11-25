@@ -7,7 +7,7 @@
 pub mod round2;
 
 use eui_core::host::{
-    client_capabilities, combine_decisions, decide_function, decide_url, mcp_action_call, media_request, messages_from_mcp_result, parse_source,
+    client_capabilities, combine_decisions, decide_function, decide_url, media_request, messages_from_mcp_result, parse_source,
     source_with_params, supported_catalog_ids, validate_package, validate_record, Decoded, FunctionDecision, FunctionPolicy, HostRouter, JsonlDecoder, MediaOptions, SseDecoder, UrlPolicy,
 };
 use eui_core::json;
