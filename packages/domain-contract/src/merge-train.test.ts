@@ -41,7 +41,7 @@ describe(`merge-train fixture`, () => {
     expect(mergeWait(input as never)).toBe(expected as never)
   })
   it.each(fixture.baseChecks)(`base checks: $name`, ({ input, expected }) => {
-    const { counted, reported } = baseChecks(input)
+    const { counted, reported } = baseChecks(input as never)
     expect({ counted: counted.map((check) => check.name), reported }).toEqual(expected)
   })
   it.each(fixture.gating.cases)(`gating: $name`, ({ input, expected }) => {
