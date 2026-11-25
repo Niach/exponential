@@ -651,21 +651,17 @@ final class AgentComposerModel {
     /// the report names no failure. EXP-1375: a machine that CAN start but
     /// is low on disk shows its disk row instead (a warning, never a block).
     var notReadyRow: DeviceReadiness.Row? {
-        guard let device, let doctor = device.doctor else { return nil }
+        // A picked agent's chat runs on the agent's own device and login.
+        guard agentId == nil, let device, let doctor = device.doctor else { return nil }
         guard agentNotReady else { return DeviceReadiness.warningRow(doctor, remote: true) }
         return DeviceReadiness.failingRow(
             doctor, agent: launch.agent, remote: true
         )
     }
 
-    /// The "nothing to start on" hint, the signed-out-agents case (EXP-409)
-    /// first because it names an actionable fix.
+    /// The "nothing to start on" hint.
     var noDeviceNote: String {
-        let signedOut = signedOutAgentNames.joined(separator: ", ")
-        if !signedOut.isEmpty {
-            return "\(signedOut) not signed in on your machines. Sign in on the machine first."
-        }
-        return "No desktop online. Open the Exponential desktop app to start a session."
+        LaunchVocabulary.noDeviceNote(agent: launch.agent, devices: devicesModel.devices ?? [])
     }
 
     /// EXP-836: why the machine a ▶ seed NAMED is not the one this session
@@ -677,13 +673,6 @@ final class AgentComposerModel {
             resolved: device?.deviceId,
             devices: devicesModel.devices
         )
-    }
-
-    /// The agents installed-but-signed-out across the caller's ONLINE
-    /// machines (EXP-409), in contract order.
-    private var signedOutAgentNames: [String] {
-        let reported = Set((devicesModel.devices ?? []).filter(\.isOnline).flatMap(\.unauthedAgentIds))
-        return DomainContract.codingAgentValues.filter { reported.contains($0) }
     }
 
     // MARK: - Gates

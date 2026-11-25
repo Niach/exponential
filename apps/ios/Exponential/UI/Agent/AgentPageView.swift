@@ -8,7 +8,7 @@ import SwiftUI
 /// `AgentComposerHeadline`: the contract verb plus the issue chips, or the
 /// prompt / agent chip); the composer card (`AgentComposerCard`, placeholder
 /// "What do you want to build?", the starting row after Start); the `@`/`:`
-/// candidate menu under it (S-3: no options line, the "+" holds the runner).
+/// candidate menu over it (S-3: no options line, the "+" holds the runner).
 /// EXP-1316 (composer-home.json `phone`): the column is pinned to the BOTTOM
 /// (riding the keyboard), the dawn standing on the card; Getting started (no
 /// board yet) sits above the dawn; no Running list — the Chats tab lists
@@ -123,22 +123,23 @@ struct AgentPageView: View {
                                     apply: { composer.draftText = $0 }
                                 )
                                 .overlay(alignment: .top) {
-                                    if !composer.draftEditor.showsAutocompleteMenu, slashMenuVisible(composer) {
-                                        Color.clear.frame(height: 0).overlay(alignment: .bottom) {
-                                            slashMenu(composer)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                                .padding(.bottom, 4)
+                                    Color.clear.frame(height: 0).overlay(alignment: .bottom) {
+                                        Group {
+                                            if composer.draftEditor.showsAutocompleteMenu {
+                                                // EXP-802: the `@`/`#`/`:` menu; its
+                                                // picks keep first responder. Over the
+                                                // card too: under it, it sat behind
+                                                // the keyboard.
+                                                EditorAutocompleteMenu(model: composer.draftEditor)
+                                            } else if slashMenuVisible(composer) {
+                                                slashMenu(composer)
+                                            }
                                         }
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .padding(.bottom, 4)
                                     }
                                 }
                             }
-                        }
-                        // EXP-802: the same `@`/`#`/`:` menu the comment
-                        // composer mounts, under the card — picks route
-                        // through the draft editor, which keeps first
-                        // responder, so the keyboard never drops.
-                        if composer.draftEditor.showsAutocompleteMenu {
-                            EditorAutocompleteMenu(model: composer.draftEditor)
                         }
                         captions(composer)
                     }

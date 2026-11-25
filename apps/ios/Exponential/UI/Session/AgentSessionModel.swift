@@ -1048,6 +1048,11 @@ final class AgentSessionModel {
     /// #EXP-1975: the synced tail's row ids → their message ids.
     @ObservationIgnored private var syncedTailMessageIds: [Int: String] = [:]
 
+    /// This client cannot reach the server (`SyncDebug.disconnected`).
+    @ObservationIgnored var clientOffline = false {
+        didSet { if oldValue != clientOffline { refreshSyncedTail() } }
+    }
+
     /// #FEED-260: an input of the synced tail moved (the phase, the host's
     /// presence, the history fetch, the own bubbles, the synced messages).
     private func refreshSyncedTail() {
@@ -1065,8 +1070,9 @@ final class AgentSessionModel {
         let own = Set(ownBubbles.compactMap(\.messageId))
         // An EMPTY feed takes it only while the live transcript cannot be
         // loaded (#EXP-2138: the last dial said NO FEED, whatever the row): a
-        // device still being dialled may hold it.
-        let unreachable = SteerNoFeed.tailUnreachable(
+        // device still being dialled may hold it. This client's lost
+        // connection is one too: no replay can arrive.
+        let unreachable = clientOffline || SteerNoFeed.tailUnreachable(
             ended: sessionEnded,
             noFeed: phase == .starting || history == .deviceOffline,
             deviceOffline: hostDevice.offline

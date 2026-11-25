@@ -99,7 +99,7 @@ export const mcpClientsRouter = router({
   /** Revoke a client: your own (no `userId`), or (an owner) a member's
    * whose grant reaches the team. */
   revoke: authedProcedure
-    .input(z.object({ clientId: z.string().min(1).max(255), teamId: uuid, userId: z.string().min(1).optional() }))
+    .input(z.object({ clientId: z.string().min(1).max(2048), teamId: uuid, userId: z.string().min(1).optional() }))
     .mutation(async ({ ctx, input }) => {
       const me = await getTeamMember(ctx.session.user.id, input.teamId)
       if (!me) throw new TRPCError({ code: `NOT_FOUND`, message: `Team not found` })

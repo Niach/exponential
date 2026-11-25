@@ -11,7 +11,8 @@ import SwiftUI
 /// `merge-now-pr` alert, `titleStack` in an open stack) and Close PR
 /// (close-pr.json's confirm); an `approval` ready PR's press is Needs
 /// approval (THE pill's plain or stack confirm; Merge queues it, Cancel
-/// leaves the row), never the chat.
+/// leaves the row), never the chat. #FEED-298 (needs-you.json DISMISS): a
+/// plan's or question's Dismiss runs THE answer path (`dismissed: true`).
 struct NeedsYouPage: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(SessionListsModel.self) private var lists
@@ -53,7 +54,8 @@ struct NeedsYouPage: View {
                             Task { pushRoute(await AppRoute.openingNeedsYou(row, accountId: accountId, deps: deps)) }
                         }
                     },
-                    onAction: { row, action in run(action, on: row) }
+                    onAction: { row, action in run(action, on: row) },
+                    onDismiss: dismiss
                 ) {
                     LivePendingInstalls()
                 }
@@ -140,6 +142,24 @@ struct NeedsYouPage: View {
         }
     }
 
+    /// #FEED-298: a plan's or question's Dismiss, at once (no confirm, like
+    /// the card's ×), the chat card's call; a failure is THE toast.
+    private func dismiss(_ row: NeedsYou.Row) {
+        let api = deps.sessionsApi
+        let accountId = accountId
+        let toaster = toaster
+        Task {
+            do {
+                try await api.dismissCard(accountId: accountId, messageId: row.messageId)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "dismiss", thing: "the card"),
+                    description: error.userFacingMessage
+                )
+            }
+        }
+    }
+
     /// A stuck row's buttons.
     private func run(_ action: MergeTrain.StuckRow.Action, on row: NeedsYou.Row) {
         switch action {
@@ -165,6 +185,7 @@ struct NeedsYouPageContent<Band: View>: View {
     var pendingInstalls = 0
     let onOpen: (NeedsYou.Row) -> Void
     var onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)?
+    var onDismiss: ((NeedsYou.Row) -> Void)?
     @ViewBuilder var band: () -> Band
 
     var body: some View {
@@ -180,7 +201,7 @@ struct NeedsYouPageContent<Band: View>: View {
                         band()
                     }
                     if !rows.isEmpty {
-                        NeedsYouList(rows: rows, onOpen: onOpen, onAction: onAction)
+                        NeedsYouList(rows: rows, onOpen: onOpen, onAction: onAction, onDismiss: onDismiss)
                     }
                 }
                 .padding(.horizontal, 16)

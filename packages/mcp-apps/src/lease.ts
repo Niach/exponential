@@ -12,10 +12,14 @@
 //   - the host refused the view's FIRST `tools/call` (a JSON-RPC error from
 //     the host, `HostRefusal`; a server error is a result with `isError`, and
 //     a throttle is retried, actions.tsx).
+// #NEW-141: what the view READ itself while it was live (assignee names, an
+// app's records) is kept beside the screen and answers the same reads once it
+// expired, so the kept screen draws whole. A write never runs.
 // A result that arrives late makes the view live again.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { HostRefusal, type HostContext, type ToolResult } from "./bridge"
+import { NOUN_READ_OPS, nounCall } from "./tool-names"
 
 export const EXPIRED_LINE = `This view expired · relaunch it from the chat`
 export const RESULT_WAIT_MS = 5_000
@@ -37,6 +41,16 @@ export function isLeaseRefusal(error: unknown): boolean {
  *  passes one (`hostContext.toolInfo.id`), else the view alone. */
 export function screenKey(view: string, toolCallId: string | number | null | undefined): string {
   return `${KEY_PREFIX}:${view}:${toolCallId === null || toolCallId === undefined ? `` : String(toolCallId)}`
+}
+
+/** The key a read's answer is kept under, null for a write. */
+export function readKey(screen: string, name: string, args: Record<string, unknown>): string | null {
+  const target = nounCall(name, args)
+  const { op, ...rest } = target.args
+  const reads = NOUN_READ_OPS[target.name.replace(/^exponential_/, ``)]
+  if (typeof op !== `string` || !reads?.includes(op)) return null
+  const sorted = Object.entries(rest).sort(([a], [b]) => (a < b ? -1 : 1))
+  return `${screen}:${target.name}:${op}:${JSON.stringify(sorted)}`
 }
 
 function storage(): Storage | null {
@@ -78,8 +92,8 @@ export interface ViewLease<S> {
   onToolResult: () => void
   /** Keeps `screen` as the call's last screen (data screens only). */
   keep: (screen: S) => void
-  /** Wraps the bridge's `callTool`: expired = no call; a refused first call
-   *  expires the view. */
+  /** Wraps the bridge's `callTool`: expired = no call, a kept read's
+   *  answer; a refused first call expires the view. */
   guard: (call: (name: string, args: Record<string, unknown>) => Promise<ToolResult>) => (name: string, args: Record<string, unknown>) => Promise<ToolResult>
   /** For handlers that outlive a render. */
   isExpired: () => boolean
@@ -133,13 +147,24 @@ export function useViewLease<S>(view: string, waits: { result?: number; running?
       if (!state.current.expired) saveScreen(screenKey(view, state.current.toolCallId), screen)
     },
     guard: (call) => async (name, args) => {
-      if (state.current.expired) throw new HostRefusal(EXPIRED_LINE)
+      const read = readKey(screenKey(view, state.current.toolCallId), name, args)
+      const kept = () => (read ? loadScreen<ToolResult>(read) : null)
+      if (state.current.expired) {
+        const answer = kept()
+        if (answer) return answer
+        throw new HostRefusal(EXPIRED_LINE)
+      }
       try {
         const result = await call(name, args)
         state.current.called = true
+        if (read && !result.isError) saveScreen(read, result)
         return result
       } catch (error) {
-        if (!state.current.called && isLeaseRefusal(error)) expire()
+        if (!state.current.called && isLeaseRefusal(error)) {
+          expire()
+          const answer = kept()
+          if (answer) return answer
+        }
         throw error
       }
     },

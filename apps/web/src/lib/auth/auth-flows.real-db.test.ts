@@ -9,7 +9,7 @@
 // and generic OIDC sign-in on the web and through the native handoff against
 // mock identity providers that only know the 1.6 callback URI (one without
 // PKCE, one advertising S256 whose token endpoint checks the verifier).
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { createServer, type Server } from "node:http"
 import { createHash, generateKeyPairSync, randomBytes, sign as signData, type KeyObject } from "node:crypto"
 import { readFileSync } from "node:fs"
@@ -109,6 +109,27 @@ const ready = await probeRealDb(`
 `)
 if (!ready.ok) console.info(`[auth-flows.real-db] skipped: ${ready.reason}`)
 
+// #NEW-141: the metadata documents, in place of the internet (Claude Code's
+// own document, on a test host).
+const CIMD_CLIENT = `https://client.example/oauth/claude-code-client-metadata`
+const cimdFetches: string[] = []
+vi.mock(`./client-metadata-fetch`, () => ({
+  clientMetadataFetch: () => async (input: string | URL) => {
+    const url = String(input)
+    if (url !== CIMD_CLIENT) return new Response(`not found`, { status: 404 })
+    cimdFetches.push(url)
+    return Response.json({
+      client_id: CIMD_CLIENT,
+      client_name: `Claude Code`,
+      client_uri: `https://client.example`,
+      redirect_uris: [`http://localhost/callback`, `http://127.0.0.1/callback`],
+      grant_types: [`authorization_code`, `refresh_token`],
+      response_types: [`code`],
+      token_endpoint_auth_method: `none`,
+    })
+  },
+}))
+
 const { db } = await import(`@/db/connection`)
 const { sql } = await import(`drizzle-orm`)
 const { auth } = await import(`@/lib/auth`)
@@ -116,6 +137,7 @@ const { Route: AuthRoute } = await import(`@/routes/api/auth/$`)
 const { Route: MobileStart } = await import(`@/routes/api/mobile-oauth-start`)
 const { Route: MobileReturn } = await import(`@/routes/api/mobile-oauth-return`)
 const { mcpGrantsRouter } = await import(`@/lib/trpc/mcp-grants`)
+const { authorizationServerMetadata } = await import(`@/lib/auth/mcp-metadata`)
 const { resolveMcpTokenAccess } = await import(`@/lib/emcp/scope`)
 const { revokeClient } = await import(`@/lib/emcp/revoke`)
 const { oauthResumeUrlFor } = await import(`./oauth-resume`)
@@ -359,6 +381,41 @@ describe.skipIf(!ready.ok)(`MCP OAuth (oauth-provider, the 1.6 paths aliased)`, 
     expect(await resolveMcpTokenAccess(second.access_token)).toBeNull()
     const dead = await token({ grant_type: `refresh_token`, refresh_token: second.refresh_token, client_id: clientId })
     expect(dead.ok).toBe(false)
+  })
+
+  it(`#NEW-141: signs in a client named by its metadata document (Claude Code's own), from first contact`, async () => {
+    const advertised = (await (await authorizationServerMetadata(new Request(`${BASE}/.well-known/oauth-authorization-server`))).json()) as Record<string, unknown>
+    expect(advertised.client_id_metadata_document_supported).toBe(true)
+    expect(advertised.registration_endpoint).toBeTruthy()
+
+    const { jar, userId } = await signedUp()
+    made.clients.push(CIMD_CLIENT)
+    const { verifier, challenge } = pkce()
+    const consentUrl = await toConsent(jar, CIMD_CLIENT, challenge)
+    const headers = new Headers({ cookie: jar.header, origin: BASE })
+    const caller = mcpGrantsRouter.createCaller({ session: await auth.api.getSession({ headers }), db, request: new Request(BASE, { headers }) } as never)
+    expect((await caller.consentInfo({ clientId: CIMD_CLIENT })).name).toBe(`Claude Code (client.example)`)
+    const callback = await consentAs(jar, consentUrl, CIMD_CLIENT)
+    // The loopback callback keeps the port of THIS run (RFC 8252).
+    expect(callback.origin + callback.pathname).toBe(REDIRECT)
+    const exchanged = await token({ grant_type: `authorization_code`, code: callback.searchParams.get(`code`)!, redirect_uri: REDIRECT, client_id: CIMD_CLIENT, code_verifier: verifier })
+    expect(exchanged.status).toBe(200)
+    const tokens = (await exchanged.json()) as { access_token: string; refresh_token: string }
+    expect(await resolveMcpTokenAccess(tokens.access_token)).toMatchObject({ userId, clientId: CIMD_CLIENT })
+    const refreshed = await token({ grant_type: `refresh_token`, refresh_token: tokens.refresh_token, client_id: CIMD_CLIENT })
+    expect(refreshed.status).toBe(200)
+    // One fetch for the whole flow.
+    expect(cimdFetches).toEqual([CIMD_CLIENT])
+    expect(await revokeClient(db, userId, CIMD_CLIENT)).toBeGreaterThan(0)
+
+    // A callback the document does not name is refused, on no redirect.
+    const evil = await call(`GET`, `/api/auth/oauth2/authorize?client_id=${encodeURIComponent(CIMD_CLIENT)}&response_type=code&code_challenge=${challenge}&code_challenge_method=S256&redirect_uri=${encodeURIComponent(`https://evil.test/cb`)}`)
+    expect(evil.headers.get(`location`) ?? ``).not.toContain(`evil.test/cb?`)
+    // A document that is not there registers nothing.
+    const missing = `https://client.example/missing.json`
+    await call(`GET`, `/api/auth/oauth2/authorize?client_id=${encodeURIComponent(missing)}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT)}`)
+    const rows = await db.execute<{ n: number }>(sql`SELECT count(*)::int AS n FROM oauth2_clients WHERE client_id = ${missing}`)
+    expect(rows.rows[0]!.n).toBe(0)
   })
 
   it(`keeps the apps resource on the consent page's signed query`, async () => {
