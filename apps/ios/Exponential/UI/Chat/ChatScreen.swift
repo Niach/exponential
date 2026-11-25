@@ -1640,14 +1640,18 @@ struct ChatComposer: View {
 
     /// #EXP-1715 (composer-menu.json `teamsPick`): the Teams pick while this
     /// composer writes into the viewer's OWN Assistant conversation ROOT (or
-    /// opens it); nil anywhere else, a child included (the server refuses a
-    /// scope there).
+    /// opens it), #EXP-2122 or a plain chat's root; nil anywhere else, a child
+    /// included (the server refuses a scope there).
     private var teamsPick: ComposerTeamsBinding? {
+        let teams = ComposerTeamsBinding.teams(teamState?.teams ?? [])
+        if sessionId == root?.id, let plain = ComposerTeamsBinding(
+            root: root, me: deps.auth.userId, draft: teamsDraft, teams: teams, onPick: { teamsDraft.pick($0) }
+        ) { return plain }
         guard AgentSettings.isMyAssistant(agentRow, me: deps.auth.userId),
               sessionId.isEmpty || sessionId == root?.id
         else { return nil }
         return ComposerTeamsBinding(
-            teams: ComposerTeamsBinding.teams(teamState?.teams ?? []),
+            teams: teams,
             picked: teamsPicked,
             onChange: { teamsDraft.pick($0) }
         )
