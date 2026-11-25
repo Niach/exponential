@@ -50,6 +50,19 @@ class LaunchDeviceRulesTest {
     }
 
     @Test
+    fun `the no-device note names only the picked agent`() {
+        val devices = listOf(device(agents = emptyList(), unauthed = listOf("codex")))
+        assertEquals(
+            "No desktop online. Open the Exponential desktop app to start a session.",
+            LaunchDeviceRules.noDeviceNote("claude", devices),
+        )
+        assertEquals(
+            "codex not signed in on your machines. Sign in on the machine first.",
+            LaunchDeviceRules.noDeviceNote("codex", devices),
+        )
+    }
+
+    @Test
     fun `the blocked caption names the reason, and only while online`() {
         assertNull(LaunchDeviceRules.blockedCaption(device()))
         // Offline is the last-seen caption's job, not this one's.
