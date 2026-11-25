@@ -630,7 +630,12 @@ private fun AuthenticatedNav(
     // #EXP-2136: the notice stack's height: the page ends above it, so it
     // never covers a composer. Under the keyboard there is no stack to clear.
     var noticesHeight by remember { mutableStateOf(0.dp) }
-    val noticesInset = if (imeVisible) 0.dp else noticesHeight
+    val noticesInset = when {
+        imeVisible || noticesHeight == 0.dp -> 0.dp
+        // The Assistant's composer ends 8 under the tabs' inset, the stack on it.
+        barVisible -> noticesHeight + 8.dp
+        else -> noticesHeight
+    }
 
     // #FEED-232: the Chats tab's count badge (`chatsBadge`), over every team.
     val chatsVm: ChatsViewModel = hiltViewModel()
