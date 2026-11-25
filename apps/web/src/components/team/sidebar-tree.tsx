@@ -22,7 +22,6 @@ import {
   Menu,
   MenuGestureHost,
   menuProps,
-  Prompt,
   SidebarGroup,
   SidebarGroupAction,
   SidebarGroupContent,
@@ -44,7 +43,6 @@ import type { Board, Team } from "@/db/schema"
 import type { ChatsListRow } from "@/lib/session-tree"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { sidebarLayoutCollection } from "@/lib/collections"
-import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { trpc } from "@/lib/trpc-client"
 import { cn } from "@/lib/utils"
 import { NEW_RUN_TAB, type WorkTab } from "@/lib/work-tabs"
@@ -70,11 +68,13 @@ import { NavCountBadge } from "@/components/team/sidebar-shared"
 import { DRAFTS_LABEL, NavDraftsIcon } from "@/components/team/sidebar-nav-entries"
 import { AssistantMark } from "@/components/team/assistant-mark"
 import {
+  headerMenuEntries,
   newTeamEntries,
   openHandlers,
   sidebarMenuEntries,
   SidebarPointerMenu,
 } from "@/components/team/sidebar-menus"
+import { useBoardArchive } from "@/components/team/board-archive"
 import { useAgentSends } from "@/components/chat/chat-menu"
 
 // #EXP-2027 (fixtures/sidebar-tree.json, its `$comment` is the spec): the
@@ -631,8 +631,8 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
   const { apps } = useApps(team.id)
   const openNewDraft = useOpenNewDraft(team.slug)
   // #EXP-2124 board Archive: the board settings' archive behind its confirm.
-  const [archiving, setArchiving] = useState<Board | null>(null)
-  const [archiveBusy, setArchiveBusy] = useState(false)
+  const here = active.teamSlug === team.slug
+  const boardArchive = useBoardArchive((board) => here && active.board === board.slug)
   // #FEED-239 / #EXP-1837 (`railAgents`): an app's agent shows as its app,
   // the Assistant never.
   const agentRows = useMemo(
@@ -676,7 +676,6 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
   // against the team's boards, agents and apps, else it is a session.
   const kindOf = (id: string): SidebarItemKind =>
     boardsById.has(id) ? `board` : agentsById.has(id) ? `agent` : appsById.has(id) ? `app` : `session`
-  const here = active.teamSlug === team.slug
   const base = `/t/${encodeURIComponent(team.slug)}`
   const tabTeam = { teamId: team.id, teamSlug: team.slug }
 
@@ -715,7 +714,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
               "new-issue": () => openNewDraft({ boardId: board.id }),
               move,
               settings: () => go(`${base}/settings/boards/${board.id}`),
-              archive: () => setArchiving(board),
+              archive: () => boardArchive.ask(board),
             })}
           />
         )
@@ -770,23 +769,11 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
     }
   }
 
-  const archive = async (board: Board) => {
-    setArchiveBusy(true)
-    try {
-      await trpc.boards.archive.mutate({ boardId: board.id })
-      setArchiving(null)
-      if (here && active.board === board.slug) void navigate({ to: `/home` })
-    } finally {
-      setArchiveBusy(false)
-    }
-  }
-  const archiveCopy = archiving ? WEB_PROMPTS.archiveBoard(archiving.name) : null
-
   const renderTeamRow = (itemProps: SidebarRowItemProps) => (
     <SidebarMenuItem {...itemProps} data-testid="sidebar-team-row" data-team-slug={team.slug}>
       <SidebarMenuButton
         density={density}
-        className={touch ? `pr-28!` : undefined}
+        className={touch ? `pr-36!` : `group-hover/menu-item:pr-18!`}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         {...menuProps(sidebarTeamMenuKind(team.id), team.id)}
@@ -802,18 +789,37 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
             title={NEEDS_YOU_COPY.entry}
             data-testid="sidebar-team-needs-you"
             className={
-              touch ? `mr-9` : `group-hover/menu-item:invisible group-has-[[data-state=open]]/menu-item:invisible`
+              touch ? `mr-18` : `group-hover/menu-item:invisible group-has-[[data-state=open]]/menu-item:invisible`
             }
           />
         )}
         <ChevronIcon className={cn(`size-4 transition-transform`, open && `rotate-90`)} />
       </SidebarMenuTrailing>
+      {/* header-actions.json `rows.team`: the +, then the `…`. */}
+      <Menu
+        align="start"
+        side="right"
+        aria-label={SIDEBAR_TREE_COPY.new}
+        title={team.name}
+        entries={newTeamEntries(team, owner, go)}
+        trigger={
+          <SidebarMenuAction
+            showOnHover
+            className={touch ? `inset-y-0 right-19 my-auto top-0!` : `right-12`}
+            title={SIDEBAR_TREE_COPY.new}
+            aria-label={`${SIDEBAR_TREE_COPY.new}: ${team.name}`}
+            data-testid="sidebar-team-new-button"
+          >
+            <AddIcon />
+          </SidebarMenuAction>
+        }
+      />
       <Menu
         align="start"
         side="right"
         aria-label={SIDEBAR_TREE_COPY.teamActions}
         title={team.name}
-        entries={teamMenuEntries()}
+        entries={headerMenuEntries(teamMenuEntries())}
         trigger={
           <SidebarMenuAction
             showOnHover
@@ -907,21 +913,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
         testId="sidebar-team-items"
         listProps={{ [SIDEBAR_TEAM_LIST_ATTR]: team.id }}
       />
-      {archiveCopy && archiving && (
-        <Prompt
-          open
-          onOpenChange={(next) => {
-            if (!next && !archiveBusy) setArchiving(null)
-          }}
-          busy={archiveBusy}
-          title={archiveCopy.title}
-          body={archiveCopy.body}
-          data-testid="sidebar-board-archive-confirm"
-          actions={promptActions(archiveCopy, {
-            archive: { busy: archiveBusy, onSelect: () => void archive(archiving) },
-          })}
-        />
-      )}
+      {boardArchive.dialog}
     </>
   )
 })

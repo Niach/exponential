@@ -16,7 +16,7 @@ export function MobilePageHeader({
 }: {
   title: ReactNode
   leading?: ReactNode
-  /** Extra circles before search. */
+  /** The page's own circles, after search and inbox. */
   trailing?: ReactNode
   className?: string
 }) {

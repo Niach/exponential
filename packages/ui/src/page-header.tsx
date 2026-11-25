@@ -36,7 +36,8 @@ export function PageHeader({
   title: ReactNode
   /** Before the title (Devices' back control). */
   leading?: ReactNode
-  /** Extra circles before search (rare). */
+  /** The page's own circles, after search and inbox (header-actions.json:
+   *  Teams' +). */
   trailing?: ReactNode
   /** The active team's unread notifications (0 = no badge). */
   inboxCount?: number
@@ -55,7 +56,6 @@ export function PageHeader({
       <h1 className="min-w-0 flex-1 truncate text-[34px] font-bold leading-tight tracking-tight">
         {title}
       </h1>
-      {trailing}
       <FabButton
         aria-label="Search"
         data-testid={CHATS_TEST_IDS.searchButton}
@@ -81,6 +81,7 @@ export function PageHeader({
           className="absolute -right-0.5 -top-0.5"
         />
       </FabButton>
+      {trailing}
     </div>
   )
 }

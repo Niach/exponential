@@ -14,6 +14,7 @@ import {
   type SidebarMenuInput,
   type SidebarMenuKind,
 } from "@exp/domain-contract/sidebar-menus"
+import { HEADER_MENU_DROPS } from "@exp/domain-contract/header-actions"
 import {
   conceptIcon,
   Menu,
@@ -94,6 +95,12 @@ export function sidebarMenuEntries(
     ]
   })
   return tidyMenuEntries(rows)
+}
+
+/** header-actions.json: a `…` beside a + = the menu without what the + does
+ *  (Open on the page itself and Move to folder go too). */
+export function headerMenuEntries(entries: readonly MenuEntry[]): MenuEntry[] {
+  return tidyMenuEntries(entries.filter((entry) => !HEADER_MENU_DROPS.includes(entry.id ?? ``)))
 }
 
 /** A row's pointer menu (`MenuGestureHost` session); a phone's leaves out

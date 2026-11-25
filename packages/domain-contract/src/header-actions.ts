@@ -25,10 +25,12 @@ export function orderHeaderActions(actions: readonly HeaderAction[]): HeaderActi
   return HEADER_ACTIONS_ORDER.filter((action) => actions.includes(action))
 }
 
+export const HEADER_MENU_DROPS = fixture.menuDrops as readonly string[]
+
 /** The `…` of a header: the page's menu without what the + does (and Open on
  *  the page itself), separators tidied; empty = no button. */
 export function headerMenu<T extends string>(entries: readonly T[]): T[] {
   return entries
-    .filter((entry) => !(fixture.menuDrops as string[]).includes(entry))
+    .filter((entry) => !HEADER_MENU_DROPS.includes(entry))
     .filter((entry, index, all) => entry !== `separator` || (index > 0 && index < all.length - 1 && all[index - 1] !== `separator`))
 }

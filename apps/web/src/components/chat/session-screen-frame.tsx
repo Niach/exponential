@@ -15,7 +15,7 @@ import {
   SegmentedControl,
   useIsMobile,
 } from "@exp/ui"
-import { HEADER_BUTTON_CLASS } from "@/components/team/mobile-detail-header"
+import { HEADER_ACTION_CLASS } from "@/components/team/mobile-detail-header"
 import { BackStackButton } from "@/components/chat/session-body"
 import { cn } from "@/lib/utils"
 
@@ -304,9 +304,9 @@ export function SessionScreenFrame({
           }
           onBack={onBack}
           menu={
-            <span className="flex shrink-0 items-center gap-1">
+            <span className="flex shrink-0 items-center gap-2">
               {trailing}
-              {menu?.(HEADER_BUTTON_CLASS)}
+              {menu?.(HEADER_ACTION_CLASS)}
             </span>
           }
           below={tabs && <div className="px-3 pb-2">{tabs}</div>}
@@ -349,8 +349,10 @@ export function SessionScreenFrame({
           {/* #EXP-1762: ONE header line on wide: the tabs sit on the title
               row, before the merge pill and the `…`. */}
           {tabs && <div className="shrink-0">{tabs}</div>}
-          {trailing}
-          {menu?.(`shrink-0 text-muted-foreground`)}
+          <span className="flex shrink-0 items-center gap-2">
+            {trailing}
+            {menu?.(HEADER_ACTION_CLASS)}
+          </span>
         </div>
       </div>
       {overlay}

@@ -71,7 +71,6 @@ export function IssueMobileHeader({
         title={
           collapsed ? (
             <CollapsedTitle
-              align="center"
               animate
               identifier={issue.identifier}
               title={issue.title}
@@ -83,7 +82,7 @@ export function IssueMobileHeader({
         backLabel="Back"
         onBack={goBackToList}
         menu={
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-2">
             {graphBadge}
             {/* THE issue `…` (the md+ header's, a bottom sheet here):
                 Share · Add relation · Move to board · Unmark duplicate
