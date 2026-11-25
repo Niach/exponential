@@ -137,8 +137,8 @@ fn type_icon(kind: Option<&str>) -> Icon {
     }
 }
 
-/// The compact row's glyph (`xsmall`).
-const GLYPH_PX: f32 = 12.;
+/// The compact row's lead cell (`size_4`).
+const LEAD_PX: f32 = 16.;
 
 /// The compact row: glyph (its team's mark on it) · identifier · title (medium while unread) · time ·
 /// the unread dot (its slot kept while read, so the times line up).
@@ -165,14 +165,14 @@ fn compact_row(parts: RowParts, cx: &App) -> gpui::Stateful<gpui::Div> {
         .cursor_pointer()
         .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
         .when(!parts.unread, |row| row.opacity(READ_OPACITY))
-        .child(
-            h_flex()
-                .size_4()
-                .flex_shrink_0()
-                .items_center()
-                .justify_center()
-                .child(with_team_mark(&parts.id, parts.icon.xsmall().text_color(muted), GLYPH_PX, parts.team.as_ref(), theme.popover, cx)),
-        )
+        .child(with_team_mark(
+            &parts.id,
+            h_flex().size_4().flex_shrink_0().items_center().justify_center().child(parts.icon.xsmall().text_color(muted)),
+            LEAD_PX,
+            parts.team.as_ref(),
+            theme.popover,
+            cx,
+        ))
         .children(parts.identifier.map(|identifier| {
             div().flex_shrink_0().text_xs().text_color(muted).child(SharedString::from(identifier))
         }))
