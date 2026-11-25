@@ -8,7 +8,7 @@
 // a signature is stored unsigned, as every released client writes it.
 import { resignOutcome, verifyWrapSignature } from "@exp/domain-contract/wrap-signature"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
 import { z } from "zod"
 import { installs, sessionKeys, sessions } from "@/db/schema"
 import { loadRoot, lockTreeKeys, ownInstall, treeReaders, type Reader } from "@/lib/sessions/tree-keys"
@@ -151,7 +151,8 @@ export async function vouchesFor(
         )
       )
     )
-    .orderBy(asc(sessionKeys.createdAt), asc(sessionKeys.id))
+    // #EXP-2161: a space's signature vouches for its own trees only: last.
+    .orderBy(sql`(${sessionKeys.signerEndpointId} IN (SELECT si.endpoint_id FROM installs si WHERE si.kind = 'space'))`, asc(sessionKeys.createdAt), asc(sessionKeys.id))
   for (const row of rows) {
     if (out.has(row.rootId) || epochOf.get(row.rootId) !== row.epoch || !row.signature || !row.signerEndpointId) continue
     out.set(row.rootId, {

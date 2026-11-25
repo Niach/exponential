@@ -42,6 +42,8 @@ import { widgetsRouter } from "@/lib/trpc/widgets"
 import { appAccessRouter } from "@/lib/trpc/app-access"
 import { mcpActivityRouter, mcpClientsRouter } from "@/lib/trpc/mcp-clients"
 import { mcpGrantsRouter } from "@/lib/trpc/mcp-grants"
+import { memberSpacesRouter } from "@/lib/trpc/member-spaces"
+import { loadSpaceGrant } from "@/lib/spaces/grant"
 import { mcpServersRouter } from "@/lib/trpc/mcp-servers"
 import { sidebarLayoutRouter } from "@/lib/trpc/sidebar-layout"
 import { sessionsRouter } from "@/lib/trpc/sessions"
@@ -74,6 +76,8 @@ export const appRouter = router({
   // EXP-1530: P2P connection analytics (ingest + the admin dashboard).
   connStats: connStatsRouter,
   devices: devicesRouter,
+  // #EXP-2161: members' Assistants on team devices.
+  memberSpaces: memberSpacesRouter,
   // EXP-1457 / VAPP-37: the eNet install registry.
   installs: installsRouter,
   sessionKeys: sessionKeysRouter,
@@ -117,8 +121,14 @@ const serve = ({ request }: { request: Request }) => {
     createContext: async () => {
       // FEED-76: a scoped `expu_` key is MCP-only — unauthenticated here,
       // but named so the 401 explains itself instead of reading as a dead key.
-      const { session, keyScope } = await resolveMcpCredential(request)
+      const { session, keyScope, keyKind, keySpaceId } = await resolveMcpCredential(request)
       if (keyScope) return { db, request, session: null, scopedKey: true as const }
+      // #EXP-2161: a member space's own key, while its space lives (401
+      // after); an agent key minted through one is MCP-only.
+      if (keySpaceId) {
+        const space = session?.user && keyKind === `space` ? await loadSpaceGrant(db, session.user.id, keySpaceId) : null
+        return space ? { db, request, session, space } : { db, request, session: null }
+      }
       return { db, request, session }
     },
   })

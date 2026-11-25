@@ -41,7 +41,8 @@ export const steerRouter = router({
   mintTicket: authedProcedure.input(mintTicketInput).mutation(({ ctx }) => {
     const config = getSteerRelayConfig()
     if (!config) return { disabled: true as const }
-    return mintSteerTicket(config, { kind: `control`, userId: ctx.session.user.id })
+    // #EXP-2161: a member space's socket is its own device's, no other.
+    return mintSteerTicket(config, { kind: `control`, userId: ctx.session.user.id, ...(ctx.space ? { deviceId: ctx.space.deviceId } : {}) })
   }),
 
   // #EXP-1525: a sealed tunnel ticket for one session. The visibility rule

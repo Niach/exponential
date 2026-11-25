@@ -12,6 +12,8 @@ import {
   type ApiKeyKind,
   type ApiKeyScope,
 } from "@/lib/auth/api-key-kind"
+import type { SpaceGrant } from "@/lib/spaces/context"
+import { loadSpaceGrant } from "@/lib/spaces/grant"
 import { TtlPromiseCache } from "@/lib/ttl-promise-cache"
 
 type Session = Awaited<ReturnType<typeof auth.api.getSession>>
@@ -28,6 +30,9 @@ export interface ResolvedCredential {
   /** #EXP-2028: the session a launcher key is bound to (null = unbound):
    *  an MCP-only credential that always speaks for that session. */
   keySessionId?: string | null
+  /** #EXP-2161: the member space the key belongs to (`keyKind` `space` = the
+   *  space's own key, `agent` = one minted through it; null = none). */
+  keySpaceId?: string | null
 }
 
 // REV2-7: short-TTL cache for TOKEN-credentialed sessions only. The cookie
@@ -79,9 +84,28 @@ export function invalidateSessionCache(): void {
 export async function resolveSession(request: Request): Promise<Session> {
   const resolved = await resolveCredentialCore(request)
   // #EXP-2028: a session-bound launcher key is MCP-only too.
-  if (resolved.keyScope || resolved.keySessionId) return null
+  // #EXP-2161: a member space's keys reach only what asks for them by name
+  // (`resolveSessionOrSpace`, the tRPC context, /api/mcp).
+  if (resolved.keyScope || resolved.keySessionId || resolved.keySpaceId) return null
   touchClientPlatform(request, resolved.session)
   return resolved.session
+}
+
+/** #EXP-2161: `resolveSession` for the few routes a member space's OWN key
+ *  may reach (the shape proxies, attachment reads): the session and the
+ *  space it speaks through, read NOW (a space that ended = no session). An
+ *  agent key minted through a space is MCP-only, like a session-bound one. */
+export async function resolveSessionOrSpace(request: Request): Promise<{ session: Session; space: SpaceGrant | null }> {
+  const resolved = await resolveCredentialCore(request)
+  if (!resolved.keySpaceId) {
+    if (resolved.keyScope || resolved.keySessionId) return { session: null, space: null }
+    touchClientPlatform(request, resolved.session)
+    return { session: resolved.session, space: null }
+  }
+  const userId = resolved.session?.user?.id
+  if (!userId || resolved.keyScope || resolved.keyKind !== `space`) return { session: null, space: null }
+  const space = await loadSpaceGrant(db, userId, resolved.keySpaceId)
+  return space ? { session: resolved.session, space } : { session: null, space: null }
 }
 
 // /api/mcp's chokepoint: the session PLUS the key scope it must be confined
@@ -143,6 +167,7 @@ async function resolveCredentialCore(
       keyScope: metadata?.scope ?? null,
       keyKind: metadata?.kind ?? null,
       keySessionId: metadata?.sessionId ?? null,
+      keySpaceId: metadata?.spaceId ?? null,
     }
   })
 }

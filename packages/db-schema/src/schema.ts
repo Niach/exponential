@@ -1624,6 +1624,22 @@ export const devices = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::uuid[]`),
+    // #EXP-2161 (fixtures/member-space.json): the teams whose members may run
+    // their private Assistant here (the OWNER's opt-in, per team). Always a
+    // subset of `shared_team_ids` (trigger `clamp_device_assistant_teams`).
+    assistantTeamIds: uuid(`assistant_team_ids`)
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    // #EXP-2161: set = this row is a member SPACE (`device_id` =
+    // `space-<uuid>`, `user_id` = the member): the host's devices row and the
+    // team it was picked through. Never a device of the person's lists.
+    spaceHostId: uuid(`space_host_id`).references((): AnyPgColumn => devices.id, {
+      onDelete: `cascade`,
+    }),
+    spaceTeamId: uuid(`space_team_id`).references((): AnyPgColumn => teams.id, {
+      onDelete: `set null`,
+    }),
     // EXP-622: the OWNER's default machine — the one every device picker
     // prefills when several are candidates. At most one true row per user
     // (`devices.setDefault` clears the others in the same transaction).
@@ -1697,6 +1713,13 @@ export const devices = pgTable(
     index(`idx_devices_user`).on(table.userId),
     // Serves the per-team shared listing (`&&` / `@>` on the array).
     index(`idx_devices_shared_teams`).using(`gin`, table.sharedTeamIds),
+    // #EXP-2161: at most one space per member; a host's spaces.
+    uniqueIndex(`uniq_devices_space_user`)
+      .on(table.userId)
+      .where(sql`${table.spaceHostId} IS NOT NULL`),
+    index(`idx_devices_space_host`)
+      .on(table.spaceHostId)
+      .where(sql`${table.spaceHostId} IS NOT NULL`),
   ]
 )
 
@@ -1718,7 +1741,8 @@ export const installs = pgTable(
     userId: text(`user_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
-    // `desktop` | `daemon` | `ios` | `android` | `web` (router-validated).
+    // `desktop` | `daemon` | `ios` | `android` | `web` | `space` (#EXP-2161:
+    // a member space's daemon, on its space row; router-validated).
     kind: varchar({ length: 16 }).notNull(),
     deviceId: uuid(`device_id`).references(() => devices.id, {
       onDelete: `set null`,
@@ -1758,7 +1782,9 @@ export const installs = pgTable(
 // signature itself and decides whom it pins. `kind` = `root` (an install
 // starts its account's chain, signed by itself), `approve` (a trusted
 // install of the same account), `reset` (a team-mate's install confirms a
-// member's new root) or `decline` (a team-mate turns that reset down).
+// member's new root), `decline` (a team-mate turns that reset down) or
+// `space` (#EXP-2161: the member's install lets a space's install read its
+// Assistant conversation, never `approve`).
 // `signature` = the approver's ed25519 over `approvalMessage(kind, subject)`
 // (base64url); the endpoint ids are kept beside the rows they name.
 // Server-only, served by `installs.trust`.

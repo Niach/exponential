@@ -4,6 +4,7 @@ import type { Tx } from "@/lib/sessions/tx"
 import { firstSharerTeams } from "@/lib/sessions/host"
 import { foreignHostedSessionIds, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
 import { dropReaderKeysInTx } from "@/lib/sessions/tree-keys"
+import { endInvalidSpacesInTx, spacesOnHosts, type EndedSpace } from "@/lib/spaces/end"
 
 export type ShareTarget = { id: string; userId: string; deviceId: string }
 
@@ -26,7 +27,9 @@ export const hostedIds = (hosted: HostedByTeam): string[] => hosted.flatMap((ent
 export async function withdrawShareInTx(
   tx: Tx,
   target: ShareTarget,
-  teamIds: readonly string[]
+  teamIds: readonly string[],
+  /** #EXP-2161: the member spaces it ended, for `finishEndedSpaces`. */
+  spaces: EndedSpace[]
 ): Promise<HostedByTeam> {
   if (teamIds.length === 0) return []
   const ending: HostedByTeam = []
@@ -43,6 +46,8 @@ export async function withdrawShareInTx(
     .where(eq(devices.id, target.id))
   // #EXP-1951: its installs no longer read these teams' trees as the device.
   await dropReaderKeysInTx(tx, { deviceRowIds: [target.id] }, teamIds)
+  // #EXP-2161: the opt-in went with the share (trigger).
+  spaces.push(...(await endInvalidSpacesInTx(tx, spacesOnHosts([target.id]), `unshared`)))
   if (pause.length > 0) {
     await pauseDeviceAgents(tx, pause, target.deviceId)
   }

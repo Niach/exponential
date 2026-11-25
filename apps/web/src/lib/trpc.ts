@@ -6,6 +6,8 @@ import { sql } from "drizzle-orm"
 import { assertAdmin } from "@/lib/admin"
 import { SCOPED_API_KEY_MESSAGE } from "@/lib/auth/api-key-kind"
 
+import { runInSpace, type SpaceGrant } from "@/lib/spaces/context"
+
 export type Context = {
   session: Awaited<ReturnType<typeof auth.api.getSession>>
   db: typeof db
@@ -24,6 +26,10 @@ export type Context = {
   // credential, so `session` is null here; set by the HTTP context so the
   // 401 can say why instead of looking like a dead key.
   scopedKey?: true
+  // #EXP-2161: the request carried a member space's own key
+  // (member-space.json, THE CREDENTIAL): only its `procedures`, inside its
+  // teams and sessions (`spaceGate`).
+  space?: SpaceGrant
 }
 
 const t = initTRPC.context<Context>().create()
@@ -59,7 +65,17 @@ const observed = t.middleware(async ({ ctx, path, type, next }) => {
   )
 })
 
-export const procedure = t.procedure.use(observed)
+// #EXP-2161: the ONE gate of a member space's key, in front of every
+// procedure (public and admin ones too).
+const spaceGate = t.middleware(async ({ ctx, path, getRawInput, next }) => {
+  if (!ctx.space) return next()
+  const space = ctx.space
+  const { assertSpaceCall } = await import(`@/lib/spaces/gate`)
+  await assertSpaceCall(ctx.db, space, path, await getRawInput(), ctx.request)
+  return runInSpace(space, () => next())
+})
+
+export const procedure = t.procedure.use(observed).use(spaceGate)
 
 export const isAuthed = middleware(async ({ ctx, next }) => {
   if (!ctx.session?.user) {

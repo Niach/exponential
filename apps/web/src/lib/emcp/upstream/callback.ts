@@ -15,7 +15,7 @@
 // what happened.
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { auth } from "@/lib/auth"
+import { resolveSessionUserId } from "@/lib/auth/resolve-bearer"
 import { mcpOauthFlows, mcpServers } from "@/db/schema"
 import {
   TokenBucketLimiter,
@@ -65,8 +65,8 @@ function wrongAccountPage(): Response {
 
 async function sessionUserId(request: Request): Promise<string | null> {
   try {
-    const session = await auth.api.getSession({ headers: request.headers })
-    return session?.user?.id ?? null
+    // #EXP-2161: the chokepoint (a member space's key is no session here).
+    return await resolveSessionUserId(request)
   } catch {
     return null
   }
