@@ -36,6 +36,7 @@ import { openCallAudio, playRingTone } from "@/lib/voice-call/audio"
 import type { CallKeySource } from "@/lib/voice-call/seal"
 import { webCallTarget, type CallSettingsLike } from "@/lib/voice-call/availability"
 import { VoiceCall, type CallDeps } from "@/lib/voice-call/call"
+import { logCallLine, reportCallEnd } from "@/lib/voice-call/log"
 
 const CallIcon = conceptIcon(VOICE_CALL_ICONS.call as Parameters<typeof conceptIcon>[0])
 
@@ -68,6 +69,8 @@ const WEB_CALL_DEPS: CallDeps = {
   openSocket: (url) => new WebSocket(url),
   openAudio: openCallAudio,
   ring: playRingTone,
+  log: logCallLine,
+  ended: reportCallEnd,
 }
 
 export interface VoiceCallAvailability extends CallTarget {

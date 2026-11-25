@@ -33,6 +33,14 @@ final class VoiceCallDriverTests: XCTestCase {
         }
     }
 
+    private final class FakeSink: CallLogSink, @unchecked Sendable {
+        var lines: [String] = []
+        var failures: [VoiceCall.CallLog.End] = []
+        func nowMs() -> Int { 0 }
+        func line(_ line: String) { lines.append(line) }
+        func failed(_ end: VoiceCall.CallLog.End) { failures.append(end) }
+    }
+
     private final class FakeSocket: CallSocket, @unchecked Sendable {
         let log: Log
         var inbound: CallInbound?
@@ -80,6 +88,7 @@ final class VoiceCallDriverTests: XCTestCase {
         func heard() {}
         func beat() { log.add("beat") }
         func dead() -> Bool { false }
+        func silentMs() -> Int { 0 }
     }
 
     private struct FakeKeys: CallKeySource {
@@ -104,6 +113,10 @@ final class VoiceCallDriverTests: XCTestCase {
         var sealIo: CallSealLine.Io?
 
         init(_ log: Log) { self.log = log }
+
+        /// EXP-2111: apart from the platform calls.
+        let sink = FakeSink()
+        var logSink: CallLogSink { sink }
 
         func hold(speaker: Bool, answer: @escaping @MainActor (Bool, String?) -> Void) {
             log.add("hold speaker \(speaker)")

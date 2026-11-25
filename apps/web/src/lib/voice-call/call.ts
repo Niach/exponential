@@ -37,6 +37,8 @@ import {
   CALLER_IDLE,
   callerStep,
   callPathDead,
+  CallLog,
+  type CallLogEnd,
   VOICE_CALL_COPY,
   type CallerEffect,
   type CallerInput,
@@ -77,6 +79,10 @@ export interface CallDeps {
   openAudio(): Promise<CallAudio>
   /** S-3: play the ring tone, at most `ms`; answers a stop (none = silent). */
   ring?(ms: number): () => void
+  /** EXP-2111 (voice-call.json `log`): every log line, and a failed call's
+   *  one event (none = neither leaves). */
+  log?(line: string): void
+  ended?(end: CallLogEnd): void
 }
 
 /** What a call shows (the microphone's level is its own store, read only
@@ -141,11 +147,21 @@ export class VoiceCall {
   private liveness: ReturnType<typeof setInterval> | null = null
   /** #EXP-1941: the sealed line of a call the server marked sealed, else null (today's wire). */
   private line: CallSealLine | null = null
+  /** EXP-2111: this call's log. */
+  private log = this.newLog()
   /** A failure's toast: the fixture's (`failed`), or a refusal the server
    *  worded itself (an availability reason). */
   onToast: ((message: string) => void) | null = null
 
   constructor(private readonly deps: CallDeps) {}
+
+  private newLog() {
+    return new CallLog(
+      () => Date.now(),
+      (line) => this.deps.log?.(line),
+      (end) => this.deps.ended?.(end)
+    )
+  }
 
   subscribe = (listener: () => void) => {
     this.listeners.add(listener)
@@ -179,6 +195,7 @@ export class VoiceCall {
     this.generation += 1
     this.agentId = agentId
     this.asking = null
+    this.log = this.newLog()
     this.send({ t: `start`, device, language, fallback })
     await this.asking
   }
@@ -201,7 +218,9 @@ export class VoiceCall {
     this.stepping = true
     try {
       while (this.inbox.length > 0) {
-        const stepped = callerStep(this.caller, this.inbox.shift()!)
+        const next = this.inbox.shift()!
+        const stepped = callerStep(this.caller, next)
+        this.log.input(next, this.caller, stepped)
         this.caller = stepped.state
         this.publish()
         for (const effect of stepped.effects) this.perform(effect)
@@ -270,6 +289,7 @@ export class VoiceCall {
     try {
       audio = await this.deps.openAudio()
     } catch (error) {
+      if (live()) this.log.note({ n: `audioFailed` })
       return this.send({ t: `failed`, code: error instanceof CallAudioError ? error.code : `no_microphone` }, generation)
     }
     if (!live()) return audio.close()
@@ -303,6 +323,7 @@ export class VoiceCall {
         sealed: answer.seal === true ? { callId: answer.callId!, deviceId: answer.deviceId!, target } : null,
       }
       named = { device: answer.device, fallback: answer.fallback }
+      if (live()) this.log.note({ n: `ticket`, callId: answer.callId, fallback: answer.fallback ?? false, sealed: answer.seal === true })
     } catch (error) {
       // Only an availability refusal (the fixture's own words) is shown;
       // anything else (a network error, a 500) is a dropped call.
@@ -331,6 +352,7 @@ export class VoiceCall {
     try {
       socket = this.deps.openSocket(ticket.url)
     } catch {
+      this.log.note({ n: `dialFailed` })
       return this.send({ t: `failed`, code: `dropped` }, generation)
     }
     socket.binaryType = `arraybuffer`
@@ -339,8 +361,14 @@ export class VoiceCall {
     // EXP-1929: once the relay beat, a path that carries nothing for
     // `idleTimeoutMs` is dead: an own failure (the host is told).
     this.liveness = setInterval(() => {
-      if (callPathDead(this.alive, Date.now() - this.heardAt)) this.send({ t: `failed`, code: `dropped` }, generation)
+      const silent = Date.now() - this.heardAt
+      if (!callPathDead(this.alive, silent)) return
+      this.log.note({ n: `silent`, ms: silent })
+      this.send({ t: `failed`, code: `dropped` }, generation)
     }, LIVENESS_TICK_MS)
+    socket.onopen = () => {
+      if (generation === this.generation) this.log.note({ n: `socketOpen` })
+    }
     socket.onmessage = (message) => {
       if (generation !== this.generation) return
       this.heardAt = Date.now()
@@ -385,6 +413,7 @@ export class VoiceCall {
 
   /** One binary frame: the host's audio, in order (a late frame is worthless in a realtime call). */
   private binary(bytes: Uint8Array) {
+    this.log.note({ n: `down` })
     if (this.line) {
       // Opened here, in arrival order; a frame with no packet reaches no decoder.
       const opened = this.line.frame(bytes)
@@ -410,6 +439,7 @@ export class VoiceCall {
         : null
     if (!frame) return
     this.socket?.send(frame)
+    this.log.note({ n: `up` })
     this.seq = (this.seq + 1) & 0xffff
   }
 
@@ -436,6 +466,7 @@ export class VoiceCall {
     const socket = this.socket
     this.socket = null
     if (socket) {
+      socket.onopen = null
       socket.onmessage = null
       socket.onclose = null
       socket.onerror = null
