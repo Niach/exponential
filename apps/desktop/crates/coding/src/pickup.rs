@@ -1080,7 +1080,8 @@ fn is_open_own_plan_card(message: &MessageRow) -> bool {
 /// reads `Message from <name> (member <userId>): <body>`
 /// (`domain::transcript_grouping::member_input`), `<name>` = the author's
 /// synced name, else `copy.formerMember`. Only this prompt wears it: the
-/// row's body is never rewritten.
+/// row's body is never rewritten. #FEED-312: a builtin command (`/new`) is
+/// acted on, so it stays bare ([`is_new_conversation`] reads it).
 pub fn input_text(message: &MessageRow, sessions: &[SessionRow], members: &MemberInputs) -> String {
     let text = input_body_text(message, sessions);
     if let Some(key) = input_tag(message) {
@@ -1091,6 +1092,7 @@ pub fn input_text(message: &MessageRow, sessions: &[SessionRow], members: &Membe
         Some(author)
             if message.is_from_user()
                 && action_card(message).is_none()
+                && !domain::transcript_grouping::is_steer_command(&text)
                 && members.group_chats.contains(&message.session_id) =>
         {
             members.word(author, &text)
@@ -5381,6 +5383,13 @@ mod tests {
         assert_eq!(input_text(&by("p1", "u-mira", "Ship it"), &sessions, &members), "Ship it");
         assert_eq!(input_text(&by("c1", "u-mira", "Ship it"), &sessions, &members), "Ship it");
         assert_eq!(input_text(&by("g1", "u-mira", "Ship it"), &sessions, &MemberInputs::default()), "Ship it");
+        // #FEED-312: a command stays the command the device acts on.
+        for command in ["/new", " /new\n", "/compact keep the plan", "/model opus"] {
+            let row = by("g1", "u-mira", command);
+            let body = input_text(&row, &sessions, &members);
+            assert_eq!(body, command);
+            assert_eq!(is_new_conversation(&MessageRow { body: Some(body), ..row }), command.trim() == "/new");
+        }
         // A message without an author keeps its body.
         assert_eq!(input_text(&message("m1", "g1", "t"), &sessions, &members), "body of m1");
         // A trigger's event card keeps its tag, an action card its form,

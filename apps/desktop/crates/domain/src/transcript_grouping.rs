@@ -582,6 +582,19 @@ pub fn member_input(name: &str, user_id: &str, body: &str) -> String {
     format!("Message from {name} (member {user_id}): {body}")
 }
 
+/// #FEED-312 (`memberCommandCases`): the body is one of the composer's builtin
+/// commands (contract `steerCommands`), which the device acts on: it is never
+/// worded as a member's line. A command without an argument is the word alone.
+pub fn is_steer_command(body: &str) -> bool {
+    use crate::contract::{STEER_COMMAND_ARG_HINTS, STEER_COMMAND_NAMES};
+    let Some(line) = body.trim().strip_prefix('/') else { return false };
+    let (name, rest) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
+    STEER_COMMAND_NAMES
+        .iter()
+        .position(|known| *known == name)
+        .is_some_and(|at| rest.trim().is_empty() || !STEER_COMMAND_ARG_HINTS[at].is_empty())
+}
+
 static TAG_PATTERN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\[([a-z_]+)\] ").expect("the tag pattern compiles"));
 static SCHEDULE_PATTERN: LazyLock<Regex> =
@@ -932,6 +945,14 @@ mod tests {
                 }
             });
             assert_eq!(got.unwrap_or(Value::Null), case["expected"], "{name}");
+        }
+    }
+
+    /// #FEED-312: `memberCommandCases`.
+    #[test]
+    fn member_command_cases_match_the_fixture() {
+        for case in fixture()["memberCommandCases"].as_array().unwrap() {
+            assert_eq!(is_steer_command(case["input"].as_str().unwrap()), case["expected"].as_bool().unwrap(), "{case}");
         }
     }
 
