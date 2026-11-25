@@ -1,0 +1,2 @@
+ALTER TABLE "pull_requests" ADD COLUMN "merge_with_stack" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "pull_requests" ADD COLUMN "merge_base_changed_at" timestamp with time zone;

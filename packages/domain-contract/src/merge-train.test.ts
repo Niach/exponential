@@ -5,6 +5,7 @@ import icons from "../../icons/icons.json" with { type: "json" }
 import repoConfig from "../../../.exponential/merge-train.json" with { type: "json" }
 import {
   assistantBatchLines,
+  baseChecks,
   composeBatch,
   conflictText,
   failingText,
@@ -38,6 +39,10 @@ import { trainChecksState } from "./pr-checks"
 describe(`merge-train fixture`, () => {
   it.each(fixture.readiness)(`readiness: $name`, ({ input, expected }) => {
     expect(mergeWait(input as never)).toBe(expected as never)
+  })
+  it.each(fixture.baseChecks)(`base checks: $name`, ({ input, expected }) => {
+    const { counted, reported } = baseChecks(input)
+    expect({ counted: counted.map((check) => check.name), reported }).toEqual(expected)
   })
   it.each(fixture.gating.cases)(`gating: $name`, ({ input, expected }) => {
     expect(trainChecksState(input.checks as never, input.required, input.informational)).toBe(expected as never)

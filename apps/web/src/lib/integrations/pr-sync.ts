@@ -1059,6 +1059,7 @@ export async function recordPullRequestOpened(
           ...(args.title ? { title: args.title } : {}),
           base: args.base,
           basePullRequestId: basePullRequestId === existing.id ? null : basePullRequestId,
+          ...baseChanged(existing.base, args.base),
           // A known row keeps its chat; a row the webhook created first
           // (it beat pr_open) learns it here.
           rootSessionId: existing.rootSessionId ?? args.rootSessionId,
@@ -1409,10 +1410,16 @@ export async function applyPullRequestDraft(opts: {
   return row ?? null
 }
 
+/** #FEED-307 (merge-train.json READINESS): a new base voids the stack ask and
+ *  every required check that started before it. */
+function baseChanged(from: string, to: string): { mergeBaseChangedAt?: Date; mergeWithStack?: boolean } {
+  return from === to ? {} : { mergeBaseChangedAt: new Date(), mergeWithStack: false }
+}
+
 /** Stores `base` and the live PR it sits on; returns that stack parent. */
 async function writeBaseInTx(
   tx: Tx,
-  row: Pick<PullRequestRow, `id` | `teamId` | `repositoryId` | `url`>,
+  row: Pick<PullRequestRow, `id` | `teamId` | `repositoryId` | `url` | `base`>,
   base: string
 ): Promise<string | null> {
   const repoFullName = repoFromPrUrl(row.url) ?? ``
@@ -1425,7 +1432,7 @@ async function writeBaseInTx(
   })
   await tx
     .update(pullRequests)
-    .set({ base, basePullRequestId, updatedAt: new Date() })
+    .set({ base, basePullRequestId, ...baseChanged(row.base, base), updatedAt: new Date() })
     .where(eq(pullRequests.id, row.id))
   return basePullRequestId
 }
