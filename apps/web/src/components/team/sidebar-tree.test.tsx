@@ -103,6 +103,7 @@ vi.mock(`@/hooks/use-sidebar-folders`, () => ({
         (id): SidebarRow => ({ kind: `item`, id, depth: 0, group: false, name: null, open: false, count: 0 })
       ),
     items: ids(h.entries),
+    itemsOf: () => [],
     editingId: null,
     setEditingId: () => {},
     move: h.move,
@@ -245,7 +246,7 @@ describe(`#EXP-2027 the root rows`, () => {
     expect(rows[0].querySelector(`[data-slot="live-dot"]`)).toBeTruthy()
     expect(rows[1].getAttribute(`data-muted`)).toBe(`true`)
     expect(rows[1].querySelector(`[data-slot="live-dot"]`)).toBeNull()
-    expect(within(rows[2]).getByTestId(`sidebar-device-team`).getAttribute(`title`)).toBe(`Acme`)
+    expect(rows[2].querySelector(`[data-slot=team-corner]`)?.getAttribute(`title`)).toBe(`Acme`)
     expect(within(rows[2]).getByLabelText(/Device settings/).getAttribute(`href`)).toBe(`/devices/d-8/settings`)
 
     fireEvent.click(devices.querySelector(`button`)!)
@@ -293,7 +294,7 @@ describe(`#EXP-2027 a team`, () => {
     renderTeams(2)
     const row = screen.getByTestId(`sidebar-team-row`)
     expect(row.querySelector(`a`)).toBeNull()
-    expect(within(row).getByTestId(`sidebar-team-needs-you`).textContent).toBe(`2`)
+    expect(within(row).getByTestId(`sidebar-team-badge`).textContent).toBe(`2`)
     expect(within(row).getByTestId(`sidebar-team-menu-button`)).toBeTruthy()
     fireEvent.click(within(row).getByText(`Acme`))
     expect(window.localStorage.getItem(sidebarTeamOpenKey(`t-acme`))).toBe(`0`)

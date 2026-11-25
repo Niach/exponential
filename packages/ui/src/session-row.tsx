@@ -3,6 +3,7 @@ import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import { cn } from "./cn"
 import { ListRow } from "./glass-rows"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./tooltip"
+import { TeamLead, type RowTeam } from "./team-avatar"
 import { TREE_BASE, TREE_INDENT, type TreeGuide } from "./tree-guides"
 import { TreeGuides } from "./tree-guides-view"
 
@@ -59,6 +60,8 @@ export interface SessionRowProps
   /** EXP-1316: a trailing word on the title line (the chat tree
    *  popover's state word). */
   trailing?: React.ReactNode
+  /** nav-badges.json `teamMark`: the row's team on a cross-team list. */
+  team?: RowTeam | null
   /** The mark badge's ring = the ground the row sits on. */
   ringClassName?: string
   onClick?: () => void
@@ -80,6 +83,7 @@ export function SessionRow({
   dimmed = false,
   unread = false,
   trailing,
+  team = null,
   ringClassName = `ring-background`,
   onClick,
   className,
@@ -103,7 +107,9 @@ export function SessionRow({
       {...props}
     >
       <TreeGuides guide={guide} />
-      <AgentRunMark agent={agent} state={markState} ringClassName={ringClassName} />
+      <TeamLead team={team} lead={14}>
+        <AgentRunMark agent={agent} state={markState} ringClassName={ringClassName} />
+      </TeamLead>
       <div data-slot="session-row-text" className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5 text-sm">
           {identifier && (

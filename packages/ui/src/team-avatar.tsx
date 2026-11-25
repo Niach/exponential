@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import {
   TEAM_IMAGE_COPY,
   TEAM_IMAGE_MARK,
@@ -7,6 +7,7 @@ import {
   TEAM_IMAGE_UPLOAD,
   teamMark,
 } from "@exp/domain-contract/team-image"
+import { teamMarkOf } from "@exp/domain-contract/nav-badges"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { conceptIcon } from "./icons.generated"
@@ -58,6 +59,58 @@ export function TeamAvatar({
           style={{ borderRadius: size * TEAM_IMAGE_MARK.radiusFraction }}
         />
       )}
+    </span>
+  )
+}
+
+/** The team a list row names. */
+export interface RowTeam {
+  iconUrl: string | null | undefined
+  name: string
+}
+
+/** nav-badges.json `teamMark`: the row's team mark on its lead's bottom-right
+ *  corner, on a tile of the ground the row sits on (genUI `AvatarBadge`).
+ *  Inside a positioned lead of `lead` px. */
+export function TeamCorner({ team, lead, ground = `bg-background` }: { team: RowTeam; lead: number; ground?: string }) {
+  const { mark, ring, offset } = teamMarkOf(lead)
+  return (
+    <span
+      role="img"
+      aria-label={team.name}
+      title={team.name}
+      data-slot="team-corner"
+      className={cn(`absolute text-muted-foreground`, ground)}
+      style={{
+        right: -offset - ring,
+        bottom: -offset - ring,
+        padding: ring,
+        borderRadius: mark * TEAM_IMAGE_MARK.radiusFraction + ring,
+      }}
+    >
+      <TeamAvatar iconUrl={team.iconUrl} size={mark} />
+    </span>
+  )
+}
+
+/** A row's lead (a glyph or mark of `lead` px) wearing its team's mark. */
+export function TeamLead({
+  team,
+  lead,
+  ground,
+  className,
+  children,
+}: {
+  team: RowTeam | null | undefined
+  lead: number
+  ground?: string
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <span className={cn(`relative flex shrink-0`, className)}>
+      {children}
+      {team && <TeamCorner team={team} lead={lead} ground={ground} />}
     </span>
   )
 }

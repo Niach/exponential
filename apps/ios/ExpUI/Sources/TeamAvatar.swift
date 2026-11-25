@@ -85,3 +85,37 @@ public struct TeamAvatar: View {
         }
     }
 }
+
+/// nav-badges.json `teamMark` ×5: a list row's team mark on its lead's
+/// bottom-right corner, on a tile of the ground the row sits on (genUI
+/// `AvatarBadge`, web `TeamCorner`).
+struct TeamCorner: ViewModifier {
+    let team: ChatRowTeam?
+    let lead: Int
+    let ground: Color
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .bottomTrailing) {
+            if let team {
+                let size = NavBadges.teamMark(lead: lead)
+                let mark = CGFloat(size.mark)
+                let ring = CGFloat(size.ring)
+                TeamAvatar(iconUrl: team.iconUrl, size: mark)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .padding(ring)
+                    .background(ground, in: RoundedRectangle(
+                        cornerRadius: mark * CGFloat(TeamImage.MarkStyle.radiusFraction) + ring, style: .continuous
+                    ))
+                    .offset(x: CGFloat(size.offset) + ring, y: CGFloat(size.offset) + ring)
+                    .accessibilityLabel(team.name)
+            }
+        }
+    }
+}
+
+public extension View {
+    /// A row's lead (`lead` pt) wearing its team's mark; nil = none.
+    func teamCorner(_ team: ChatRowTeam?, lead: Int, ground: Color = DesignTokens.Palette.background) -> some View {
+        modifier(TeamCorner(team: team, lead: lead, ground: ground))
+    }
+}
