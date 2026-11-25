@@ -223,7 +223,12 @@ describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzl
       const rA = await root({ teamId: teamA, agentId: asA.id, userId: me, deviceId, shared: true, lastActivityAt: `2026-11-18T09:00:00Z`, publicKey: tree.publicKey, skillIds: [skA], mcpServerIds: [mcpA] })
       const rB = await root({ teamId: teamB, agentId: asB.id, userId: me, deviceId, lastActivityAt: `2026-11-10T09:00:00Z`, skillIds: [skB, skB2], mcpServerIds: [mcpB] })
       for (const reader of [myPhone, matePhone]) {
-        await db.insert(sessionKeys).values({ rootId: rA, epoch: 1, installId: reader.id, wrapped: wrapTreeKey(reader.x25519Public, tree.secret) })
+        // Raw: the schema has a column this release did not (0299).
+        await pool.query(`INSERT INTO session_keys (root_id, epoch, install_id, wrapped) VALUES ($1, 1, $2, $3)`, [
+          rA,
+          reader.id,
+          wrapTreeKey(reader.x25519Public, tree.secret),
+        ])
       }
       const sealed = sealBody(tree.publicKey, 1, `the plan for Friday`)
       await say(rA, teamA, me, sealed, true)

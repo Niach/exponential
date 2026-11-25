@@ -6,9 +6,11 @@ import {
   migrateLegacyWorkTabs,
   NEW_RUN_TAB,
   openNewRunTab,
+  openTabInBackground,
   originCreatesTab,
   parseWorkTabsState,
   partitionTabs,
+  PREVIOUS_WORK_TABS_STORAGE_KEY,
   pruneTabs,
   routePathFromLocation,
   routeTabKey,
@@ -16,6 +18,8 @@ import {
   tabHref,
   tabKey,
   upsertFromRoute,
+  WORK_TABS_STORAGE_KEY,
+  type RouteTab,
   type WorkTab,
   type WorkTabsState,
 } from "@/lib/work-tabs"
@@ -76,17 +80,47 @@ describe(`routePathFromLocation`, () => {
       `/t/acme/agent`,
       `/t/acme/chats`,
       `/t/acme/inbox`,
-      `/t/acme/boards/app`,
+      `/t/acme/apps`,
+      `/t/acme/app-editor/notes`,
+      `/t/acme/new/board`,
+      `/t/acme/boards/app/settings/x`,
       `/t/acme/settings/agents/a1`,
       `/t/acme/chats/t1`,
       `/t/acme/sessions/%E0%A4%A`,
       `/about`,
       `/home`,
-      `/chats`,
+      `/inbox`,
       `/settings/account`,
-      `/devices/d1`,
+      `/devices`,
+      `/devices/d1/settings`,
+      `/devices/%E0%A4%A`,
     ]) {
       expect(routePathFromLocation(path, null), path).toBeNull()
+    }
+  })
+
+  it(`#EXP-2124: names the pages a tab holds`, () => {
+    expect(routePathFromLocation(`/needs-you`, `x`)).toEqual({ kind: `page`, page: `needs-you`, from: null })
+    expect(routePathFromLocation(`/chats/`, null)).toEqual({ kind: `page`, page: `chats`, from: null })
+    expect(routePathFromLocation(`/drafts`, null)).toEqual({ kind: `page`, page: `drafts`, from: null })
+    expect(routePathFromLocation(`/devices/d%201`, null)).toEqual({
+      kind: `device`,
+      deviceId: `d 1`,
+      from: null,
+    })
+    expect(routePathFromLocation(`/t/acme/boards/web/`, null)).toEqual({
+      kind: `board`,
+      teamSlug: `acme`,
+      boardSlug: `web`,
+      from: null,
+    })
+    for (const path of [`/t/acme/apps/notes`, `/t/acme/apps/notes/list`]) {
+      expect(routePathFromLocation(path, null), path).toEqual({
+        kind: `app`,
+        teamSlug: `acme`,
+        appSlug: `notes`,
+        from: null,
+      })
     }
   })
 
@@ -183,6 +217,89 @@ describe(`upsertFromRoute`, () => {
 
   it(`keys a route like its tab`, () => {
     expect(routeTabKey({ kind: `agent`, agentId: `a1`, from: `x`, ...T })).toBe(`agent:a1`)
+  })
+})
+
+describe(`#EXP-2124: page tabs`, () => {
+  const board: WorkTab = { kind: `board`, boardId: `b1`, from: null, ...T }
+  const app: WorkTab = { kind: `app`, appId: `a1`, from: null, ...T }
+  const device: WorkTab = { kind: `device`, deviceId: `d1`, from: null }
+  const needsYou: WorkTab = { kind: `page`, page: `needs-you`, from: null }
+
+  it(`keys every page kind`, () => {
+    expect([board, app, device, needsYou].map(tabKey)).toEqual([
+      `board:b1`,
+      `app:a1`,
+      `device:d1`,
+      `page:needs-you`,
+    ])
+  })
+
+  it(`opens a page once and focuses it after`, () => {
+    let s = upsertFromRoute(EMPTY_WORK_TABS, needsYou)
+    s = upsertFromRoute(s, board)
+    s = upsertFromRoute(s, device)
+    s = upsertFromRoute(s, app)
+    expect(keys(s)).toEqual([`page:needs-you`, `board:b1`, `device:d1`, `app:a1`])
+    expect(upsertFromRoute(s, needsYou)).toBe(s)
+    expect(upsertFromRoute(s, device)).toBe(s)
+    expect(upsertFromRoute(s, board)).toBe(s)
+    // A renamed team re-teams a board tab like any team tab.
+    expect(upsertFromRoute(s, { ...board, teamSlug: `acme2` } as RouteTab).tabs[1]).toEqual({
+      ...board,
+      teamSlug: `acme2`,
+    })
+  })
+
+  it(`lands a page opened from Home in Home's tab`, () => {
+    const s = state([issue(`i1`), NEW_RUN_TAB])
+    expect(keys(upsertFromRoute(s, needsYou, { landing: true }))).toEqual([`issue:i1`, `page:needs-you`])
+    expect(keys(upsertFromRoute(s, board, { landing: true }))).toEqual([`issue:i1`, `board:b1`])
+  })
+
+  it(`opens a tab in the background, never twice`, () => {
+    const s = state([issue(`i1`)])
+    const opened = openTabInBackground(s, board)
+    expect(keys(opened)).toEqual([`issue:i1`, `board:b1`])
+    expect(openTabInBackground(opened, { ...board })).toBe(opened)
+    expect(openTabInBackground(s, issue(`i1`))).toBe(s)
+    // Home's tab is the one New session tab.
+    const home = openTabInBackground(s, NEW_RUN_TAB)
+    expect(keys(home)).toEqual([`issue:i1`, `new`])
+    expect(openTabInBackground(home, NEW_RUN_TAB)).toBe(home)
+  })
+
+  it(`routes every page kind`, () => {
+    const boards = (id: string) => (id === `b1` ? `web` : null)
+    const apps = (id: string) => (id === `a1` ? `notes` : null)
+    expect(tabHref(needsYou, () => null)).toEqual({ to: `/needs-you`, params: {}, search: {} })
+    expect(tabHref({ kind: `page`, page: `drafts`, from: null }, () => null)?.to).toBe(`/drafts`)
+    expect(tabHref(device, () => null)).toEqual({
+      to: `/devices/$deviceId`,
+      params: { deviceId: `d1` },
+      search: {},
+    })
+    expect(tabHref(board, () => null, () => null, boards, apps)).toEqual({
+      to: `/t/$teamSlug/boards/$boardSlug`,
+      params: { teamSlug: `acme`, boardSlug: `web` },
+      search: {},
+    })
+    expect(tabHref(app, () => null, () => `renamed`, boards, apps)).toEqual({
+      to: `/t/$teamSlug/apps/$appSlug`,
+      params: { teamSlug: `renamed`, appSlug: `notes` },
+      search: {},
+    })
+    // An unknown board or app waits.
+    expect(tabHref(board, () => null)).toBeNull()
+    expect(tabHref({ ...app, appId: `a9` } as WorkTab, () => null, () => null, boards, apps)).toBeNull()
+  })
+
+  it(`prunes pages by the resolver, Home and the list pages never`, () => {
+    const s = state([NEW_RUN_TAB, needsYou, board, app, device])
+    const gone = new Set([`board:b1`, `app:a1`, `device:d1`])
+    const resolves = (tab: WorkTab) =>
+      tab.kind === `new` || tab.kind === `page` ? true : !gone.has(tabKey(tab))
+    expect(keys(pruneTabs(s, resolves))).toEqual([`new`, `page:needs-you`])
   })
 })
 
@@ -302,8 +419,28 @@ describe(`parseWorkTabsState`, () => {
       { kind: `agent`, agentId: `a1`, from: null, ...T },
       { kind: `session`, sessionId: `s1`, from: `chats`, ...T },
       NEW_RUN_TAB,
+      { kind: `page`, page: `chats`, from: null },
+      { kind: `device`, deviceId: `d1`, from: null },
+      { kind: `board`, boardId: `b1`, from: null, ...T },
+      { kind: `app`, appId: `a1`, from: null, ...T },
     ])
     expect(parseWorkTabsState(JSON.stringify(s))).toEqual(s)
+  })
+
+  it(`#EXP-2124: drops a board or app tab without its team and an unknown page`, () => {
+    expect(
+      parseWorkTabsState(
+        JSON.stringify({
+          tabs: [
+            { kind: `board`, boardId: `b1`, from: null },
+            { kind: `app`, appId: `a1`, from: null },
+            { kind: `page`, page: `inbox`, from: null },
+            { kind: `device`, from: null },
+            { kind: `page`, page: `drafts`, from: `x` },
+          ],
+        })
+      )
+    ).toEqual(state([{ kind: `page`, page: `drafts`, from: null }]))
   })
 
   it(`drops a v4 tab without its team`, () => {
@@ -359,5 +496,24 @@ describe(`migrateLegacyWorkTabs (#EXP-2027)`, () => {
     ])
     expect(merged.tabs).toEqual([chat(`c2`, null, OTHER)])
     expect(migrateLegacyWorkTabs(null, [])).toBe(EMPTY_WORK_TABS)
+  })
+
+  it(`#EXP-2124: v5 first, then the v4 blob unchanged, then the v3 blobs`, () => {
+    expect(WORK_TABS_STORAGE_KEY).toBe(`exp:work-tabs:v5`)
+    expect(PREVIOUS_WORK_TABS_STORAGE_KEY).toBe(`exp:work-tabs:v4`)
+    const v5 = JSON.stringify(state([{ kind: `page`, page: `chats`, from: null }]))
+    const v4 = JSON.stringify(state([chat(`c2`, null, OTHER), NEW_RUN_TAB, issue(`i1`)]))
+    const merged = migrateLegacyWorkTabs(
+      v5,
+      [{ teamId: `t1`, raw: v3([{ kind: `issue`, issueId: `i1`, from: null }, { kind: `issue`, issueId: `i3`, from: null }]) }],
+      v4
+    )
+    expect(merged.tabs).toEqual([
+      { kind: `page`, page: `chats`, from: null },
+      chat(`c2`, null, OTHER),
+      NEW_RUN_TAB,
+      issue(`i1`),
+      issue(`i3`, null, { teamId: `t1`, teamSlug: `` }),
+    ])
   })
 })

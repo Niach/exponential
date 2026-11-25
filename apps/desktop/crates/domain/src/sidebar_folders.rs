@@ -491,6 +491,39 @@ pub fn sidebar_ungroup(items: &[String], entries: &[SidebarEntry], folder_id: &s
     Some(materialize(&tree, entries, vec![folder_id.to_string()], None))
 }
 
+/// #EXP-2124 (sidebar-menus.json `move` › New folder; TS
+/// `sidebarMoveToNewFolder`): a NEW folder (`new_folder_id`, the default
+/// name) holding the item alone, at the item's place (an item inside a
+/// folder: right after that folder, which is deleted when the move empties
+/// it). `None` = no such (visible) item.
+pub fn sidebar_move_to_new_folder(items: &[String], entries: &[SidebarEntry], id: &str, new_folder_id: &str) -> Option<SidebarWrites> {
+    let mut tree = sidebar_tree(items, entries);
+    let found = locate(&tree, id)?;
+    if found.is_folder {
+        return None;
+    }
+    let folder = SidebarNode::Folder { id: new_folder_id.to_string(), name: SIDEBAR_FOLDER_DEFAULT_NAME.to_string(), children: vec![id.to_string()] };
+    let mut deletes = Vec::new();
+    match found.folder {
+        Some(source) => {
+            let children = folder_children(&mut tree, &source)?;
+            children.retain(|child| child != id);
+            let emptied = children.is_empty();
+            let at = top_index(&tree, &source)?;
+            tree.insert(at + 1, folder);
+            if emptied {
+                tree.remove(at);
+                deletes.push(source);
+            }
+        }
+        None => {
+            let at = top_index(&tree, id)?;
+            tree[at] = folder;
+        }
+    }
+    Some(materialize(&tree, entries, deletes, Some(new_folder_id.to_string())))
+}
+
 /// A folder name as saved: trimmed, at most 80 UTF-16 code units (JS
 /// `slice`; a pair the cut would split is dropped whole); empty = the default
 /// (Esc / an emptied field keeps "New folder").

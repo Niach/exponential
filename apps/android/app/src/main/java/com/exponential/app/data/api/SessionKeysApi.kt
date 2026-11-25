@@ -38,7 +38,14 @@ data class HeldTreeKey(
 @Serializable
 data class PendingSessionKeysInput(val installId: String, val limit: Int = PENDING_MAX)
 
-/** A reader of a tree this install holds the current epoch of, still without its wrap. */
+/** [olderEpochs] (#EXP-2119): also the pairs of a superseded epoch the server knows no public key of. */
+@Serializable
+data class PendingTreeKeysInput(val installId: String, val limit: Int, val olderEpochs: Boolean)
+
+/**
+ * A reader still without the wrap of an epoch this install holds: the current
+ * one, or (#EXP-2119) an older one, whose [publicKey] may be the EMPTY string.
+ */
 @Serializable
 data class PendingTreeKey(
     val rootId: String,
@@ -83,9 +90,9 @@ data class RequestKeyInput(val rootId: String)
 @Serializable
 data class RequestKeyResult(val state: String, val epoch: Int? = null, val publicKey: String? = null)
 
-/** #EXP-1951 `sessionKeys.due`: a root this install rotates; [epoch] = the one to supersede. */
+/** #EXP-1951 `sessionKeys.due`: a root this install rotates; [epoch] = the one to supersede; #EXP-2123 [stranded] = no approved reader holds it: rotated without the old secret. */
 @Serializable
-data class DueTreeKey(val rootId: String, val epoch: Int)
+data class DueTreeKey(val rootId: String, val epoch: Int, val stranded: Boolean = false)
 
 const val PENDING_MAX = 200
 
@@ -111,8 +118,8 @@ class SessionKeysApi @Inject constructor(private val trpc: TrpcClient) {
         trpc.query(
             accountId,
             path = "sessionKeys.pending",
-            input = PendingSessionKeysInput(installId),
-            inputSerializer = PendingSessionKeysInput.serializer(),
+            input = PendingTreeKeysInput(installId, PENDING_MAX, olderEpochs = true),
+            inputSerializer = PendingTreeKeysInput.serializer(),
             outputSerializer = ListSerializer(PendingTreeKey.serializer()),
         )
 

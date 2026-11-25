@@ -47,8 +47,8 @@ interface HolderApi {
  * 2. `due` (#EXP-1951, `rotation`): a root whose rotation is due (a reader
  *    was dropped) and whose current secret this install holds gets a fresh
  *    key at the next epoch, wrapped for THIS install only.
- * 3. `pending`: every reader still missing the current epoch's wrap on a
- *    tree this install holds gets one (`wrap`), automatically, no approval:
+ * 3. `pending`: every reader still missing the wrap of an epoch this install
+ *    holds (the current one; #EXP-2119: an older one too) gets one (`wrap`), automatically, no approval:
  *    the server lists readers and nobody else.
  * 4. #EXP-1950 (wrap-signature.json): every wrap this holder MAKES carries the
  *    install's signature ([identity] through [signer]): a rotation's own
@@ -192,9 +192,23 @@ class TreeKeyHolder(
         }
     }
 
-    /** #EXP-1951: rotates every due root whose current secret this install holds; returns how many. */
+    /**
+     * #EXP-2123 (install-trust.json `keyMaker`): whether this install makes
+     * chat keys: only once it is joined (no [trust] = the rules are off).
+     */
+    suspend fun makesKeys(): Boolean = trust?.makesKeys(accountId, installId) ?: true
+
+    /**
+     * #EXP-1951: rotates every due root whose current secret this install holds; returns how many.
+     * #EXP-2123 (install-trust.json `keyMaker`): never while this install
+     * waits for approval (nothing is remembered); a STRANDED root (no
+     * approved reader holds its current epoch) is rotated without the old
+     * secret; the server's [KEY_MAKER_REFUSAL] is skipped, not remembered.
+     */
     internal suspend fun rotateDue(): Int {
         val own = installPublic ?: return 0
+        val joined = makesKeys()
+        if (keyMakerStep(joined, KeyWrite.Rotation) != KeyMakerStep.Make) return 0
         val due = api.due(installId)
         if (due.isEmpty()) return 0
         // The server holds a wrap of each for this install: unwrap what is missing.
@@ -203,10 +217,12 @@ class TreeKeyHolder(
         var rotated = 0
         for (root in due) {
             val held = vault.all(accountId)[root.rootId].orEmpty()
-            val epoch = rotationEpoch(
+            val epoch = strandedRotationEpoch(
                 flagged = root.epoch,
                 current = maxOf(root.epoch, held.keys.maxOrNull() ?: 0),
                 held = held.containsKey(root.epoch),
+                stranded = root.stranded,
+                joined = joined,
                 left = (root.rootId to root.epoch) in left,
             ) ?: continue
             val key = crypto.generateTreeKey()
@@ -218,6 +234,8 @@ class TreeKeyHolder(
             } catch (err: CancellationException) {
                 throw err
             } catch (err: TrpcException) {
+                // The server lists this install as waiting: nothing is remembered.
+                if (isKeyMakerRefusal(err.message)) continue
                 createFailure(err.code, err.message)
             } catch (_: Exception) {
                 CreateFailure.Transient
@@ -239,7 +257,10 @@ class TreeKeyHolder(
         return rotated
     }
 
-    /** Wraps the current epoch for every reader `pending` lists (batches of its limit). */
+    private fun heldPublic(rootId: String, epoch: Int, secret: ByteArray): String? =
+        identity?.let { id -> signer?.treePublicKey(id, installSecret, rootId, epoch, secret) }
+
+    /** Wraps every pair `pending` lists (batches of its limit): the held secret of exactly (root, epoch), not held = skipped. */
     internal suspend fun answerPending() {
         val held = vault.all(accountId)
         val pairs = api.pending(installId)
@@ -250,8 +271,10 @@ class TreeKeyHolder(
             val wrapped = runCatching { crypto.wrapTreeKey(pair.targetX25519Public, secret) }.getOrNull() ?: return@mapNotNull null
             // #EXP-1950: signed over the key this install HOLDS; a root whose
             // stored key is another goes unsigned (the server would refuse the batch).
-            val signature = if (endpointId != null && pair.targetEndpointId != null && opens(secret, pair.publicKey, pair.epoch)) {
-                sign(pair.rootId, pair.epoch, pair.publicKey, pair.targetEndpointId, wrapped)
+            // #EXP-2119: an older epoch the server knows no key of names the held secret's own.
+            val publicKey = pair.publicKey.ifEmpty { heldPublic(pair.rootId, pair.epoch, secret) }
+            val signature = if (endpointId != null && pair.targetEndpointId != null && publicKey != null && opens(secret, publicKey, pair.epoch)) {
+                sign(pair.rootId, pair.epoch, publicKey, pair.targetEndpointId, wrapped)
             } else {
                 null
             }

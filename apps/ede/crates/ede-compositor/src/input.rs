@@ -346,8 +346,7 @@ impl Ede {
                 }
             }
             crate::frames::Hit::Edge(edges) => {
-                // The resize grab speaks xdg-shell; X11 windows resize from inside.
-                if window.toplevel().is_some() && !edges.is_empty() {
+                if !edges.is_empty() {
                     if let Some(loc) = self.desk.space.element_location(&window) {
                         let start = GrabStartData { focus: None, button, location };
                         let rect = smithay::utils::Rectangle::new(loc, window.geometry().size);

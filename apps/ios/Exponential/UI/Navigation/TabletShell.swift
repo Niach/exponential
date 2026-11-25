@@ -178,7 +178,9 @@ struct TabletShell: View {
                 detailRoot
                     .toolbar(.visible, for: .navigationBar)
                     .toolbar { sidebarToggle }
-                    .navigationDestination(for: AppRoute.self) { destination($0, true) }
+                    // A one-page entry's root (the Assistant): nothing to go back to.
+                    .environment(\.detailColumnRoot, true)
+                    .navigationDestination(for: AppRoute.self) { destination($0, true).environment(\.detailColumnRoot, false) }
             }
         } else {
             NavigationStack(path: tail) {

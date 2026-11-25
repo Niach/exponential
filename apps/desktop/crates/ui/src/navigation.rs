@@ -204,6 +204,28 @@ impl Screen {
         )
     }
 
+    /// #EXP-2124 (sidebar-menus.json `tabs.pages`): a PAGE that is a tab
+    /// too: Home (the new session tab), Needs you, Chats, Drafts, a device,
+    /// a board, an app (its run view and its editor share the one tab).
+    pub(crate) fn is_tab_page(&self) -> bool {
+        matches!(
+            self,
+            Screen::Home
+                | Screen::NeedsYou
+                | Screen::Chats
+                | Screen::Drafts
+                | Screen::Device { .. }
+                | Screen::BoardIssues { .. }
+                | Screen::AppRun { .. }
+                | Screen::App { .. }
+        )
+    }
+
+    /// #EXP-2124: whether visiting the screen opens (or activates) its tab:
+    /// a detail ([`Self::is_detail`]) or a page ([`Self::is_tab_page`]).
+    pub(crate) fn holds_tab(&self) -> bool {
+        self.is_detail() || self.is_tab_page()
+    }
 }
 
 /// EXP-288: which sidebar entry a detail tab was opened from — clicking the
@@ -655,6 +677,11 @@ pub struct Navigation {
     /// EXP-1212: the New issue page's hold ([`LeaveGuard`]); every screen
     /// change in this module asks [`leave_hold`] first.
     leave_guard: Option<LeaveGuard>,
+    /// #EXP-2124: the screen the last [`navigate_replace`] replaced (Home
+    /// giving way to the chat it started: that chat takes the Home tab's
+    /// place). Consumed by the screens panel ([`take_replaced_screen`]);
+    /// every other screen change clears it.
+    replaced: Option<Screen>,
 }
 
 impl Navigation {
@@ -688,6 +715,7 @@ impl Navigation {
             pending_origin,
             pending_chat_seed: None,
             leave_guard: None,
+            replaced: None,
         }
     }
 
@@ -763,6 +791,7 @@ impl Navigation {
         self.screen = Some(previous.clone());
         self.pending_origin = None;
         self.pending_chat_seed = None;
+        self.replaced = None;
         Some(previous)
     }
 
@@ -772,6 +801,7 @@ impl Navigation {
     /// [`derive_origin`] sees the board a row was picked from (EXP-870 — the
     /// first issue opened after launch used to open with no list beside it).
     fn advance(&mut self, screen: Screen, origin: PendingOrigin, fallback: Option<Screen>) {
+        self.replaced = None;
         if self.screen.as_ref() == Some(&screen) {
             // Re-navigating to the already-active screen still refreshes the
             // tab's origin (dedupe keeps ONE tab; the LATEST origin wins).
@@ -794,7 +824,8 @@ impl Navigation {
     /// draft becomes its issue: Back from the issue skips the draft page).
     /// A real navigation all the same: the forward stack is gone.
     fn replace(&mut self, screen: Screen, origin: PendingOrigin) {
-        self.screen = Some(screen);
+        // #EXP-2124: remembered for the tab strip (Home → its chat).
+        self.replaced = self.screen.replace(screen);
         self.forward_stack.clear();
         self.pending_origin = Some(origin);
     }
@@ -835,6 +866,7 @@ impl Navigation {
         self.screen = Some(next.clone());
         self.pending_origin = None;
         self.pending_chat_seed = None;
+        self.replaced = None;
         Some(next)
     }
 }
@@ -1364,8 +1396,13 @@ fn navigate_replace_inner(window: &Window, cx: &mut App, screen: Screen) {
     let Some(nav) = nav_for_window_readonly(window, cx) else {
         return;
     };
+    // #EXP-2124: a window that never navigated SHOWS its default (Home).
+    let shown = resolved_screen(&nav, cx);
     nav.update(cx, |nav, cx| {
         nav.replace(screen, PendingOrigin::Derive);
+        if nav.replaced.is_none() {
+            nav.replaced = shown;
+        }
         cx.notify();
     });
 }
@@ -1472,6 +1509,25 @@ pub(crate) fn take_pending_origin(
     nav.update(cx, |nav, _| nav.pending_origin.take())
 }
 
+/// #EXP-2124: consume the screen the last [`navigate_replace`] replaced
+/// (`None` = the screen change was no replace).
+pub(crate) fn take_replaced_screen(nav: &Entity<Navigation>, cx: &mut App) -> Option<Screen> {
+    nav.update(cx, |nav, _| nav.replaced.take())
+}
+
+/// #EXP-2124: the screen on show is `from`, which names its page loosely
+/// (an empty device id = this device, an empty board id = the active
+/// board): name it outright as `to`, in place (no history entry, no origin
+/// change), so the page's tab and the screen are one key.
+pub(crate) fn retarget_current_screen(nav: &Entity<Navigation>, cx: &mut App, from: &Screen, to: Screen) {
+    nav.update(cx, |nav, cx| {
+        if nav.screen.as_ref() == Some(from) {
+            nav.screen = Some(to);
+            cx.notify();
+        }
+    });
+}
+
 /// Set the active tab DIRECTLY — no back-stack push. Tab clicks and
 /// tab-close reactivation use this (only real navigations stack); `None`
 /// clears the center (last tab closed).
@@ -1490,6 +1546,7 @@ pub fn set_screen(window: &Window, cx: &mut App, screen: Option<Screen>) {
             nav.screen = screen;
             nav.pending_origin = None;
             nav.pending_chat_seed = None;
+            nav.replaced = None;
             cx.notify();
         }
     });
@@ -2849,6 +2906,47 @@ mod tests {
     }
 
     /// The seed constructors name exactly one thing each.
+    /// #EXP-2124 (sidebar-menus.json `tabs.pages`): every page with an
+    /// Open is a tab; a detail still is; Settings and the tool screens are
+    /// not.
+    #[test]
+    fn pages_hold_tabs_beside_the_details() {
+        for page in [
+            Screen::Home,
+            Screen::NeedsYou,
+            Screen::Chats,
+            Screen::Drafts,
+            Screen::Device { device_id: "d1".into() },
+            Screen::BoardIssues { board_id: "b1".into() },
+            Screen::AppRun { app: "a".into() },
+            Screen::App { app: "a".into() },
+        ] {
+            assert!(page.holds_tab() && page.is_tab_page() && !page.is_detail(), "{page:?}");
+        }
+        assert!(Screen::Chat { session_id: "c".into() }.holds_tab());
+        assert!(Screen::IssueDetail { issue_id: "i".into() }.holds_tab());
+        for none in [Screen::Settings, Screen::Files, Screen::SourceControl, draft_screen("d1", "b1")] {
+            assert!(!none.holds_tab(), "{none:?}");
+        }
+    }
+
+    /// #EXP-2124: a replace remembers what it replaced (Home giving way to
+    /// its chat); any other screen change forgets it.
+    #[test]
+    fn replace_remembers_the_replaced_screen() {
+        let chat = Screen::Chat { session_id: "c1".into() };
+        let mut nav = Navigation::new();
+        nav.screen = Some(Screen::Home);
+        nav.replace(chat.clone(), PendingOrigin::Derive);
+        assert_eq!(nav.replaced, Some(Screen::Home));
+        nav.advance(Screen::Chats, PendingOrigin::Derive, None);
+        assert_eq!(nav.replaced, None);
+        nav.replace(chat, PendingOrigin::Derive);
+        assert_eq!(nav.replaced, Some(Screen::Chats));
+        nav.step_back();
+        assert_eq!(nav.replaced, None);
+    }
+
     #[test]
     fn chat_seed_constructors() {
         assert_eq!(ChatSeed::issues(vec!["i".into()]).issue_ids, vec!["i".to_string()]);

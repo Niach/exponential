@@ -133,11 +133,17 @@ fun ChatScreen(
     onNewIssue: ((boardId: String, rootSessionId: String) -> Unit)? = null,
     /** #EXP-1849: the root is an app's: open the app (the editor) in place. */
     onOpenApp: (appId: String) -> Unit = {},
+    /** #EXP-2119: THE not-found state's "Go to Agent". */
+    onOpenAgentHome: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
     val leave: () -> Unit = onBack ?: {}
     val view by viewModel.view.collectAsStateWithLifecycle()
     val root by viewModel.root.collectAsStateWithLifecycle()
+    if (com.exponential.app.ui.session.rememberSessionMissing(viewModel.rootId, root != null || view != null)) {
+        com.exponential.app.ui.session.SessionNotFound(onBack = leave, onOpenAgentHome = onOpenAgentHome)
+        return
+    }
     val isAgent by viewModel.isAgent.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val resultCards by viewModel.resultCards.collectAsStateWithLifecycle()

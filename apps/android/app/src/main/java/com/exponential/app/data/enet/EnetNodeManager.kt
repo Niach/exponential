@@ -240,6 +240,17 @@ class EnetNodeManager @Inject constructor(
     fun allowedTargets(accountId: String, targets: List<Pair<WrapTarget, String?>>): List<WrapTarget> =
         holders[accountId]?.allowed(targets) ?: targets.map { it.first }
 
+    /**
+     * #EXP-2123 (install-trust.json `keyMaker`): whether this install makes a
+     * chat key for [accountId]: only once it is joined (an older server
+     * counts as joined; a store not reconciled yet is reconciled first).
+     */
+    suspend fun makesKeys(accountId: String): Boolean {
+        holders[accountId]?.let { return it.makesKeys() }
+        val installId = installIds[accountId] ?: return false
+        return trust.makesKeys(accountId, installId)
+    }
+
     /** #EXP-1950 `newRoot.makerRecord`: a key this install made is `verified`. */
     fun recordMadeKey(accountId: String, rootId: String, epoch: Int) {
         holders[accountId]?.recordMade(rootId, epoch)

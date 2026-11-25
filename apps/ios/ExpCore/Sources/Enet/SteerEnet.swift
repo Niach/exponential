@@ -655,8 +655,9 @@ public enum SteerNoFeed {
         return (awayTitle.replacingOccurrences(of: "{device}", with: device), awayText)
     }
 
-    public static func state(ended: Bool, busy: Bool, deviceOffline: Bool = false, started: Bool = true) -> State {
-        if ended { return .offline }
+    /// #EXP-2119: an ended row whose device is ONLINE is `idle`, never `offline`.
+    public static func state(ended: Bool, busy: Bool, deviceOffline: Bool = false, deviceOnline: Bool = false, started: Bool = true) -> State {
+        if ended { return deviceOnline ? .idle : .offline }
         if deviceOffline { return .away }
         if busy { return .starting }
         return started ? .idle : .waiting
@@ -899,9 +900,9 @@ public enum SteerNoFeed {
     /// a not-live transcript showing rows ends with THE inline marker
     /// `awayTitle`: an ended row whose last dial said NO FEED, a row not
     /// ended whose device is offline in presence.
-    public static func offlineLine(live: Bool, rows: Int, ended: Bool, noFeed: Bool, deviceOffline: Bool) -> Bool {
+    public static func offlineLine(live: Bool, rows: Int, ended: Bool, noFeed: Bool, deviceOffline: Bool, deviceOnline: Bool = false) -> Bool {
         if live || rows == 0 { return false }
-        return ended ? noFeed : deviceOffline
+        return ended ? noFeed && !deviceOnline : deviceOffline
     }
 
     /// The synced row fields `rowWakes` reads.

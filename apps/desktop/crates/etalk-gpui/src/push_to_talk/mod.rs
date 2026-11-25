@@ -1257,7 +1257,7 @@ impl PushToTalk {
                 match result {
                     Ok(output) => {
                         // S-3: the reply to a spoken turn is read aloud.
-                        crate::speak_replies::voice_turn(&output.session_id, cx);
+                        crate::speak_replies::voice_turn(&output.session_id, &agent_id, cx);
                         this.sent = Some(Sent { session_id: output.session_id, message_id: output.message_id, at: None });
                         this.step(PttEvent::Sent, cx);
                     }
@@ -1925,6 +1925,24 @@ mod tests {
         assert_eq!(requests.first(), Some(&etalk::Request::Hangup { id: "wake-1".into() }), "{requests:?}");
         assert!(requests.iter().any(|request| matches!(request, etalk::Request::Listen { .. })), "{requests:?}");
         assert_eq!(*link.0.borrow(), ["end"], "reason-less");
+
+    /// EXP-1859: a local wake turn of a TEAM agent: into ITS chat, its reply
+    /// spoken, the capsule Speaking, then Replied.
+    #[gpui::test]
+    async fn a_team_agents_local_wake_turn_speaks_its_reply(cx: &mut gpui::TestAppContext) {
+        use crate::test_support::{Row, TEAM_AGENT, TEAM_CONVERSATION, SENT};
+        let rig = Rig::install(VoiceSettings { wake_word: true, ..crate::test_support::settings() }, cx);
+        rig.worker(etalk::Event::Woke { id: "wake-1".into(), agent_id: Some(TEAM_AGENT.into()) }, cx);
+        rig.worker(etalk::Event::Heard { id: "wake-1".into(), text: "Status?".into() }, cx);
+        assert_eq!(rig.sent(), [(Some(TEAM_CONVERSATION.to_string()), "Status?".to_string())]);
+        assert_eq!(phase(cx), PttPhase::Thinking);
+        let row = |id: &str, author_kind, second: u32| Row { id: id.into(), author_kind, body: "All green.".into(), has_card: false, created_at: format!("2026-11-17T10:00:{second:02}.000Z"), session_id: Some(TEAM_CONVERSATION) };
+        rig.row(row(SENT, "user", 5), cx);
+        rig.row(row("r1", "agent", 6), cx);
+        assert_eq!(rig.spoken(), ["r1"]);
+        assert_eq!(phase(cx), PttPhase::Speaking);
+        rig.worker(etalk::Event::Finished { id: "r1".into(), stopped: false }, cx);
+        assert_eq!(phase(cx), PttPhase::Spoken);
     }
 
     /// #EXP-1936: the speech worker died while the key was held: no Heard,

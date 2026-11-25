@@ -110,6 +110,9 @@ const PINNED_RECIPES = [
   `waitForMcpActivity`,
   `openAppConsent`,
   `openSidebarTeamMenu`,
+  `openNewTabMenu`,
+  `openSidebarDeviceMenu`,
+  `openSidebarBoardMenu`,
 ]
 
 // ---------------------------------------------------------------- 1. shape

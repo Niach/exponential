@@ -176,4 +176,54 @@ final class RotationFixtureTests: XCTestCase {
             }
         }
     }
+
+    private final class OlderDouble: SessionKeysRegistry, @unchecked Sendable {
+        let pair: PendingTreeKey
+        let sent = Locked<[PendingTreeKeyWrap]>([])
+        init(pair: PendingTreeKey) { self.pair = pair }
+        func sendTarget(accountId: String, agentId: String?, appId: String?) async throws -> ServerSendTarget {
+            ServerSendTarget(rootId: nil, epoch: nil, publicKey: nil)
+        }
+        func create(accountId: String, input: CreateTreeKeyInput) async throws {}
+        func mine(accountId: String, installId: String, rootIds: [String]?) async throws -> [HeldTreeKey] { [] }
+        func pending(accountId: String, installId: String) async throws -> [PendingTreeKey] { sent.value.isEmpty ? [pair] : [] }
+        func wrap(accountId: String, installId: String, wraps: [PendingTreeKeyWrap]) async throws { sent.mutate { $0 += wraps } }
+        func publicKeys(accountId: String, rootIds: [String]) async throws -> [TreePublicKey] { [] }
+        func requestKey(accountId: String, rootId: String) async throws -> RequestKeyResult { RequestKeyResult(state: "noHost") }
+    }
+
+    /// #EXP-2119 OLDER EPOCHS: a superseded epoch this install holds is wrapped
+    /// for a reader's new install, its public key known to the server or not.
+    func testOlderEpochCases() async throws {
+        let f = try SealedContentFixtureTests.fixture()
+        let rotation = try Self.rotation()
+        let install = try XCTUnwrap(f["install"] as? [String: Any])
+        let tree = try XCTUnwrap(f["tree"] as? [String: Any])
+        let rotated = try XCTUnwrap(f["rotatedTree"] as? [String: Any])
+        let secretAt: [Int: Data] = [1: try SealedContentFixtureTests.hex(tree["secret"]), 2: try SealedContentFixtureTests.hex(rotated["secret"])]
+        let crypto = Crypto(
+            install: (try SealedContentFixtureTests.hex(install["secret"]), try XCTUnwrap(install["x25519Public"] as? String)),
+            rotatedWrap: try XCTUnwrap(rotation["rotatedWrap"] as? String), rotatedSecret: try XCTUnwrap(secretAt[2])
+        )
+        let cases = try XCTUnwrap(rotation["olderEpochCases"] as? [[String: Any]])
+        XCTAssertGreaterThanOrEqual(cases.count, 3)
+        for c in cases {
+            let name = try XCTUnwrap(c["name"] as? String)
+            let pair = try XCTUnwrap(c["pair"] as? [String: Any])
+            let epoch = try XCTUnwrap(pair["epoch"] as? Int)
+            let publicKey = (pair["publicKey"] as? String) == "tree" ? try XCTUnwrap(tree["publicKey"] as? String) : ""
+            let server = OlderDouble(pair: PendingTreeKey(
+                rootId: "root", epoch: UInt32(epoch), publicKey: publicKey, targetInstallId: "late", targetX25519Public: "public-of-late"
+            ))
+            let ring = SealedKeyRing(persistence: .memory)
+            ring.add(try XCTUnwrap(c["held"] as? [Int]).map { (rootId: "root", epoch: UInt32($0), secret: secretAt[$0]!) })
+            let holder = TreeKeyHolder(
+                keys: server, installs: nil, crypto: crypto, ring: ring,
+                identity: { Data(repeating: 1, count: 32) }, installId: { _ in "install-me" }
+            )
+            await holder.sync(accountId: "a")
+            let expected = try (c["wraps"] as? Int).map { try crypto.wrap(installPublic: "public-of-late", treeSecret: XCTUnwrap(secretAt[$0])) }
+            XCTAssertEqual(server.sent.value.map(\.wrapped), expected.map { [$0] } ?? [], name)
+        }
+    }
 }

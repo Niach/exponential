@@ -21,6 +21,9 @@ use crate::host::{
 pub(crate) const HERE: &str = "d-here";
 pub(crate) const AGENT: &str = "a1";
 pub(crate) const CONVERSATION: &str = "s-1";
+/// EXP-1859: a team agent with its own voice, and the member's chat with it.
+pub(crate) const TEAM_AGENT: &str = "a-team";
+pub(crate) const TEAM_CONVERSATION: &str = "s-team";
 /// The row every send answers with (a test adds it to the messages itself).
 pub(crate) const SENT: &str = "m-sent";
 
@@ -116,10 +119,18 @@ impl TalkHost for TestHost {
         vec![etalk::WakeListener { agent_id: AGENT.into(), phrase: "Hey Studio".into(), language: "en".into(), dial: crate::voice_call::dials(AGENT, cx) }]
     }
     fn agent_voice(&self, agent_id: &str, _: &VoiceSettings, _: &App) -> Option<AgentVoice> {
+        if agent_id == TEAM_AGENT {
+            let voice = etalk::VoiceChoice { language: "en".into(), file: "/data/team.wav".into(), transcript: "Hi.".into() };
+            return Some(AgentVoice { voice, ..Default::default() });
+        }
         (agent_id == AGENT).then(|| self.state.borrow().voice.clone()).flatten()
     }
     fn conversation(&self, agent_id: &str, _: &App) -> Option<String> {
-        (agent_id == AGENT).then(|| CONVERSATION.to_string())
+        match agent_id {
+            AGENT => Some(CONVERSATION.to_string()),
+            TEAM_AGENT => Some(TEAM_CONVERSATION.to_string()),
+            _ => None,
+        }
     }
     fn messages(&self, _: &App, visit: &mut dyn FnMut(&TalkMessage<'_>)) -> bool {
         for row in &self.state.borrow().rows {
@@ -151,11 +162,12 @@ impl TalkHost for TestHost {
             etalk::voice::UtteranceTarget::Session { session_id, text } => (Some(session_id.clone()), text.clone()),
             etalk::voice::UtteranceTarget::Agent { text, .. } => (None, text.clone()),
         };
+        let session_id = sent.0.clone().unwrap_or_else(|| CONVERSATION.to_string());
         self.state.borrow_mut().sent.push(sent);
         if let Some(err) = self.state.borrow().send_fails.clone() {
             return Some(Box::new(move || Err(err)));
         }
-        Some(Box::new(|| Ok(Sent { session_id: CONVERSATION.into(), message_id: Some(SENT.into()) })))
+        Some(Box::new(move || Ok(Sent { session_id, message_id: Some(SENT.into()) })))
     }
     fn write(&self, _: VoiceWrite, _: Box<dyn FnOnce(&mut App)>, _: &mut App) -> bool {
         false

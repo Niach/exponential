@@ -153,14 +153,15 @@ export function steerNoFeedAway(deviceName: string | null | undefined): { title:
 export type SteerNoFeedState = `offline` | `away` | `starting` | `idle` | `waiting`
 
 /**
- * EXP-1487: an ended row = the device-offline copy; #EXP-1703: a live row
+ * EXP-1487: an ended row = the device-offline copy (#EXP-2119: `idle` while
+ * its device is online); #EXP-1703: a live row
  * whose device is offline = `away`; a busy row = starting; #EXP-2000 a row
  * no device picked up yet (`started` false: `startedAt` null) = `waiting`
  * (the placeholder says nothing); anything else (idle, waiting on a
  * question) = the idle empty state, never "starting".
  */
-export function steerNoFeedState(row: { ended: boolean; busy: boolean; deviceOffline?: boolean; started?: boolean }): SteerNoFeedState {
-  if (row.ended) return `offline`
+export function steerNoFeedState(row: { ended: boolean; busy: boolean; deviceOffline?: boolean; deviceOnline?: boolean; started?: boolean }): SteerNoFeedState {
+  if (row.ended) return row.deviceOnline ? `idle` : `offline`
   if (row.deviceOffline) return `away`
   if (row.busy) return `starting`
   return row.started === false ? `waiting` : `idle`
@@ -332,9 +333,10 @@ export function steerOfflineLine(input: {
   ended: boolean
   noFeed: boolean
   deviceOffline: boolean
+  deviceOnline?: boolean
 }): boolean {
   if (input.live || input.rows === 0) return false
-  return input.ended ? input.noFeed : input.deviceOffline
+  return input.ended ? input.noFeed && !input.deviceOnline : input.deviceOffline
 }
 
 /** The synced row fields `steerRowWakes` reads. */

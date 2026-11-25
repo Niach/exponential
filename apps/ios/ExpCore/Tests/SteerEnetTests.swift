@@ -224,7 +224,8 @@ final class SteerEnetTests: XCTestCase {
             let deviceOffline = (c["deviceOffline"] as? Bool) ?? false
             // #EXP-2000: `started` absent = true.
             let started = (c["started"] as? Bool) ?? true
-            XCTAssertEqual(SteerNoFeed.state(ended: ended, busy: busy, deviceOffline: deviceOffline, started: started), state, name)
+            let deviceOnline = (c["deviceOnline"] as? Bool) ?? false
+            XCTAssertEqual(SteerNoFeed.state(ended: ended, busy: busy, deviceOffline: deviceOffline, deviceOnline: deviceOnline, started: started), state, name)
         }
     }
 
@@ -446,7 +447,8 @@ final class SteerEnetTests: XCTestCase {
                     rows: try XCTUnwrap(c["rows"] as? Int, name),
                     ended: try XCTUnwrap(c["ended"] as? Bool, name),
                     noFeed: try XCTUnwrap(c["noFeed"] as? Bool, name),
-                    deviceOffline: try XCTUnwrap(c["deviceOffline"] as? Bool, name)
+                    deviceOffline: try XCTUnwrap(c["deviceOffline"] as? Bool, name),
+                    deviceOnline: (c["deviceOnline"] as? Bool) ?? false
                 ),
                 c["line"] as? Bool,
                 name

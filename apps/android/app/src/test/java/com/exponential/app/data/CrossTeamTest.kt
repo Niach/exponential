@@ -128,4 +128,21 @@ class CrossTeamTest {
             linkedIssueStatuses(issues, boards, rows).mapValues { it.value.name },
         )
     }
+
+    @Test
+    fun `the Home composer to my Assistant reads the chat teams with no own team, else its team`() {
+        // #EXP-2094: the synced teams arrive in the cross-team order.
+        val synced = crossTeamOrder(listOf(team("b", "beta"), team("a", "Alpha"), team("c", "Gamma"))).map { it.id }
+        assertEquals(listOf("a", "b", "c"), synced)
+        // My Assistant: the Teams pick ∩ the synced teams, in the synced order.
+        assertEquals(listOf("a", "c"), homeComposerChatTeams(true, "b", synced, listOf("c", "a", "gone")))
+        // Nothing picked, or nothing of the pick synced = all synced teams;
+        // the composer's own team never wins.
+        assertEquals(synced, homeComposerChatTeams(true, "b", synced, null))
+        assertEquals(synced, homeComposerChatTeams(true, "b", synced, listOf("gone")))
+        assertEquals(synced, homeComposerChatTeams(true, "personal", synced, emptyList()))
+        // A team agent or Temporary session keeps its team, whatever the pick.
+        assertEquals(listOf("b"), homeComposerChatTeams(false, "b", synced, listOf("a")))
+        assertEquals(listOf("c"), homeComposerChatTeams(false, "c", synced, null))
+    }
 }

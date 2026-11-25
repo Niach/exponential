@@ -142,3 +142,33 @@ fn entries_from_synced_rows() {
         ])
     );
 }
+
+/// #EXP-2124 Move to folder › New folder: the TS `sidebarMoveToNewFolder`
+/// tests, replayed (no fixture cases).
+#[test]
+fn move_to_new_folder() {
+    let e = |id: &str, kind: &str, target: Option<&str>, parent: Option<&str>, sort_order: f64, name: Option<&str>| -> SidebarEntry {
+        serde_json::from_value(json!({"id": id, "kind": kind, "targetId": target, "parentId": parent, "name": name, "sortOrder": sort_order})).unwrap()
+    };
+    let list = |ids: &[&str]| ids.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let writes = sidebar_move_to_new_folder(&list(&["a", "b", "c"]), &[], "b", "f").expect("a top-level item");
+    assert_eq!(
+        serde_json::to_value(&writes).unwrap(),
+        json!({
+            "upserts": [
+                {"id": null, "kind": "item", "targetId": "a", "parentId": null, "name": null, "sortOrder": 1},
+                {"id": "f", "kind": "folder", "targetId": null, "parentId": null, "name": SIDEBAR_FOLDER_DEFAULT_NAME, "sortOrder": 2},
+                {"id": null, "kind": "item", "targetId": "b", "parentId": "f", "name": null, "sortOrder": 1},
+                {"id": null, "kind": "item", "targetId": "c", "parentId": null, "name": null, "sortOrder": 3}
+            ],
+            "deletes": [],
+            "createdFolderId": "f"
+        })
+    );
+    let writes = sidebar_move_to_new_folder(&list(&["a", "b"]), &[e("g", "folder", None, None, 1., Some("G")), e("ea", "item", Some("a"), Some("g"), 1., None)], "a", "f").expect("the last item of a folder");
+    let upserts = serde_json::to_value(&writes.upserts).unwrap();
+    assert_eq!(writes.deletes, ["g"]);
+    assert!(upserts.as_array().unwrap().contains(&json!({"id": "f", "kind": "folder", "targetId": null, "parentId": null, "name": SIDEBAR_FOLDER_DEFAULT_NAME, "sortOrder": 1})));
+    assert!(upserts.as_array().unwrap().contains(&json!({"id": "ea", "kind": "item", "targetId": "a", "parentId": "f", "name": null, "sortOrder": 1})));
+    assert!(sidebar_move_to_new_folder(&list(&["a"]), &[], "zz", "f").is_none());
+}

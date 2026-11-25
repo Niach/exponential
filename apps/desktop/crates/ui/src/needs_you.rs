@@ -596,8 +596,10 @@ pub(crate) fn second_line(row: &NeedsYouRow) -> String {
 /// THE row: THE inbox page's reading row (`list` density): the glyph in the
 /// needs-you tone hanging from the top, line 1 the title (medium, truncated) +
 /// the age muted trailing, line 2 the chat, muted, truncated. The caller hangs
-/// the press. `actions` = a stuck PR's Button sm row, under line 2.
-pub(crate) fn needs_you_row(row: &NeedsYouRow, actions: Option<AnyElement>, cx: &App) -> gpui::Stateful<gpui::Div> {
+/// the press. `actions` = a stuck PR's Button sm row, under line 2. `team` =
+/// #EXP-2027: its team's mark right after the title (the list spans every
+/// team; the Assistant's rows wear none).
+pub(crate) fn needs_you_row(row: &NeedsYouRow, team: Option<AnyElement>, actions: Option<AnyElement>, cx: &App) -> gpui::Stateful<gpui::Div> {
     let theme = cx.theme();
     crate::surface::flat_row()
         .id(SharedString::from(format!("{}-{}", NEEDS_YOU.test_ids.row, row.message_id)))
@@ -621,7 +623,6 @@ pub(crate) fn needs_you_row(row: &NeedsYouRow, actions: Option<AnyElement>, cx: 
                         .items_center()
                         .child(
                             div()
-                                .flex_1()
                                 .min_w_0()
                                 .truncate()
                                 .text_sm()
@@ -629,6 +630,8 @@ pub(crate) fn needs_you_row(row: &NeedsYouRow, actions: Option<AnyElement>, cx: 
                                 .text_color(theme.foreground)
                                 .child(SharedString::from(row.title.clone())),
                         )
+                        .children(team)
+                        .child(div().flex_1())
                         .child(div().flex_shrink_0().pl_2().text_xs().text_color(theme.muted_foreground).child(SharedString::from(row.age.clone()))),
                 )
                 .child(div().mt(px(2.)).truncate().text_xs().text_color(theme.muted_foreground).child(SharedString::from(second_line(row))))
@@ -692,7 +695,12 @@ fn linked_others(pull_request_id: &str, cx: &App) -> usize {
 
 /// THE list: one reading column of rows, else THE EmptyState. `stuck` = the
 /// stuck PRs' actions by row id.
-pub(crate) fn needs_you_list(rows: &[NeedsYouRow], stuck: &HashMap<String, StuckPr>, cx: &App) -> AnyElement {
+pub(crate) fn needs_you_list(
+    rows: &[NeedsYouRow],
+    stuck: &HashMap<String, StuckPr>,
+    team_of: &dyn Fn(&NeedsYouRow) -> Option<AnyElement>,
+    cx: &App,
+) -> AnyElement {
     if rows.is_empty() {
         return crate::controls::empty_state(Icon::new(registry::NAV_NEEDS_YOU), NEEDS_YOU.copy.empty.clone(), None, cx).into_any_element();
     }
@@ -704,7 +712,7 @@ pub(crate) fn needs_you_list(rows: &[NeedsYouRow], stuck: &HashMap<String, Stuck
         .children(rows.iter().map(|row| {
             let open = row.clone();
             let press = row_press(row, stuck);
-            needs_you_row(row, stuck.get(&row.message_id).map(stuck_actions), cx)
+            needs_you_row(row, team_of(row), stuck.get(&row.message_id).map(stuck_actions), cx)
                 .cursor_pointer()
                 .hover(move |style| style.bg(hover))
                 .on_click(move |_: &ClickEvent, window: &mut Window, cx: &mut App| press_row(&open, press, window, cx))
@@ -712,6 +720,9 @@ pub(crate) fn needs_you_list(rows: &[NeedsYouRow], stuck: &HashMap<String, Stuck
         }))
         .into_any_element()
 }
+
+/// The size of a row's team mark (web `needs-you.tsx`).
+const TEAM_MARK_PX: f32 = 14.;
 
 /// THE page in the content card (no header, wide).
 pub struct NeedsYouView {
@@ -745,7 +756,12 @@ impl Render for NeedsYouView {
         let column: Option<AnyElement> = if ready {
             // #EXP-2027: every member team's rows.
             let rows = rows_in_all_teams(cx);
-            (!(rows.rows.is_empty() && trust_shown)).then(|| needs_you_list(&rows.rows, &rows.stuck, cx))
+            let marks = crate::chats_view::team_marks(cx);
+            let team_of = |row: &NeedsYouRow| {
+                let team = crate::session_data::session(&row.session_id, cx).and_then(|session| session.team_id);
+                crate::chats_view::team_mark_of(&marks, team.as_deref(), TEAM_MARK_PX)
+            };
+            (!(rows.rows.is_empty() && trust_shown)).then(|| needs_you_list(&rows.rows, &rows.stuck, &team_of, cx))
         } else {
             // Skeletons, never "Loading…" (feedback-states.json).
             Some(crate::feedback::skeleton_rows("needs-you-skeleton", crate::feedback::SKELETON_ROWS, crate::settings::SETTINGS_ROW_H, cx).into_any_element())

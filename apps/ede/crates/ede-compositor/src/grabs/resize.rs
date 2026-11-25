@@ -60,9 +60,13 @@ impl ResizeSurfaceGrab {
     ) -> Self {
         let initial_rect = initial_window_rect;
 
-        ResizeSurfaceState::with(window.toplevel().unwrap().wl_surface(), |state| {
-            *state = ResizeSurfaceState::Resizing { edges, initial_rect };
-        });
+        // An X11 window moves as it resizes ([`Self::motion`]); only an
+        // xdg one has its place fixed up on its commit.
+        if let Some(xdg) = window.toplevel() {
+            ResizeSurfaceState::with(xdg.wl_surface(), |state| {
+                *state = ResizeSurfaceState::Resizing { edges, initial_rect };
+            });
+        }
 
         Self {
             start_data,
@@ -71,6 +75,25 @@ impl ResizeSurfaceGrab {
             initial_rect,
             last_window_size: initial_rect.size,
         }
+    }
+}
+
+impl ResizeSurfaceGrab {
+    /// The client's minimum and maximum size (0 = none): xdg-shell's, or
+    /// an X11 window's `WM_NORMAL_HINTS`.
+    fn size_limits(&self) -> (Size<i32, Logical>, Size<i32, Logical>) {
+        if let Some(xdg) = self.window.toplevel() {
+            return compositor::with_states(xdg.wl_surface(), |states| {
+                let mut guard = states.cached_state.get::<SurfaceCachedState>();
+                let data = guard.current();
+                (data.min_size, data.max_size)
+            });
+        }
+        #[cfg(feature = "xwayland")]
+        if let Some(x11) = self.window.x11_surface() {
+            return (x11.min_size().unwrap_or_default(), x11.max_size().unwrap_or_default());
+        }
+        (Size::default(), Size::default())
     }
 }
 
@@ -106,12 +129,7 @@ impl PointerGrab<Ede> for ResizeSurfaceGrab {
             new_window_height = (self.initial_rect.size.h as f64 + delta.y) as i32;
         }
 
-        let (min_size, max_size) =
-            compositor::with_states(self.window.toplevel().unwrap().wl_surface(), |states| {
-                let mut guard = states.cached_state.get::<SurfaceCachedState>();
-                let data = guard.current();
-                (data.min_size, data.max_size)
-            });
+        let (min_size, max_size) = self.size_limits();
 
         let min_width = min_size.w.max(1);
         let min_height = min_size.h.max(1);
@@ -124,13 +142,27 @@ impl PointerGrab<Ede> for ResizeSurfaceGrab {
             new_window_height.max(min_height).min(max_height),
         ));
 
-        let xdg = self.window.toplevel().unwrap();
-        xdg.with_pending_state(|state| {
-            state.states.set(xdg_toplevel::State::Resizing);
-            state.size = Some(self.last_window_size);
-        });
-
-        xdg.send_pending_configure();
+        if let Some(xdg) = self.window.toplevel() {
+            xdg.with_pending_state(|state| {
+                state.states.set(xdg_toplevel::State::Resizing);
+                state.size = Some(self.last_window_size);
+            });
+            xdg.send_pending_configure();
+        }
+        #[cfg(feature = "xwayland")]
+        if let Some(x11) = self.window.x11_surface() {
+            // X11 has no commit to move the window on afterwards: a top or
+            // left edge shifts it now, the opposite edge stays.
+            let mut loc = self.initial_rect.loc;
+            if self.edges.intersects(ResizeEdge::LEFT) {
+                loc.x += self.initial_rect.size.w - self.last_window_size.w;
+            }
+            if self.edges.intersects(ResizeEdge::TOP) {
+                loc.y += self.initial_rect.size.h - self.last_window_size.h;
+            }
+            let _ = x11.configure(Some(Rectangle::new(loc, self.last_window_size)));
+            data.desk.space.map_element(self.window.clone(), loc, false);
+        }
     }
 
     fn relative_motion(
@@ -159,20 +191,22 @@ impl PointerGrab<Ede> for ResizeSurfaceGrab {
             // No more buttons are pressed, release the grab.
             handle.unset_grab(self, data, event.serial, event.time, true);
 
-            let xdg = self.window.toplevel().unwrap();
-            xdg.with_pending_state(|state| {
-                state.states.unset(xdg_toplevel::State::Resizing);
-                state.size = Some(self.last_window_size);
-            });
+            // X11: the last motion configured it already.
+            if let Some(xdg) = self.window.toplevel() {
+                xdg.with_pending_state(|state| {
+                    state.states.unset(xdg_toplevel::State::Resizing);
+                    state.size = Some(self.last_window_size);
+                });
 
-            xdg.send_pending_configure();
+                xdg.send_pending_configure();
 
-            ResizeSurfaceState::with(xdg.wl_surface(), |state| {
-                *state = ResizeSurfaceState::WaitingForLastCommit {
-                    edges: self.edges,
-                    initial_rect: self.initial_rect,
-                };
-            });
+                ResizeSurfaceState::with(xdg.wl_surface(), |state| {
+                    *state = ResizeSurfaceState::WaitingForLastCommit {
+                        edges: self.edges,
+                        initial_rect: self.initial_rect,
+                    };
+                });
+            }
         }
     }
 

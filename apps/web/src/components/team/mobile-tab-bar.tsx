@@ -14,6 +14,7 @@ import type { Board } from "@/db/schema"
 import { useMemberTeams } from "@/components/home/use-member-teams"
 import { useSession } from "@/hooks/use-session"
 import { useBoardsForTeams } from "@/hooks/use-team-data"
+import { sidebarLayoutCollection } from "@/lib/collections"
 import { readLastVisited } from "@/lib/last-visited"
 import { draftOriginFrom, newDraftNavigation } from "@/lib/issue-draft-page"
 import { phonePagePlace } from "@/lib/phone-page"
@@ -150,6 +151,11 @@ export function MobileTabBar() {
     },
     [publishTabBarHeight, publishDockHeight]
   )
+  // The Teams pages' order is read before the first tap, so a team opened
+  // offline shows it.
+  useEffect(() => {
+    void sidebarLayoutCollection.preload().catch(() => undefined)
+  }, [])
   const [open, setOpen] = useState(false)
   useEffect(() => setOpen(false), [pathname])
   // The Assistant's composer floats above the bar (its raised disc included).

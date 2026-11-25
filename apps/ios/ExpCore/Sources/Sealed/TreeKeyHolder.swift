@@ -117,6 +117,8 @@ public actor TreeKeyHolder {
     private let register: @Sendable (String) -> Void
     private let now: @Sendable () -> Date
     private var requested: [String: Date] = [:]
+    /// Roots with a row that did not open, by account: the epochs held when it asked.
+    private var unopened: [String: [String: Int]] = [:]
     private var synced: Set<String> = []
     private var cachedKey: (identity: Data, secret: Data, publicKey: String)?
     /// #EXP-1951: rotations the server refused this install, `root\nepoch`.
@@ -199,6 +201,12 @@ public actor TreeKeyHolder {
         await trust?.sync(accountId: accountId, installId: install)
         if !synced.contains(accountId) {
             if await fetch(accountId: accountId, installId: install, rootIds: nil) { synced.insert(accountId) }
+        } else {
+            // #EXP-2119: a row that did not open is not drawn again by itself:
+            // its wrap, made after it asked, is fetched by the next pass.
+            let wanted = unopened[accountId] ?? [:]
+            if !wanted.isEmpty { _ = await fetch(accountId: accountId, installId: install, rootIds: nil) }
+            unopened[accountId] = wanted.filter { ring.keys(rootId: $0.key).count <= $0.value }
         }
         await rotateDue(accountId: accountId, installId: install)
         await answerPending(accountId: accountId, installId: install)
@@ -210,6 +218,7 @@ public actor TreeKeyHolder {
     public func forgetAll() {
         synced.removeAll()
         requested.removeAll()
+        unopened.removeAll()
         left.removeAll()
         resignQueue.removeAll()
         unsignedSeals.removeAll()
@@ -223,6 +232,7 @@ public actor TreeKeyHolder {
         let root = rootId.lowercased()
         if let at = requested[root], now().timeIntervalSince(at) < Self.requestCooldown { return }
         requested[root] = now()
+        unopened[accountId, default: [:]][root] = ring.keys(rootId: root).count
         guard crypto.isAvailable, let install = await installId(accountId) else { return }
         _ = await fetch(accountId: accountId, installId: install, rootIds: [root])
     }
@@ -358,11 +368,14 @@ public actor TreeKeyHolder {
                 }
                 guard let wrapped = try? crypto.wrap(installPublic: pair.targetX25519Public, treeSecret: secret) else { continue }
                 // Signed over the key of the secret held, never the server's
-                // word for it: a pair naming another key goes unsigned.
+                // word for it: a pair naming another key goes unsigned. An empty
+                // one is a superseded epoch the server kept no key of (#EXP-2119).
                 let held = TreePublicKeys.of(secret: secret)
-                let signed = held == pair.publicKey
-                    ? signature(rootId: pair.rootId, epoch: pair.epoch, treePublicKey: pair.publicKey, recipientEndpointId: pair.targetEndpointId, wrapped: wrapped)
-                    : nil
+                let signed = held.flatMap { key in
+                    key == pair.publicKey || pair.publicKey.isEmpty
+                        ? signature(rootId: pair.rootId, epoch: pair.epoch, treePublicKey: key, recipientEndpointId: pair.targetEndpointId, wrapped: wrapped)
+                        : nil
+                }
                 wraps.append(PendingTreeKeyWrap(rootId: pair.rootId, epoch: pair.epoch, targetInstallId: pair.targetInstallId, wrapped: wrapped, signature: signed))
             }
             guard !wraps.isEmpty else { return }

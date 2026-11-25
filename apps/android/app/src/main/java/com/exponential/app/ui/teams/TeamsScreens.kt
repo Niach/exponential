@@ -155,7 +155,8 @@ fun TeamsContent(
                                 title = team.name,
                                 subtitle = group.server,
                                 trailing = {
-                                    CountBadge(needsYou[team.id] ?: 0, NavBadges.Tone.Attention, testTag = "team-row-badge")
+                                    // The counts are the active account's ([TeamsGroup.server] null).
+                                    CountBadge(needsYou[team.id].takeIf { group.server == null } ?: 0, NavBadges.Tone.Attention, testTag = "team-row-badge")
                                 },
                                 onClick = { onOpenTeam(group.accountId, team.id) },
                                 modifier = Modifier.testTag(TeamsTestIds.TEAM_ROW),
