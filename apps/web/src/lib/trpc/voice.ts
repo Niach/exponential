@@ -46,7 +46,17 @@ import {
 
 import type { db as Database } from "@/db/connection"
 import { agents, devices, teamMembers, teams, userVoiceSettings } from "@/db/schema"
-import { authedProcedure, generateTxId, router } from "@/lib/trpc"
+import { adminProcedure, authedProcedure, generateTxId, router } from "@/lib/trpc"
+import { resolveTeamAccess } from "@/lib/auth/access"
+import {
+  callRecordsByTag,
+  collectCallReportsSoon,
+  recordCallHostEnd,
+  recordCallHostTicket,
+  recordCallMinted,
+  relayCounterTotals,
+  teamCallRecords,
+} from "@/lib/voice-call-records"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import { createTreeKeyInTx, loadRoot, lockTreeKeys } from "@/lib/sessions/tree-keys"
 import { getSteerRelayConfig, mintSteerTicket, relayPostNudge } from "@/lib/steer"
@@ -281,14 +291,14 @@ function inMemberTeams(database: Db, userId: string) {
 /** The agent, when it is one of the member's teams' (#NEW-64 folded in):
  *  the agents a member can talk to, with its Runs on device. S-3: another
  *  member's Assistant is theirs alone (`loadAgentForUser`'s rule). */
-async function memberAgent(database: Db, userId: string, agentId: string): Promise<{ deviceId: string | null } | null> {
+async function memberAgent(database: Db, userId: string, agentId: string): Promise<{ teamId: string; deviceId: string | null } | null> {
   const [agent] = await database
-    .select({ role: agents.role, ownerId: agents.ownerId, deviceId: agents.deviceId })
+    .select({ teamId: agents.teamId, role: agents.role, ownerId: agents.ownerId, deviceId: agents.deviceId })
     .from(agents)
     .where(and(eq(agents.id, agentId), inMemberTeams(database, userId)))
     .limit(1)
   if (agent === undefined || (agent.role === `assistant` && agent.ownerId !== userId)) return null
-  return { deviceId: agent.deviceId ?? null }
+  return { teamId: agent.teamId, deviceId: agent.deviceId ?? null }
 }
 
 /** Every agent the member may call (`memberAgent`'s rule, as a set). */
@@ -655,6 +665,12 @@ export const voiceRouter = router({
       // #FEED-268: the call's own line (the count line above stays id-free):
       // its tag is the id's random head, which the relay and the device log too.
       console.info(`[voice] call ${callLogTag(callId)}: minted for member=${userId} platform=${from ?? input.platform} agent=${input.agentId} device=${target.device} fallback=${target.fallback} sealed=${sealed}`)
+      await recordCallMinted(
+        { callId, userId, teamId: agent.teamId, agentId: input.agentId, deviceId: target.device, platform: from ?? input.platform, mode: input.mode, sealed },
+        ctx.request,
+        new Date(),
+        db
+      )
       return {
         callId,
         ticket: minted.ticket,
@@ -742,12 +758,45 @@ export const voiceRouter = router({
   // #EXP-1961: the hang-up (either side, a drop too): the call session is
   // asked for its summary, which reaches the chat as a waking report card.
   callEnded: authedProcedure
-    .input(z.object({ sessionId: z.string().uuid() }))
+    .input(
+      z.object({
+        sessionId: z.string().uuid(),
+        /** EXP-2110: what the host knows of a streamed call's end (codes and a duration). */
+        report: z
+          .object({
+            by: z.string().regex(/^[a-z_]{1,16}$/),
+            reason: z.string().regex(/^[A-Za-z_]{1,32}(:[A-Za-z_]{1,28})?$/),
+            answeredMs: z.number().int().min(0).max(2_147_483_647).optional(),
+          })
+          .optional()
+          // A host's odd value never costs the hang-up.
+          .catch(undefined),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
+      await recordCallHostEnd({ userId: ctx.session.user.id, sessionId: input.sessionId, report: input.report }, ctx.db)
+      collectCallReportsSoon()
       const ended = await endCallSession({ userId: ctx.session.user.id, sessionId: input.sessionId })
       console.info(`[voice] call session ${input.sessionId}: the host reported the hang-up (ended=${ended})`)
       return { ended }
     }),
+
+  // EXP-2110 (voice-call.json `record`): a team's newest call records, its
+  // OWNERS only. A personal team's calls (its member's Assistant) have no
+  // owner role, so nobody reads them here.
+  callRecords: authedProcedure
+    .input(z.object({ teamId: z.string().uuid(), limit: z.number().int().min(1).max(200).default(50) }))
+    .query(async ({ ctx, input }) => {
+      await resolveTeamAccess(ctx.session.user.id, input.teamId, `mutate_resources`, { roles: [`owner`] })
+      return teamCallRecords(input.teamId, input.limit)
+    }),
+
+  // EXP-2110: support reads a call by the tag in anyone's log, and the
+  // relay's counters over every process of the window.
+  callRecordsByTag: adminProcedure
+    .input(z.object({ tag: z.string().regex(/^[0-9a-f]{8}(-[0-9a-f-]{27})?$/i) }))
+    .query(({ input }) => callRecordsByTag(input.tag)),
+  relayCounters: adminProcedure.query(() => relayCounterTotals()),
 
   // NEW-55: the voice device answers a `call_ring`. Minted for the member
   // alone; the relay admits it only into a ringing call on a device this
@@ -813,6 +862,7 @@ export const voiceRouter = router({
         throw new TRPCError({ code: `PRECONDITION_FAILED`, message: `Calls need the steer relay` })
       }
       console.info(`[voice] call ${callLogTag(input.callId)}: host ticket for member=${userId} device=${deviceId} sealed=${vouched.sealed}`)
+      await recordCallHostTicket(input.callId, userId, new Date(), ctx.db)
       return { callId: input.callId, ticket: minted.ticket, url: minted.url, relayUrl: config.url, seal: vouched.sealed }
     }),
 })
