@@ -313,7 +313,7 @@ describe(`ChatConversation`, () => {
         id: `s`,
         sessionId: `r`,
         title: `Launch path`,
-        surface: { root: { id: `root`, component: `Text`, props: { text: `740 ms` } } },
+        surface: { version: `1.0`, root: { id: `root`, component: `Text`, props: { text: `740 ms` } } },
       },
     ]
     renderRows(rows, { viewerId: `x`, messageTime: () => `21:02` })
@@ -323,6 +323,15 @@ describe(`ChatConversation`, () => {
     expect(screen.getByTestId(`surface-card`).textContent).toContain(`Launch path`)
     expect(screen.getByTestId(`chat-bubble`).textContent).toContain(`21:02`)
     expect(screen.getByTestId(`user-message-bubble`).textContent).toContain(`21:02`)
+  })
+
+  // plan-card.json `surfaceReadableCases` (#VAPP-289).
+  it(`a surface card that is not A2UI 1.0 keeps its title over the inline marker`, () => {
+    renderRows([{ type: `surface`, id: `s`, sessionId: `r`, title: `Launch path`, surface: { root: { id: `t`, component: `Text`, props: { text: `740 ms` } } } }])
+    const card = screen.getByTestId(`surface-card`)
+    expect(card.textContent).toContain(`Launch path`)
+    expect(card.textContent).not.toContain(`740 ms`)
+    expect(card.querySelector(`[data-testid="transcript-marker"]`)!.textContent).toContain(`This view could not be drawn`)
   })
 
   it(`N-12: the plan's sheet approves from its footer`, () => {
@@ -816,7 +825,7 @@ describe(`ChatConversation EXP-1280 rich cards`, () => {
 
   it(`a pending question with a surface answers with its data model`, () => {
     const onAnswer = vi.fn()
-    const surface = { root: { id: `t`, component: `Text`, props: { text: `Size` } }, data: { size: `lg` } }
+    const surface = { version: `1.0`, root: { id: `t`, component: `Text`, props: { text: `Size` } }, data: { size: `lg` } }
     render(
       <ChatConversation
         rows={[
