@@ -228,7 +228,7 @@ function useTeamsPick(
     () => myTeams.map((team) => ({ id: team.id, name: team.name, iconUrl: team.iconUrl ?? null })),
     [myTeams]
   )
-  if (assistant) return { pick: { teams, picked, onChange: setPicked }, scope: picked === null ? null : [...picked] }
+  if (assistant) return { pick: { teams, picked, onChange: setPicked, owner: { kind: `assistant` } }, scope: picked === null ? null : [...picked] }
   if (!plain || !row?.teamId) return { pick: null, scope: undefined }
   const own = row.teamId
   const { shown, scope } = plainTeamsPick({ own, stored, picked, teams })
@@ -236,6 +236,7 @@ function useTeamsPick(
     pick: {
       teams,
       picked: shown,
+      owner: { kind: `root`, own },
       // Every team checked again (null) = each id stored (a team joined
       // later stays out until picked).
       onChange: (next) => setPicked((next ?? teams.map((team) => team.id)).filter((id) => id !== own)),

@@ -1318,7 +1318,7 @@ impl ChatScreenView {
                     view.update(cx, |this, cx| this.set_plain_pick(next, window, cx));
                 }
             });
-            return crate::teams_pick::chips_row("chat-chip", &teams, Some(&picked), self.sending, on_change, cx);
+            return crate::teams_pick::chips_row("chat-chip", &teams, Some(&picked), crate::teams_pick::PickOwner::Home, self.sending, on_change, cx);
         }
         if !self.to_assistant(cx) {
             return None;
@@ -1333,7 +1333,7 @@ impl ChatScreenView {
                 });
             }
         });
-        crate::teams_pick::chips_row("chat-chip", &teams, self.teams_picked.as_deref(), self.sending, on_change, cx)
+        crate::teams_pick::chips_row("chat-chip", &teams, self.teams_picked.as_deref(), crate::teams_pick::PickOwner::Assistant, self.sending, on_change, cx)
     }
 
     /// A tap on the agent row (tapping the selected circle keeps it).

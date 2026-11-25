@@ -253,12 +253,13 @@ const TEAM_KEY: &str = "team:";
 
 /// `/chatFiles`: the Assistant's picked teams (a subset only) lead the
 /// strip, then the staged files: an image's own picture (`data:`), else
-/// its glyph; every chip removable.
-pub(crate) fn strip(teams: &[&crate::teams_pick::PickTeam], files: &[StripFile]) -> Value {
+/// its glyph; every chip removable but a `fixed` team's (a plain chat's own,
+/// [`crate::teams_pick::removable_chips`]).
+pub(crate) fn strip(teams: &[&crate::teams_pick::PickTeam], removable: &[&str], files: &[StripFile]) -> Value {
     use base64::Engine as _;
     let mut items: Vec<Value> = teams
         .iter()
-        .map(|team| json!({"key": format!("{TEAM_KEY}{}", team.id), "label": team.name, "image": team.icon_url.clone().unwrap_or_default(), "icon": "ui-team"}))
+        .map(|team| json!({"key": format!("{TEAM_KEY}{}", team.id), "label": team.name, "image": team.icon_url.clone().unwrap_or_default(), "icon": "ui-team", "fixed": !removable.contains(&team.id.as_str())}))
         .collect();
     items.extend(files.iter().map(|file| {
         let picture = if !file.is_file && file.bytes.len() <= CHIP_PICTURE_MAX {
@@ -701,7 +702,10 @@ impl SteerSessionView {
             .iter()
             .map(|item| StripFile { key: item.key, filename: &item.filename, content_type: &item.content_type, bytes: &item.preview.bytes, is_file: item.is_file })
             .collect();
-        let files = strip(&chips, &files);
+        let own = self.plain_team(cx);
+        let owner = own.as_deref().map_or(crate::teams_pick::PickOwner::Assistant, crate::teams_pick::PickOwner::Root);
+        let ids: Vec<&str> = chips.iter().map(|team| team.id.as_str()).collect();
+        let files = strip(&chips, &crate::teams_pick::removable_chips(owner, &ids), &files);
         let ring = !self.source.read_only() && !self.session_over() && crate::usage_bar::context_percent(self.usage().as_ref()).is_some();
         let input = uicore_model::chat::ChatInput {
             session_id: Some(self.session_id.to_string()),
@@ -1315,14 +1319,15 @@ mod tests {
             StripFile { key: 1, filename: "shot.png", content_type: "image/png", bytes: &[1, 2, 3], is_file: false },
             StripFile { key: 2, filename: "log.txt", content_type: "text/plain", bytes: &[4], is_file: true },
         ];
-        let strip = strip(&[&team], &files);
+        let strip = strip(&[&team], &["t1"], &files);
+        assert_eq!(super::strip(&[&team], &[], &[])["items"][0]["fixed"], true);
         assert_eq!(strip["open"], true);
         let items = strip["items"].as_array().unwrap();
-        assert_eq!(items[0], json!({"key": "team:t1", "label": "Core", "image": "", "icon": "ui-team"}));
+        assert_eq!(items[0], json!({"key": "team:t1", "label": "Core", "image": "", "icon": "ui-team", "fixed": false}));
         assert_eq!(items[1]["image"], "data:image/png;base64,AQID");
         assert_eq!(items[1]["icon"], "image");
         assert_eq!(items[2], json!({"key": "2", "label": "log.txt", "image": "", "icon": "file"}));
-        assert_eq!(super::strip(&[], &[]), json!({"open": false, "items": []}));
+        assert_eq!(super::strip(&[], &[], &[]), json!({"open": false, "items": []}));
         assert_eq!(strip_key("team:t1"), Some(StripKey::Team("t1".into())));
         assert_eq!(strip_key("7"), Some(StripKey::File(7)));
         assert_eq!(strip_key("x"), None);
