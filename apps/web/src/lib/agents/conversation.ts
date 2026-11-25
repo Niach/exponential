@@ -179,6 +179,14 @@ export async function conversationInTx(
   assertAssistantHasDevice(agent)
   const existing = await findConversation(tx, agent, userId)
   if (existing) return { session: existing, created: null }
+  // Its agent's row first, shared: two creators then meet on the one
+  // conversation index alone (a tick that held the row while this insert held
+  // the index entry deadlocked), and a device that just went is seen
+  // (#EXP-2161: an end or a pick holds the row).
+  const [locked] = await tx.select().from(agents).where(eq(agents.id, agent.id)).for(`share`)
+  if (!locked) throw new TRPCError({ code: `NOT_FOUND`, message: `Agent not found` })
+  agent = locked
+  assertAssistantHasDevice(agent)
   const device = await resolveSessionDevice(userId, agent.teamId, agent.deviceId, tx, { space: agent.role === `assistant` })
   const id = crypto.randomUUID()
   const [session] = await tx

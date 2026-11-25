@@ -512,7 +512,7 @@ export const agentsRouter = router({
         const now = new Date()
         // #EXP-2161: a `memberSpaces.request` may have moved it since it was
         // read: the device it leaves is the one it has NOW.
-        const [fresh] = await tx.select().from(agents).where(eq(agents.id, agent.id)).for(`update`)
+        const [fresh] = await tx.select().from(agents).where(eq(agents.id, agent.id)).for(`no key update`)
         if (!fresh) throw new TRPCError({ code: `NOT_FOUND`, message: `Agent not found` })
         agent = fresh
         // #EXP-1259: the new device is read under its share lock.

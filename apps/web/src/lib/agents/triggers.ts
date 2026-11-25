@@ -207,7 +207,8 @@ export async function fireScheduledTriggers(now: Date = new Date()): Promise<num
       .select()
       .from(agents)
       .where(sql`${agents.triggers} @> '[{"kind": "schedule", "enabled": true}]'::jsonb`)
-      .for(`update`, { skipLocked: true })
+      // No key changes: a conversation's foreign key check passes meanwhile.
+      .for(`no key update`, { skipLocked: true })
     let count = 0
     for (const agent of rows) {
       const state: AgentTriggerState = { ...(agent.triggerState ?? {}) }

@@ -1,5 +1,5 @@
 import { assertSpaceDevice, currentSpace, deviceRestrictedUser, runViaSpace, SPACE_KEY_MESSAGE } from "@/lib/spaces/context"
-import { assertAssistantHasDevice, assertTreeHasDevice } from "@/lib/spaces/no-device"
+import { assertAssistantHasDevice, assertStaysOnSpace, assertTreeHasDevice } from "@/lib/spaces/no-device"
 import { AsyncLocalStorage } from "node:async_hooks"
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
 import { isBlankText } from "@exp/domain-contract/transcript-grouping"
@@ -1626,6 +1626,7 @@ async function messageSession(
   // An ended CHILD continues: a new session on its device (or the named
   // one), same pickers and branch, its first message = this one.
   const deviceId = input.deviceId ?? target.deviceId
+  assertStaysOnSpace(target, deviceId)
   if (deviceId === target.deviceId && input.account !== undefined && input.account !== target.account) {
     await assertSessionAccount(target, input.account, cli)
   }
