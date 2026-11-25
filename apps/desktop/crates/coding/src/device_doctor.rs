@@ -1136,7 +1136,7 @@ mod tests {
     fn case_storage(index: usize) -> Option<(u64, Vec<crate::worktree_lifecycle::KeptRow>)> {
         use crate::worktree_lifecycle::{KeptReason, KeptRow};
         match index {
-            11 | 12 => Some((214_300_000_000, Vec::new())),
+            11 | 12 | 20 | 21 => Some((214_300_000_000, Vec::new())),
             14 => Some((
                 6_240_000_000,
                 vec![
@@ -1216,7 +1216,7 @@ mod tests {
             // NEW-78: the first case's machine, plus its microphone row.
             6..=10 => case_input(0),
             // EXP-1375: the first case's machine, plus its storage group.
-            11 | 12 | 14 => case_input(0),
+            11 | 12 | 14 | 20 | 21 => case_input(0),
             // #EXP-1899: the first case's machine, switched on in a Wayland session.
             13 => {
                 let (report, _, _) = case_input(0);
@@ -1250,7 +1250,7 @@ mod tests {
     fn every_fixture_case_builds_exactly() {
         let fixture: Value = serde_json::from_str(FIXTURE).unwrap();
         let cases = fixture["cases"].as_array().unwrap();
-        assert_eq!(cases.len(), 20, "a new fixture case needs an input here");
+        assert_eq!(cases.len(), 22, "a new fixture case needs an input here");
         for (index, case) in cases.iter().enumerate() {
             let name = case["name"].as_str().unwrap();
             let (report, settings, computer) = case_input(index);
@@ -1267,6 +1267,10 @@ mod tests {
             // #EXP-1865: the low-disk case's machine also swept its build cache.
             if index == 14 {
                 add_cargo_sweep_at(&mut doctor, 31_200_000_000, false, "14 Nov 23:02", None, 0);
+            }
+            // #EXP-2144: an update it has not restarted into, then overdue.
+            if index >= 20 {
+                add_app_update_at(&mut doctor, "0.14.182", "25 Nov 07:56", index == 21);
             }
             add_key_holder(&mut doctor, index != 12, None);
             assert_eq!(
