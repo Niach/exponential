@@ -42,7 +42,7 @@ import {
   type ComposerTeamsBinding,
 } from "@/components/launch-dialog/composer-plus-menu"
 import { useMcpServersForTeams } from "@/hooks/use-mcp-servers"
-import { TeamPickChips } from "@/components/launch-dialog/team-pick"
+import { plainTeamsPick, TeamPickChips } from "@/components/launch-dialog/team-pick"
 import { useSession } from "@/hooks/use-session"
 import { useAgentRow } from "@/hooks/use-agent-row"
 import { useTeamMemberships, useTeamsUsers } from "@/hooks/use-team-data"
@@ -231,9 +231,7 @@ function useTeamsPick(
   if (assistant) return { pick: { teams, picked, onChange: setPicked }, scope: picked === null ? null : [...picked] }
   if (!plain || !row?.teamId) return { pick: null, scope: undefined }
   const own = row.teamId
-  const others = (picked ?? []).filter((id) => id !== own)
-  const shown = teams.filter((team) => team.id === own || others.includes(team.id)).map((team) => team.id)
-  const changed = others.slice().sort().join(`,`) !== (stored ?? []).filter((id) => id !== own).sort().join(`,`)
+  const { shown, scope } = plainTeamsPick({ own, stored, picked, teams })
   return {
     pick: {
       teams,
@@ -242,7 +240,7 @@ function useTeamsPick(
       // later stays out until picked).
       onChange: (next) => setPicked((next ?? teams.map((team) => team.id)).filter((id) => id !== own)),
     },
-    scope: changed ? (others.length > 0 ? others : null) : undefined,
+    scope,
   }
 }
 
