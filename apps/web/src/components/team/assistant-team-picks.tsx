@@ -19,7 +19,7 @@ import type { SyncedAgent } from "@/components/team/agents-section"
 // `team-picks`): Settings › Assistant draws ONE section per team of its
 // member (by name), header = the team's name, card = THE
 // skills row and THE mcp-servers row over that team's rows. A section edits
-// `assistantPickAgent`'s agent (switch off: that team's own Assistant) and
+// `assistantPickAgent`'s agent (the ONE; old data still in the store: that team's own Assistant) and
 // writes only that team's picks (`agents.update {pickTeamId}`).
 export function AssistantTeamPicks({ pageAgent }: { pageAgent: SyncedAgent }) {
   const { data: auth } = useSession()

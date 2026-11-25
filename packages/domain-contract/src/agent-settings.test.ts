@@ -10,6 +10,7 @@ import {
   launchPick,
   mergeTeamPicks,
   teamPick,
+  assistantChatMembers,
   assistantChatTeams,
   assistantMoveOf,
   assistantOwnDevices,
@@ -28,6 +29,12 @@ import {
   assigneeOptions,
   assistantScheduleOf,
   agentVoiceOf,
+  wakeClash,
+  wakeListeners,
+  wakePhraseClash,
+  wakeRow,
+  wakeToggle,
+  type WakeInput,
   checkInOf,
   checkInProblem,
   legacyCheckIn,
@@ -240,6 +247,41 @@ describe(`agent-settings.json voice (#EXP-1847)`, () => {
   }
 })
 
+describe(`agent-settings.json voice.wake (#EXP-1859)`, () => {
+  const wake = fixture.voice.wake
+  const inputOf = (settings: Record<string, unknown>): WakeInput => ({
+    settings: { ...wake.settings, ...settings } as WakeInput[`settings`],
+    agents: wake.agents,
+  })
+  for (const c of wake.listenersCases) {
+    it(`listenersCases: ${c.name}`, () => {
+      expect(wakeListeners(inputOf(c.settings))).toEqual(c.expected)
+    })
+  }
+  for (const c of wake.rowCases) {
+    it(`rowCases: ${c.name}`, () => {
+      expect(wakeRow(inputOf(c.settings), c.agentId)).toEqual(c.expected)
+    })
+  }
+  for (const c of wake.toggleCases) {
+    it(`toggleCases: ${c.name}`, () => {
+      expect(wakeToggle(inputOf(c.settings), c.agentId, c.on)).toEqual(c.expected)
+    })
+  }
+  for (const c of wake.clashCases) {
+    it(`clashCases: ${c.a} / ${c.b}`, () => {
+      expect(wakeClash(c.a, c.b)).toBe(c.clash)
+      expect(wakeClash(c.b, c.a)).toBe(c.clash)
+    })
+  }
+  for (const c of wake.phraseClashCases) {
+    it(`phraseClashCases: ${c.name}`, () => {
+      const agents = c.agents.map((id) => wake.agents.find((agent) => agent.id === id)!)
+      expect(wakePhraseClash(c.phrase, c.agentId, agents)).toBe(c.expected)
+    })
+  }
+})
+
 describe(`coordinator (#EXP-1717)`, () => {
   for (const c of fixture.coordinator.optionCases) {
     it(`optionCases: ${c.name}`, () => {
@@ -273,6 +315,11 @@ describe(`#EXP-2079 the Assistant's chat reads the turn's teams (assistant.chatT
   for (const c of fixture.assistant.chatTeams.cases) {
     test(c.name, () => {
       expect(assistantChatTeams(c)).toEqual(c.expected)
+    })
+  }
+  for (const c of fixture.assistant.chatTeams.memberCases) {
+    test(`members: ${c.name}`, () => {
+      expect(assistantChatMembers(c.members).map((m) => m.id)).toEqual(c.expected)
     })
   }
   for (const c of fixture.assistant.chatTeams.deviceCases) {

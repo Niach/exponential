@@ -398,7 +398,7 @@ extension XCTestCase {
         let urlField = app.textFields["instance-url-field"]
         let selfHostLink = app.buttons["instance-self-host-link"]
         let loginEmail = app.buttons["login-continue-with-email-button"]
-        let issuesTab = app.buttons["tab-board"]
+        let issuesTab = app.buttons["tab-chats"]
         // #NEW-12: the iPad's split layout with its sidebar folded (portrait).
         let sidebarToggle = app.buttons["tablet-sidebar-toggle"]
         // The first-run wizard of an account that never finished it: its
@@ -768,18 +768,67 @@ extension XCTestCase {
         ).firstMatch
     }
 
-    /// #EXP-1384: the Board tab → the board view. On the board view itself
-    /// the tab opens the board menu instead, so an opened menu is collapsed
-    /// again (a tap on the scrim above it).
+    /// #EXP-2109: a tab of the docked bar at its ROOT (a re-tap pops what is
+    /// pushed over it), gated on `root`.
     @MainActor
-    func showBoard(_ app: XCUIApplication) {
-        let boardTab = shellEntry(app, "tab-board", within: Wait.nav)
-        expect(boardTab, within: 1, "Board tab missing")
-        boardTab.tap()
-        let menu = anyElement(app, identified: "board-menu")
-        if menu.waitForExistence(timeout: 1.5) {
-            closeBoardMenu(app)
+    func showTab(_ app: XCUIApplication, _ identifier: String, root: String) {
+        let tab = shellEntry(app, identifier, within: Wait.nav)
+        expect(tab, within: 1, "\(identifier) missing")
+        let page = anyElement(app, identified: root)
+        tab.tap()
+        if !page.waitForExistence(timeout: 2) { tab.tap() }
+        expect(page, within: Wait.nav, "\(identifier) never showed its root")
+    }
+
+    /// Teams › the seeded team's page.
+    @MainActor
+    func showTeam(_ app: XCUIApplication, _ name: String = "Acme") {
+        showTab(app, "tab-teams", root: "teams-page")
+        let row = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'team-row-' AND label BEGINSWITH %@", name)
+        ).firstMatch
+        expect(row, within: Wait.firstSync, "Teams lists no \(name)")
+        row.tap()
+        expect(anyElement(app, identified: "team-page"), within: Wait.nav, "\(name) opened no team page")
+    }
+
+    /// A row of the team's tree by its name, through its folder when it sits
+    /// in one (`team-page` is up).
+    @MainActor
+    func treeRow(_ app: XCUIApplication, _ kind: String, _ name: String) -> XCUIElement {
+        let row = app.buttons.matching(
+            NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@", "tree-row-\(kind)", name)
+        ).firstMatch
+        if row.waitForExistence(timeout: Wait.sync) { return row }
+        let folders = app.buttons.matching(identifier: "tree-row-folder")
+        for index in 0..<folders.count {
+            folders.element(boundBy: index).tap()
+            if row.waitForExistence(timeout: 2) { return row }
+            goBack(app)
         }
+        return row
+    }
+
+    /// The board's page (the iPad: its sidebar row).
+    @MainActor
+    func showBoard(_ app: XCUIApplication, _ name: String = "Mobile App") {
+        if isSplitLayout {
+            let row = app.buttons.matching(
+                NSPredicate(format: "identifier BEGINSWITH 'sidebar-board-' AND label BEGINSWITH %@", name)
+            ).firstMatch
+            if !row.waitForExistence(timeout: 2) {
+                let toggle = app.buttons["tablet-sidebar-toggle"]
+                if toggle.exists { toggle.tap() }
+            }
+            expect(row, within: Wait.firstSync, "The sidebar has no \(name)")
+            row.tap()
+            return
+        }
+        showTeam(app)
+        let row = treeRow(app, "board", name)
+        expect(row, within: Wait.nav, "The team page lists no \(name)")
+        row.tap()
+        expect(anyElement(app, identified: "board-chip-all"), within: Wait.nav, "\(name) opened no board page")
     }
 
     /// #NEW-12: the iPad's regular width has no tab bar: its sidebar rows
@@ -806,14 +855,6 @@ extension XCTestCase {
     /// REPLACES the detail, so a walk pops one page less there.
     var isSplitLayout: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
-    }
-
-    /// #EXP-1384: collapses an open board menu (a tap outside the panel).
-    @MainActor
-    func closeBoardMenu(_ app: XCUIApplication) {
-        let menu = anyElement(app, identified: "board-menu")
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).tap()
-        _ = menu.waitForNonExistence(timeout: Wait.nav)
     }
 
     /// First element of ANY type carrying `identifier` (SwiftUI puts the same

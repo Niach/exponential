@@ -292,7 +292,8 @@ struct AgentSettingsPage: View {
                 skillIds: agent?.skillIds ?? [],
                 mcpServerIds: agent?.mcpServerIds ?? [],
                 agentVoice: agent?.voice ?? AgentVoice(),
-                memberVoice: memberVoice
+                memberVoice: memberVoice,
+                onMemberVoice: { memberVoice = $0 }
             )
         }
         // EXP-1554: only a NEW agent has a submit; an existing one saves
@@ -310,9 +311,7 @@ struct AgentSettingsPage: View {
         .onChange(of: draft.instructions.focusedBlockId) { _, focused in
             if focused == nil { Task { await autosave(after: nil) } }
         }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .pageHeader(title, pushed: true)
         .task(id: agentId) { await start() }
         .onDisappear { observation?.cancel() }
         // The synced row is the truth for the triggers once no write of ours
@@ -515,6 +514,8 @@ struct AgentSettingsForm: View {
     /// (the Voice rows' fallback; the Assistant's comes from `voice`).
     var agentVoice = AgentVoice()
     var memberVoice: Voice.Settings? = nil
+    /// #EXP-1859: a team agent's Wake word flip hands the new settings back.
+    var onMemberVoice: (Voice.Settings) -> Void = { _ in }
     /// The team's MCP servers (`mcpServers.list`).
     @State private var mcpServers: [McpServerRow] = []
 
@@ -578,7 +579,8 @@ struct AgentSettingsForm: View {
                     role: assistant ? DomainContract.agentRoleAssistant : DomainContract.agentRoleAgent,
                     voice: agentVoice,
                     member: assistant ? voice?.settings : memberVoice,
-                    canEdit: canEdit
+                    canEdit: canEdit,
+                    onMember: onMemberVoice
                 )
             }
             if assistant, let voice {

@@ -268,6 +268,10 @@ pub struct SendTarget {
     /// first, the caller refuses); absent on an older server = not due.
     #[serde(default)]
     pub rotation_due: bool,
+    /// #EXP-1950: a signed wrap of the key's epoch for another install,
+    /// which names the key (install-trust.json R3); absent on an older server.
+    #[serde(default)]
+    pub vouch: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]

@@ -83,7 +83,7 @@ export function useChatActions(teamSlug: string | undefined): {
       // The open chat closes back to the list.
       const path = router.state.location.pathname
       if (teamSlug && path.endsWith(`/sessions/${rootId}`)) {
-        void navigate({ to: `/t/$teamSlug/chats`, params: { teamSlug } })
+        void navigate({ to: `/chats` })
       }
       await sessionCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
     } catch (error) {
@@ -122,7 +122,7 @@ export function useChatActions(teamSlug: string | undefined): {
 
 /** Whether the viewer may delete the chat: its starter or a team owner
  *  (`sessions.delete`), while they may steer it. */
-function useCanDeleteChat(root: Pick<SessionRow, `teamId` | `shared` | `userId`> | null): boolean {
+export function useCanDeleteChat(root: Pick<SessionRow, `teamId` | `shared` | `userId`> | null): boolean {
   const { data: auth } = useSession()
   const me = auth?.user?.id ?? null
   const { members } = useTeamUsers(root?.teamId)
@@ -355,6 +355,24 @@ export function useAgentMenuRows({
         search: { open: `settings` },
       })
   }, linkIssue)
+}
+
+/** #EXP-2124 (sidebar-menus.json): a sidebar agent row's (and the
+ *  Assistant row's) Compact and New conversation: THE sends of the session
+ *  screen menu (`SESSION_SCREEN_MENU_SENDS`) into the viewer's conversation
+ *  with the agent. Null until the agent row has synced. */
+export function useAgentSends(agentId: string | null): { compact: () => void; "new-conversation": () => void } | null {
+  const { data: auth } = useSession()
+  const me = auth?.user?.id ?? null
+  const conversation = useMyAgentConversation(agentId, me)
+  const { agent } = useAgentRow(agentId)
+  if (!agentId || !agent) return null
+  const send = (text: string) => () =>
+    void sendAgentLine({ teamId: agent.teamId, agentId, conversationId: conversation?.id ?? null, text })
+  return {
+    compact: send(SESSION_SCREEN_MENU_SENDS.compact),
+    "new-conversation": send(SESSION_SCREEN_MENU_SENDS.newConversation),
+  }
 }
 
 /** The `agent` kind's menu at the pointer (a bubble's long-press, the

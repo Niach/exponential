@@ -53,7 +53,7 @@ fn the_error_root_is_the_fixtures() {
     assert_eq!(serde_json::to_value(embed_error_root()).unwrap(), f["errorRoot"]);
     assert_eq!(EMBED_EVENT, "action");
     assert_eq!(embed_surface_id("host", "card"), "host/card");
-    assert_eq!(embed_payload("reply", Some(&json!({"text": "Yes"}))), json!({"name": "reply", "context": {"text": "Yes"}}));
+    assert_eq!(embed_payload("reply", Some(&json!({"text": "Yes"})), None), json!({"name": "reply", "context": {"text": "Yes"}}));
 }
 
 #[test]
@@ -197,7 +197,7 @@ struct Heard {
 
 /// Run an inner surface's OutEvents: an inner host function is DENIED (its
 /// action stops), an inner `event` re-fires on the host Embed as `action`
-/// with `{name, context}`.
+/// with `{name, context}` (+ its `userMessage`).
 fn route(host: &mut Surface, embed_id: &str, events: Vec<OutEvent>, heard: &mut Heard) {
     let mut events = events.into_iter().peekable();
     while let Some(e) = events.next() {
@@ -207,9 +207,9 @@ fn route(host: &mut Surface, embed_id: &str, events: Vec<OutEvent>, heard: &mut 
                     events.next();
                 }
             }
-            OutEvent::Action { name, context, .. } => {
+            OutEvent::Action { name, context, user_message, .. } => {
                 let index = host.index_of(embed_id).expect("the Embed");
-                for out in host.event(index, EMBED_EVENT, Some(embed_payload(&name, Some(&context)))) {
+                for out in host.event(index, EMBED_EVENT, Some(embed_payload(&name, Some(&context), user_message.as_deref()))) {
                     match out {
                         OutEvent::Action { name, context, .. } => heard.actions.push(json!({"name": name, "context": context})),
                         OutEvent::FunctionCall { name, args, .. } => heard.functions.push(json!({"name": name, "args": args})),

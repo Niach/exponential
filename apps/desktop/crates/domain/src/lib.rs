@@ -65,6 +65,11 @@
 //! * [`issue_search`] — EXP-892's ONE issue-search engine (rank + server-hit
 //!   merge), byte-locked ×4 by
 //!   `packages/domain-contract/fixtures/issue-search.json`;
+//! * [`issue_search_phrase`] — #NEW-133's DE+EN phrase grammar (a sentence →
+//!   the structured query), byte-locked ×4 by `fixtures/issue-search-phrase.json`;
+//! * [`issue_search_translation`] — #NEW-136's model fallback, its pure half
+//!   (when the row shows, the ONE prompt, the sanitizer), byte-locked by
+//!   `fixtures/issue-search-translation.json`;
 //! * [`diff`] — EXP-895's ONE diff model + parser (`git diff`, bare steer
 //!   sections, GitHub patches), byte-locked ×4 by
 //!   `packages/domain-contract/fixtures/diff/`;
@@ -183,6 +188,9 @@ pub mod issue_trash;
 /// Row timestamps as UTC milliseconds (both spellings the shapes deliver).
 pub mod instant;
 pub mod issue_search;
+pub mod issue_search_phrase;
+// #NEW-136: the model fallback's pure half (wants, prompt, sanitizer).
+pub mod issue_search_translation;
 // EXP-1248: THE list item (geometry, PR node states), fixture-locked ×4.
 pub mod list_item;
 // #EXP-1730: messages are keyed by their own session, fixture-locked ×4.
@@ -233,6 +241,8 @@ pub mod session_screen;
 pub mod sidebar_folders;
 // #EXP-2027: the sidebar tree (sidebar-tree.json), fixture-locked ×4.
 pub mod sidebar_tree;
+// #EXP-2124: one menu table for every sidebar row (sidebar-menus.json), fixture-locked ×4.
+pub mod sidebar_menus;
 // EXP-1294: the session tree's views (card, chat, Chats page, Agents), fixture-locked ×4.
 pub mod session_tree;
 // #EXP-1660: team skills (fixtures/skills.json), fixture-locked ×4.

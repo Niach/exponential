@@ -3,7 +3,8 @@ package com.exponential.app.ui.repo
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.ARG_TEAM
+import com.exponential.app.data.screenTeamFlow
 import com.exponential.app.data.api.CiApi
 import com.exponential.app.data.api.RepoCiConfig
 import com.exponential.app.data.api.RepoCiSettings
@@ -89,7 +90,6 @@ class RepoPageViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val auth: AuthRepository,
     holder: DatabaseHolder,
-    private val selection: TeamSelection,
     private val api: RepositoriesApi,
     private val ciApi: CiApi,
 ) : ViewModel() {
@@ -99,8 +99,13 @@ class RepoPageViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
+    /** #EXP-2109: the team this screen shows ([screenTeamFlow]; no active team). */
+    private val screenTeam: StateFlow<String?> =
+        screenTeamFlow(dbFlow, savedStateHandle)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, savedStateHandle.get<String>(ARG_TEAM))
+
     /** The repo's synced PRs (every state; the folds keep the live ones). */
-    val prs: StateFlow<List<PullRequestEntity>> = combine(dbFlow, selection.selectedId) { db, team -> db to team }
+    val prs: StateFlow<List<PullRequestEntity>> = combine(dbFlow, screenTeam) { db, team -> db to team }
         .flatMapLatest { (db, team) ->
             if (db == null || team == null) flowOf(emptyList())
             else db.pullRequestDao().observeByTeam(team).map { rows -> rows.filter { it.repositoryId == repositoryId } }
@@ -123,7 +128,7 @@ class RepoPageViewModel @Inject constructor(
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Owners own the default branch, the backups' Restore and the mirror. */
-    val isOwner: StateFlow<Boolean> = combine(dbFlow, selection.selectedId, auth.userId) { db, team, user -> Triple(db, team, user) }
+    val isOwner: StateFlow<Boolean> = combine(dbFlow, screenTeam, auth.userId) { db, team, user -> Triple(db, team, user) }
         .flatMapLatest { (db, team, user) ->
             if (db == null || team == null || user == null) flowOf(false)
             else db.teamMemberDao().observeByTeam(team).map { rows ->
@@ -159,7 +164,7 @@ class RepoPageViewModel @Inject constructor(
     fun load() {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value
-            val teamId = selection.selectedId.value
+            val teamId = screenTeam.value
             if (accountId == null || teamId == null) {
                 _state.value = _state.value.copy(loaded = true)
                 return@launch
@@ -274,7 +279,7 @@ class RepoPageViewModel @Inject constructor(
                 block(accountId)
                 val repo = _state.value.repo
                 if (repo != null) {
-                    val teamId = selection.selectedId.value
+                    val teamId = screenTeam.value
                     val fresh = teamId?.let { team ->
                         runCatching { api.list(accountId, team).firstOrNull { it.id == repo.id } }.getOrNull()
                     } ?: repo

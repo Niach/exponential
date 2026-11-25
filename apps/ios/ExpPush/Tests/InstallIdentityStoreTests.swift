@@ -25,6 +25,24 @@ final class InstallIdentityStoreTests: XCTestCase {
         XCTAssertNotEqual(first, second)
     }
 
+    /// #EXP-1950 decision (e): an identity THIS build minted (any caller)
+    /// says so until every account's pin store is written; one an earlier
+    /// build minted never does.
+    func testMintedUntilClearedAndNeverForAnEarlierBuildsIdentity() throws {
+        let storage = MemoryInstallSecretStorage()
+        let store = InstallIdentityStore(storage: storage)
+        let identity = try XCTUnwrap(store.loadOrCreate())
+        XCTAssertEqual(store.loadOrMint()?.identity, identity)
+        XCTAssertEqual(store.loadOrMint()?.minted, true)
+        store.clearMinted()
+        XCTAssertEqual(store.loadOrMint()?.minted, false)
+        store.rotate()
+        XCTAssertEqual(store.loadOrMint()?.minted, true)
+        let earlier = MemoryInstallSecretStorage()
+        _ = earlier.add(account: "identity.v1", data: Data(repeating: 3, count: 32))
+        XCTAssertEqual(InstallIdentityStore(storage: earlier).loadOrMint()?.minted, false)
+    }
+
     func testMalformedItemReadsAsAbsent() {
         let storage = MemoryInstallSecretStorage()
         _ = storage.add(account: "identity.v1", data: Data(repeating: 1, count: 31))

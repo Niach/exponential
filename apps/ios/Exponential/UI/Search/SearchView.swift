@@ -2,9 +2,9 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The Search page: issue search over the ACTIVE team's boards (#EXP-1382,
-/// search-list.json TEAM SCOPE), augmented by a debounced server full-text
-/// search (description + comments) for that team. Pure search (EXP-58): the empty-query state is a hint — the
+/// The Search page: issue search over every member team's boards (#EXP-2109,
+/// search-list.json), augmented by a debounced server full-text search
+/// (description + comments) over those teams. Pure search (EXP-58): the empty-query state is a hint — the
 /// "Assigned to you" list that used to live here moved to My Work.
 ///
 /// SLOP-28 (EXP-1259 D4): it is THE search list (`SearchListView`,
@@ -16,11 +16,20 @@ struct SearchView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
-    @Environment(TeamState.self) private var teamState
     @Environment(SessionListsModel.self) private var lists
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: SearchViewModel?
     @State private var query = ""
+
+    /// The empty-query detail, the ×4 copy (`issue-search-surfaces.test.ts`
+    /// greps this file for it).
+    static let emptyDetail = "Matches identifiers, titles and full text. Filter with by:, is:, status:, created: and updated:."
+
+    /// #NEW-136: the model fallback's row and its failure toast, the copy
+    /// desktop prints too (search-list.json `suggestion.translate`; the same
+    /// gate greps this file).
+    static let translateLabel = "Translate to a search"
+    static let translateFailed = "Couldn't translate this search"
 
     var body: some View {
         ZStack {
@@ -32,7 +41,7 @@ struct SearchView: View {
                 // The results are the view model's STATE (ranked off the main
                 // actor, #EXP-1382) — the input paints every keystroke at once.
                 SearchListView(
-                    items: vm.results.map { Self.item($0, team: vm.teamStatuses) },
+                    items: vm.results.map { Self.item($0, team: vm.boardStatuses[$0.issue.boardId] ?? []) },
                     query: $query,
                     // EXP-922: the ×4 copy set — same words on web, desktop,
                     // iOS and Android (web `lib/issue-search.ts`;
@@ -55,7 +64,20 @@ struct SearchView: View {
                         empty: shown.empty,
                         after: chatsSection(vm, shown: shown),
                         submit: { if let top = vm.chatRows.first { pick(top, vm: vm) } }
-                    ) : nil
+                    ) : nil,
+                    // #NEW-133: a recognised sentence = ONE action row on
+                    // top; a pick rewrites the field, the search re-runs.
+                    // #NEW-136: an unrecognised one = the same row offering
+                    // the on-device model (never both).
+                    action: vm.suggestion.map { suggestion in
+                        SearchListAction(
+                            icon: AppIcons.conceptOrName(SearchList.SuggestionSpec.icon) ?? AppIcons.navSearch,
+                            label: suggestion.label,
+                            identifier: SearchList.SuggestionSpec.testId
+                        ) {
+                            query = suggestion.query
+                        }
+                    } ?? translateAction(vm)
                 )
                 .overlay {
                     if trimmed.isEmpty { searchHint.allowsHitTesting(false) }
@@ -74,21 +96,17 @@ struct SearchView: View {
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it. Same for
             // the server search — onDisappear cancels any in-flight request.
-            viewModel?.startObserving(teamId: teamState.activeTeamId)
-        }
-        .onChange(of: teamState.activeTeamId) { _, teamId in
-            // Switching the team re-runs the query against it.
-            viewModel?.startObserving(teamId: teamId)
+            viewModel?.startObserving()
         }
         .onDisappear {
             viewModel?.stopObserving()
         }
-        // #EDE-99: the Chats rows name the ACTIVE team's synced roots.
-        .onChange(of: lists.searchRoots(teamId: teamState.activeTeamId), initial: true) { _, roots in
+        // #EDE-99: the Chats rows name every synced root.
+        .onChange(of: lists.searchRoots, initial: true) { _, roots in
             viewModel?.setChatRoots(roots)
         }
         .onChange(of: viewModel != nil) { _, _ in
-            viewModel?.setChatRoots(lists.searchRoots(teamId: teamState.activeTeamId))
+            viewModel?.setChatRoots(lists.searchRoots)
         }
         .onChange(of: query) { _, newValue in
             // Debounced + cancelled-on-keystroke inside the VM — never blocks
@@ -97,9 +115,31 @@ struct SearchView: View {
         }
     }
 
+    /// #NEW-136 (search-list.json TRANSLATE): `Translate to a search`, the
+    /// suggestion's row with THE spinner trailing while the one call runs.
+    /// A pick asks the on-device model; its query rewrites the field (the
+    /// search re-runs), no query = the failed-action toast and the text
+    /// stays as typed.
+    private func translateAction(_ vm: SearchViewModel) -> SearchListAction? {
+        guard vm.translateRow != .hidden else { return nil }
+        return SearchListAction(
+            icon: AppIcons.conceptOrName(SearchList.SuggestionSpec.icon) ?? AppIcons.navSearch,
+            label: Self.translateLabel,
+            identifier: SearchList.TranslateSpec.testId,
+            busy: vm.translateRow == .running
+        ) {
+            vm.translate { translated in
+                if let translated {
+                    query = translated
+                } else {
+                    Toaster.shared.show(ToastItem(kind: .error, title: Self.translateFailed))
+                }
+            }
+        }
+    }
+
     /// One result as THE picker row (EXP-922's flat list, SLOP-28's one row
-    /// type): the issue's TEAM status glyph (the search is team-scoped,
-    /// #EXP-1382; EXP-1554: web's clocks), `IDENT Title` with the identifier
+    /// type): the issue's TEAM status glyph (EXP-1554: web's clocks), `IDENT Title` with the identifier
     /// mono + muted. Keyed by the issue id.
     static func item(_ result: SearchViewModel.Result, team: [ResolvedIssueStatus]) -> PickerItem<String> {
         let issue = result.issue
@@ -129,7 +169,7 @@ struct SearchView: View {
     /// title, the snippet with genUI's `highlight` and the muted date.
     private func chatsSection(_ vm: SearchViewModel, shown: SearchList.GlobalSections) -> AnyView? {
         guard let section = shown.sections.first(where: { $0.key == .chats }) else { return nil }
-        let preselect = vm.results.isEmpty ? vm.chatRows.first?.key : nil
+        let preselect = vm.results.isEmpty && vm.suggestion == nil ? vm.chatRows.first?.key : nil
         return AnyView(
             VStack(spacing: GlassPickerTokens.rowSpacing) {
                 GlassSectionBand(SearchList.GlobalChats.Copy.chats, count: section.count, loading: section.loading)
@@ -216,8 +256,8 @@ struct SearchView: View {
 
     private var searchHint: some View {
         EmptyState(
-            title: "Search issues across this team's boards.",
-            description: "Matches identifiers, titles, full text, and by:creator.",
+            title: "Search issues across all your boards.",
+            description: Self.emptyDetail,
             icon: AppIcons.navSearch
         )
         .frame(maxHeight: .infinity)

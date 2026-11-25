@@ -151,9 +151,56 @@ describe.skipIf(!ready.ok)(`#EXP-1950 install approval`, () => {
     expect(await db.select().from(installApprovals).where(eq(installApprovals.subjectInstallId, Y.installId))).toHaveLength(1)
     const view = await round(A)
     expect(A.store.pins[Y.endpointId]).toBeUndefined()
-    expect(view.rows.map((row) => row.installId)).toEqual([Y.installId])
+    // X came after the chain (decision e): a New install too, any build.
+    expect(view.rows.map((row) => row.installId).sort()).toEqual([X.installId, Y.installId].sort())
     // The server's waiting list says Y is chained; the client does not believe it.
+    expect((await api(me).waiting()).map((row) => row.installId)).toEqual([X.installId])
+  })
+
+  it(`decision (e): installs that existed are trusted once: the first to update adopts them and claims the root with their approvals; nothing waits`, async () => {
+    const me = await user()
+    await team(me)
+    const A = await install(me, `MacBook`)
+    const B = await install(me, `Firefox`)
+    // L has not started since #3394: no stored registration.
+    const L = await install(me, `iPhone`)
+    await db.execute(sql`UPDATE installs SET registration_signature = NULL, registration_signed_at = NULL WHERE id = ${L.installId}`)
+    A.store = emptyTrustStore(A.endpointId, me, true)
+    B.store = emptyTrustStore(B.endpointId, me, true)
+
+    // Day one: A finds no chain, pins B and L as existing, joins, and claims.
+    const first = await round(A)
+    expect(first).toMatchObject({ status: `claimRoot`, rows: [] })
+    expect(A.store.pins[L.endpointId]).toMatchObject({ via: `existing` })
+    // A claim with an approval of another account's install, or one A did not sign: refused whole, nothing stored.
+    const rootOfA = signApproval(A.identity, `root`, subjectOf(A))
+    const other = await install(await user())
+    await expect(
+      api(me).claimRoot({ installId: A.installId, signature: rootOfA, approvals: [{ subjectInstallId: other.installId, signature: signApproval(A.identity, `approve`, subjectOf(other)) }] })
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
+    await expect(
+      api(me).claimRoot({ installId: A.installId, signature: rootOfA, approvals: [{ subjectInstallId: L.installId, signature: signApproval(B.identity, `approve`, subjectOf(L)) }] })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST`, message: APPROVAL_SIGNATURE_REFUSAL })
+    expect(await db.select().from(installApprovals).where(eq(installApprovals.subjectInstallId, A.installId))).toHaveLength(0)
+    const byId = new Map([B, L].map((who) => [who.endpointId, who]))
+    await api(me).claimRoot({
+      installId: A.installId,
+      signature: rootOfA,
+      approvals: first.approveExisting.map((endpointId) => ({ subjectInstallId: byId.get(endpointId)!.installId, signature: signApproval(A.identity, `approve`, subjectOf(byId.get(endpointId)!)) })),
+    })
+    expect(await round(A)).toMatchObject({ status: `trusted`, rows: [], approveExisting: [] })
     expect(await api(me).waiting()).toEqual([])
+
+    // B updates later: on the chain already, it joins, never waits.
+    expect(await round(B)).toMatchObject({ status: `trusted`, rows: [] })
+    expect(B.store.pins[A.endpointId]).toMatchObject({ via: `chain` })
+    expect(B.store.pins[L.endpointId]).toMatchObject({ via: `approved`, by: A.endpointId })
+
+    // An install that registers afterwards is new: a New install row, in waiting too.
+    const N = await install(me, `Pixel`)
+    expect((await round(N)).status).toBe(`waiting`)
+    expect((await round(B)).rows).toEqual([expect.objectContaining({ kind: `newInstall`, installId: N.installId })])
+    expect((await api(me).waiting()).map((row) => row.installId)).toEqual([N.installId])
   })
 
   it(`remove = revoke: the install is no longer served and its pin is dropped`, async () => {

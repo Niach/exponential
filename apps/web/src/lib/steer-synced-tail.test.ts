@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { actionInput, type ActionCard } from "@exp/domain-contract/chat-express"
 import { steerOfflineLine } from "@exp/domain-contract/steer-enet"
 import { syncedTailFeedRows, syncedTailMessages } from "@/lib/steer-synced-tail"
 import type { FeedItem } from "@/lib/steer-session-store"
@@ -107,5 +108,27 @@ describe(`#FEED-260 synced tail`, () => {
 
   it(`an empty feed of a reachable device keeps its placeholder`, () => {
     expect(syncedTailMessages({ live: false, feed: [], messages })).toEqual([])
+  })
+
+  // #EXP-2075: another member's press is a consumed input of the tail until
+  // the feed holds its `[action]` line.
+  it(`a consumed action row follows the feed, once`, () => {
+    const card: ActionCard = { kind: `action`, name: `save_deal`, context: { rep: `Ana` }, surfaceId: `m:a1#1`, block: `m:a1#1`, messageId: `a1` }
+    const press = (id: string, body: string) => ({
+      id,
+      authorKind: `user`,
+      card,
+      consumedAt: `2026-11-16T14:35:01.000Z`,
+      createdAt: `2026-11-16T14:35:00.000Z`,
+      body,
+    })
+    const rows = [...messages, press(`p1`, ``), press(`p2`, `Ship it`)]
+    expect(syncedTailMessages({ live: false, feed, messages: rows }).map((m) => m.id)).toEqual([`a1`, `p1`, `p2`])
+    const echoed: FeedItem[] = [
+      ...feed,
+      { id: 5, seq: 5, kind: `user_message`, text: actionInput(card, ``), at: ms(`2026-11-16T14:33:11.000Z`) },
+      { id: 6, seq: 6, kind: `user_message`, text: actionInput(card, `Ship it`), at: ms(`2026-11-16T14:33:12.000Z`) },
+    ]
+    expect(syncedTailMessages({ live: false, feed: echoed, messages: rows }).map((m) => m.id)).toEqual([`a1`])
   })
 })

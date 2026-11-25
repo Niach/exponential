@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { treeScope, type TreeRootKind } from "@exp/emcp/access"
 import { db } from "@/db/connection"
-import { agents, sessions } from "@/db/schema"
+import { agents, sessions, teams } from "@/db/schema"
 import { getMemberTeamIds } from "@/lib/auth/membership"
 
 // #EXP-1720 + #EXP-2027 (eagent tree.json `treeTeams`, emcp access.json
@@ -76,4 +76,26 @@ export async function treeReach(rootId: string, exec: Exec = db): Promise<{ kind
     .where(eq(sessions.id, rootId))
     .limit(1)
   return root ? treeReachOfRoot(root, exec) : null
+}
+
+/** #EXP-2107 (emcp access.json `treeScope`, `ownAssistant`): a plain chat's
+ *  session may still ADDRESS its member's own Assistant conversation (message
+ *  or answer it, stop it, read its tree, watch it) though that sits in the
+ *  member's personal team, outside the chat's teams: the chats the Assistant
+ *  started report back to it. Only when the request is the chat's own
+ *  member's (never a shared device's host) and the tree is a plain chat
+ *  (never a team agent's). The personal team's id, else null. */
+export async function ownAssistantTeam(
+  caller: { rootId: string; userId: string },
+  requesterId: string,
+  exec: Exec = db
+): Promise<string | null> {
+  if (caller.userId !== requesterId) return null
+  if ((await treeReach(caller.rootId, exec))?.kind !== `chat`) return null
+  const [row] = await exec
+    .select({ id: teams.id })
+    .from(teams)
+    .where(and(eq(teams.ownerId, caller.userId), eq(teams.kind, `personal`)))
+    .limit(1)
+  return row?.id ?? null
 }

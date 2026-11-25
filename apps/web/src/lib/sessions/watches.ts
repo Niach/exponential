@@ -17,7 +17,7 @@ import {
 import { LIVE_PR_STATES } from "@/lib/pr-merge-guard"
 import { insertMessage } from "@/lib/sessions/messages"
 import { deriveSessionTitles } from "@/lib/sessions/title"
-import { treeTeams } from "@/lib/sessions/tree-teams"
+import { ownAssistantTeam, treeTeams } from "@/lib/sessions/tree-teams"
 import type { Tx } from "@/lib/sessions/tx"
 
 // #NEW-49 (packages/eagent fixtures/wakeups.json WATCH EVENTS, the server
@@ -138,7 +138,8 @@ async function countWatches(tx: Pick<Tx, `select`>, sessionId: string): Promise<
 
 /** `watcher` watches `ids`: LIVE sessions of its tree's teams its account
  *  may see (shared, or the watcher's user started them), never itself;
- *  others drop silently; idempotent (#EXP-1399, #EXP-1720). */
+ *  others drop silently; idempotent (#EXP-1399, #EXP-1720). #EXP-2107: a
+ *  plain chat also watches its member's own Assistant conversation. */
 export async function watchSessions(tx: Tx, watcherId: string, ids: readonly string[]): Promise<string[]> {
   const wanted = [...new Set(ids)].filter((id) => id !== watcherId)
   if (wanted.length === 0) return []
@@ -149,7 +150,8 @@ export async function watchSessions(tx: Tx, watcherId: string, ids: readonly str
     .limit(1)
     .for(`update`)
   if (!row) return []
-  const teams = await treeTeams(row.rootId, tx)
+  const own = await ownAssistantTeam(row, row.userId, tx)
+  const teams = [...(await treeTeams(row.rootId, tx)), ...(own ? [own] : [])]
   if (teams.length === 0) return []
   const live = await tx
     .select({ id: sessions.id, shared: sessions.shared, userId: sessions.userId })

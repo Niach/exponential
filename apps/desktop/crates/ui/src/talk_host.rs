@@ -488,6 +488,30 @@ impl TalkHost for ExponentialHost {
         Some(voice_inputs(&resolved, |clip_id| self.clips.path(clip_id, cx)))
     }
 
+    /// EXP-1859 (agent-settings.json `voice.wake`): who the voice device
+    /// listens for: `wakeListeners` over the synced agents.
+    fn wake_listeners(&self, settings: &VoiceSettings, cx: &App) -> Vec<etalk::WakeListener> {
+        let Some(store) = Store::try_global(cx) else { return Vec::new() };
+        let rows = store.collections().agents.read(cx);
+        let agents: Vec<domain::agent_settings::WakeAgent<'_>> = rows.iter().map(domain::agent_settings::WakeAgent::of).collect();
+        let input = domain::agent_settings::WakeSettings {
+            voice_device_id: settings.voice_device_id.as_deref(),
+            agent_id: settings.agent_id.as_deref(),
+            wake_word: settings.wake_word,
+            wake_agent_ids: &settings.wake_agent_ids,
+            member: domain::agent_settings::MemberVoice {
+                language: settings.language(),
+                voice_file: &settings.voice_file,
+                voice_transcript: &settings.voice_transcript,
+                wake_phrase: &settings.wake_phrase,
+            },
+        };
+        domain::agent_settings::wake_listeners(&input, &agents)
+            .into_iter()
+            .map(|listener| etalk::WakeListener { agent_id: listener.agent_id, phrase: listener.phrase, language: listener.language })
+            .collect()
+    }
+
     fn conversation(&self, agent_id: &str, cx: &App) -> Option<String> {
         crate::session_data::my_conversation(agent_id, cx).map(|row| row.id)
     }
@@ -596,11 +620,15 @@ impl TalkHost for ExponentialHost {
         let local = crate::queries::active_account(cx).is_some_and(|account| account.is_local());
         Some(cx.spawn(async move |cx| {
             let (asking, ids) = (Arc::clone(&trpc), (call_id.clone(), device_id.clone(), agent_id.clone()));
+            // #FEED-268: how long the ring waited for its ticket (the relay
+            // gives up on a ring nobody joins in `ringTimeoutMs`).
+            let (log_call_id, asked) = (call_id.clone(), std::time::Instant::now());
             let ticket = cx
                 .background_executor()
                 .spawn(async move { api::voice::voice_call_host_ticket_for(&asking, &ids.0, &ids.1, &ids.2) })
                 .await
                 .map_err(|err| err.to_string())?;
+            log::info!("[voice] call {log_call_id}: the host ticket came after {} ms (sealed {})", asked.elapsed().as_millis(), ticket.seal);
             let join = host_join(ticket.seal, refuse_only, node.is_some());
             let asking = Arc::clone(&trpc);
             let agent = agent_id.clone();
@@ -634,7 +662,7 @@ impl TalkHost for ExponentialHost {
                 }
             };
             let (tx, events) = flume::unbounded::<CallLinkEvent>();
-            let host = steer::call_host::connect_sealed(&runtime, ticket.url, sealing, move |event| {
+            let host = steer::call_host::connect_sealed(&runtime, ticket.url, &log_call_id, sealing, move |event| {
                 let _ = tx.send(link_event(event));
             });
             Ok(CallConnection { link: Box::new(SteerLink(host)), events, refuse })
@@ -686,7 +714,7 @@ impl TalkHost for ExponentialHost {
                 }
             });
             let (tx, events) = flume::unbounded::<DialLinkEvent>();
-            let caller = steer::call_caller::connect_sealed(&runtime, started.url, sealing, move |event| {
+            let caller = steer::call_caller::connect_sealed(&runtime, started.url, &started.call_id, sealing, move |event| {
                 let _ = tx.send(dial_event(event));
             });
             Ok(DialConnection { link: Box::new(SteerDial(caller)), events })

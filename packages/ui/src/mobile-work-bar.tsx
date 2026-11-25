@@ -39,7 +39,7 @@ export const MOBILE_WORK_CAPSULE_CLASS = cn(
 /** The scroll clearance a face's column reserves under the bar (52px + the
  *  bar's own safe-area padding + a gap), so the last row scrolls clear of
  *  the glass instead of ending under it. */
-export const MOBILE_WORK_BAR_CLEARANCE = `pb-[calc(5.5rem+env(safe-area-inset-bottom))]`
+export const MOBILE_WORK_BAR_CLEARANCE = `pb-[calc(5.5rem+max(env(safe-area-inset-bottom),var(--phone-dock-h,0px)))]`
 
 export function MobileWorkCapsule({
   className,
@@ -97,7 +97,7 @@ export function MobileWorkBar({
       data-testid="mobile-work-bar"
       data-layout={cluster ? `cluster` : `stretch`}
       className={cn(
-        `pointer-events-none fixed inset-x-0 bottom-0 z-[35] flex items-end px-5 pb-[max(1rem,env(safe-area-inset-bottom))] md:hidden`,
+        `pointer-events-none fixed inset-x-0 bottom-0 z-[35] flex items-end px-5 pb-[max(1rem,env(safe-area-inset-bottom),var(--phone-composer-bottom,0px))] md:hidden`,
         cluster && !isExpanded ? `justify-center gap-3` : `gap-2.5`
       )}
       style={isExpanded && inset > 0 ? { bottom: inset } : undefined}

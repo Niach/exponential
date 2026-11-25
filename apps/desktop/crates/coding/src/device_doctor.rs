@@ -685,6 +685,21 @@ pub fn add_key_holder(doctor: &mut DeviceDoctor, running: bool, off: Option<&str
     doctor.items.push(row);
 }
 
+/// #EXP-1950 (install-trust.json): the daemon is a NEW install its account's
+/// trusted installs have not approved yet: the `Encryption keys` row says so
+/// with its code (`copy.waiting` · the code), approved from any trusted
+/// install's Needs you. None = trusted (or no rule): no row.
+pub fn add_install_waiting(doctor: &mut DeviceDoctor, code: Option<&str>) {
+    let Some(code) = code else { return };
+    if doctor.items.iter().any(|row| row.key == KEY_KEY_HOLDER) {
+        return;
+    }
+    let mut row = item(KEY_KEY_HOLDER, DoctorGroup::Storage, DoctorState::Action)
+        .detail(format!("{} · {code}", enet_core::install_trust_copy::WAITING));
+    row.label = Some("Encryption keys".to_string());
+    doctor.items.push(row);
+}
+
 /// EXP-1794: the row of diverged conversation copies the claude store
 /// migration kept under `store/conflicts/` (a warning, no pill, never a
 /// blocker: nothing was deleted, this says where to look). None = no row.
@@ -1321,6 +1336,23 @@ mod tests {
         add_key_holder(&mut doctor, false, Some(off));
         assert_eq!(doctor.items[0].detail, Some(copy["keyHolderOff"].as_str().unwrap().replace("{reason}", off)));
         assert_eq!(doctor.items[0].label.as_deref(), copy["keyHolderLabel"].as_str());
+        // #EXP-1950: a NEW daemon install waits for approval: the same row,
+        // install-trust.json's `copy.waiting` · its code; trusted = no row.
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        add_install_waiting(&mut doctor, None);
+        assert!(doctor.items.is_empty());
+        add_install_waiting(&mut doctor, Some("HNMBN A0319"));
+        let row = &doctor.items[0];
+        assert_eq!((row.key.as_str(), row.state), (KEY_KEY_HOLDER, DoctorState::Action));
+        assert_eq!(row.label.as_deref(), copy["keyHolderLabel"].as_str());
+        let trust: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/install-trust.json")).unwrap();
+        assert_eq!(row.detail, Some(format!("{} · HNMBN A0319", trust["copy"]["waiting"].as_str().unwrap())));
+        // A holder that is not running says so first.
+        let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
+        add_key_holder(&mut doctor, false, None);
+        add_install_waiting(&mut doctor, Some("HNMBN A0319"));
+        assert_eq!(doctor.items.len(), 1);
         let mut doctor = DeviceDoctor { checked_at: String::new(), items: Vec::new(), displays: Vec::new(), desktop_audio: None };
         add_store_conflicts(&mut doctor, 0);
         assert!(doctor.items.is_empty(), "no parked copy, no row");

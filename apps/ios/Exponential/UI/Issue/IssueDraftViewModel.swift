@@ -295,7 +295,7 @@ final class IssueDraftViewModel {
     var assignedLabels: [LabelEntity] { labels.filter { labelIds.contains($0.id) } }
 
     var mentionMembers: [MentionMember] {
-        users.map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+        AgentSettings.chatMembers(users).map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
 
     /// The full row as it stands — a draft is rewritten WHOLE, never patched.

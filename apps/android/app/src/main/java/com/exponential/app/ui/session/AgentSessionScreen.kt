@@ -263,6 +263,7 @@ import com.exponential.app.ui.agent.AgentIssuePickerPage
 import com.exponential.app.ui.agent.AgentIssueInsertPage
 import com.exponential.app.ui.agent.insertIssueRef
 import com.exponential.app.ui.agent.IssueOption
+import com.exponential.app.ui.agent.issueOption
 import com.exponential.app.domain.ComposerMenuConditions
 import com.exponential.app.domain.ComposerMenuEntry
 import com.exponential.app.domain.ComposerMenuRowId
@@ -507,6 +508,8 @@ fun AgentSessionScreen(
     onOpenChat: (rootSessionId: String) -> Unit,
     /** S-3: an inter-session link to a non-root session (its view, pushed). */
     onOpenSession: (sessionId: String) -> Unit = {},
+    /** #EXP-2119: THE not-found state's "Go to Agent". */
+    onOpenAgentHome: () -> Unit = {},
 ) {
     val viewModel = androidx.hilt.navigation.compose.hiltViewModel<AgentSessionViewModel, AgentSessionViewModel.Factory>(
         key = "session:$sessionId",
@@ -520,6 +523,10 @@ fun AgentSessionScreen(
         return
     }
     val row = session
+    if (rememberSessionMissing(sessionId, row != null)) {
+        SessionNotFound(onBack = onBack, onOpenAgentHome = onOpenAgentHome)
+        return
+    }
     // S-3: no Stop/End in the header (the composer's stop-turn is the one).
     val rootId = row?.rootId?.takeIf { it.isNotEmpty() } ?: row?.id
     // #EDE-99 (search-list.json A PICK): a global search hit said in this
@@ -554,6 +561,52 @@ fun AgentSessionScreen(
             onOpenOrigin = { id, root -> if (root) onOpenChat(id) else onOpenSession(id) },
         )
         }
+    }
+}
+
+/** How long a session with no synced row waits before "not found" (web `SYNC_GRACE_MS`). */
+private const val SESSION_SYNC_GRACE_MS = 4_000L
+
+/** #EXP-2119: whether [sessionId] still has no row after the sync grace (it
+ *  was deleted, or the viewer may not see it); a row that arrives ends it. */
+@Composable
+internal fun rememberSessionMissing(sessionId: String, synced: Boolean): Boolean {
+    var graceOver by remember(sessionId) { mutableStateOf(false) }
+    LaunchedEffect(sessionId) {
+        kotlinx.coroutines.delay(SESSION_SYNC_GRACE_MS)
+        graceOver = true
+    }
+    return graceOver && !synced
+}
+
+/** #EXP-2119: a session the viewer does not see (web `sessions/$sessionId` `chat-not-found`). */
+@Composable
+internal fun SessionNotFound(onBack: () -> Unit, onOpenAgentHome: () -> Unit) {
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            com.exponential.app.ui.work.WorkTopBar(
+                title = "",
+                onBack = onBack,
+                verb = null,
+                verbEnabled = false,
+                onVerb = {},
+                menu = null,
+            )
+        },
+    ) { padding ->
+        EmptyState(
+            EmptyStateCopy.chatNotFound,
+            modifier = Modifier.padding(padding).testTag("chat-not-found"),
+            action = {
+                GlassPill(
+                    EmptyStateCopy.chatNotFound.action!!,
+                    size = PillSize.Md,
+                    mode = PillMode.Action,
+                    onClick = onOpenAgentHome,
+                )
+            },
+        )
     }
 }
 
@@ -820,8 +873,10 @@ private fun RunFaceContent(
     val feedCalls = remember(treeCalls, onOpenOrigin) {
         if (treeCalls.isEmpty()) FeedCalls.None else FeedCalls(treeCalls, onOpenOrigin?.let { open -> { id: String -> open(id, false) } })
     }
-    val entityRefResolver = remember(viewModel, session?.teamId, currentUserId) {
-        EntityRefResolver(viewModel.accountDb, session?.teamId, currentUserId)
+    // #EXP-2097: the preview cards read the chat teams, like the lists.
+    val entityChatTeamIds by viewModel.chatTeamIds.collectAsStateWithLifecycle()
+    val entityRefResolver = remember(viewModel, session?.teamId, currentUserId, entityChatTeamIds) {
+        EntityRefResolver(viewModel.accountDb, session?.teamId, currentUserId, entityChatTeamIds.ifEmpty { listOfNotNull(session?.teamId) })
     }
     val issueRefHandler = remember(issueRefCandidates) {
         IssueRefHandler(
@@ -1089,7 +1144,11 @@ private fun RunFaceContent(
     val dock: @Composable (SessionDock) -> Unit = dockOverride ?: { sessionDock -> SessionDockCards(sessionDock) }
     // The placeholder states (no feed yet): connecting, an ended run's
     // history fetch, an old desktop (S-3: no paused host).
-    val noFeedIdle = session?.let { steerNoFeedState(ended = sessionEnded, busy = it.busy) } == SteerNoFeedState.Idle
+    // #EXP-2119: an ended row whose device is ONLINE has no transcript there:
+    // the idle copy, never "offline".
+    val noFeedIdle = session?.let {
+        steerNoFeedState(ended = sessionEnded, busy = it.busy, deviceOnline = hostDevice.online == true)
+    } == SteerNoFeedState.Idle
     val placeholderBody: @Composable () -> Unit = {
         when {
             noFeedAway -> {
@@ -1107,7 +1166,7 @@ private fun RunFaceContent(
             // machine that ran it (VAPP-43: served over eNet). Say
             // plainly when that machine cannot answer — this is not a
             // connection problem the viewer can wait out.
-            feed.isEmpty() && history != null -> CenteredState {
+            feed.isEmpty() && history != null && !(sessionEnded && noFeedIdle) -> CenteredState {
                 Text(
                     historyStatus(history, hostDevice.displayLabel),
                     style = MaterialTheme.typography.bodySmall,
@@ -1124,7 +1183,7 @@ private fun RunFaceContent(
             // FEED on a row that is neither busy nor ended (idle, or on an
             // open question) is never "starting": the idle empty state, no
             // spinner, while the connection keeps redialing.
-            feed.isEmpty() && phase == AgentPhase.Starting && noFeedIdle -> CenteredState {
+            feed.isEmpty() && (phase == AgentPhase.Starting || history != null) && noFeedIdle -> CenteredState {
                 Text(
                     STEER_NO_FEED_IDLE_TITLE,
                     style = MaterialTheme.typography.bodyMedium,
@@ -1443,6 +1502,7 @@ private fun RunFaceContent(
                     ended = sessionEnded,
                     noFeed = history == HistoryState.DeviceOffline,
                     deviceOffline = hostDevice.offline,
+                    deviceOnline = hostDevice.online == true,
                 )
                 val offlineTitle = steerNoFeedAway(hostDevice.label).title
                 val transcriptFooter: (@Composable () -> Unit)? = if (offlineLine) {
@@ -2636,12 +2696,27 @@ private fun ActivityFeed(
                                 val checkIns = shownRows.checkIns[row.id]
                                 val callId = callFeed.first[item.id]
                                 // #EXP-2067: a press's input = its body's bubble, else THE marker.
-                                val action = com.exponential.app.domain.ChatExpress.parseActionInput(item.text)
+                                // #EXP-2075: a teammate's press (the synced tail) is member-worded.
+                                val memberLine = TranscriptGrouping.memberInputOf(item.text)
+                                val action = com.exponential.app.domain.ChatExpress.parseActionInput(memberLine?.body ?: item.text)
+                                val presser = memberLine?.takeIf { action != null && it.userId != senders?.viewerId }
                                 when {
                                     // #EXP-1943: a call's report relay = THE call card.
                                     callId != null -> callCard(callId)
                                     action != null && action.body.isBlank() ->
-                                        FeedMarkerRow(com.exponential.app.domain.ChatExpress.actionMarker(action.card.name, null), testTag = "express-action-marker")
+                                        FeedMarkerRow(
+                                            com.exponential.app.domain.ChatExpress.actionMarker(
+                                                action.card.name,
+                                                presser?.let { senders?.members?.get(it.userId)?.name?.takeIf(String::isNotBlank) ?: it.name },
+                                            ),
+                                            testTag = "express-action-marker",
+                                        )
+                                    action != null && presser != null && layout?.side == TranscriptGrouping.Side.Other -> MessageBubble(
+                                        own = false,
+                                        time = time,
+                                        author = layout.authorLine(),
+                                        tail = layout.hasTail(),
+                                    ) { UserMessageBody(action.body, LocalFindPaint.current?.highlightOf(item.id)) }
                                     action != null -> MessageBubble(
                                         own = true,
                                         time = time,
@@ -3029,7 +3104,10 @@ internal fun feedTranscriptLayout(
                 ) {
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
                 } else if (TranscriptGrouping.feedInput(feedItem.text) is TranscriptGrouping.FeedInput.Marker ||
-                    com.exponential.app.domain.ChatExpress.parseActionInput(feedItem.text)?.body?.isBlank() == true
+                    // #EXP-2075: a teammate's press too (member-worded): a bodiless one is THE marker.
+                    com.exponential.app.domain.ChatExpress.parseActionInput(
+                        TranscriptGrouping.memberInputOf(feedItem.text)?.body ?: feedItem.text,
+                    )?.body?.isBlank() == true
                 ) {
                     // #EXP-1772: a system input is THE marker (full, never grouped).
                     TranscriptGrouping.Item(id, TranscriptGrouping.ItemKind.Full)
@@ -6071,19 +6149,7 @@ internal fun SessionComposer(
         // Until `sessions.mcpPicks` lands the row reads empty (web parity),
         // never the team defaults. #EXP-1793: an agent chat's = its pick.
         mcpServerIds = if (agentChat) agentMcpServerIds else picks.mcpServerIds ?: emptyList(),
-        issues = issueRefCandidates.map {
-            IssueOption(
-                id = it.issueId,
-                identifier = it.identifier,
-                title = it.title,
-                repositoryId = null,
-                status = null,
-                priority = null,
-                description = it.description,
-                createdAt = it.createdAt,
-                updatedAt = it.updatedAt,
-            )
-        },
+        issues = issueRefCandidates.map(::issueOption),
         // An ENDED session takes no configure: the rows read-only (the server
         // refuses `This session has ended`). S-3: no Plan switch.
         readOnly = sessionEnded,
@@ -7443,7 +7509,8 @@ internal fun sentInputBubbles(
 ): List<MessageDelivery.Bubble> {
     val seen = newest.mapTo(HashSet()) { it.key }
     val older = loaded
-        .filter { it.authorKind == "user" && it.consumedAt != null && it.body.isNotBlank() && seen.add(it.id) }
+        // #EXP-2075: the loaded window holds a person's carded rows too; SENT INPUTS are card-less.
+        .filter { it.authorKind == "user" && !it.hasCard && it.consumedAt != null && it.body.isNotBlank() && seen.add(it.id) }
         .map { row ->
             MessageDelivery.Bubble(
                 key = row.id,

@@ -2,11 +2,13 @@
 // the tRPC `sessionKeys` router and `sessions.send {seal}` (a new root's key
 // in its own transaction). Router-free: lib/sessions never imports a router
 // (suites mock @/lib/trpc whole).
+import { KEY_MAKER_REFUSAL, KEY_MAKER_REFUSAL_CODE } from "@exp/domain-contract/install-trust"
 import { CLEAR_TREE_REFUSAL, STALE_TREE_REFUSAL, WRAP_REFUSAL } from "@exp/domain-contract/sealed-content"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { devices, installs, sessionKeys, sessions, type Session } from "@/db/schema"
 import { teamMemberPairs } from "@/lib/auth/membership"
+import { installWaits } from "@/lib/install-approvals"
 import type { Tx } from "@/lib/sessions/tx"
 import { signedWrapColumns } from "@/lib/sessions/wrap-signatures"
 
@@ -198,7 +200,8 @@ export interface TreeKeyInput {
 /** `sessionKeys.create` inside the caller's transaction: a tree's first key
  *  (epoch 1) or a rotation (`seal_epoch + 1`, by the starter or the
  *  executing device, or by any reader while the root is due), with wraps
- *  for readers including the caller's own. */
+ *  for readers including the caller's own. Never by an install that waits
+ *  for approval (#EXP-2123). */
 export async function createTreeKeyInTx(
   tx: Tx,
   userId: string,
@@ -208,6 +211,9 @@ export async function createTreeKeyInTx(
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Malformed tree key` })
   }
   const signer = await ownInstall(tx, userId, input.installId)
+  // #EXP-2123 (install-trust.json `keyMaker`): an install that waits for
+  // approval wraps for itself only, so a key it made would exist nowhere else.
+  if (await installWaits(tx, signer)) throw new TRPCError({ code: KEY_MAKER_REFUSAL_CODE, message: KEY_MAKER_REFUSAL })
   const targets = input.wraps.map((wrap) => wrap.installId)
   if (new Set(targets).size !== targets.length) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `One wrap per install` })
@@ -262,6 +268,14 @@ export async function createTreeKeyInTx(
       createdByInstallId: input.installId,
       ...signed[at],
     })
+  }
+  // #EXP-2119 (`rotation` OLDER EPOCHS): the superseded epoch keeps its
+  // public key on its wraps, so a holder can still hand it to a new install.
+  if (root.sealEpoch !== null) {
+    await tx
+      .update(sessionKeys)
+      .set({ treePublicKey: root.sealPublicKey })
+      .where(and(eq(sessionKeys.rootId, root.id), eq(sessionKeys.epoch, root.sealEpoch)))
   }
   await tx
     .update(sessions)

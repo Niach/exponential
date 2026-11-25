@@ -1,0 +1,35 @@
+// #NEW-134: semantic issue search's server half: one embedding per issue,
+// computed in this process (no third party), stored with pgvector.
+//
+// #NEW-135: `search.ts` is the search itself: `searchIssues` (tRPC
+// `issues.search`) and `issueSearchIdsSql` (MCP list `search`) put the
+// semantic hits behind the lexical ones and answer `similar:<ID>`.
+//
+// `scope` is `issueSearchMatchIds`' IssueSearchScope: the caller checks
+// membership / board access exactly as it does for the lexical branches.
+export { embedQuery, embedderConfigured, embedderStats, issueEmbeddingsDisabled } from "./embedder"
+export { ISSUE_EMBEDDING_DIMENSIONS, ISSUE_EMBEDDING_MODEL } from "./input"
+export {
+  ISSUE_EMBEDDING_DEFAULT_K,
+  ISSUE_EMBEDDING_MAX_DISTANCE,
+  issueEmbeddingsAvailable,
+  nearestIssueIds,
+  nearestIssuesSql,
+  type NearestIssueOptions,
+} from "./store"
+export {
+  recomputeIssueEmbedding,
+  runIssueEmbeddingSweep,
+  scheduleIssueEmbedding,
+  startIssueEmbeddingScheduler,
+} from "./recompute"
+export {
+  ISSUE_SEARCH_EMBED_BUDGET_MS,
+  ISSUE_SEARCH_SEMANTIC_MAX_DISTANCE,
+  ISSUE_SEARCH_SEMANTIC_MAX_HITS,
+  ISSUE_SEARCH_SIMILAR_MAX_DISTANCE,
+  ISSUE_SEARCH_SIMILAR_MAX_HITS,
+  issueSearchIdsSql,
+  searchIssues,
+  type IssueSearchHitRow,
+} from "./search"

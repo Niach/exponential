@@ -13,9 +13,9 @@ import GRDB
 final class DraftsViewModel {
     /// Every resolvable draft of the account.
     var allRows: [IssueDraftRow] = []
-    /// EXP-1373: the phone's ONE active team — nil = every team.
+    /// The board's team (its Drafts chip); nil = every team.
     var teamId: String?
-    /// The rows the list shows: the active team's (or all).
+    /// The rows the list shows: that team's (or all).
     var rows: [IssueDraftRow] {
         guard let teamId else { return allRows }
         return allRows.filter { $0.draft.teamId == teamId }

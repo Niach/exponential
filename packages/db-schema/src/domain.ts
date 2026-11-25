@@ -1150,8 +1150,8 @@ export const conversationKindValues = [`dm`, `channel`, `session`] as const
 export type ConversationKind = (typeof conversationKindValues)[number]
 export const conversationKindSchema = z.enum(conversationKindValues)
 
-/** S-3: agents.role (contract `agentRole`): a member's ONE personal
- *  Assistant per team, or a team agent. */
+/** S-3: agents.role (contract `agentRole`): a member's ONE Assistant
+ *  (#EXP-1989: one per owner), or a team agent. */
 // #EXP-1717: `coordinator` = the team agent its owners made the team's coordinator.
 export const agentRoleValues = [`assistant`, `agent`, `coordinator`] as const
 export type AgentRole = (typeof agentRoleValues)[number]
@@ -1373,6 +1373,8 @@ export const questionCardSchema = z
 export type MessageCard =
   | {
       kind: `question`
+      /** #EXP-2119: the person who answered (server-written, clear). */
+      answeredBy?: string | null
       question: string
       options?: QuestionCardOption[]
       /** EXP-1322 sidecar, parallel to `options`; absent when no option has a description. */
@@ -1397,6 +1399,8 @@ export type MessageCard =
     }
   | {
       kind: `plan`
+      /** #EXP-2119: the person who answered (server-written, clear). */
+      answeredBy?: string | null
       plan: string
       /** EXP-1280: the upload namespace, the choice questions, the inline surface. */
       pictures?: PlanCardPicture[] | null
@@ -1517,7 +1521,16 @@ export const actionCardInputSchema = z.union([
       messageId: z.string().uuid().nullable(),
     })
     .strict(),
-  z.object({ kind: z.literal(`action`), sealed: z.string().min(1).max(16384) }).strict(),
+  // The envelope keeps the contract's clear fields beside `sealed`
+  // (`CARD_CLEAR_FIELDS`): of an action card's, that is `messageId` (a
+  // synced row's or a show card's press; a live feed row has none).
+  z
+    .object({
+      kind: z.literal(`action`),
+      sealed: z.string().min(1).max(16384),
+      messageId: z.string().uuid().nullable().optional(),
+    })
+    .strict(),
 ])
 export type ActionCardInput = z.infer<typeof actionCardInputSchema>
 

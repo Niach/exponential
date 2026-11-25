@@ -25,6 +25,94 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-24-sidebar-menus`,
+    date: `2026-11-24`,
+    title: `Sidebar menus`,
+    summary: `The Assistant sits on top of the sidebar, every sidebar row has a right-click menu, and the + next to the tabs opens a menu to start a chat, agent, app or board in any team. Boards, apps and devices open as tabs.`,
+    body: `- **The Assistant**: your Assistant is the first row of the sidebar and opens its chat.
+- **Right-click menus**: every sidebar row has one, in the same order everywhere: open, what the row does, arrange, settings.
+- **New tab menu**: the + next to the tabs starts a chat, agent, app or board in any team.
+- **Tabs for every page**: boards, apps, devices, Home, Chats, Needs you and Drafts open as tabs, and Open in new tab adds one in the background.`,
+  },
+  {
+    id: `2026-11-24-phones-new-devices-need-your-ok`,
+    date: `2026-11-24`,
+    title: `New devices need your OK, on your phone`,
+    summary: `Android 0.14.157 and iOS 0.14.145: a new install waits until you approve it on a device you already use, and the issue search takes filters and whole sentences.`,
+    body: `- **New devices need your OK**: a new install shows a short code and waits until you approve it on a device you already use. Devices you already have are trusted automatically.
+- **Search with filters and sentences**: the issue search takes filters such as \`is:open\`, \`status:\` or \`created:7d\`, and a sentence in English or German becomes those filters when you pick the \`Search:\` row.
+- **One order in the @ list**: the people in a composer's @ list come in the same order on every device.
+- **Android**: the + › Issue list shows each issue's own status, previews of boards, prompts, labels and people work in your Assistant's chat, and a reply that arrives together with a subagent's report no longer goes missing.`,
+  },
+  {
+    id: `2026-11-24-search-by-meaning`,
+    date: `2026-11-24`,
+    title: `Search finds issues by meaning`,
+    summary: `Web, desktop, Android and iOS: the issue search also lists issues that mean what you typed, in German and English, and similar:NEW-12 finds an issue's likely duplicates.`,
+    body: `- **By meaning**: the issue search also lists issues that mean what you typed without sharing a word with it, for example a German report for an English query. They follow the issues that match your words, a few at most.
+- **Similar issues**: \`similar:NEW-12\` lists the issues closest in meaning to NEW-12, its likely duplicates, nearest first. Add other filters to narrow them, for example \`similar:NEW-12 is:open\`.
+- **Everywhere you search issues**: the search, the \`#\` menu and the issue pickers, and for agents the \`search\` of the issue list.
+- **Stays on the server**: the search text is read by a model inside your Exponential server and goes nowhere else. Self-hosted servers need the database image with pgvector, the default of the compose file.`,
+  },
+  {
+    id: `2026-11-24-desktop-cli-0-14-178`,
+    date: `2026-11-24`,
+    title: `New devices need your OK, and sessions start on Windows`,
+    summary: `Desktop and CLI 0.14.178: a new install waits for your approval on a device you already use, sessions start again on Windows, and a session's cards always travel encrypted.`,
+    body: `- **New devices need your OK**: a new install shows a short code and waits until you approve it on a device you already use. Devices you already have are trusted automatically.
+- **Windows starts**: a session starts again on Windows, where every start failed with "the filename or extension is too long".
+- **Cards stay encrypted**: a session started while the app or daemon was still starting up could send the text of its cards unencrypted. It now always goes through the device's encrypted path.
+- **Failed starts say why**: a message sent while the agent fails to start now shows the reason instead of waiting forever.
+- **Search**: the issue search takes filters such as \`is:open\` or \`created:7d\`, and a sentence in English or German becomes those filters with one pick.
+- **Quieter wake word**: listening for the wake word in a quiet room uses about a third of the processor time it did.
+- **Meetings on macOS**: an app that starts playing in the middle of a meeting keeps its first words.
+- **Chat fixes**: a reply no longer shows twice after a restart, a message arriving at the same instant as the newest one no longer goes missing, and people and issues in the @ list come in the same order on every platform.`,
+  },
+  {
+    id: `2026-11-24-search-translate-on-your-device`,
+    date: `2026-11-24`,
+    title: `Translate a sentence into a search`,
+    summary: `Desktop and iOS: when the issue search does not understand a sentence, Translate to a search turns it into filters with a model on your own device or login.`,
+    body: `- **Translate to a search**: type a longer sentence the search does not recognise and pick the top row. The field is rewritten into filters and words you can still edit.
+- **Desktop**: it uses the Claude login you are already signed in with on this device. One short request, no session, nothing stored.
+- **iPhone and iPad**: it uses Apple Intelligence on the device, on iOS 26 or later. Nothing leaves the phone.
+- **Only when you ask**: typing never calls a model. Without a signed-in Claude on the desktop, or without Apple Intelligence on the phone, the row does not appear.`,
+  },
+  {
+    id: `2026-11-24-search-sentences-and-filters`,
+    date: `2026-11-24`,
+    title: `Search understands sentences and filters`,
+    summary: `Web, desktop, Android and iOS: the issue search takes filters such as is:open or created:7d, and a sentence in English or German becomes those filters with one pick.`,
+    body: `- **Filters**: narrow the issue search with \`is:open\` or \`is:closed\`, \`status:\` and a status name, and \`created:\` or \`updated:\` with a time such as \`7d\`, \`today\`, \`2026-11\` or \`>=2026-11-01\`, next to \`by:\` and plain words.
+- **Sentences**: type what you are looking for, in English or German, for example "open issues by Lukas about the editor from last week". The top row then reads \`Search: is:open by:lukas created:7d editor\`, and picking it puts those filters into the field.
+- **Teammates by name**: a name after "by" or "von" becomes \`by:\` when it is one of your teammates, and stays a plain word otherwise.`,
+  },
+  {
+    id: `2026-11-24-desktop-cli-0-14-177`,
+    date: `2026-11-24`,
+    title: `Sessions keep going, and calls are end-to-end encrypted`,
+    summary: `Desktop and CLI 0.14.177: sessions no longer stop by themselves, they start and pick up reliably, and calls between up-to-date apps are end-to-end encrypted.`,
+    body: `- **Sessions keep going**: a session no longer stops by itself with "I've stopped as you asked".
+- **Reliable starts**: a session starts and picks up its messages reliably, also in an encrypted chat.
+- **Calls are end-to-end encrypted**: a call between up-to-date apps is sealed with the chat's key, so the relay cannot read or hear it.
+- **Views in chat**: an agent's views draw in the chat, in a subagent's tab and in a call's transcript.
+- **Busy machines**: builds on a busy machine no longer block new sessions.
+- **Chat fixes**: a child's reply no longer shows twice after a restart, an open question or plan stays at the end of the chat, and a teammate's message the agent has not read yet shows as pending.`,
+  },
+  {
+    id: `2026-11-24-phones-views-in-chat`,
+    date: `2026-11-24`,
+    title: `Views in your phone's chats`,
+    summary: `Android 0.14.156 and iOS 0.14.144: an agent's views draw in the chat, in subagent tabs and in calls, calls from Android are end-to-end encrypted, and iOS asks you to approve a new install.`,
+    body: `- **Views in chat**: when an agent writes a view into its message, the chat shows it in place; subagent tabs and a call's transcript show views too.
+- **Encrypted calls from Android**: calls are end-to-end encrypted between up-to-date apps.
+- **Approve a new install on iOS**: when a new install joins your account, Needs you shows it with its whole code, and you approve or remove it there.
+- **Your Assistant across teams**: in your Assistant's chat, issues, people, MCP servers and prompts come from all your teams, and its notifications and inbox rows open its chat.
+- **Questions and plans at the end**: an open question or plan card now sits after the chat's last message instead of above it.
+- **No doubled replies**: a subagent's reply no longer shows twice after you reopen the app.
+- **iOS**: a teammate's message the agent has not picked up yet shows as waiting, and one tap on Reconnect dials a dropped call afresh.`,
+  },
+  {
     id: `2026-11-24-assistant-chat-all-teams`,
     date: `2026-11-24`,
     title: `Your Assistant's chat works across all your teams`,

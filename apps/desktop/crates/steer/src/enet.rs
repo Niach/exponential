@@ -171,10 +171,16 @@ pub fn identity_path(data_dir: &Path, account_id: &str, kind: InstallKind) -> Pa
 /// never usable, so nothing can be pinned to it); an unreadable one is an
 /// error, never minted over.
 pub fn load_or_create_identity(path: &Path) -> std::io::Result<Identity> {
+    load_or_mint_identity(path).map(|(identity, _)| identity)
+}
+
+/// [`load_or_create_identity`], and whether THIS call minted it (#EXP-1950:
+/// a minted identity is a new install, whose pin store is written first).
+pub fn load_or_mint_identity(path: &Path) -> std::io::Result<(Identity, bool)> {
     match std::fs::read_to_string(path) {
         Ok(text) => {
             if let Some(identity) = parse_identity(&text) {
-                return Ok(identity);
+                return Ok((identity, false));
             }
             log::warn!("enet: {} is malformed; minting a new identity", path.display());
         }
@@ -183,7 +189,7 @@ pub fn load_or_create_identity(path: &Path) -> std::io::Result<Identity> {
     }
     let identity = Identity::generate();
     write_identity(path, &identity)?;
-    Ok(identity)
+    Ok((identity, true))
 }
 
 /// Deletes the identity (after a revoke: the endpoint id can never register
@@ -310,6 +316,11 @@ pub trait InstallRegistry: Send + Sync + 'static {
     fn keys(self: Arc<Self>) -> Option<Arc<dyn crate::seal_keys::KeyApi>> {
         None
     }
+    /// #EXP-1950: the `installs.trust` half (install approval and the pin
+    /// store); `None` = no rule (tests that only register).
+    fn trust(self: Arc<Self>) -> Option<Arc<dyn crate::install_trust::TrustApi>> {
+        None
+    }
 }
 
 impl InstallRegistry for api::TrpcClient {
@@ -323,6 +334,9 @@ impl InstallRegistry for api::TrpcClient {
         api::installs::revoke(self, install_id)
     }
     fn keys(self: Arc<Self>) -> Option<Arc<dyn crate::seal_keys::KeyApi>> {
+        Some(self)
+    }
+    fn trust(self: Arc<Self>) -> Option<Arc<dyn crate::install_trust::TrustApi>> {
         Some(self)
     }
 }
@@ -472,6 +486,12 @@ impl InstallNode {
         lock(&self.inner.holder).clone()
     }
 
+    /// #EXP-1950: the install's pin store and approval state (Needs you's
+    /// rows, the waiting state), once its key holder runs.
+    pub fn trust(&self) -> Option<Arc<crate::install_trust::TrustKeeper>> {
+        self.key_holder()?.trust()
+    }
+
     /// EXP-1458: `sessions.send {seal}` for a NEW root: a fresh tree key
     /// wrapped for this install, the user's other installs on the last
     /// allowlist and the install of `target_device` (the `devices.device_id`
@@ -548,6 +568,9 @@ impl InstallNode {
         self.inner.stopped.store(true, Ordering::SeqCst);
         coding::sealing::holder_off(coding::sealing::HolderOff::Stopped);
         if let Some(holder) = lock(&self.inner.holder).take() {
+            if let Some(trust) = holder.trust() {
+                trust.stop();
+            }
             holder.stop();
         }
         coding::sealing::unload(&keyring_path(&self.inner.spec));
@@ -633,8 +656,10 @@ async fn register(inner: &Arc<Inner>, identity: &Identity) -> Registered {
 
 async fn run(inner: Arc<Inner>) {
     run_node(&inner).await;
-    // No key holder comes from a node that is gone (stopped, or never up).
-    if lock(&inner.holder).is_none() {
+    // No key holder comes from a node that never came up. A STOPPED node said
+    // so itself (`stop`): by now the next account's node may be expected, and
+    // clearing that flag would fail its writes (#EXP-2118).
+    if lock(&inner.holder).is_none() && !inner.stopped.load(Ordering::SeqCst) {
         coding::sealing::expect_service(false);
     }
 }
@@ -645,7 +670,20 @@ async fn run_node(inner: &Arc<Inner>) {
     let mut fresh_mints = 0;
     let (node, identity, mut registered) = loop {
         let load = path.clone();
-        let identity = match blocking(move || load_or_create_identity(&load)).await {
+        let pins = crate::install_trust::store_path(&keyring_path(&inner.spec));
+        let user_id = inner.spec.user_id.clone();
+        let identity = match blocking(move || {
+            let (identity, minted) = load_or_mint_identity(&load)?;
+            // #EXP-1950 decision (e): a new identity (a new install, or a
+            // newly signed-in account: identities are per account) writes
+            // its pin store BEFORE it registers, so it is never `existing`.
+            if minted {
+                crate::install_trust::mark_new(&pins, &identity, &user_id)?;
+            }
+            Ok::<_, std::io::Error>(identity)
+        })
+        .await
+        {
             Some(Ok(identity)) => identity,
             Some(Err(err)) => {
                 log::warn!("enet: identity file {} unreadable, eNet off: {err}", path.display());
@@ -687,6 +725,10 @@ async fn run_node(inner: &Arc<Inner>) {
         if matches!(registered, Registered::Later) {
             registered = register(&inner, &identity).await;
         }
+        // Stopped meanwhile: what follows is the next node's to say.
+        if inner.stopped.load(Ordering::SeqCst) {
+            break;
+        }
         if matches!(registered, Registered::Never) {
             // Refused for good: no key holder ever comes in this process.
             coding::sealing::holder_off(coding::sealing::HolderOff::RegistrationRefused);
@@ -697,6 +739,7 @@ async fn run_node(inner: &Arc<Inner>) {
                 Some(holder) => {
                     holder.set_direct_sender(direct_sender(&inner));
                     holder.set_device_readers(device_readers(&inner));
+                    holder.set_install_lookup(install_lookup(&inner));
                 }
                 // No key API on this registry: no holder will come.
                 None => coding::sealing::holder_off(coding::sealing::HolderOff::NoKeyApi),
@@ -735,7 +778,21 @@ fn start_holder(inner: &Arc<Inner>, identity: &Identity) {
     let Some(install_id) = lock(&inner.install_id).clone() else { return };
     let Some(api) = Arc::clone(&inner.registry).keys() else { return };
     let keyring = coding::sealing::preload(keyring_path(&inner.spec));
-    let holder = KeyHolder::new(install_id, &PushKeypair::derive(identity), api, keyring);
+    // #EXP-1950: every wrap it makes carries this install's signature.
+    let holder = KeyHolder::signing(install_id.clone(), identity, api, keyring);
+    // #EXP-1950 (install-trust.json): the pin store beside the keyring and
+    // the four rules, record-only (`TRUST_MODE`, a build constant).
+    if let Some(trust_api) = Arc::clone(&inner.registry).trust() {
+        let keeper = crate::install_trust::TrustKeeper::open(
+            crate::install_trust::store_path(&keyring_path(&inner.spec)),
+            identity,
+            &inner.spec.user_id,
+            install_id,
+            trust_api,
+            crate::install_trust::TRUST_MODE,
+        );
+        holder.set_trust(Arc::new(keeper));
+    }
     coding::sealing::install(Arc::new(holder.clone()));
     holder.spawn(&tokio::runtime::Handle::current(), Arc::clone(&inner.holder_wake));
     *lock(&inner.holder) = Some(holder);
@@ -759,6 +816,18 @@ fn device_readers(inner: &Arc<Inner>) -> crate::seal_keys::DeviceReaders {
         let Some(inner) = weak.upgrade() else { return Vec::new() };
         let entries = lock(&inner.entries);
         target_device_installs(&entries, &inner.spec.user_id, device)
+    })
+}
+
+/// #EXP-1950: an install's `(endpoint_id, x25519_public)` off the last
+/// allowlist pass, for the holder's re-signed wraps.
+fn install_lookup(inner: &Arc<Inner>) -> crate::seal_keys::InstallLookup {
+    let weak = Arc::downgrade(inner);
+    Arc::new(move |install_id: &str| {
+        let inner = weak.upgrade()?;
+        let found = lock(&inner.entries).iter().find(|e| e.install_id == install_id).cloned();
+        let found = found.or_else(|| lock(&inner.team_entries).values().flatten().find(|e| e.install_id == install_id).cloned());
+        found.map(|e| (e.endpoint_id, e.x25519_public))
     })
 }
 

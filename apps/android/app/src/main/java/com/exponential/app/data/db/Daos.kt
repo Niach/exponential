@@ -269,6 +269,11 @@ interface TeamMemberDao {
     @Query("SELECT * FROM team_members WHERE team_id = :teamId ORDER BY created_at, id")
     fun observeByTeam(teamId: String): Flow<List<TeamMemberEntity>>
 
+    // #EXP-2097: one person's rows across the synced teams (a member card's
+    // role reads the chat teams, never the session's).
+    @Query("SELECT * FROM team_members WHERE user_id = :userId ORDER BY created_at, id")
+    fun observeByUser(userId: String): Flow<List<TeamMemberEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(item: TeamMemberEntity)
 
@@ -396,28 +401,27 @@ abstract class SessionDao(private val db: RoomDatabase) {
     abstract suspend fun appConversation(appId: String, userId: String): SessionEntity?
 
     // Every visible session (the Chats list derives groups per tree off it).
-    // EXP-1635: a team's newest chats (the sharing shortcuts): roots that are
+    // EXP-1635: the newest chats of every team (the sharing shortcuts): roots that are
     // neither an agent's conversation nor an app's editor nor encrypted, unarchived.
     @Query(
-        """SELECT * FROM sessions WHERE team_id = :teamId AND parent_id IS NULL
+        """SELECT * FROM sessions WHERE parent_id IS NULL
         AND agent_id IS NULL AND app_id IS NULL AND seal_public_key IS NULL AND sealed_title IS NULL
         AND id NOT IN (SELECT session_id FROM session_reads WHERE archived_at IS NOT NULL)
         ORDER BY updated_at DESC LIMIT :limit""",
     )
-    abstract fun observeRecentChats(teamId: String, limit: Int): Flow<List<SessionEntity>>
+    abstract fun observeRecentChats(limit: Int): Flow<List<SessionEntity>>
 
     // #EXP-1830 (app-shortcuts.json): the long-press chat entries' candidates:
-    // a team's newest roots that are a plain chat or the viewer's OWN agent
+    // every team's newest roots that are a plain chat or the viewer's OWN agent
     // conversation (never an app's editor, never archived). Encrypted plain
     // chats are filtered by the model (an agent conversation's entry reads the agent's name).
     @Query(
         """SELECT * FROM sessions WHERE parent_id IS NULL AND app_id IS NULL
         AND (agent_id IS NULL OR user_id = :me)
         AND id NOT IN (SELECT session_id FROM session_reads WHERE archived_at IS NOT NULL)
-        AND team_id = :teamId
         ORDER BY updated_at DESC LIMIT :limit""",
     )
-    abstract fun observeShortcutChats(teamId: String, me: String, limit: Int): Flow<List<SessionEntity>>
+    abstract fun observeShortcutChats(me: String, limit: Int): Flow<List<SessionEntity>>
 
     // #EXP-1642 (system-search.json): every team's newest plain chats, the same
     // filter (never an agent's conversation, an app's editor or an encrypted chat).
@@ -667,10 +671,12 @@ abstract class MessageDao {
 
     // #FEED-260 (steer-enet.json SYNCED TAIL): a session's NEWEST [limit]
     // card-less agent lines and person inputs, oldest first: what a
-    // not-live transcript appends after its feed.
+    // not-live transcript appends after its feed. #EXP-2075: a person's
+    // `action` card rows too (a sealed card keeps its `kind` in clear; the
+    // reference decides on the OPENED card).
     @Query(
         "SELECT * FROM (SELECT * FROM messages WHERE session_id = :sessionId AND author_kind IN ('user', 'agent') " +
-            "AND (card IS NULL OR card = 'null') " +
+            "AND (card IS NULL OR card = 'null' OR (author_kind = 'user' AND card LIKE '%\"kind\"%\"action\"%')) " +
             "ORDER BY created_at DESC, id DESC LIMIT :limit) ORDER BY created_at, id",
     )
     abstract fun rawObserveTailMessages(sessionId: String, limit: Int): Flow<List<MessageEntity>>

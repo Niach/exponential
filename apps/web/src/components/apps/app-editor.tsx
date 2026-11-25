@@ -466,9 +466,9 @@ export function AppEditor({
     try {
       await trpc.apps.delete.mutate({ id: app.id }, SKIP_ERROR_TOAST)
       setDeleteOpen(false)
-      // VAPP-242: no Apps page on web ≥ md: the team's home (phones: the Apps tab).
+      // VAPP-242: no Apps page on web ≥ md: the team's home (phones: the team's page).
       void (isMobile
-        ? navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug }, replace: true })
+        ? navigate({ to: `/t/$teamSlug/team`, params: { teamSlug }, replace: true })
         : navigate({ to: `/t/$teamSlug`, params: { teamSlug }, replace: true }))
     } catch (error) {
       failedAction(`delete`, `the app`, error)
@@ -909,7 +909,7 @@ export function AppEditor({
           ) : undefined
         }
         menu={headerMenu}
-        onBack={() => void navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug } })}
+        onBack={() => void navigate({ to: `/t/$teamSlug/team`, params: { teamSlug } })}
         onTab={pickTab}
         chat={chat}
         pane={pane}

@@ -171,16 +171,18 @@ fn block_origin(rows: &[SessionChatRow], row_id: &str) -> Option<crate::chat_exp
 /// ([`block_row_id`]: into `chat_session`, the session whose transcript
 /// draws it). A plan's or question's inline surface has no transport
 /// (plan-card.json: its events stay in the card, the options and the plan
-/// page answer it). The Embed hands `{name, context}` alone, so an event's
-/// `userMessage` never reaches here: a `reply` reads its `context.text`.
-pub fn card_reply(rows: &[SessionChatRow], chat_session: &str, row_id: &str, name: Option<&str>, context: Option<&serde_json::Value>) -> Option<CardReply> {
+/// page answer it). `name`, `context` and `user_message` are the Embed's
+/// `action` payload (`eui_core::embed::embed_payload`): the inner event's
+/// name, its context (`{}` = none) and its resolved `userMessage` when it
+/// has one (#EXP-2104), the body of the message (`actionCases`).
+pub fn card_reply(rows: &[SessionChatRow], chat_session: &str, row_id: &str, name: Option<&str>, context: Option<&serde_json::Value>, user_message: Option<&serde_json::Value>) -> Option<CardReply> {
     use crate::chat_express::{show_action_origin, surface_action, ActionPost};
     let (session_id, origin) = match rows.iter().find(|row| row.id() == row_id) {
         Some(SessionChatRow::Surface { session_id, .. }) => (session_id.clone(), show_action_origin(row_id)),
         Some(_) => return None,
         None => (chat_session.to_string(), block_origin(rows, row_id)?),
     };
-    Some(match surface_action(name, context, None, &origin)? {
+    Some(match surface_action(name, context, user_message, &origin)? {
         ActionPost::Post { body, card } => CardReply::Send { session_id, text: body, card },
         ActionPost::TooLarge => CardReply::TooLarge,
     })
@@ -444,7 +446,8 @@ pub fn mention_menu(draft: &str, members: &[Member], issues: &[MentionIssue]) ->
         CompletionTrigger::Mention => {
             let needle = token.query.to_lowercase();
             let mut picks: Vec<&Member> = members.iter().filter(|m| mention_matches(&m.name, &m.email, &needle)).collect();
-            picks.sort_by(|a, b| a.name.cmp(&b.name));
+            // #EXP-2095 (agent-settings.json `assistant.chatTeams` (2)): ONE order ×4.
+            picks.sort_by_key(|m| crate::agent_settings::chat_member_sort_key(Some(&m.name), Some(&m.email), ""));
             picks.dedup_by(|a, b| a.email == b.email);
             picks
                 .into_iter()
@@ -650,6 +653,17 @@ mod tests {
         assert_eq!(commit_emoji("nice :tada:").as_deref(), Some("nice 🎉"));
         assert_eq!(commit_emoji("nice :tad"), None);
         assert!(mention_menu("at 12:30", &[], &[]).is_none(), "times never open it");
+    }
+
+    // #EXP-2095 (agent-settings.json `assistant.chatTeams` (2)): the `@`
+    // list's ONE order ×4, whatever the roster order or the case.
+    #[test]
+    fn at_lists_members_by_name_case_insensitively_then_email() {
+        let member = |name: &str, email: &str| Member { name: name.into(), email: email.into(), image: None };
+        let members = vec![member("Zoe", "zoe@x.com"), member("bob", "bob@x.com"), member("Sam", "sam@b.x.com"), member("alice", "alice@x.com"), member("sam", "sam@a.x.com")];
+        let menu = mention_menu("ping @", &members, &[]).expect("@");
+        let names: Vec<&str> = menu["rows"].as_array().unwrap().iter().map(|row| row["hint"].as_str().unwrap()).collect();
+        assert_eq!(names, ["alice@x.com", "bob@x.com", "sam@a.x.com", "sam@b.x.com", "zoe@x.com"]);
     }
 
     #[test]
@@ -882,23 +896,23 @@ mod tests {
         };
         // chat-express.json: a show surface's press posts THE action card
         // into the card's own session, a reply's text as the body.
-        assert_eq!(card_reply(&rows, "chat", "m1", Some("reply"), Some(&reply)), Some(CardReply::Send { session_id: "s1".into(), text: "Ship".into(), card: card("reply", reply.clone()) }));
+        assert_eq!(card_reply(&rows, "chat", "m1", Some("reply"), Some(&reply), None), Some(CardReply::Send { session_id: "s1".into(), text: "Ship".into(), card: card("reply", reply.clone()) }));
         let other = serde_json::json!({"rep": "Ana"});
         assert_eq!(
-            card_reply(&rows, "chat", "m1", Some("save_deal"), Some(&other)),
+            card_reply(&rows, "chat", "m1", Some("save_deal"), Some(&other), None),
             Some(CardReply::Send { session_id: "s1".into(), text: String::new(), card: card("save_deal", other.clone()) }),
             "every other event reaches the agent too, without a body"
         );
         let blank = serde_json::json!({"text": " "});
-        assert_eq!(card_reply(&rows, "chat", "m1", Some("reply"), Some(&blank)), Some(CardReply::Send { session_id: "s1".into(), text: String::new(), card: card("reply", blank.clone()) }), "a reply with no text still reaches the agent");
-        assert_eq!(card_reply(&rows, "chat", "m1", None, Some(&reply)), None, "no event name posts nothing");
-        assert_eq!(card_reply(&rows, "chat", "p", Some("reply"), Some(&reply)), None, "a plan's surface stays in its card");
-        assert_eq!(card_reply(&rows, "chat", "gone", Some("reply"), Some(&reply)), None);
+        assert_eq!(card_reply(&rows, "chat", "m1", Some("reply"), Some(&blank), None), Some(CardReply::Send { session_id: "s1".into(), text: String::new(), card: card("reply", blank.clone()) }), "a reply with no text still reaches the agent");
+        assert_eq!(card_reply(&rows, "chat", "m1", None, Some(&reply), None), None, "no event name posts nothing");
+        assert_eq!(card_reply(&rows, "chat", "p", Some("reply"), Some(&reply), None), None, "a plan's surface stays in its card");
+        assert_eq!(card_reply(&rows, "chat", "gone", Some("reply"), Some(&reply), None), None);
         // Too large: nothing posted, the toast.
         let limits = &crate::chat_express::CHAT_EXPRESS.limits;
         let big = serde_json::json!({"text": "x".repeat(limits.action_context_max_bytes + 1)});
-        assert_eq!(card_reply(&rows, "chat", "m1", Some("reply"), Some(&big)), Some(CardReply::TooLarge));
-        assert_eq!(card_reply(&rows, "chat", "m1", Some(&"n".repeat(limits.action_name_max + 1)), None), Some(CardReply::TooLarge));
+        assert_eq!(card_reply(&rows, "chat", "m1", Some("reply"), Some(&big), None), Some(CardReply::TooLarge));
+        assert_eq!(card_reply(&rows, "chat", "m1", Some(&"n".repeat(limits.action_name_max + 1)), None, None), Some(CardReply::TooLarge));
     }
 
     fn agent_message(id: &str, body: &str) -> SessionChatRow {
@@ -912,16 +926,49 @@ mod tests {
         let own = SessionChatRow::Message { id: "u1".into(), author: "user".into(), author_id: Some("me".into()), body: "<a2ui>".into(), queued: false, author_session_id: None, xref: None, action: None };
         let rows = [agent_message("m1", "text"), own];
         let context = serde_json::json!({"rep": "Ana"});
-        let post = card_reply(&rows, "chat", &block_row_id("m:m1#2", "deal"), Some("save_deal"), Some(&context));
+        let post = card_reply(&rows, "chat", &block_row_id("m:m1#2", "deal"), Some("save_deal"), Some(&context), None);
         let expected = crate::chat_express::ActionCard { kind: "action".into(), name: "save_deal".into(), context: context.as_object().cloned(), surface_id: "deal".into(), block: Some("m:m1#2".into()), message_id: Some("m1".into()) };
         assert_eq!(post, Some(CardReply::Send { session_id: "chat".into(), text: String::new(), card: expected }));
         // The default surface of a block is its key.
-        let Some(CardReply::Send { text, card, .. }) = card_reply(&rows, "chat", &block_row_id("m:m1#1", "m:m1#1"), Some("reply"), Some(&serde_json::json!({"text": "Ship it"}))) else { panic!() };
+        let Some(CardReply::Send { text, card, .. }) = card_reply(&rows, "chat", &block_row_id("m:m1#1", "m:m1#1"), Some("reply"), Some(&serde_json::json!({"text": "Ship it"})), None) else { panic!() };
         assert_eq!((text.as_str(), card.surface_id.as_str(), card.block.as_deref()), ("Ship it", "m:m1#1", Some("m:m1#1")));
         // Only an agent's row has blocks; the skeleton and the marker fire nothing.
         for id in [block_row_id("m:u1#1", "m:u1#1"), block_row_id("m:gone#1", "x"), block_row_id("m:m1#1", ""), "m:m1#1!".to_string(), block_row_id("m:m1#x", "s"), block_row_id("n:s:m1#1", "s")] {
-            assert_eq!(card_reply(&rows, "chat", &id, Some("reply"), Some(&context)), None, "{id}");
+            assert_eq!(card_reply(&rows, "chat", &id, Some("reply"), Some(&context), None), None, "{id}");
         }
+    }
+
+    /// #EXP-2104: chat-express.json `actionCases` replayed THROUGH the Embed
+    /// (the eDE shell's chat draws a block as an Embed): its `action`
+    /// payload is `{name, context, userMessage?}`, a context-less event's
+    /// context `{}`. Every case posts what the fixture expects: "reply with
+    /// userMessage: the text is the body" = body `Ship it`, context null.
+    #[test]
+    fn an_embed_s_action_replays_the_fixture_s_action_cases() {
+        let f = crate::chat_express::fixture();
+        let rows = [agent_message("m1", "text")];
+        let mut replayed = 0;
+        for c in f["actionCases"].as_array().unwrap() {
+            // A block of a synced row (a live feed row and a show card have other origins).
+            if c["origin"]["messageId"] != "m1" || c["origin"]["block"].is_null() {
+                continue;
+            }
+            let (e, name) = (&c["event"], &c["name"]);
+            // What `eui_core::embed::embed_payload` hands the host.
+            let context = e.get("context").filter(|v| v.is_object()).cloned().unwrap_or_else(|| serde_json::json!({}));
+            let row = block_row_id(c["origin"]["block"].as_str().unwrap(), c["origin"]["surfaceId"].as_str().unwrap());
+            let got = card_reply(&rows, "chat", &row, e["name"].as_str(), Some(&context), e.get("userMessage")).unwrap_or_else(|| panic!("{name}"));
+            match (&got, &c["expected"]) {
+                (CardReply::TooLarge, serde_json::Value::String(s)) => assert_eq!(s, "tooLarge", "{name}"),
+                (CardReply::Send { session_id, text, card }, exp) => {
+                    assert_eq!((session_id.as_str(), text.as_str()), ("chat", exp["body"].as_str().unwrap()), "{name}");
+                    assert_eq!(serde_json::to_value(card).unwrap(), exp["card"], "{name}");
+                }
+                other => panic!("{name}: {other:?}"),
+            }
+            replayed += 1;
+        }
+        assert!(replayed >= 8, "{replayed}");
     }
 
     /// chat-express.json ACTIONS DRAW: a body = the author's bubble, none =

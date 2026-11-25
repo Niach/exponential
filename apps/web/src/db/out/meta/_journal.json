@@ -2080,6 +2080,27 @@
       "when": 1795500177607,
       "tag": "0296_exp2082_install_app_version",
       "breakpoints": true
+    },
+    {
+      "idx": 297,
+      "version": "7",
+      "when": 1795517623354,
+      "tag": "0297_exp1989_one_assistant_per_owner",
+      "breakpoints": true
+    },
+    {
+      "idx": 298,
+      "version": "7",
+      "when": 1795523730648,
+      "tag": "0298_exp1859_wake_agents",
+      "breakpoints": true
+    },
+    {
+      "idx": 299,
+      "version": "7",
+      "when": 1795540282358,
+      "tag": "0299_exp2119_older_epochs",
+      "breakpoints": true
     }
   ]
 }

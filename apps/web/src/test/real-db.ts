@@ -88,3 +88,10 @@ export async function shadowTables(tx: RealDbTx, tables: readonly string[], wher
     await tx.execute(sql`INSERT INTO pg_temp.${name} SELECT * FROM public.${name} WHERE ${where}`)
   }
 }
+
+/** #NEW-135: holds `name` until the transaction ends, so the cases of
+ *  DIFFERENT files that write the same index wait for one another instead of
+ *  deadlocking (two long transactions inserting into one HNSW index do). */
+export async function oneAtATime(tx: RealDbTx, name: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${name}))`)
+}

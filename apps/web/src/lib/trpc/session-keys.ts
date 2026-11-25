@@ -14,12 +14,13 @@
 // Every procedure names an `installId` the caller owns (not revoked).
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray, isNotNull, isNull } from "drizzle-orm"
+import { and, asc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { deviceCommands, devices, installs, sessionKeys, sessions, type Session } from "@/db/schema"
 import { nudgeDevice } from "@/lib/trpc/devices"
 import { sessionVisibleTo } from "@/lib/sessions/access"
 import { teamMemberPairs } from "@/lib/auth/membership"
+import { installWaits, waitingInstallIds } from "@/lib/install-approvals"
 import { resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
 import type { Tx } from "@/lib/sessions/tx"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
@@ -33,6 +34,7 @@ import {
   treeReadersMany,
   WRAPPED_RE,
   type Reader,
+  type TreeReader,
 } from "@/lib/sessions/tree-keys"
 import { RESIGN_MAX_WRAPS } from "@exp/domain-contract/wrap-signature"
 import { checkWrapSignatures, resignWrapsInTx, vouchesFor, wrapSignatureInput, type SignedColumns, type Vouch } from "@/lib/sessions/wrap-signatures"
@@ -62,27 +64,26 @@ async function heldEpochs(database: Reader, installId: string, rootIds?: string[
   )
 }
 
-/** The install ids holding a wrap for (root, epoch). */
-async function wrappedInstalls(database: Reader, rootId: string, keyEpoch: number): Promise<Set<string>> {
-  const rows = await database
-    .select({ rootId: sessionKeys.rootId, epoch: sessionKeys.epoch, installId: sessionKeys.installId })
-    .from(sessionKeys)
-    .where(and(eq(sessionKeys.rootId, rootId), eq(sessionKeys.epoch, keyEpoch)))
-  return new Set(rows.filter((row) => row.rootId === rootId && row.epoch === keyEpoch).map((row) => row.installId))
-}
+/** One epoch's wraps of a root: who holds one, and the epoch's tree public key
+ *  where a rotation kept it (null on the current epoch). */
+type EpochWraps = { installs: Set<string>; publicKey: string | null }
 
-/** The install ids holding a wrap for each root's CURRENT epoch, one query. */
-async function wrappedInstallsMany(database: Reader, roots: readonly Session[]): Promise<Map<string, Set<string>>> {
-  const epochOf = new Map(roots.map((root) => [root.id, root.sealEpoch]))
-  const out = new Map<string, Set<string>>()
-  if (roots.length === 0) return out
+/** Every root's wraps by epoch, one query. */
+async function epochWrapsMany(database: Reader, rootIds: readonly string[]): Promise<Map<string, Map<number, EpochWraps>>> {
+  const out = new Map<string, Map<number, EpochWraps>>()
+  for (const rootId of rootIds) out.set(rootId, new Map())
+  if (rootIds.length === 0) return out
   const rows = await database
-    .select({ rootId: sessionKeys.rootId, epoch: sessionKeys.epoch, installId: sessionKeys.installId })
+    .select({ rootId: sessionKeys.rootId, epoch: sessionKeys.epoch, installId: sessionKeys.installId, treePublicKey: sessionKeys.treePublicKey })
     .from(sessionKeys)
-    .where(inArray(sessionKeys.rootId, [...epochOf.keys()]))
+    .where(inArray(sessionKeys.rootId, [...rootIds]))
   for (const row of rows) {
-    if (!epochOf.has(row.rootId) || epochOf.get(row.rootId) !== row.epoch) continue
-    out.set(row.rootId, (out.get(row.rootId) ?? new Set()).add(row.installId))
+    const epochs = out.get(row.rootId)
+    if (!epochs) continue
+    const wraps = epochs.get(row.epoch) ?? { installs: new Set<string>(), publicKey: null }
+    wraps.installs.add(row.installId)
+    wraps.publicKey ??= row.treePublicKey ?? null
+    epochs.set(row.epoch, wraps)
   }
   return out
 }
@@ -97,31 +98,107 @@ type PendingPair = {
   targetEndpointId: string
 }
 
-/** What `installId` should wrap on `root`: readers without a wrap for the
- *  current epoch, when `installId` holds that epoch and is still a reader. */
-async function pendingFor(database: Reader, root: Session, installId: string, holds: boolean): Promise<PendingPair[]> {
-  if (!holds || root.sealEpoch === null || !root.sealPublicKey) return []
-  const readers = await treeReaders(database, root)
-  if (!readers.has(installId)) return []
-  const done = await wrappedInstalls(database, root.id, root.sealEpoch)
-  return [...readers.values()]
-    .filter((reader) => !done.has(reader.installId))
-    .map((reader) => ({
-      rootId: root.id,
-      epoch: root.sealEpoch!,
-      publicKey: root.sealPublicKey!,
-      targetInstallId: reader.installId,
-      targetX25519Public: reader.x25519Public,
-      targetEndpointId: reader.endpointId,
-    }))
+/** Who reads an epoch: every reader the current one; a SUPERSEDED one
+ *  (#EXP-2119) the starter and whoever holds it on another install. A reader
+ *  who joined (or rejoined) after the rotation starts at the new epoch. */
+function readsEpoch(
+  root: Session,
+  reader: TreeReader,
+  keyEpoch: number,
+  wraps: EpochWraps,
+  readers: ReadonlyMap<string, TreeReader>
+): boolean {
+  if (keyEpoch === root.sealEpoch || reader.userId === root.userId) return true
+  return [...wraps.installs].some((held) => readers.get(held)?.userId === reader.userId)
+}
+
+/** What `installId` should wrap on `root`: per epoch it holds (the current
+ *  one first, then the superseded ones, #EXP-2119 `rotation` OLDER EPOCHS),
+ *  the readers without a wrap of it. A superseded epoch whose public key the
+ *  server never kept goes out with an empty one, to a holder that asks
+ *  (`olderEpochs`). Nothing unless `installId` is still a reader. */
+function pairsFor(
+  root: Session,
+  installId: string,
+  readers: ReadonlyMap<string, TreeReader>,
+  epochs: ReadonlyMap<number, EpochWraps>,
+  olderEpochs: boolean
+): PendingPair[] {
+  if (root.sealEpoch === null || !root.sealPublicKey || !readers.has(installId)) return []
+  const out: PendingPair[] = []
+  for (const [keyEpoch, wraps] of [...epochs].sort(([a], [b]) => b - a)) {
+    if (keyEpoch > root.sealEpoch || !wraps.installs.has(installId)) continue
+    const publicKey = keyEpoch === root.sealEpoch ? root.sealPublicKey : (wraps.publicKey ?? ``)
+    if (!publicKey && !olderEpochs) continue
+    for (const reader of readers.values()) {
+      if (wraps.installs.has(reader.installId) || !readsEpoch(root, reader, keyEpoch, wraps, readers)) continue
+      out.push({
+        rootId: root.id,
+        epoch: keyEpoch,
+        publicKey,
+        targetInstallId: reader.installId,
+        targetX25519Public: reader.x25519Public,
+        targetEndpointId: reader.endpointId,
+      })
+    }
+  }
+  return out
+}
+
+/** #EXP-2123 (install-trust.json `keyMaker`, a STRANDED root): the flagged
+ *  roots `userId` may read (shared, its own, or on one of its devices) whose
+ *  current epoch no live install that is not waiting holds a wrap of: the
+ *  install that made the key waited for approval, or was removed. A fixed
+ *  number of queries, whatever the count. */
+export async function strandedRoots(database: Reader, userId: string): Promise<Session[]> {
+  const machineIds = (await database.select({ userId: devices.userId, deviceId: devices.deviceId }).from(devices).where(eq(devices.userId, userId)))
+    .filter((row) => row.userId === userId)
+    .map((row) => row.deviceId)
+  const flagged = (
+    await database
+      .select()
+      .from(sessions)
+      .where(
+        and(
+          isNotNull(sessions.sealRotateEpoch),
+          isNull(sessions.parentId),
+          or(eq(sessions.shared, true), eq(sessions.userId, userId), ...(machineIds.length > 0 ? [inArray(sessions.deviceId, machineIds)] : []))
+        )
+      )
+      .orderBy(asc(sessions.id))
+  ).filter(
+    (root) =>
+      root.parentId === null &&
+      root.sealEpoch !== null &&
+      root.sealRotateEpoch !== null &&
+      !root.clearTree &&
+      (root.shared || root.userId === userId || machineIds.includes(root.deviceId))
+  )
+  if (flagged.length === 0) return []
+  const epochOf = new Map(flagged.map((root) => [root.id, root.sealEpoch]))
+  const wraps = (
+    await database
+      .select({ rootId: sessionKeys.rootId, epoch: sessionKeys.epoch, installId: sessionKeys.installId })
+      .from(sessionKeys)
+      .where(inArray(sessionKeys.rootId, [...epochOf.keys()]))
+  ).filter((row) => epochOf.get(row.rootId) === row.epoch)
+  const holderIds = [...new Set(wraps.map((row) => row.installId))]
+  const holders =
+    holderIds.length > 0
+      ? (await database.select().from(installs).where(inArray(installs.id, holderIds))).filter((row) => holderIds.includes(row.id) && !row.revokedAt)
+      : []
+  const waiting = await waitingInstallIds(database, holders)
+  const approved = new Set(holders.filter((row) => !waiting.has(row.id)).map((row) => row.id))
+  const heldByApproved = new Set(wraps.filter((row) => approved.has(row.installId)).map((row) => row.rootId))
+  return flagged.filter((root) => !heldByApproved.has(root.id))
 }
 
 /** EXP-1531: the fewest ms between two holder nudges for one (install, root). */
 export const MISSING_WRAP_NUDGE_MS = 10_000
 const lastMissingNudge = new Map<string, number>()
 
-/** EXP-1531: `installId` asked for roots whose CURRENT epoch it holds no
- *  wrap of (a reader hit noKey): wake those trees' holder devices now so
+/** EXP-1531: `installId` asked for roots with an epoch it holds no
+ *  wrap of (#EXP-2119: a superseded one too) (a reader hit noKey): wake those trees' holder devices now so
  *  the wrap lands in seconds instead of on their next 60 s pass. Only
  *  roots the install is a reader of; throttled per (install, root). */
 export async function nudgeMissingWraps(
@@ -135,24 +212,25 @@ export async function nudgeMissingWraps(
     (root) =>
       rootIds.includes(root.id) &&
       root.parentId === null &&
-      root.sealEpoch !== null &&
-      !held.some((row) => row.rootId === root.id && row.epoch === root.sealEpoch)
+      root.sealEpoch !== null
   )
+  const wrapsOf = await epochWrapsMany(database, roots.map((root) => root.id))
   const nudged: string[] = []
   for (const root of roots) {
     const key = `${installId}:${root.id}`
     if (now - (lastMissingNudge.get(key) ?? 0) < MISSING_WRAP_NUDGE_MS) continue
-    if (!(await treeReaders(database, root)).has(installId)) continue
+    const unheld = [...(wrapsOf.get(root.id) ?? [])].filter(
+      ([keyEpoch]) => !held.some((row) => row.rootId === root.id && row.epoch === keyEpoch)
+    )
+    if (unheld.length === 0) continue
+    const readers = await treeReaders(database, root)
+    const reader = readers.get(installId)
+    if (!reader) continue
+    const missing = unheld.filter(([keyEpoch, wraps]) => readsEpoch(root, reader, keyEpoch, wraps, readers))
+    if (missing.length === 0) continue
     lastMissingNudge.set(key, now)
     if (lastMissingNudge.size > 10_000) lastMissingNudge.clear()
-    const holderInstalls = (
-      await database
-        .select({ rootId: sessionKeys.rootId, epoch: sessionKeys.epoch, installId: sessionKeys.installId })
-        .from(sessionKeys)
-        .where(and(eq(sessionKeys.rootId, root.id), eq(sessionKeys.epoch, root.sealEpoch!)))
-    )
-      .filter((row) => row.rootId === root.id && row.epoch === root.sealEpoch)
-      .map((row) => row.installId)
+    const holderInstalls = [...new Set(missing.flatMap(([, wraps]) => [...wraps.installs]))]
     if (holderInstalls.length === 0) continue
     const deviceRowIds = (await database.select().from(installs).where(inArray(installs.id, holderInstalls)))
       .filter((row) => holderInstalls.includes(row.id) && row.revokedAt === null && row.deviceId)
@@ -248,9 +326,10 @@ async function writeWraps(
   signed: ReadonlyMap<string, SignedColumns>
 ): Promise<{ written: number; skipped: number }> {
   for (const rootId of rootIds) await lockTreeKeys(tx, rootId)
-  const held = await heldEpochs(tx, input.installId, rootIds)
   const listable = new Set<string>()
   const already = new Set<string>()
+  /** A superseded epoch's public key goes along on its new wraps. */
+  const keyOf = new Map<string, string | null>()
   for (const rootId of rootIds) {
     let root: Session
     try {
@@ -258,14 +337,14 @@ async function writeWraps(
     } catch {
       throw new TRPCError({ code: `FORBIDDEN`, message: `Not a pending pair` })
     }
-    const holds = held.some((row) => row.rootId === root.id && row.epoch === root.sealEpoch)
-    for (const pair of await pendingFor(tx, root, input.installId, holds)) {
+    const epochs = (await epochWrapsMany(tx, [root.id])).get(root.id)!
+    for (const pair of pairsFor(root, input.installId, await treeReaders(tx, root), epochs, true)) {
       listable.add(`${pair.rootId}\n${pair.epoch}\n${pair.targetInstallId}`)
     }
-    if (holds && root.sealEpoch !== null) {
-      for (const done of await wrappedInstalls(tx, root.id, root.sealEpoch)) {
-        already.add(`${root.id}\n${root.sealEpoch}\n${done}`)
-      }
+    for (const [keyEpoch, wraps] of epochs) {
+      keyOf.set(`${root.id}\n${keyEpoch}`, wraps.publicKey)
+      if (!wraps.installs.has(input.installId)) continue
+      for (const done of wraps.installs) already.add(`${root.id}\n${keyEpoch}\n${done}`)
     }
   }
   const seen = new Set<string>()
@@ -294,6 +373,7 @@ async function writeWraps(
         installId: wrap.targetInstallId,
         wrapped: wrap.wrapped,
         createdByInstallId: input.installId,
+        treePublicKey: keyOf.get(`${wrap.rootId}\n${wrap.epoch}`) ?? null,
         ...signed.get(`${wrap.rootId}\n${wrap.epoch}\n${wrap.targetInstallId}`),
       })
       written++
@@ -346,8 +426,8 @@ export const sessionKeysRouter = router({
       }))
     }),
 
-  /** Readers still missing the current epoch's wrap, on trees whose current
-   *  epoch this install holds. #EXP-1941 `rootIds`: only these trees: one
+  /** Readers still missing a wrap of an epoch this install holds (the current
+   *  one, #EXP-2119 and superseded ones). #EXP-1941 `rootIds`: only these trees: one
    *  pass over every tree answers at most the limit, sorted by root id, so
    *  the pair a call waits for (a new install on ONE root) may not be in it. */
   pending: authedProcedure
@@ -356,6 +436,8 @@ export const sessionKeysRouter = router({
         installId: uuid,
         rootIds: z.array(uuid).max(BATCH_MAX).optional(),
         limit: z.number().int().min(1).max(SESSION_KEYS_PENDING_MAX).default(SESSION_KEYS_PENDING_MAX),
+        /** #EXP-2119: this holder wraps a superseded epoch whose public key the server does not know. */
+        olderEpochs: z.boolean().default(false),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -364,7 +446,7 @@ export const sessionKeysRouter = router({
       const held = await heldEpochs(ctx.db, input.installId, input.rootIds)
       const rootIds = [...new Set(held.map((row) => row.rootId))].sort()
       if (rootIds.length === 0) return []
-      // #PERF-6: only the trees whose CURRENT epoch this install holds, their
+      // #PERF-6: only the trees of which this install holds an epoch, their
       // readers and wraps fetched per chunk in a fixed number of queries.
       const roots = (await ctx.db.select().from(sessions).where(inArray(sessions.id, rootIds)))
         .filter(
@@ -372,30 +454,16 @@ export const sessionKeysRouter = router({
             rootIds.includes(root.id) &&
             root.parentId === null &&
             root.sealEpoch !== null &&
-            !!root.sealPublicKey &&
-            held.some((row) => row.rootId === root.id && row.epoch === root.sealEpoch)
+            !!root.sealPublicKey
         )
         .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       const out: PendingPair[] = []
       for (let at = 0; at < roots.length && out.length < input.limit; at += PENDING_CHUNK) {
         const chunk = roots.slice(at, at + PENDING_CHUNK)
         const readersOf = await treeReadersMany(ctx.db, chunk)
-        const doneOf = await wrappedInstallsMany(ctx.db, chunk)
+        const wrapsOf = await epochWrapsMany(ctx.db, chunk.map((root) => root.id))
         for (const root of chunk) {
-          const readers = readersOf.get(root.id)
-          if (!readers?.has(input.installId)) continue
-          const done = doneOf.get(root.id) ?? new Set<string>()
-          for (const reader of readers.values()) {
-            if (done.has(reader.installId)) continue
-            out.push({
-              rootId: root.id,
-              epoch: root.sealEpoch!,
-              publicKey: root.sealPublicKey!,
-              targetInstallId: reader.installId,
-              targetX25519Public: reader.x25519Public,
-              targetEndpointId: reader.endpointId,
-            })
-          }
+          out.push(...pairsFor(root, input.installId, readersOf.get(root.id)!, wrapsOf.get(root.id)!, input.olderEpochs))
           if (out.length >= input.limit) break
         }
       }
@@ -405,11 +473,15 @@ export const sessionKeysRouter = router({
   /** #EXP-1951 (sealed-content.json `rotation`): the roots this install
    *  rotates now: flagged (`seal_rotate_epoch`: a reader was dropped), their
    *  current epoch held by this install, which still reads them. `epoch` =
-   *  the one to supersede (`create {epoch + 1}`). */
+   *  the one to supersede (`create {epoch + 1}`). #EXP-2123 (install-trust.json
+   *  `keyMaker`): nothing for an install that waits for approval; and each
+   *  STRANDED root this install reads (`stranded: true`: no approved reader
+   *  holds its current epoch), which it rotates without the old secret. */
   due: authedProcedure
     .input(z.object({ installId: uuid, limit: z.number().int().min(1).max(SESSION_KEYS_PENDING_MAX).default(SESSION_KEYS_PENDING_MAX) }))
     .query(async ({ ctx, input }) => {
-      await ownInstall(ctx.db, ctx.session.user.id, input.installId)
+      const install = await ownInstall(ctx.db, ctx.session.user.id, input.installId)
+      if (await installWaits(ctx.db, install)) return []
       const rows = await ctx.db
         .select({ root: sessions })
         .from(sessionKeys)
@@ -418,10 +490,13 @@ export const sessionKeysRouter = router({
         .orderBy(asc(sessions.id))
         .limit(input.limit)
       const roots = rows.map((row) => row.root).filter((root) => root.sealEpoch !== null && root.sealRotateEpoch !== null && !root.clearTree)
-      const readersOf = await treeReadersMany(ctx.db, roots)
-      return roots
-        .filter((root) => readersOf.get(root.id)?.has(input.installId))
-        .map((root) => ({ rootId: root.id, epoch: root.sealEpoch! }))
+      const stranded = (await strandedRoots(ctx.db, ctx.session.user.id)).filter((root) => !roots.some((held) => held.id === root.id))
+      const readersOf = await treeReadersMany(ctx.db, [...roots, ...stranded])
+      const reads = (root: Session) => readersOf.get(root.id)?.has(input.installId)
+      return [
+        ...roots.filter(reads).map((root): { rootId: string; epoch: number; stranded?: true } => ({ rootId: root.id, epoch: root.sealEpoch! })),
+        ...stranded.filter(reads).map((root) => ({ rootId: root.id, epoch: root.sealEpoch!, stranded: true as const })),
+      ].slice(0, input.limit)
     }),
 
   /** Wraps for pairs `pending` lists. A pair another holder wrapped

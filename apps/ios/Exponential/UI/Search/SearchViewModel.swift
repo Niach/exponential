@@ -2,11 +2,11 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// Backs the Search page: observes the ACTIVE team's issues (#EXP-1382,
-/// search-list.json TEAM SCOPE — the phone shell has one active team) and
+/// Backs the Search page: observes every member team's issues (#EXP-2109:
+/// no active team on a phone; search-list.json) and
 /// ranks queries with the shared `IssueSearch` engine (EXP-892 — the ONE
 /// algorithm web, iOS, Android and desktop run). A debounced server
-/// `issues.search` for that team (full-text over title + description +
+/// `issues.search` over those teams (full-text over title + description +
 /// comments) augments it with issues the local ranking missed.
 ///
 /// TYPING never waits on the rank: every snapshot is PREPARED once
@@ -33,21 +33,37 @@ final class SearchViewModel {
     /// What the page renders — always state, never computed in a body.
     private(set) var results: [Result] = []
 
+    /// #NEW-133 (search-list.json SUGGESTION): the action row a recognised
+    /// sentence puts on top, computed with the rank (off the main actor).
+    private(set) var suggestion: SearchList.Suggestion?
+
+    /// #NEW-136 (search-list.json TRANSLATE): the same row offering the model
+    /// fallback for a sentence the grammar does not recognise. Never both:
+    /// `offered`/`running` only while `suggestion` is nil.
+    enum TranslateRow: Equatable {
+        case hidden
+        case offered
+        /// The one call is running (the row's trailing spinner).
+        case running
+    }
+
+    private(set) var translateRow: TranslateRow = .hidden
+
     /// A rank is still owed for the typed query (the debounce, the detached
     /// rank, or the index not built yet): the page keeps its rows and never
     /// shows the empty state meanwhile (feedback-states.json: no false
     /// "No issues match" while the work is pending).
     var isRanking: Bool {
-        !query.isEmpty && teamId != nil && (index == nil || localQuery != query)
+        !query.isEmpty && (index == nil || localQuery != query)
     }
 
-    /// The active team's statuses in render order (EXP-1554: a row's glyph
-    /// is its TEAM status's, e.g. the quarter clock of In Progress among
-    /// three started statuses, as web draws it).
-    private(set) var teamStatuses: [ResolvedIssueStatus] = []
+    /// Each team's statuses in render order, by board (EXP-1554: a row's
+    /// glyph is its TEAM status's, e.g. the quarter clock of In Progress
+    /// among three started statuses, as web draws it).
+    private(set) var boardStatuses: [String: [ResolvedIssueStatus]] = [:]
 
     // #EDE-99 (search-list.json CHATS): the chat store's `searchAll`, the
-    // active team's roots only. nil `chatHits` = no store on this client.
+    // synced roots only. nil `chatHits` = no store on this client.
     /// The Chats rows on screen (the previous query's while a newer one runs).
     private(set) var chatRows: [SearchList.GlobalChatRow] = []
     /// A newer query is with the store (the Section's spinner).
@@ -61,10 +77,12 @@ final class SearchViewModel {
     private var chatQuery = ""
     private var chatTask: Task<Void, Never>?
 
-    private var teamId: String?
     private var query = ""
-    /// The active team's issues, prepared once per snapshot.
+    /// The issues, prepared once per snapshot.
     private var index: IssueSearch.Index<IssueEntity>?
+    /// The synced users (the rows that feed the creator names): the phrase
+    /// grammar's members.
+    private var members: [IssueSearchPhrase.Member] = []
     // The local rank for `localQuery` and the server's relevance-ordered
     // hits for `serverHitsQuery`; `publish` merges them only while both
     // belong to the current query, so a stale half never bleeds in.
@@ -80,40 +98,38 @@ final class SearchViewModel {
     private var statusTask: Task<Void, Never>?
     private var rankTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
+    /// #NEW-136: the on-device model and its one running call.
+    private let translator: any IssueSearchTranslating
+    private var translateTask: Task<Void, Never>?
 
-    init(accountId: String, db: DatabaseManager, issuesApi: IssuesApi) {
+    init(
+        accountId: String,
+        db: DatabaseManager,
+        issuesApi: IssuesApi,
+        translator: any IssueSearchTranslating = SearchTranslator.make()
+    ) {
         self.accountId = accountId
         self.db = db
         self.issuesApi = issuesApi
+        self.translator = translator
     }
 
-    /// Points the page at `teamId` (the shell's active team) and observes its
-    /// issues; a switch re-runs the query against the new team.
-    func startObserving(teamId: String?) {
+    func startObserving() {
         stopObserving() // restartable: the view re-arms on every appear
-        if teamId != self.teamId {
-            self.teamId = teamId
-            index = nil
-            local = []
-            localQuery = ""
-            serverHits = []
-            serverHitsQuery = ""
-            results = []
-            teamStatuses = []
-            chatHits = []
-            chatHitsQuery = ""
-            chatRows = []
-        }
-        guard let teamId, let pool = try? db.pool(forAccountId: accountId) else { return }
+        guard let pool = try? db.pool(forAccountId: accountId) else { return }
 
-        let statusObservation = ValueObservation.tracking { db in
-            try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
+        let statusObservation = ValueObservation.tracking { db -> [String: [ResolvedIssueStatus]] in
+            let byTeam = Dictionary(grouping: try IssueStatusEntity.fetchAll(db), by: \.teamId)
+                .mapValues(IssueStatusResolver.teamStatuses)
+            return Dictionary(
+                try BoardEntity.fetchAll(db).map { ($0.id, byTeam[$0.teamId] ?? []) }, uniquingKeysWith: { a, _ in a }
+            )
         }
         .removeDuplicates()
         statusTask = Task { [weak self] in
             do {
-                for try await rows in statusObservation.values(in: pool) {
-                    self?.teamStatuses = IssueStatusResolver.teamStatuses(rows)
+                for try await next in statusObservation.values(in: pool) {
+                    self?.boardStatuses = next
                 }
             } catch {}
         }
@@ -123,17 +139,21 @@ final class SearchViewModel {
         // their prepared entry.
         let previous = IndexBox()
         // #NEW-21: each row carries its creator (the member's name + email,
-        // the agent's name) so `by:<name>` filters and bare words match it.
+        // the agent's name) so `by:<name>` filters and bare words match it;
+        // #NEW-132: and its team status's name, so `status:<word>` matches a
+        // custom status as well as the anchor.
         let observation = ValueObservation.tracking { db in
             let issues = try IssueEntity
-                .filter(sql: "board_id IN (SELECT id FROM boards WHERE team_id = ?)", arguments: [teamId])
+                .filter(sql: "board_id IN (SELECT id FROM boards)")
                 .fetchAll(db)
             let users = try UserEntity.fetchAll(db)
-            let agents = try AgentDefinitionEntity.filter(Column("team_id") == teamId).fetchAll(db)
+            let agents = try AgentDefinitionEntity.fetchAll(db)
+            let statuses = try IssueStatusEntity.fetchAll(db)
             return SearchSnapshot(
                 issues: issues,
                 members: Dictionary(users.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }),
-                agentNames: Dictionary(agents.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+                agentNames: Dictionary(agents.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a }),
+                statusNames: Dictionary(statuses.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
             )
         }
         .removeDuplicates()
@@ -143,17 +163,22 @@ final class SearchViewModel {
                 return issue.searchRow(
                     creatorName: member?.name,
                     creatorEmail: member?.email,
-                    creatorAgentName: issue.creatorAgentId.flatMap { snapshot.agentNames[$0] }
+                    creatorAgentName: issue.creatorAgentId.flatMap { snapshot.agentNames[$0] },
+                    statusName: issue.statusId.flatMap { snapshot.statusNames[$0] }
                 )
             }
             previous.index = index
-            return index
+            let members = snapshot.members.values
+                .sorted { $0.id < $1.id }
+                .map { IssueSearchPhrase.Member(name: $0.name, email: $0.email) }
+            return (index: index, members: members)
         }
         issueTask = Task { [weak self] in
             do {
-                for try await index in observation.values(in: pool) {
+                for try await prepared in observation.values(in: pool) {
                     guard let self else { return }
-                    self.index = index
+                    self.index = prepared.index
+                    self.members = prepared.members
                     // A synced change re-ranks the query on screen at once.
                     self.scheduleRank(debounce: false)
                 }
@@ -174,6 +199,8 @@ final class SearchViewModel {
         chatTask?.cancel()
         chatTask = nil
         chatsLoading = false
+        // #NEW-136: leaving the search ends a running translate call.
+        endTranslation()
     }
 
     /// The view calls this on every keystroke. Both the rank and the server
@@ -193,32 +220,40 @@ final class SearchViewModel {
             serverHits = []
             serverHitsQuery = ""
             results = []
+            suggestion = nil
+            endTranslation()
             return
         }
+        // #NEW-136: a changed text ends a running translate call.
+        if translateRow == .running { endTranslation() }
         scheduleRank(debounce: true)
 
-        // ONE request, scoped to the active team (`issues.search` takes the
-        // team id); failures just mean no server hits.
-        guard let teamId else { return }
+        // ONE request over every synced team; failures just mean no server
+        // hits.
         let accountId = accountId
         let api = issuesApi
+        let db = db
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: Self.serverDebounce)
             guard !Task.isCancelled else { return }
+            let teamIds = (try? await db.pool(forAccountId: accountId).read { db in
+                try String.fetchAll(db, sql: #"SELECT "id" FROM "teams" LIMIT 50"#)
+            }) ?? []
+            guard !teamIds.isEmpty else { return }
             let hits = (try? await api.search(
                 accountId: accountId,
-                teamId: teamId,
+                teamIds: teamIds,
                 query: trimmed,
                 limit: Self.resultLimit
             )) ?? []
-            guard let self, !Task.isCancelled, self.query == trimmed, self.teamId == teamId else { return }
+            guard let self, !Task.isCancelled, self.query == trimmed else { return }
             self.serverHits = hits
             self.serverHitsQuery = trimmed
             self.publish()
         }
     }
 
-    /// The active team's roots (`SessionListsModel.searchRoots`): a change
+    /// The synced roots (`SessionListsModel.searchRoots`): a change
     /// re-filters the rows on screen.
     func setChatRoots(_ roots: [String: SearchList.GlobalChatRoot]) {
         guard roots != chatRoots else { return }
@@ -285,6 +320,32 @@ final class SearchViewModel {
         )
     }
 
+    /// #NEW-136: a pick of `Translate to a search`, the ONE place the model
+    /// is called (typing never does). `done` gets the query the answer means
+    /// (the view puts it in the field), or nil when there is none (the view
+    /// toasts; the text stays as typed and the row is offered again).
+    func translate(done: @escaping @MainActor (String?) -> Void) {
+        guard translateRow == .offered else { return }
+        let text = query
+        let members = members
+        let translator = translator
+        translateRow = .running
+        translateTask = Task { [weak self] in
+            let translated = await IssueSearchTranslator.translate(text, members: members, translator: translator)
+            guard let self, !Task.isCancelled, self.query == text, self.translateRow == .running else { return }
+            self.translateTask = nil
+            self.translateRow = translated == nil ? .offered : .hidden
+            done(translated)
+        }
+    }
+
+    /// Ends a running translate call and takes the row away.
+    private func endTranslation() {
+        translateTask?.cancel()
+        translateTask = nil
+        translateRow = .hidden
+    }
+
     /// Ranks the current query over the prepared pool in a detached task
     /// (off the main actor), cancelling the previous rank.
     private func scheduleRank(debounce: Bool) {
@@ -292,15 +353,28 @@ final class SearchViewModel {
         rankTask = nil
         let query = query
         guard !query.isEmpty, let index else { return }
+        let members = members
         rankTask = Task { [weak self] in
             if debounce {
                 try? await Task.sleep(for: Self.rankDebounce)
                 guard !Task.isCancelled else { return }
             }
-            let ranked = await Task.detached(priority: .userInitiated) {
-                index.rank(query: query, limit: Self.resultLimit)
+            let (ranked, suggestion, translatable) = await Task.detached(priority: .userInitiated) {
+                let now = Date()
+                let suggestion = SearchList.suggestion(text: query, members: members, now: now)
+                return (
+                    index.rank(query: query, limit: Self.resultLimit, now: now),
+                    suggestion,
+                    suggestion == nil && IssueSearchTranslation.wants(query, members: members, now: now)
+                )
             }.value
             guard let self, !Task.isCancelled, self.query == query, self.index === index else { return }
+            self.suggestion = suggestion
+            // #NEW-136: offered only where the on-device model can answer;
+            // a call already running for this text keeps its row.
+            if self.translateRow != .running {
+                self.translateRow = translatable && self.translator.isAvailable ? .offered : .hidden
+            }
             self.local = ranked
             self.localQuery = query
             self.publish()
@@ -360,12 +434,14 @@ final class SearchViewModel {
     }
 }
 
-/// #NEW-21: one observed snapshot: the team's issues and the synced members
-/// and agents their creator ids resolve against.
+/// #NEW-21: one observed snapshot: the teams' issues and the synced members
+/// and agents their creator ids resolve against (#NEW-132: and the team
+/// status names their status ids resolve against).
 private struct SearchSnapshot: Equatable, Sendable {
     let issues: [IssueEntity]
     let members: [String: UserEntity]
     let agentNames: [String: String]
+    let statusNames: [String: String]
 }
 
 /// The previous snapshot's index, carried between `map` calls (GRDB runs

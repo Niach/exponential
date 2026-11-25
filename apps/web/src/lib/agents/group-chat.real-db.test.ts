@@ -52,7 +52,7 @@ const { sendSession } = await import(`@/lib/sessions/send`)
 const { sendTarget } = await import(`@/lib/sessions/send-target`)
 const { inSession } = await import(`@/lib/sessions/messages`)
 const { postAgentInputInTx } = await import(`@/lib/agents/triggers`)
-const { endPrivateConversationsInTx, groupAskRecipients, runGroupChatMove } = await import(`@/lib/agents/group-chat`)
+const { endPrivateConversationsInTx, groupAskRecipients, restampTreesInTx, runGroupChatMove } = await import(`@/lib/agents/group-chat`)
 const { sessionKeysRouter } = await import(`@/lib/trpc/session-keys`)
 const { sessionsRouter } = await import(`@/lib/trpc/sessions`)
 const { composeSessionBrief } = await import(`@/lib/sessions/brief`)
@@ -133,7 +133,7 @@ describe.skipIf(!ready.ok)(`team agents as group chats (#EXP-1990)`, () => {
     const theirs = await sendSession({ userId: mate, input: { agentId: a.id, text: `hello` } })
     expect(theirs.sessionId).not.toBe(mine.sessionId)
     // A private conversation's first message is its brief's Request, consumed by the claim.
-    expect((await composeSessionBrief(mine.sessionId)).brief).toContain(`## Request\n\nhi`)
+    expect(await composeSessionBrief(mine.sessionId)).toMatchObject({ awaitsMessage: false, brief: expect.stringContaining(`## Request\n\nhi`) })
     await sessions_(owner).claim({ sessionId: mine.sessionId, deviceId: box.deviceId })
     expect((await linesOf(mine.sessionId)).map((line) => line.consumedAt !== null)).toEqual([true])
     expect((await sessionRow(theirs.sessionId)).userId).toBe(mate)
@@ -230,7 +230,7 @@ describe.skipIf(!ready.ok)(`team agents as group chats (#EXP-1990)`, () => {
     // A group chat has NO Request: its first message stays pending and is
     // delivered as an input (the device words it with its member).
     expect((await composeSessionBrief(mine.sessionId)).brief).not.toContain(`just us`)
-    expect((await composeSessionBrief(mine.sessionId)).sealedText).toBeNull()
+    expect(await composeSessionBrief(mine.sessionId)).toMatchObject({ sealedText: null, awaitsMessage: true, brief: `Wait for the next message.` })
     await sessions_(owner).claim({ sessionId: mine.sessionId, deviceId: box.deviceId })
     expect(await sessionRow(mine.sessionId)).toMatchObject({ status: `running` })
     expect((await linesOf(mine.sessionId)).filter((line) => line.authorKind === `user`).map((line) => line.consumedAt)).toEqual([null])
@@ -414,6 +414,78 @@ describe.skipIf(!ready.ok)(`team agents as group chats (#EXP-1990)`, () => {
       expect(await after(groupId)).toMatchObject({ status: `running`, agentId: a.id, shared: true })
     })
   }, 60_000)
+
+  // #EXP-2119: an owner's NEW install reads the whole ended chat, whatever
+  // its key did. `kept` false: rotated before a rotation kept the older public
+  // key (staging's four).
+  it(`a new install of the owner gets every epoch of an old chat`, async () => {
+    const owner = await user()
+    const mate = await user()
+    const teamId = await team([[owner, `owner`], [mate, `member`]])
+    const box = await device(owner, [teamId])
+    const ownerPhone = await install(owner)
+    const ownerBox = await install(owner, box.rowId)
+    const matePhone = await install(mate)
+    const first = generateTreeKey()
+    const second = generateTreeKey()
+    for (const kept of [true, false]) {
+      const rootId = crypto.randomUUID()
+      await db.insert(sessions).values({ id: rootId, rootId, teamId, userId: owner, deviceId: box.deviceId, shared: true, status: `running` } as never)
+      const wrap = (reader: { id: string; x25519Public: string }, tree: typeof first) => ({ installId: reader.id, wrapped: wrapTreeKey(reader.x25519Public, tree.secret) })
+      await keys(owner).create({ rootId, installId: ownerPhone.id, epoch: 1, publicKey: first.publicKey, wraps: [ownerPhone, ownerBox, matePhone].map((reader) => wrap(reader, first)) })
+      const line = sealBody(first.publicKey, 1, `the old history`)
+      // Turned private as the switch does: due, the next holder rotates.
+      await db.transaction((tx) => restampTreesInTx(tx, [rootId], false))
+      expect(await keys(owner).due({ installId: ownerBox.id })).toContainEqual({ rootId, epoch: 1 })
+      await keys(owner).create({ rootId, installId: ownerBox.id, epoch: 2, publicKey: second.publicKey, wraps: [wrap(ownerBox, second)] })
+      if (!kept) await db.update(sessionKeys).set({ treePublicKey: null }).where(eq(sessionKeys.rootId, rootId))
+      const late = await install(owner)
+
+      // An older holder (no `olderEpochs`) gets the epoch whose key was kept only.
+      const plain = await keys(owner).pending({ installId: ownerBox.id, rootIds: [rootId] })
+      expect(plain.filter((pair) => pair.epoch === 1).map((pair) => [pair.targetInstallId, pair.publicKey])).toEqual(kept ? [[late.id, first.publicKey]] : [])
+      const pairs = await keys(owner).pending({ installId: ownerBox.id, rootIds: [rootId], olderEpochs: true })
+      expect(pairs.some((pair) => pair.targetInstallId === matePhone.id)).toBe(false)
+      expect(pairs.filter((pair) => pair.targetInstallId === late.id).map((pair) => [pair.epoch, pair.publicKey])).toEqual([
+        [2, second.publicKey],
+        [1, kept ? first.publicKey : ``],
+      ])
+      await keys(owner).wrap({
+        installId: ownerBox.id,
+        wraps: pairs.map((pair) => ({ rootId, epoch: pair.epoch, targetInstallId: pair.targetInstallId, wrapped: wrapTreeKey(pair.targetX25519Public, (pair.epoch === 1 ? first : second).secret) })),
+      })
+      expect(await keys(owner).pending({ installId: ownerBox.id, rootIds: [rootId], olderEpochs: true })).toEqual([])
+      const mine = await keys(owner).mine({ installId: late.id, rootIds: [rootId] })
+      expect(mine.map((row) => row.epoch).sort()).toEqual([1, 2])
+      expect(openBody(line, new Map(mine.map((row) => [row.epoch, unwrapTreeKey(late.secret, row.wrapped)])))).toMatchObject({ status: `opened`, text: `the old history` })
+      // What is written on is sealed to the new key; the teammate has no wrap of any.
+      const next = sealBody(second.publicKey, 2, `and what I wrote since`)
+      expect(openBody(next, new Map(mine.map((row) => [row.epoch, unwrapTreeKey(late.secret, row.wrapped)])))).toMatchObject({ status: `opened`, text: `and what I wrote since` })
+      expect(openBody(next, new Map([[1, first.secret]]))).toMatchObject({ status: `noKey` })
+      expect(await keys(mate).mine({ installId: matePhone.id, rootIds: [rootId] })).toEqual([])
+      // Never for an install that does not read it, whatever epoch is named.
+      await expect(
+        keys(owner).wrap({ installId: ownerBox.id, wraps: [{ rootId, epoch: 1, targetInstallId: matePhone.id, wrapped: wrapTreeKey(matePhone.x25519Public, first.secret) }] })
+      ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    }
+  }, 60_000)
+
+  it(`an answered card names the person who answered`, async () => {
+    const owner = await user()
+    const mate = await user()
+    const teamId = await team([[owner, `owner`], [mate, `member`]])
+    const box = await device(owner, [teamId])
+    const a = await agent(db, teamId, owner, box.deviceId)
+    const chat = (await sendSession({ userId: owner, input: { agentId: a.id, text: `hi` } })).sessionId
+    const [line] = await linesOf(chat)
+    const [card] = await db
+      .insert(messages)
+      .values({ conversationId: line!.conversationId, sessionId: chat, rootId: chat, teamId, authorKind: `agent`, authorSessionId: chat, body: ``, card: { kind: `question`, question: `Which colour?`, options: [`Red`] }, shared: true } as never)
+      .returning({ id: messages.id })
+    await sessions_(mate).answer({ messageId: card!.id, answer: `Red` })
+    const [answered] = await db.select().from(messages).where(eq(messages.id, card!.id))
+    expect(answered!.card).toMatchObject({ kind: `question`, answer: `Red`, answeredBy: mate })
+  })
 
   it(`replays moveCases on real rows`, async () => {
     const owner = await user()

@@ -107,6 +107,12 @@ interface SearchListBase<T extends string> {
   items: readonly PickerItem<T>[]
   /** Titled sections instead of the one run of `items`. */
   sections?: readonly SearchListSection<T>[]
+  /** #NEW-133 (search-list.json SUGGESTION): rows ABOVE the items and any
+   *  section header (the global search's `Search: <query>` action row):
+   *  rows like any other (the top one is preselected), outside the count.
+   *  For a caller-ranked list (`shouldFilter={false}`). */
+  leadItems?: readonly PickerItem<T>[]
+  leadRowTestId?: string
   /** Controlled search text (an external engine: `useIssueSearchResults`);
    *  pass `shouldFilter={false}` with it so the order renders verbatim. */
   query?: string
@@ -162,8 +168,9 @@ export type SearchListProps<T extends string = string> = SearchListBase<T> &
 
 /** The input row's trailing count: cmdk's filtered count, so it agrees with
  *  the rows on both filter arms. */
-function ResultCount() {
-  const count = useCommandState((state) => state.filtered.count)
+function ResultCount({ lead }: { lead: number }) {
+  // The lead rows (a suggestion) are rows of the list, never results.
+  const count = Math.max(0, useCommandState((state) => state.filtered.count) - lead)
   return (
     <span
       data-testid={spec.testIds.count}
@@ -178,6 +185,8 @@ export function SearchList<T extends string = string>(props: SearchListProps<T>)
   const {
     items,
     sections,
+    leadItems,
+    leadRowTestId,
     query: queryProp,
     onQueryChange,
     shouldFilter,
@@ -313,7 +322,7 @@ export function SearchList<T extends string = string>(props: SearchListProps<T>)
           leading={leading}
           // EXP-1554: the phone input row trails the muted count too
           // (search-list.json INPUT row), as iOS and Android draw it.
-          trailing={showCount && query.trim() !== `` && !loading ? <ResultCount /> : null}
+          trailing={showCount && query.trim() !== `` && !loading ? <ResultCount lead={leadItems?.length ?? 0} /> : null}
           variant="field"
           autoFocus={autoFocus}
           placeholder={placeholder ?? `Search`}
@@ -339,7 +348,7 @@ export function SearchList<T extends string = string>(props: SearchListProps<T>)
             onValueChange={setQuery}
             className="h-full min-w-0 flex-1 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground"
           />
-          {showCount && query.trim() !== `` && !loading ? <ResultCount /> : null}
+          {showCount && query.trim() !== `` && !loading ? <ResultCount lead={leadItems?.length ?? 0} /> : null}
         </div>
       )}
       <CommandList
@@ -356,6 +365,9 @@ export function SearchList<T extends string = string>(props: SearchListProps<T>)
             <CommandEmpty className="">
               <ListEmpty>{emptyText}</ListEmpty>
             </CommandEmpty>
+            {leadItems && leadItems.length > 0 ? (
+              <CommandGroup>{leadItems.map((item) => renderRow(item, undefined, leadRowTestId))}</CommandGroup>
+            ) : null}
             {sections ? (
               sections.map((section) => (
                 <CommandGroup key={section.key} data-testid={section.testId}>

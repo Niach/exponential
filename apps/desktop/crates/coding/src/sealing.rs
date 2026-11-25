@@ -353,7 +353,8 @@ pub trait SealService: Send + Sync {
     /// `deliverTo` for: deliver it over eNet chat to that install (the
     /// device executing the target session). Fire and forget.
     fn deliver_direct(&self, _deliver_to: &DeliverTo, _message: &DirectMessage) {}
-    /// Keeps a new root's secret once `sessions.send {seal}` returned its id.
+    /// Keeps a new root's secret once `sessions.send {seal}` returned its id
+    /// (#EXP-1950: a key holder then re-signs the seal's wraps, `resign`).
     fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
         adopt_into(self.keyring(), root_id, seal);
     }
@@ -364,6 +365,35 @@ pub trait SealService: Send + Sync {
     fn request_key(&self, _root_id: &str) -> RequestKeyAnswer {
         RequestKeyAnswer::Error
     }
+    /// #EXP-1950 (install-trust.json R2 + R3): whether this install may seal
+    /// to (root, epoch, public key) as the server named it (`vouch` = the
+    /// answer's, when it carried one). Record-only in release 1: refused only
+    /// for a rollback, a key that is not the held secret's, or a vouch whose
+    /// signature fails. Default: no rule (no key holder with a pin store).
+    fn check_seal(&self, _root_id: &str, _epoch: u32, _public: &[u8; 32], _vouch: Option<&Value>) -> Result<(), SealError> {
+        Ok(())
+    }
+}
+
+/// #EXP-1950: [`SealService::check_seal`] of the installed service (none = no rule).
+pub fn check_seal(root_id: &str, epoch: u32, public: &[u8; 32], vouch: Option<&Value>) -> Result<(), SealError> {
+    match service() {
+        Some(service) => service.check_seal(root_id, epoch, public, vouch),
+        None => Ok(()),
+    }
+}
+
+/// #EXP-1950 (install-trust.json): this install's own code while it waits
+/// for approval (`None` = trusted, or no rule): the daemon's doctor row and
+/// log say "Waiting for approval · <code>".
+static INSTALL_WAITING: RwLock<Option<String>> = RwLock::new(None);
+
+pub fn set_install_waiting(code: Option<String>) {
+    *write(&INSTALL_WAITING) = code;
+}
+
+pub fn install_waiting() -> Option<String> {
+    read(&INSTALL_WAITING).clone()
 }
 
 static SERVICE: RwLock<Option<Arc<dyn SealService>>> = RwLock::new(None);
@@ -744,10 +774,12 @@ fn key_for_writing(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
         return Err(SealError::ClearTree);
     }
     let service = sealer()?;
-    match service.ensure_key(root_id) {
+    let (epoch, public) = match service.ensure_key(root_id) {
         Err(SealError::NotReader) => Err(SealError::NoKey(SealError::NotReader.to_string())),
         other => other,
-    }
+    }?;
+    service.check_seal(root_id, epoch, &public, None)?;
+    Ok((epoch, public))
 }
 
 /// EXP-1472: how long a send into a tree this install may not key waits for
@@ -763,6 +795,12 @@ pub fn set_send_key_wait(wait: Duration) {
 }
 
 fn key_for_sending(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
+    let (epoch, public) = key_for_sending_unchecked(root_id)?;
+    check_seal(root_id, epoch, &public, None)?;
+    Ok((epoch, public))
+}
+
+fn key_for_sending_unchecked(root_id: &str) -> Result<(u32, [u8; 32]), SealError> {
     if tree_clear(root_id) {
         return Err(SealError::ClearTree);
     }
@@ -983,6 +1021,21 @@ pub fn send_wire(tree: SendTree, holder: Holder, reader: bool, key_arrives: bool
         (SendTree::Keyless, _) if reader => SendWire::Create,
         (SendTree::Keyless, _) if key_arrives => SendWire::Sealed,
         (SendTree::Keyless, _) => SendWire::Failed,
+    }
+}
+
+/// #EXP-2120 (`clearTree.sealErrorCases`): what leaves when sealing failed:
+/// a clear tree's plaintext (its legal wire), nothing on every other error.
+pub fn seal_error_wire(err: &SealError) -> SendWire {
+    match err {
+        SealError::ClearTree => SendWire::Plain,
+        SealError::NoService
+        | SealError::NotReady
+        | SealError::UnknownRoot
+        | SealError::NoKey(_)
+        | SealError::NotReader
+        | SealError::NoHolder
+        | SealError::Invalid(_) => SendWire::Failed,
     }
 }
 
@@ -1225,7 +1278,9 @@ pub fn open_sessions(rows: &[SessionRow]) -> Vec<SessionRow> {
 // --- new roots -----------------------------------------------------------
 
 /// `sessions.send {seal}` for a root that does not exist yet (addendum 2):
-/// the key travels with the first message in one transaction.
+/// the key travels with the first message in one transaction. #EXP-1950:
+/// its wraps go UNSIGNED (a signature names the root, unknown until the
+/// server answers); the holder re-signs them once adopted ([`SealService::adopt`]).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewRootSeal {
@@ -1237,6 +1292,22 @@ pub struct NewRootSeal {
     pub secret: [u8; 32],
 }
 
+impl NewRootSeal {
+    /// As `sessions.send {seal}` carries it.
+    pub fn send_seal(&self) -> api::sessions::SendSeal {
+        api::sessions::SendSeal {
+            install_id: self.install_id.clone(),
+            public_key: self.public_key.clone(),
+            epoch: self.epoch,
+            wraps: self
+                .wraps
+                .iter()
+                .map(|wrap| api::sessions::SealWrap { install_id: wrap.install_id.clone(), wrapped: wrap.wrapped.clone() })
+                .collect(),
+        }
+    }
+}
+
 /// A fresh tree key wrapped for this install plus `readers`
 /// (`(install_id, x25519_public)`; duplicates and malformed keys skipped).
 pub fn seal_new_root(own_install_id: &str, own_public: &[u8; 32], readers: &[(String, String)]) -> Result<NewRootSeal, SealError> {
@@ -1244,6 +1315,7 @@ pub fn seal_new_root(own_install_id: &str, own_public: &[u8; 32], readers: &[(St
     let mut wraps = vec![api::session_keys::InstallWrap {
         install_id: own_install_id.to_string(),
         wrapped: wrap_tree_key(own_public, &key.secret).map_err(|e| SealError::Invalid(e.to_string()))?,
+        signature: None,
     }];
     for (install_id, public) in readers {
         if wraps.iter().any(|w| &w.install_id == install_id) {
@@ -1251,7 +1323,7 @@ pub fn seal_new_root(own_install_id: &str, own_public: &[u8; 32], readers: &[(St
         }
         let Ok(public) = public_key_from_b64(public) else { continue };
         if let Ok(wrapped) = wrap_tree_key(&public, &key.secret) {
-            wraps.push(api::session_keys::InstallWrap { install_id: install_id.clone(), wrapped });
+            wraps.push(api::session_keys::InstallWrap { install_id: install_id.clone(), wrapped, signature: None });
         }
     }
     Ok(NewRootSeal { install_id: own_install_id.to_string(), public_key: key.public_key(), epoch: 1, wraps, secret: key.secret })
@@ -1262,7 +1334,8 @@ pub fn adopt_new_root(root_id: &str, seal: &NewRootSeal) {
     with_keyring(|keyring| adopt_into(keyring, root_id, seal));
 }
 
-fn adopt_into(keyring: &Keyring, root_id: &str, seal: &NewRootSeal) {
+/// [`SealService::adopt`]'s keyring half.
+pub fn adopt_into(keyring: &Keyring, root_id: &str, seal: &NewRootSeal) {
     keyring.insert_secret(root_id, seal.epoch, seal.secret);
     if let Ok(public) = public_key_from_b64(&seal.public_key) {
         keyring.set_current(root_id, seal.epoch, public);
@@ -1692,6 +1765,21 @@ mod tests {
         assert_eq!(SEND_KEY_WAIT.as_millis() as u64, clear["keyWaitMs"].as_u64().unwrap());
         assert_eq!(CLEAR_REFUSAL, clear["clearRefusal"].as_str().unwrap());
         assert_eq!(NO_KEY_REFUSAL, clear["noKeyRefusal"].as_str().unwrap());
+        for case in clear["sealErrorCases"].as_array().unwrap() {
+            let err = match case["error"].as_str().unwrap() {
+                "noService" => SealError::NoService,
+                "notReady" => SealError::NotReady,
+                "unknownRoot" => SealError::UnknownRoot,
+                "noKey" => SealError::NoKey("no answer".into()),
+                "notReader" => SealError::NotReader,
+                "noHolder" => SealError::NoHolder,
+                "invalid" => SealError::Invalid("bad key".into()),
+                "clearTree" => SealError::ClearTree,
+                other => panic!("no seal error {other}"),
+            };
+            let wire = if case["wire"] == "plain" { SendWire::Plain } else { SendWire::Failed };
+            assert_eq!(seal_error_wire(&err), wire, "{}", case["name"]);
+        }
         for case in clear["writerCases"].as_array().unwrap() {
             let name = case["name"].as_str().unwrap();
             let tree = match case["tree"].as_str().unwrap() {

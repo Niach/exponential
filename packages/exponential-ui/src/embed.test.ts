@@ -63,6 +63,7 @@ describe(`the sandbox in the core`, () => {
   test(`payload + surface id`, () => {
     expect(embedPayload({ name: `reply`, context: { text: `Yes` } })).toEqual({ name: `reply`, context: { text: `Yes` } })
     expect(embedPayload({ name: `go` })).toEqual({ name: `go`, context: {} })
+    expect(embedPayload({ name: `reply`, userMessage: `Ship it` })).toEqual({ name: `reply`, context: {}, userMessage: `Ship it` })
     expect(embedSurfaceId(`chat`, `card.b`)).toBe(`chat/card.b`)
   })
 })

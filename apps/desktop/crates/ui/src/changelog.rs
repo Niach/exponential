@@ -46,6 +46,75 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-sidebar-menus",
+    date: "2026-11-24",
+    title: "Sidebar menus",
+    summary: "The Assistant sits on top of the sidebar, every sidebar row has a right-click menu, and the + next to the tabs opens a menu to start a chat, agent, app or board in any team. Boards, apps and devices open as tabs.",
+    body: r##"- **The Assistant**: your Assistant is the first row of the sidebar and opens its chat.
+- **Right-click menus**: every sidebar row has one, in the same order everywhere: open, what the row does, arrange, settings.
+- **New tab menu**: the + next to the tabs starts a chat, agent, app or board in any team.
+- **Tabs for every page**: boards, apps, devices, Home, Chats, Needs you and Drafts open as tabs, and Open in new tab adds one in the background."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_358: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-search-translate-on-your-device",
+    date: "2026-11-24",
+    title: "Translate a sentence into a search",
+    summary: "Desktop and iOS: when the issue search does not understand a sentence, Translate to a search turns it into filters with a model on your own device or login.",
+    body: r##"- **Translate to a search**: type a longer sentence the search does not recognise and pick the top row. The field is rewritten into filters and words you can still edit.
+- **Desktop**: it uses the Claude login you are already signed in with on this device. One short request, no session, nothing stored.
+- **iPhone and iPad**: it uses Apple Intelligence on the device, on iOS 26 or later. Nothing leaves the phone.
+- **Only when you ask**: typing never calls a model. Without a signed-in Claude on the desktop, or without Apple Intelligence on the phone, the row does not appear."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_357: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-search-sentences-and-filters",
+    date: "2026-11-24",
+    title: "Search understands sentences and filters",
+    summary: "Web, desktop, Android and iOS: the issue search takes filters such as is:open or created:7d, and a sentence in English or German becomes those filters with one pick.",
+    body: r##"- **Filters**: narrow the issue search with `is:open` or `is:closed`, `status:` and a status name, and `created:` or `updated:` with a time such as `7d`, `today`, `2026-11` or `>=2026-11-01`, next to `by:` and plain words.
+- **Sentences**: type what you are looking for, in English or German, for example "open issues by Lukas about the editor from last week". The top row then reads `Search: is:open by:lukas created:7d editor`, and picking it puts those filters into the field.
+- **Teammates by name**: a name after "by" or "von" becomes `by:` when it is one of your teammates, and stays a plain word otherwise."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_356: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-desktop-cli-0-14-177",
+    date: "2026-11-24",
+    title: "Sessions keep going, and calls are end-to-end encrypted",
+    summary: "Desktop and CLI 0.14.177: sessions no longer stop by themselves, they start and pick up reliably, and calls between up-to-date apps are end-to-end encrypted.",
+    body: r##"- **Sessions keep going**: a session no longer stops by itself with "I've stopped as you asked".
+- **Reliable starts**: a session starts and picks up its messages reliably, also in an encrypted chat.
+- **Calls are end-to-end encrypted**: a call between up-to-date apps is sealed with the chat's key, so the relay cannot read or hear it.
+- **Views in chat**: an agent's views draw in the chat, in a subagent's tab and in a call's transcript.
+- **Busy machines**: builds on a busy machine no longer block new sessions.
+- **Chat fixes**: a child's reply no longer shows twice after a restart, an open question or plan stays at the end of the chat, and a teammate's message the agent has not read yet shows as pending."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_355: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-24-phones-views-in-chat",
+    date: "2026-11-24",
+    title: "Views in your phone's chats",
+    summary: "Android 0.14.156 and iOS 0.14.144: an agent's views draw in the chat, in subagent tabs and in calls, calls from Android are end-to-end encrypted, and iOS asks you to approve a new install.",
+    body: r##"- **Views in chat**: when an agent writes a view into its message, the chat shows it in place; subagent tabs and a call's transcript show views too.
+- **Encrypted calls from Android**: calls are end-to-end encrypted between up-to-date apps.
+- **Approve a new install on iOS**: when a new install joins your account, Needs you shows it with its whole code, and you approve or remove it there.
+- **Your Assistant across teams**: in your Assistant's chat, issues, people, MCP servers and prompts come from all your teams, and its notifications and inbox rows open its chat.
+- **Questions and plans at the end**: an open question or plan card now sits after the chat's last message instead of above it.
+- **No doubled replies**: a subagent's reply no longer shows twice after you reopen the app.
+- **iOS**: a teammate's message the agent has not picked up yet shows as waiting, and one tap on Reconnect dials a dropped call afresh."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_354: ChangelogEntry = ChangelogEntry {
     id: "2026-11-24-assistant-chat-all-teams",
     date: "2026-11-24",
     title: "Your Assistant's chat works across all your teams",

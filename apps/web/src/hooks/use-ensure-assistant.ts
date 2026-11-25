@@ -6,8 +6,8 @@ import { useSession } from "@/hooks/use-session"
 // S-3 (agent-settings.json `assistant`): the viewer's Assistant is created
 // ON FIRST USE: the composer home, the Settings pages and the chats list call
 // `agents.ensureAssistant` when they mount. #EXP-1987 (agent-settings.json
-// `assistant`): a screen WITH a current team sends it (switch off: the team
-// gets its Assistant on first use; on: a membership check only) and is
+// `assistant`): a screen WITH a current team sends it (a membership check
+// only: the answer is the member's ONE Assistant) and is
 // remembered per (account, team); the account Settings › Assistant page has
 // no team and is remembered per account. Nothing REQUIRES the answer to sit
 // in the current team. A created Assistant is remembered; "no device yet"

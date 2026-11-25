@@ -5,7 +5,7 @@
 // each registration and approval signature itself (`reconcileTrust`) and
 // shows only the rows it can verify. The server checks a signature it is
 // given against the caller's own install (a bug catcher, not the protection).
-import { verifyApproval, type ApprovalKind, type ServedApproval, type ServedInstall } from "@exp/domain-contract/install-trust"
+import { keyMakerWaits, verifyApproval, type ApprovalKind, type ServedApproval, type ServedInstall } from "@exp/domain-contract/install-trust"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { installApprovals, installs, teamMembers, teams, type Install } from "@/db/schema"
@@ -95,10 +95,48 @@ async function chainedInstalls(database: Reader, installIds: string[]): Promise<
   return new Set(rows.filter((row) => installIds.includes(row.subjectInstallId)).map((row) => row.subjectInstallId))
 }
 
+type WaitingFields = Pick<Install, `id` | `userId` | `approvalRequestedAt` | `registrationSignature`>
+
+/** #EXP-2123 (install-trust.json `keyMaker.serverCases`): the ids among
+ *  `rows` (live installs) the server lists as WAITING for approval (the New
+ *  install rule of `waitingInstalls`), in a fixed number of queries. */
+export async function waitingInstallIds(database: Reader, rows: readonly WaitingFields[]): Promise<Set<string>> {
+  if (rows.length === 0) return new Set()
+  const userIds = [...new Set(rows.map((row) => row.userId))]
+  const own = (
+    await database.select({ id: installs.id, userId: installs.userId, revokedAt: installs.revokedAt }).from(installs).where(inArray(installs.userId, userIds))
+  ).filter((row) => userIds.includes(row.userId) && !row.revokedAt)
+  const chained = await chainedInstalls(database, [...new Set([...rows.map((row) => row.id), ...own.map((row) => row.id)])])
+  return new Set(
+    rows
+      .filter((row) =>
+        keyMakerWaits({
+          chained: chained.has(row.id),
+          asked: !!row.approvalRequestedAt,
+          accountChain: own.some((other) => other.userId === row.userId && other.id !== row.id && chained.has(other.id)),
+          registration: !!row.registrationSignature,
+        })
+      )
+      .map((row) => row.id)
+  )
+}
+
+/** #EXP-2123: an install that waits for approval makes no chat key. */
+export async function installWaits(database: Reader, install: WaitingFields): Promise<boolean> {
+  return (await waitingInstallIds(database, [install])).has(install.id)
+}
+
 /** `installs.claimRoot`: the install starts its account's chain (the first
  *  install, or a reset once every other install is removed). CONFLICT while
- *  another live install of the account is on a chain. */
-export async function claimRoot(database: Database, userId: string, input: { installId: string; signature: string }): Promise<{ ok: true }> {
+ *  another live install of the account is on a chain. `approvals` (decision
+ *  e): an EXISTING install's `approve` of every install of its account that
+ *  existed with it, stored in the same transaction as the root, so the
+ *  account never has a chain without them. */
+export async function claimRoot(
+  database: Database,
+  userId: string,
+  input: { installId: string; signature: string; approvals?: { subjectInstallId: string; signature: string }[] }
+): Promise<{ ok: true }> {
   return database.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`installs:${userId}`}))`)
     const me = await liveInstall(tx, input.installId)
@@ -113,9 +151,16 @@ export async function claimRoot(database: Database, userId: string, input: { ins
       .filter((row) => row.userId === userId && !row.revokedAt && row.id !== me.id)
       .map((row) => row.id)
     if ((await chainedInstalls(tx, others)).size > 0) throw new TRPCError({ code: `CONFLICT`, message: ROOT_CONFLICT })
+    const approved: (typeof installApprovals.$inferInsert)[] = []
+    for (const approval of input.approvals ?? []) {
+      const subject = await liveInstall(tx, approval.subjectInstallId)
+      if (!subject || subject.userId !== userId || subject.id === me.id) throw new TRPCError({ code: `NOT_FOUND`, message: `Install not found` })
+      checkSignature(`approve`, subject, approval.signature, me.endpointId)
+      approved.push({ kind: `approve`, subjectInstallId: subject.id, subjectEndpointId: subject.endpointId, approverInstallId: me.id, approverEndpointId: me.endpointId, signature: approval.signature })
+    }
     await tx
       .insert(installApprovals)
-      .values({ kind: `root`, subjectInstallId: me.id, subjectEndpointId: me.endpointId, approverInstallId: me.id, approverEndpointId: me.endpointId, signature: input.signature })
+      .values([{ kind: `root`, subjectInstallId: me.id, subjectEndpointId: me.endpointId, approverInstallId: me.id, approverEndpointId: me.endpointId, signature: input.signature }, ...approved])
       .onConflictDoNothing()
     return { ok: true as const }
   })
@@ -170,10 +215,10 @@ export interface WaitingInstall {
   kindOfInstall: string
 }
 
-/** `installs.waiting`, the Needs-you source: the caller's own installs that
- *  asked and are on no chain, and team-mates' new roots (a user with an
- *  earlier root) that no install of the caller's account confirmed or
- *  declined. */
+/** `installs.waiting`, the Needs-you source: the caller's own installs on
+ *  no chain that asked, or (decision e) that came after its account's chain
+ *  was made, any build; and team-mates' new roots (a user with an earlier
+ *  root) that no install of the caller's account confirmed or declined. */
 export async function waitingInstalls(database: Reader, userId: string): Promise<WaitingInstall[]> {
   const userIds = await trustUserIds(database, userId)
   const all = (await database.select().from(installs).where(inArray(installs.userId, userIds))).filter((row) => userIds.includes(row.userId))
@@ -183,13 +228,15 @@ export async function waitingInstalls(database: Reader, userId: string): Promise
     ids.includes(row.subjectInstallId)
   )
   const mine = new Set(all.filter((row) => row.userId === userId).map((row) => row.endpointId))
+  const ownIds = new Set(all.filter((row) => row.userId === userId && !row.revokedAt).map((row) => row.id))
+  const ownChain = approvals.some((approval) => (approval.kind === `root` || approval.kind === `approve`) && ownIds.has(approval.subjectInstallId))
   const out: WaitingInstall[] = []
   for (const row of all) {
     if (row.revokedAt) continue
     const about = approvals.filter((approval) => approval.subjectInstallId === row.id)
     const chained = about.some((approval) => approval.kind === `root` || approval.kind === `approve`)
     if (row.userId === userId) {
-      if (row.approvalRequestedAt && !chained) out.push(waitingRow(`newInstall`, row))
+      if (!chained && (row.approvalRequestedAt || (ownChain && row.registrationSignature))) out.push(waitingRow(`newInstall`, row))
       continue
     }
     const root = about.find((approval) => approval.kind === `root`)

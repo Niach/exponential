@@ -14,17 +14,23 @@ import {
   INSTALL_TRUST_COPY,
   installCode,
   installX25519Of,
+  isKeyMakerRefusal,
+  KEY_MAKER_REFUSAL,
   keepWrap,
+  keyMakerStep,
+  keyMakerWaits,
   reconcileTrust,
   registrationValid,
   sealTo,
   signApproval,
   signRegistration,
+  strandedRotationEpoch,
   TRUST_MODE,
   verifyApproval,
   wrapTarget,
   type ApprovalKind,
   type KeyRecord,
+  type KeyWrite,
   type PinVia,
   type ServedInstall,
   type TrustMode,
@@ -62,6 +68,7 @@ function served(spec: InstallSpec): ServedInstall {
 type StoreSpec = {
   viewer: string
   joined: boolean
+  existing?: boolean
   pins: Record<string, unknown>
   members?: string[]
   declined?: string[]
@@ -69,7 +76,7 @@ type StoreSpec = {
 }
 function buildStore(spec: StoreSpec): TrustStore {
   const viewer = keys[spec.viewer]!
-  const store = emptyTrustStore(viewer.endpointId, viewer.userId)
+  const store = emptyTrustStore(viewer.endpointId, viewer.userId, spec.existing ?? false)
   store.joined = spec.joined
   for (const [name, pin] of Object.entries(spec.pins)) {
     const [via, by] = pin as [PinVia, string | null]
@@ -157,7 +164,32 @@ describe(`install-trust.json`, () => {
         view.rows.map((row) => ({ kind: row.kind, key: nameOf(row.endpointId), installId: row.installId, code: row.code, label: row.label })),
         c.name
       ).toEqual(c.rows)
+      expect(view.approveExisting.map(nameOf), c.name).toEqual((c as { approveExisting?: string[] }).approveExisting ?? [])
+      const after = c.after as { existing?: boolean }
+      if (after.existing !== undefined) expect(view.store.existing, c.name).toBe(after.existing)
     }
+  })
+
+  test(`decision (e): on day one no row and no waiting state for an account whose installs all existed`, () => {
+    const dayOne = fixture.trustCases.filter((c) => (c as { dayOne?: boolean }).dayOne)
+    expect(dayOne.length).toBeGreaterThanOrEqual(4)
+    for (const c of dayOne) {
+      expect(c.rows, c.name).toEqual([])
+      expect(c.status, c.name).not.toBe(`waiting`)
+      expect(c.after.joined, c.name).toBe(true)
+    }
+  })
+
+  test(`decision (e): a planted install after the first reconcile is never pinned`, () => {
+    const attacks = fixture.trustCases.filter((c) => (c as { attack?: string }).attack === `existing`)
+    expect(attacks.length).toBeGreaterThanOrEqual(3)
+    for (const c of attacks) {
+      if ((c.before as StoreSpec).existing) continue // the accepted moment: the first reconcile
+      expect(Object.keys(c.after.pins), c.name).not.toContain(`Z`)
+      expect(Object.keys(c.after.pins), c.name).toEqual(Object.keys((c.before as StoreSpec).pins).sort())
+    }
+    // Its row: a New install (with a registration that binds its key).
+    expect(fixture.trustCases.some((c) => (c as { attack?: string }).attack === `existing` && c.rows.some((row) => row.key === `Z` && row.kind === `newInstall`))).toBe(true)
   })
 
   test(`R1 keepWrap, now and once mandatory`, () => {
@@ -221,5 +253,18 @@ describe(`install-trust.json`, () => {
   test(`the new root rule`, () => {
     expect(fixture.newRoot.makerRecord).toBe(`verified`)
     expect(fixture.newRoot.readerRecordBeforeResign).toEqual({ now: `unsigned`, mandatory: `refused` })
+  })
+  test(`keyMaker (#EXP-2123): only a joined install makes a chat key`, () => {
+    const maker = fixture.keyMaker
+    expect(KEY_MAKER_REFUSAL).toBe(maker.refusal)
+    expect(isKeyMakerRefusal(maker.refusal)).toBe(true)
+    expect(isKeyMakerRefusal(`Only the session's starter or its device rotates the key`)).toBe(false)
+    for (const c of maker.serverCases) expect(keyMakerWaits(c), c.name).toBe(c.waits)
+    for (const c of maker.makerCases as Array<{ name: string; joined: boolean; refused?: boolean; write: string; step: string }>) {
+      expect(keyMakerStep({ joined: c.joined, write: c.write as KeyWrite, refused: c.refused }), c.name).toBe(c.step as never)
+    }
+    // A waiting install makes nothing, whatever the write.
+    for (const write of [`firstKey`, `newRoot`, `rotation`, `deviceKey`] as const) expect(keyMakerStep({ joined: false, write })).not.toBe(`make`)
+    for (const c of maker.strandedCases) expect(strandedRotationEpoch(c), c.name).toBe(c.epoch)
   })
 })

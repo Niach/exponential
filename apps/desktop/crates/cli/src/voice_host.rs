@@ -5,7 +5,8 @@
 //! WORKER. The same speech worker as the IDE (`exponential __speech-worker`,
 //! `etalk::SpeechClient`; CrispASR is a pinned runtime download, nothing is
 //! linked), but only while one of the member's agents runs here (`agents.list`
-//! of the synced teams, Runs on = this device). It is PROBED once (no CUDA
+//! of the synced teams and the member's own Assistant, #EXP-2080; Runs on =
+//! this device). It is PROBED once (no CUDA
 //! driver = nothing downloads, `speech` missing at once; else the voice
 //! downloads, loads and warms up), then exits: an idle server holds no GPU
 //! memory. A ring brings it up again (the ring hides the load) and it exits
@@ -34,6 +35,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use coding::device_doctor::SpeechState;
+use coding::sealing::{self, NewRootSeal, SealError};
 use etalk::call::host::{CallHost, HostEffect, HostInput, HostStart};
 use etalk::call::{call_ring_random, VOICE_CALL};
 use etalk::voice::{reply_to_speak, VoiceContext, VoiceMessage};
@@ -177,8 +179,9 @@ pub enum Input {
     /// #EXP-1981: `voice.callSession` answered a sealed call (asked once its
     /// root came; None = no call session: the chat takes the call).
     Session { call_id: String, session: Option<String> },
-    /// #EXP-1982: an utterance this host could only send in clear was
-    /// refused: its words can never be stored, the call ends.
+    /// #EXP-2120: an utterance could not be sealed (nothing left this
+    /// device), or #EXP-1982: the server refused it for good: its words can
+    /// never be stored, the call ends.
     Unstored { call_id: String },
     Stop,
 }
@@ -934,37 +937,19 @@ struct DaemonNet {
     tx: flume::Sender<Input>,
 }
 
-/// EXP-1930: an utterance's body. Into a known conversation it is sealed at
-/// SEND time with the tree's current key (`seal`, created when the tree has
-/// none and this install may), so a tree keyed after the call's first send
-/// gets the next one sealed; a first send (no conversation yet) and a tree
-/// that cannot be sealed for go out plain (the server takes plaintext only
-/// where it is legal).
-fn utterance_body(root: Option<&str>, text: &str, seal: &dyn Fn(&str, &str) -> Result<String, coding::sealing::SealError>) -> String {
-    let Some(root) = root else { return text.to_string() };
-    match seal(root, text) {
-        Ok(body) => body,
-        Err(coding::sealing::SealError::NoService) => text.to_string(),
-        Err(err) => {
-            log::warn!("[voice] the utterance goes out plaintext, sealing failed: {err}");
-            text.to_string()
-        }
-    }
-}
-
-/// #EXP-1982: a send this host could only make in clear (`plain`: no key
-/// holder sealed it) that the server refused for good (a 4xx that is no
-/// retry): the words can never be stored (an encrypted chat takes no
-/// plaintext), so the call ends instead of listening on.
-fn unstored(plain: bool, err: &api::ApiError) -> bool {
-    plain && matches!(err, api::ApiError::Http { status, .. } if (400..500).contains(status) && !matches!(*status, 401 | 408 | 429))
-}
-
-/// What one utterance's send asks of the server (tests fake it).
+/// What one utterance's send asks of the server and the key holder (tests
+/// fake it).
 trait UtteranceWire {
-    /// `sessions.sendTarget`: the member's conversation with the agent now.
+    /// `sessions.sendTarget`: the member's conversation with the agent now
+    /// (a clear tree and a named key are noted, [`note_target`]).
     fn target(&self, agent_id: &str) -> Result<Option<String>, String>;
-    fn seal(&self, root: &str, text: &str) -> Result<String, coding::sealing::SealError>;
+    /// `text` sealed with the tree's current key (created, asked for or
+    /// waited for as for any writer). `ClearTree` = plaintext is its wire.
+    fn seal(&self, root: &str, text: &str) -> Result<String, SealError>;
+    /// A fresh tree key for the conversation the send creates.
+    fn new_root(&self) -> Result<NewRootSeal, SealError>;
+    /// The root a [`Self::new_root`] key keyed: its secret is kept.
+    fn adopt(&self, root: &str, seal: &NewRootSeal);
     fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError>;
 }
 
@@ -972,11 +957,27 @@ struct DaemonWire<'a>(&'a Deps);
 
 impl UtteranceWire for DaemonWire<'_> {
     fn target(&self, agent_id: &str) -> Result<Option<String>, String> {
-        api::sessions::send_target(&self.0.trpc, Some(agent_id), None).map(|target| target.root_id).map_err(|err| err.to_string())
+        let target = api::sessions::send_target(&self.0.trpc, Some(agent_id), None).map_err(|err| err.to_string())?;
+        note_target(&target);
+        Ok(target.root_id)
     }
 
-    fn seal(&self, root: &str, text: &str) -> Result<String, coding::sealing::SealError> {
-        coding::sealing::seal_body_for_tree(root, text)
+    fn seal(&self, root: &str, text: &str) -> Result<String, SealError> {
+        sealing::seal_body_for_tree(root, text)
+    }
+
+    fn new_root(&self) -> Result<NewRootSeal, SealError> {
+        // A holder still coming up is waited for (`clearTree.holderWaitMs`).
+        sealing::sealer()?;
+        let node = self.0.node.as_ref().ok_or(SealError::NoService)?;
+        node.new_root_seal(Some(&self.0.device_id)).map_err(SealError::NoKey)
+    }
+
+    fn adopt(&self, root: &str, seal: &NewRootSeal) {
+        match sealing::service() {
+            Some(service) => service.adopt(root, seal),
+            None => sealing::adopt_new_root(root, seal),
+        }
     }
 
     fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError> {
@@ -984,63 +985,123 @@ impl UtteranceWire for DaemonWire<'_> {
     }
 }
 
+/// #EDE-97: a clear conversation this daemon has not synced yet.
+fn note_target(target: &api::sessions::SendTarget) {
+    if let Some(root) = target.root_id.as_deref().filter(|_| target.clear_tree) {
+        sealing::note_clear_tree(root);
+    }
+}
+
+/// One utterance as it may leave this device.
+struct UtteranceSend {
+    input: api::sessions::SendInput,
+    /// A new conversation's key, adopted once the send names its root.
+    seal: Option<NewRootSeal>,
+    /// Plaintext: the wire of a clear tree, and of nothing else.
+    plain: bool,
+}
+
+/// #EXP-2120 (voice-call.json `utteranceCases`, sealed-content.json
+/// `clearTree.sealErrorCases`): the send of one utterance, or why it may not
+/// leave. Into a known conversation it is sealed at SEND time with the
+/// tree's current key; a first send (no conversation yet) takes its key
+/// inline; a clear tree takes plaintext. Every other seal error is the
+/// answer: there is NO plaintext fallback.
+fn seal_utterance(wire: &dyn UtteranceWire, agent: &HostedAgent, root: Option<&str>, session: Option<&str>, text: &str) -> Result<UtteranceSend, SealError> {
+    let Some(root) = root else {
+        let seal = wire.new_root()?;
+        let public = sealing::public_key_from_b64(&seal.public_key).map_err(|err| SealError::Invalid(err.to_string()))?;
+        let body = enet_core::sealed::seal_body(&public, seal.epoch, text).map_err(|err| SealError::Invalid(err.to_string()))?;
+        let input = api::sessions::SendInput {
+            team_id: Some(agent.team_id.clone()),
+            agent_id: Some(agent.id.clone()),
+            text: Some(body),
+            seal: Some(seal.send_seal()),
+            ..Default::default()
+        };
+        return Ok(UtteranceSend { input, seal: Some(seal), plain: false });
+    };
+    let sealed = wire.seal(root, text);
+    let (body, plain) = match sealed {
+        Ok(body) => (body, false),
+        Err(err) if sealing::seal_error_wire(&err) == sealing::SendWire::Plain => (text.to_string(), true),
+        Err(err) => return Err(err),
+    };
+    // The call's own session is in the chat's tree: the chat's key.
+    Ok(UtteranceSend { input: api::sessions::SendInput::message(session.unwrap_or(root), &body, Vec::new()), seal: None, plain })
+}
+
+/// The server refused a send for good (a 4xx that is no retry).
+fn refused_for_good(err: &api::ApiError) -> bool {
+    matches!(err, api::ApiError::Http { status, .. } if (400..500).contains(status) && !matches!(*status, 401 | 408 | 429))
+}
+
 /// What became of one utterance's send.
 #[derive(Debug, PartialEq, Eq)]
 enum Delivered {
     /// Stored in this session (the conversation, new or known).
     Sent(String),
-    /// #EXP-1982: refused in clear for good: the call ends.
+    /// #EXP-2120: it could not be sealed (nothing left this device), or
+    /// #EXP-1982: it was refused for good: the call ends.
     Unstored,
     /// Failed otherwise: logged, the call goes on.
     Failed,
 }
 
 /// One utterance to the agent: sealed into a known conversation (`root`,
-/// the call's own `session` in its tree), plain as a first send by agentId.
-/// #EXP-2013: a first send refused in clear may have raced the chat's first
-/// message (the conversation the answer read as missing exists by now):
-/// the target is read again and, named, the words go sealed into it once
-/// more before the call ends.
+/// the call's own `session` in its tree), or into the one the server names
+/// now, or with a new one's key inline. #EXP-2013: a first send the server
+/// refused may have raced the chat's first message: the target is read again
+/// and, named, the words go sealed into it once more before the call ends.
 fn deliver_utterance(wire: &dyn UtteranceWire, call_id: &str, agent: &HostedAgent, root: Option<&str>, session: Option<&str>, text: &str) -> Delivered {
-    // The call's own session is in the chat's tree: the chat's key.
-    let body = utterance_body(root, text, &|root, text| wire.seal(root, text));
-    let plain = body == text;
-    let input = match session.or(root) {
-        Some(target) => api::sessions::SendInput::message(target, &body, Vec::new()),
-        None => api::sessions::SendInput { team_id: Some(agent.team_id.clone()), agent_id: Some(agent.id.clone()), text: Some(body), ..Default::default() },
-    };
-    let err = match wire.send(&input) {
-        Ok(out) => return Delivered::Sent(out.session_id),
-        Err(err) => err,
-    };
-    if !unstored(plain, &err) {
-        // The call goes on; the words are in the log, never lost silently.
-        log::warn!("[voice] call {call_id}: the send failed: {err}");
-        return Delivered::Failed;
-    }
-    log::warn!("[voice] call {call_id}: the send was refused in clear: {err}");
-    if root.is_none() {
-        match wire.target(&agent.id) {
-            Ok(Some(found)) => {
-                let body = utterance_body(Some(&found), text, &|root, text| wire.seal(root, text));
-                if body != text {
-                    log::info!("[voice] call {call_id}: the conversation {found} exists now: the utterance goes sealed into it");
-                    match wire.send(&api::sessions::SendInput::message(&found, &body, Vec::new())) {
-                        Ok(out) => return Delivered::Sent(out.session_id),
-                        Err(err) if unstored(true, &err) => log::warn!("[voice] call {call_id}: the sealed send was refused too: {err}"),
-                        Err(err) => {
-                            log::warn!("[voice] call {call_id}: the sealed send failed: {err}");
-                            return Delivered::Failed;
-                        }
-                    }
+    let mut retried = false;
+    loop {
+        let named = match root {
+            Some(root) => Some(root.to_string()),
+            None => match wire.target(&agent.id) {
+                Ok(found) => found,
+                Err(err) if retried => {
+                    log::warn!("[voice] call {call_id}: the conversation could not be read again: {err}");
+                    return Delivered::Unstored;
                 }
-            }
-            Ok(None) => {}
-            Err(err) => log::warn!("[voice] call {call_id}: the conversation could not be read again: {err}"),
+                // Not fatal: a new conversation's key rides inline, sealed either way.
+                Err(err) => {
+                    log::warn!("[voice] call {call_id}: the conversation could not be read: {err}");
+                    None
+                }
+            },
+        };
+        if retried && named.is_none() {
+            return Delivered::Unstored;
         }
+        let UtteranceSend { input, seal, plain } = match seal_utterance(wire, agent, named.as_deref(), session, text) {
+            Ok(send) => send,
+            Err(err) => {
+                log::warn!("[voice] call {call_id}: the utterance was not sent: it could not be encrypted ({err}). Nothing left this device; the call ends");
+                return Delivered::Unstored;
+            }
+        };
+        let err = match wire.send(&input) {
+            Ok(out) => {
+                if let Some(seal) = seal {
+                    wire.adopt(&out.session_id, &seal);
+                }
+                return Delivered::Sent(out.session_id);
+            }
+            Err(err) => err,
+        };
+        if !refused_for_good(&err) || (root.is_some() && !plain) {
+            // The call goes on; the words are in the log, never lost silently.
+            log::warn!("[voice] call {call_id}: the send failed: {err}");
+            return Delivered::Failed;
+        }
+        log::warn!("[voice] call {call_id}: the send was refused: {err}");
+        if root.is_some() || retried {
+            // #EXP-1982: words that can never be stored end the call.
+            return Delivered::Unstored;
+        }
+        retried = true;
     }
-    // #EXP-1982: words that can never be stored end the call.
-    Delivered::Unstored
 }
 
 impl Net for DaemonNet {
@@ -1101,8 +1162,8 @@ impl Net for DaemonNet {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Chat {
     root: String,
-    /// The tree has a key: it takes no plaintext from a writer.
-    keyed: bool,
+    /// #EDE-97: a clear tree, the only one that takes plaintext.
+    clear: bool,
 }
 
 /// What a ring asks of the server and the relay, in the order it is asked.
@@ -1138,10 +1199,11 @@ fn answer(ring: &dyn Ring, call_id: &str, agent_id: &str) -> Result<Answer, Stri
     let voice = ring.voice(&agent);
     // A sealed call's conversation is its key source's (it may create it).
     let chat = if ticket.seal { None } else { ring.chat(agent_id)? };
-    // #EXP-1982: a clear call into an encrypted chat on a host with no key
-    // holder could store none of its words: refused at the ring, never
-    // listening (the caller's toast: "{device} couldn't get its voice ready").
-    if chat.as_ref().is_some_and(|chat| chat.keyed) && !ring.seals() {
+    // #EXP-1982, #EXP-2120: a clear call on a host with no key holder could
+    // store none of its words outside a clear tree (no chat yet included):
+    // refused at the ring, never listening (the caller's toast: "{device}
+    // couldn't get its voice ready").
+    if !ticket.seal && !chat.as_ref().is_some_and(|chat| chat.clear) && !ring.seals() {
         return Ok(Answer::Refuse(Refused { call_id: call_id.to_string(), link: ring.connect(call_id, agent_id, ticket), code: "unavailable" }));
     }
     let root = chat.map(|chat| chat.root);
@@ -1168,7 +1230,12 @@ impl Ring for DaemonNet {
     }
 
     fn ticket(&self, call_id: &str, agent_id: &str) -> Result<api::voice::CallTicket, String> {
-        api::voice::voice_call_host_ticket_for(&self.deps.trpc, call_id, &self.deps.device_id, agent_id).map_err(|err| format!("the call host ticket was refused: {err}"))
+        // #FEED-268: how long the ring waited for its ticket (the relay
+        // gives up on a ring nobody joins in `ringTimeoutMs`).
+        let asked = Instant::now();
+        let ticket = api::voice::voice_call_host_ticket_for(&self.deps.trpc, call_id, &self.deps.device_id, agent_id).map_err(|err| format!("the call host ticket was refused: {err}"))?;
+        log::info!("[voice] call {call_id}: the host ticket came after {} ms (sealed {})", asked.elapsed().as_millis(), ticket.seal);
+        Ok(ticket)
     }
 
     fn agent(&self, agent_id: &str) -> Result<api::agents::Agent, String> {
@@ -1181,11 +1248,12 @@ impl Ring for DaemonNet {
 
     fn chat(&self, agent_id: &str) -> Result<Option<Chat>, String> {
         let target = api::sessions::send_target(&self.deps.trpc, Some(agent_id), None).map_err(|err| format!("the conversation could not be read: {err}"))?;
-        Ok(target.root_id.map(|root| Chat { root, keyed: target.epoch.is_some() }))
+        note_target(&target);
+        Ok(target.root_id.map(|root| Chat { root, clear: target.clear_tree }))
     }
 
     fn seals(&self) -> bool {
-        !coding::sealing::key_holder_missing()
+        !sealing::key_holder_missing()
     }
 
     fn call_session(&self, agent_id: &str, call_id: &str) -> Option<String> {
@@ -1218,7 +1286,7 @@ impl Ring for DaemonNet {
             };
             steer::call_keys::CallSealing { call_id: call_id.to_string(), agent_id: agent_id.to_string(), device_id: self.deps.device_id.clone(), caller_target: None, keys }
         });
-        Box::new(steer::call_host::connect_sealed(&self.deps.runtime, ticket.url, sealing, move |event| {
+        Box::new(steer::call_host::connect_sealed(&self.deps.runtime, ticket.url, call_id, sealing, move |event| {
             let _ = events.send(Input::Link { call_id: id.clone(), event });
         }))
     }
@@ -1272,14 +1340,57 @@ fn clip_file(deps: &Deps, clip_id: &str) -> Option<PathBuf> {
     }
 }
 
-/// The agents of the synced teams whose Runs on is this device.
-fn hosted_agents(deps: &Deps) -> Option<Vec<HostedAgent>> {
+/// The agents whose Runs on is this device: the synced teams' and the
+/// member's own Assistant.
+fn hosted_agents(trpc: &api::TrpcClient, teams: &[String], device_id: &str) -> Option<Vec<HostedAgent>> {
+    hosted_from(
+        teams,
+        device_id,
+        |team_id| api::agents::list(trpc, team_id),
+        || own_assistant(|| api::voice::voice_assistant_id(trpc), |id| api::agents::get(trpc, id)),
+    )
+}
+
+/// The member's own Assistant, READ only (#EXP-2080): `voice.get` names it
+/// and `agents.get` reads it. Never `agents.ensureAssistant`: that creates
+/// one on first use, and a daemon is never the client that creates a
+/// member's Assistant (NEW-99: its device is a desktop). None yet = `None`:
+/// nothing is asked further, nothing is hosted.
+fn own_assistant(
+    named: impl Fn() -> Result<Option<String>, api::ApiError>,
+    get: impl Fn(&str) -> Result<api::agents::Agent, api::ApiError>,
+) -> Result<Option<api::agents::Agent>, api::ApiError> {
+    match named()? {
+        Some(id) => get(&id).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// The agents that run on `device_id` as the server names them: every synced
+/// team's list, and the member's own Assistant (#EXP-2080: after the move,
+/// #EXP-1984, it lives in their personal team, never a synced one, and no
+/// team's list names it; before the move it is a row of a team's list too:
+/// one entry per agent). `None` = a read did not reach the server (the last
+/// answer stands). A server that REFUSES the Assistant ask, or answers it
+/// in a shape this build cannot read (an older one), hosts the teams' agents
+/// as before.
+fn hosted_from(
+    teams: &[String],
+    device_id: &str,
+    list: impl Fn(&str) -> Result<Vec<api::agents::Agent>, api::ApiError>,
+    assistant: impl Fn() -> Result<Option<api::agents::Agent>, api::ApiError>,
+) -> Option<Vec<HostedAgent>> {
     let mut hosted = Vec::new();
-    for team_id in (deps.teams)() {
-        let agents = api::agents::list(&deps.trpc, &team_id).ok()?;
-        hosted.extend(hosted_of(&agents, &deps.device_id));
+    for team_id in teams {
+        hosted.extend(hosted_of(&list(team_id).ok()?, device_id));
+    }
+    match assistant() {
+        Ok(assistant) => hosted.extend(hosted_of(assistant.as_slice(), device_id)),
+        Err(api::ApiError::Transport { .. } | api::ApiError::Unauthorized | api::ApiError::UpgradeRequired) => return None,
+        Err(err) => log::debug!("[voice] the Assistant was not named ({err}): the teams' agents only"),
     }
     hosted.sort_by(|a, b| a.id.cmp(&b.id));
+    hosted.dedup_by(|a, b| a.id == b.id);
     Some(hosted)
 }
 
@@ -1309,10 +1420,11 @@ pub fn spawn(deps: Deps) -> Option<VoiceHost> {
     let agents_deps = Arc::clone(&deps);
     let stopped = Arc::new(AtomicBool::new(false));
     let agents_stopped = Arc::clone(&stopped);
-    // The agents that run here, read off the loop (a request per team).
+    // The agents that run here, read off the loop (a request per team, and
+    // the Assistant's two reads).
     let _ = std::thread::Builder::new().name("voice-agents".into()).spawn(move || {
         while !agents_stopped.load(Ordering::SeqCst) {
-            if let Some(agents) = hosted_agents(&agents_deps) {
+            if let Some(agents) = hosted_agents(&agents_deps.trpc, &(agents_deps.teams)(), &agents_deps.device_id) {
                 if agents_tx.send(Input::Agents(agents)).is_err() {
                     break;
                 }
@@ -1736,8 +1848,8 @@ mod tests {
         log: Log,
         ticket: Result<bool, String>,
         runs_on: &'static str,
-        /// #EXP-1982: the chat has a key; this host has a key holder.
-        keyed: bool,
+        /// #EXP-1982: the chat (Some(clear tree)); this host has a key holder.
+        chat: Option<bool>,
         seals: bool,
     }
 
@@ -1759,7 +1871,7 @@ mod tests {
         }
         fn chat(&self, _agent_id: &str) -> Result<Option<Chat>, String> {
             self.log.push("root".into());
-            Ok(Some(Chat { root: "root-1".into(), keyed: self.keyed }))
+            Ok(self.chat.map(|clear| Chat { root: "root-1".into(), clear }))
         }
         fn seals(&self) -> bool {
             self.seals
@@ -1778,7 +1890,7 @@ mod tests {
     /// conversation are read; a ring the server refuses reads nothing more.
     #[test]
     fn a_ring_asks_for_its_ticket_first() {
-        let ring = |ticket: Result<bool, String>, runs_on| FakeRing { log: Log::default(), ticket, runs_on, keyed: true, seals: true };
+        let ring = |ticket: Result<bool, String>, runs_on| FakeRing { log: Log::default(), ticket, runs_on, chat: Some(false), seals: true };
         let clear = ring(Ok(false), "here");
         let Ok(Answer::Call(answered)) = answer(&clear, "c1", "agent-1") else { panic!("a call") };
         assert_eq!(clear.log.take(), ["ticket c1 agent-1", "agent", "voice", "root", "session", "connect seal=false"]);
@@ -1796,21 +1908,25 @@ mod tests {
         assert_eq!(elsewhere.log.take(), ["ticket c1 agent-1", "agent"], "no socket for an agent that runs elsewhere");
     }
 
-    /// #EXP-1982: a clear call into an ENCRYPTED chat on a host with no key
-    /// holder could store none of its words: it is refused at the ring with
-    /// `unavailable` (no call session is started, nothing listens). A keyless
-    /// chat still works here, a host with a holder answers, and a sealed call
-    /// keeps its own path (its key source ends it `no_key`).
+    /// #EXP-1982, #EXP-2120: a clear call on a host with no key holder could
+    /// store none of its words outside a clear tree (a keyed chat, a keyless
+    /// one, no chat yet): it is refused at the ring with `unavailable` (no
+    /// call session is started, nothing listens). A host with a holder
+    /// answers, and a sealed call keeps its own path (`no_key`).
     #[test]
-    fn a_clear_call_into_an_encrypted_chat_without_a_key_holder_is_refused() {
-        let ring = |ticket: bool, keyed, seals| FakeRing { log: Log::default(), ticket: Ok(ticket), runs_on: "here", keyed, seals };
-        let holderless = ring(false, true, false);
-        let Ok(Answer::Refuse(refused)) = answer(&holderless, "c1", "agent-1") else { panic!("refused at the ring") };
-        assert_eq!((refused.call_id.as_str(), refused.code), ("c1", "unavailable"));
-        assert_eq!(holderless.log.take(), ["ticket c1 agent-1", "agent", "voice", "root", "connect seal=false"], "no call session for a refused call");
-        assert!(matches!(answer(&ring(false, false, false), "c1", "agent-1"), Ok(Answer::Call(_))), "a keyless chat takes plaintext");
-        assert!(matches!(answer(&ring(false, true, true), "c1", "agent-1"), Ok(Answer::Call(_))), "a key holder seals");
-        assert!(matches!(answer(&ring(true, true, false), "c1", "agent-1"), Ok(Answer::Call(_))), "a sealed call keeps its own path");
+    fn a_clear_call_without_a_key_holder_is_refused_outside_a_clear_tree() {
+        let ring = |ticket: bool, chat, seals| FakeRing { log: Log::default(), ticket: Ok(ticket), runs_on: "here", chat, seals };
+        for chat in [Some(false), None] {
+            let holderless = ring(false, chat, false);
+            let Ok(Answer::Refuse(refused)) = answer(&holderless, "c1", "agent-1") else { panic!("refused at the ring") };
+            assert_eq!((refused.call_id.as_str(), refused.code), ("c1", "unavailable"));
+            assert_eq!(holderless.log.take(), ["ticket c1 agent-1", "agent", "voice", "root", "connect seal=false"], "no call session for a refused call");
+        }
+        assert!(matches!(answer(&ring(false, Some(true), false), "c1", "agent-1"), Ok(Answer::Call(_))), "a clear tree takes plaintext");
+        for chat in [Some(false), None] {
+            assert!(matches!(answer(&ring(false, chat, true), "c1", "agent-1"), Ok(Answer::Call(_))), "a key holder seals");
+            assert!(matches!(answer(&ring(true, chat, false), "c1", "agent-1"), Ok(Answer::Call(_))), "a sealed call keeps its own path");
+        }
     }
 
     /// #EXP-1982: a refused ring never listens: once the caller is on the
@@ -1837,16 +1953,15 @@ mod tests {
         assert_eq!(rig.link.take(), ["end"], "a caller that never joins: hung up after the ring");
     }
 
-    /// #EXP-1982 (backstop): an utterance this host could only send in clear
-    /// and the server refused (the chat was keyed meanwhile) ends the call
-    /// `dropped` instead of listening on and swallowing every word.
+    /// #EXP-1982 (backstop), #EXP-2120: an utterance that could not be sealed
+    /// or was refused for good ends the call `dropped` instead of listening
+    /// on and swallowing every word.
     #[test]
-    fn an_utterance_refused_in_clear_ends_the_call() {
+    fn an_utterance_that_can_never_be_stored_ends_the_call() {
         let refusal = |status| api::ApiError::Http { status, message: "This chat is end-to-end encrypted: its messages must be encrypted too".into() };
-        assert!(unstored(true, &refusal(400)));
-        assert!(!unstored(false, &refusal(400)), "a sealed send refused is another reason");
-        assert!(!unstored(true, &refusal(401)) && !unstored(true, &refusal(429)), "retried, not refused");
-        assert!(!unstored(true, &api::ApiError::Transport { message: "offline".into(), offline: true }));
+        assert!(refused_for_good(&refusal(400)));
+        assert!(!refused_for_good(&refusal(401)) && !refused_for_good(&refusal(429)), "retried, not refused");
+        assert!(!refused_for_good(&api::ApiError::Transport { message: "offline".into(), offline: true }));
         let mut rig = Rig::ready();
         rig.answered();
         rig.handle(Input::Worker(etalk::Event::CallListening { id: "call-1".into() }));
@@ -1880,6 +1995,100 @@ mod tests {
         ]))
         .unwrap();
         assert_eq!(hosted_of(&agents, "here"), vec![HostedAgent { id: "a".into(), team_id: "t".into() }]);
+    }
+
+    fn listed(value: serde_json::Value) -> Vec<api::agents::Agent> {
+        serde_json::from_value(value).unwrap()
+    }
+
+    /// #EXP-2080 (after the Assistant move, #EXP-1984): the member's ONE
+    /// Assistant lives in their personal team, which is never synced and
+    /// which no team's `agents.list` names: it is asked for on its own, and
+    /// one bound to this device is hosted like any other agent.
+    #[test]
+    fn the_members_own_assistant_is_hosted_past_the_synced_teams() {
+        let teams = vec!["t".to_string()];
+        let list = |_: &str| Ok(listed(serde_json::json!([{ "id": "a", "teamId": "t", "deviceId": "here" }])));
+        let assistant = || Ok(listed(serde_json::json!([{ "id": "z", "teamId": "personal", "deviceId": "here", "role": "assistant" }])).pop());
+        assert_eq!(
+            hosted_from(&teams, "here", list, assistant),
+            Some(vec![
+                HostedAgent { id: "a".into(), team_id: "t".into() },
+                HostedAgent { id: "z".into(), team_id: "personal".into() },
+            ])
+        );
+        // No synced team's agent runs here: the Assistant alone brings the voice up.
+        let none = |_: &str| Ok(Vec::new());
+        assert_eq!(hosted_from(&teams, "here", none, assistant), Some(vec![HostedAgent { id: "z".into(), team_id: "personal".into() }]));
+    }
+
+    /// Switch off (self-hosted): the Assistant is a row of a synced team's
+    /// list as well: one entry. One that runs elsewhere, or none: not hosted.
+    #[test]
+    fn the_assistant_is_one_entry_and_only_when_it_runs_here() {
+        let teams = vec!["t".to_string(), "u".to_string()];
+        let list = |team: &str| Ok(if team == "t" { listed(serde_json::json!([{ "id": "z", "teamId": "t", "deviceId": "here", "role": "assistant" }])) } else { Vec::new() });
+        let same = || Ok(listed(serde_json::json!([{ "id": "z", "teamId": "t", "deviceId": "here", "role": "assistant" }])).pop());
+        assert_eq!(hosted_from(&teams, "here", list, same), Some(vec![HostedAgent { id: "z".into(), team_id: "t".into() }]));
+        let elsewhere = || Ok(listed(serde_json::json!([{ "id": "y", "teamId": "personal", "deviceId": "desktop" }])).pop());
+        assert_eq!(hosted_from(&teams, "here", list, elsewhere), Some(vec![HostedAgent { id: "z".into(), team_id: "t".into() }]));
+        assert_eq!(hosted_from(&teams, "here", list, || Ok(None)), Some(vec![HostedAgent { id: "z".into(), team_id: "t".into() }]));
+    }
+
+    /// #EXP-2080: no Assistant yet = nothing created, nothing hosted. The
+    /// daemon only READS (`voice.get`, then `agents.get` when one is named):
+    /// a member's first Assistant is created by a client of theirs, on a
+    /// desktop (NEW-99), never by a daemon's poll.
+    #[test]
+    fn no_assistant_yet_creates_nothing_and_hosts_nothing() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let log = Arc::clone(&seen);
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut buf = [0u8; 8192];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let line = String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or_default().to_string();
+                let body = if line.contains("/agents.list") {
+                    r#"{"result":{"data":{"agents":[]}}}"#
+                } else if line.contains("/voice.get") {
+                    r#"{"result":{"data":{"voiceDeviceId":null,"agentId":null}}}"#
+                } else {
+                    r#"{"result":{"data":{"agent":{"id":"made","teamId":"personal","deviceId":"here","role":"assistant"}}}}"#
+                };
+                log.lock().unwrap().push(line);
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+            }
+        });
+        let trpc = api::TrpcClient::new(&base, Arc::new(api::StaticToken("tok".into())));
+        assert_eq!(hosted_agents(&trpc, &["t".to_string()], "here"), Some(Vec::new()));
+        let seen = seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 2, "{seen:?}");
+        assert!(seen[0].starts_with("GET /api/trpc/agents.list?"), "{seen:?}");
+        assert!(seen[1].starts_with("GET /api/trpc/voice.get"), "{seen:?}");
+        assert!(seen.iter().all(|line| !line.starts_with("POST") && !line.contains("ensureAssistant")), "{seen:?}");
+        // Pure: none named = the agent is never read.
+        assert_eq!(own_assistant(|| Ok(None), |_| panic!("no agent is read")).unwrap(), None);
+    }
+
+    /// A read that did not reach the server leaves the last answer standing
+    /// (None), the Assistant's as a team's; a server that refuses the ask
+    /// (an older one) hosts the teams' agents as before.
+    #[test]
+    fn a_failed_assistant_read_never_drops_the_hosted_agents() {
+        let teams = vec!["t".to_string()];
+        let list = |_: &str| Ok(listed(serde_json::json!([{ "id": "a", "teamId": "t", "deviceId": "here" }])));
+        let offline = || Err(api::ApiError::Transport { message: "down".into(), offline: true });
+        assert_eq!(hosted_from(&teams, "here", list, offline), None);
+        let signed_out = || Err(api::ApiError::Unauthorized);
+        assert_eq!(hosted_from(&teams, "here", list, signed_out), None);
+        let unreadable = || Err(api::ApiError::Decode("an older answer".into()));
+        assert_eq!(hosted_from(&teams, "here", list, unreadable), Some(vec![HostedAgent { id: "a".into(), team_id: "t".into() }]));
+        let refused = || Err(api::ApiError::Http { status: 404, message: "No procedure".into() });
+        assert_eq!(hosted_from(&teams, "here", list, refused), Some(vec![HostedAgent { id: "a".into(), team_id: "t".into() }]));
     }
 
     /// The N95 case: no agent here = no worker, no row; an agent here and
@@ -2308,25 +2517,122 @@ mod tests {
         assert_eq!(rig.speech.take(), ["shutdown"], "idle: the worker exits");
     }
 
-    /// EXP-1930 (voice-hosts-1): the first utterance creates (or wakes) the
-    /// conversation in clear; the daemon then keys the tree; the second one
-    /// is sealed with that key, never refused as plaintext in a keyed tree.
-    #[test]
-    fn an_utterance_is_sealed_with_the_trees_key_at_send_time() {
-        use coding::sealing::SealError;
-        let keyed = std::sync::atomic::AtomicBool::new(false);
-        let seal = |root: &str, text: &str| -> Result<String, SealError> {
-            if keyed.load(Ordering::SeqCst) {
-                Ok(format!("sealed({root}):{text}"))
-            } else {
-                Err(SealError::NotReader)
+    /// The server and the key holder of one utterance.
+    #[derive(Default)]
+    struct Wire {
+        /// What each `sessions.sendTarget` names (the last one stays).
+        targets: std::cell::RefCell<Vec<Option<String>>>,
+        /// Sealing fails with it; None = it works.
+        error: Option<SealError>,
+        refuse: bool,
+        /// Sends by agentId are refused (the chat exists meanwhile).
+        refuse_first: bool,
+        sends: std::cell::RefCell<Vec<api::sessions::SendInput>>,
+        adopted: std::cell::RefCell<Vec<String>>,
+    }
+
+    impl Wire {
+        fn naming(targets: &[Option<&str>]) -> Self {
+            Wire { targets: std::cell::RefCell::new(targets.iter().map(|target| target.map(str::to_string)).collect()), ..Wire::default() }
+        }
+        /// "target text" of every send; a sealed body reads `sealed`.
+        fn sent(&self) -> Vec<String> {
+            self.sends
+                .borrow()
+                .iter()
+                .map(|input| {
+                    let to = input.session_id.clone().unwrap_or_else(|| format!("agent:{}", input.agent_id.clone().unwrap_or_default()));
+                    let text = input.text.clone().unwrap_or_default();
+                    let sealed = text.starts_with(enet_core::sealed::SEALED_BODY_PREFIX);
+                    let body = if sealed { if input.seal.is_some() { "inline" } else { "sealed" }.to_string() } else { text };
+                    format!("{to} {body}")
+                })
+                .collect()
+        }
+    }
+
+    impl UtteranceWire for Wire {
+        fn target(&self, _: &str) -> Result<Option<String>, String> {
+            let mut targets = self.targets.borrow_mut();
+            Ok(if targets.len() > 1 { targets.remove(0) } else { targets.first().cloned().flatten() })
+        }
+        fn seal(&self, _: &str, text: &str) -> Result<String, SealError> {
+            match &self.error {
+                Some(err) => Err(err.clone()),
+                None => Ok(enet_core::sealed::seal_body(&enet_core::sealed::generate_tree_key().public, 1, text).unwrap()),
             }
-        };
-        assert_eq!(utterance_body(None, "hello", &seal), "hello", "a new conversation: the send makes it");
-        assert_eq!(utterance_body(Some("root-1"), "hello", &seal), "hello", "a keyless tree nobody may key: plain");
-        keyed.store(true, Ordering::SeqCst);
-        assert_eq!(utterance_body(Some("root-1"), "and now?", &seal), "sealed(root-1):and now?");
-        assert_eq!(utterance_body(Some("root-1"), "x", &|_: &str, _: &str| Err(SealError::NoService)), "x", "no key holder: plain");
+        }
+        fn new_root(&self) -> Result<NewRootSeal, SealError> {
+            match &self.error {
+                Some(err) => Err(err.clone()),
+                None => sealing::seal_new_root("install-1", &enet_core::sealed::generate_tree_key().public, &[]),
+            }
+        }
+        fn adopt(&self, root: &str, _: &NewRootSeal) {
+            self.adopted.borrow_mut().push(root.into());
+        }
+        fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError> {
+            self.sends.borrow_mut().push(input.clone());
+            if self.refuse || (self.refuse_first && input.session_id.is_none()) {
+                return Err(api::ApiError::Http { status: 400, message: "This chat is end-to-end encrypted: its messages must be encrypted too".into() });
+            }
+            Ok(api::sessions::SendOutput { session_id: input.session_id.clone().unwrap_or_else(|| "root-new".into()), ..Default::default() })
+        }
+    }
+
+    /// #EXP-2120: voice-call.json `utteranceCases`: an utterance leaves
+    /// sealed, or plaintext into a clear tree, or not at all.
+    #[test]
+    fn a_seal_error_never_falls_back_to_clear() {
+        const WORDS: &str = "the secret words";
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../../packages/etalk/fixtures/voice-call.json")).unwrap();
+        let cases = fixture["utteranceCases"].as_array().unwrap();
+        for case in cases {
+            let (name, chat) = (&case["name"], case["chat"].as_str().unwrap());
+            let error = match case["seal"].as_str().unwrap() {
+                "ok" => None,
+                // `seal_body_for_tree` answers a clear tree before any holder.
+                _ if chat == "clear" => Some(SealError::ClearTree),
+                "noService" => Some(SealError::NoService),
+                "notReady" => Some(SealError::NotReady),
+                "notReader" => Some(SealError::NotReader),
+                "noKey" => Some(SealError::NoKey("no answer".into())),
+                "invalid" => Some(SealError::Invalid("the key is refused".into())),
+                other => panic!("{name}: no seal error {other}"),
+            };
+            let (root, sessions): (_, &[Option<&str>]) = if chat == "none" { (None, &[None]) } else { (Some("root-1"), &[None, Some("call-s")]) };
+            for &session in sessions {
+                let wire = Wire { error: error.clone(), ..Wire::naming(&[None]) };
+                let out = deliver_utterance(&wire, "c1", &agent(), root, session, WORDS);
+                let to = session.or(root).unwrap_or("agent:agent-1");
+                let sent: Vec<String> = match case["sent"].as_str() {
+                    Some("plain") => vec![format!("{to} {WORDS}")],
+                    Some(wire) => vec![format!("{to} {wire}")],
+                    None => Vec::new(),
+                };
+                assert_eq!(wire.sent(), sent, "{name}");
+                assert_eq!(out == Delivered::Unstored, case["call"] == "ends", "{name}: {out:?}");
+                if chat != "clear" {
+                    let left = serde_json::to_string(&*wire.sends.borrow()).unwrap();
+                    assert!(!left.contains(WORDS), "{name}: in clear: {left}");
+                }
+                let adopted: &[&str] = if case["sent"] == "inline" { &["root-new"] } else { &[] };
+                assert_eq!(*wire.adopted.borrow(), adopted, "{name}");
+            }
+        }
+        // A conversation the server names at the first send is no new chat.
+        let wire = Wire { error: Some(SealError::NotReader), ..Wire::naming(&[Some("root-1")]) };
+        assert_eq!(deliver_utterance(&wire, "c1", &agent(), None, None, WORDS), Delivered::Unstored);
+        assert!(wire.sent().is_empty());
+    }
+
+    /// #EXP-2120: the daemon's own writer, in a process without a key
+    /// holder: no body and no new root's key, never the words.
+    #[test]
+    fn the_daemons_writer_without_a_key_holder_seals_nothing() {
+        assert_eq!(sealing::seal_body_for_tree("root-without-holder-2120", "the secret words"), Err(SealError::NoService));
+        sealing::note_clear_tree("clear-root-2120");
+        assert_eq!(sealing::seal_body_for_tree("clear-root-2120", "hi"), Err(SealError::ClearTree));
     }
 
     /// EXP-1930 (voice-hosts-8): the reply watch reads only the rows since
@@ -2358,47 +2664,30 @@ mod tests {
         assert_eq!(rig.net.take(), ["answer c2 agent-1"]);
     }
 
-    /// #EXP-2013: a call answered before the chat's first message was read
-    /// (no conversation yet) sends its first utterance in clear by agentId;
-    /// refused (the new chat is keyed), the target is read again, names the
-    /// conversation now, and the words go sealed into it: stored, the call
-    /// lives. A target still missing ends the call as before.
+    /// #EXP-2013: a first utterance the server refused may have raced the
+    /// chat's first message: the target is read again, names the conversation
+    /// now, and the words go sealed into it: stored, the call lives. A target
+    /// still missing, or a second refusal, ends the call.
     #[test]
-    fn a_first_utterance_refused_in_clear_goes_sealed_into_the_chat_that_exists_now() {
-        use std::cell::RefCell;
-        struct Wire {
-            target: Option<String>,
-            sends: RefCell<Vec<String>>,
-            reads: RefCell<u32>,
-        }
-        impl UtteranceWire for Wire {
-            fn target(&self, _: &str) -> Result<Option<String>, String> {
-                *self.reads.borrow_mut() += 1;
-                Ok(self.target.clone())
-            }
-            fn seal(&self, root: &str, text: &str) -> Result<String, coding::sealing::SealError> {
-                Ok(format!("sealed({root}):{text}"))
-            }
-            fn send(&self, input: &api::sessions::SendInput) -> Result<api::sessions::SendOutput, api::ApiError> {
-                let to = input.session_id.clone().or(input.agent_id.clone().map(|agent| format!("agent:{agent}"))).unwrap_or_default();
-                self.sends.borrow_mut().push(format!("{to} {}", input.text.clone().unwrap_or_default()));
-                match input.session_id.clone() {
-                    Some(session_id) => Ok(api::sessions::SendOutput { session_id, ..Default::default() }),
-                    None => Err(api::ApiError::Http { status: 400, message: "This chat is end-to-end encrypted: its messages must be encrypted too".into() }),
-                }
-            }
-        }
-        let wire = Wire { target: Some("root-1".into()), sends: RefCell::default(), reads: RefCell::default() };
-        assert_eq!(deliver_utterance(&wire, "c1", &agent(), None, None, "hello"), Delivered::Sent("root-1".into()));
-        assert_eq!(*wire.sends.borrow(), ["agent:agent-1 hello", "root-1 sealed(root-1):hello"]);
-        assert_eq!(*wire.reads.borrow(), 1, "read again once");
+    fn a_first_utterance_refused_goes_sealed_into_the_chat_that_exists_now() {
+        let deliver = |wire: &Wire, root, session| deliver_utterance(wire, "c1", &agent(), root, session, "hello");
+        let raced = Wire { refuse_first: true, ..Wire::naming(&[None, Some("root-1")]) };
+        assert_eq!(deliver(&raced, None, None), Delivered::Sent("root-1".into()));
+        assert_eq!(raced.sent(), ["agent:agent-1 inline", "root-1 sealed"]);
+        assert!(raced.adopted.borrow().is_empty(), "a refused root's key is nobody's");
 
-        let gone = Wire { target: None, sends: RefCell::default(), reads: RefCell::default() };
-        assert_eq!(deliver_utterance(&gone, "c1", &agent(), None, None, "hello"), Delivered::Unstored, "nothing to seal for: the call ends");
+        let gone = Wire { refuse_first: true, ..Wire::naming(&[None]) };
+        assert_eq!(deliver(&gone, None, None), Delivered::Unstored, "nothing to seal for: the call ends");
+        assert_eq!(gone.sent(), ["agent:agent-1 inline"]);
 
-        let known = Wire { target: Some("root-1".into()), sends: RefCell::default(), reads: RefCell::default() };
-        assert_eq!(deliver_utterance(&known, "c1", &agent(), Some("root-1"), Some("call-s"), "hi"), Delivered::Sent("call-s".into()));
-        assert_eq!(*known.reads.borrow(), 0, "a known conversation reads nothing");
+        let refused = Wire { refuse: true, ..Wire::naming(&[None, Some("root-1")]) };
+        assert_eq!(deliver(&refused, None, None), Delivered::Unstored);
+        assert_eq!(refused.sent(), ["agent:agent-1 inline", "root-1 sealed"], "once more, not for ever");
+
+        let known = Wire { refuse: true, ..Wire::naming(&[None]) };
+        assert_eq!(deliver(&known, Some("root-1"), None), Delivered::Failed, "a sealed send refused is another reason");
+        let clear = Wire { refuse: true, error: Some(SealError::ClearTree), ..Wire::naming(&[None]) };
+        assert_eq!(deliver(&clear, Some("root-1"), None), Delivered::Unstored);
 
         // The host adopts the conversation: the next utterance is sealed into it.
         let mut rig = Rig::ready();

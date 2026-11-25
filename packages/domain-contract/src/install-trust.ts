@@ -182,8 +182,9 @@ export function registrationValid(install: ServedInstall): boolean {
  *  from its account's root to this install when it joined; `approved` = an
  *  `approve` by a pinned install of the same account; `first` = a
  *  team-mate's root at first contact; `reset` = a team-mate's new root a
- *  pinned install confirmed. */
-export type PinVia = `self` | `chain` | `approved` | `first` | `reset`
+ *  pinned install confirmed; `existing` = an install of the own account
+ *  served at this EXISTING install's first reconcile (decision e, once). */
+export type PinVia = `self` | `chain` | `approved` | `first` | `reset` | `existing`
 
 export interface Pin {
   userId: string
@@ -200,8 +201,14 @@ export interface TrustStore {
   /** This install's endpoint id and account. */
   self: string
   userId: string
-  /** Placed in its account's chain (a root, or approved). */
+  /** Placed in its account's chain (a root, approved, or existing). */
   joined: boolean
+  /** Decision (e): this install existed before approval shipped (its store
+   *  was made for an install an earlier build had registered for this
+   *  account; a build that makes an identity, or signs a new account into
+   *  one, writes that account's store first, `false`). Consumed (`false`) by
+   *  the first reconcile that serves this install. */
+  existing: boolean
   pins: Record<string, Pin>
   /** Every team-mate ever pinned: a new root of one is a Reset, not a first contact. */
   members: string[]
@@ -211,8 +218,8 @@ export interface TrustStore {
   roots: Record<string, { verifiedEpoch: number; epochs: Record<string, KeyRecord> }>
 }
 
-export function emptyTrustStore(self: string, userId: string): TrustStore {
-  return { self, userId, joined: false, pins: {}, members: [], declined: [], roots: {} }
+export function emptyTrustStore(self: string, userId: string, existing = false): TrustStore {
+  return { self, userId, joined: false, existing, pins: {}, members: [], declined: [], roots: {} }
 }
 
 /** A row of Needs you: approve or remove an install. */
@@ -226,22 +233,28 @@ export interface TrustRow {
 }
 
 /** `trusted` = joined; `waiting` = shows "Waiting for approval" and its
- *  code; `claimRoot` = its account has no chain: it signs `root` for itself. */
+ *  code; `claimRoot` = its account has no chain: it signs `root` for itself
+ *  (a joined existing install with its `approveExisting`, in one claim). */
 export type TrustStatus = `trusted` | `waiting` | `claimRoot`
 
 export interface TrustView {
   store: TrustStore
   status: TrustStatus
   rows: TrustRow[]
+  /** The `existing` pins this install signs `approve` for (with its root
+   *  claim, or once it is on the chain): its account's chain then reaches
+   *  every install that existed. Sorted by endpoint id. */
+  approveExisting: string[]
 }
 
 /**
  * Follows the server's answer (`installs.trust`: every live install of the
  * account and of its team-mates, and their approvals). The server may only
- * SHRINK the pins: a pin missing from the answer, or whose registration no
- * longer verifies, is dropped; a pin is only ever ADDED for a signature
- * this install verified, by an install already pinned (or, once, at
- * joining and at first contact: decided in the `$comment`).
+ * SHRINK the pins: a pin missing from the answer, or served with another
+ * user or key, is dropped; a pin is only ever ADDED for a signature this
+ * install verified, by an install already pinned (or, once, at joining, at
+ * an existing install's first reconcile and at first contact: decided in
+ * the `$comment`).
  */
 export function reconcileTrust(before: TrustStore, served: { installs: ServedInstall[]; approvals: ServedApproval[] }): TrustView {
   const store: TrustStore = {
@@ -251,13 +264,20 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
     declined: [...before.declined],
     roots: before.roots,
   }
+  // `valid` = the registration verifies (a row, a first contact); `counted`
+  // adds rows that store none (registered before #3394): an approval's own
+  // signature binds their key, and an existing install pins them once.
   const valid = new Map<string, ServedInstall>()
-  for (const install of served.installs) if (registrationValid(install)) valid.set(install.endpointId, install)
-  const me = valid.get(store.self)
+  const counted = new Map<string, ServedInstall>()
+  for (const install of served.installs) {
+    if (registrationValid(install)) valid.set(install.endpointId, install)
+    if (valid.has(install.endpointId) || install.registrationSignature === null) counted.set(install.endpointId, install)
+  }
+  const me = counted.get(store.self)
 
   // Shrink: what the server no longer lists (or binds) is no longer pinned.
   for (const endpointId of Object.keys(store.pins)) {
-    const row = valid.get(endpointId)
+    const row = counted.get(endpointId)
     if (endpointId === store.self) continue
     if (!row || row.userId !== store.pins[endpointId]!.userId || row.x25519Public !== store.pins[endpointId]!.x25519Public) {
       delete store.pins[endpointId]
@@ -267,15 +287,18 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
 
   // The approvals that verify, against the subject as its registration binds it.
   const approvals = served.approvals.filter((approval) => {
-    const subject = valid.get(approval.subjectEndpointId)
+    const subject = counted.get(approval.subjectEndpointId)
     if (!subject) return false
     if (approval.kind === `root` && approval.approverEndpointId !== approval.subjectEndpointId) return false
     return verifyApproval(approval.kind, subject, approval.signature, approval.approverEndpointId)
   })
   const isRoot = (endpointId: string) => approvals.some((a) => a.kind === `root` && a.subjectEndpointId === endpointId)
-  const userOf = (endpointId: string) => valid.get(endpointId)?.userId
+  const userOf = (endpointId: string) => counted.get(endpointId)?.userId
+  const ownChain = approvals.some((a) => (a.kind === `root` || a.kind === `approve`) && userOf(a.subjectEndpointId) === store.userId)
 
-  // Joining: this install's own root claim, or the chain from its account's root to it.
+  // Joining: this install's own root claim, or the chain from its account's
+  // root to it, or (decision e) an existing install of an account with no
+  // chain: every install of its account served now that did not ask is pinned.
   if (!store.joined && me) {
     if (isRoot(store.self)) {
       store.joined = true
@@ -284,13 +307,21 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
       if (path) {
         for (const endpointId of path) {
           if (endpointId === store.self) continue
-          const row = valid.get(endpointId)!
+          const row = counted.get(endpointId)!
           store.pins[endpointId] = { userId: row.userId, x25519Public: row.x25519Public, via: `chain`, by: null }
+        }
+        store.joined = true
+      } else if (store.existing && !ownChain) {
+        for (const install of counted.values()) {
+          if (install.userId !== store.userId || install.endpointId === store.self || install.approvalRequested) continue
+          store.pins[install.endpointId] = { userId: install.userId, x25519Public: install.x25519Public, via: `existing`, by: null }
         }
         store.joined = true
       }
     }
   }
+  // Only the FIRST reconcile that serves this install adopts.
+  if (me) store.existing = false
 
   // Declines by this account's pinned installs.
   for (const approval of approvals) {
@@ -301,10 +332,10 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
 
   if (store.joined) {
     // First contact with a team-mate: their root(s) as served, once.
-    for (const install of valid.values()) {
+    for (const install of counted.values()) {
       if (install.userId === store.userId || store.members.includes(install.userId)) continue
       if (Object.values(store.pins).some((pin) => pin.userId === install.userId)) continue
-      for (const root of valid.values()) {
+      for (const root of counted.values()) {
         if (root.userId === install.userId && isRoot(root.endpointId) && !store.declined.includes(root.endpointId)) {
           store.pins[root.endpointId] = { userId: root.userId, x25519Public: root.x25519Public, via: `first`, by: null }
         }
@@ -314,7 +345,7 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
     for (let changed = true; changed; ) {
       changed = false
       for (const approval of approvals) {
-        const subject = valid.get(approval.subjectEndpointId)!
+        const subject = counted.get(approval.subjectEndpointId)!
         if (store.pins[subject.endpointId] || store.declined.includes(subject.endpointId)) continue
         const approver = store.pins[approval.approverEndpointId]
         if (!approver) continue
@@ -339,12 +370,11 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
     for (const install of valid.values()) {
       if (store.pins[install.endpointId] || store.declined.includes(install.endpointId)) continue
       const own = install.userId === store.userId
-      // Own: a build that asked, or a competing root. A team-mate's: only a
-      // new root of a member pinned before (their own installs approve the rest).
+      // Own: every install nobody pinned is new (decision e: the ones that
+      // existed are pinned `existing`), any build. A team-mate's: only a new
+      // root of a member pinned before (their own installs approve the rest).
       const kind = own
-        ? install.approvalRequested || isRoot(install.endpointId)
-          ? (`newInstall` as const)
-          : null
+        ? (`newInstall` as const)
         : isRoot(install.endpointId) && store.members.includes(install.userId)
           ? (`reset` as const)
           : null
@@ -355,11 +385,24 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
     rows.sort((a, b) => (a.kind === b.kind ? (a.endpointId < b.endpointId ? -1 : 1) : a.kind === `newInstall` ? -1 : 1))
   }
 
-  const ownChain = [...valid.values()].some(
-    (install) => install.userId === store.userId && approvals.some((a) => (a.kind === `root` || a.kind === `approve`) && a.subjectEndpointId === install.endpointId)
-  )
-  const status: TrustStatus = store.joined ? `trusted` : ownChain ? `waiting` : `claimRoot`
-  return { store, status, rows }
+  // A new install claims a root only ALONE (decision e): next to installs of
+  // its account that are on no chain yet (older builds) it waits for one of
+  // them to update, adopt and approve it.
+  const alone = !served.installs.some((install) => install.userId === store.userId && install.endpointId !== store.self)
+  const status: TrustStatus = store.joined ? (ownChain ? `trusted` : `claimRoot`) : ownChain || !alone ? `waiting` : `claimRoot`
+
+  // The existing pins its account's chain does not reach yet, approved by
+  // this install with its root claim or once it is on the chain itself.
+  const onChain = isRoot(store.self) || approvals.some((a) => a.kind === `approve` && a.subjectEndpointId === store.self && store.pins[a.approverEndpointId])
+  const reached = (endpointId: string) =>
+    isRoot(endpointId) || approvals.some((a) => a.kind === `approve` && a.subjectEndpointId === endpointId && store.pins[a.approverEndpointId])
+  const approveExisting =
+    store.joined && (status === `claimRoot` || onChain)
+      ? Object.keys(store.pins)
+          .filter((endpointId) => store.pins[endpointId]!.via === `existing` && !reached(endpointId))
+          .sort()
+      : []
+  return { store, status, rows, approveExisting }
 }
 
 /** The approvals from a root of `userId` down to `target` (`approve` only,
@@ -501,11 +544,13 @@ export type TargetVerdict = { wrap: true; record: `verified` | `legacy` } | { wr
  * R4: whether this install wraps a key for a target the server names
  * (`pending`, a new key's readers, a rotation, a new root's seal). Only a
  * trusted (joined) install wraps for others. A pinned target with its pinned
- * key = `verified`. A target that ASKED to be approved and is not pinned is
- * refused in every mode (that is the waiting state). A target that never
- * asked and claims no root is an older build: `legacy`, wrapped in `record`
- * mode, refused once `mandatory`. A registration that does not verify, or
- * a pinned endpoint served with another key, is refused in every mode.
+ * key = `verified`. An install of the OWN account nobody pinned (a New
+ * install, decision e), and a team-mate's that ASKED to be approved or
+ * claims a root, are refused in every mode (that is the waiting state). A
+ * team-mate's that never asked and claims no root is an older build:
+ * `legacy`, wrapped in `record` mode, refused once `mandatory`. A
+ * registration that does not verify, or a pinned endpoint served with
+ * another key, is refused in every mode.
  */
 export function wrapTarget(target: ServedInstall, store: TrustStore, mode: TrustMode, roots: ReadonlySet<string> = new Set()): TargetVerdict {
   if (target.endpointId === store.self) return { wrap: true, record: `verified` }
@@ -516,6 +561,9 @@ export function wrapTarget(target: ServedInstall, store: TrustStore, mode: Trust
   }
   // An older build that registered before #EXP-1950 kept no signature: legacy too.
   if (target.registrationSignature !== null && !registrationValid(target)) return { wrap: false, reason: `registration` }
+  // Decision (e): every own install that existed is pinned (`existing`); one
+  // nobody pinned is a New install row, any build: unapproved in every mode.
+  if (target.userId === store.userId) return { wrap: false, reason: `unapproved` }
   if (target.approvalRequested || roots.has(target.endpointId)) return { wrap: false, reason: `unapproved` }
   return mode === `record` ? { wrap: true, record: `legacy` } : { wrap: false, reason: `unapproved` }
 }
@@ -538,4 +586,69 @@ export function callKey(
   if (!held) return { noKey: `noKey` }
   if (mode === `mandatory` && held.record !== `verified` && held.record !== `legacy`) return { noKey: `noKey` }
   return { key: held.secret, record: held.record }
+}
+
+// ── who makes a chat key (fixtures/install-trust.json `keyMaker`, #EXP-2123) ──
+
+/** The server's refusal of a key write by an install that waits for approval. */
+export const KEY_MAKER_REFUSAL: string = fixture.keyMaker.refusal
+export const KEY_MAKER_REFUSAL_CODE = fixture.keyMaker.code as `FORBIDDEN`
+
+export function isKeyMakerRefusal(message: string | null | undefined): boolean {
+  return message === KEY_MAKER_REFUSAL
+}
+
+/**
+ * `serverCases`: whether the server lists an install as waiting (the New
+ * install rule of `installs.waiting`), over what it stores: `chained` = a
+ * `root` or `approve` names it, `asked` = `approvalRequested`,
+ * `accountChain` = a `root` or `approve` names another live install of its
+ * account, `registration` = its row stores a registration signature. A
+ * waiting install's key writes are refused (`KEY_MAKER_REFUSAL`).
+ */
+export function keyMakerWaits(install: { chained: boolean; asked: boolean; accountChain: boolean; registration: boolean }): boolean {
+  return !install.chained && (install.asked || (install.accountChain && install.registration))
+}
+
+/** A key write: an existing keyless root's first key, a new root's inline
+ *  key, a due rotation, a device keying its tree (`tree_key`, a claim). */
+export type KeyWrite = `firstKey` | `newRoot` | `rotation` | `deviceKey`
+export type KeyMakerStep = `make` | `requestKey` | `refused` | `skip`
+
+/**
+ * `makerCases`: what an install does with a key write. Only a JOINED install
+ * makes a key; `refused` = the server answered `KEY_MAKER_REFUSAL` to one
+ * that took itself for joined.
+ */
+export function keyMakerStep(input: { joined: boolean; write: KeyWrite; refused?: boolean }): KeyMakerStep {
+  if (input.joined && !input.refused) return `make`
+  switch (input.write) {
+    case `firstKey`:
+      return `requestKey`
+    case `newRoot`:
+      return `refused`
+    default:
+      return `skip`
+  }
+}
+
+/**
+ * `strandedCases`: the epoch a holder creates for a root `sessionKeys.due`
+ * names (sealed-content `rotationEpoch`, null = nothing to rotate here),
+ * with two rules more: an install that waits never rotates, and a STRANDED
+ * root (`stranded`: no approved reader holds its current epoch) is rotated
+ * by a joined reader without the old secret.
+ */
+export function strandedRotationEpoch(input: {
+  flagged: number | null
+  current: number | null
+  held: boolean
+  stranded?: boolean
+  joined: boolean
+  left?: boolean
+}): number | null {
+  const { flagged, current } = input
+  if (!input.joined || flagged === null || current === null || current !== flagged) return null
+  if (!(input.held || input.stranded) || input.left || current >= 2_147_483_647) return null
+  return current + 1
 }

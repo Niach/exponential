@@ -383,9 +383,19 @@ export const installsRouter = router({
     return { ok: true }
   }),
 
-  /** The install starts its account's chain (`root`, signed by itself). */
+  /** The install starts its account's chain (`root`, signed by itself); an
+   *  existing install approves the installs that existed with it in the same claim. */
   claimRoot: authedProcedure
-    .input(z.object({ installId: z.string().uuid(), signature: z.string().regex(SIGNATURE_RE, `base64url of 64 bytes`) }))
+    .input(
+      z.object({
+        installId: z.string().uuid(),
+        signature: z.string().regex(SIGNATURE_RE, `base64url of 64 bytes`),
+        approvals: z
+          .array(z.object({ subjectInstallId: z.string().uuid(), signature: z.string().regex(SIGNATURE_RE, `base64url of 64 bytes`) }))
+          .max(MAX_INSTALLS_PER_USER)
+          .optional(),
+      })
+    )
     .mutation(({ ctx, input }) => claimRoot(ctx.db, ctx.session.user.id, input)),
 
   /** `approve` an own install, confirm (`reset`) or turn down (`decline`) a team-mate's new root. */

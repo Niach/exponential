@@ -128,6 +128,34 @@ final class SearchListChatsTests: XCTestCase {
         }
     }
 
+    /// #NEW-133: `suggestion` (the constants and every case).
+    func testSuggestionCases() throws {
+        let spec = try XCTUnwrap(try fixture()["suggestion"] as? [String: Any])
+        XCTAssertEqual(spec["icon"] as? String, SearchList.SuggestionSpec.icon)
+        XCTAssertEqual(spec["label"] as? String, SearchList.SuggestionSpec.label)
+        XCTAssertEqual(spec["testId"] as? String, SearchList.SuggestionSpec.testId)
+        // #NEW-136: the model fallback's row, on desktop and iOS only.
+        let translate = try XCTUnwrap(spec["translate"] as? [String: Any])
+        XCTAssertEqual(translate["label"] as? String, SearchList.TranslateSpec.label)
+        XCTAssertEqual(translate["failed"] as? String, SearchList.TranslateSpec.failed)
+        XCTAssertEqual(translate["testId"] as? String, SearchList.TranslateSpec.testId)
+        XCTAssertEqual(translate["platforms"] as? [String], ["desktop", "ios"])
+        let cases = try XCTUnwrap(spec["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = try XCTUnwrap(c["name"] as? String)
+            let members = try XCTUnwrap(c["members"] as? [[String: Any]], name).map {
+                IssueSearchPhrase.Member(name: $0["name"] as? String, email: $0["email"] as? String)
+            }
+            let now = try XCTUnwrap(WireTimestamps.parse(try XCTUnwrap(c["now"] as? String, name)), name)
+            let got = SearchList.suggestion(text: try XCTUnwrap(c["text"] as? String, name), members: members, now: now)
+            let want = (c["expected"] as? [String: Any]).map {
+                SearchList.Suggestion(query: $0["query"] as? String ?? "", label: $0["label"] as? String ?? "")
+            }
+            XCTAssertEqual(got, want, name)
+        }
+    }
+
     func testSearchAllTextParses() {
         let json = #"{"chats":[{"rootId":"r1","count":2,"hit":{"rootId":"r1","sessionId":"c1","kind":"tool_output","at":5,"seq":7,"snippet":"x","matchStart":0,"matchLen":1}}],"total":1}"#
         XCTAssertEqual(SearchList.chatHits(json), [SearchList.ChatHitChat(

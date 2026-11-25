@@ -1,3 +1,13 @@
+# #NEW-134: the embedding model (multilingual-e5-small, int8 ONNX, MIT) for
+# semantic issue search, fetched HERE, at build, from a pinned commit and
+# checked by sha256 (apps/web/embedder/model.json), then baked into the image:
+# the running server never downloads weights and works offline. Its own stage,
+# so a source change does not fetch 135 MB again.
+FROM oven/bun:1.3.14-alpine AS embedding-model
+WORKDIR /embedder
+COPY apps/web/embedder/model.json apps/web/embedder/model.mjs apps/web/embedder/fetch-model.mjs ./
+RUN bun fetch-model.mjs
+
 FROM oven/bun:1.3.14-alpine AS builder
 WORKDIR /app
 COPY package.json bun.lock bunfig.toml ./
@@ -24,6 +34,7 @@ COPY packages/exponential-ui-element/package.json packages/exponential-ui-elemen
 COPY packages/exponential-ui-bench/package.json packages/exponential-ui-bench/package.json
 COPY packages/icons/package.json packages/icons/package.json
 COPY packages/mcp-apps/package.json packages/mcp-apps/package.json
+COPY packages/plugin-kit/package.json packages/plugin-kit/package.json
 COPY packages/licenses/package.json packages/licenses/package.json
 COPY packages/steer-ticket/package.json packages/steer-ticket/package.json
 COPY apps/steer-relay/package.json apps/steer-relay/package.json
@@ -36,7 +47,7 @@ COPY packages/view-catalog/package.json packages/view-catalog/package.json
 COPY packages/shots/package.json packages/shots/package.json
 RUN bun install --frozen-lockfile
 COPY . .
-# Widget + MCP Apps first: they emit loader.js/widget.js and mcp-apps/app.html
+# Widget + MCP Apps first: they emit loader.js/widget.js and mcp-apps/<view>.html
 # into apps/web/public, which the web build then copies into .output/public.
 RUN bun --filter @exp/widget build && bun --filter @exp/mcp-apps build && bun --filter @exp/web build
 
@@ -63,7 +74,21 @@ COPY --from=builder /app/packages packages
 # and the workspace packages the boot-time migrate needs.
 # The site/push-relay/steer-relay package.json COPYs above must stay even so
 # — --frozen-lockfile validates the full workspace set and fails if one is absent.
-RUN bun install --frozen-lockfile --filter '@exp/web'
+# #NEW-134: + drop what of onnxruntime-web the server never loads. The embedder
+# (apps/web/embedder/worker.mjs) runs its Node build on the plain WASM backend
+# (ort.node.min.mjs + ort-wasm-simd-threaded.{mjs,wasm}); the WebGPU / WebGL /
+# JSPI / asyncify builds and the source maps are ~125 MB of browser code
+# (deleted from bun's install cache too: node_modules hard-links into it).
+# apps/web/embedder/bench.mjs (build-web.yml's smoke) proves what is left loads.
+RUN bun install --frozen-lockfile --filter '@exp/web' \
+ && for dist in node_modules/onnxruntime-web/dist "$HOME"/.bun/install/cache/onnxruntime-web@*/dist; do \
+      (cd "$dist" && rm -f *.map ort-wasm-simd-threaded.jsep.* ort-wasm-simd-threaded.asyncify.* ort-wasm-simd-threaded.jspi.* \
+        ort.all.* ort.webgl.* ort.webgpu.* ort.jspi.* ort.bundle.* ort.wasm.* ort.js ort.mjs ort.min.*); \
+    done
+# #NEW-134: the embedding worker runs unbundled next to the server bundle, with
+# the model beside it (see the first stage).
+COPY --from=builder /app/apps/web/embedder apps/web/embedder
+COPY --from=embedding-model /embedder/models apps/web/embedder/models
 RUN touch apps/web/.env
 # EXP-376: Apache-2.0 section 4(a) requires giving every recipient of the work a
 # copy of the License. This image is published PUBLICLY as

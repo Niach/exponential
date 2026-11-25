@@ -271,12 +271,14 @@ export const ROUTED_APP_PREFIXES: readonly string[] = [
   `about`,
   `admin`,
   `auth`,
-  // #EXP-2027: the team-less pages of web md+.
+  // #EXP-2027, #EXP-2109: the team-less pages.
+  `assistant`,
   `chats`,
   `devices`,
   `drafts`,
   `exponential-ui-kitchen-sink`,
   `home`,
+  `inbox`,
   `integrations`,
   `invite`,
   `needs-you`,
@@ -286,6 +288,7 @@ export const ROUTED_APP_PREFIXES: readonly string[] = [
   `share`,
   `support`,
   `t`,
+  `teams`,
 ]
 
 /** Whether an `app` link's path is one the router serves (the root

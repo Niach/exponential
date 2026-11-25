@@ -409,7 +409,8 @@ class VoiceCallController @Inject constructor(
             sessions.get().sendTarget(accountId, agentId, null).let { CallKeyTarget(it.rootId, it.epoch, it.rotationDue) }
         // Not throttled: a call waits on this pull, and it nudges the devices that hold the key.
         override suspend fun secret(rootId: String, epoch: Int): ByteArray? =
-            SealedKeys.of(rootId)[epoch]?.copyOf() ?: nodes.get().pullTreeKey(accountId, rootId, epoch)
+            // #EXP-1950 (install-trust.json `callCases`): the keyring's key, by the rule.
+            nodes.get().callTreeKey(accountId, rootId, epoch)
         override fun highestEpoch(rootId: String): Int? = SealedKeys.of(rootId).keys.maxOrNull()
     }
 

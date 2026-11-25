@@ -23,7 +23,7 @@ import kotlinx.coroutines.flow.map
  * route's `action` arg, NEW-2), else the issue a
  * `pr` / `issues` seed names, else the chat a `chat` seed starts into
  * (EXP-1284). Null = nothing team-owned (an empty composer,
- * a builtin): the screen keeps the SELECTED team.
+ * a builtin): the composer's own team pick.
  */
 sealed interface RouteSubject {
     data class Prompt(val id: String) : RouteSubject
@@ -43,20 +43,17 @@ fun routeSubject(get: (String) -> String?): RouteSubject? {
 }
 
 /**
- * EXP-1186: the team a route-hosted screen works in. Cross-team lists
- * open rows of ANY member team, so a page reached from one
- * of those rows must work in the ROW's team — its owner gate, its pools, its
- * start — never silently in the selection. A route naming nothing team-owned
- * keeps [selectedId] (the Agent composer's Chat FAB). Until the subject's row
- * resolves (or if it never does) the selection stands in.
+ * EXP-1186: the team a composer works in: its subject's own, else [fallback]
+ * (the plain chat's Teams pick). Until the subject's row resolves (or if it
+ * never does) the fallback stands in.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 fun routeTeamIdFlow(
     dbFlow: Flow<ExponentialDatabase?>,
     handle: SavedStateHandle,
-    selectedId: Flow<String?>,
+    fallback: Flow<String?> = firstTeamIdFlow(dbFlow),
 ): Flow<String?> {
-    val subject = routeSubject { handle.get<String>(it) } ?: return selectedId
+    val subject = routeSubject { handle.get<String>(it) } ?: return fallback
     val subjectTeam: Flow<String?> = dbFlow.flatMapLatest { db ->
         if (db == null) {
             flowOf(null)
@@ -72,8 +69,67 @@ fun routeTeamIdFlow(
             }
         }
     }
-    return combine(subjectTeam, selectedId) { own, selected -> own ?: selected }
+    return combine(subjectTeam, fallback) { own, other -> own ?: other }
         .distinctUntilChanged()
+}
+
+/** #EXP-2109: the first member team in THE team order (`SidebarTree.teams`):
+ *  the default of a team pick; never a "current" team. */
+@OptIn(ExperimentalCoroutinesApi::class)
+fun firstTeamIdFlow(dbFlow: Flow<ExponentialDatabase?>): Flow<String?> =
+    dbFlow.flatMapLatest { db ->
+        db?.teamDao()?.observeAll()?.map { rows -> crossTeamOrder(rows).firstOrNull()?.id } ?: flowOf(null)
+    }.distinctUntilChanged()
+
+/** The ids of the teams [me] owns. */
+@OptIn(ExperimentalCoroutinesApi::class)
+fun ownedTeamIdsFlow(dbFlow: Flow<ExponentialDatabase?>, me: Flow<String?>): Flow<Set<String>> =
+    combine(dbFlow, me) { db, user -> db to user }.flatMapLatest { (db, user) ->
+        if (db == null || user == null) {
+            flowOf(emptySet())
+        } else {
+            db.teamMemberDao().observeByUser(user).map { rows ->
+                rows.filter { it.role == com.exponential.app.domain.DomainContract.teamRoleOwner }.mapTo(HashSet()) { it.teamId }
+            }
+        }
+    }.distinctUntilChanged()
+
+/** The nav argument a team-scoped page carries. */
+const val ARG_TEAM = "teamId"
+
+/**
+ * #EXP-2109 (chats.json PHONE SHELL): NO ACTIVE TEAM. A screen's team is
+ * DERIVED from what its route shows: the `teamId` it names, else the team of
+ * the board / issue / session / agent / app / prompt / skill it opens, else
+ * the first member team (a page that shows none of them).
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+fun screenTeamFlow(dbFlow: Flow<ExponentialDatabase?>, handle: SavedStateHandle): Flow<String?> {
+    fun arg(name: String) = handle.get<String>(name)?.takeIf { it.isNotEmpty() }
+    arg(ARG_TEAM)?.let { return flowOf(it) }
+    fun of(team: (ExponentialDatabase) -> Flow<String?>): Flow<String?> =
+        dbFlow.flatMapLatest { db -> if (db == null) flowOf(null) else team(db) }.distinctUntilChanged()
+    val boardId = arg("boardId")
+    val issueId = arg("issueId")
+    val sessionId = arg("sessionId")
+    val agentId = arg("agentId")
+    val appId = arg("appId")
+    val promptId = arg("promptId")
+    val skillId = arg("skillId")
+    return when {
+        boardId != null -> of { db -> db.boardDao().observeAll().map { rows -> rows.firstOrNull { it.id == boardId }?.teamId } }
+        issueId != null -> of { db ->
+            combine(db.issueDao().observeById(issueId), db.boardDao().observeAll()) { issue, boards ->
+                boards.firstOrNull { it.id == issue?.boardId }?.teamId
+            }
+        }
+        sessionId != null -> of { db -> db.sessionDao().observeById(sessionId).map { it?.teamId } }
+        agentId != null -> of { db -> db.agentDefinitionDao().observeById(agentId).map { it?.teamId } }
+        appId != null -> of { db -> db.appDao().observeAll().map { rows -> rows.firstOrNull { it.id == appId }?.teamId } }
+        promptId != null -> of { db -> db.promptDao().observeById(promptId).map { it?.teamId } }
+        skillId != null -> of { db -> db.skillDao().observeById(skillId).map { it?.teamId } }
+        else -> firstTeamIdFlow(dbFlow)
+    }
 }
 
 /** #EXP-2079 (agent-settings.json `assistant.chatTeams`): the synced teams

@@ -743,7 +743,10 @@ struct AgentSessionView: View {
 
     private func noFeedPlaceholder(_ model: AgentSessionModel) -> NoFeedPlaceholder? {
         guard !model.hasFeed else { return nil }
-        if let status = historyStatus(model) { return .history(status) }
+        if let status = historyStatus(model) {
+            // #EXP-2119: an online device is never called offline.
+            return SteerNoFeed.state(ended: true, busy: false, deviceOnline: model.hostDevice.online == true) == .idle ? .idle : .history(status)
+        }
         if model.phase != .live,
            SteerNoFeed.state(
                ended: model.sessionEnded, busy: (model.session ?? session).busy,
@@ -1001,6 +1004,10 @@ struct AgentSessionView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Nothing here scrolls: a tap puts the composer's keyboard away
+        // (the Assistant tab's bar comes back with it).
+        .contentShape(Rectangle())
+        .onTapGesture { UIApplication.endEditing() }
     }
 
     /// Bottom-anchored feed (a short feed sits above the input bar, not at the
@@ -1612,11 +1619,23 @@ struct AgentSessionView: View {
                     agent: model?.catalogAgent
                 ) {
                     CommandPill(command: command, text: text)
-                } else if case let .member(_, _, body) = TranscriptGrouping.feedInput(text) {
+                } else if case let .member(name, userId, line) = TranscriptGrouping.feedInput(text) {
                     // #EXP-1990: a member's line in a team agent's group chat:
                     // theirs (the viewer's own = their own bubble), the bubble
-                    // holding the body alone.
-                    if layout?.side == .other {
+                    // holding the body alone. #EXP-2075: a member's press =
+                    // its body, else THE inline marker under their name (a
+                    // full row, so the line's member decides it).
+                    let action = ChatExpress.parseActionInput(line)
+                    let body = action?.body ?? line
+                    if let action, body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        TranscriptMarkerRow(
+                            label: ChatExpress.actionMarker(
+                                name: action.card.name,
+                                author: userId == deps.auth.userId ? nil : transcriptRows?.user(id: userId)?.name ?? name
+                            )
+                        )
+                        .accessibilityIdentifier("express-action-marker")
+                    } else if layout?.side == .other {
                         senderBubble(body, layout: layout, streaming: false, time: time)
                             .modifier(FindRowMark(id: id))
                     } else {
@@ -1772,6 +1791,15 @@ struct AgentSessionView: View {
         var bubbleGaps: [Int: CGFloat] = [:]
     }
 
+    /// #EXP-2075: a feed input that is an `[action]` press without a body,
+    /// bare or worded as a member's input (the marker, never a bubble).
+    static func bodilessPress(_ text: String) -> Bool {
+        var line = text
+        if case let .member(_, _, body) = TranscriptGrouping.feedInput(text) { line = body }
+        guard let action = ChatExpress.parseActionInput(line) else { return false }
+        return action.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// The raw feed as grouping items (the web mapping ×4): narration =
     /// the agent's message; a person's prompt = the viewer's own, unless
     /// it parses as a session input (`crossSessionInput`: that session's
@@ -1810,6 +1838,9 @@ struct AgentSessionView: View {
                         break
                     }
                     if case .marker = TranscriptGrouping.feedInput(text) { break }
+                    // #EXP-2075: a press without a body (the viewer's or a
+                    // member's) = THE inline marker, a full row.
+                    if Self.bodilessPress(text) { break }
                     // #EXP-1943: a call's report relay = its card, a full row.
                     if SessionTree.feedCallSession(text, callIds: Set(callSessions.map(\.id))) != nil { break }
                     if firstInputSynced == nil { firstInputSynced = model.findMessageId(rowId) != nil }

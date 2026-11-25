@@ -11,6 +11,8 @@ import { reconcileBuiltinSkills } from "@/lib/skills/builtin"
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
 // required at runtime (which Vite also can't tree-shake for browser builds).
 import triggersSql from "@/db/out/custom/0001_triggers.sql?raw"
+// #NEW-134: optional (pgvector); a no-op on a Postgres without the extension.
+import issueEmbeddingsSql from "@/db/out/custom/0002_issue_embeddings.sql?raw"
 
 function parseAdminEmails(): string[] {
   const raw = process.env.INITIAL_ADMIN_EMAILS
@@ -54,7 +56,10 @@ async function promoteInitialAdmins() {
 // exist ONLY via this path — swallowing a failure would leave the instance
 // running trigger-less until the next restart (REV-18).
 async function applyCustomSql() {
-  for (const [name, content] of [[`0001_triggers.sql`, triggersSql]] as const) {
+  for (const [name, content] of [
+    [`0001_triggers.sql`, triggersSql],
+    [`0002_issue_embeddings.sql`, issueEmbeddingsSql],
+  ] as const) {
     if (!content) continue
     try {
       await db.execute(sql.raw(content))
@@ -104,8 +109,6 @@ export async function runBootstrapPass(): Promise<void> {
   await reconcileBuiltinSkills()
   // #EXP-1829: package automations move onto their app agents' triggers.
   await import(`@/lib/apps/automations-migrate`).then((m) => m.migrateAppAutomations())
-  // #EXP-1986: the Assistant move, only once its switch is on (idempotent).
-  await import(`@/lib/agents/assistant-move`).then((m) => m.runAssistantMove())
   // #EXP-1990: team agents' private conversations end, only once the group
   // chats' switch is on (idempotent).
   if (agentGroupChatsOn()) await import(`@/lib/agents/group-chat`).then((m) => m.runGroupChatMove())

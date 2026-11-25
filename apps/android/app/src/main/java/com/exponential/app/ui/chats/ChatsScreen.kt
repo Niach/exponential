@@ -83,7 +83,7 @@ import com.exponential.app.ui.theme.flatRow
  * in-content headline `copy.title` with its search + inbox circles, then
  * #FEED-191 the Needs you entry (needs-you.json, none = no row), the Agents
  * section, #EXP-1733 the Apps section (a tap opens the app's editor) and the
- * active team's chats grouped ([Chats.chatSections] over
+ * chats of every member team grouped ([Chats.chatSections] over
  * [Chats.chatList]: Needs you · Working · Unread · Chats, no bands, no nesting,
  * each newest activity first). A row opens its chat. #EXP-1388: a long-press
  * ENTERS THE SELECTION with that row (taps toggle, nothing opens; the bar = the
@@ -118,6 +118,7 @@ fun ChatsScreen(
     /** #EXP-1388: the Archived page's back control. */
     onBack: () -> Unit = {},
     viewModel: ChatsViewModel = hiltViewModel(),
+    trustViewModel: com.exponential.app.ui.session.InstallTrustViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(view) { viewModel.setView(view) }
     val list by viewModel.chatList.collectAsStateWithLifecycle()
@@ -125,9 +126,12 @@ fun ChatsScreen(
     val appRows by viewModel.appRows.collectAsStateWithLifecycle()
     val agents by viewModel.agents.collectAsStateWithLifecycle()
     val needsYouRows by viewModel.needsYouRows.collectAsStateWithLifecycle()
+    // #EXP-1950: installs waiting for this install's approval count as Needs you rows.
+    val trust by trustViewModel.snapshot.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.ensureAssistant() }
     val facts by viewModel.rootFacts.collectAsStateWithLifecycle()
-    val isOwner by viewModel.isOwner.collectAsStateWithLifecycle()
+    val owned by viewModel.owned.collectAsStateWithLifecycle()
+    val rowTeams by viewModel.rowTeams.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
@@ -159,7 +163,7 @@ fun ChatsScreen(
         onDispose { barSuppression?.suppressed = false }
     }
     BackHandler(enabled = selecting) { selected = emptyList() }
-    val actions = remember(selected, list, facts, isOwner, view) {
+    val actions = remember(selected, list, facts, owned, view) {
         // #FEED-191 (chats.json): selection order = the displayed order.
         Chats.chatSelectionActions(
             chatDisplayedRows(list.rows, view).filter { it.sessionId in selected }.map { row ->
@@ -170,7 +174,7 @@ fun ChatsScreen(
                     rootStatus = root?.status ?: DomainContract.sessionStatusEnded,
                     unreadCount = row.unreadCount,
                     canSteer = root?.canSteer == true,
-                    canDelete = root != null && (root.mine || isOwner),
+                    canDelete = root != null && (root.mine || row.teamId in owned),
                 )
             },
             view,
@@ -183,7 +187,8 @@ fun ChatsScreen(
                 list = list,
                 agentOf = { facts[it]?.agent },
                 marksOf = { facts[it]?.marks.orEmpty() },
-                needsYouCount = needsYouRows.size,
+                teamOf = { rowTeams[it] },
+                needsYouCount = needsYouRows.size + trust.rows.size,
                 onOpenNeedsYou = onOpenNeedsYou,
                 onOpenChat = onOpenChat,
                 onLongPressChat = { row ->
@@ -249,7 +254,7 @@ fun ChatsScreen(
                         kind,
                         phone = false,
                         member = true,
-                        settings = agent.assistant || isOwner,
+                        settings = agent.assistant || agent.teamId in owned,
                         publish = false,
                         export = false,
                         delete = false,
@@ -316,6 +321,8 @@ fun ChatsContent(
     onOpenNeedsYou: () -> Unit = {},
     /** #EDE-98: a root's title marks ([Chats.chatMarks]); none by default. */
     marksOf: (rootId: String) -> List<String> = { emptyList() },
+    /** #EXP-2109: a root's, an agent's or an app's team mark; null = none. */
+    teamOf: (id: String) -> com.exponential.app.data.db.TeamEntity? = { null },
 ) {
     // #EXP-1384: the header's search pushes the phone search; the inbox
     // circle is this list's own (the specimen drives it).
@@ -339,6 +346,7 @@ fun ChatsContent(
             row = row,
             agent = agentOf(row.sessionId),
             marks = marksOf(row.sessionId),
+            team = teamOf(row.sessionId),
             onClick = { if (selecting) onToggleSelect(row.sessionId) else onOpenChat(row.sessionId) },
             onLongClick = { if (selecting) onToggleSelect(row.sessionId) else onLongPressChat(row) },
             selected = if (selecting) row.sessionId in selected else null,
@@ -370,6 +378,7 @@ fun ChatsContent(
                     row = row,
                     onClick = { if (!selecting) onOpenAgentRow(row) },
                     onLongClick = { if (!selecting) onLongPressAgent(row) },
+                    team = teamOf(row.agentId),
                 )
             }
         }
@@ -381,6 +390,7 @@ fun ChatsContent(
                 AppChatRowItem(
                     row = row,
                     onClick = { if (!selecting) onOpenAppRow(row) },
+                    team = teamOf(row.appId),
                 )
             }
         }

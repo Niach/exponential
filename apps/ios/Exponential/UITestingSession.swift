@@ -55,6 +55,33 @@ enum UITestingSession {
         let user: AuthUser
     }
 
+    /// #NEW-136: a stand-in for the on-device model behind the search's
+    /// `Translate to a search` row, so a capture does not depend on Apple
+    /// Intelligence being on in the simulator. `EXP_UITEST_SEARCH_TRANSLATION`
+    /// (launch environment) = the answer the model gives; the value `hang`
+    /// never answers (the deadline's path) and `unavailable` is a device
+    /// without the model (no row).
+    struct FixedSearchTranslator: IssueSearchTranslating {
+        let fixed: String
+        var isAvailable: Bool { fixed != "unavailable" }
+
+        func answer(prompt: String, instructions: String) async throws -> String {
+            if fixed == "hang" {
+                try await Task.sleep(for: .seconds(3600))
+            }
+            // Long enough for the row's spinner to be seen.
+            try await Task.sleep(for: .milliseconds(600))
+            return fixed
+        }
+    }
+
+    static var searchTranslator: (any IssueSearchTranslating)? {
+        guard isUITesting,
+              let fixed = ProcessInfo.processInfo.environment["EXP_UITEST_SEARCH_TRANSLATION"]
+        else { return nil }
+        return FixedSearchTranslator(fixed: fixed)
+    }
+
     /// EXP-1558: the Darwin notification the UI test posts to lower the
     /// keyboard (`dismissKeyboard`, ScreenshotFlow.swift). XCUITest has no
     /// hide-keyboard key on a phone, and a page that does not scroll (a draft

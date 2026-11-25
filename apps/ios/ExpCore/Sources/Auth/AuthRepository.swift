@@ -42,6 +42,11 @@ public final class AuthRepository: @unchecked Sendable {
     /// database, so nil there is correct.
     public var reclaimLocalCache: ((String) -> Void)?
 
+    /// #EXP-1950 decision (e): an account this install never held signed in
+    /// (its pin store is written before the install registers for it).
+    /// Called synchronously, with the signed-in account's id.
+    public var onNewAccount: ((String) -> Void)?
+
     public init(accountStore: AccountStore) {
         self.accountStore = accountStore
         self.accounts = accountStore.accounts
@@ -95,6 +100,7 @@ public final class AuthRepository: @unchecked Sendable {
         // the *target* account (which may differ from the currently-active one
         // when switching users), so no prior-merge is needed here. The caller
         // guarantees a resolved userId — a login with none never reaches here.
+        let held = accounts.contains { $0.userId == userId && $0.instanceUrl == instanceUrl }
         accountStore.resolveActiveAccount(
             token: token,
             email: email,
@@ -111,6 +117,7 @@ public final class AuthRepository: @unchecked Sendable {
         // because they all persist their token here.
         pruneDuplicateSignedOutAccounts()
         republish()
+        if !held, let accountId = activeAccountId { onNewAccount?(accountId) }
     }
 
     /// Drops signed-out records for instances that already have a signed-in one.

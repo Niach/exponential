@@ -1,6 +1,7 @@
 import { avatarHueKey } from "@exponential_app/eui/web/primitives"
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar"
 import { BoardGlyph } from "./board-glyph"
+import { agentGlyph } from "./board-icons"
 import { cn, getInitials } from "./cn"
 
 export { avatarHueKey }
@@ -23,6 +24,7 @@ export const USER_AVATAR_SIZES = {
   28: { root: `size-7`, fallback: `text-xs`, glyph: `size-4` },
   32: { root: `h-8 w-8`, fallback: `text-xs`, glyph: `size-4.5` },
   48: { root: `h-12 w-12`, fallback: `text-sm`, glyph: `size-6` },
+  56: { root: `size-14`, fallback: `text-lg`, glyph: `size-7` },
 } as const
 
 export type UserAvatarSize = keyof typeof USER_AVATAR_SIZES
@@ -72,7 +74,7 @@ export function UserAvatar({
           className
         )}
       >
-        <BoardGlyph board={{ icon: agent.icon, color: agent.color }} className={scale.glyph} />
+        <BoardGlyph board={agentGlyph(agent)} className={scale.glyph} />
       </span>
     )
   }

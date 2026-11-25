@@ -13,6 +13,9 @@ import {
   sidebarTeamOpenKey,
   sidebarTeamRows,
   sidebarTeams,
+  phoneTeamMenu,
+  phoneTeamPage,
+  type SidebarTeamItem,
 } from "./sidebar-tree"
 
 const entries = (list: unknown) => list as SidebarEntry[]
@@ -32,6 +35,11 @@ describe(`sidebar tree (#EXP-2027)`, () => {
   }
   for (const c of fixture.teamRows) {
     test(`team rows: ${c.name}`, () => expect(sidebarTeamRows({ ...c, rows: c.rows as SidebarRow[] })).toEqual(c.expected as never))
+  }
+  for (const c of fixture.phone.teamMenu) test(`phone team menu: ${c.name}`, () => expect(phoneTeamMenu(c)).toEqual(c.expected as never))
+  for (const c of fixture.phone.page) {
+    test(`phone page: ${c.name}`, () =>
+      expect(phoneTeamPage({ items: c.items as SidebarTeamItem[], entries: entries(c.entries), folderId: c.folderId })).toEqual(c.expected as never))
   }
   for (const c of fixture.drop) {
     test(`drop: ${c.name}`, () =>

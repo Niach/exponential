@@ -13,7 +13,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.VectorGroup
 import androidx.compose.ui.graphics.vector.VectorPath
 import androidx.compose.ui.graphics.vector.toPath
@@ -25,12 +24,10 @@ import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import com.exponential.app.MainActivity
 import com.exponential.app.R
-import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.SessionEntity
-import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.AppShortcuts
@@ -57,7 +54,7 @@ import kotlinx.coroutines.launch
 
 /**
  * EXP-1635 (share-targets.json DIRECT SHARE): the OS-drawn rows of the system
- * share sheet. The active team's [ShareTargets.directShareEntries] as long-lived
+ * share sheet. Every member team's [ShareTargets.directShareEntries] as long-lived
  * sharing shortcuts (`res/xml/shortcuts.xml`); a share on one arrives at
  * MainActivity with `EXTRA_SHORTCUT_ID`. Debounced behind the sync's bursts, and
  * a row is only re-pushed when it changed.
@@ -66,7 +63,7 @@ import kotlinx.coroutines.launch
  * chat ([AppShortcuts.appShortcuts] past the statics, which live in the same
  * XML) as a plain dynamic shortcut at rank 0, the sharing ones ranked after.
  * The same store and filter (never an agent's conversation, never an
- * encrypted chat), so it follows the active account and team; signed out =
+ * encrypted chat), so it follows the active account; signed out =
  * none. A tap launches MainActivity with [MainActivity.EXTRA_APP_SHORTCUT].
  */
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
@@ -75,7 +72,6 @@ class DirectShareShortcuts @Inject constructor(
     @ApplicationContext private val context: Context,
     private val auth: AuthRepository,
     holder: DatabaseHolder,
-    private val selection: TeamSelection,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val dbFlow = accountDatabaseFlow(auth, holder)
@@ -91,41 +87,24 @@ class DirectShareShortcuts @Inject constructor(
 
     fun start() {
         scope.launch {
-            val chats = selection.selectedId.flatMapLatest { team ->
-                if (team == null) {
-                    flowOf(emptyList())
+            val chats = dbFlow.scopedQuery(emptyList<SessionEntity>()) {
+                it.sessionDao().observeRecentChats(ShareTargets.MAX_ENTRIES)
+            }
+            val shortcutChats = auth.userId.flatMapLatest { me ->
+                if (me == null) {
+                    flowOf(emptyList<SessionEntity>())
                 } else {
                     dbFlow.scopedQuery(emptyList<SessionEntity>()) {
-                        it.sessionDao().observeRecentChats(team, ShareTargets.MAX_ENTRIES)
+                        it.sessionDao().observeShortcutChats(me, SHORTCUT_CHAT_LIMIT)
                     }
                 }
             }
-            val shortcutChats = combine(selection.selectedId, auth.userId) { team, me -> team to me }
-                .distinctUntilChanged()
-                .flatMapLatest { (team, me) ->
-                    if (team == null || me == null) {
-                        flowOf(emptyList<SessionEntity>())
-                    } else {
-                        dbFlow.scopedQuery(emptyList<SessionEntity>()) {
-                            it.sessionDao().observeShortcutChats(team, me, SHORTCUT_CHAT_LIMIT)
-                        }
-                    }
-                }
-            // #EXP-1987: the synced teams ride along so the viewer's global
-            // Assistant (in their personal team, none of these) stays listed.
-            val agentsAndTeams = combine(
-                dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
-                dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() }
-                    .map { teams -> teams.map { it.id } }
-                    .distinctUntilChanged(),
-            ) { agents, teamIds -> agents to teamIds }
             combine(
-                agentsAndTeams,
+                dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
                 chats,
                 shortcutChats,
-                selection.selectedId,
                 combine(auth.userId, auth.token.map { it != null }.distinctUntilChanged()) { me, signedIn -> me to signedIn },
-            ) { (agents, teamIds), sessions, shortcut, team, (me, signedIn) -> rows(agents, teamIds, sessions, shortcut, team, me, signedIn) }
+            ) { agents, sessions, shortcut, (me, signedIn) -> rows(agents, sessions, shortcut, me, signedIn) }
                 .debounce(DEBOUNCE_MS)
                 .distinctUntilChanged()
                 .collect(::publish)
@@ -134,15 +113,12 @@ class DirectShareShortcuts @Inject constructor(
 
     private fun rows(
         agents: List<AgentDefinitionEntity>,
-        teamIds: List<String>,
         sessions: List<SessionEntity>,
         shortcut: List<SessionEntity>,
-        team: String?,
         me: String?,
         signedIn: Boolean,
     ): List<Row> {
-        if (team == null) return emptyList()
-        val listed = SessionTree.listAgents(agents.map(SessionTree::agentDefinition), emptyList(), team, me, teamIds)
+        val listed = SessionTree.listAgents(agents.map(SessionTree::agentDefinition), emptyList(), teamId = null, me = me)
         val order = listed.withIndex().associate { (index, row) -> row.agentId to index }
         val chats = sessions.map(::chat)
         val entries = ShareTargets.directShareEntries(listed, chats, me) { a ->

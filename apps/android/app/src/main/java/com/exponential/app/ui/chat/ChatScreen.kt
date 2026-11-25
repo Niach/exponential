@@ -123,7 +123,8 @@ import java.time.format.DateTimeFormatter
  */
 @Composable
 fun ChatScreen(
-    onBack: () -> Unit,
+    /** Null = a tab's root (the Assistant's): no back control. */
+    onBack: (() -> Unit)?,
     onOpenSession: (sessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
     onOpenChat: (rootSessionId: String) -> Unit,
@@ -132,10 +133,17 @@ fun ChatScreen(
     onNewIssue: ((boardId: String, rootSessionId: String) -> Unit)? = null,
     /** #EXP-1849: the root is an app's: open the app (the editor) in place. */
     onOpenApp: (appId: String) -> Unit = {},
+    /** #EXP-2119: THE not-found state's "Go to Agent". */
+    onOpenAgentHome: () -> Unit = {},
     viewModel: ChatViewModel = hiltViewModel(),
 ) {
+    val leave: () -> Unit = onBack ?: {}
     val view by viewModel.view.collectAsStateWithLifecycle()
     val root by viewModel.root.collectAsStateWithLifecycle()
+    if (com.exponential.app.ui.session.rememberSessionMissing(viewModel.rootId, root != null || view != null)) {
+        com.exponential.app.ui.session.SessionNotFound(onBack = leave, onOpenAgentHome = onOpenAgentHome)
+        return
+    }
     val isAgent by viewModel.isAgent.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val resultCards by viewModel.resultCards.collectAsStateWithLifecycle()
@@ -611,7 +619,7 @@ fun ChatScreen(
     // Inline `@email` mention pills in the chat rows: the team's synced
     // members (issue detail's resolver); unknown addresses stay plain text.
     val mentionResolver = remember(teamUsers) {
-        MentionResolver(teamUsers.map { MentionMember(it.name ?: it.email, it.email) })
+        MentionResolver(com.exponential.app.ui.markdown.mentionMembers(teamUsers))
     }
 
     // #EXP-1674: links in a chat's prose open like everywhere else
@@ -635,6 +643,7 @@ fun ChatScreen(
             // #FEED-239: the own bubbles wear the viewer's avatar on the right.
             LocalViewer provides teamUsers.firstOrNull { it.id == me },
         ) {
+            Box(Modifier.fillMaxSize()) {
             ChatContent(
                 view = view,
                 rootLoaded = rootRow != null,
@@ -663,7 +672,7 @@ fun ChatScreen(
                     ChatIssuePage(
                         issueId = issueId,
                         padding = padding,
-                        onBack = onBack,
+                        onBack = leave,
                         onOpenIssue = openIssueHere,
                         onOpenChat = { id -> if (id != viewModel.rootId) onOpenChat(id) },
                         onMessage = { text -> viewModel.send(text) },
@@ -699,7 +708,7 @@ fun ChatScreen(
                 },
                 // #FEED-239: the `…`'s Agent settings = the settings item IN the chat.
                 settingsPage = agentSettingsId?.let { id ->
-                    { onClose -> AgentSettingsItem(agentId = id, onClose = onClose, onDeleted = onBack) }
+                    { onClose -> AgentSettingsItem(agentId = id, onClose = onClose, onDeleted = leave) }
                 },
                 initialCard = viewModel.initialCard,
                 // #EXP-1732: every kind has Results (an agent's tree too).
@@ -718,6 +727,15 @@ fun ChatScreen(
                     )
                 },
             )
+            // #EXP-1950: an install waiting for approval, where this encrypted
+            // chat would open and no key of it is held: the waiting state
+            // instead of locked rows (under the header: back stays).
+            val heldKeys by com.exponential.app.data.sealed.SealedKeys.keys.collectAsStateWithLifecycle()
+            com.exponential.app.ui.session.InstallWaitingGate(
+                sealed = rootRow?.sealEpoch != null,
+                holdsKey = heldKeys[viewModel.rootId].orEmpty().isNotEmpty(),
+            )
+            }
         }
     }
 
@@ -765,7 +783,7 @@ fun ChatScreen(
             onConfirm = {
                 deleteConfirm = false
                 // After a delete the chat's screen closes back to the list.
-                viewModel.deleteChat(onDeleted = onBack)
+                viewModel.deleteChat(onDeleted = leave)
             },
             onDismiss = { deleteConfirm = false },
         )

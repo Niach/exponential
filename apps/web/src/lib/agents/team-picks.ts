@@ -1,6 +1,6 @@
-import { and, eq, inArray, ne } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
 import { launchPick, mergeTeamPicks, teamPick } from "@exp/domain-contract/agent-settings"
-import { agents, mcpServers, skills, teams } from "@/db/schema"
+import { mcpServers, skills, teams } from "@/db/schema"
 import type { db as Db } from "@/db/connection"
 import { sessionSkillIds } from "@/lib/skills/builtin"
 
@@ -92,26 +92,6 @@ export async function sessionLaunchSkillIds(
 ): Promise<string[]> {
   const skillIds = await sessionLaunchPick(reader, `skills`, session, session.skillIds)
   return sessionSkillIds(reader as never, { teamId: session.teamId, skillIds, appId: session.appId })
-}
-
-/** Switch off: a new per-team Assistant in `teamId` starts with the picks of
- *  that team its member's other Assistants hold. */
-export async function inheritedAssistantPicks(
-  reader: Reader,
-  ownerId: string,
-  teamId: string
-): Promise<{ skillIds: string[]; mcpServerIds: string[] }> {
-  const rows = await reader
-    .select({ skillIds: agents.skillIds, mcpServerIds: agents.mcpServerIds })
-    .from(agents)
-    .where(and(eq(agents.ownerId, ownerId), eq(agents.role, `assistant`), ne(agents.teamId, teamId)))
-    .orderBy(agents.createdAt, agents.id)
-  const skillIds = rows.flatMap((row) => row.skillIds ?? [])
-  const mcpServerIds = rows.flatMap((row) => row.mcpServerIds ?? [])
-  return {
-    skillIds: (await pickOfTeam(reader, `skills`, skillIds, teamId)) ?? [],
-    mcpServerIds: (await pickOfTeam(reader, `mcp`, mcpServerIds, teamId)) ?? [],
-  }
 }
 
 /** Launch entries of different teams' servers with the same name get `-2`,

@@ -154,10 +154,8 @@ import type { Context } from "@/lib/trpc"
 import { activityWire } from "@/lib/activity/wire"
 import { noteAgentIssueActivity } from "@/lib/integrations/pr-actor-claims"
 import { composeDeviceList } from "@/lib/steer-devices"
-import {
-  ISSUE_SEARCH_SCAN_CAP,
-  issueSearchMatchIds,
-} from "@/lib/issue-search-sql"
+import { ISSUE_SEARCH_SCAN_CAP } from "@/lib/issue-search-sql"
+import { issueSearchIdsSql } from "@/lib/issue-embeddings/search"
 import { buildRuntimeConfig } from "@/lib/runtime-config"
 import { createAgentBugReport } from "@/lib/widget/agent-report"
 import {
@@ -187,6 +185,7 @@ import {
   loadSessionForUser,
 } from "@/lib/sessions/access"
 import { getSessionTree, listSessions } from "@/lib/sessions/tree"
+import { ownAssistantTeam } from "@/lib/sessions/tree-teams"
 import { markTreesReadBy } from "@/lib/sessions/reads"
 import { endSession, stopSession, SUMMARY_DROPPED_WARNING } from "@/lib/sessions/lifecycle"
 import { AGENT_CONVERSATION_LINK_MESSAGE, linkIssues, unlinkIssue } from "@/lib/sessions/issues"
@@ -248,6 +247,7 @@ import { inlineShowResult } from "@exp/mcp-apps/genui-result"
 import { ALL_MCP_TOOL_GATES, watchedByLiveSession, type McpToolGates } from "./gates"
 import type { McpUser } from "./server"
 import { trainEdge } from "@/lib/merge-train/edge"
+import { loadIssuePullRequests, loadIssueSessions } from "@/lib/emcp/issue-pull-requests"
 import {
   assertFullAccess,
   assertBoardGranted,
@@ -1249,7 +1249,8 @@ export function registerExponentialTools(
       // EVERY granted board, and a limit-1000 list must not scan them all.
       if (search) {
         conditions.push(
-          sql`${issues.id} in (${issueSearchMatchIds(
+          // #NEW-135: plus the semantic hits behind them, and `similar:<ID>`.
+          sql`${issues.id} in (${await issueSearchIdsSql(
             search,
             { boardIds: allowedBoardIds },
             { limit: ISSUE_SEARCH_SCAN_CAP }
@@ -1340,7 +1341,7 @@ export function registerExponentialTools(
     `exponential_issues_get`,
     {
       annotations: READ_ONLY,
-      description: `Get a single issue by UUID or identifier (e.g. "MET-12"), including its label ids and latest comments (newest first, capped at 50; commentsLimit overrides).`,
+      description: `Get a single issue by UUID or identifier (e.g. "MET-12"), including its label ids, pull requests (pullRequests[].status = where each stands), live sessions and latest comments (newest first, capped at 50; commentsLimit overrides).`,
       // EXP-1183: no MCP Apps view here — the always-loaded set has no room
       // for the `_meta.ui` binding (context-budget.test.ts); the issues view
       // opens an issue itself through the host's tools/call.
@@ -1414,6 +1415,9 @@ export function registerExponentialTools(
           // EXP-988/EXP-979: how many files the issue carries, so an agent
           // knows whether exponential_attachments_list is worth a call.
           attachmentCount: await countIssueAttachments(id),
+          // #NEW-23: its pull requests with the header pill's words.
+          pullRequests: await loadIssuePullRequests(id),
+          sessions: await loadIssueSessions(id, user.id),
           // NEW-19 (FEED-116): the "Reported via widget" card's data, on
           // widget- and agent-filed issues only.
           ...(submission ? { widget: widgetSubmissionWire(submission) } : {}),
@@ -2483,8 +2487,16 @@ export function registerExponentialTools(
    * actions). Visibility itself is `loadSessionForUser`'s. */
   async function loadGrantedSession(id: string) {
     const session = await loadSessionForUser(user.id, id)
-    if (!access.full) assertTeamFullyGranted(access, session.teamId)
+    if (!access.full && !(await ownAssistantSession(session.teamId))) assertTeamFullyGranted(access, session.teamId)
     return session
+  }
+
+  /** #EXP-2107: a plain chat's session addresses its member's own
+   *  Assistant conversation (personal team) past its tree clamp. */
+  async function ownAssistantSession(teamId: string): Promise<boolean> {
+    if (access.origin !== `session`) return false
+    const own = await loadCallerSession()
+    return !!own && (await ownAssistantTeam(own, user.id)) === teamId
   }
 
   /** The session a link tool writes on (NEW-1: the row sits on the session
@@ -2624,7 +2636,7 @@ export function registerExponentialTools(
                 ? (await loadAppForUser(user.id, rest.appId)).teamId
                 : (rest.teamId ?? own?.teamId)
           if (!teamId) throw new Error(`Pass teamId: this connection is confined to chosen teams.`)
-          assertTeamFullyGranted(access, teamId)
+          if (!(rest.sessionId && (await ownAssistantSession(teamId)))) assertTeamFullyGranted(access, teamId)
         }
         const issueIds = issueRefs
           ? await Promise.all(

@@ -90,14 +90,17 @@ pub fn no_feed_state(ended: bool, busy: bool) -> NoFeedState {
 /// EXP-1487 / #EXP-1703 (TS `steerNoFeedState`): ended first, then a host
 /// device offline in presence (`away`), then busy = starting, else idle.
 pub fn no_feed_state_on(ended: bool, busy: bool, device_offline: bool) -> NoFeedState {
-    no_feed_state_held(ended, busy, device_offline, true)
+    no_feed_state_held(ended, busy, device_offline, true, false)
 }
 
 /// #EXP-2000 (TS `steerNoFeedState` with `started`): as [`no_feed_state_on`],
 /// but an idle row no device picked up yet (`started` false = `startedAt`
-/// null) is [`NoFeedState::Waiting`], never the idle copy.
-pub fn no_feed_state_held(ended: bool, busy: bool, device_offline: bool, started: bool) -> NoFeedState {
+/// null) is [`NoFeedState::Waiting`], never the idle copy. #EXP-2119: an
+/// ended row whose device is ONLINE in presence (`device_online`; unknown =
+/// false) has no transcript to send: the idle copy, never "offline".
+pub fn no_feed_state_held(ended: bool, busy: bool, device_offline: bool, started: bool, device_online: bool) -> NoFeedState {
     match (ended, device_offline, busy) {
+        (true, _, _) if device_online => NoFeedState::Idle,
         (true, _, _) => NoFeedState::Offline,
         (false, true, _) => NoFeedState::Away,
         (false, false, true) => NoFeedState::Starting,
@@ -165,12 +168,15 @@ pub struct TailFeedRow<'a> {
 }
 
 /// One synced message as [`synced_tail`] reads it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SyncedTailRow<'a> {
     pub id: &'a str,
     pub author_kind: &'a str,
     /// The row carries a card (`card` set and not JSON null).
     pub has_card: bool,
+    /// #EXP-2075: that card when it is THE `action` card that reads (a
+    /// name and a surfaceId; `None` = any other card, or one not opened).
+    pub action: Option<domain::chat_express::ActionCard>,
     pub consumed_at: Option<&'a str>,
     pub created_at: &'a str,
     pub body: &'a str,
@@ -182,14 +188,17 @@ pub struct SyncedTailRow<'a> {
 /// #FEED-260 (steer-enet.json SYNCED TAIL, TS `steerSyncedTail`): the synced
 /// messages a NOT-live transcript draws after its feed, oldest first
 /// (`createdAt`, then `id`), the newest `max`: card-less with a non-blank
-/// body, the agent's or a person's CONSUMED input, later than the feed's
+/// body, the agent's or a person's CONSUMED input, not earlier than the feed's
 /// newest known row time, and not already held by the feed (an agent line
 /// equal to, a prefix of or prefixed by a narration; an input equal to a feed
 /// input; #EXP-2084 another session's line the feed holds as that session's
-/// input, whatever its time). An empty feed takes the tail only while its live transcript
-/// cannot be loaded (`unreachable`, the OFFLINE LINE's condition) and only
-/// when it holds an agent line (else SENT INPUTS keeps the placeholder). A
-/// live feed = none.
+/// input, whatever its time). #EXP-2075: a person's CONSUMED row with THE
+/// `action` card is an input too, with or without a body; a feed input that
+/// parses with `parse_action_input` is that press (its body the parsed one;
+/// a bodiless press compared by its card). An empty feed takes the tail only
+/// while its live transcript cannot be loaded (`unreachable`, the OFFLINE
+/// LINE's condition) and only when it holds an agent line (else SENT INPUTS
+/// keeps the placeholder). A live feed = none.
 pub fn synced_tail<'r, T>(
     live: bool,
     feed: &[TailFeedRow<'_>],
@@ -211,12 +220,22 @@ pub fn synced_tail<'r, T>(
         .filter_map(|r| r.text.filter(|t| !t.is_empty()))
         .map(str::trim)
         .collect();
-    let inputs: Vec<&str> = feed
-        .iter()
-        .filter(|r| r.author == Some("user"))
-        .filter_map(|r| r.text.filter(|t| !t.is_empty()))
-        .map(str::trim)
-        .collect();
+    let mut inputs: Vec<String> = Vec::new();
+    let mut presses: Vec<domain::chat_express::ActionCard> = Vec::new();
+    for text in feed.iter().filter(|r| r.author == Some("user")).filter_map(|r| r.text.filter(|t| !t.is_empty())) {
+        let (card, body) = match domain::chat_express::parse_action_input(text) {
+            Some((card, body)) => (Some(card), body.trim().to_string()),
+            None => (None, text.trim().to_string()),
+        };
+        if !body.is_empty() {
+            inputs.push(body);
+        } else if let Some(card) = card {
+            presses.push(card);
+        }
+    }
+    let same_press = |a: &domain::chat_express::ActionCard, b: &domain::chat_express::ActionCard| {
+        a.name == b.name && a.surface_id == b.surface_id && a.block == b.block && a.message_id == b.message_id && a.context == b.context
+    };
     // #EXP-2084: the inputs the device worded as another session's
     // (`Message from <name> (session <id>): <body>`), by session and body.
     let relays: Vec<domain::transcript_grouping::CrossSessionInput> = feed
@@ -228,32 +247,39 @@ pub fn synced_tail<'r, T>(
         .iter()
         .map(|item| (row(item), item))
         .filter(|(m, _)| {
-            if m.has_card {
+            let action = m.action.as_ref().filter(|_| m.has_card && m.author_kind == "user");
+            if m.has_card && action.is_none() {
                 return false;
             }
             let body = m.body.trim();
-            if body.is_empty() {
+            if let Some(action) = action.filter(|_| body.is_empty()) {
+                if m.consumed_at.is_none() || presses.iter().any(|press| same_press(press, action)) {
+                    return false;
+                }
+            } else if body.is_empty() {
                 return false;
-            }
-            match m.author_kind {
-                "agent" => {
-                    if m.author_session_id.is_some_and(|from| relays.iter().any(|relay| relay.session_id == from && relay.body.trim() == body)) {
-                        return false;
+            } else {
+                match m.author_kind {
+                    "agent" => {
+                        if m.author_session_id.is_some_and(|from| relays.iter().any(|relay| relay.session_id == from && relay.body.trim() == body)) {
+                            return false;
+                        }
+                        if narrations.iter().any(|text| !text.is_empty() && (text.starts_with(body) || body.starts_with(text))) {
+                            return false;
+                        }
                     }
-                    if narrations.iter().any(|text| !text.is_empty() && (text.starts_with(body) || body.starts_with(text))) {
-                        return false;
+                    "user" => {
+                        if m.consumed_at.is_none() || inputs.iter().any(|input| input == body) {
+                            return false;
+                        }
                     }
+                    _ => return false,
                 }
-                "user" => {
-                    if m.consumed_at.is_none() || inputs.contains(&body) {
-                        return false;
-                    }
-                }
-                _ => return false,
             }
             match feed_at {
                 None => true,
-                Some(feed_at) => domain::session_tree::iso_ms(m.created_at).is_some_and(|created| created > feed_at),
+                // #EXP-2101: a row of the feed's newest instant counts too.
+                Some(feed_at) => domain::session_tree::iso_ms(m.created_at).is_some_and(|created| created >= feed_at),
             }
         })
         .collect();
@@ -269,8 +295,8 @@ pub fn synced_tail<'r, T>(
 /// not-live transcript showing `rows` ends with THE inline marker reading
 /// `noFeedAway.title`: an ended row whose last dial said NO FEED, a row not
 /// ended whose device is offline.
-pub fn offline_line(live: bool, rows: usize, ended: bool, no_feed: bool, device_offline: bool) -> bool {
-    if live || rows == 0 {
+pub fn offline_line(live: bool, rows: usize, ended: bool, no_feed: bool, device_offline: bool, device_online: bool) -> bool {
+    if live || rows == 0 || device_online {
         return false;
     }
     if ended { no_feed } else { device_offline }
@@ -1350,11 +1376,13 @@ mod tests {
             let device_offline = case["deviceOffline"].as_bool().unwrap_or(false);
             // #EXP-2000: `started` absent = true.
             let started = case["started"].as_bool().unwrap_or(true);
-            assert_eq!(no_feed_state_held(ended, busy, device_offline, started), state, "{}", case["name"]);
-            if started {
+            // #EXP-2119: `deviceOnline` absent = false.
+            let device_online = case["deviceOnline"].as_bool().unwrap_or(false);
+            assert_eq!(no_feed_state_held(ended, busy, device_offline, started, device_online), state, "{}", case["name"]);
+            if started && !device_online {
                 assert_eq!(no_feed_state_on(ended, busy, device_offline), state, "{}", case["name"]);
             }
-            if !device_offline && started {
+            if !device_offline && started && !device_online {
                 assert_eq!(no_feed_state(ended, busy), state, "{}", case["name"]);
             }
         }
@@ -1417,6 +1445,10 @@ mod tests {
                 id: m["id"].as_str().unwrap(),
                 author_kind: m["authorKind"].as_str().unwrap(),
                 has_card: !m["card"].is_null(),
+                // #EXP-2075: the card when it reads as THE `action` card.
+                action: serde_json::from_value::<domain::chat_express::ActionCard>(m["card"].clone())
+                    .ok()
+                    .filter(|card| card.kind == "action"),
                 consumed_at: m["consumedAt"].as_str(),
                 created_at: m["createdAt"].as_str().unwrap(),
                 body: m["body"].as_str().unwrap(),
@@ -1437,7 +1469,8 @@ mod tests {
                 case["rows"].as_u64().unwrap() as usize,
                 case["ended"].as_bool().unwrap(),
                 case["noFeed"].as_bool().unwrap(),
-                case["deviceOffline"].as_bool().unwrap(),
+                case["deviceOffline"].as_bool().unwrap_or(false),
+                case["deviceOnline"].as_bool().unwrap_or(false),
             );
             assert_eq!(line, case["line"].as_bool().unwrap(), "{}", case["name"]);
         }

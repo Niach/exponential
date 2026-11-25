@@ -53,9 +53,12 @@ public struct EmbedCard: Equatable, Sendable {
 
     /// An inner event → the Embed's `action` payload (merged over the
     /// author's context like any component payload): the inner name and
-    /// context.
-    public static func payload(name: String, context: JSONValue?) -> JSONValue {
-        .object(["name": .string(name), "context": .object(context?.object ?? [:])])
+    /// context, and the inner event's resolved `userMessage` when it has
+    /// one (#EXP-2104; no key otherwise).
+    public static func payload(name: String, context: JSONValue?, userMessage: String? = nil) -> JSONValue {
+        var payload: [String: JSONValue] = ["name": .string(name), "context": .object(context?.object ?? [:])]
+        if let userMessage { payload["userMessage"] = .string(userMessage) }
+        return .object(payload)
     }
 
     /// The nested surface's id: the host's surface id and the Embed's
@@ -258,7 +261,7 @@ extension SurfaceModel {
     /// (the core merges it over the author's context; no `on.action` =
     /// nothing reaches the host).
     func embedAction(_ nodeId: String, _ event: SurfaceActionEvent) {
-        fire(id: nodeId, EmbedCard.event, payload: EmbedCard.payload(name: event.name, context: event.context))
+        fire(id: nodeId, EmbedCard.event, payload: EmbedCard.payload(name: event.name, context: event.context, userMessage: event.userMessage))
     }
 
     /// Cards whose Embed left the surface unmount.

@@ -871,19 +871,23 @@ async fn the_argv_pins_the_permission_mode_and_the_reaper_anchor() {
     assert!(run
         .argv_value("--settings")
         .is_some_and(|path| path.contains("claude-hooks/1/row-1.settings.json")));
-    // The MCP server rides inline with the key left as an env reference.
-    let mcp = run.argv_value("--mcp-config").expect("--mcp-config is emitted");
-    assert!(mcp.contains("${EXP_MCP_TOKEN}"), "the key must not land on the argv: {mcp}");
+    // #FEED-308: the MCP document rides a FILE beside the settings file
+    // (never argv: Windows' command line ends at 32,767 characters), with
+    // the key left as an env reference.
+    let mcp_file = run.argv_value("--mcp-config").expect("--mcp-config is emitted");
+    assert!(mcp_file.contains("claude-hooks/1/mcp-") && mcp_file.ends_with(".json"), "{mcp_file}");
+    let mcp = std::fs::read_to_string(mcp_file).expect("the MCP document is written");
+    assert!(mcp.contains("${EXP_MCP_TOKEN}"), "the key must not land on disk: {mcp}");
     assert!(mcp.contains("X-Exp-Session-Id"));
     assert!(!mcp.contains("expu_test-key"));
     assert!(run.argv.iter().any(|arg| arg == "--strict-mcp-config"));
-    // EXP-763: the run playbook, appended to the system prompt. The fixture
-    // records argv one LINE per entry, so only the playbook's first line is
-    // addressable here.
-    assert_eq!(
-        run.argv_value("--append-system-prompt"),
-        coding::skill::RUN_SKILL.lines().next()
-    );
+    // EXP-763: the run playbook, appended to the system prompt, as a file
+    // too (#FEED-308).
+    let prompt_file = run.argv_value("--append-system-prompt-file").expect("--append-system-prompt-file is emitted");
+    assert!(prompt_file.contains("claude-hooks/1/prompt-") && prompt_file.ends_with(".md"), "{prompt_file}");
+    assert!(std::fs::read_to_string(prompt_file).expect("the append is written").starts_with(coding::skill::RUN_SKILL.lines().next().unwrap()));
+    assert!(!run.argv.iter().any(|arg| arg == "--append-system-prompt"));
+    assert!(run.argv.iter().all(|arg| arg.len() < 1024), "no text rides the argv: {:?}", run.argv);
     // EXP-784: the `--session-id` pin is claude's OWN uuid, decoupled from
     // the ACP session id (a `/clear` moves the former, never the latter);
     // it reaches the run record through the response's `_meta`.
@@ -1695,43 +1699,21 @@ async fn a_cli_silent_twice_fails_the_start_with_the_reason() {
 /// memory.high for four hours (a runaway build held 12.6 GB of it), and
 /// every failed start said only "answered nothing for 90s". A start that
 /// fails while its cgroups are under memory pressure names the slice, its
-/// use against its cap and the scope holding the most (a fake cgroup tree
-/// mirroring this test's own cgroup path, `EXP_CGROUP_ROOT`).
+/// use against its cap and the scope holding the most. The fake claude
+/// builds the fake cgroup tree (`EXP_CGROUP_ROOT`) around its OWN cgroup
+/// path: on a systemd host the child runs in a run scope of its own, never
+/// in this test's cgroup (the gate's runner, 2026-11-24).
 #[tokio::test]
 async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_scope() {
-    let Some(own) = std::fs::read_to_string("/proc/self/cgroup")
-        .ok()
-        .and_then(|text| text.lines().find_map(|line| line.strip_prefix("0::")).map(str::to_string))
-    else {
+    if std::fs::read_to_string("/proc/self/cgroup").map_or(true, |text| !text.lines().any(|line| line.starts_with("0::"))) {
         eprintln!("no cgroup v2 here: nothing to check");
-        return;
-    };
-    let parts: Vec<&str> = own.split('/').filter(|part| !part.is_empty()).collect();
-    if parts.len() < 2 {
-        eprintln!("cgroup {own} has no parent slice: nothing to check");
         return;
     }
     let _session = one_session_at_a_time();
     let work = workdir("silent-pressure");
-    let fake = work.0.join("cgroup");
-    let slice = fake.join(parts[..parts.len() - 1].join("/"));
-    let mine = fake.join(parts.join("/"));
-    let hog = slice.join("run-exp-hog.scope");
-    for dir in [&mine, &hog] {
-        std::fs::create_dir_all(dir).unwrap();
-    }
-    let calm = "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n";
-    for (dir, current, high) in [
-        (&slice, "17609365913", "17179869184"),
-        (&mine, "52428800", "max"),
-        (&hog, "13529146982", "max"),
-    ] {
-        std::fs::write(dir.join("memory.current"), format!("{current}\n")).unwrap();
-        std::fs::write(dir.join("memory.high"), format!("{high}\n")).unwrap();
-        std::fs::write(dir.join("memory.pressure"), calm).unwrap();
-    }
-    let slice_name = parts[parts.len() - 2].to_string();
-    let fake_root = fake.display().to_string();
+    let fake_root = work.0.join("cgroup").display().to_string();
+    let slice_file = work.0.join("slice.txt");
+    let slice_env = slice_file.display().to_string();
     let spawns = work.0.join("spawns.txt").display().to_string();
     let spec = spec_env(
         &Path::new(FIXTURES).join("basic"),
@@ -1741,7 +1723,8 @@ async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_sc
             ("EXP_FAKE_CLAUDE_HANGS", "5"),
             ("EXP_FAKE_CLAUDE_SPAWNS", spawns.as_str()),
             (engine::starved::CGROUP_ROOT_ENV, fake_root.as_str()),
-            (engine::adapters::claude::START_TIMEOUT_ENV, "1000"),
+            ("EXP_FAKE_CLAUDE_PRESSURE", slice_env.as_str()),
+            (engine::adapters::claude::START_TIMEOUT_ENV, "2000"),
             (engine::adapters::claude::START_BACKOFF_ENV, "0"),
         ],
     );
@@ -1766,10 +1749,89 @@ async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_sc
         .await
         .expect("the connection runs cleanly")
         .expect("the start fails");
+    let Ok(slice_name) = std::fs::read_to_string(&slice_file).map(|name| name.trim().to_string()) else {
+        eprintln!("the fake claude's cgroup has no parent slice: nothing to check");
+        return;
+    };
     let wall = format!(
         "Device is under memory pressure ({slice_name} 16.4 GB of 16.0 GB; run-exp-hog.scope holds 12.6 GB): claude did not start, it answered nothing at startup, 3 times in a row"
     );
     assert!(error.contains(&wall), "{error}");
+}
+
+/// #FEED-305 regression: on 2026-11-24 a suspended session on mint got two
+/// handed messages while every claude start on the machine was silent. The
+/// first prompt's lazy start failed with its reason; the second had found
+/// the still-starting child, skipped the wait and queued its turn on a
+/// process that was then retired, so it never settled: the session read
+/// busy with no process for 25 minutes, until the stall watchdog ended it
+/// as "The agent stopped responding". Every prompt that met the failed
+/// start fails with the start's reason, at once, and no extra spawns.
+#[tokio::test]
+async fn a_prompt_that_meets_a_failing_start_fails_with_its_reason_too() {
+    let _session = one_session_at_a_time();
+    let work = workdir("silent-start-second-prompt");
+    let session_id = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    record_transcript(&work.0, session_id, &work.0);
+    let spawns = work.0.join("spawns.txt");
+    let spawns_env = spawns.display().to_string();
+    let spec = spec_env(
+        &Path::new(FIXTURES).join("basic"),
+        &work.0,
+        false,
+        &[
+            ("EXP_FAKE_CLAUDE_HANGS", "99"),
+            ("EXP_FAKE_CLAUDE_SPAWNS", spawns_env.as_str()),
+            (engine::adapters::claude::START_TIMEOUT_ENV, "1000"),
+            (engine::adapters::claude::START_BACKOFF_ENV, "0"),
+        ],
+    );
+    let adapter = ClaudeAgent::new(spec).expect("the adapter builds");
+    let listed = work.0.clone();
+    let (first, second) = Client
+        .v1()
+        .name("feed305-test-client")
+        .on_receive_notification(
+            async move |_notification: SessionNotification, _cx| Ok(()),
+            on_receive_notification!(),
+        )
+        .connect_with(adapter, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+            cx.send_request(
+                InitializeRequest::new(ProtocolVersion::V1)
+                    .client_capabilities(engine::client_capabilities()),
+            )
+            .block_task()
+            .await?;
+            let sessions = cx
+                .send_request(ListSessionsRequest::new().cwd(listed.clone()))
+                .block_task()
+                .await?;
+            let loaded = sessions.sessions[0].session_id.clone();
+            cx.send_request(LoadSessionRequest::new(loaded.clone(), listed)).block_task().await?;
+            let prompt = |text: &str| {
+                PromptRequest::new(loaded.clone(), vec![ContentBlock::Text(TextContent::new(text))])
+            };
+            let first = cx.send_request(prompt("First handed message."));
+            // The second arrives while the first's start is under way.
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            let second = cx.send_request(prompt("Second handed message."));
+            let first = first.block_task().await.err().map(|error| format!("{error:?}"));
+            let second = tokio::time::timeout(std::time::Duration::from_secs(20), second.block_task())
+                .await
+                .map(|answer| answer.err().map(|error| format!("{error:?}")));
+            Ok::<_, Error>((first, second))
+        })
+        .await
+        .expect("the connection runs cleanly");
+    let reason = "claude did not start: it answered nothing for 1s at startup, 3 times in a row";
+    let first = first.expect("the first prompt fails");
+    assert!(first.contains(reason), "{first}");
+    let second = second
+        .expect("the second prompt settles: it never hangs on the retired child")
+        .expect("the second prompt fails");
+    assert!(second.contains(reason), "{second}");
+    let count = std::fs::read_to_string(&spawns).expect("the fake counted its spawns").lines().count();
+    assert_eq!(count, 3, "one failed start for both, never a second round of spawns");
 }
 
 /// #FEED-246 regression: a worker said `quiet` after one step, kept working

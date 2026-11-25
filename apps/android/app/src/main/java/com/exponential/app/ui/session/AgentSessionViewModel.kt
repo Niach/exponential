@@ -607,7 +607,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                 dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeams(teamIds) }
             }
         }
-        .map { users -> users.map { MentionMember(it.name ?: it.email, it.email) } }
+        .map { users -> com.exponential.app.ui.markdown.mentionMembers(users) }
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
@@ -1077,8 +1077,8 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
 
     /** #EXP-1998: the session's LOADED synced messages, ONE consistent read:
-     *  [messages] = its newest card-less agent lines and person inputs,
-     *  OPENED, oldest first (#FEED-260, steer-enet.json SYNCED TAIL: the
+     *  [messages] = its newest card-less agent lines and person inputs
+     *  (#EXP-2075: and a person's carded rows), OPENED, oldest first (#FEED-260, steer-enet.json SYNCED TAIL: the
      *  screen picks the ones after its not-live feed, [steerSyncedTail]);
      *  [loaded] = every message id from the oldest of them on, as find in
      *  chat reads them; [more] = the query hit its limit, so older ones
@@ -1095,6 +1095,10 @@ class AgentSessionViewModel @AssistedInject constructor(
         tailRows.map { (limit, rows) ->
             (rows.size >= limit) to rows.map { row ->
                 val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row)
+                // #EXP-2075: a person's OPENED action card (a locked one = a card, no action).
+                val card = opened.cardJson?.let { json ->
+                    runCatching { kotlinx.serialization.json.Json.parseToJsonElement(json) as? kotlinx.serialization.json.JsonObject }.getOrNull()
+                }
                 com.exponential.app.data.steer.SyncedTailMessage(
                     id = row.id,
                     authorKind = row.authorKind,
@@ -1103,6 +1107,8 @@ class AgentSessionViewModel @AssistedInject constructor(
                     createdAtMs = com.exponential.app.domain.WireTimestamps.parseEpochMs(row.createdAt),
                     body = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body,
                     authorId = row.authorId,
+                    hasCard = card != null || (opened.cardJson != null && opened.cardJson != "null"),
+                    action = if (opened.locked == null) com.exponential.app.data.steer.steerTailActionCard(card) else null,
                     authorSessionId = row.authorSessionId,
                 )
             }

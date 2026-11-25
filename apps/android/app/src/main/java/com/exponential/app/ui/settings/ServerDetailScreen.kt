@@ -118,6 +118,7 @@ class ServerDetailViewModel @Inject constructor(
     private val chatStores: com.exponential.app.data.chatstore.ChatStoreManager,
 ) : ViewModel() {
     val accounts: StateFlow<List<ServerAccount>> = auth.accounts
+    val activeAccountId: StateFlow<String?> = auth.activeAccountId
 
     /**
      * EXP-311: the account's own synced `users` row — it carries the profile
@@ -648,8 +649,10 @@ fun ServerDetailScreen(
             // S-3: Voice left Personal: its block lives on the Assistant page
             // (agent-settings.json `assistant`).
 
-            // EXP-1126: how this account signs in — only with a live session.
-            if (account?.token != null) {
+            // EXP-1126: how this account signs in — only with a live session;
+            // the ACTIVE account's is Settings › Security (#EXP-2109).
+            val activeAccountId by viewModel.activeAccountId.collectAsStateWithLifecycle()
+            if (account?.token != null && account.id != activeAccountId) {
                 LaunchedEffect(accountId, account.token) { viewModel.loadMethods(accountId) }
                 SignInMethodsSection(accountId = accountId, viewModel = viewModel)
             }

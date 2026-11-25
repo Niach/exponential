@@ -431,6 +431,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
             None
         }
     };
+    // #EXP-2118: the key holder comes with the eNet node far below (after the
+    // agent probe and the device's register); the pickup worker starts before
+    // it, so its sealed writes wait for the holder instead of failing.
+    if runtime.is_some() {
+        coding::sealing::expect_service(true);
+    }
     let personal_key = context::ensure_personal_key(&ctx).ok();
     let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
     // EXP-484: the collected agent status (accounts + usage windows), filled
@@ -994,6 +1000,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 let off = coding::sealing::holder_off_reason().map(coding::sealing::HolderOff::detail);
                 coding::device_doctor::record_key_holder(&ctx.data_dir, missing, off);
                 coding::device_doctor::add_key_holder(&mut device, !missing, off);
+                // #EXP-1950: a NEW install waits for a trusted install's Approve.
+                coding::device_doctor::add_install_waiting(&mut device, coding::sealing::install_waiting().as_deref());
                 // #EXP-1858: the `speech` row while an agent runs here.
                 if let Some(voice) = &voice {
                     voice.add_doctor(&mut device);

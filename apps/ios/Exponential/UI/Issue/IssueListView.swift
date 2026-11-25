@@ -5,17 +5,6 @@ import GRDB
 
 struct IssueListView: View {
     let boardId: String
-    /// False when pushed on a bar-less surface (where MainNavigator hides the
-    /// floating tab bar): no clearance then.
-    var showsTabBarClearance = true
-    /// True only in Root mode (IssuesHomeView): the Settings gear renders
-    /// HERE, after the search button, so the trailing order is
-    /// search → settings (EXP-331, Android parity; SwiftUI's parent/child
-    /// toolbar merge would otherwise put the gear first).
-    var showsSettingsButton = false
-    /// #EXP-1384: a pushed board wears the page header itself; the Board
-    /// tab's root (IssuesHomeView) draws it over the chips instead.
-    var ownsHeader = true
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -26,8 +15,7 @@ struct IssueListView: View {
     @Environment(\.pushRoute) private var pushRoute
     @Environment(TabBarChrome.self) private var tabBarChrome: TabBarChrome?
     // EXP-698 r5: the getting-started checklist under the empty state. Only
-    // the Issues ROOT publishes it (IssuesHomeView owns the progress model), so
-    // a pushed `.board` renders the bare empty state.
+    // the board page publishes it (BoardPageView owns the progress model).
     @Environment(\.gettingStarted) private var gettingStarted
     @State private var viewModel: IssueListViewModel?
     // Multi-select mode (EXP-239): long-press a row to enter, tap toggles,
@@ -92,15 +80,14 @@ struct IssueListView: View {
                 }
             }
             .padding(.horizontal, 16)
-            // EXP-698 r5: with a selection live the tab bar has stood down, so
-            // the bar drops into ITS slot (the tab pill's own 4pt inset)
-            // instead of floating a second bar above it.
-            .padding(.bottom, showsTabBarClearance ? 4 : 16)
+            // EXP-698 r5: with a selection live the docked bar has stood down,
+            // so the bar drops into ITS slot.
+            .padding(.bottom, 4)
         }
         // The selection bar and the tab bar share one slot: entering
         // multi-select slides the tab bar out, leaving it brings it back.
         .onChange(of: selectionActive) { _, active in
-            tabBarChrome?.suppressed = active && showsTabBarClearance
+            tabBarChrome?.suppressed = active
         }
         // …and re-assert it on every appearance, not just the first: pushing
         // Search or Settings with a selection live runs `onDisappear`, which
@@ -108,13 +95,10 @@ struct IssueListView: View {
         // the tab bar and the selection bar would then sit on top of each
         // other at the same 4pt inset.
         .onAppear {
-            tabBarChrome?.suppressed = selectionActive && showsTabBarClearance
+            tabBarChrome?.suppressed = selectionActive
         }
         // Haptic tick when multi-select engages (long-press confirmation).
         .sensoryFeedback(.impact(weight: .medium), trigger: selectionActive) { _, entered in entered }
-        // #EXP-1384: the page header (the board's name, search + inbox) —
-        // only where no host draws it.
-        .modifier(BoardPageHeader(title: viewModel?.board?.name ?? Chats.Copy.Tabs.board, enabled: ownsHeader))
         // EXP-1021: every bulk edit is a TYPED picker driven by `open` — the
         // bar's glyphs are the triggers, and they live in the toolbar.
         .background {
@@ -222,7 +206,6 @@ struct IssueListView: View {
                     .padding(.bottom, 24)
                 }
                 .scrollBounceBehavior(.basedOnSize)
-                .tabBarBottomInset(showsTabBarClearance)
             } else {
                 List {
                     ForEach(groups) { group in
@@ -286,9 +269,7 @@ struct IssueListView: View {
                 .background(Color.clear)
                 // EXP-1274: no pull-to-refresh — the list is Electric-synced
                 // and live.
-                // Clearance for the floating tab bar (EXP-36) — the bar is an
-                // ancestor overlay, so the List must reserve the space itself.
-                .tabBarBottomInset(showsTabBarClearance)
+                .bulkBarInset(selectionActive)
             }
         }
     }
@@ -984,19 +965,6 @@ private struct InlineEdit: Identifiable {
 
 /// The board list's page header, off while a host (the Board tab's root)
 /// draws its own.
-private struct BoardPageHeader: ViewModifier {
-    let title: String
-    let enabled: Bool
-
-    func body(content: Content) -> some View {
-        if enabled {
-            content.pageHeader(title)
-        } else {
-            content
-        }
-    }
-}
-
 /// #VAPP-231 (via-app.json): an issue row's title, an app's issue with its
 /// muted ` · via <app>` tail in the SAME text, so a narrow row cuts the
 /// caption first and never squeezes the title for it.

@@ -317,6 +317,8 @@ impl Shell {
             this.refresh_team_runs(cx)
         })
         .detach();
+        // #EXP-1950: installs waiting for approval count in Needs you.
+        cx.observe_global::<crate::install_approval::InstallTrustTick>(|this: &mut Self, cx| this.refresh_team_runs(cx)).detach();
         // EXP-1326: the dock area (every screen) renders as a CACHED view
         // (see `render`), reused until it or a view inside it is notified.
         // A screen that reads a collection without observing it would go

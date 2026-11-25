@@ -981,7 +981,7 @@ final class AgentSessionModel {
         if synced != findSyncedTail { findSyncedTail = synced }
         let line = SteerNoFeed.offlineLine(
             live: live, rows: feed.count + syncedTail.count, ended: sessionEnded,
-            noFeed: history == .deviceOffline, deviceOffline: hostDevice.offline
+            noFeed: history == .deviceOffline, deviceOffline: hostDevice.offline, deviceOnline: hostDevice.online == true
         )
         if line != offlineLine { offlineLine = line }
         let workflowIds = Set(workflows.map(\.id))
@@ -1980,8 +1980,8 @@ final class AgentSessionModel {
     }
 
     /// #FEED-260 (steer-enet.json SYNCED TAIL): the session's newest card-less
-    /// agent lines and person inputs, opened off main, oldest first; a locked
-    /// body reads the sealed placeholder copy.
+    /// agent lines and person inputs (#EXP-2075: and action rows), opened off
+    /// main, oldest first; a locked body reads the sealed placeholder copy.
     private func startObservingTailMessages() {
         guard tailObservationTask == nil, let pool = try? db.pool(forAccountId: accountId) else { return }
         let id = sessionId
@@ -1996,7 +1996,10 @@ final class AgentSessionModel {
                         consumedAt: m.consumedAt, createdAt: m.createdAt,
                         createdAtMs: WireTimestamps.parse(m.createdAt).map { Int(($0.timeIntervalSince1970 * 1000).rounded()) },
                         body: m.locked.map(SealedPlaceholder.copy) ?? m.body,
-                        authorId: m.authorId, authorSessionId: m.authorSessionId
+                        authorId: m.authorId,
+                        // #EXP-2075: the OPENED `action` card (a locked one = none).
+                        action: m.cardSealStatus.isReadable ? ChatExpress.actionCard(m.card) : nil,
+                        authorSessionId: m.authorSessionId
                     )
                 }
         }
@@ -2473,13 +2476,12 @@ final class AgentSessionModel {
     /// ex-member still renders elsewhere), and membership is what an `@` may
     /// name.
     /// #EXP-2079 (`assistant.chatTeams`): the members of the chat's teams,
-    /// one row per person, the list's existing order.
+    /// one row per person, in the `@` list's one order (#EXP-2095).
     private func rebuildMentionMembers() {
         guard let teamId = session?.teamId else { return }
         let teamIds = chatTeamIds.isEmpty ? [teamId] : chatTeamIds
         let memberIds = Set(mentionMemberRows.filter { teamIds.contains($0.teamId) }.map(\.userId))
-        draftEditor.mentionMembers = mentionUserRows
-            .filter { memberIds.contains($0.id) }
+        draftEditor.mentionMembers = AgentSettings.chatMembers(mentionUserRows.filter { memberIds.contains($0.id) })
             .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
     }
 

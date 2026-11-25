@@ -16,7 +16,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use api::sessions::{AnswerInput, SealWrap, SendInput, SendOutput, SendSeal};
+use api::sessions::{AnswerInput, SendInput, SendOutput};
 use coding::sealing::{self, NewRootSeal};
 use domain::plan_card::{CardAnswerInput, CardAnswers};
 use domain::rows::{MessageRow, SessionRow};
@@ -287,12 +287,12 @@ fn target_for(input: &SendInput, root_of: &dyn Fn(&str) -> Option<String>, exist
         known(parent_id)
     } else if let Some(existing) = existing() {
         SealTarget::Root(existing)
-    } else if input.team_id.is_some() && is_conversation(input) {
+    } else if is_conversation(input) {
         SealTarget::Conversation { device_id: input.device_id.clone() }
-    } else if input.team_id.is_some() {
-        SealTarget::NewRoot { device_id: input.device_id.clone() }
     } else {
-        SealTarget::None
+        // #EXP-2120: content is never `None`, also when the send names no
+        // team (the server's to refuse, after it was sealed).
+        SealTarget::NewRoot { device_id: input.device_id.clone() }
     }
 }
 
@@ -383,10 +383,15 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) ->
         sealing::NO_KEY_REFUSAL.to_string()
     };
     match target {
-        SealTarget::None | SealTarget::Conversation { .. } => Ok(None),
+        SealTarget::None => Ok(None),
+        // Resolved before sealing ([`resolve`]); never leaves unsealed.
+        SealTarget::Conversation { .. } => Err(failed("its conversation was not resolved".into())),
         // Resolved before sealing ([`deliver`]); never leaves unsealed.
         SealTarget::Unsynced(session_id) => Err(failed(format!("{session_id}: its tree is not known yet"))),
         SealTarget::Keyed { root_id, epoch, public } => {
+            // #EXP-1950 R2 + R3 (install-trust.json): a rollback or a key
+            // that is not the held secret's is never sealed to.
+            sealing::check_seal(root_id, *epoch, public, None).map_err(|err| failed(format!("{root_id}: {err}")))?;
             let body = |text: &str| enet_core::sealed::seal_body(public, *epoch, text).map_err(|err| failed(format!("{root_id}: {err}")));
             let sealed_text = text.as_deref().map(body).transpose()?;
             let sealed_name = input.name.as_deref().map(body).transpose()?;
@@ -437,16 +442,7 @@ fn seal_send(writer: &dyn Writer, input: &mut SendInput, target: &SealTarget) ->
             if let Some(card) = input.action_card.as_ref() {
                 input.action_card = Some(action_envelope(enet_core::sealed::seal_card(&public, seal.epoch, card).map_err(|err| failed(err.to_string()))?));
             }
-            input.seal = Some(SendSeal {
-                install_id: seal.install_id.clone(),
-                public_key: seal.public_key.clone(),
-                epoch: seal.epoch,
-                wraps: seal
-                    .wraps
-                    .iter()
-                    .map(|wrap| SealWrap { install_id: wrap.install_id.clone(), wrapped: wrap.wrapped.clone() })
-                    .collect(),
-            });
+            input.seal = Some(seal.send_seal());
             Ok(Some(seal))
         }
     }
@@ -712,7 +708,7 @@ mod tests {
                 install_id: "me".into(),
                 public_key: self.key.public_key(),
                 epoch: 1,
-                wraps: vec![api::session_keys::InstallWrap { install_id: "me".into(), wrapped: "w".into() }],
+                wraps: vec![api::session_keys::InstallWrap { install_id: "me".into(), wrapped: "w".into(), signature: None }],
                 secret: self.key.secret,
             })
         }
@@ -934,6 +930,7 @@ mod tests {
                 public_key: keyed.then(|| self.key.public_key()),
                 clear_tree: false,
                 rotation_due: false,
+                vouch: None,
             })
         }
         fn note_key(&self, _root_id: &str, _epoch: u32, _public: [u8; 32]) {}
@@ -1209,6 +1206,12 @@ mod tests {
         // Only a send with nothing to seal stays `None`.
         let bare = SendInput { session_id: Some(CHILD.into()), ..SendInput::default() };
         assert_eq!(target_for(&bare, &unsynced, || None), SealTarget::None);
+        // #EXP-2120: content that names no team is sealed too.
+        let said = SendInput { agent_id: Some("a1".into()), text: Some("hi".into()), ..SendInput::default() };
+        assert_eq!(target_for(&said, &unsynced, || None), SealTarget::Conversation { device_id: None });
+        assert_eq!(target_for(&SendInput { agent_id: None, ..said.clone() }, &unsynced, || None), SealTarget::NewRoot { device_id: None });
+        let mut input = said;
+        assert!(seal_send(&ServerTree::new(false, true, true), &mut input, &SealTarget::Conversation { device_id: None }).is_err());
         // Asked of nobody it is refused, never sent.
         let mut input = child.clone();
         assert_eq!(seal_send(&ServerTree::new(false, true, true), &mut input, &SealTarget::Unsynced(CHILD.into())), Err(sealing::NO_KEY_REFUSAL.to_string()));

@@ -253,7 +253,7 @@ struct GettingStartedRow: View {
 }
 
 /// Settings' "Getting started" row (the phones' entry, web's sidebar entry):
-/// the same block in a bottom sheet, bound to the active team.
+/// the same block in a bottom sheet, bound to one team.
 struct GettingStartedSheet: View {
     let progress: GettingStartedProgress
     let accountId: String
@@ -277,7 +277,7 @@ struct GettingStartedSheet: View {
 /// is scoped to, and the host's create-board entry point (the board step opens
 /// the very same `CreateBoardSheet` the empty-team state does).
 ///
-/// `IssuesHomeView` owns it and publishes it into the environment, so the
+/// `BoardPageView` owns it and publishes it into the environment, so the
 /// Issues ROOT list renders the block under its empty state while a pushed
 /// `.board` — a second board on a team that already has one — does not.
 /// Like `PushRouteAction`, it owns its progress model and takes its handler

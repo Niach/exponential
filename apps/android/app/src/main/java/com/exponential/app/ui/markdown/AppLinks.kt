@@ -12,7 +12,7 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import at.exponential.ui.host.TextLinkSegment
-import com.exponential.app.data.TeamSelection
+import com.exponential.app.data.crossTeamOrder
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.push.DeepLinkBus
@@ -134,7 +134,6 @@ internal fun instanceOrigin(instanceUrl: String?): String? {
 interface AppLinksEntryPoint {
     fun authRepository(): AuthRepository
     fun deepLinkBus(): DeepLinkBus
-    fun teamSelection(): TeamSelection
     fun databaseHolder(): DatabaseHolder
 }
 
@@ -143,7 +142,7 @@ private fun appLinksEntryPoint(context: Context): AppLinksEntryPoint =
 
 /**
  * THE one opener (#EXP-1674): the active account's origin, the slug of [teamId]
- * (the surface's team; null = the active team's) for `~/` links, and every link
+ * (the surface's team; null = the first member team's) for `~/` links, and every link
  * through the app's [DeepLinkBus] — AppNavHost resolves an in-app link against
  * the local DB of the account on that host and applies the one open rule. Null
  * while no instance is known, which leaves links as plain browser links.
@@ -156,8 +155,14 @@ fun rememberAppLinkHandler(teamId: String? = null, chatTeamIds: List<String>? = 
     val entryPoint = remember(context) { appLinksEntryPoint(context) }
     val instanceUrl by entryPoint.authRepository().instanceUrl.collectAsStateWithLifecycle()
     val accountId by entryPoint.authRepository().activeAccountId.collectAsStateWithLifecycle()
-    val selectedTeamId by entryPoint.teamSelection().selectedId.collectAsStateWithLifecycle()
-    val slugTeamId = chatTeamIds?.firstOrNull() ?: teamId?.takeIf { it.isNotEmpty() } ?: selectedTeamId
+    val firstTeamId by produceState<String?>(null, accountId) {
+        val account = accountId ?: return@produceState
+        runCatching {
+            entryPoint.databaseHolder().database(account).teamDao().observeAll()
+                .collect { rows -> value = crossTeamOrder(rows).firstOrNull()?.id }
+        }
+    }
+    val slugTeamId = chatTeamIds?.firstOrNull() ?: teamId?.takeIf { it.isNotEmpty() } ?: firstTeamId
     val teamIds = chatTeamIds?.takeIf { it.isNotEmpty() } ?: listOfNotNull(slugTeamId)
     val team by produceState<String?>(null, accountId, slugTeamId) {
         val account = accountId

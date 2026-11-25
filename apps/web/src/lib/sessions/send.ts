@@ -43,7 +43,7 @@ import { startDiskWarning } from "@/lib/device-disk"
 import { issueOverlapWarning } from "@/lib/sessions/issue-overlap"
 import { assertTeamMember, getMemberTeamIds, getPersonalTeamId, getTeamMember, getUserTeamIds } from "@/lib/auth/membership"
 import { rules as eagentRules } from "@exp/eagent/copy"
-import { treeReach, treeRootKind, treeTeams } from "@/lib/sessions/tree-teams"
+import { ownAssistantTeam, treeReach, treeRootKind, treeTeams } from "@/lib/sessions/tree-teams"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import {
   appRootDevice,
@@ -210,13 +210,16 @@ async function sendTargetTeam(input: SessionsSendInput, caller: Session | null):
  *  agent's tree = its team; the Assistant's = its scope. #EXP-2027: every
  *  tree, a plain chat's = its team + its Teams pick; and a pick it passes
  *  stays inside them (a session never widens a chat past its own reach). */
-async function assertCallerTreeTeam(input: SessionsSendInput, caller: Session | null): Promise<void> {
+async function assertCallerTreeTeam(input: SessionsSendInput, caller: Session | null, userId: string): Promise<void> {
   if (!caller) return
   const reach = await treeReach(caller.rootId)
   const allowed = reach?.teams ?? []
   const target = await sendTargetTeam(input, caller)
   const outside = (id: string | null | undefined) => !!id && !allowed.includes(id)
-  if (outside(input.teamId) || outside(target) || input.scopeTeamIds?.some(outside)) {
+  // #EXP-2107: a message to its member's own Assistant conversation.
+  const ownAssistant =
+    !!input.sessionId && !!target && outside(target) && (await ownAssistantTeam(caller, userId)) === target
+  if (outside(input.teamId) || (outside(target) && !ownAssistant) || input.scopeTeamIds?.some(outside)) {
     throw new TRPCError({
       code: `FORBIDDEN`,
       message: reach?.kind === `agent` && allowed.length === 1 ? AGENT_TEAM_ONLY_MESSAGE : TEAM_OUT_OF_SCOPE_MESSAGE,
@@ -971,7 +974,7 @@ async function sendSessionInner(args: Parameters<typeof sendSession>[0]): Promis
   const uploaderIds = [...new Set([args.userId, starter])]
   const { input } = args
   if (!input.sessionId && !input.agentId) assertRunnerVocabulary(input)
-  await assertCallerTreeTeam(input, caller)
+  await assertCallerTreeTeam(input, caller, args.userId)
   if (args.meeting) await assertMeetingSend(args.userId, input, args.viaMcp === true)
 
   const clientMessageId = args.viaMcp ? undefined : args.clientMessageId
@@ -1484,7 +1487,7 @@ async function messageSession(
         status = `queued`
       }
       // NEW-1: the answer to the target's open card (first answer wins).
-      if (input.answer) await answerSessionCardInTx(tx, target, input.answer, caller?.id ?? null)
+      if (input.answer) await answerSessionCardInTx(tx, target, input.answer, caller?.id ?? null, userId)
       // NEW-1: issues on a message = FORWARDED to that session (the rows
       // move onto it; it takes them). #EXP-1686: a conversation only reads them.
       if (input.issueIds?.length) {

@@ -29,26 +29,69 @@
 //!   it; old epochs stay openable for old content. A `CONFLICT` = another
 //!   holder rotated first: re-read the key.
 //!
+//! - **Signing** (#EXP-1950, `packages/domain-contract/fixtures/wrap-signature.json`):
+//!   every wrap this holder MAKES carries its install's signature (the eNet
+//!   identity, `enet_core::wrap_sig`): a create's own wrap (first key and
+//!   rotation) and each `pending` answer. A new root's inline seal cannot be
+//!   signed (its root id is unknown while sealing): once adopted, the holder
+//!   `resign`s its wraps. Decision (c): a key held from before stays, and
+//!   the holder signs its own unsigned row of a root's current epoch again,
+//!   once per root, at most [`RESIGN_MAX`] wraps per pass; an older server
+//!   (`NOT_FOUND`) is asked again after [`RESIGN_NOT_YET`], quietly. The app
+//!   and the daemon are two installs, each signing with its own identity.
+//!
 //! Installed process-wide (`coding::sealing::install`) once the install is
 //! registered; the engine's replies, the pickup, the brief and the device
 //! MCP gateway all seal and open through it.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use api::error::ApiError;
-use api::session_keys::{CreateKey, HeldKey, InstallWrap, PairWrap, PendingWrap, RequestedKey, RootKey};
-use coding::sealing::{self, CreateFailure, KeylessStep, Keyring, RequestKeyAnswer, SealError, SealService};
-use enet_core::sealed::{generate_tree_key, public_key_from_b64, unwrap_tree_key, wrap_tree_key};
-use enet_core::PushKeypair;
+use api::session_keys::{
+    CreateKey, HeldKey, InstallWrap, PairWrap, PendingWrap, RequestedKey, ResignOutput, ResignWrap, RootKey, RESIGN_MAX,
+};
+use coding::sealing::{self, CreateFailure, KeylessStep, Keyring, NewRootSeal, RequestKeyAnswer, SealError, SealService};
+use enet_core::sealed::{b64url_encode, generate_tree_key, public_key_from_b64, unwrap_tree_key, wrap_tree_key};
+use enet_core::install_trust::{CallKeyVerdict, KeepVerdict, KeyRecord, NoKey, SealVerdict, TargetVerdict, Vouch};
+use enet_core::wrap_sig::{endpoint_id_hex, sign_wrap, ServedWrap, WrapStatement};
+
+use crate::install_trust::TrustKeeper;
+use enet_core::{Identity, PushKeypair};
 
 /// How often a holder answers `pending` (and re-reads `mine`) while online.
 pub const HOLDER_PASS: Duration = Duration::from_secs(60);
 /// EXP-1472: the closest two woken passes run (a `check_in` nudge wakes one;
 /// nudges come with every piece of new work).
 pub const WAKE_SPACING: Duration = Duration::from_secs(5);
+/// #EXP-1950: how long a server without `sessionKeys.resign` is left alone.
+pub const RESIGN_NOT_YET: Duration = Duration::from_secs(30 * 60);
+/// #EXP-1950: the most single-root `resign` calls one pass makes (roots a
+/// refused batch named, tried alone so one cannot hold back the others).
+pub const RESIGN_ALONE_PER_PASS: usize = 8;
+
+/// #EXP-1950 wrap-signature.json `resign.failureCases`: what a holder does
+/// after a failed `resign`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResignAfter {
+    /// An older server: no such procedure. Quietly again later.
+    NotYet,
+    /// FORBIDDEN / BAD_REQUEST: the pass goes on without these wraps.
+    Refused,
+    /// Anything else: the next pass.
+    Retry,
+}
+
+/// `resignAfter`: `status` = the HTTP status (None = no answer).
+pub fn resign_after(status: Option<u16>) -> ResignAfter {
+    match status {
+        Some(404) => ResignAfter::NotYet,
+        Some(400 | 403) => ResignAfter::Refused,
+        _ => ResignAfter::Retry,
+    }
+}
 
 /// The `sessionKeys.*` calls the holder makes: tRPC in the apps, a fake in
 /// the tests. BLOCKING.
@@ -58,6 +101,10 @@ pub trait KeyApi: Send + Sync + 'static {
     fn pending(&self, install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError>;
     fn wrap(&self, install_id: &str, wraps: &[PairWrap]) -> Result<(), ApiError>;
     fn public_keys(&self, root_ids: &[String]) -> Result<Vec<RootKey>, ApiError>;
+    /// #EXP-1950 `sessionKeys.resign` (default: a server without it).
+    fn resign(&self, _install_id: &str, _wraps: &[ResignWrap]) -> Result<ResignOutput, ApiError> {
+        Err(ApiError::Http { status: 404, message: "No procedure found on path \"sessionKeys.resign\"".into() })
+    }
     /// #EXP-1960: `sessionKeys.requestKey` (default: no answer).
     fn request_key(&self, _root_id: &str) -> Result<RequestedKey, ApiError> {
         Err(ApiError::Transport { message: "requestKey unsupported".into(), offline: false })
@@ -83,6 +130,9 @@ impl KeyApi for api::TrpcClient {
     fn request_key(&self, root_id: &str) -> Result<RequestedKey, ApiError> {
         api::session_keys::request_key(self, root_id)
     }
+    fn resign(&self, install_id: &str, wraps: &[ResignWrap]) -> Result<ResignOutput, ApiError> {
+        api::session_keys::resign(self, install_id, wraps)
+    }
 }
 
 /// Agent-to-agent delivery over eNet (`enet.rs` sets it once the node
@@ -91,6 +141,36 @@ pub type DirectSender = Arc<dyn Fn(&coding::sealing::DeliverTo, &domain::rows::M
 /// #EXP-1483: a device's installs `(install_id, x25519_public)`, by its
 /// `devices.device_id`.
 pub type DeviceReaders = Arc<dyn Fn(&str) -> Vec<(String, String)> + Send + Sync>;
+/// #EXP-1950: an install's `(endpoint_id, x25519_public)` by its install id
+/// (the eNet allowlist): whom a new root's re-signed wraps name.
+pub type InstallLookup = Arc<dyn Fn(&str) -> Option<(String, String)> + Send + Sync>;
+
+/// #EXP-1950: the install's signing identity and its endpoint id.
+struct Signer {
+    identity: Identity,
+    endpoint_id: String,
+}
+
+/// #EXP-1950: what is left to sign again.
+#[derive(Default)]
+struct ResignState {
+    /// Roots whose own row of the highest held epoch is unsigned (`mine`).
+    own: BTreeMap<String, u32>,
+    /// Adopted new roots: `(root, epoch, the seal's target installs)`.
+    fresh: Vec<(String, u32, Vec<String>)>,
+    /// `(root, epoch)` signed again or refused: never asked again.
+    done: HashSet<(String, u32)>,
+    /// Roots a refused batch named: tried one per call.
+    alone: HashSet<String>,
+    not_yet_until: Option<std::time::Instant>,
+}
+
+/// One root's wraps to sign again.
+struct ResignJob {
+    root_id: String,
+    epoch: u32,
+    targets: Vec<String>,
+}
 
 /// One install's key holder. Cheap to clone.
 #[derive(Clone)]
@@ -103,6 +183,8 @@ struct HolderInner {
     /// The install's X25519 secret (`PushKeypair::derive(identity)`).
     install_secret: [u8; 32],
     install_public: [u8; 32],
+    /// #EXP-1950: None = this holder signs nothing (tests, old callers).
+    signer: Option<Signer>,
     api: Arc<dyn KeyApi>,
     /// Shared with `coding::sealing`'s preload: the reader opened rows off
     /// it before this holder ran.
@@ -119,17 +201,37 @@ struct HolderInner {
     /// The running loop's early-pass signal, and when it last fired.
     wake: Mutex<Option<Arc<tokio::sync::Notify>>>,
     woken_at: Mutex<Option<std::time::Instant>>,
+    installs: Mutex<Option<InstallLookup>>,
+    resign: Mutex<ResignState>,
+    /// #EXP-1950 (install-trust.json): the pin store and the four rules,
+    /// record-only in release 1. None = no rule (tests, old callers).
+    trust: Mutex<Option<Arc<TrustKeeper>>>,
+    /// #EXP-1950 R3: the vouch `publicKeys` answered per (root, epoch).
+    vouches: Mutex<HashMap<(String, u32), Vouch>>,
 }
 
 impl KeyHolder {
+    /// A holder that signs nothing.
     pub fn new(install_id: String, push: &PushKeypair, api: Arc<dyn KeyApi>, keyring: impl Into<Arc<Keyring>>) -> KeyHolder {
+        KeyHolder::build(install_id, push, None, api, keyring.into())
+    }
+
+    /// #EXP-1950: the install's holder, signing every wrap it makes with
+    /// `identity` (its X25519 key is derived from it).
+    pub fn signing(install_id: String, identity: &Identity, api: Arc<dyn KeyApi>, keyring: impl Into<Arc<Keyring>>) -> KeyHolder {
+        let signer = Signer { identity: identity.clone(), endpoint_id: endpoint_id_hex(identity) };
+        KeyHolder::build(install_id, &PushKeypair::derive(identity), Some(signer), api, keyring.into())
+    }
+
+    fn build(install_id: String, push: &PushKeypair, signer: Option<Signer>, api: Arc<dyn KeyApi>, keyring: Arc<Keyring>) -> KeyHolder {
         KeyHolder {
             inner: Arc::new(HolderInner {
                 install_id,
                 install_secret: push.secret(),
                 install_public: push.public(),
+                signer,
                 api,
-                keyring: keyring.into(),
+                keyring,
                 creating: Mutex::new(()),
                 refused: Mutex::default(),
                 stopped: AtomicBool::new(false),
@@ -137,6 +239,10 @@ impl KeyHolder {
                 device_readers: Mutex::new(None),
                 wake: Mutex::new(None),
                 woken_at: Mutex::new(None),
+                installs: Mutex::new(None),
+                resign: Mutex::default(),
+                trust: Mutex::new(None),
+                vouches: Mutex::default(),
             }),
         }
     }
@@ -156,13 +262,91 @@ impl KeyHolder {
         *lock(&self.inner.device_readers) = Some(readers);
     }
 
+    /// #EXP-1950 (install-trust.json): the install's pin store and rules.
+    pub fn set_trust(&self, keeper: Arc<TrustKeeper>) {
+        *lock(&self.inner.trust) = Some(keeper);
+    }
+
+    /// #EXP-1950: the install's pin store and rules, once set.
+    pub fn trust(&self) -> Option<Arc<TrustKeeper>> {
+        lock(&self.inner.trust).clone()
+    }
+
+    /// #EXP-1950 R4: whether this holder wraps for `install_id` (no keeper = as before).
+    fn may_wrap(&self, install_id: &str, x25519_public: &str, endpoint_id: Option<&str>) -> bool {
+        match self.trust() {
+            Some(trust) => matches!(trust.target(install_id, x25519_public, endpoint_id, None), TargetVerdict::Wrap(_)),
+            None => true,
+        }
+    }
+
+    /// #EXP-1950: a call's key, from the keyring ONLY, by the call rule
+    /// (install-trust.json `callCases`): `Err` = the call ends (`rollback`
+    /// in every mode, an unsigned key once mandatory), `Ok(None)` = not held.
+    pub fn call_secret(&self, root_id: &str, epoch: u32) -> Result<Option<[u8; 32]>, String> {
+        let held = self.inner.keyring.secret(root_id, epoch);
+        let Some(trust) = self.trust() else { return Ok(held) };
+        match trust.call(root_id, epoch, held) {
+            CallKeyVerdict::Key { secret, .. } => Ok(Some(secret)),
+            CallKeyVerdict::NoKey(NoKey::NoKey) if held.is_none() => Ok(None),
+            CallKeyVerdict::NoKey(reason) => Err(reason.as_str().to_string()),
+        }
+    }
+
+    /// #EXP-1950: where a new root's re-signed wraps look their targets up.
+    pub fn set_install_lookup(&self, lookup: InstallLookup) {
+        *lock(&self.inner.installs) = Some(lookup);
+    }
+
+    /// #EXP-1950: the wrap signature of a wrap THIS holder just made, or
+    /// None (no signer, no recipient endpoint from an older server, or a
+    /// malformed field: the wrap goes unsigned, as before).
+    fn sign(&self, root_id: &str, epoch: u32, tree_public_key: &str, recipient: Option<&str>, wrapped: &str) -> Option<String> {
+        let signer = self.inner.signer.as_ref()?;
+        let statement = WrapStatement { root_id, epoch, tree_public_key, recipient_endpoint_id: recipient?, wrapped };
+        match sign_wrap(&signer.identity, &statement) {
+            Ok(signature) => Some(signature),
+            Err(err) => {
+                log::debug!("seal-keys: the wrap of {root_id} epoch {epoch} goes unsigned: {err}");
+                None
+            }
+        }
+    }
+
     /// Unwraps every held key not cached yet. Returns how many were new.
     /// BLOCKING.
     pub fn pull(&self, root_ids: Option<&[String]>) -> Result<usize, ApiError> {
         let held = self.inner.api.mine(&self.inner.install_id, root_ids)?;
+        self.note_unsigned(&held);
+        let trust = self.trust();
+        if let Some(trust) = &trust {
+            // Decision (c): a key held before the store knew it stays, `legacy`.
+            let known: Vec<(String, u32)> = held
+                .iter()
+                .filter(|key| self.inner.keyring.secret(&key.root_id, key.epoch).is_some())
+                .map(|key| (key.root_id.clone(), key.epoch))
+                .collect();
+            trust.record_legacy(&known);
+        }
         let mut fresh = 0;
         for key in held {
             if self.inner.keyring.secret(&key.root_id, key.epoch).is_some() {
+                continue;
+            }
+            // #EXP-1950 R1: kept (and recorded) or refused by the pin store.
+            if let Some(trust) = &trust {
+                let wrap = ServedWrap {
+                    root_id: &key.root_id,
+                    epoch: key.epoch,
+                    wrapped: &key.wrapped,
+                    signature: key.signature.as_deref(),
+                    signer_endpoint_id: key.signer_endpoint_id.as_deref(),
+                };
+                if let KeepVerdict::Keep { secret, .. } = trust.keep(&wrap, &self.inner.install_secret) {
+                    if self.inner.keyring.insert_secret(&key.root_id, key.epoch, secret) {
+                        fresh += 1;
+                    }
+                }
                 continue;
             }
             match unwrap_tree_key(&self.inner.install_secret, &key.wrapped) {
@@ -175,6 +359,29 @@ impl KeyHolder {
             }
         }
         Ok(fresh)
+    }
+
+    /// #EXP-1950 decision (c): the roots whose own row of the highest held
+    /// epoch is unsigned, to sign again ([`Self::resign_due`]).
+    fn note_unsigned(&self, held: &[HeldKey]) {
+        if self.inner.signer.is_none() {
+            return;
+        }
+        let mut highest: BTreeMap<&str, &HeldKey> = BTreeMap::new();
+        for key in held {
+            let entry = highest.entry(&key.root_id).or_insert(key);
+            if key.epoch > entry.epoch {
+                *entry = key;
+            }
+        }
+        let mut state = lock(&self.inner.resign);
+        for (root, key) in highest {
+            if key.signature.is_none() && !state.done.contains(&(root.to_string(), key.epoch)) {
+                state.own.insert(root.to_string(), key.epoch);
+            } else {
+                state.own.remove(root);
+            }
+        }
     }
 
     /// Answers every pending reader with a wrap. Returns how many pairs
@@ -213,13 +420,30 @@ impl KeyHolder {
                 continue;
             };
             let Ok(target) = public_key_from_b64(&pair.target_x25519_public) else { continue };
+            // #EXP-1950 R4: only pinned targets (and older builds of
+            // team-mates, recorded `legacy`); never a waiting install's.
+            if !self.may_wrap(&pair.target_install_id, &pair.target_x25519_public, pair.target_endpoint_id.as_deref()) {
+                continue;
+            }
             match wrap_tree_key(&target, &secret) {
-                Ok(wrapped) => wraps.push(PairWrap {
-                    root_id: pair.root_id,
-                    epoch: pair.epoch,
-                    target_install_id: pair.target_install_id,
-                    wrapped,
-                }),
+                Ok(wrapped) => {
+                    // #EXP-1950: signed over the key this install HOLDS; a
+                    // root whose stored key is another one gets it unsigned
+                    // (the server would refuse the whole batch). #EXP-2119:
+                    // an OLDER epoch the server knows no key of names none.
+                    let held_public = b64url_encode(&PushKeypair::from_secret(secret).public());
+                    let ours = pair.public_key.is_empty() || held_public == pair.public_key;
+                    let signature = ours
+                        .then(|| self.sign(&pair.root_id, pair.epoch, &held_public, pair.target_endpoint_id.as_deref(), &wrapped))
+                        .flatten();
+                    wraps.push(PairWrap {
+                        root_id: pair.root_id,
+                        epoch: pair.epoch,
+                        target_install_id: pair.target_install_id,
+                        wrapped,
+                        signature,
+                    })
+                }
                 Err(err) => log::warn!("seal-keys: wrapping for {} failed: {err}", pair.target_install_id),
             }
         }
@@ -295,12 +519,15 @@ impl KeyHolder {
     fn create_key(&self, root_id: &str, epoch: u32) -> Result<[u8; 32], Created> {
         let key = generate_tree_key();
         let own = wrap_tree_key(&self.inner.install_public, &key.secret).map_err(|e| Created::Failed(e.to_string()))?;
+        let public_key = key.public_key();
+        let recipient = self.inner.signer.as_ref().map(|signer| signer.endpoint_id.clone());
+        let signature = self.sign(root_id, epoch, &public_key, recipient.as_deref(), &own);
         let input = CreateKey {
             root_id: root_id.to_string(),
             install_id: self.inner.install_id.clone(),
             epoch,
-            public_key: key.public_key(),
-            wraps: vec![InstallWrap { install_id: self.inner.install_id.clone(), wrapped: own }],
+            public_key,
+            wraps: vec![InstallWrap { install_id: self.inner.install_id.clone(), wrapped: own, signature }],
         };
         // #EXP-1960 (`keylessCases`): a blip (no answer, a 5xx, a 429) is the
         // same create again, `CREATE_RETRY` x attempt later, up to `CREATE_ATTEMPTS`.
@@ -323,6 +550,10 @@ impl KeyHolder {
             Ok(()) => {
                 self.inner.keyring.insert_secret(root_id, epoch, key.secret);
                 self.inner.keyring.set_current(root_id, epoch, key.public);
+                // #EXP-1950 (`newRoot.makerRecord`): it made the key.
+                if let Some(trust) = self.trust() {
+                    trust.record(root_id, epoch, KeyRecord::Verified);
+                }
                 let holder = self.clone();
                 std::thread::spawn(move || {
                     if let Err(err) = holder.answer_pending() {
@@ -343,14 +574,160 @@ impl KeyHolder {
         }
     }
 
-    /// One holder pass: pull, rotate what is flagged, then answer. BLOCKING.
+    /// One holder pass: pull, rotate what is flagged, answer, then sign
+    /// again what is unsigned. BLOCKING.
     pub fn pass(&self) {
+        // #EXP-1950: the pin store follows the server before any key moves.
+        if let Some(trust) = self.trust() {
+            trust.sync();
+        }
         if let Err(err) = self.pull(None) {
             log::debug!("seal-keys: sessionKeys.mine failed: {err}");
         }
         self.rotate_due();
         if let Err(err) = self.answer_pending() {
             log::debug!("seal-keys: sessionKeys.pending/wrap failed: {err}");
+        }
+        self.resign_due();
+    }
+
+    /// #EXP-1950 (wrap-signature.json `resign`): fresh signed wraps of a
+    /// root's current epoch replacing unsigned rows: an adopted new root's
+    /// (this install and the seal's targets) and this install's own rows of
+    /// keys held from before. Once per root; one batch of at most
+    /// [`RESIGN_MAX`] wraps plus [`RESIGN_ALONE_PER_PASS`] single roots per
+    /// pass. Returns how many rows the server replaced. BLOCKING.
+    pub fn resign_due(&self) -> u32 {
+        if self.inner.signer.is_none() {
+            return 0;
+        }
+        let (batch, alone) = {
+            let state = lock(&self.inner.resign);
+            if state.not_yet_until.is_some_and(|until| std::time::Instant::now() < until) {
+                return 0;
+            }
+            let mut jobs: Vec<ResignJob> = state
+                .fresh
+                .iter()
+                .map(|(root_id, epoch, targets)| ResignJob { root_id: root_id.clone(), epoch: *epoch, targets: targets.clone() })
+                .collect();
+            for (root_id, epoch) in &state.own {
+                if !jobs.iter().any(|job| &job.root_id == root_id) {
+                    jobs.push(ResignJob { root_id: root_id.clone(), epoch: *epoch, targets: vec![self.inner.install_id.clone()] });
+                }
+            }
+            let (alone, batch): (Vec<ResignJob>, Vec<ResignJob>) = jobs.into_iter().partition(|job| state.alone.contains(&job.root_id));
+            (batch, alone.into_iter().take(RESIGN_ALONE_PER_PASS).collect::<Vec<_>>())
+        };
+        let mut replaced = 0;
+        let mut calls: Vec<Vec<(ResignJob, Vec<ResignWrap>)>> = Vec::new();
+        let mut packed = Vec::new();
+        let mut count = 0;
+        for job in batch {
+            let wraps = self.resign_wraps(&job);
+            if wraps.is_empty() || count + wraps.len() > RESIGN_MAX {
+                continue;
+            }
+            count += wraps.len();
+            packed.push((job, wraps));
+        }
+        if !packed.is_empty() {
+            calls.push(packed);
+        }
+        for job in alone {
+            let wraps = self.resign_wraps(&job);
+            if !wraps.is_empty() {
+                calls.push(vec![(job, wraps)]);
+            }
+        }
+        for call in calls {
+            let wraps: Vec<ResignWrap> = call.iter().flat_map(|(_, wraps)| wraps.iter().cloned()).collect();
+            let answer = self.inner.api.resign(&self.inner.install_id, &wraps);
+            let after = match &answer {
+                Ok(output) => {
+                    replaced += output.replaced;
+                    None
+                }
+                Err(ApiError::Http { status, .. }) => Some(resign_after(Some(*status))),
+                Err(_) => Some(resign_after(None)),
+            };
+            let mut state = lock(&self.inner.resign);
+            match after {
+                None => call.iter().for_each(|(job, _)| finish_resign(&mut state, job)),
+                Some(ResignAfter::NotYet) => {
+                    state.not_yet_until = Some(std::time::Instant::now() + RESIGN_NOT_YET);
+                    break;
+                }
+                Some(ResignAfter::Refused) if call.len() > 1 => {
+                    call.iter().for_each(|(job, _)| {
+                        state.alone.insert(job.root_id.clone());
+                    });
+                }
+                Some(ResignAfter::Refused) => {
+                    let job = &call[0].0;
+                    log::debug!("seal-keys: signing {} again was refused", job.root_id);
+                    // A new root's target may be no reader any more: its
+                    // own row alone next, else never again.
+                    let own = vec![self.inner.install_id.clone()];
+                    match state.fresh.iter_mut().find(|(root, epoch, _)| *root == job.root_id && *epoch == job.epoch) {
+                        Some((_, _, targets)) if *targets != own => *targets = own,
+                        _ => finish_resign(&mut state, job),
+                    }
+                }
+                Some(ResignAfter::Retry) => {}
+            }
+        }
+        if replaced > 0 {
+            log::info!("seal-keys: signed {replaced} wrap(s) again");
+        }
+        replaced
+    }
+
+    /// Fresh signed wraps of `job`'s key for its targets: this install, and
+    /// the others the allowlist names (one it does not know is left out).
+    /// Never the bytes of a wrap this holder did not make.
+    fn resign_wraps(&self, job: &ResignJob) -> Vec<ResignWrap> {
+        let Some(secret) = self.inner.keyring.secret(&job.root_id, job.epoch) else { return Vec::new() };
+        let Some(signer) = self.inner.signer.as_ref() else { return Vec::new() };
+        let tree_public = b64url_encode(&PushKeypair::from_secret(secret).public());
+        let lookup = lock(&self.inner.installs).clone();
+        let mut out = Vec::new();
+        for target in &job.targets {
+            let (endpoint_id, x25519) = if *target == self.inner.install_id {
+                (signer.endpoint_id.clone(), self.inner.install_public)
+            } else {
+                let Some((endpoint_id, x25519_text)) = lookup.as_ref().and_then(|lookup| lookup(target)) else { continue };
+                // #EXP-1950 R4.
+                if !self.may_wrap(target, &x25519_text, Some(&endpoint_id)) {
+                    continue;
+                }
+                let Ok(x25519) = public_key_from_b64(&x25519_text) else { continue };
+                (endpoint_id, x25519)
+            };
+            let Ok(wrapped) = wrap_tree_key(&x25519, &secret) else { continue };
+            let Some(signature) = self.sign(&job.root_id, job.epoch, &tree_public, Some(&endpoint_id), &wrapped) else { continue };
+            out.push(ResignWrap { root_id: job.root_id.clone(), epoch: job.epoch, install_id: target.clone(), wrapped, signature });
+        }
+        if out.is_empty() {
+            // Nothing this holder can sign for it (a malformed id): not again.
+            finish_resign(&mut lock(&self.inner.resign), job);
+        }
+        out
+    }
+
+    /// #EXP-1950 R2 + R3 (install-trust.json `sealCases`): refused only for
+    /// what is refused in the build's mode (record: a rollback, a key that
+    /// is not the held secret's, a vouch whose signature fails).
+    fn seal_rule(&self, root_id: &str, epoch: u32, public: &[u8; 32]) -> Result<(), SealError> {
+        let Some(trust) = self.trust() else { return Ok(()) };
+        let held = self.inner.keyring.secret(root_id, epoch);
+        let vouch = lock(&self.inner.vouches).get(&(root_id.to_string(), epoch)).cloned();
+        match trust.seal(root_id, epoch, &b64url_encode(public), held, vouch.as_ref()) {
+            SealVerdict::Seal(_) => Ok(()),
+            SealVerdict::Refuse(reason) => {
+                log::warn!("seal-keys: not sealing to {root_id} epoch {epoch}: {}", reason.as_str());
+                Err(SealError::NoKey(format!("the key of {root_id} epoch {epoch} is refused: {}", reason.as_str())))
+            }
         }
     }
 
@@ -360,6 +737,12 @@ impl KeyHolder {
             return Ok(None);
         };
         let public = public_key_from_b64(&row.public_key).map_err(|e| e.to_string())?;
+        let vouch: Option<Vouch> = row.vouch.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok());
+        if let Some(vouch) = vouch {
+            lock(&self.inner.vouches).insert((root_id.to_string(), row.epoch), vouch);
+        }
+        // #EXP-1950 R2 + R3: a rollback, a key that is not the held one's.
+        self.seal_rule(root_id, row.epoch, &public).map_err(|err| err.to_string())?;
         self.inner.keyring.set_current(root_id, row.epoch, public);
         Ok(Some((row.epoch, public)))
     }
@@ -391,6 +774,17 @@ impl KeyHolder {
 impl SealService for KeyHolder {
     fn keyring(&self) -> &Keyring {
         &self.inner.keyring
+    }
+
+    /// #EXP-1950: the seal went unsigned; its wraps are signed again now
+    /// that the root exists.
+    fn adopt(&self, root_id: &str, seal: &NewRootSeal) {
+        sealing::adopt_into(&self.inner.keyring, root_id, seal);
+        if self.inner.signer.is_some() {
+            let targets = seal.wraps.iter().map(|wrap| wrap.install_id.clone()).collect();
+            lock(&self.inner.resign).fresh.push((root_id.to_string(), seal.epoch, targets));
+            self.wake();
+        }
     }
 
     fn install_id(&self) -> Option<String> {
@@ -477,7 +871,16 @@ impl SealService for KeyHolder {
 
     fn new_root_readers(&self, target_device: &str) -> Vec<(String, String)> {
         let readers = lock(&self.inner.device_readers).clone();
-        readers.map(|readers| readers(target_device)).unwrap_or_default()
+        let readers = readers.map(|readers| readers(target_device)).unwrap_or_default();
+        // #EXP-1950 R4: a new root's seal wraps only for allowed targets.
+        readers.into_iter().filter(|(install_id, x25519)| self.may_wrap(install_id, x25519, None)).collect()
+    }
+
+    fn check_seal(&self, root_id: &str, epoch: u32, public: &[u8; 32], vouch: Option<&serde_json::Value>) -> Result<(), SealError> {
+        if let Some(vouch) = vouch.and_then(|v| serde_json::from_value::<Vouch>(v.clone()).ok()) {
+            lock(&self.inner.vouches).insert((root_id.to_string(), epoch), vouch);
+        }
+        self.seal_rule(root_id, epoch, public)
     }
 
     fn deliver_direct(&self, deliver_to: &coding::sealing::DeliverTo, message: &domain::rows::MessageRow) {
@@ -497,6 +900,16 @@ enum Created {
     /// #EDE-97: 400 `clearTree.clearRefusal`: a clear tree.
     Clear,
     Failed(String),
+}
+
+/// A root signed again (or refused): never asked again in this process.
+fn finish_resign(state: &mut ResignState, job: &ResignJob) {
+    state.done.insert((job.root_id.clone(), job.epoch));
+    state.fresh.retain(|(root, epoch, _)| !(*root == job.root_id && *epoch == job.epoch));
+    if state.own.get(&job.root_id) == Some(&job.epoch) {
+        state.own.remove(&job.root_id);
+    }
+    state.alone.remove(&job.root_id);
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -574,7 +987,7 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|(root, _, install, _)| install == install_id && root_ids.is_none_or(|ids| ids.contains(root)))
-                .map(|(root, epoch, _, wrapped)| HeldKey { root_id: root.clone(), epoch: *epoch, wrapped: wrapped.clone() })
+                .map(|(root, epoch, _, wrapped)| HeldKey { root_id: root.clone(), epoch: *epoch, wrapped: wrapped.clone(), signature: None, signer_endpoint_id: None })
                 .collect())
         }
         fn pending(&self, install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError> {
@@ -601,6 +1014,7 @@ mod tests {
                             public_key: public.clone(),
                             target_install_id: reader.clone(),
                             target_x25519_public: sealing::b64url_encode(x),
+                            target_endpoint_id: None,
                         });
                     }
                 }
@@ -628,7 +1042,7 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|(root, _)| root_ids.contains(root))
-                .map(|(root, (epoch, public))| RootKey { root_id: root.clone(), epoch: *epoch, public_key: public.clone() })
+                .map(|(root, (epoch, public))| RootKey { root_id: root.clone(), epoch: *epoch, public_key: public.clone(), vouch: None })
                 .collect())
         }
         fn request_key(&self, root_id: &str) -> Result<RequestedKey, ApiError> {
@@ -958,11 +1372,11 @@ mod tests {
             let mut rows = Vec::new();
             if self.case["serves"] == "foreign" {
                 for root in self.case["held"].as_object().unwrap().keys() {
-                    rows.push(HeldKey { root_id: root.clone(), epoch: 9, wrapped: self.fixture["rotation"]["foreignWrap"].as_str().unwrap().into() });
+                    rows.push(HeldKey { root_id: root.clone(), epoch: 9, wrapped: self.fixture["rotation"]["foreignWrap"].as_str().unwrap().into(), signature: None, signer_endpoint_id: None });
                 }
             }
             for (root, epoch) in self.conflicted.lock().unwrap().iter() {
-                rows.push(HeldKey { root_id: root.clone(), epoch: *epoch, wrapped: self.fixture["rotation"]["rotatedWrap"].as_str().unwrap().into() });
+                rows.push(HeldKey { root_id: root.clone(), epoch: *epoch, wrapped: self.fixture["rotation"]["rotatedWrap"].as_str().unwrap().into(), signature: None, signer_endpoint_id: None });
             }
             rows.retain(|row| root_ids.is_none_or(|ids| ids.contains(&row.root_id)));
             Ok(rows)
@@ -981,6 +1395,7 @@ mod tests {
                         public_key: public.clone(),
                         target_install_id: reader,
                         target_x25519_public: self.fixture["tree"]["publicKey"].as_str().unwrap().into(),
+                        target_endpoint_id: None,
                     });
                 }
             }
@@ -1003,7 +1418,7 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|(root, _)| root_ids.contains(root))
-                .map(|(root, epoch)| RootKey { root_id: root.clone(), epoch: *epoch, public_key: self.fixture["rotatedTree"]["publicKey"].as_str().unwrap().into() })
+                .map(|(root, epoch)| RootKey { root_id: root.clone(), epoch: *epoch, public_key: self.fixture["rotatedTree"]["publicKey"].as_str().unwrap().into(), vouch: None })
                 .collect())
         }
     }
@@ -1089,5 +1504,602 @@ mod tests {
                 assert!(holder.keyring().secret(root, 9).is_none(), "{name}: a foreign wrap was kept");
             }
         }
+    }
+
+    /// One `pending` pair, and the wraps the holder answered it with.
+    struct OlderEpochDouble {
+        pair: PendingWrap,
+        wraps: Mutex<Vec<PairWrap>>,
+    }
+
+    impl KeyApi for OlderEpochDouble {
+        fn create(&self, _input: &CreateKey) -> Result<(), ApiError> {
+            unreachable!("nothing is keyed here")
+        }
+        fn mine(&self, _install_id: &str, _root_ids: Option<&[String]>) -> Result<Vec<HeldKey>, ApiError> {
+            Ok(Vec::new())
+        }
+        fn pending(&self, _install_id: &str, _root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError> {
+            Ok(vec![self.pair.clone()])
+        }
+        fn wrap(&self, _install_id: &str, wraps: &[PairWrap]) -> Result<(), ApiError> {
+            self.wraps.lock().unwrap().extend_from_slice(wraps);
+            Ok(())
+        }
+        fn public_keys(&self, _root_ids: &[String]) -> Result<Vec<RootKey>, ApiError> {
+            Ok(Vec::new())
+        }
+    }
+
+    /// #EXP-2119 (`rotation` OLDER EPOCHS): the held secret of exactly
+    /// (root, epoch) leaves, signed over its own public key.
+    #[test]
+    fn older_epoch_cases_replay() {
+        let fixture = rotation_fixture();
+        let secret_at = |epoch: u32| hex32(fixture[if epoch == 1 { "tree" } else { "rotatedTree" }]["secret"].as_str().unwrap());
+        let identity = Identity::from_bytes([7; 32]);
+        let target = Identity::from_bytes([8; 32]);
+        let root = "00000000-0000-4000-8000-000000000001";
+        for case in fixture["rotation"]["olderEpochCases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let public_key = match case["pair"]["publicKey"].as_str().unwrap() {
+                "tree" => fixture["tree"]["publicKey"].as_str().unwrap().to_string(),
+                other => other.to_string(),
+            };
+            let api = Arc::new(OlderEpochDouble {
+                pair: PendingWrap {
+                    root_id: root.into(),
+                    epoch: case["pair"]["epoch"].as_u64().unwrap() as u32,
+                    public_key,
+                    target_install_id: "t".into(),
+                    target_x25519_public: b64url_encode(&PushKeypair::derive(&target).public()),
+                    target_endpoint_id: Some(endpoint_id_hex(&target)),
+                },
+                wraps: Mutex::default(),
+            });
+            let holder = KeyHolder::signing("self".into(), &identity, api.clone(), Keyring::in_memory());
+            for epoch in case["held"].as_array().unwrap() {
+                let epoch = epoch.as_u64().unwrap() as u32;
+                holder.keyring().insert_secret(root, epoch, secret_at(epoch));
+            }
+            holder.answer_pending().unwrap();
+            let wraps = api.wraps.lock().unwrap().clone();
+            let Some(epoch) = case["wraps"].as_u64().map(|e| e as u32) else {
+                assert!(wraps.is_empty(), "{name}");
+                continue;
+            };
+            assert_eq!((wraps.len(), wraps[0].epoch), (1, api.pair.epoch), "{name}");
+            assert_eq!(unwrap_tree_key(&PushKeypair::derive(&target).secret(), &wraps[0].wrapped).unwrap(), secret_at(epoch), "{name}");
+            let own_public = b64url_encode(&PushKeypair::from_secret(secret_at(epoch)).public());
+            let endpoint = endpoint_id_hex(&target);
+            let statement = WrapStatement { root_id: root, epoch, tree_public_key: &own_public, recipient_endpoint_id: &endpoint, wrapped: &wraps[0].wrapped };
+            assert_eq!(wraps[0].signature, Some(sign_wrap(&identity, &statement).unwrap()), "{name}");
+        }
+    }
+
+    // ── #EXP-1950: wrap-signature.json, a key API that VERIFIES like the server ──
+
+    fn signature_fixture() -> serde_json::Value {
+        serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/wrap-signature.json")).unwrap()
+    }
+
+    const ROOT: &str = "01234567-89ab-4def-8123-456789abcdef";
+    const OTHER_ROOT: &str = "11111111-1111-4111-8111-111111111111";
+
+    /// One stored wrap: `session_keys` with its #3394 columns.
+    #[derive(Clone, Debug)]
+    struct Row {
+        root: String,
+        epoch: u32,
+        install: String,
+        wrapped: String,
+        signature: Option<String>,
+        signer: Option<String>,
+    }
+
+    /// The server's key rules with the signature checks of #3394 and #3408:
+    /// a signature must be the CALLER's install's over (root, epoch, the
+    /// STORED tree public key, the target's endpoint id, the wrapped bytes),
+    /// else the write is refused (BAD_REQUEST). `resign` follows `resign.order`.
+    #[derive(Default)]
+    struct SignedKeys {
+        /// install id → (endpoint id, X25519 public).
+        installs: HashMap<String, (String, [u8; 32])>,
+        /// Current readers of every root.
+        readers: Mutex<Vec<String>>,
+        rotators: Vec<String>,
+        roots: Mutex<HashMap<String, (u32, String)>>,
+        rows: Mutex<Vec<Row>>,
+        /// The unsigned rows from before #EXP-1950 ([`SignedKeys::legacy`]).
+        legacy_wraps: Mutex<Vec<String>>,
+        /// Every wrapped value written with a signature.
+        signed: Mutex<Vec<String>>,
+        /// `resign` answers this status instead (an old server: 404).
+        resign_status: Option<u16>,
+        /// Roots whose `resign` the server refuses (FORBIDDEN, the caller no reader).
+        resign_refuses: Vec<String>,
+        resign_calls: Mutex<Vec<Vec<ResignWrap>>>,
+        /// `pending` from a server older than #3394: no target endpoint.
+        old_pending: bool,
+    }
+
+    /// `resignOutcome` (wrap-signature.ts), replayed against `resign.cases`.
+    fn resign_rule(caller_reader: bool, current_epoch: bool, target_reader: bool, signature_valid: bool, row: &str) -> (&'static str, &'static str) {
+        let rule = if !caller_reader {
+            "callerNotReader"
+        } else if !current_epoch {
+            "staleEpoch"
+        } else if !target_reader {
+            "targetNotReader"
+        } else if !signature_valid {
+            "badSignature"
+        } else if row == "none" {
+            "noRow"
+        } else if row == "signed" {
+            "signedRow"
+        } else {
+            "unsignedRow"
+        };
+        let outcome = match rule {
+            "callerNotReader" | "targetNotReader" | "badSignature" => "refused",
+            "unsignedRow" => "replaced",
+            _ => "skipped",
+        };
+        (rule, outcome)
+    }
+
+    impl SignedKeys {
+        fn new(installs: &[(&str, &Identity)], readers: &[&str]) -> SignedKeys {
+            SignedKeys {
+                installs: installs
+                    .iter()
+                    .map(|(id, identity)| (id.to_string(), (endpoint_id_hex(identity), PushKeypair::derive(identity).public())))
+                    .collect(),
+                readers: Mutex::new(readers.iter().map(|r| r.to_string()).collect()),
+                ..Default::default()
+            }
+        }
+
+        /// The server's check of one signature (`checkWrapSignatures`).
+        fn verifies(&self, caller: &str, root: &str, epoch: u32, target: &str, wrapped: &str, signature: &str) -> bool {
+            let Some((public, stored_epoch)) = self.roots.lock().unwrap().get(root).map(|(e, p)| (p.clone(), *e)) else { return false };
+            if stored_epoch != epoch {
+                return false;
+            }
+            let statement = WrapStatement {
+                root_id: root,
+                epoch,
+                tree_public_key: &public,
+                recipient_endpoint_id: &self.installs[target].0,
+                wrapped,
+            };
+            enet_core::wrap_sig::verify_wrap_signature(&statement, signature, &self.installs[caller].0)
+        }
+
+        fn bad_signature() -> ApiError {
+            ApiError::Http { status: 400, message: "A wrap's signature is not your install's over this key".into() }
+        }
+
+        fn store(&self, caller: &str, root: &str, epoch: u32, target: &str, wrapped: &str, signature: Option<&str>) {
+            if signature.is_some() {
+                self.signed.lock().unwrap().push(wrapped.to_string());
+            }
+            self.rows.lock().unwrap().push(Row {
+                root: root.into(),
+                epoch,
+                install: target.into(),
+                wrapped: wrapped.into(),
+                signature: signature.map(str::to_string),
+                signer: signature.map(|_| self.installs[caller].0.clone()),
+            });
+        }
+
+        /// What `sessions.send {seal}` stores: the root and its UNSIGNED wraps.
+        fn store_seal(&self, root: &str, seal: &NewRootSeal) {
+            self.roots.lock().unwrap().insert(root.into(), (seal.epoch, seal.public_key.clone()));
+            for wrap in &seal.wraps {
+                self.store(&seal.install_id, root, seal.epoch, &wrap.install_id, &wrap.wrapped, None);
+            }
+        }
+
+        /// A row from before #EXP-1950: an unsigned wrap of `secret`.
+        fn legacy(&self, root: &str, epoch: u32, secret: &[u8; 32], targets: &[&str]) {
+            let public = b64url_encode(&PushKeypair::from_secret(*secret).public());
+            self.roots.lock().unwrap().insert(root.into(), (epoch, public));
+            for target in targets {
+                let wrapped = wrap_tree_key(&self.installs[*target].1, secret).unwrap();
+                self.legacy_wraps.lock().unwrap().push(wrapped.clone());
+                self.store("", root, epoch, target, &wrapped, None);
+            }
+        }
+
+        /// Every stored row of (root, epoch), checked as a reader would: the
+        /// signer's signature over the statement IT builds from the secret the
+        /// row opens to, its own endpoint id and the bytes.
+        fn assert_signed(&self, root: &str, epoch: u32, signer: &Identity, secrets: &HashMap<String, [u8; 32]>) -> usize {
+            let rows: Vec<Row> = self.rows.lock().unwrap().iter().filter(|r| r.root == root && r.epoch == epoch).cloned().collect();
+            for row in &rows {
+                let secret = unwrap_tree_key(&secrets[&row.install], &row.wrapped).expect("the wrap opens for its recipient");
+                let statement = WrapStatement {
+                    root_id: root,
+                    epoch,
+                    tree_public_key: &b64url_encode(&PushKeypair::from_secret(secret).public()),
+                    recipient_endpoint_id: &self.installs[&row.install].0,
+                    wrapped: &row.wrapped,
+                };
+                let signature = row.signature.as_deref().unwrap_or_else(|| panic!("{root} epoch {epoch} for {} is unsigned", row.install));
+                assert_eq!(row.signer.as_deref(), Some(endpoint_id_hex(signer).as_str()));
+                assert!(enet_core::wrap_sig::verify_wrap_signature(&statement, signature, &endpoint_id_hex(signer)));
+                // The same signature names exactly this row.
+                let other = WrapStatement { epoch: epoch + 1, ..statement };
+                assert!(!enet_core::wrap_sig::verify_wrap_signature(&other, signature, &endpoint_id_hex(signer)));
+            }
+            rows.len()
+        }
+    }
+
+    impl KeyApi for SignedKeys {
+        fn create(&self, input: &CreateKey) -> Result<(), ApiError> {
+            {
+                let mut roots = self.roots.lock().unwrap();
+                match roots.get(&input.root_id) {
+                    None if input.epoch == 1 => {}
+                    Some((epoch, _)) if input.epoch == epoch + 1 && self.rotators.contains(&input.install_id) => {}
+                    _ => return Err(ApiError::Http { status: 409, message: "keyed".into() }),
+                }
+                // Verified against the key this create stores.
+                let previous = roots.insert(input.root_id.clone(), (input.epoch, input.public_key.clone()));
+                drop(roots);
+                for wrap in &input.wraps {
+                    if let Some(signature) = &wrap.signature {
+                        if !self.verifies(&input.install_id, &input.root_id, input.epoch, &wrap.install_id, &wrap.wrapped, signature) {
+                            let mut roots = self.roots.lock().unwrap();
+                            match previous {
+                                Some(previous) => roots.insert(input.root_id.clone(), previous),
+                                None => roots.remove(&input.root_id),
+                            };
+                            return Err(Self::bad_signature());
+                        }
+                    }
+                }
+            }
+            for wrap in &input.wraps {
+                self.store(&input.install_id, &input.root_id, input.epoch, &wrap.install_id, &wrap.wrapped, wrap.signature.as_deref());
+            }
+            Ok(())
+        }
+        fn mine(&self, install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<HeldKey>, ApiError> {
+            let rows: Vec<HeldKey> = self
+                .rows
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.install == install_id && root_ids.is_none_or(|ids| ids.contains(&r.root)))
+                .map(|r| HeldKey { root_id: r.root.clone(), epoch: r.epoch, wrapped: r.wrapped.clone(), signature: r.signature.clone(), signer_endpoint_id: r.signer.clone() })
+                .collect();
+            Ok(rows)
+        }
+        fn pending(&self, install_id: &str, root_ids: Option<&[String]>) -> Result<Vec<PendingWrap>, ApiError> {
+            let rows = self.rows.lock().unwrap().clone();
+            let roots = self.roots.lock().unwrap().clone();
+            let readers = self.readers.lock().unwrap().clone();
+            let mut out = Vec::new();
+            for (root, (epoch, public)) in roots.iter().filter(|(root, _)| root_ids.is_none_or(|ids| ids.contains(root))) {
+                if !rows.iter().any(|r| &r.root == root && r.epoch == *epoch && r.install == install_id) {
+                    continue;
+                }
+                for reader in &readers {
+                    if !rows.iter().any(|r| &r.root == root && r.epoch == *epoch && &r.install == reader) {
+                        out.push(PendingWrap {
+                            root_id: root.clone(),
+                            epoch: *epoch,
+                            public_key: public.clone(),
+                            target_install_id: reader.clone(),
+                            target_x25519_public: b64url_encode(&self.installs[reader].1),
+                            target_endpoint_id: (!self.old_pending).then(|| self.installs[reader].0.clone()),
+                        });
+                    }
+                }
+            }
+            Ok(out)
+        }
+        fn wrap(&self, install_id: &str, wraps: &[PairWrap]) -> Result<(), ApiError> {
+            for wrap in wraps {
+                if let Some(signature) = &wrap.signature {
+                    if !self.verifies(install_id, &wrap.root_id, wrap.epoch, &wrap.target_install_id, &wrap.wrapped, signature) {
+                        return Err(Self::bad_signature());
+                    }
+                }
+            }
+            // Like the server: a pair another pass wrapped meanwhile is skipped.
+            for wrap in wraps {
+                let known = self.rows.lock().unwrap().iter().any(|r| r.root == wrap.root_id && r.epoch == wrap.epoch && r.install == wrap.target_install_id);
+                if !known {
+                    self.store(install_id, &wrap.root_id, wrap.epoch, &wrap.target_install_id, &wrap.wrapped, wrap.signature.as_deref());
+                }
+            }
+            Ok(())
+        }
+        fn public_keys(&self, root_ids: &[String]) -> Result<Vec<RootKey>, ApiError> {
+            Ok(self
+                .roots
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(root, _)| root_ids.contains(root))
+                .map(|(root, (epoch, public))| RootKey { root_id: root.clone(), epoch: *epoch, public_key: public.clone(), vouch: None })
+                .collect())
+        }
+        fn resign(&self, install_id: &str, wraps: &[ResignWrap]) -> Result<ResignOutput, ApiError> {
+            self.resign_calls.lock().unwrap().push(wraps.to_vec());
+            if let Some(status) = self.resign_status {
+                return Err(ApiError::Http { status, message: "refused".into() });
+            }
+            let readers = self.readers.lock().unwrap().clone();
+            let mut replace = Vec::new();
+            let mut skipped = 0;
+            for wrap in wraps {
+                let current = self.roots.lock().unwrap().get(&wrap.root_id).is_some_and(|(epoch, _)| *epoch == wrap.epoch);
+                let row = self
+                    .rows
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .find(|r| r.root == wrap.root_id && r.epoch == wrap.epoch && r.install == wrap.install_id)
+                    .map_or("none", |r| if r.signature.is_some() { "signed" } else { "unsigned" });
+                let valid = current && self.verifies(install_id, &wrap.root_id, wrap.epoch, &wrap.install_id, &wrap.wrapped, &wrap.signature);
+                let caller = readers.contains(&install_id.to_string()) && !self.resign_refuses.contains(&wrap.root_id);
+                match resign_rule(caller, current, readers.contains(&wrap.install_id), valid, row) {
+                    ("badSignature", _) => return Err(Self::bad_signature()),
+                    (_, "refused") => return Err(ApiError::Http { status: 403, message: "Not a reader of this tree".into() }),
+                    (_, "replaced") => replace.push(wrap.clone()),
+                    _ => skipped += 1,
+                }
+            }
+            let mut rows = self.rows.lock().unwrap();
+            for wrap in &replace {
+                let row = rows.iter_mut().find(|r| r.root == wrap.root_id && r.epoch == wrap.epoch && r.install == wrap.install_id).unwrap();
+                row.wrapped = wrap.wrapped.clone();
+                row.signature = Some(wrap.signature.clone());
+                row.signer = Some(self.installs[install_id].0.clone());
+                self.signed.lock().unwrap().push(wrap.wrapped.clone());
+            }
+            Ok(ResignOutput { replaced: replace.len() as u32, skipped })
+        }
+    }
+
+    /// A signing holder over the double, plus every install's X25519 secret.
+    struct Signed {
+        api: Arc<SignedKeys>,
+        ids: HashMap<String, Identity>,
+        secrets: HashMap<String, [u8; 32]>,
+    }
+
+    impl Signed {
+        fn new(installs: &[&str], readers: &[&str]) -> Signed {
+            let ids: HashMap<String, Identity> = installs.iter().map(|id| (id.to_string(), Identity::generate())).collect();
+            let pairs: Vec<(&str, &Identity)> = ids.iter().map(|(id, identity)| (id.as_str(), identity)).collect();
+            let api = Arc::new(SignedKeys::new(&pairs, readers));
+            let secrets = ids.iter().map(|(id, identity)| (id.clone(), PushKeypair::derive(identity).secret())).collect();
+            Signed { api, ids, secrets }
+        }
+        fn holder(&self, install: &str) -> KeyHolder {
+            let holder = KeyHolder::signing(install.into(), &self.ids[install], self.api.clone(), Keyring::in_memory());
+            let installs = self.api.installs.clone();
+            holder.set_install_lookup(Arc::new(move |id: &str| installs.get(id).map(|(endpoint, x)| (endpoint.clone(), b64url_encode(x)))));
+            holder
+        }
+    }
+
+    /// The double checks like the server: the fixture's vector verifies,
+    /// a tampered one does not.
+    #[test]
+    fn the_double_verifies_the_fixture_vector() {
+        let fx = signature_fixture();
+        let v = &fx["vector"];
+        let statement = WrapStatement {
+            root_id: v["rootId"].as_str().unwrap(),
+            epoch: v["epoch"].as_u64().unwrap() as u32,
+            tree_public_key: v["treePublicKey"].as_str().unwrap(),
+            recipient_endpoint_id: v["recipientEndpointId"].as_str().unwrap(),
+            wrapped: v["wrapped"].as_str().unwrap(),
+        };
+        let signer = fx["signer"]["endpointId"].as_str().unwrap();
+        assert!(enet_core::wrap_sig::verify_wrap_signature(&statement, v["signature"].as_str().unwrap(), signer));
+        let identity = Identity::from_bytes(hex32(fx["signer"]["identity"].as_str().unwrap()));
+        assert_eq!(sign_wrap(&identity, &statement).unwrap(), v["signature"].as_str().unwrap());
+        assert!(!enet_core::wrap_sig::verify_wrap_signature(&statement, v["signature"].as_str().unwrap(), fx["other"]["endpointId"].as_str().unwrap()));
+        let tampered = WrapStatement { epoch: 2, ..statement };
+        assert!(!enet_core::wrap_sig::verify_wrap_signature(&tampered, v["signature"].as_str().unwrap(), signer));
+    }
+
+    /// `resign.cases`: the double's `resign` follows the same order.
+    #[test]
+    fn resign_cases_replay() {
+        let fx = signature_fixture();
+        let cases = fx["resign"]["cases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let b = |k: &str| case[k].as_bool().unwrap();
+            let (rule, outcome) = resign_rule(b("callerReader"), b("currentEpoch"), b("targetReader"), b("signatureValid"), case["row"].as_str().unwrap());
+            assert_eq!((rule, outcome), (case["rule"].as_str().unwrap(), case["outcome"].as_str().unwrap()), "{}", case["name"]);
+            assert_eq!(fx["resign"]["outcomes"][rule], outcome);
+        }
+        assert_eq!(fx["resign"]["maxWraps"].as_u64().unwrap() as usize, RESIGN_MAX);
+        assert_eq!(fx["resign"]["procedure"], "sessionKeys.resign");
+    }
+
+    /// `resign.failureCases`: what the holder does after a failed `resign`.
+    #[test]
+    fn resign_failure_cases_replay() {
+        let fx = signature_fixture();
+        for case in fx["resign"]["failureCases"].as_array().unwrap() {
+            let status = match case["code"].as_str() {
+                None => None,
+                Some("NOT_FOUND") => Some(404),
+                Some("BAD_REQUEST") => Some(400),
+                Some("FORBIDDEN") => Some(403),
+                Some("INTERNAL_SERVER_ERROR") => Some(500),
+                Some(other) => panic!("unknown code {other}"),
+            };
+            let want = match case["after"].as_str().unwrap() {
+                "notYet" => ResignAfter::NotYet,
+                "refused" => ResignAfter::Refused,
+                "retry" => ResignAfter::Retry,
+                other => panic!("unknown after {other}"),
+            };
+            assert_eq!(resign_after(status), want, "{}", case["name"]);
+        }
+    }
+
+    /// The first key, the pending answers and a rotation: every wrap the
+    /// holder makes is signed by its install for the right (root, epoch,
+    /// tree key, recipient, bytes), and the double accepted each one.
+    #[test]
+    fn create_pending_and_rotation_wraps_are_signed() {
+        let mut world = Signed::new(&["device", "phone", "laptop"], &["device", "phone", "laptop"]);
+        Arc::get_mut(&mut world.api).unwrap().rotators = vec!["device".into()];
+        let device = world.holder("device");
+        let (epoch, _) = device.ensure_key(ROOT).unwrap();
+        assert_eq!(epoch, 1);
+        // The create's own pending pass runs on a thread beside this one.
+        device.answer_pending().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(world.api.assert_signed(ROOT, 1, &world.ids["device"], &world.secrets), 3);
+
+        // The laptop is dropped; the device rotates: epoch 2, signed again.
+        world.api.readers.lock().unwrap().retain(|r| r != "laptop");
+        assert_eq!(device.rotate_root(ROOT, 1), Ok(true));
+        device.answer_pending().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(world.api.assert_signed(ROOT, 2, &world.ids["device"], &world.secrets), 2);
+
+        // A reader's own pass over the signed rows: nothing to sign again.
+        let phone = world.holder("phone");
+        phone.pass();
+        assert!(world.api.resign_calls.lock().unwrap().is_empty());
+        assert!(phone.keyring().secret(ROOT, 2).is_some());
+    }
+
+    /// An older server's `pending` names no endpoint: the wraps go unsigned
+    /// (the additive field), and nothing fails.
+    #[test]
+    fn an_old_servers_pending_is_answered_unsigned() {
+        let mut world = Signed::new(&["device", "phone"], &["device", "phone"]);
+        Arc::get_mut(&mut world.api).unwrap().old_pending = true;
+        let device = world.holder("device");
+        device.ensure_key(ROOT).unwrap();
+        device.answer_pending().unwrap();
+        std::thread::sleep(Duration::from_millis(50));
+        let rows = world.api.rows.lock().unwrap().clone();
+        let phone = rows.iter().find(|r| r.install == "phone").unwrap();
+        assert_eq!(phone.signature, None);
+        assert!(rows.iter().find(|r| r.install == "device").unwrap().signature.is_some());
+    }
+
+    /// Decision (c): a key held from before stays; each holder signs its own
+    /// unsigned row of the current epoch again, once, with a FRESH wrap
+    /// (never the bytes it was served); signed rows are never touched.
+    #[test]
+    fn held_keys_are_signed_again_once_per_root() {
+        let world = Signed::new(&["device", "phone"], &["device", "phone"]);
+        let secret = [7u8; 32];
+        world.api.legacy(ROOT, 1, &secret, &["device", "phone"]);
+        world.api.legacy(OTHER_ROOT, 1, &[8u8; 32], &["device"]);
+        let device = world.holder("device");
+        device.pass();
+        assert_eq!(world.api.resign_calls.lock().unwrap().len(), 1, "one batch for both roots");
+        assert_eq!(world.api.resign_calls.lock().unwrap()[0].len(), 2);
+        let rows = world.api.rows.lock().unwrap().clone();
+        assert!(rows.iter().filter(|r| r.install == "device").all(|r| r.signature.is_some()));
+        assert_eq!(rows.iter().find(|r| r.install == "phone").unwrap().signature, None, "another reader's row is its own holder's");
+        // Again: nothing to ask.
+        device.pass();
+        device.pass();
+        assert_eq!(world.api.resign_calls.lock().unwrap().len(), 1);
+        // The phone signs its own.
+        let phone = world.holder("phone");
+        phone.pass();
+        assert_eq!(world.api.resign_calls.lock().unwrap().len(), 2);
+        let rows = world.api.rows.lock().unwrap().clone();
+        let mine = rows.iter().find(|r| r.install == "phone" && r.root == ROOT).unwrap();
+        assert_eq!(mine.signer.as_deref(), Some(endpoint_id_hex(&world.ids["phone"]).as_str()));
+        assert_eq!(unwrap_tree_key(&world.secrets["phone"], &mine.wrapped).unwrap(), secret);
+        // Never signed a wrap it did not make: none of the bytes it was served.
+        let legacy = world.api.legacy_wraps.lock().unwrap().clone();
+        assert_eq!(legacy.len(), 3);
+        assert!(world.api.signed.lock().unwrap().iter().all(|w| !legacy.contains(w)));
+    }
+
+    /// A new root's inline seal goes unsigned (its root id is unknown while
+    /// sealing); once adopted the holder signs every wrap of it again.
+    #[test]
+    fn a_new_roots_seal_is_signed_once_the_root_exists() {
+        let world = Signed::new(&["device", "phone"], &["device", "phone"]);
+        let device = world.holder("device");
+        let phone_x = b64url_encode(&world.api.installs["phone"].1);
+        let seal = sealing::seal_new_root("device", &device.install_public().unwrap(), &[("phone".into(), phone_x)]).unwrap();
+        assert!(seal.wraps.iter().all(|w| w.signature.is_none()));
+        world.api.store_seal(ROOT, &seal);
+        device.adopt(ROOT, &seal);
+        assert_eq!(device.resign_due(), 2);
+        assert_eq!(world.api.assert_signed(ROOT, 1, &world.ids["device"], &world.secrets), 2);
+        let rows = world.api.rows.lock().unwrap().clone();
+        assert!(rows.iter().all(|r| seal.wraps.iter().all(|w| w.wrapped != r.wrapped)), "fresh wraps, never the seal's bytes");
+        assert_eq!(device.resign_due(), 0);
+        device.pass();
+        assert_eq!(world.api.resign_calls.lock().unwrap().len(), 1);
+    }
+
+    /// A server without `resign` (404): quiet, and not asked again soon.
+    #[test]
+    fn an_old_server_without_resign_is_left_alone() {
+        let mut world = Signed::new(&["device"], &["device"]);
+        Arc::get_mut(&mut world.api).unwrap().resign_status = Some(404);
+        world.api.legacy(ROOT, 1, &[7u8; 32], &["device"]);
+        let device = world.holder("device");
+        device.pass();
+        device.pass();
+        assert_eq!(world.api.resign_calls.lock().unwrap().len(), 1);
+        assert!(device.keyring().secret(ROOT, 1).is_some());
+        // A blip is the next pass's.
+        let mut world = Signed::new(&["device"], &["device"]);
+        Arc::get_mut(&mut world.api).unwrap().resign_status = Some(502);
+        world.api.legacy(ROOT, 1, &[7u8; 32], &["device"]);
+        let device = world.holder("device");
+        device.pass();
+        device.pass();
+        assert_eq!(world.api.resign_calls.lock().unwrap().len(), 2);
+    }
+
+    /// A refused batch: its roots go one per call, the refused one never again.
+    #[test]
+    fn a_refused_batch_goes_root_by_root() {
+        let mut world = Signed::new(&["device"], &["device"]);
+        Arc::get_mut(&mut world.api).unwrap().resign_refuses = vec![OTHER_ROOT.into()];
+        world.api.legacy(ROOT, 1, &[7u8; 32], &["device"]);
+        world.api.legacy(OTHER_ROOT, 1, &[8u8; 32], &["device"]);
+        let device = world.holder("device");
+        device.pass();
+        assert_eq!(world.api.resign_calls.lock().unwrap().len(), 1);
+        device.pass();
+        assert_eq!(world.api.resign_calls.lock().unwrap().len(), 3, "each root alone");
+        let rows = world.api.rows.lock().unwrap().clone();
+        assert!(rows.iter().find(|r| r.root == ROOT).unwrap().signature.is_some());
+        assert!(rows.iter().find(|r| r.root == OTHER_ROOT).unwrap().signature.is_none());
+        device.pass();
+        assert_eq!(world.api.resign_calls.lock().unwrap().len(), 3);
+    }
+
+    /// A holder without an identity signs nothing (and asks nothing).
+    #[test]
+    fn a_holder_without_an_identity_signs_nothing() {
+        let world = Signed::new(&["device", "phone"], &["device", "phone"]);
+        let device = KeyHolder::new("device".into(), &PushKeypair::derive(&world.ids["device"]), world.api.clone(), Keyring::in_memory());
+        device.ensure_key(ROOT).unwrap();
+        device.answer_pending().unwrap();
+        device.pass();
+        assert!(world.api.rows.lock().unwrap().iter().all(|r| r.signature.is_none()));
+        assert!(world.api.resign_calls.lock().unwrap().is_empty());
     }
 }

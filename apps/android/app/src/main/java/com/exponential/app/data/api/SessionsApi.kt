@@ -96,7 +96,7 @@ data class SessionsSendInput(
             picked?.let { ids -> JsonArray(ids.map(::JsonPrimitive)) } ?: JsonNull
 
         /**
-         * A NEW chat root in [teamId] (the ACTIVE team) on [deviceId]: text,
+         * A NEW chat root in [teamId] on [deviceId]: text,
          * issues or a saved prompt ([promptId]) — at least one of them.
          */
         fun root(
@@ -115,8 +115,11 @@ data class SessionsSendInput(
             ultracode: Boolean? = null,
             mcpServerIds: List<String>? = null,
             skillIds: List<String>? = null,
+            /** A plain chat's OTHER picked teams; empty = omitted. */
+            scopeTeamIds: List<String> = emptyList(),
         ): SessionsSendInput = SessionsSendInput(
             teamId = teamId,
+            scopeTeamIds = scopeTeamIds.takeIf { it.isNotEmpty() }?.let(::scope),
             deviceId = deviceId,
             cli = cli,
             account = account,
@@ -251,6 +254,8 @@ data class SessionSendTarget(
     val clearTree: Boolean = false,
     /** #EXP-1941: the root's rotation is due (a call on it waits for the rotation); absent = false. */
     val rotationDue: Boolean = false,
+    /** #EXP-1950 (install-trust.json R3): a signed wrap of that epoch vouching for [publicKey]; none on an older server. */
+    val vouch: com.exponential.app.data.sealed.Vouch? = null,
 )
 
 /** `sessions.send`'s answer: the session it landed in and the message row

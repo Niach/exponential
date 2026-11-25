@@ -294,6 +294,8 @@ class SteerEnetTest {
                     deviceOffline = case["deviceOffline"]?.jsonPrimitive?.boolean ?: false,
                     // #EXP-2000: `started` absent = true.
                     started = case["started"]?.jsonPrimitive?.boolean ?: true,
+                    // #EXP-2119: `deviceOnline` absent = false.
+                    deviceOnline = case["deviceOnline"]?.jsonPrimitive?.boolean ?: false,
                 ),
             )
         }
@@ -358,6 +360,8 @@ class SteerEnetTest {
                     createdAt = m["createdAt"]!!.jsonPrimitive.content,
                     createdAtMs = ms(m["createdAt"]),
                     body = m["body"]!!.jsonPrimitive.content,
+                    // #EXP-2075: the card as THE action card when it reads.
+                    action = steerTailActionCard(m["card"] as? kotlinx.serialization.json.JsonObject),
                     authorSessionId = str(m["authorSessionId"]),
                 )
             }
@@ -384,7 +388,8 @@ class SteerEnetTest {
                     rows = c["rows"]!!.jsonPrimitive.long.toInt(),
                     ended = c["ended"]!!.jsonPrimitive.boolean,
                     noFeed = c["noFeed"]!!.jsonPrimitive.boolean,
-                    deviceOffline = c["deviceOffline"]!!.jsonPrimitive.boolean,
+                    deviceOffline = c["deviceOffline"]?.jsonPrimitive?.boolean ?: false,
+                    deviceOnline = c["deviceOnline"]?.jsonPrimitive?.boolean ?: false,
                 ),
             )
         }

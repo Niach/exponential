@@ -62,9 +62,35 @@ pub struct SearchListChats {
     pub test_ids: SearchListChatsTestIds,
 }
 
+/// The fixture's `suggestion` (#NEW-133): the action row a recognised
+/// sentence puts on top of the global search.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchListSuggestionSpec {
+    /// The row's icon CONCEPT.
+    pub icon: String,
+    /// The row's name, `{query}` = the translated query.
+    pub label: String,
+    pub test_id: String,
+    /// #NEW-136: the same row offering the model fallback.
+    pub translate: SearchListTranslateSpec,
+}
+
+/// The fixture's `suggestion.translate` (#NEW-136): the row's name, the
+/// failure toast, its test id and the platforms that show it.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchListTranslateSpec {
+    pub label: String,
+    pub failed: String,
+    pub test_id: String,
+    pub platforms: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct Fixture {
     chats: SearchListChats,
+    suggestion: SearchListSuggestionSpec,
 }
 
 static FIXTURE: LazyLock<Fixture> =
@@ -77,6 +103,31 @@ pub fn chats() -> &'static SearchListChats {
 
 pub fn copy() -> &'static SearchListChatsCopy {
     &FIXTURE.chats.copy
+}
+
+/// The fixture's `suggestion` block (icon concept, label format, test id).
+pub fn suggestion_spec() -> &'static SearchListSuggestionSpec {
+    &FIXTURE.suggestion
+}
+
+/// #NEW-133: the global search's suggestion row: the query a recognised
+/// sentence means and the row's name (`Search: <query>`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SearchSuggestion {
+    pub query: String,
+    pub label: String,
+}
+
+/// The suggestion row for the typed `text` (`suggestion.cases`), or `None`
+/// when the phrase grammar does not recognise a sentence. `now` = epoch ms.
+pub fn suggestion(
+    text: &str,
+    members: &[crate::issue_search_phrase::PhraseMember<'_>],
+    now: i64,
+) -> Option<SearchSuggestion> {
+    let query = crate::issue_search_phrase::translate(text, members, now)?;
+    let label = FIXTURE.suggestion.label.replace("{query}", &query);
+    Some(SearchSuggestion { query, label })
 }
 
 /// Which section a global list's section is.
@@ -300,6 +351,30 @@ mod tests {
         let cases = fixture()[name].as_array().unwrap().clone();
         assert!(!cases.is_empty(), "{name}");
         cases
+    }
+
+    #[test]
+    fn suggestion_cases() {
+        let cases = fixture()["suggestion"]["cases"].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let members: Vec<(Option<String>, Option<String>)> = case["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| (m["name"].as_str().map(str::to_string), m["email"].as_str().map(str::to_string)))
+                .collect();
+            let members: Vec<crate::issue_search_phrase::PhraseMember<'_>> = members
+                .iter()
+                .map(|(name, email)| crate::issue_search_phrase::PhraseMember {
+                    name: name.as_deref(),
+                    email: email.as_deref(),
+                })
+                .collect();
+            let now = crate::issue_search::parse_instant(case["now"].as_str().unwrap()).unwrap();
+            let got = suggestion(case["text"].as_str().unwrap(), &members, now);
+            assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
+        }
     }
 
     #[test]

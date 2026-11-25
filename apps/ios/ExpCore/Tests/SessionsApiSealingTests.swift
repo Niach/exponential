@@ -22,10 +22,13 @@ final class SessionsApiSealingTests: XCTestCase {
 
     private final class Keys: SessionKeysRegistry, @unchecked Sendable {
         let creates = Locked<[String]>([])
+        /// #EXP-2123: the server lists this install as waiting.
+        let waits = Locked(false)
         func sendTarget(accountId: String, agentId: String?, appId: String?) async throws -> ServerSendTarget {
             ServerSendTarget(rootId: nil, epoch: nil, publicKey: nil)
         }
         func create(accountId: String, input: CreateTreeKeyInput) async throws {
+            if waits.value { throw ClearTreeFixtureTests.trpc(403, "FORBIDDEN", keyMakerRefusal) }
             creates.mutate { $0.append(input.rootId) }
         }
         func mine(accountId: String, installId: String, rootIds: [String]?) async throws -> [HeldTreeKey] { [] }
@@ -381,5 +384,77 @@ final class SessionsApiSealingTests: XCTestCase {
         // The composer's own send (no cardItem) is that tree's plaintext.
         try await api.send(accountId: accountId, .message(sessionId: "clear", text: "hello"))
         XCTAssertEqual(Server.bodies.value.map { $0["text"] as? String }, ["hello"])
+    }
+
+    /// #EXP-2123: the answer of a SEALED card never leaves in clear because
+    /// this install may make no key: a refused `sessionKeys.create` throws,
+    /// nothing is sent. A plaintext card is still answered in clear.
+    func testARefusedKeyNeverAnswersASealedCardInClear() async throws {
+        struct CardCrypto: SealedCrypto {
+            var isAvailable = true
+            func installKey(identity: Data) throws -> (secret: Data, publicKey: String) { (Data(repeating: 1, count: 32), "install-public") }
+            func generateTreeKey() -> GeneratedTreeKey { GeneratedTreeKey(secret: Data(repeating: 2, count: 32), publicKey: "new-tree") }
+            func wrap(installPublic: String, treeSecret: Data) throws -> String { "wrapped:\(installPublic)" }
+            func unwrap(installSecret: Data, wrapped: String) throws -> Data { Data() }
+            func sealBody(treePublicKey: String, epoch: UInt32, text: String) throws -> String { text }
+            func openBody(_ body: String, keys: [UInt32: Data]) -> OpenedText { .plain(body) }
+            func sealCard(treePublicKey: String, epoch: UInt32, cardJson: String) throws -> String { #"{"kind":"question","sealed":"again"}"# }
+            func openCard(_ cardJson: String, keys: [UInt32: Data]) -> OpenedCardJson {
+                OpenedCardJson(status: .opened, epoch: 1, json: #"{"kind":"question","question":"Ship?"}"#)
+            }
+        }
+        let auth = AuthRepository(accountStore: AccountStore(keychain: FakeKeychain()))
+        auth.setInstanceUrl("https://exp.example.com")
+        auth.setToken("t", email: "u@x.com", userId: "u", onboardingKnown: true)
+        let accountId = ServerAccount.makeId(instanceUrl: "https://exp.example.com", userId: "u")
+        let db = DatabaseManager()
+        defer {
+            db.closePool(forAccountId: accountId)
+            DatabaseManager.deleteFiles(forAccountId: accountId)
+        }
+        let pool = try db.pool(forAccountId: accountId)
+        try DatabaseManager.runMigrations(on: pool)
+        try await pool.write { conn in
+            try JSONDecoder().decode(
+                SessionEntity.self,
+                from: Data(#"{"id":"keyless","team_id":"t","user_id":"u","device_id":"d","created_at":"x","updated_at":"x"}"#.utf8)
+            ).save(conn)
+            for (id, card) in [("sealed", #"{"kind":"question","sealed":"x"}"#), ("plain", #"{"kind":"question","question":"Ship?"}"#)] {
+                let row: [String: Any] = [
+                    "id": id, "conversation_id": "c", "root_id": "keyless", "session_id": "keyless", "team_id": "t", "author_kind": "agent", "body": "", "attachments": "[]",
+                    "card": card, "created_at": "x", "updated_at": "x",
+                ]
+                try JSONDecoder().decode(MessageEntity.self, from: try JSONSerialization.data(withJSONObject: row)).save(conn)
+            }
+        }
+        let crypto = CardCrypto()
+        let keys = Keys()
+        keys.waits.mutate { $0 = true }
+        let api = SessionsApi(trpc: TrpcClient(httpClient: HTTPClient(auth: auth, protocolClasses: [Server.self]), auth: auth))
+        api.sealing.sealer = SessionSealer(
+            holder: TreeKeyHolder(
+                keys: keys, installs: nil, crypto: crypto, ring: SealedKeyRing(persistence: .memory),
+                identity: { Data(repeating: 3, count: 32) }, installId: { _ in "install-me" }
+            ),
+            opener: SealedOpener(crypto: crypto, ring: SealedKeyRing(persistence: .memory)),
+            db: db,
+            userId: { _ in "u" }
+        )
+        Server.bodies.mutate { $0 = [] }
+        do {
+            try await api.answer(accountId: accountId, messageId: "sealed", answer: "Yes")
+            XCTFail("the sealed card was answered")
+        } catch {
+            XCTAssertEqual(error as? SealedOnlyError, SealedOnlyError())
+        }
+        XCTAssertEqual(Server.bodies.value.count, 0, "nothing left")
+        XCTAssertEqual(keys.creates.value, [])
+        try await api.answer(accountId: accountId, messageId: "plain", answer: "Yes")
+        XCTAssertEqual(Server.bodies.value.map { $0["answer"] as? String }, ["Yes"])
+        // The server lets it: the key is made and the card leaves sealed.
+        keys.waits.mutate { $0 = false }
+        try await api.answer(accountId: accountId, messageId: "sealed", answer: "Yes")
+        XCTAssertNil(Server.bodies.value.last?["answer"])
+        XCTAssertNotNil(Server.bodies.value.last?["sealedCard"])
     }
 }

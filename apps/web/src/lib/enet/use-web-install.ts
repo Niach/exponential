@@ -12,6 +12,7 @@ import { trpc } from "@/lib/trpc-client"
 import { loadEnet } from "./enet-loader"
 import { serveSteerBridge, setLocalSteerCarrier, STEER_BRIDGE_CHANNEL, type BridgeChannel } from "./steer-bridge"
 import { setKeyLeader } from "./use-key-holder"
+import { indexedDbTrustStore } from "./trust-store"
 import { WebInstall, type InstallsApi } from "./web-install"
 
 const LOCK = `exp-enet-node`
@@ -52,7 +53,7 @@ export function useWebInstall(userId: string | undefined) {
   useEffect(() => {
     if (!userId || typeof navigator === `undefined` || !navigator.locks) return
     const abort = new AbortController()
-    const install = new WebInstall(userId, { loadEnet, api })
+    const install = new WebInstall(userId, { loadEnet, api, trustStore: indexedDbTrustStore })
     installRef.current = install
     void install.setTeams(splitTeams(teamKeyRef.current))
     navigator.locks

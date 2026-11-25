@@ -1,3 +1,4 @@
+import { InstallWaitingGate } from "@/components/devices/install-approval"
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
 import {
   actionMarker,
@@ -1319,6 +1320,12 @@ export function AgentSessionView({
       deviceOffline: device.online === false,
       started: session.startedAt != null,
     }) === `waiting`
+  // An ended row no device fed: the device-offline copy, or (#EXP-2119) the
+  // idle state while that device is online.
+  const noFeedEnded =
+    feedPlaceholder && deviceOffline && phase.kind === `ended`
+      ? steerNoFeedState({ ended: true, busy: false, deviceOnline: device.online === true })
+      : null
   const [stalled, setStalled] = useState(false)
   useEffect(() => {
     if (!waitingForRoom) {
@@ -1388,7 +1395,7 @@ export function AgentSessionView({
     (waitingForRoom && stalled) ||
     (feedPlaceholder && (phase.kind === `connecting` || phase.kind === `starting`)) ||
     (feedPlaceholder && live) ||
-    (feedPlaceholder && deviceOffline && phase.kind === `ended`)
+    noFeedEnded !== null
   const sentShown = placeholderShown && !sessionEnded && sentRows.length > 0
   // #FEED-260 (steer-enet.json OFFLINE LINE): a not-live transcript showing
   // rows ends with THE inline marker when the live one cannot be loaded.
@@ -1398,6 +1405,7 @@ export function AgentSessionView({
     ended: sessionEnded,
     noFeed: deviceOffline && phase.kind === `ended`,
     deviceOffline: device.online === false,
+    deviceOnline: device.online === true,
   })
   // #EDE-129 (find-in-chat.json): find in chat over the WHOLE loaded feed
   // (not just the painted window) plus the store's and the device's older
@@ -1612,6 +1620,9 @@ export function AgentSessionView({
             )}
             style={{ bottom: dockHeight, ...edgeFadeStyle(follow.scrolled) }}
           >
+            {/* #EXP-1950: an install waiting for approval, where this
+                encrypted chat would open. */}
+            <InstallWaitingGate rootId={session.rootId ?? session.id} sealed={session.sealEpoch != null} />
             {/* steer-enet.json SENT INPUTS: what was sent (the brief the
                 claim consumed included) above the placeholder's copy. */}
             {sentShown && (
@@ -1654,7 +1665,7 @@ export function AgentSessionView({
                 <SkeletonRows rowHeight={36} className="-mx-3" />
                 <span className="text-xs text-muted-foreground">{startingCaption}</span>
               </div>
-            ) : noFeedIdle || (waitingForRoom && stalled) ? (
+            ) : noFeedIdle || noFeedEnded === `idle` || (waitingForRoom && stalled) ? (
               <CenteredState>
                 <EmptyState
                   title={STEER_ENET_NO_FEED_IDLE.title}
@@ -1683,7 +1694,7 @@ export function AgentSessionView({
                   description="This session isn't publishing an activity feed yet."
                 />
               </CenteredState>
-            ) : feedPlaceholder && deviceOffline && phase.kind === `ended` ? (
+            ) : noFeedEnded === `offline` && phase.kind === `ended` ? (
               /* VAPP-171: an ended row no device fed — the machine that holds
                  its transcript, named (×4). */
               <CenteredState>

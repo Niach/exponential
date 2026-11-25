@@ -16,8 +16,55 @@ and spezl.
 - `models.rs`: which phrases have a model, and every file as a pinned
   download (url, sha256, size). A model without a digest is unpublished and
   never picked. Nothing is in the binary.
-- CPU: `cargo run --release -p etalk-wakeword --example wake_model [-- 120 models/hey_spezl.onnx]`
-  (M4 Pro: ~11 ms per second of audio, ~1.1 % of one core, either classifier).
+- `Detector::rest` (#NEW-126): samples from a quiet room run no model (each
+  frame counts as a score of 0) and the last `REST_FRAMES` are kept, so the
+  next `push` scores exactly as if every frame had been pushed.
+
+## What listening costs (#NEW-126)
+
+The always-on cost is the whole listening path, not the classifier: the
+microphone, Silero and the three networks, of which the speech embedding is
+nearly all (it runs over its full 76-frame window every 80 ms). So the model
+rests while the room is quiet (`etalk-engine`'s `wake.rs`: no Silero frame
+at 0.1 or over for 1.28 s) and Silero alone listens.
+
+Speech worker CPU (user + system, every thread) over 120 s of a quiet room,
+`Hey spezl`, 3 runs each (the issue's own figure on the M4 Pro, the app on the
+real microphone, was 5.0 s = 4.2 %):
+
+| machine, microphone | before | after |
+|---|---|---|
+| Linux (i9-13900K, CUDA build), `pw-record` 16 kHz from a virtual PipeWire source | 6.4 – 7.2 s (5.3 – 6.0 % of one core) | 2.1 – 2.4 s (1.8 – 2.0 %) |
+| M4 Pro (macOS 27), `wake_listen idle`: a stand-in microphone, 48 kHz in 10 ms chunks | 4.6 – 5.2 s (3.8 – 4.4 %) | 1.9 s (1.5 – 1.6 %) |
+
+Where the Linux time goes, per second of audio on the listening thread: before
+the embedding ~41 ms, the mel spectrogram ~3.5 ms, the classifier ~2.7 ms and
+Silero ~9 ms (together 5.4 – 6.1 s of the 120 s); after Silero and the
+bookkeeping, 1.2 – 1.3 s. The rest is the CUDA runtime's idle event thread
+(0.8 – 1.1 s, Linux GPU build only) and, outside the worker, `pw-record`
+(0.4 s). No `Level` frame is made while scanning (only a Listen, a turn or a
+call draws them). The M4 Pro's listening thread (`sample`, before) agrees:
+of its working time 77 % in the model's networks (tract), 23 % in Silero,
+nothing else. With sound in the room (talk, music, a TV) the model scores
+every frame as before.
+
+Measure it without a microphone (the worker's own listening thread on a
+stand-in device; `--rate 16000 --chunk-ms 64` is Linux's recorder, the
+default 48 kHz in 10 ms chunks is cpal's on macOS and Windows):
+
+```bash
+cargo run --release -p etalk-engine --example wake_listen -- <data-dir> idle --seconds 120
+cargo run --release -p etalk-engine --example wake_listen -- <data-dir> clips <clips-dir>   # what still wakes
+```
+
+macOS loads the speech runtime only from the running executable's bundle: put
+the built example in a stand-in one (`WL.app/Contents/MacOS/wake_listen`, with
+`WL.app/Contents/Frameworks/*.dylib` copied from an installed Exponential.app)
+and run it from there.
+
+`examples/wake_model.rs` times the three networks alone, fed as fast as they
+decode (M4 Pro: ~11 ms per second of audio; in real time, with cold caches
+between frames, they cost several times that).
 
 ## Shipped models (`models/`)
 
@@ -34,7 +81,7 @@ GPU with livekit-wakeword's prod settings (25k samples, 100k steps, medium model
 ## In Exponential
 
 `etalk-engine`'s wake path (`wake.rs`) hears each phrase through a
-`WakeDetector`: `ModelDetector` when the phrase has a published model whose
+`WakeDetector`: `SetDetector` when the phrase has a published model whose
 files are ready, else `TranscriptMatcher` (Parakeet on each Silero segment's
 start, unchanged). Fixture: `packages/etalk/fixtures/talk-listen.json`
 `wake.detector`. Exponential's own phrases (`Hey {agent}`, typed ones) have no

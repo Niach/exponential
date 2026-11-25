@@ -1,3 +1,4 @@
+import Combine
 import ExpCore
 import ExpUI
 import GRDB
@@ -75,13 +76,16 @@ struct PendingInstalls: View {
     }
 }
 
-/// This install, not approved yet: THE page EmptyState with its own code.
+/// This install, not approved yet: THE page EmptyState with its own code,
+/// where install-trust.json `waiting` stands it (web `max-w-md pt-[20vh]`).
 struct InstallWaiting: View {
     let code: String
 
     var body: some View {
         CiSurface(surfaceId: InstallApprovalView.TestIds.waiting, tree: InstallApprovalView.waitingTree(code: code)) { _, _, _ in }
+            .frame(maxWidth: InstallApprovalView.Waiting.maxWidth)
             .frame(maxWidth: .infinity)
+            .padding(.top, UIScreen.main.bounds.height * InstallApprovalView.Waiting.topOffset)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(InstallApprovalView.TestIds.waiting)
     }
@@ -94,15 +98,22 @@ struct InstallWaitingGate: View {
     let sealed: Bool
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    /// The key ring is no observable state: a wrap that lands lifts the gate
+    /// (#EXP-2119; it stayed over the chat it had made readable).
+    @State private var keysChanged = 0
 
     var body: some View {
         let trust = deps.installTrust.snapshot(accountId)
-        if sealed, trust.waiting, let code = trust.code, deps.treeKeyHolder.held(rootId: rootId).isEmpty {
-            ZStack {
+        let _ = keysChanged
+        ZStack(alignment: .top) {
+            if sealed, trust.waiting, let code = trust.code, deps.treeKeyHolder.held(rootId: rootId).isEmpty {
                 AppBackground()
                 InstallWaiting(code: code)
+                    .task(id: accountId) { await deps.installTrust.refresh(accountId) }
             }
-            .task(id: accountId) { await deps.installTrust.refresh(accountId) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sealedKeysChanged).receive(on: DispatchQueue.main)) { _ in
+            keysChanged += 1
         }
     }
 }
@@ -149,10 +160,20 @@ struct LivePendingInstalls: View {
 /// waiting with its code, over THE Needs you page content.
 struct InstallTrustSpecimens: View {
     let waiting: Bool
+    /// The pushed page: the header with its back control.
+    @State private var path: [Int] = []
 
     private static let rows = InstallTrustSpecimenRows.rows
 
     var body: some View {
+        NavigationStack(path: $path) {
+            AppBackground()
+                .navigationDestination(for: Int.self) { _ in page.bareBackButton() }
+        }
+        .onAppear { path = [1] }
+    }
+
+    private var page: some View {
         ZStack {
             AppBackground()
             NeedsYouPageContent(
@@ -164,5 +185,6 @@ struct InstallTrustSpecimens: View {
                 PendingInstalls(rows: Self.rows, onApprove: { _ in }, onRemove: { _ in })
             }
         }
+        .pageHeader(NeedsYou.Copy.entry, pushed: true)
     }
 }

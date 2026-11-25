@@ -17,6 +17,13 @@ public protocol TreeKeySecretStorage: Sendable {
     /// Replaces the item. False when the store refused the write.
     func put(account: String, data: Data) -> Bool
     func deleteAll()
+    /// One item; nil = none stored; throws when the store cannot be read
+    /// (never taken for none).
+    func read(account: String) throws -> Data?
+}
+
+public struct TreeKeyStorageUnreadable: Error {
+    public let status: OSStatus
 }
 
 public struct KeychainTreeKeySecretStorage: TreeKeySecretStorage {
@@ -53,6 +60,18 @@ public struct KeychainTreeKeySecretStorage: TreeKeySecretStorage {
             }
         }
         return out
+    }
+
+    public func read(account: String) throws -> Data? {
+        var query = base()
+        query[kSecAttrAccount as String] = account
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = result as? Data else { throw TreeKeyStorageUnreadable(status: status) }
+        return data
     }
 
     public func put(account: String, data: Data) -> Bool {
@@ -120,6 +139,8 @@ public final class MemoryTreeKeySecretStorage: TreeKeySecretStorage, @unchecked 
 
     public func all() -> [String: Data] { lock.withLock { items } }
 
+    public func read(account: String) throws -> Data? { lock.withLock { items[account] } }
+
     public func put(account: String, data: Data) -> Bool {
         lock.withLock { items[account] = data }
         return true
@@ -149,7 +170,9 @@ public final class InstallTrustPinStore: Sendable {
         ))
     }
 
-    public func load(account: String) -> Data? { storage.all()[account] }
+    /// nil = no store for the account; throws when the keychain cannot be
+    /// read (a locked phone before its first unlock): never taken for none.
+    public func load(account: String) throws -> Data? { try storage.read(account: account) }
 
     @discardableResult
     public func save(account: String, data: Data) -> Bool { storage.put(account: account, data: data) }

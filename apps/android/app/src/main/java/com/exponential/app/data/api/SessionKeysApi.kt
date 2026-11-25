@@ -8,8 +8,9 @@ import kotlinx.serialization.builtins.ListSerializer
 // EXP-1458 tRPC `sessionKeys` (fixtures/sealed-content.json KEY API): every
 // call names an install the caller owns (not revoked).
 
+/** #EXP-1950: [signature] = this install's over the wrap (`enet_core::wrap_sig`); null = unsigned, omitted on the wire. */
 @Serializable
-data class TreeKeyWrap(val installId: String, val wrapped: String)
+data class TreeKeyWrap(val installId: String, val wrapped: String, val signature: String? = null)
 
 @Serializable
 data class CreateSessionKeyInput(
@@ -25,12 +26,26 @@ data class MineSessionKeysInput(val installId: String, val rootIds: List<String>
 
 /** One wrap this install holds. */
 @Serializable
-data class HeldTreeKey(val rootId: String, val epoch: Int, val wrapped: String)
+data class HeldTreeKey(
+    val rootId: String,
+    val epoch: Int,
+    val wrapped: String,
+    /** #EXP-1950: who signed it (both null = unsigned; an older server sends neither). */
+    val signature: String? = null,
+    val signerEndpointId: String? = null,
+)
 
 @Serializable
 data class PendingSessionKeysInput(val installId: String, val limit: Int = PENDING_MAX)
 
-/** A reader of a tree this install holds the current epoch of, still without its wrap. */
+/** [olderEpochs] (#EXP-2119): also the pairs of a superseded epoch the server knows no public key of. */
+@Serializable
+data class PendingTreeKeysInput(val installId: String, val limit: Int, val olderEpochs: Boolean)
+
+/**
+ * A reader still without the wrap of an epoch this install holds: the current
+ * one, or (#EXP-2119) an older one, whose [publicKey] may be the EMPTY string.
+ */
 @Serializable
 data class PendingTreeKey(
     val rootId: String,
@@ -38,10 +53,22 @@ data class PendingTreeKey(
     val publicKey: String,
     val targetInstallId: String,
     val targetX25519Public: String,
+    /** #EXP-1950: the target's ed25519 key a wrap signature names (null from a server older than #3394: unsigned). */
+    val targetEndpointId: String? = null,
 )
 
 @Serializable
-data class PendingWrap(val rootId: String, val epoch: Int, val targetInstallId: String, val wrapped: String)
+data class PendingWrap(val rootId: String, val epoch: Int, val targetInstallId: String, val wrapped: String, val signature: String? = null)
+
+/** #EXP-1950 (wrap-signature.json `resign`): a fresh signed wrap of a root's current epoch for [installId], the TARGET. */
+@Serializable
+data class ResignWrap(val rootId: String, val epoch: Int, val installId: String, val wrapped: String, val signature: String)
+
+@Serializable
+data class ResignInput(val installId: String, val wraps: List<ResignWrap>)
+
+@Serializable
+data class ResignResult(val replaced: Int = 0, val skipped: Int = 0)
 
 @Serializable
 data class WrapSessionKeysInput(val installId: String, val wraps: List<PendingWrap>)
@@ -52,8 +79,9 @@ data class WrapSessionKeysResult(val written: Int = 0, val skipped: Int = 0)
 @Serializable
 data class PublicKeysInput(val rootIds: List<String>)
 
+/** #EXP-1950: [vouch] = a signed wrap of that epoch vouching for the key (R3); none on an older server. */
 @Serializable
-data class TreePublicKey(val rootId: String, val epoch: Int, val publicKey: String)
+data class TreePublicKey(val rootId: String, val epoch: Int, val publicKey: String, val vouch: com.exponential.app.data.sealed.Vouch? = null)
 
 /** #EXP-1960 `sessionKeys.requestKey`: `state` = keyed | clear | requested | noHost. */
 @Serializable
@@ -67,6 +95,9 @@ data class RequestKeyResult(val state: String, val epoch: Int? = null, val publi
 data class DueTreeKey(val rootId: String, val epoch: Int)
 
 const val PENDING_MAX = 200
+
+/** `resign.maxWraps`. */
+const val RESIGN_MAX = 200
 
 @Singleton
 class SessionKeysApi @Inject constructor(private val trpc: TrpcClient) {
@@ -87,8 +118,8 @@ class SessionKeysApi @Inject constructor(private val trpc: TrpcClient) {
         trpc.query(
             accountId,
             path = "sessionKeys.pending",
-            input = PendingSessionKeysInput(installId),
-            inputSerializer = PendingSessionKeysInput.serializer(),
+            input = PendingTreeKeysInput(installId, PENDING_MAX, olderEpochs = true),
+            inputSerializer = PendingTreeKeysInput.serializer(),
             outputSerializer = ListSerializer(PendingTreeKey.serializer()),
         )
 
@@ -118,6 +149,16 @@ class SessionKeysApi @Inject constructor(private val trpc: TrpcClient) {
             input = PendingSessionKeysInput(installId),
             inputSerializer = PendingSessionKeysInput.serializer(),
             outputSerializer = ListSerializer(DueTreeKey.serializer()),
+        )
+
+    /** #EXP-1950: replaces readers' UNSIGNED rows of a root's current epoch with these signed wraps. */
+    suspend fun resign(accountId: String, installId: String, wraps: List<ResignWrap>): ResignResult =
+        trpc.mutation(
+            accountId,
+            path = "sessionKeys.resign",
+            input = ResignInput(installId, wraps),
+            inputSerializer = ResignInput.serializer(),
+            outputSerializer = ResignResult.serializer(),
         )
 
     /** #EXP-1960: a keyless tree this install may not key: its devices key it. */

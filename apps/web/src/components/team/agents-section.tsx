@@ -7,7 +7,7 @@ import type {
 } from "@exp/db-schema/domain"
 import {
   AccountPicker,
-  BOARD_ICON_OPTIONS,
+  agentGlyph,
   BoardGlyph,
   Button,
   conceptIcon,
@@ -20,6 +20,7 @@ import {
   GlassGroup,
   GlassInputRow,
   GlassSectionHeader,
+  GlassToggleRow,
   ListRow,
   ModelPicker,
   Picker,
@@ -39,6 +40,7 @@ import {
   userCollection,
 } from "@/lib/collections"
 import { useApps } from "@/hooks/use-apps"
+import { useAllAgentRows } from "@/hooks/use-agent-row"
 import { sidebarAgents } from "@exp/domain-contract/chats"
 import { useSessionTitles, useTeamSessions } from "@/hooks/use-session-tree"
 import { useTeamUsers } from "@/hooks/use-team-data"
@@ -80,8 +82,12 @@ import agentSettingsFixture from "@exp/domain-contract/fixtures/agent-settings.j
 import {
   AGENT_VOICE,
   AGENT_VOICE_COPY,
+  AGENT_VOICE_WAKE_COPY,
   agentVoiceOf,
   ASSISTANT_COPY,
+  wakeListeners,
+  wakeRow,
+  type WakeAgentLike,
   LEAD,
   LEAD_COPY,
   LEAD_NONE,
@@ -90,9 +96,15 @@ import {
   runsOnRows,
 } from "@exp/domain-contract/agent-settings"
 import { modelChoices } from "@/components/launch-dialog/launch-options-pane"
-import { VoiceSettingsSection, type VoiceSettings } from "@/components/account/voice-settings-card"
+import {
+  useVoiceDeviceRows,
+  VoiceSettingsSection,
+  wakeRowDetail,
+  type VoiceSettings,
+} from "@/components/account/voice-settings-card"
+import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { AssistantMark } from "@/components/team/assistant-mark"
-import { languageLabel, VOICE_LANGUAGES, voiceTextInput, wakePhraseError } from "@exp/etalk/voice"
+import { languageLabel, VOICE_COPY, VOICE_LANGUAGES, voiceTextInput, wakePhraseError } from "@exp/etalk/voice"
 import { skillPickerItems } from "@/components/launch-dialog/skill-picker"
 import { useSkills } from "@/hooks/use-skills"
 import { agentSkillsValue, SKILLS } from "@exp/domain-contract/skills"
@@ -126,7 +138,7 @@ const SettingsAgentsIcon = conceptIcon(`settings-agents`)
 const TriggerEventIcon = conceptIcon(`trigger-event`)
 
 const DEFAULT_AGENT_COLOR = `#6366f1`
-const DEFAULT_AGENT_ICON: BoardIcon = BOARD_ICON_OPTIONS[0].name
+const DEFAULT_AGENT_ICON = agentGlyph({}).icon as BoardIcon
 const EMPTY_PIN: TriggerAccountPin = { agent: ``, account: `` }
 
 /** The device's logins, narrowed to one CLI when the agent has one. */
@@ -944,7 +956,7 @@ function useMemberVoice(enabled: boolean) {
   useEffect(() => {
     if (enabled) load()
   }, [enabled, load])
-  return { settings, failed, retry: () => load(true) }
+  return { settings, failed, retry: () => load(true), set: setSettings }
 }
 
 type MemberVoice = ReturnType<typeof useMemberVoice>
@@ -956,6 +968,7 @@ const AGENT_VOICE_TEST_IDS = {
   clipRemove: `agent-voice-clip-remove`,
   transcript: `agent-voice-transcript`,
   wakePhrase: `agent-voice-wake-phrase`,
+  wakeWord: `agent-voice-wake-word`,
 } as const
 
 const agentVoiceClipPath = (agentId: string) =>
@@ -991,7 +1004,7 @@ function AgentVoiceSection({
       <GlassSectionHeader label={AGENT_VOICE_COPY.label} />
       {settings ? (
         <>
-          <AgentVoiceRows agent={agent} member={settings} readOnly={readOnly} />
+          <AgentVoiceRows agent={agent} member={settings} readOnly={readOnly} onMember={member.set} />
           {children}
         </>
       ) : member.failed ? (
@@ -1012,15 +1025,60 @@ function AgentVoiceSection({
 
 type VoiceTextField = `transcript` | `wakePhrase`
 
+/** #EXP-1859 (agent-settings.json `voice.wake`): a TEAM agent's Wake word
+ *  row, the member's own switch (every member flips it): on = `wakeRow`,
+ *  its inline error = why it does not listen (or the server's refusal of a
+ *  flip, the switch kept as it was), the Assistant row's detail while it
+ *  listens. A flip = `voice.wakeAgent`. */
+function useAgentWake(agent: SyncedAgent, member: VoiceSettings, onMember: (settings: VoiceSettings) => void) {
+  const agentRows = useAllAgentRows()
+  const devices = useVoiceDeviceRows()
+  const wakeAgents = useMemo<WakeAgentLike[]>(
+    () => agentRows.map((row) => ({ id: row.id, role: row.role, name: row.name, voice: row.voice ?? {} })),
+    [agentRows]
+  )
+  const [refusal, setRefusal] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const input = { settings: member, agents: wakeAgents }
+  const row = wakeRow(input, agent.id)
+  const listening = row.on && wakeListeners(input).some((listener) => listener.agentId === agent.id)
+  const voiceDevice = devices.find((device) => device.deviceId === member.voiceDeviceId)
+  const detail = listening ? wakeRowDetail(member, voiceDevice, voiceDevice?.name ?? VOICE_COPY.ellipsis) : null
+  const flip = async (on: boolean) => {
+    setRefusal(null)
+    setBusy(true)
+    try {
+      onMember(await trpc.voice.wakeAgent.mutate({ agentId: agent.id, on }, SKIP_ERROR_TOAST))
+    } catch (err) {
+      if (trpcErrorCode(err) === `BAD_REQUEST`) setRefusal(trpcErrorMessage(err, AGENT_VOICE_WAKE_COPY.errors.wakeCap))
+      else failedAction(`save`, `the wake word`, err)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return {
+    on: row.on,
+    error: refusal ?? row.error,
+    detail,
+    // Like the Assistant's row: live only with a voice device and agent.
+    disabled: busy || member.voiceDeviceId === null || member.agentId === null,
+    flip,
+  }
+}
+
 function AgentVoiceRows({
   agent,
   member,
   readOnly,
+  onMember,
 }: {
   agent: SyncedAgent
   member: VoiceSettings
   readOnly: boolean
+  onMember: (settings: VoiceSettings) => void
 }) {
+  const teamAgent = agent.role !== `assistant`
+  const wake = useAgentWake(agent, member, onMember)
   const voice = agent.voice ?? {}
   // A just-picked language / uploaded clip shows until the synced row agrees.
   const [pickedLanguage, setPickedLanguage] = useState<string | null>(null)
@@ -1204,10 +1262,25 @@ function AgentVoiceRows({
           onBlur={() => !readOnly && saveText(`wakePhrase`)}
           onKeyDown={enterSaves}
         />
+        {teamAgent && (
+          <GlassToggleRow
+            id={AGENT_VOICE_TEST_IDS.wakeWord}
+            label={AGENT_VOICE_WAKE_COPY.wakeWord}
+            description={wake.detail ?? undefined}
+            checked={wake.on}
+            onCheckedChange={(on) => void wake.flip(on)}
+            disabled={wake.disabled}
+          />
+        )}
       </GlassGroup>
       <FieldError id={`${AGENT_VOICE_TEST_IDS.wakePhrase}-error`} className="px-1">
         {wakePhraseInvalid}
       </FieldError>
+      {teamAgent && (
+        <FieldError id={`${AGENT_VOICE_TEST_IDS.wakeWord}-error`} className="px-1">
+          {wake.error}
+        </FieldError>
+      )}
     </>
   )
 }
@@ -1280,7 +1353,7 @@ export function AgentsListBand({
               {agent.assistant ? (
                 <AssistantMark />
               ) : (
-                <BoardGlyph board={{ icon: agent.icon, color: agent.color }} />
+                <BoardGlyph board={agentGlyph(agent)} />
               )}
               <span className="min-w-0 flex-1 truncate font-medium">{agent.name}</span>
             </ListRow>
