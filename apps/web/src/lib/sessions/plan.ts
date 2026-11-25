@@ -4,6 +4,7 @@ import { z } from "zod"
 import {
   CORE_CATALOG_ID,
   cardProblems,
+  A2UI_VERSION,
   cardV10,
   reduceNested,
   type ReduceResult,
@@ -446,6 +447,7 @@ export function picturesOnlySurface(
         ? [page(landed[0]!, 0)]
         : [{ id: `c`, component: `Carousel`, props: { counter: true }, children: landed.map(page) }]
   return {
+    version: A2UI_VERSION,
     root: {
       id: PICTURES_SURFACE_ROOT_ID,
       component: `Stack`,

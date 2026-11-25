@@ -22,7 +22,7 @@ const { A2UI10_MIGRATION, migrateA2ui10Once, runA2ui10Migration } = await import
 const { APP_CATALOG_IDS, appExtension } = await import(`@/lib/apps/package`)
 const { stripUngrantableGrants } = await import(`@/lib/bootstrap-cloud`)
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), `..`, `..`, `..`, `..`, `..`)
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), `..`, `..`, `..`, `..`, `..`, `..`)
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const FIXED = `2026-01-02T03:04:05.000Z`
 
@@ -386,12 +386,12 @@ describe.skipIf(!ready.ok)(`a2ui10-migrate on a real database`, () => {
 })
 
 describe.skipIf(!ready.ok)(`stripUngrantableGrants (FEED-159) after the flag day`, () => {
-  it(`keeps a grantable flat action, drops the rest (the migration runs first at boot)`, async () => {
+  it(`keeps a grantable flat action and a dotted one (it waits for the migration), drops the rest`, async () => {
     await inRollback(async (tx) => {
       const s = await seed(tx)
       const flat = await s.app(`flat-${id8()}`, { grants: [`exponential_issues_update`, `exponential_issues_delete`, `exponential.issues.update`] })
       await stripUngrantableGrants(tx as never)
-      expect((await appRow(tx, flat)).granted_tools).toEqual([`exponential_issues_update`])
+      expect((await appRow(tx, flat)).granted_tools).toEqual([`exponential_issues_update`, `exponential.issues.update`])
     })
   })
 })
