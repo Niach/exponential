@@ -66,7 +66,6 @@ function teamRest(pathname: string): string | null {
 export function screenFromPath(pathname: string): OriginScreen {
   // #EXP-2027: the team-less Chats page (md+).
   if (pathname === `/chats` || pathname === `/chats/`) return { kind: `chats` }
-  if (pathname === `/inbox` || pathname === `/inbox/`) return { kind: `inbox` }
   const rest = teamRest(pathname)
   if (rest === null) return { kind: `other` }
   if (rest === `/inbox`) return { kind: `inbox` }

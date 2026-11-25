@@ -975,7 +975,9 @@ struct McpActivityPage: View {
                 .padding(16)
             }
         }
-        .pageHeader(McpSettings.activity, pushed: true)
+        .navigationTitle(McpSettings.activity)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .accessibilityIdentifier(McpSettings.TestId.activity)
         .task(id: "\(accountId)/\(teamId)") {
             data = (try? await McpServersApi(trpc: deps.trpc).activity(accountId: accountId, teamId: teamId))

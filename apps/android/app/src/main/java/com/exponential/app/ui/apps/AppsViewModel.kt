@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AppCreateInput
 import com.exponential.app.data.api.AppHookDto
 import com.exponential.app.data.api.AppShareDto
@@ -132,18 +133,29 @@ private fun Flow<ExponentialDatabase?>.memberIdsOf(team: Flow<String?>): Flow<Li
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AppsViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
     private val auth: AuthRepository,
     holder: DatabaseHolder,
+    private val selection: TeamSelection,
     private val api: AppsApi,
 ) : ViewModel() {
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    /** #EXP-2109: the team of the app on screen ([screenTeamFlow]). */
-    private val screenTeam: StateFlow<String?> =
-        com.exponential.app.data.screenTeamFlow(dbFlow, savedStateHandle)
-            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    /** The selected team's apps by name (null = loading). */
+    val apps: StateFlow<List<AppListEntry>?> = combine(dbFlow, selection.selectedId) { db, team -> db to team }
+        .flatMapLatest { (db, team) ->
+            if (db == null || team == null) flowOf(null) else db.appDao().observeByTeam(team).map { rows -> rows }
+        }
+        .map { rows -> rows?.let { Apps.sortApps(it.map(AppEntity::toListEntry)) } }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    val me: StateFlow<String?> = auth.userId
+
+    /** #EXP-1832: the selected team (the member's app folders are per team). */
+    val teamId: StateFlow<String?> = selection.selectedId
+
+    val isOwner: StateFlow<Boolean> = dbFlow.isOwnerOf(selection.selectedId, auth.userId)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy
@@ -155,11 +167,34 @@ class AppsViewModel @Inject constructor(
         _failure.value = null
     }
 
+    /** Members may manage their own apps, owners every app. */
+    fun canManage(app: AppListEntry, me: String?, owner: Boolean): Boolean =
+        owner || (me != null && app.createdBy == me)
+
+    /** VAPP-176: New app → `apps.create {teamId}` = a DRAFT ("Untitled
+     *  app"); [onCreated] opens its editor at once (no dialog). */
+    fun create(onCreated: (String) -> Unit) {
+        val team = selection.selectedId.value ?: return
+        write("create", { create(onCreated) }) { accountId ->
+            onCreated(api.create(accountId, AppCreateInput(teamId = team)).id)
+        }
+    }
+
+    fun delete(app: AppListEntry, onDone: () -> Unit): Unit =
+        write("delete", { delete(app, onDone) }) { accountId ->
+            api.delete(accountId, app.id)
+            onDone()
+        }
+
+    /** VAPP-121: app [appId]'s synced records (the export's switch + rows). */
+    fun records(appId: String): Flow<List<AppRecordEntity>> =
+        dbFlow.scopedQuery(emptyList<AppRecordEntity>()) { it.appRecordDao().observeByApp(appId) }
+
     /** VAPP-121: the server's issues with [text] (`apps.validateImport`), #VAPP-254
      *  with its upstreams and the servers an owner may pick; null = the check
      *  itself failed (the step keeps Import disabled). */
     suspend fun validateImport(text: String): AppImportCheck? {
-        val team = screenTeam.value ?: return null
+        val team = selection.selectedId.value ?: return null
         val accountId = auth.activeAccountId.value ?: return null
         return try {
             val check = api.validateImport(accountId, team, text)
@@ -172,7 +207,7 @@ class AppsViewModel @Inject constructor(
 
     /** VAPP-121: Import → `apps.import`; [onCreated] opens the new app's editor. */
     fun importApp(text: String, upstreamMappings: List<com.exponential.app.data.api.AppUpstreamMapping>, onCreated: (String) -> Unit) {
-        val team = screenTeam.value ?: return
+        val team = selection.selectedId.value ?: return
         write("import", { importApp(text, upstreamMappings, onCreated) }) { accountId ->
             onCreated(api.importApp(accountId, team, text, upstreamMappings).app.id)
         }
@@ -180,7 +215,7 @@ class AppsViewModel @Inject constructor(
 
     /** VAPP-234: a signed gallery template as a new app (v1 published). */
     fun importTemplate(template: String, includeRecords: Boolean, onCreated: (String) -> Unit) {
-        val team = screenTeam.value ?: return
+        val team = selection.selectedId.value ?: return
         write("import", { importTemplate(template, includeRecords, onCreated) }) { accountId ->
             onCreated(api.importTemplate(accountId, team, template, includeRecords).app.id)
         }

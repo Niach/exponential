@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
-import { MobileDetailHeader, SkeletonRows, useIsMobile, useKeyboardInset } from "@exp/ui"
-import { CHATS_COPY } from "@exp/domain-contract/chats"
-import { PushedTitle } from "@/components/team/mobile-page-header"
+import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { SkeletonRows } from "@exp/ui"
 import { HOME_TEST_IDS } from "@exp/domain-contract/home-greeting"
 import { useSteerConfig } from "@/hooks/use-steer-config"
 import { useSteerDevices } from "@/hooks/use-steer-devices"
@@ -16,16 +14,18 @@ import type { AgentSearch } from "@/lib/launch-seed"
 import { pageTitle } from "@/lib/page-title"
 
 // #EXP-2027 (sidebar-tree.json ROOT `home`): HOME, the agent composer page
-// renamed from Agent, TEAM-LESS at every width (#EXP-2109: a phone pushes it
-// from New › Chat). The column (components/home): the dawn, the agent row (the viewer's Assistant +
+// renamed from Agent, TEAM-LESS on web md+ (phones keep `/t/$teamSlug/agent`,
+// the `_app` layout forwards them there). The same column as the phones'
+// page (components/home): the dawn, the agent row (the viewer's Assistant +
 // the team agents of EVERY member team, Temporary session) and the card.
 // The Assistant sees every team (its Teams pick, null = all); a team agent's
 // chat is its own team; a plain chat carries THE same Teams pick in the "+"
 // (at least one team, the first in team order by default, `?team=<id>`
 // presets it: a team menu's New › Session). Everything team-scoped in the
 // card follows the team the send lands in; the draft stays keyed on the
-// default team, so a pick never loses the typing. Seeds: `?issues`,
-// `?device`, `?text`, `?share`; the DEV `?dev=` specimens.
+// default team, so a pick never loses the typing. Seeds (`?issues`,
+// `?device`, `?text`, `?share`) and the DEV `?dev=` specimens as on the
+// phones' page (md+ forwards `/t/<slug>/agent` here keeping the search).
 
 const str = (value: unknown): string | undefined =>
   typeof value === `string` && value !== `` ? value : undefined
@@ -57,9 +57,6 @@ function HomePage() {
   const navigate = useNavigate()
   const team = useTeamBySlug(defaultTeamSlug)
   const me = user.id
-  const isMobile = useIsMobile()
-  const router = useRouter()
-  const { inset: keyboard } = useKeyboardInset()
   const memberTeams = useMemberTeams(me)
   const steerConfig = useSteerConfig()
   const steerEnabled = Boolean(steerConfig?.enabled)
@@ -95,21 +92,10 @@ function HomePage() {
 
   return (
     <div className="relative flex h-full min-h-0 flex-col" data-testid="agent-page">
-      {/* #EXP-2109: a phone pushes it from New › Chat. */}
-      {isMobile && (
-        <div className="shrink-0 pt-[env(safe-area-inset-top)]">
-          <MobileDetailHeader
-            title={<PushedTitle>{CHATS_COPY.headers.agent}</PushedTitle>}
-            onBack={() => (router.history.canGoBack() ? router.history.back() : void navigate({ to: `/chats` }))}
-          />
-        </div>
-      )}
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div
           data-testid={HOME_TEST_IDS.home}
-          // EXP-1316: phones pin the column to the BOTTOM, riding the keyboard.
-          className="mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center px-4 py-6 max-md:justify-end max-md:pb-[max(1.5rem,env(safe-area-inset-bottom))]"
-          style={isMobile && keyboard > 0 ? { paddingBottom: keyboard } : undefined}
+          className="mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center px-4 py-6"
         >
           <HomeColumn
             team={team}

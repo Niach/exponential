@@ -384,7 +384,7 @@ struct IssueScreen: View {
                 // #EXP-1384: Devices is the Team page's row — ONE route, the
                 // page header with the back control and the bar beneath.
                 guard let teamId else { return }
-                pushRoute(.devices(accountId: accountId))
+                pushRoute(.teamSettingsSection(accountId: accountId, teamId: teamId, section: .devices))
             }
         }
     }

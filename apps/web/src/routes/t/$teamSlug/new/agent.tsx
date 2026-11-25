@@ -1,7 +1,7 @@
 import { useEffect } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { Separator } from "@exp/ui"
 import { AgentSettingsPage } from "@/components/team/agents-section"
-import { NewPageHeading } from "@/components/team/new-page-heading"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { NEW_AGENT_LABEL, useSettingsPage } from "@/routes/t/$teamSlug/settings/-shared"
 import { pageTitle } from "@/lib/page-title"
@@ -25,7 +25,8 @@ function NewAgentRoute() {
   if (!team || !resolved || refused) return null
   return (
     <div className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${PAGE_END_CLEARANCE}`}>
-      <NewPageHeading teamSlug={teamSlug}>{NEW_AGENT_LABEL}</NewPageHeading>
+      <h1 className="text-2xl font-bold">{NEW_AGENT_LABEL}</h1>
+      <Separator />
       <AgentSettingsPage team={team} agent={null} isOwner />
     </div>
   )

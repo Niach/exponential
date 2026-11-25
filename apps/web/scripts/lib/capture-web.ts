@@ -60,7 +60,7 @@ export async function launchContext(
 
 /** Sign the demo user in and wait until a team route has taken over. */
 /** #EXP-2027: a signed-in member lands in a team (phones) or on Home (md+). */
-export const APP_LANDING = /\/(chats|t\/|home(\?|$))/
+export const APP_LANDING = /\/(t\/|home(\?|$))/
 
 export async function login(
   page: Page,
@@ -68,7 +68,7 @@ export async function login(
   credentials?: { email: string; password: string },
   /**
    * Where a successful sign-in lands. The demo user has a team, so it is
-   * `/chats` on a phone (#EXP-2109) and the team-less `/home` from md+; the
+   * `/t/...` on a phone and (#EXP-2027) the team-less `/home` from md+; the
    * team-less newcomer (EXP-566) is bounced to `/onboarding` instead, and
    * waiting for a team URL would time out on the happy path.
    */

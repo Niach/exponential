@@ -8,6 +8,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -16,6 +17,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AgentsApi
 import com.exponential.app.data.api.AssistantEnsurer
 import com.exponential.app.data.auth.AuthRepository
@@ -44,13 +46,16 @@ import kotlinx.coroutines.launch
 
 /**
  * #EXP-1987 (settings-nav.json, agent-settings.json `assistant`): Settings ›
- * Assistant is an ACCOUNT page: the viewer's ONE Assistant, the one in their personal team (a team none of the synced teams rows
+ * Assistant is an ACCOUNT page. The viewer's ONE Assistant whichever team is
+ * current: before the move the member's Assistant in the current team, after
+ * it the one in their personal team (a team none of the synced teams rows
  * name). `agents.ensureAssistant` goes out without a team, once per account.
  */
 @HiltViewModel
 class AssistantSettingsRouteViewModel @Inject constructor(
     auth: AuthRepository,
     holder: DatabaseHolder,
+    selection: TeamSelection,
     agentsApi: AgentsApi,
 ) : ViewModel() {
     private val dbFlow = accountDatabaseFlow(auth, holder)
@@ -75,10 +80,11 @@ class AssistantSettingsRouteViewModel @Inject constructor(
     val state: StateFlow<State> = combine(
         dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
         dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() },
+        selection.selectedId,
         auth.userId,
         settled,
-    ) { agents, teams, me, done ->
-        when (val id = assistantOf(agents, teams.map { it.id }, me)) {
+    ) { agents, teams, team, me, done ->
+        when (val id = assistantOf(agents, team, teams.map { it.id }, me)) {
             null -> if (done) State.NoAssistant else State.Loading
             else -> State.Ready(id)
         }
@@ -87,33 +93,37 @@ class AssistantSettingsRouteViewModel @Inject constructor(
     companion object {
         private const val SETTLE_MS = 2_000L
 
-        /** The viewer's own Assistant: the one in no synced team (their personal
-         *  team), else any of theirs. */
-        fun assistantOf(agents: List<AgentDefinitionEntity>, teamIds: List<String>, me: String?): String? {
+        /** The viewer's own Assistant for [team] (`agentsInTeam`: the team's
+         *  own, else the global one), else any of theirs. */
+        fun assistantOf(agents: List<AgentDefinitionEntity>, team: String?, teamIds: List<String>, me: String?): String? {
             if (me.isNullOrEmpty()) return null
             val mine = agents.filter { it.isAssistant && it.ownerId == me }
+            if (team != null) {
+                AgentSettings.Assistant.agentsInTeam(mine, team, teamIds, me) {
+                    AgentSettings.Assistant.TeamAgentLike(it.teamId, it.role, it.ownerId)
+                }.firstOrNull()?.let { return it.id }
+            }
             return (mine.firstOrNull { it.teamId !in teamIds } ?: mine.firstOrNull())?.id
         }
     }
 }
 
 /**
- * `settings/assistant`: the Assistant's own agent page as soon as its row is
- * known; until then the page's skeleton, and `copy.noDevice` when the
- * Assistant cannot be created yet (no device).
+ * `settings/assistant`: hands over to the Assistant's own page (the agent
+ * page, `settings/agent/<id>`) as soon as the row is known; until then the
+ * page's skeleton, and `copy.noDevice` when the Assistant cannot be created
+ * yet (no device).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssistantSettingsRoute(
     onBack: () -> Unit,
+    onOpenAssistant: (agentId: String) -> Unit,
     viewModel: AssistantSettingsRouteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    (state as? AssistantSettingsRouteViewModel.State.Ready)?.let { ready ->
-        com.exponential.app.ui.apps.ArgsStore("agentId", ready.agentId) {
-            AgentSettingsScreen(onBack = onBack, onCreated = {}, onDeleted = onBack)
-        }
-        return
+    LaunchedEffect(state) {
+        (state as? AssistantSettingsRouteViewModel.State.Ready)?.let { onOpenAssistant(it.agentId) }
     }
     Scaffold(
         containerColor = Color.Transparent,

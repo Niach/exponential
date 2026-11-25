@@ -12,6 +12,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::chats::CHATS;
 
+use super::phone_tab_bar::BOARDS;
 use crate::icons::registry;
 
 pub(crate) const ID: &str = "phone-page-header";
@@ -90,7 +91,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .child(caption("Unread notification (the inbox dot)"))
         .child(header(&headers.chats, false, true, cx))
         .child(caption("All read"))
-        .child(header(&headers.teams, false, false, cx))
+        .child(header(BOARDS[0].0, false, false, cx))
         .child(caption("Pushed (Devices, the back control)"))
         .child(header(&headers.devices, true, false, cx))
 }

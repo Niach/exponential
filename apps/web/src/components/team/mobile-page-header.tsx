@@ -2,47 +2,37 @@ import type { ReactNode } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { PageHeader } from "@exp/ui"
 import { useIssueSearch } from "@/hooks/use-issue-search"
+import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
 
-// #EXP-2109 (chats.json `shell.header`): the web-mobile wiring of THE phone
-// page header on the root pages (Chats, Teams, Settings): search opens the
-// every-team search sheet, the inbox circle pushes the inbox page and wears
-// the count badge of every team's unread notifications.
+// #EXP-1384 (chats.json `shell.header`): the web-mobile wiring of THE phone
+// page header on every top-level page: search opens the team's issue search
+// sheet, the inbox circle pushes the inbox page and wears (#FEED-232) the
+// count badge of the ACTIVE team's unread notifications. `md:hidden` — wide pages keep
+// their own headers.
 export function MobilePageHeader({
+  teamSlug,
   title,
   leading,
-  trailing,
   className,
 }: {
+  teamSlug: string
   title: ReactNode
   leading?: ReactNode
-  /** Extra circles before search. */
-  trailing?: ReactNode
   className?: string
 }) {
   const navigate = useNavigate()
-  const unread = useUnreadNotificationCount()
+  const team = useTeamBySlug(teamSlug)
+  const unread = useUnreadNotificationCount(team?.id)
   const issueSearch = useIssueSearch()
   return (
     <PageHeader
       title={title}
       leading={leading}
-      trailing={trailing}
       inboxCount={unread}
       onSearch={issueSearch.open}
-      onInbox={() => void navigate({ to: `/inbox` })}
+      onInbox={() => void navigate({ to: `/t/$teamSlug/inbox`, params: { teamSlug } })}
       className={className}
     />
-  )
-}
-
-/** A pushed phone page's header title: the leading glyph (a team's mark, a
- *  folder, a board's glyph) and the name, beside the back control. */
-export function PushedTitle({ glyph, children }: { glyph?: ReactNode; children: ReactNode }) {
-  return (
-    <span className="flex min-w-0 items-center gap-2.5 text-left">
-      {glyph && <span className="flex size-6 shrink-0 items-center justify-center">{glyph}</span>}
-      <span className="min-w-0 truncate text-[17px] font-semibold">{children}</span>
-    </span>
   )
 }

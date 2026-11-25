@@ -5,6 +5,7 @@ import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavHostController
 import com.exponential.app.data.push.LinkDestination
 import com.exponential.app.domain.InboxRoute
+import com.exponential.app.domain.SettingsNav
 
 /**
  * Route plumbing for the deep-link drain in [AppNavHost] (EXP-528).
@@ -78,12 +79,10 @@ object DeepLinkRoutes {
  *
  * #ERR-27: this is the IN-APP open (an inbox row, a tapped link): it pushes
  * over the screen it came from. A notification tap or a push link takes
- * [launchOnRoot] instead, or chat after chat opened from the shade
+ * [launchOnAgentRoot] instead, or chat after chat opened from the shade
  * stacked one entry (and one live ChatViewModel) each.
  */
-fun NavHostController.navigateDeepLink(route: String, marker: TabSwitchMarker? = null) {
-    // #EXP-2109: the Assistant's chat is its tab.
-    if (AssistantTab.intercept(this, route, marker)) return
+fun NavHostController.navigateDeepLink(route: String) {
     val top = currentBackStackEntry
     val alreadyOnTop = DeepLinkRoutes.isOnTop(
         pattern = top?.destination?.route,
@@ -112,33 +111,30 @@ fun NavHostController.navigateIssueDeepLink(issueId: String, commentId: String? 
 /**
  * #EXP-1830 THE BACK STACK RULE (app-shortcuts.json): an app shortcut, a
  * pinned shortcut or a home widget drops whatever the app was showing back to
- * THE start screen (the Chats root), then pushes its target, so Back returns
- * to Chats and then leaves the app. The target already on top of the Chats
- * root ([isTarget] on the top entry) is left alone.
+ * THE start screen (the Agent tab root), then pushes its target, so Back
+ * returns to the Agent tab and then leaves the app. The target already on top
+ * of the Agent root ([isTarget] on the top entry) is left alone.
  */
-fun NavHostController.launchOnRoot(
+fun NavHostController.launchOnAgentRoot(
     marker: TabSwitchMarker?,
     isTarget: (NavBackStackEntry) -> Boolean,
     push: NavHostController.() -> Unit,
 ) {
     val top = currentBackStackEntry
-    if (top != null && isTarget(top) && previousBackStackEntry?.destination?.route == MainTabs.CHATS) return
-    selectTab(MainTabs.CHATS, marker, restore = false)
+    if (top != null && isTarget(top) && previousBackStackEntry?.destination?.route == MainTabs.AGENT) return
+    selectTab(MainTabs.AGENT, marker, restore = false)
     push()
 }
 
-/** [launchOnRoot] for a concrete [route] (compared like [navigateDeepLink]). */
-fun NavHostController.launchOnRoot(route: String, marker: TabSwitchMarker?) {
-    if (AssistantTab.intercept(this, route, marker)) return
-    launchOnRoot(
-        marker,
-        isTarget = { top -> DeepLinkRoutes.isOnTop(top.destination.route, { top.arguments?.getString(it) }, route) },
-        push = { navigate(route) },
-    )
-}
+/** [launchOnAgentRoot] for a concrete [route] (compared like [navigateDeepLink]). */
+fun NavHostController.launchOnAgentRoot(route: String, marker: TabSwitchMarker?): Unit = launchOnAgentRoot(
+    marker,
+    isTarget = { top -> DeepLinkRoutes.isOnTop(top.destination.route, { top.arguments?.getString(it) }, route) },
+    push = { navigate(route) },
+)
 
-/** [launchOnRoot] for an issue (its optional `comment` compared by argument). */
-fun NavHostController.launchIssueOnRoot(issueId: String, marker: TabSwitchMarker?, commentId: String? = null): Unit = launchOnRoot(
+/** [launchOnAgentRoot] for an issue (its optional `comment` compared by argument). */
+fun NavHostController.launchIssueOnAgentRoot(issueId: String, marker: TabSwitchMarker?, commentId: String? = null): Unit = launchOnAgentRoot(
     marker,
     isTarget = { top ->
         top.destination.route == ISSUE_ROUTE && top.arguments?.getString("issueId") == issueId &&
@@ -214,17 +210,17 @@ fun NavHostController.openLinkDestination(destination: LinkDestination, uri: Uri
         is LinkDestination.Board -> navigateDeepLink("board/${destination.id}")
         LinkDestination.Chats -> selectTab(MainTabs.CHATS, tabSwitch, restore = false)
         is LinkDestination.AgentDm -> navigateDeepLink(Routes.agentDm(destination.agentId))
-        LinkDestination.AgentHome -> navigateDeepLink(com.exponential.app.domain.AGENT_ROUTE)
+        LinkDestination.AgentHome -> selectTab(MainTabs.AGENT, tabSwitch, restore = false)
         // A page pushed over the Chats tab, not a tab root.
         LinkDestination.Inbox -> {
             selectTab(MainTabs.CHATS, tabSwitch, restore = false)
             navigate(MainTabs.INBOX) { launchSingleTop = true }
         }
-        LinkDestination.Devices -> navigateDeepLink(Routes.DEVICES)
-        is LinkDestination.Settings -> navigateDeepLink(Routes.teamSettings(destination.teamId, destination.section))
+        LinkDestination.Devices -> navigateDeepLink(Routes.teamSettings(SettingsNav.DEVICES))
+        is LinkDestination.Settings -> navigateDeepLink(Routes.teamSettings(destination.section))
         LinkDestination.AssistantSettings -> navigateDeepLink(Routes.ASSISTANT_SETTINGS)
-        is LinkDestination.TeamHome -> navigateDeepLink(Routes.team(destination.teamId))
-        is LinkDestination.TeamSettings -> navigateDeepLink(Routes.teamSettingsRoot(destination.teamId))
+        LinkDestination.TeamHome -> selectTab(MainTabs.TEAM, tabSwitch, restore = false)
+        LinkDestination.AppsList -> selectTab(MainTabs.APPS, tabSwitch, restore = false)
         is LinkDestination.AppRun -> navigate(Routes.appRun(destination.appId))
         is LinkDestination.AppScreen -> navigate(Routes.appScreen(destination.appId, destination.screen, destination.params))
         is LinkDestination.CiRun -> navigate(Routes.ciRun(destination.runId, query("job")))

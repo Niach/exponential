@@ -15,6 +15,7 @@ import {
   ResultsTabSpecimen,
   NeedsYouSpecimen,
   PhoneTabBarSpecimen,
+  PhoneBoardMenuSpecimen,
   ChatHeaderSpecimen,
   PhonePageHeaderSpecimen,
   CallControlsSpecimen,
@@ -33,13 +34,15 @@ import { RunnerSettingsSpecimen } from "@/components/ci/runner-section"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { isProductionBuild } from "@/lib/production-build"
 
-// #EXP-2027: the home page's DEV specimens, read off Home's `?dev=`.
+// #EXP-2027: the home page's DEV specimens, shared by `/home` (md+) and the
+// phones' `/t/$teamSlug/agent` (md+ forwards the latter to the former,
+// keeping the search, so both read `?dev=`).
 // EXP-1259 (DEV-ONLY): `?dev=feedback-states` swaps the page for the six
 // feedback kinds side by side, for the view catalog's `feedback-states`
 // capture; EXP-1324: `?dev=trace` / `?dev=code-block` the Trace and
 // CodeBlock specimens (`?dev=ask-dock` THE ask dock's, FEED-160 `?dev=device-readiness` its specimen, EXP-1280 `?dev=plan-card`
 // THE rich plan card's; chat 58cb32df `?dev=chat-list` / `chat-menus` /
-// `chat-transcript` / `phone-tab-bar`, #EXP-1384
+// `chat-transcript` / `phone-tab-bar`, #EXP-1384 `phone-board-menu` /
 // `phone-page-header`, #EXP-1388 `chat-selection` the chats.json specimens;
 // S-3 `voice-call` / `voice-call-overlay` / `call-controls` the voice-call.json
 // ones: web's ringing and in-call surface, the desktop pill, the round
@@ -65,6 +68,7 @@ export const DEV_VIEWS = [
   `chat-selection`,
   `chat-transcript`,
   `phone-tab-bar`,
+  `phone-board-menu`,
   `phone-page-header`,
   `chat-header`,
   `voice-call`,
@@ -128,6 +132,8 @@ export function HomeDevView({ dev }: { dev: DevView }) {
         <NeedsYouSpecimen />
       ) : dev === `phone-tab-bar` ? (
         <PhoneTabBarSpecimen />
+      ) : dev === `phone-board-menu` ? (
+        <PhoneBoardMenuSpecimen />
       ) : dev === `phone-page-header` ? (
         <PhonePageHeaderSpecimen />
       ) : dev === `chat-header` ? (

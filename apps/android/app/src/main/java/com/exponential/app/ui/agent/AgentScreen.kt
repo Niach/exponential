@@ -1,9 +1,20 @@
 package com.exponential.app.ui.agent
 
+import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.ComposerDraftSync
+import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.chats.ChatsViewModel
+import com.exponential.app.ui.chats.ChatListRow
+import com.exponential.app.ui.chats.ChatRowMeta
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
@@ -26,11 +38,14 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,16 +105,25 @@ import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.GlassAlert
+import com.exponential.app.ui.components.GlassAlertAction
+import com.exponential.app.ui.issue.StaticDot
 import com.exponential.app.domain.MAX_STEER_FILES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
 import com.exponential.app.domain.DeviceReadiness
 import com.exponential.app.ui.components.DeviceNotReadyRow
 import com.exponential.app.ui.components.DeviceLowDiskRow
+import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.emoji.rememberEmojiData
 import com.exponential.app.ui.emoji.rememberEmojiPrefs
+import com.exponential.app.ui.components.IssueChip
+import com.exponential.app.ui.components.IssueGraphList
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.markdown.AutocompleteRows
@@ -123,12 +147,16 @@ import com.exponential.app.ui.markdown.IssueTypeaheadSheetHost
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import java.time.LocalDateTime
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
 import kotlinx.coroutines.launch
 
 /**
- * EXP-825: the AGENT page — the ONE launcher on every client. The
+ * EXP-825: the team's AGENT page — the ONE launcher on every client. The
  * composer card ([AgentComposer]: subject chips, the message, images, the
  * labelled submit), the `@`/`#`/`:` candidate menu under it, S-3: the agent
  * row over the card ([ComposerAgentRowView]; no options line, the runner
@@ -137,16 +165,20 @@ import kotlinx.coroutines.launch
  * ([ComposerPlusMenuSheet], composer-menu.json). EXP-1291: a send is ONE
  * `sessions.send` new root in the current team; the page lands on it.
  *
- * #EXP-2109: a PUSHED page (no tab bar, the back control): New › Chat, the New
- * chat shortcut and a share (empty seed), and every play button with a
- * preselection ([AgentComposerSeed] on the `agent?…` route). A start is
+ * Two mounts: the Agent TAB (the bar's chat arm and the app's landing
+ * screen; empty seed, no back button, the floating bar overlays it — [onBack]
+ * null) and a PUSHED detail (no tab bar, native back) reached from every play
+ * button with a preselection ([AgentComposerSeed] on the `agent?…` route): the issue
+ * detail's Start coding, the bulk bar, an action's Run, New action / a
+ * suggestion, a machine's play glyph. A start is
  * only a COMMAND — the shared delegate waits for the desktop's synced row and
  * this page opens the live session once (EXP-536).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AgentScreen(
-    onBack: () -> Unit,
+    /** Null on the Agent TAB: no back button, and the list clears the bar. */
+    onBack: (() -> Unit)?,
     /** A raw session view (`session/{id}`). */
     onOpenSession: (sessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
@@ -163,7 +195,6 @@ fun AgentScreen(
 ) {
     // ── Composer state ──────────────────────────────────────────────────────
     val teamId by viewModel.teamId.collectAsStateWithLifecycle()
-    LaunchedEffect(teamId) { dataViewModel.setTeam(teamId) }
     val steerEnabled by viewModel.steerEnabled.collectAsStateWithLifecycle()
     val runState by viewModel.runState.collectAsStateWithLifecycle()
     val candidateDevices by viewModel.candidateDevices.collectAsStateWithLifecycle()
@@ -220,12 +251,10 @@ fun AgentScreen(
     // row follows to Temporary session (iOS `onChange(of: subject)`).
     LaunchedEffect(subject) {
         val launch = subject is ComposerSubject.Issues || subject is ComposerSubject.Prompt
-        val next = ComposerAgentRow.pickForSubject(launch, agentPick)
-        if (next != agentPick && pickedAgentId != null) viewModel.keepTeamForLaunch()
-        agentPick = next
+        agentPick = ComposerAgentRow.pickForSubject(launch, agentPick)
     }
     // S-3: the composer home makes sure the viewer has an Assistant.
-    LaunchedEffect(Unit) { viewModel.ensureAssistant() }
+    LaunchedEffect(teamId) { viewModel.ensureAssistant() }
 
     // EXP-1291: an accepted send answers with its session — a NEW ROOT, i.e.
     // the chat itself — and the page lands there ONCE.
@@ -246,12 +275,10 @@ fun AgentScreen(
     // Assistant carries the turn's teams (null = every team).
     val pickTeamRows by viewModel.pickTeams.collectAsStateWithLifecycle()
     val teamsPicked by viewModel.teamsPick.collectAsStateWithLifecycle()
-    // #EXP-2109: a plain chat carries THE same pick, at least one team.
-    val plainTeams by viewModel.plainTeamIds.collectAsStateWithLifecycle()
-    val teamsPick = when {
-        recipientAgent?.assistant == true -> TeamsPickBinding(pickTeamRows, teamsPicked, viewModel::setTeamsPick)
-        recipientId == null -> TeamsPickBinding(pickTeamRows, plainTeams, viewModel::setPlainTeams)
-        else -> null
+    val teamsPick = if (recipientAgent?.assistant == true) {
+        TeamsPickBinding(pickTeamRows, teamsPicked, viewModel::setTeamsPick)
+    } else {
+        null
     }
     // NEW-2: the picked saved prompt's synced row (its chip).
     val selectedAction = actionSubject?.let { picked ->
@@ -516,9 +543,9 @@ fun AgentScreen(
     val attach = rememberComposerAttachPicker(addPick)
 
     // EXP-1635 (share-targets.json STEP 2): a share picked for a new chat or an
-    // agent lands HERE: the row seeded, the composer prefilled, nothing sent
-    // until Send.
-    run {
+    // agent lands HERE, on the tab: the row seeded, the composer prefilled,
+    // nothing sent until Send.
+    if (onBack == null) {
         val selection = remember(context) { com.exponential.app.ui.share.shareSelection(context) }
         val chatShare by selection.pendingChatShare.collectAsStateWithLifecycle()
         val shareScope = rememberCoroutineScope()
@@ -530,7 +557,6 @@ fun AgentScreen(
                     agentPick = pick
                     viewModel.applyRowPick(pick)
                 }
-                waiting.teamId?.let { viewModel.setPlainTeams(listOf(it)) }
                 com.exponential.app.ui.share.deliverChatShare(
                     context = context,
                     share = waiting.share,
@@ -964,14 +990,14 @@ fun AgentScreen(
  * iOS `AgentPageView`): [dawn] leads the column — the restored DAWN
  * (FEED-100), the big Exponential mark's upper half, dim — then the composer
  * card + options line. EXP-1316 (1f, composer-home.json `phone.composer:
- * bottom`): the column stands on the BOTTOM (
+ * bottom`): the column stands on the BOTTOM (above the floating tab bar,
  * lifted by the keyboard), the dawn on the card; no Running list. [lead]
  * (Getting started) sits above the dawn.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AgentPageFrame(
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     /** The dawn heads the column; false while a picked subject's headline
      *  does (iOS parity). */
     dawn: Boolean = true,
@@ -981,7 +1007,8 @@ internal fun AgentPageFrame(
     Box(modifier = Modifier.fillMaxSize().testTag(AgentHome.HOME_TEST_ID)) {
         Scaffold(
             containerColor = Color.Transparent,
-            // A pushed page: THE phone detail header.
+            // #EXP-1384 (chats.json `shell.header`): the page header, the
+            // back control first on the seeded (pushed) page.
             topBar = {
                 com.exponential.app.ui.components.PageHeader(
                     title = com.exponential.app.domain.Chats.Copy.HEADERS.getValue("agent"),
@@ -997,11 +1024,13 @@ internal fun AgentPageFrame(
                     .imePadding()
                     .fillMaxSize()
                     .testTag("agent-page"),
+                // As a tab the floating bar overlays the page: the last row
+                // must sit above the pill, not under it.
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
                     top = DAWN_TOP.dp,
-                    bottom = 24.dp,
+                    bottom = if (onBack == null) BottomBarInset else 24.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(COLUMN_SPACING.dp, Alignment.Bottom),
             ) {

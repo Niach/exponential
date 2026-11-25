@@ -37,20 +37,20 @@ final class AgentsViewModel {
     /// are still derived but nothing is ever queued from there.
     var devicesApi: DevicesApi?
 
-    /// The composer's team, kept current by the surrounding view. It scopes
+    /// The active team — kept current by the surrounding view. It scopes
     /// `devices`
     /// (the composer's start targets: a server shared with ANOTHER team
     /// cannot run this team's work) unless `deviceTeamIds` widens them.
-    var teamId: String? {
+    var activeTeamId: String? {
         didSet {
-            guard oldValue != teamId else { return }
+            guard oldValue != activeTeamId else { return }
             rebuildDevices()
         }
     }
 
     /// EXP-1186: the Devices tab is cross-team — set to the caller's member
     /// team ids there, so teammates' servers shared with ANY of them list
-    /// (once each). nil = `teamId` only (the Agent page composer).
+    /// (once each). nil = the active team only (the Agent page composer).
     var deviceTeamIds: Set<String>? {
         didSet {
             guard oldValue != deviceTeamIds else { return }
@@ -60,7 +60,7 @@ final class AgentsViewModel {
 
     /// The team ids teammates' shared servers are matched against.
     private var sharedDeviceTeamIds: Set<String> {
-        deviceTeamIds ?? teamId.map { [$0] } ?? []
+        deviceTeamIds ?? activeTeamId.map { [$0] } ?? []
     }
 
     private let accountId: String

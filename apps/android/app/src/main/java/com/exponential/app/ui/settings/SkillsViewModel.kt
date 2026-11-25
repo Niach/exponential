@@ -3,8 +3,7 @@ package com.exponential.app.ui.settings
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.ARG_TEAM
-import com.exponential.app.data.screenTeamFlow
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.SkillDto
 import com.exponential.app.data.api.SkillsApi
 import com.exponential.app.data.api.toSkillOption
@@ -50,6 +49,7 @@ class SkillsViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val auth: AuthRepository,
     holder: DatabaseHolder,
+    selection: TeamSelection,
     private val skillsApi: SkillsApi,
 ) : ViewModel() {
 
@@ -58,13 +58,8 @@ class SkillsViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    /** #EXP-2109: the team this screen shows ([screenTeamFlow]; no active team). */
-    private val screenTeam: StateFlow<String?> =
-        screenTeamFlow(dbFlow, savedStateHandle)
-            .stateIn(viewModelScope, SharingStarted.Eagerly, savedStateHandle.get<String>(ARG_TEAM))
-
-    /** The team's skills by name; null = still loading. */
-    val list: StateFlow<List<SkillOption>?> = combine(dbFlow, screenTeam) { db, team -> db to team }
+    /** The selected team's skills by name; null = still loading. */
+    val list: StateFlow<List<SkillOption>?> = combine(dbFlow, selection.selectedId) { db, team -> db to team }
         .flatMapLatest { (db, team) ->
             if (db == null || team == null) {
                 flowOf(null)

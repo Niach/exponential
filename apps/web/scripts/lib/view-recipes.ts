@@ -1028,17 +1028,17 @@ async function recipeOpenGettingStarted(page: Page): Promise<void> {
 }
 
 /**
- * The phone web's Getting started entry (#EXP-1632): the Settings tab's
+ * The phone web's Getting started entry (#EXP-1632): the Team page's
  * `Getting started` row (the natives' Settings row) opens the same block, in
  * the bottom sheet DialogContent becomes at phone width. Runs on
- * `/settings`; the row carries getting-started.json's `entry` id and
+ * `/t/$teamSlug/team`; the row carries getting-started.json's `entry` id and
  * hides once every step is done, like the sidebar entry.
  */
 async function recipeOpenGettingStartedPhone(page: Page): Promise<void> {
   const trigger = page.getByTestId(`getting-started-entry`).filter({ visible: true })
   if (!(await appears(trigger, 15_000))) {
     throw new Error(
-      `no "Getting started" row on the Settings tab: EXP-548 hides it once every ` +
+      `no "Getting started" row on the Team page: EXP-548 hides it once every ` +
         `step is complete. Re-seed so at least one stays open: ` +
         `bun run seed:screenshots`
     )

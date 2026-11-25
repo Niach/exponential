@@ -1004,10 +1004,6 @@ struct AgentSessionView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Nothing here scrolls: a tap puts the composer's keyboard away
-        // (the Assistant tab's bar comes back with it).
-        .contentShape(Rectangle())
-        .onTapGesture { UIApplication.endEditing() }
     }
 
     /// Bottom-anchored feed (a short feed sits above the input bar, not at the

@@ -16,16 +16,15 @@ sealed interface EntityTarget {
     /** NEW-7: a prompt's Settings page (prompts replaced actions). */
     data class Prompt(val id: String) : EntityTarget
     /** NEW-7: Settings → Prompts. */
-    data class Prompts(val teamId: String?) : EntityTarget
+    data object Prompts : EntityTarget
     /** NEW-7: an agent's conversation (the caller's DM with it). */
     data class Agent(val id: String) : EntityTarget
     data object Devices : EntityTarget
-    /** #EXP-1381: the team settings category's own page (a `SettingsNav` id)
-     *  of the team the surface shows (null = the Teams page). */
-    data class TeamSettings(val teamId: String?, val section: String) : EntityTarget
-    /** The team's page (a status or team ref): every member sees it, unlike
-     *  the owner-only General page. */
-    data class Team(val teamId: String?) : EntityTarget
+    /** #EXP-1381: the team settings category's own page (a `SettingsNav` id). */
+    data class TeamSettings(val section: String) : EntityTarget
+    /** #EXP-1381 review: the Team tab itself (a status or team ref): every
+     *  member sees it, unlike the owner-only General page. iOS `.settings`. */
+    data object Team : EntityTarget
     data object Inbox : EntityTarget
 }
 

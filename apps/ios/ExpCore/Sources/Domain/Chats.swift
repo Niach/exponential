@@ -12,24 +12,21 @@ public enum Chats {
     public enum Copy {
         public static let title = "Chats"
         public enum Tabs {
+            public static let board = "Board"
             public static let chats = "Chats"
-            public static let teams = "Teams"
-            public static let assistant = "Assistant"
-            public static let new = "New"
-            public static let settings = "Settings"
+            public static let apps = "Apps"
+            public static let team = "Team"
         }
-        /// Page header titles.
+        /// Page header titles (Board = the board's name, Team = the team's name).
         public enum Headers {
             public static let chats = "Chats"
-            public static let teams = "Teams"
-            public static let settings = "Settings"
+            public static let apps = "Apps"
             public static let devices = "Devices"
             public static let agent = "Agent"
         }
-        /// #EXP-2109: the New popup.
-        public enum NewMenu {
-            public static let issue = "Issue"
-            public static let chat = "Chat"
+        public enum BoardMenu {
+            public static let newBoard = "New board"
+            public static let newTeam = "New team"
         }
         public enum Preview {
             public static let working = "working…"
@@ -89,6 +86,20 @@ public enum Chats {
             public static let all = "All issues"
             public static let mine = "My issues"
             public static let drafts = "Drafts"
+        }
+        public enum Team {
+            /// `{members}` / `{boards}`.
+            public static let meta = "{members} · {boards}"
+            public static let member = "member"
+            public static let members = "members"
+            public static let board = "board"
+            public static let boards = "boards"
+            public static let `switch` = "Teams"
+
+            public static func metaLine(members: Int, boards: Int) -> String {
+                meta.replacingOccurrences(of: "{members}", with: "\(members) \(members == 1 ? member : Self.members)")
+                    .replacingOccurrences(of: "{boards}", with: "\(boards) \(boards == 1 ? board : Self.boards)")
+            }
         }
         public static let inbox = "Inbox"
         /// #EXP-1380: the transcript window's ghost button.
@@ -186,9 +197,13 @@ public enum Chats {
     public enum TestIds {
         public static let chatRow = "chat-row"
         public static let inboxButton = "chats-inbox"
+        public static let tabTeam = "tab-team"
         public static let boardChip = "board-chip"
         public static let surfaceCard = "surface-card"
         public static let divider = "transcript-divider"
+        public static let tabBoard = "tab-board"
+        public static let boardMenu = "board-menu"
+        public static let boardMenuRow = "board-menu-row"
         public static let pageHeader = "page-header"
         public static let searchButton = "header-search"
         public static let loadEarlier = "transcript-load-earlier"
@@ -200,127 +215,41 @@ public enum Chats {
         /// #EDE-98: the chat marks after a chat's title.
         public static let chatMarkTeam = "chat-mark-team"
         public static let chatMarkUnencrypted = "chat-mark-unencrypted"
-        /// #EXP-2109: the docked bar and its New popup.
-        public static let tabChats = "tab-chats"
-        public static let tabTeams = "tab-teams"
-        public static let tabAssistant = "tab-assistant"
-        public static let tabNew = "tab-new"
-        public static let tabSettings = "tab-settings"
-        public static let newMenu = "new-menu"
-        public static let newMenuRow = "new-menu-row"
     }
 
     /// Fixture `shell`.
     public enum Shell {
         public enum Tab: String, CaseIterable, Sendable {
-            case chats, teams, assistant, new, settings
+            case board, chats, apps, team
 
             public var label: String {
                 switch self {
+                case .board: Copy.Tabs.board
                 case .chats: Copy.Tabs.chats
-                case .teams: Copy.Tabs.teams
-                case .assistant: Copy.Tabs.assistant
-                case .new: Copy.Tabs.new
-                case .settings: Copy.Tabs.settings
+                case .apps: Copy.Tabs.apps
+                case .team: Copy.Tabs.team
                 }
             }
 
-            /// Concept icon (`tabIcons`; the Assistant draws the brand mark).
-            public var icon: String {
+            /// Concept icon (`tabIcons`); the Board tab paints the active
+            /// board's glyph when there is one, the Team tab the team avatar.
+            public var icon: String? {
                 switch self {
+                case .board: "nav-issues"
                 case .chats: "nav-chats"
-                case .teams: "ui-team"
-                case .assistant: "brand-exponential"
-                case .new: "ui-add"
-                case .settings: "nav-settings"
-                }
-            }
-
-            public var testId: String {
-                switch self {
-                case .chats: TestIds.tabChats
-                case .teams: TestIds.tabTeams
-                case .assistant: TestIds.tabAssistant
-                case .new: TestIds.tabNew
-                case .settings: TestIds.tabSettings
+                case .apps: "nav-apps"
+                case .team: nil
                 }
             }
         }
 
         public static let tabs: [Tab] = Tab.allCases
-        public static let tabIcons: [String: String] = Dictionary(
-            uniqueKeysWithValues: Tab.allCases.map { ($0.rawValue, $0.icon) }
-        )
+        public static let tabIcons: [String: String] = [
+            "board": "nav-issues", "chats": "nav-chats", "apps": "nav-apps",
+        ]
 
-        /// `shell.dock` (#EXP-2109): the docked bar.
-        public enum Dock {
-            public static let height: Double = 60
-            public static let icon: Double = 22
-            public static let label: Double = 11
-            public static let gap: Double = 4
-            public static let disc: Double = 60
-            public static let mark: Double = 40
-            public static let raise: Double = 16
-            public static let ring: Double = 6
-            public static let glow: Double = 26
-        }
-
-        /// `shell.newMenu` (#EXP-2109): the New popup.
-        public enum NewMenu {
-            public enum Item: String, CaseIterable, Sendable {
-                case issue, chat
-
-                public var label: String {
-                    switch self {
-                    case .issue: Copy.NewMenu.issue
-                    case .chat: Copy.NewMenu.chat
-                    }
-                }
-
-                public var icon: String {
-                    switch self {
-                    case .issue: "nav-create-issue"
-                    case .chat: "action-chat"
-                    }
-                }
-            }
-
-            public static let items: [Item] = Item.allCases
-            public static let openIcon = "ui-close"
-            public static let width: Double = 160
-            public static let rowHeight: Double = 48
-            public static let radius: Double = 20
-            public static let gap: Double = 26
-        }
-
-        /// `shell.pages`: the tab a page lights; every listed page shows
-        /// the bar.
-        public enum Page: String, CaseIterable, Sendable {
-            case chats, teams, team, folder, board
-            case teamSettings = "team-settings"
-            case assistant, settings
-            case settingsPage = "settings-page"
-            case devices, device
-
-            public var tab: Tab {
-                switch self {
-                case .chats: .chats
-                case .teams, .team, .folder, .board, .teamSettings: .teams
-                case .assistant: .assistant
-                case .settings, .settingsPage, .devices, .device: .settings
-                }
-            }
-
-            public var bar: Bool { true }
-        }
-
-        /// TS `phonePage`: a page not listed is a detail: no tab, no bar.
-        public static func phonePage(_ page: String) -> (tab: Tab?, bar: Bool) {
-            Page(rawValue: page).map { ($0.tab, $0.bar) } ?? (nil, false)
-        }
-
-        /// `shell.bar`: a running app's own screens bar (apps.json); each tab
-        /// starts at its label's width.
+        /// `shell.bar`: the capsule takes the width beside the new chat / new
+        /// issue capsule; each tab starts at its label's width.
         public enum Bar {
             public static let height: Double = 52
             public static let padding: Double = 4
@@ -333,10 +262,30 @@ public enum Chats {
             }
         }
 
-        /// `shell.header`: the page header on every root page.
+        /// `shell.boardTab`.
+        public enum BoardTab {
+            public static let caret = "nav-team-switcher"
+            public static let caretSize: Double = 10
+            public static let caretGap: Double = 2
+        }
+
+        /// `shell.boardMenu` (motion tokens by name).
+        public enum BoardMenu {
+            public static let rowHeight: Double = 48
+            public static let maxVisibleRows = 8
+            public static let radius: Double = 28
+            public enum Motion {
+                public static let open = "slow"
+                public static let openEase = "decelerate"
+                public static let close = "standard"
+                public static let closeEase = "accelerate"
+            }
+        }
+
+        /// `shell.header`: the page header on every top-level page.
         public enum Header {
             public enum Page: String, CaseIterable, Sendable {
-                case chats, teams, settings
+                case board, chats, apps, team, devices, agent
             }
             public static let pages: [Page] = Page.allCases
             public static let buttons = ["nav-search", "nav-inbox"]

@@ -69,6 +69,7 @@ struct InboxListContent: View {
             }
             // Clearance for the floating tab bar (EXP-36) — the last
             // row was fully hidden under it before.
+            .tabBarBottomInset()
         }
     }
 

@@ -5,6 +5,7 @@ import com.exponential.app.ui.components.ChatRow
 import com.exponential.app.domain.SealedPlaceholder
 import com.exponential.app.data.sealed.SealedContent
 import androidx.compose.foundation.layout.height
+import androidx.compose.ui.graphics.graphicsLayer
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.ui.components.PageHeader
 import com.exponential.app.ui.components.PageHeaderActions
@@ -18,11 +19,11 @@ import coil3.asImage
 import coil3.memory.MemoryCache
 import com.exponential.app.domain.TeamImage
 import com.exponential.app.ui.components.GroupDivider
-import com.exponential.app.ui.components.PhoneDock
-import com.exponential.app.ui.components.PhoneNewMenu
+import com.exponential.app.ui.components.PhoneBoardMenu
 import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.TeamImageRow
 import com.exponential.app.ui.theme.glassGroup
+import com.exponential.app.ui.theme.glassRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
@@ -60,12 +61,14 @@ import com.exponential.app.domain.ScheduleDraft
 import com.exponential.app.domain.Schedule
 import com.exponential.app.domain.SchedulePicker
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.components.ChatMenuSheetFace
 import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.GlassAlertFace
 import androidx.compose.ui.unit.sp
 import com.exponential.app.ui.components.ChatSelectionBar
 import com.exponential.app.ui.components.SelectionBarSlot
+import com.exponential.app.ui.components.BottomNavDefaults
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.exponential.app.ui.components.ScheduleFieldsSpecimen
 import com.exponential.app.ui.components.chatMenuItems
@@ -103,6 +106,7 @@ import kotlinx.serialization.json.jsonObject
 
 const val ChatListSpecimenTestId = "chat-list-specimen"
 const val PhoneTabBarSpecimenTestId = "phone-tab-bar-specimen"
+const val PhoneBoardMenuSpecimenTestId = "phone-board-menu-specimen"
 const val TeamAvatarSpecimenTestId = "team-avatar-specimen"
 const val PhonePageHeaderSpecimenTestId = "phone-page-header-specimen"
 const val ChatHeaderSpecimenTestId = "chat-header-specimen"
@@ -256,7 +260,7 @@ fun ChatListSpecimenScreen() {
                     modifier = Modifier.padding(padding),
                 )
             }
-            SpecimenDock("chats", modifier = Modifier.align(Alignment.BottomCenter))
+            SpecimenTabBar(selected = "chats", modifier = Modifier.align(Alignment.BottomCenter))
         }
     }
 }
@@ -335,24 +339,48 @@ private val SPECIMEN_BOARDS = listOf(
 )
 
 @Composable
-private fun SpecimenDock(selected: String, modifier: Modifier = Modifier, newOpen: Boolean = false) {
-    PhoneDock(
+private fun SpecimenTabBar(
+    selected: String,
+    modifier: Modifier = Modifier,
+    dragging: Boolean = false,
+    menuOpen: Boolean = false,
+) {
+    BottomNavBar(
         selected = selected,
-        newOpen = newOpen,
+        agentActive = false,
+        board = SPECIMEN_BOARDS.first(),
+        onBoardView = selected == "board",
+        team = ACME,
+        onTeamPage = selected == "team",
         chatsBadge = com.exponential.app.domain.NavBadges.Badge(2, com.exponential.app.domain.NavBadges.Tone.Attention),
-        onSelect = {},
+        composeEnabled = true,
+        onSelectTab = {},
+        onCompose = {},
+        onChat = {},
         modifier = modifier,
+        boardMenu = PhoneBoardMenu.boards(
+            boards = SPECIMEN_BOARDS,
+            activeBoardId = SPECIMEN_BOARDS.first().id,
+            onSelect = {},
+            onNewBoard = {},
+        ),
+        menuOpen = menuOpen,
+        // The web specimen's static drag: the lens over Apps, the finger
+        // 10 left of its centre.
+        lensPreview = if (dragging) "apps" else null,
+        lensPreviewOffset = if (dragging) (-10).dp else 0.dp,
     )
 }
 
-/** THE phone's docked bar: Chats, Teams, the Assistant selected, and New open
- *  with its popup (shot `sg_phone-tab-bar`). */
+/** THE phone tab bar: on the board view (the caret), Chats, Team, and the
+ *  drag lens (shot `sg_phone-tab-bar`). */
 @Composable
 fun PhoneTabBarSpecimenScreen() {
     AppBackground {
         Column(
             // EXP-1554: the bars sit mid-screen, so none of them adds the
-            // navigation-bar inset under itself.
+            // navigation-bar inset under itself (it opened a gesture-bar-tall
+            // gap between each bar and the next caption, iOS/web-mobile have none).
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
@@ -361,17 +389,14 @@ fun PhoneTabBarSpecimenScreen() {
                 .testTag(PhoneTabBarSpecimenTestId),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Caption("On the board view (the caret opens the board menu)")
+            SpecimenTabBar(selected = "board")
             Caption("Chats selected")
-            SpecimenDock("chats")
-            Caption("Teams selected")
-            SpecimenDock("teams")
-            Caption("Assistant selected")
-            SpecimenDock("assistant")
-            Caption("New open")
-            Box(Modifier.fillMaxWidth().height(230.dp)) {
-                PhoneNewMenu(issueEnabled = true, onPick = {}, onDismiss = {}, insetBottom = 0.dp)
-                SpecimenDock("chats", newOpen = true, modifier = Modifier.align(Alignment.BottomCenter))
-            }
+            SpecimenTabBar(selected = "chats")
+            Caption("Team selected")
+            SpecimenTabBar(selected = "team")
+            Caption("Dragging: the lens between Chats and Apps")
+            SpecimenTabBar(selected = "chats", dragging = true)
         }
     }
 }
@@ -439,6 +464,31 @@ private fun seedTeamSampleImage(context: Context) {
     }
     canvas.drawPath(star, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFF97316.toInt() })
     cache[MemoryCache.Key(TEAM_SAMPLE_IMAGE)] = MemoryCache.Value(bitmap.asImage())
+}
+
+/** THE board menu, OPEN over the strip it grew from (shot `sg_phone-board-menu`). */
+@Composable
+fun PhoneBoardMenuSpecimenScreen() {
+    AppBackground {
+        Box(Modifier.fillMaxSize().testTag(PhoneBoardMenuSpecimenTestId)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().statusBarsPadding().graphicsLayer { alpha = 0.4f },
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                PageHeader(title = SPECIMEN_BOARDS.first().name, actions = PageHeaderActions({}, {}, inboxUnread = 0))
+                repeat(3) {
+                    Box(
+                        Modifier
+                            .padding(horizontal = 16.dp)
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .glassRow(),
+                    )
+                }
+            }
+            SpecimenTabBar(selected = "board", menuOpen = true, modifier = Modifier.align(Alignment.BottomCenter))
+        }
+    }
 }
 
 /** THE page header: the inbox dot on and off, a pushed page's back control

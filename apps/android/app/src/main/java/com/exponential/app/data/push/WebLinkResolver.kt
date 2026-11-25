@@ -32,12 +32,11 @@ sealed interface LinkDestination {
     data object AgentHome : LinkDestination
     data object Inbox : LinkDestination
     data object Devices : LinkDestination
-    data class Settings(val teamId: String, val section: String) : LinkDestination
+    data class Settings(val section: String) : LinkDestination
     /** #EXP-1987: Settings › Assistant, the account page (every team). */
     data object AssistantSettings : LinkDestination
-    data class TeamHome(val teamId: String) : LinkDestination
-    /** A team's settings page. */
-    data class TeamSettings(val teamId: String) : LinkDestination
+    data object TeamHome : LinkDestination
+    data object AppsList : LinkDestination
     data class AppRun(val appId: String) : LinkDestination
     data class AppScreen(val appId: String, val screen: String, val params: Map<String, String>) : LinkDestination
 
@@ -155,21 +154,19 @@ class WebLinkResolver @Inject constructor(
         is AppLink.Inbox -> LinkDestination.Inbox
         is AppLink.Devices -> LinkDestination.Devices
         is AppLink.Settings -> when {
-            link.section.isEmpty() -> LinkDestination.TeamSettings(teamId)
+            link.section.isEmpty() -> LinkDestination.TeamHome
             // #EXP-1987 (settings-nav.json): the account's Assistant page.
             link.section == com.exponential.app.domain.SettingsNavGroups.ASSISTANT -> LinkDestination.AssistantSettings
             // `settings-nav.json` `visible`: a row this viewer does not see reads as missing.
             link.section !in SettingsNav.visiblePhoneRows(isOwner(db, teamId, userId)) -> null
-            link.section == SettingsNav.DEVICES -> LinkDestination.Devices
-            else -> LinkDestination.Settings(teamId, link.section)
+            else -> LinkDestination.Settings(link.section)
         }
         is AppLink.AppHome -> appIdBySlug(db, teamId, link.appSlug)?.let { LinkDestination.AppRun(it) }
         is AppLink.AppScreen -> appIdBySlug(db, teamId, link.appSlug)?.let { LinkDestination.AppScreen(it, link.screen, link.params) }
         // #EXP-1804: a synced run of this team; every other `app` path is
         // web-only ([isWebOnly]).
         is AppLink.App -> when (val ci = com.exponential.app.domain.CiRun.parsePath(link.path)) {
-            // The team's apps stand in its list.
-            null -> LinkDestination.TeamHome(teamId)
+            null -> LinkDestination.AppsList
             else -> db.ciRunDao().getById(ci.second)?.takeIf { it.teamId == teamId }?.let { LinkDestination.CiRun(it.id) }
         }
         is AppLink.External, AppLink.Ignore -> null
@@ -261,6 +258,26 @@ class WebLinkResolver @Inject constructor(
         val messages = db.messageDao().observeCardsBySession(sessionId).first().map { SessionTree.message(it, sessionId) }
         val digest = db.sessionDao().getById(sessionId)?.digest
         ChatRowAction.sessionWaitingCard(sessionId, messages + Chats.digestMessages(sessionId, Chats.parseDigest(digest)))
+    }
+
+    /**
+     * Session 58cb32df (chats.json): a notification / deep link that names
+     * another team SWITCHES first, then opens the target. The team of the
+     * synced issue / session [id] on the ACTIVE account (an issue's = its
+     * board's); null when the row is not synced (yet).
+     */
+    suspend fun teamOfIssue(id: String, accountId: String? = null): String? = activeDb(accountId) { db ->
+        val issue = db.issueDao().observeById(id).first() ?: return@activeDb null
+        db.boardDao().observeAll().first().firstOrNull { it.id == issue.boardId }?.teamId
+    }
+
+    /** #EXP-1830: the team of the synced board [id] (a board widget's header). */
+    suspend fun teamOfBoard(id: String, accountId: String? = null): String? = activeDb(accountId) { db ->
+        db.boardDao().getActiveById(id)?.teamId
+    }
+
+    suspend fun teamOfSession(id: String, accountId: String? = null): String? = activeDb(accountId) { db ->
+        db.sessionDao().getById(id)?.teamId?.takeIf { it.isNotEmpty() }
     }
 
     private suspend fun <T> activeDb(

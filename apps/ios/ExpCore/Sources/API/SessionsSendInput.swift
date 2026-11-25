@@ -67,13 +67,12 @@ public enum TeamsScope: Sendable, Equatable {
     }
 }
 
-/// The forms of `sessions.send`.
+/// The forms of `sessions.send`. `teamId` is the ACTIVE team (phones:
+/// the current board's team).
 public enum SessionsSendInput: Sendable, Equatable {
     /// A new CHAT root: the composer, Start on an issue (`issueIds`), a
     /// saved prompt run (NEW-2 `promptId`: its body plus `text` = the first
-    /// message). Needs `text`, `issueIds` or a `promptId`. `teamId` = its
-    /// team (repos, prompts, the device); #EXP-2109: `scopeTeamIds` = a plain
-    /// chat's OTHER picked teams (none = its own only, nothing sent).
+    /// message). Needs `text`, `issueIds` or a `promptId`.
     case newChat(
         teamId: String,
         deviceId: String,
@@ -82,8 +81,7 @@ public enum SessionsSendInput: Sendable, Equatable {
         attachmentIds: [String]? = nil,
         issueIds: [String]? = nil,
         promptId: String? = nil,
-        repositoryId: String? = nil,
-        scopeTeamIds: [String]? = nil
+        repositoryId: String? = nil
     )
     /// NEW-2: a message to a team AGENT — into the caller's own conversation
     /// session with it (created on first use; it runs on the agent's own
@@ -167,7 +165,7 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(options.skillIds.flatMap { $0.isEmpty ? nil : $0 }, forKey: .skillIds)
         }
         switch self {
-        case let .newChat(teamId, deviceId, options, text, attachmentIds, issueIds, promptId, repositoryId, scopeTeamIds):
+        case let .newChat(teamId, deviceId, options, text, attachmentIds, issueIds, promptId, repositoryId):
             try c.encode(teamId, forKey: .teamId)
             try c.encode(deviceId, forKey: .deviceId)
             try encodeOptions(options)
@@ -176,7 +174,6 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(issueIds, forKey: .issueIds)
             try c.encodeIfPresent(promptId, forKey: .promptId)
             try c.encodeIfPresent(repositoryId, forKey: .repositoryId)
-            if let scopeTeamIds, !scopeTeamIds.isEmpty { try c.encode(scopeTeamIds, forKey: .scopeTeamIds) }
         case let .agent(agentId, text, attachmentIds, issueIds, scope, mcpServerIds):
             try c.encode(agentId, forKey: .agentId)
             try c.encodeIfPresent(text, forKey: .text)

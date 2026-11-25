@@ -3,6 +3,7 @@ package com.exponential.app.ui.components
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.trpcErrorMessage
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.DeviceApproval
 import com.exponential.app.data.api.DevicesApi
@@ -25,7 +26,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -56,9 +56,10 @@ fun needsJoinDeviceStep(ownDevices: List<SteerDevice>?): Boolean = ownDevices?.i
 class OwnDevices @Inject constructor(
     private val auth: AuthRepository,
     private val holder: DatabaseHolder,
+    private val selection: TeamSelection,
 ) {
     fun flow(): Flow<List<SteerDevice>?> =
-        steerDeviceFlow(accountDatabaseFlow(auth, holder), flowOf(null), auth.userId)
+        steerDeviceFlow(accountDatabaseFlow(auth, holder), selection.selectedId, auth.userId)
             .map { rows -> rows?.filter { it.isMine } }
 
     /** The join rule over the first RESOLVED local value (a null is the

@@ -1,4 +1,4 @@
-// #EXP-2027: the sidebar tree (web md+ and the desktop IDE; #EXP-2109: the phones' Teams tab), the pure
+// #EXP-2027: the sidebar tree (web md+ and the desktop IDE), the pure
 // reference of `fixtures/sidebar-tree.json` (its `$comment` is the spec).
 // Desktop (Rust `domain::sidebar_tree`) replays it.
 //
@@ -11,7 +11,6 @@ import fixture from "../fixtures/sidebar-tree.json" with { type: "json" }
 import { sidebarNewKinds, type SidebarNewKind } from "./sidebar-menus"
 import {
   sidebarMove,
-  sidebarTree,
   type SidebarEntry,
   type SidebarMove,
   type SidebarRow,
@@ -182,39 +181,4 @@ export function sidebarDropSession(input: {
 export const SIDEBAR_DEVICES_OPEN_KEY = fixture.openKeys.devices
 export function sidebarTeamOpenKey(teamId: string): string {
   return fixture.openKeys.team.replace(`{teamId}`, teamId)
-}
-
-/** #EXP-2109: a phone team page's `…` menu. */
-export function phoneTeamMenu(input: { owner: boolean }): { id: `new` | `settings`; children: SidebarNewKind[] }[] {
-  return [
-    ...(input.owner ? [{ id: `new` as const, children: [`board`, `agent`, `app`] as SidebarNewKind[] }] : []),
-    { id: `settings`, children: [] },
-  ]
-}
-
-export interface PhoneTeamRow {
-  kind: `folder` | SidebarItemKind
-  id: string
-  /** A folder's name; null on an item. */
-  name: string | null
-}
-
-/** #EXP-2109: one page of the phones' Teams tab: a team's top level
- *  (`folderId` null) or a folder's children; null = the folder is gone. */
-export function phoneTeamPage(input: {
-  items: readonly SidebarTeamItem[]
-  entries: readonly SidebarEntry[]
-  folderId: string | null
-}): PhoneTeamRow[] | null {
-  const kinds = new Map(input.items.map((item) => [item.id, item.kind]))
-  const item = (id: string): PhoneTeamRow => ({ kind: kinds.get(id) as SidebarItemKind, id, name: null })
-  const tree = sidebarTree(
-    input.items.map((each) => each.id),
-    input.entries
-  )
-  if (input.folderId === null) {
-    return tree.map((node) => (node.kind === `folder` ? { kind: `folder`, id: node.id, name: node.name } : item(node.id)))
-  }
-  const folder = tree.find((node) => node.kind === `folder` && node.id === input.folderId)
-  return folder && folder.kind === `folder` ? folder.children.map(item) : null
 }

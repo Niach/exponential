@@ -733,7 +733,8 @@ struct VoiceSettingsPage: View {
             .listSectionSpacing(8)
             .tint(DesignTokens.Palette.primary)
         }
-        .pageHeader(Voice.Copy.group, pushed: true)
+        .navigationTitle(Voice.Copy.group)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .voiceSettingsHost(model)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Voice.TestIds.page)

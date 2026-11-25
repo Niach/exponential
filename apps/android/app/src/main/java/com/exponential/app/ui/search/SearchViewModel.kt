@@ -27,11 +27,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import com.exponential.app.data.crossTeamOrder
+import com.exponential.app.data.TeamSelection
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -50,18 +47,19 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transformLatest
 
-// The global issue search (#EXP-1382, search-list.json TYPING), hybrid local +
-// server, over EVERY member team (#EXP-2109: no active team):
+// The global issue search (#EXP-1382, search-list.json TEAM SCOPE + TYPING),
+// hybrid local + server, scoped to the ACTIVE team (`TeamSelection`, the
+// shell's one active team):
 //   - Fast path: the shared `IssueSearch` engine (EXP-892 — identifier before
-//     title before description, one ranking ×4) over their issues
+//     title before description, one ranking ×4) over that team's issues
 //     (local Room data). The rows are PREPARED once per issues emission
 //     (status resolved, timestamps parsed) and every keystroke ranks them on
 //     Dispatchers.Default, so the field paints every keystroke at once.
-//   - Augmentation: the server-side full-text `issues.search` (title +
-//     description + comment text), one request per team, on the debounced
+//   - Augmentation: ONE server-side full-text `issues.search` (title +
+//     description + comment text) scoped to that team, on the debounced
 //     query; it appends whatever the local rank missed. Server errors degrade
 //     silently to local-only — typing is never blocked on the network.
-// EXP-922: one flat relevance-ordered
+// Switching the team re-runs the query. EXP-922: one flat relevance-ordered
 // list (undone issues first), the same limit and copy as the other clients.
 
 /**
@@ -129,11 +127,11 @@ private class PreparedRow(
     override val statusName: String? get() = result.status.name
 }
 
-/** The prepared pool. */
+/** The active team's prepared pool. */
 private class SearchPool(
     val rows: List<PreparedRow> = emptyList(),
     val boardsById: Map<String, BoardEntity> = emptyMap(),
-    val statusesByTeam: Map<String, List<ResolvedIssueStatus>> = emptyMap(),
+    val statuses: List<ResolvedIssueStatus> = emptyList(),
     /** #NEW-133: the synced users (the creator names' rows) the phrase grammar turns into `by:`. */
     val members: List<IssueSearchPhrase.Member> = emptyList(),
 ) {
@@ -145,16 +143,14 @@ private class SearchPool(
 class SearchViewModel @Inject constructor(
     auth: AuthRepository,
     holder: DatabaseHolder,
+    selection: TeamSelection,
     private val issuesApi: IssuesApi,
     private val chatStores: ChatStoreManager,
 ) : ViewModel() {
 
     // Reactive account + team scoping (no constructor-time DB snapshot).
     private val dbFlow = accountDatabaseFlow(auth, holder)
-    private val teamIds: Flow<List<String>> = dbFlow
-        .flatMapLatest { db -> db?.teamDao()?.observeAll() ?: flowOf(emptyList()) }
-        .map { rows -> crossTeamOrder(rows).map { it.id } }
-        .distinctUntilChanged()
+    private val dbAndTeam = combine(dbFlow, selection.selectedId) { db, teamId -> db to teamId }
 
     // Raw input updates on every keystroke (the field itself stays responsive
     // via local Compose state); the local rank follows a short debounce, the
@@ -167,34 +163,34 @@ class SearchViewModel @Inject constructor(
     private val rankQuery = _query.map { it.trim() }.debounce(80).distinctUntilChanged()
     private val serverQuery = _query.map { it.trim() }.debounce(250).distinctUntilChanged()
 
-    /** Every team's issues, boards and statuses, prepared once per emission. */
-    private val pool: Flow<SearchPool> = dbFlow.flatMapLatest { db ->
-        if (db == null) {
+    /** The active team's issues, boards and statuses, prepared once per emission. */
+    private val pool: Flow<SearchPool> = dbAndTeam.flatMapLatest { (db, teamId) ->
+        if (db == null || teamId == null) {
             flowOf(SearchPool())
         } else {
             combine(
-                db.issueDao().observeAll(),
-                db.boardDao().observeAll(),
-                db.issueStatusDao().observeAll(),
+                db.issueDao().observeByTeam(teamId),
+                db.boardDao().observeByTeam(teamId),
+                db.issueStatusDao().observeByTeam(teamId),
                 // #NEW-21: `by:` matches the filing member's name/email and agent's name.
                 db.userDao().observeAll(),
-                db.agentDefinitionDao().observeAll(),
+                db.agentDefinitionDao().observeByTeam(teamId),
             ) { issues, boards, statusRows, users, agents ->
                 val boardsById = boards.associateBy { it.id }
                 val usersById = users.associateBy { it.id }
                 val agentsById = agents.associateBy { it.id }
-                val statuses = statusRows.groupBy { it.teamId }.mapValues { (_, rows) -> IssueStatusResolver.teamStatuses(rows) }
+                val statuses = IssueStatusResolver.teamStatuses(statusRows)
                 SearchPool(
                     rows = issues.mapNotNull { issue ->
                         val board = boardsById[issue.boardId] ?: return@mapNotNull null
                         PreparedRow(
-                            SearchResult(issue, board, IssueStatusResolver.resolve(issue, statuses[board.teamId].orEmpty())),
+                            SearchResult(issue, board, IssueStatusResolver.resolve(issue, statuses)),
                             creator = issue.creatorId?.let(usersById::get),
                             creatorAgent = issue.creatorAgentId?.let(agentsById::get),
                         )
                     },
                     boardsById = boardsById,
-                    statusesByTeam = statuses,
+                    statuses = statuses,
                     members = users.map { IssueSearchPhrase.Member(name = it.name, email = it.email) },
                 )
             }
@@ -207,34 +203,28 @@ class SearchViewModel @Inject constructor(
      */
     private data class ServerSearch(val query: String = "", val hits: List<SearchIssueHit> = emptyList())
 
-    // `issues.search`, one request per member team. `transformLatest` cancels
-    // the in-flight round trips whenever the query, account or teams change;
+    // ONE `issues.search` scoped to the active team. `transformLatest` cancels
+    // the in-flight round trip whenever the query, account or team changes;
     // a failure collapses to "no extra hits".
     private val serverSearch: Flow<ServerSearch> = combine(
         auth.activeAccountId,
-        teamIds,
+        selection.selectedId,
         serverQuery,
-    ) { accountId, teams, query -> Triple(accountId, teams, query) }
+    ) { accountId, teamId, query -> Triple(accountId, teamId, query) }
         .distinctUntilChanged()
-        .transformLatest { (accountId, teams, query) ->
+        .transformLatest { (accountId, teamId, query) ->
             // Clear stale hits for the new query immediately (local-only view
             // renders while the round trip runs).
             emit(ServerSearch(query))
-            if (accountId == null || query.isEmpty()) return@transformLatest
-            val hits = coroutineScope {
-                teams.map { teamId ->
-                    async {
-                        try {
-                            issuesApi.search(accountId, teamId, query, limit = MAX_RESULTS)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (_: Exception) {
-                            // Offline / server error / stale membership: the local
-                            // fast path already rendered — never surface.
-                            emptyList()
-                        }
-                    }
-                }.awaitAll().flatten()
+            if (accountId == null || teamId == null || query.isEmpty()) return@transformLatest
+            val hits = try {
+                issuesApi.search(accountId, teamId, query, limit = MAX_RESULTS)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Offline / server error / stale membership: the local fast
+                // path already rendered — never surface.
+                emptyList()
             }
             emit(ServerSearch(query, hits))
         }
@@ -276,15 +266,15 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    /** The synced roots (+ the viewer's personal team, the Assistant's chat), by id. */
+    /** The active team's synced roots (+ the viewer's personal team, the Assistant's chat), by id. */
     private class TeamRoots(
         val roots: Map<String, SessionEntity> = emptyMap(),
         val links: List<SessionIssueEntity> = emptyList(),
         val agentNames: Map<String, String> = emptyMap(),
     )
 
-    private val teamRoots: Flow<TeamRoots> = combine(dbFlow, auth.userId) { db, me -> db to me }.flatMapLatest { (db, me) ->
-        if (db == null) {
+    private val teamRoots: Flow<TeamRoots> = combine(dbAndTeam, auth.userId) { dt, me -> Triple(dt.first, dt.second, me) }.flatMapLatest { (db, teamId, me) ->
+        if (db == null || teamId == null) {
             flowOf(TeamRoots())
         } else {
             combine(
@@ -294,18 +284,18 @@ class SearchViewModel @Inject constructor(
                 db.agentDefinitionDao().observeAll(),
             ) { sessions, teams, links, agents ->
                 val synced = teams.map { it.id }
-                // The chat list's rule: every member team's roots, plus the
-                // viewer's own in no synced team (the global Assistant).
+                // The chat list's team rule: the active team's roots, plus
+                // the viewer's own in no synced team (the global Assistant).
                 val roots = sessions.filter { row ->
                     row.isRoot && row.appId == null &&
-                        (row.teamId in synced || (me != null && row.userId == me))
+                        com.exponential.app.domain.AgentSettings.Assistant.inTeamOrPersonal(row.teamId, row.userId, teamId, synced, me)
                 }.associateBy { it.id }
                 TeamRoots(roots, links.filter { it.sessionId in roots }, agents.associate { it.id to it.name })
             }
         }
     }.flowOn(Dispatchers.Default)
 
-    /** The Chats rows of the answer: roots the viewer syncs, at most `chatsMax`. */
+    /** The Chats rows of the answer: roots of the active team only, at most `chatsMax`. */
     private val chatRows: Flow<List<SearchList.ChatRow>> = combine(chatAnswer, teamRoots, pool, dbFlow) { answer, roots, pool, db ->
         ChatInputs(answer, roots, pool, db)
     }.mapLatest { (answer, team, pool, db) ->
@@ -376,7 +366,7 @@ class SearchViewModel @Inject constructor(
             IssueSearch.mergeServerHits(localMatches, server.hits, limit = MAX_RESULTS) { hit ->
                 pool.byId[hit.id] ?: pool.boardsById[hit.boardId]?.let { board ->
                     val issue = placeholderIssue(hit)
-                    PreparedRow(SearchResult(issue, board, IssueStatusResolver.resolve(issue, pool.statusesByTeam[board.teamId].orEmpty())))
+                    PreparedRow(SearchResult(issue, board, IssueStatusResolver.resolve(issue, pool.statuses)))
                 }
                 // No local board to show the row under (sync lag / trashed
                 // board) — dropped.

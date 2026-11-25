@@ -97,7 +97,7 @@ export function useOpenComposer(): (
       void navigate({
         to: `/t/$teamSlug/agent`,
         params: { teamSlug },
-        search: { ...composerSearch(seed, origin) },
+        search: composerSearch(seed, origin),
       })
     },
     [navigate, teamSlug, location, from]

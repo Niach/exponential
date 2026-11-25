@@ -1,6 +1,5 @@
 package com.exponential.app.navigation
 
-import com.exponential.app.domain.Chats
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -8,30 +7,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * EXP-1210, #EXP-2109: the docked bar's destinations are sibling ROOTS. Which tab
- * is up is read off the back stack (the topmost tab root, so a pushed detail
- * keeps its tab), and only a move between two tab roots is drawn as a swap.
+ * EXP-1210: the bottom bar's destinations are sibling ROOTS. Which tab is up
+ * is read off the back stack (the topmost tab root, so a pushed detail keeps
+ * its tab lit), and only a move between two tab roots is drawn as a swap.
  */
 class TabNavigationTest {
 
     @Test
-    fun `the Chats root alone is the Chats tab`() {
-        assertEquals(MainTabs.CHATS, MainTabs.current(listOf(null, "chats")))
+    fun `the Agent root alone is the Agent tab`() {
+        assertEquals(MainTabs.AGENT, MainTabs.current(listOf(null, "agent-tab")))
     }
 
     @Test
-    fun `a tab root on the Chats root is that tab`() {
-        assertEquals(MainTabs.TEAMS, MainTabs.current(listOf(null, "chats", "teams")))
-        assertEquals(MainTabs.SETTINGS, MainTabs.current(listOf(null, "chats", "settings", "personal")))
+    fun `a tab root on the Agent root is that tab`() {
+        assertEquals(MainTabs.TEAM, MainTabs.current(listOf(null, "agent-tab", "team")))
+        // Session 58cb32df: the inbox is a page pushed inside a tab.
+        assertEquals(MainTabs.CHATS, MainTabs.current(listOf(null, "agent-tab", "chats", "personal")))
     }
 
     @Test
     fun `a detail pushed inside a tab keeps that tab`() {
         assertEquals(
-            MainTabs.TEAMS,
-            MainTabs.current(listOf(null, "chats", "teams", Routes.TEAM_PATTERN, Routes.BOARD_PATTERN, ISSUE_ROUTE)),
+            MainTabs.ISSUES,
+            MainTabs.current(listOf(null, "agent-tab", "home", "board/{boardId}", "issue/{issueId}?comment={comment}")),
         )
-        assertEquals(MainTabs.CHATS, MainTabs.current(listOf(null, "chats", "session/{sessionId}")))
+        assertEquals(
+            MainTabs.AGENT,
+            MainTabs.current(listOf(null, "agent-tab", "session/{sessionId}")),
+        )
+    }
+
+    @Test
+    fun `the tab on the Agent root wins over the Agent tab`() {
+        val present = setOf("agent-tab", "chats")
+        assertEquals(MainTabs.CHATS, MainTabs.current { it in present })
+        assertEquals(MainTabs.AGENT, MainTabs.current { it == "agent-tab" })
+        assertNull(MainTabs.current { false })
     }
 
     @Test
@@ -41,49 +52,22 @@ class TabNavigationTest {
     }
 
     @Test
-    fun `the tab routes are the bar's, New is a popup`() {
-        assertEquals(Chats.Shell.TABS.toSet() - "new", MainTabs.routes)
+    fun `the tab routes are the bar's five destinations`() {
+        // NEW-7: the Actions tab is gone (prompts replaced actions); #EXP-1384:
+        // Board · Chats · Apps · Team + the Agent root.
+        assertEquals(
+            setOf("agent-tab", "home", "chats", "apps", "team"),
+            MainTabs.routes,
+        )
     }
 
     @Test
     fun `only tab root to tab root is a swap`() {
-        assertTrue(MainTabs.isRootSwap("chats", "teams"))
-        assertTrue(MainTabs.isRootSwap("assistant", "chats"))
+        assertTrue(MainTabs.isRootSwap("agent-tab", "home"))
+        assertTrue(MainTabs.isRootSwap("chats", "agent-tab"))
         // A push from a tab root and Back to it keep the slide.
-        assertFalse(MainTabs.isRootSwap("chats", "issue/{issueId}?comment={comment}"))
-        assertFalse(MainTabs.isRootSwap("board/{boardId}", "teams"))
-        assertFalse(MainTabs.isRootSwap(null, "chats"))
-    }
-
-    @Test
-    fun `a page lights its tab, a detail none`() {
-        fun lit(route: String?) = Chats.Shell.page(MainTabs.page(route))
-        assertEquals(Chats.Shell.Page("chats", true), lit("chats"))
-        assertEquals(Chats.Shell.Page("teams", true), lit(Routes.FOLDER_PATTERN))
-        assertEquals(Chats.Shell.Page("teams", true), lit(Routes.BOARD_PATTERN))
-        assertEquals(Chats.Shell.Page("teams", true), lit(Routes.TEAM_SETTINGS_PATTERN))
-        assertEquals(Chats.Shell.Page("settings", true), lit(Routes.DEVICES_PATTERN))
-        assertEquals(Chats.Shell.Page("settings", true), lit(Routes.ASSISTANT_SETTINGS))
-        assertEquals(Chats.Shell.Page("assistant", true), lit("assistant"))
-        assertEquals(Chats.Shell.Page(null, false), lit(ISSUE_ROUTE))
-        assertEquals(Chats.Shell.Page(null, false), lit(Routes.CHAT_PATTERN))
-        // Every page of the fixture has a route here.
-        val routes = listOf(
-            "chats", "teams", "assistant", "settings", Routes.TEAM_PATTERN, Routes.FOLDER_PATTERN, Routes.BOARD_PATTERN,
-            Routes.TEAM_SETTINGS_ROOT_PATTERN, Routes.DEVICES_PATTERN, Routes.ABOUT,
-        )
-        assertEquals(Chats.Shell.PAGES.keys - "device", routes.mapNotNull { MainTabs.page(it) }.toSet())
-    }
-
-    @Test
-    fun `the Assistant's chat and agent routes land on its tab`() {
-        val ref = AssistantRef("a1", "s1")
-        assertEquals(AssistantLanding(), AssistantTab.landingOf(Routes.chat("s1"), ref))
-        assertEquals(AssistantLanding(card = "m1"), AssistantTab.landingOf(Routes.chatCard("s1", "m1"), ref))
-        assertEquals(AssistantLanding(tab = "plan", plan = "m1"), AssistantTab.landingOf(Routes.chatPlan("s1", "m1"), ref))
-        assertEquals(AssistantLanding(openSettings = true), AssistantTab.landingOf(Routes.agentDm("a1", "settings"), ref))
-        assertNull(AssistantTab.landingOf(Routes.chat("s2"), ref))
-        assertNull(AssistantTab.landingOf(Routes.agentDm("a2"), ref))
-        assertNull(AssistantTab.landingOf(Routes.chat("s1"), null))
+        assertFalse(MainTabs.isRootSwap("home", "issue/{issueId}?comment={comment}"))
+        assertFalse(MainTabs.isRootSwap("board/{boardId}", "home"))
+        assertFalse(MainTabs.isRootSwap(null, "home"))
     }
 }

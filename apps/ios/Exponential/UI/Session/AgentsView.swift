@@ -14,7 +14,7 @@ import SwiftUI
 /// EXP-1560 (`devices-list.json`): each section is a GRID of device CARDS.
 /// A card's one control is its `⋯` (Device actions: the update line,
 /// `Update`, `Device settings` on own registered devices); a team OWNER's
-/// Team devices cards shared into a team they own hold Remove from this team
+/// Team devices cards shared into the CURRENT team hold Remove from this team
 /// there (FEED-149, `devices.dropShare`). The play glyph stays gone (starting
 /// a run is the Agent page composer's device picker, EXP-909).
 ///
@@ -48,9 +48,9 @@ struct AgentsView: View {
     /// A-16: the instance's latest client builds — the cards' version compare
     /// (outdated tone, the `⋯` menu's update line). One read per visit.
     @State private var latestVersions: LatestVersions?
-    /// FEED-149: the teams the caller owns: a Team devices row shared into
-    /// one of them offers Remove. Off the synced `team_members` rows.
-    @State private var ownedTeams = Set<String>()
+    /// FEED-149: the caller owns the current team — its Team devices rows
+    /// offer Remove. Resolved off the synced `team_members` row.
+    @State private var isTeamOwner = false
     /// FEED-149: the teammate's shared row a team owner is removing.
     @State private var dropShareTarget: DropShareTarget?
     /// EXP-1560: the sections' content width — the card grid's columns
@@ -93,7 +93,8 @@ struct AgentsView: View {
                 machinesContent(vm)
             }
         }
-        // #EXP-2109: pushed from Settings › Devices.
+        // #EXP-1384: pushed from the Team page's Devices row, under the
+        // page header (the back control before the title).
         .pageHeader(Chats.Copy.Headers.devices, pushed: true)
         // A-16: the version compare's other side — instance config, read
         // once per visit, never polled.
@@ -109,6 +110,7 @@ struct AgentsView: View {
             }
             // EXP-1186: the list spans every member team — the VM observes
             // the account's rows, the view hands it the team set.
+            viewModel?.activeTeamId = teamState.activeTeam?.id
             viewModel?.deviceTeamIds = memberTeamIds
             // EXP-829: the Accounts section queues its usage refreshes from
             // this page only.
@@ -125,9 +127,9 @@ struct AgentsView: View {
         .onDisappear {
             viewModel?.stopObserving()
         }
-        // FEED-149: re-resolved whenever the member teams change.
-        .task(id: memberTeamIds) {
-            await resolveOwnedTeams()
+        // FEED-149: re-resolved whenever the current team changes.
+        .task(id: teamState.activeTeamId) {
+            await resolveTeamOwner()
         }
         // #EXP-1534 (inbox-route.json): a signed-out login's inbox row or
         // push lands here with its devices ROW id; the settings sheet opens
@@ -155,26 +157,28 @@ struct AgentsView: View {
 
     /// FEED-149: owners own the destructive surface (`resolveTeamAccess`) —
     /// only they drop a teammate's share; the server refuses everyone else.
-    private func resolveOwnedTeams() async {
-        guard let userId = deps.auth.userId, let pool = try? deps.db.pool(forAccountId: accountId) else {
-            ownedTeams = []
+    private func resolveTeamOwner() async {
+        guard let teamId = teamState.activeTeamId,
+              let userId = deps.auth.userId,
+              let pool = try? deps.db.pool(forAccountId: accountId) else {
+            isTeamOwner = false
             return
         }
-        ownedTeams = (try? await pool.read { db in
-            Set(try TeamMemberEntity
-                .filter(Column("user_id") == userId && Column("role") == DomainContract.teamRoleOwner)
-                .fetchAll(db).map(\.teamId))
-        }) ?? []
+        isTeamOwner = (try? await pool.read { db in
+            try TeamMemberEntity
+                .filter(Column("team_id") == teamId && Column("user_id") == userId)
+                .fetchOne(db)?.role == DomainContract.teamRoleOwner
+        }) ?? false
     }
 
-    /// FEED-149: the team a teammate's row can be removed from: the first (in
-    /// team order) its owner owns that the row is shared into, when it is a
-    /// synced registry row (`rowId`). nil = the row carries no control.
+    /// FEED-149: the team a teammate's row can be removed from — the current
+    /// one, for its owner, when the row is shared into it and is a synced
+    /// registry row (`rowId`). nil = the row carries no control.
     private func dropShareTeamId(_ device: SteerDevice) -> String? {
-        guard !device.isMine, device.rowId != nil else { return nil }
-        return teamState.orderedTeams.first {
-            ownedTeams.contains($0.id) && device.sharedTeamIds.contains($0.id)
-        }?.id
+        guard isTeamOwner, !device.isMine, device.rowId != nil,
+              let teamId = teamState.activeTeamId,
+              device.sharedTeamIds.contains(teamId) else { return nil }
+        return teamId
     }
 
     private func dropShare(_ target: DropShareTarget) {
@@ -268,6 +272,7 @@ struct AgentsView: View {
         }
         // Clearance for the floating tab bar (EXP-36) — on the SCROLLER
         // itself, so its content inset is the one that grows.
+        .tabBarBottomInset()
         // EXP-481: the gear opens the sheet (name, default device, sharing,
         // launch defaults) — the row menu's rename alert retired
         // into it, and EXP-909 its update and remove actions too. EXP-490: it

@@ -47,7 +47,8 @@ struct ThirdPartyLicensesView: View {
                 .padding(.bottom, 24)
             }
         }
-        .pageHeader("Third-party licenses", pushed: true)
+        .navigationTitle("Third-party licenses")
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .task {
             guard case .loading = state else { return }
             // File read + split off the main actor; the repo's first

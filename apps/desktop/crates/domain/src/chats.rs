@@ -96,27 +96,25 @@ pub struct ChatsDividerCopy {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ChatsTabCopy {
+    pub board: String,
     pub chats: String,
-    pub teams: String,
-    pub assistant: String,
-    pub new: String,
-    pub settings: String,
+    pub apps: String,
+    pub team: String,
 }
 
 /// `copy.headers` (#EXP-1384: the phone page header's titles).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct ChatsHeaderCopy {
     pub chats: String,
-    pub teams: String,
-    pub settings: String,
+    pub apps: String,
     pub devices: String,
     pub agent: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct ChatsNewMenuCopy {
-    pub issue: String,
-    pub chat: String,
+#[serde(rename_all = "camelCase")]
+pub struct ChatsBoardMenuCopy {
+    pub new_board: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -157,7 +155,7 @@ pub struct ChatsCopy {
     pub title: String,
     pub tabs: ChatsTabCopy,
     pub headers: ChatsHeaderCopy,
-    pub new_menu: ChatsNewMenuCopy,
+    pub board_menu: ChatsBoardMenuCopy,
     pub preview: ChatsPreviewCopy,
     pub menu: ChatsMenuCopy,
     pub confirm_delete: ChatsConfirmCopy,
@@ -306,12 +304,11 @@ pub struct AgentMenuSpec {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatsShell {
-    /// The phone bar's tabs in order (#EXP-2109).
+    /// The phone bar's tabs in order (#EXP-1384: board, chats, apps, team).
     pub tabs: Vec<String>,
-    pub dock: ChatsDock,
-    pub new_menu: ChatsNewMenu,
-    /// A running app's own screens bar.
     pub bar: ChatsBar,
+    pub board_tab: ChatsBoardTab,
+    pub board_menu: ChatsBoardMenu,
     pub header: ChatsHeader,
     pub chat_header: ChatsChatHeader,
     pub lead_disc: f32,
@@ -341,7 +338,7 @@ pub struct ChatsBarDrag {
     pub cancel_distance: f32,
 }
 
-/// `shell.bar` (#EXP-1384): a running app's floating screens capsule.
+/// `shell.bar` (#EXP-1384): the phone tab capsule's geometry.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatsBar {
@@ -353,29 +350,23 @@ pub struct ChatsBar {
     pub drag: ChatsBarDrag,
 }
 
-/// `shell.dock` (#EXP-2109): the phone's docked bar.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct ChatsDock {
-    pub height: f32,
-    pub icon: f32,
-    pub label: f32,
-    pub gap: f32,
-    pub disc: f32,
-    pub mark: f32,
-    pub raise: f32,
-    pub ring: f32,
-    pub glow: f32,
-}
-
-/// `shell.newMenu` (#EXP-2109): the New cell's popup.
+/// `shell.boardTab`: the caret concept on the board view.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ChatsNewMenu {
-    pub items: Vec<String>,
-    pub width: f32,
+pub struct ChatsBoardTab {
+    pub caret: String,
+    pub caret_size: f32,
+    /// #EXP-1645: after the glyph's right edge; the caret is out of flow.
+    pub caret_gap: f32,
+}
+
+/// `shell.boardMenu` (#EXP-1384): the strip morphed into the board menu.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatsBoardMenu {
     pub row_height: f32,
+    pub max_visible_rows: usize,
     pub radius: f32,
-    pub gap: f32,
 }
 
 /// `shell.header` (#EXP-1384): the phone page header.
@@ -1753,7 +1744,7 @@ mod tests {
     fn spec_parses() {
         assert_eq!(CHATS.copy.title, "Chats");
         assert_eq!(CHATS.surface_card.reply_event, "reply");
-        assert_eq!(CHATS.shell.tabs, ["chats", "teams", "assistant", "new", "settings"]);
+        assert_eq!(CHATS.shell.tabs, ["board", "chats", "apps", "team"]);
         assert_eq!(CHATS.shell.archived_glyph, 24.);
         assert_eq!(
             (

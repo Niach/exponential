@@ -360,6 +360,12 @@ class ChatsTest {
                 ),
             )
         }
+        for (case in cases("teamMetaCases")) {
+            assertEquals(
+                case.str("expected"),
+                Chats.Copy.teamMeta(case.getValue("members").jsonPrimitive.int, case.getValue("boards").jsonPrimitive.int),
+            )
+        }
         // #EXP-1836: the board's My issues, mine on THIS board in input order.
         for (case in cases("boardMineCases")) {
             val issues = case.list("issues")
@@ -601,19 +607,26 @@ class ChatsTest {
         assertEquals(chips.str("all"), Chats.Copy.BOARD_CHIP_ALL)
         assertEquals(chips.str("mine"), Chats.Copy.BOARD_CHIP_MINE)
         assertEquals(chips.str("drafts"), Chats.Copy.BOARD_CHIP_DRAFTS)
+        val team = copy.getValue("team").jsonObject
+        assertEquals(team.str("meta"), Chats.Copy.TEAM_META)
+        assertEquals(team.str("member"), Chats.Copy.TEAM_MEMBER)
+        assertEquals(team.str("members"), Chats.Copy.TEAM_MEMBERS)
+        assertEquals(team.str("board"), Chats.Copy.TEAM_BOARD)
+        assertEquals(team.str("boards"), Chats.Copy.TEAM_BOARDS)
+        assertEquals(team.str("switch"), Chats.Copy.TEAM_SWITCH)
         assertEquals(copy.str("inbox"), Chats.Copy.INBOX)
         assertEquals(copy.str("loadEarlier"), Chats.Copy.LOAD_EARLIER)
         assertEquals(copy.str("working"), Chats.Copy.WORKING)
         val headers = copy.getValue("headers").jsonObject
         assertEquals(headers.keys.toList(), Chats.Copy.HEADERS.keys.toList())
         for ((key, title) in Chats.Copy.HEADERS) assertEquals(headers.str(key), title)
-        val newMenuCopy = copy.getValue("newMenu").jsonObject
-        assertEquals(newMenuCopy.keys.toList(), Chats.Copy.NEW_MENU.keys.toList())
-        for ((key, label) in Chats.Copy.NEW_MENU) assertEquals(newMenuCopy.str(key), label)
+        assertEquals(copy.getValue("boardMenu").jsonObject.str("newBoard"), Chats.Copy.BOARD_MENU_NEW_BOARD)
+        assertEquals(copy.getValue("boardMenu").jsonObject.str("newTeam"), Chats.Copy.BOARD_MENU_NEW_TEAM)
+        assertEquals(2, copy.getValue("boardMenu").jsonObject.size)
         assertEquals(
             setOf(
-                "title", "tabs", "headers", "newMenu", "preview", "time", "menu", "confirmDelete", "stopTurn",
-                "toasts", "dividers", "superseded", "boardChips", "inbox", "loadEarlier", "working",
+                "title", "tabs", "headers", "boardMenu", "preview", "time", "menu", "confirmDelete", "stopTurn",
+                "toasts", "dividers", "superseded", "boardChips", "team", "inbox", "loadEarlier", "working",
                 "selection", "archived", "sections", "marks"),
             copy.keys,
         )
@@ -640,43 +653,19 @@ class ChatsTest {
         assertEquals(drag.str("lensScale")!!.toFloat(), Chats.Shell.Bar.Drag.LENS_SCALE)
         assertEquals(drag.getValue("cancelDistance").jsonPrimitive.int, Chats.Shell.Bar.Drag.CANCEL_DISTANCE)
         assertEquals(setOf("height", "padding", "gap", "tabMinWidth", "tabPaddingX", "drag"), bar.keys)
-        val dock = shell.getValue("dock").jsonObject
-        assertEquals(
-            mapOf(
-                "height" to Chats.Shell.Dock.HEIGHT,
-                "icon" to Chats.Shell.Dock.ICON,
-                "label" to Chats.Shell.Dock.LABEL,
-                "gap" to Chats.Shell.Dock.GAP,
-                "disc" to Chats.Shell.Dock.DISC,
-                "mark" to Chats.Shell.Dock.MARK,
-                "raise" to Chats.Shell.Dock.RAISE,
-                "ring" to Chats.Shell.Dock.RING,
-                "glow" to Chats.Shell.Dock.GLOW,
-            ),
-            dock.mapValues { it.value.jsonPrimitive.int },
-        )
-        val newMenu = shell.getValue("newMenu").jsonObject
-        assertEquals(newMenu.getValue("items").jsonArray.map { it.jsonPrimitive.content }, Chats.Shell.NewMenu.ITEMS)
-        assertEquals(newMenu.getValue("icons").jsonObject.mapValues { it.value.jsonPrimitive.content }, Chats.Shell.NewMenu.ICONS)
-        assertEquals(newMenu.str("openIcon"), Chats.Shell.NewMenu.OPEN_ICON)
-        assertEquals(newMenu.getValue("width").jsonPrimitive.int, Chats.Shell.NewMenu.WIDTH)
-        assertEquals(newMenu.getValue("rowHeight").jsonPrimitive.int, Chats.Shell.NewMenu.ROW_HEIGHT)
-        assertEquals(newMenu.getValue("radius").jsonPrimitive.int, Chats.Shell.NewMenu.RADIUS)
-        assertEquals(newMenu.getValue("gap").jsonPrimitive.int, Chats.Shell.NewMenu.GAP)
-        assertEquals(
-            shell.getValue("pages").jsonObject.mapValues { (_, v) -> Chats.Shell.Page(v.jsonObject.str("tab"), v.jsonObject.bool("bar")) },
-            Chats.Shell.PAGES,
-        )
-        assertEquals(Chats.Shell.Page("teams", true), Chats.Shell.page("board"))
-        assertEquals(Chats.Shell.Page(null, false), Chats.Shell.page("issue"))
-        assertEquals(
-            setOf(
-                "tabs", "tabIcons", "dock", "newMenu", "pages", "bar", "header", "boardChips", "chatHeader", "leadDisc",
-                "selectBadge", "selectBadgeRing", "selectBadgeGlyph", "selectBadgeRadius", "archivedGlyph", "dimOpacity",
-                "chatLead", "markGlyph", "markGap",
-            ),
-            shell.keys,
-        )
+        val boardTab = shell.getValue("boardTab").jsonObject
+        assertEquals(boardTab.str("caret"), Chats.Shell.BoardTab.CARET)
+        assertEquals(boardTab.getValue("caretSize").jsonPrimitive.int, Chats.Shell.BoardTab.CARET_SIZE)
+        assertEquals(boardTab.getValue("caretGap").jsonPrimitive.int, Chats.Shell.BoardTab.CARET_GAP)
+        val boardMenu = shell.getValue("boardMenu").jsonObject
+        assertEquals(boardMenu.getValue("rowHeight").jsonPrimitive.int, Chats.Shell.BoardMenu.ROW_HEIGHT)
+        assertEquals(boardMenu.getValue("maxVisibleRows").jsonPrimitive.int, Chats.Shell.BoardMenu.MAX_VISIBLE_ROWS)
+        assertEquals(boardMenu.getValue("radius").jsonPrimitive.int, Chats.Shell.BoardMenu.RADIUS)
+        val menuMotion = boardMenu.getValue("motion").jsonObject
+        assertEquals(menuMotion.str("open"), Chats.Shell.BoardMenu.OPEN)
+        assertEquals(menuMotion.str("openEase"), Chats.Shell.BoardMenu.OPEN_EASE)
+        assertEquals(menuMotion.str("close"), Chats.Shell.BoardMenu.CLOSE)
+        assertEquals(menuMotion.str("closeEase"), Chats.Shell.BoardMenu.CLOSE_EASE)
         val header = shell.getValue("header").jsonObject
         assertEquals(header.getValue("pages").jsonArray.map { it.jsonPrimitive.content }, Chats.Shell.Header.PAGES)
         assertEquals(header.getValue("buttons").jsonArray.map { it.jsonPrimitive.content }, Chats.Shell.Header.BUTTONS)
@@ -706,16 +695,13 @@ class ChatsTest {
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(ids.str("chatRow"), Chats.TestIds.CHAT_ROW)
         assertEquals(ids.str("inboxButton"), Chats.TestIds.INBOX_BUTTON)
-        assertEquals(ids.str("tabChats"), Chats.TestIds.TAB_CHATS)
-        assertEquals(ids.str("tabTeams"), Chats.TestIds.TAB_TEAMS)
-        assertEquals(ids.str("tabAssistant"), Chats.TestIds.TAB_ASSISTANT)
-        assertEquals(ids.str("tabNew"), Chats.TestIds.TAB_NEW)
-        assertEquals(ids.str("tabSettings"), Chats.TestIds.TAB_SETTINGS)
-        assertEquals(ids.str("newMenu"), Chats.TestIds.NEW_MENU)
-        assertEquals(ids.str("newMenuRow"), Chats.TestIds.NEW_MENU_ROW)
+        assertEquals(ids.str("tabTeam"), Chats.TestIds.TAB_TEAM)
         assertEquals(ids.str("boardChip"), Chats.TestIds.BOARD_CHIP)
         assertEquals(ids.str("surfaceCard"), Chats.TestIds.SURFACE_CARD)
         assertEquals(ids.str("divider"), Chats.TestIds.DIVIDER)
+        assertEquals(ids.str("tabBoard"), Chats.TestIds.TAB_BOARD)
+        assertEquals(ids.str("boardMenu"), Chats.TestIds.BOARD_MENU)
+        assertEquals(ids.str("boardMenuRow"), Chats.TestIds.BOARD_MENU_ROW)
         assertEquals(ids.str("pageHeader"), Chats.TestIds.PAGE_HEADER)
         assertEquals(ids.str("searchButton"), Chats.TestIds.SEARCH_BUTTON)
         assertEquals(ids.str("chatArchived"), Chats.TestIds.CHAT_ARCHIVED)
@@ -723,7 +709,7 @@ class ChatsTest {
         assertEquals(ids.str("appRow"), Chats.TestIds.APP_ROW)
         assertEquals(ids.str("chatMarkTeam"), Chats.TestIds.CHAT_MARK_TEAM)
         assertEquals(ids.str("chatMarkUnencrypted"), Chats.TestIds.CHAT_MARK_UNENCRYPTED)
-        assertEquals(21, ids.size)
+        assertEquals(18, ids.size)
         assertEquals(ids.str("loadEarlier"), Chats.TestIds.LOAD_EARLIER)
         assertEquals(ids.str("jumpToBottom"), Chats.TestIds.JUMP_TO_BOTTOM)
 

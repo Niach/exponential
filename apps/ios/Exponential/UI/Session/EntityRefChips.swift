@@ -28,8 +28,8 @@ enum EntityNavigation: Equatable {
     /// Settings → Prompts (team settings).
     case prompts
     case devices
-    /// #EXP-1381: the team settings page of that category; nil = the
-    /// team's settings page itself (a team ref, a status — Statuses is a web-only page).
+    /// #EXP-1381: the team settings page of that category; nil = the Team
+    /// page itself (a team ref, a status — Statuses is a web-only page).
     case teamSettings(TeamSettingsSection?)
     case myWork
 }
@@ -88,7 +88,8 @@ struct EntityRefChips: View {
         case .prompts:
             openTeamSettings(.prompts)
         case .devices:
-            pushRoute(.devices(accountId: accountId))
+            // #EXP-1384: Devices is the Team page's row (settings-nav.json).
+            openTeamSettings(.devices)
         case let .teamSettings(section):
             openTeamSettings(section)
         case .myWork:
@@ -96,13 +97,11 @@ struct EntityRefChips: View {
         }
     }
 
-    /// The category's own page of the ref's team; no section = the team's
-    /// settings page, no team in context = the Settings tab.
+    /// The category's own page of the ref's team; no section (or no team in
+    /// context) = the Team page.
     private func openTeamSettings(_ section: TeamSettingsSection?) {
         if let context, let section {
             pushRoute(.teamSettingsSection(accountId: accountId, teamId: context.teamId, section: section))
-        } else if let context {
-            pushRoute(.teamSettings(accountId: accountId, teamId: context.teamId))
         } else {
             pushRoute(.settings)
         }

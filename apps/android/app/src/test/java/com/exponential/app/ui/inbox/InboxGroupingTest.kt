@@ -21,6 +21,7 @@ import org.junit.Test
 class InboxGroupingTest {
     private companion object {
         /** The synced teams rows (never a personal team). */
+        val TEAMS = listOf("team-a", "team-b")
     }
 
     private val ts = "2026-07-19 00:00:00+00"
@@ -253,6 +254,21 @@ class InboxGroupingTest {
         assertEquals(1, state.totalUnread)
     }
 
+    /** #EXP-1534: a team-less row lists in EVERY team's inbox. */
+    @Test
+    fun signedOutAgentsListInEveryTeam() {
+        val notifications = listOf(
+            notification("d1", deviceId = "dev-row-1", type = DomainContract.notificationTypeAgentSignedOut),
+            notification("n1", teamId = "team-b", type = DomainContract.notificationTypeAgentMessage),
+        )
+        for (team in listOf("team-a", "team-b", null)) {
+            val listed = activeTeamNotifications(notifications, emptyList(), emptyList(), team, TEAMS)
+            assertTrue(listed.any { it.id == "d1" })
+        }
+        assertEquals(1, activeTeamUnread(notifications, emptyList(), emptyList(), "team-a", TEAMS))
+        assertEquals(2, activeTeamUnread(notifications, emptyList(), emptyList(), "team-b", TEAMS))
+    }
+
     /**
      * Issue-less rows of any other type are dropped — a comment without an
      * issue, a reporter reply whose issue has not synced, and an issue id
@@ -374,10 +390,20 @@ class InboxGroupingTest {
         assertNull(row.deviceId)
     }
 
-    /** #EXP-2109: the inbox circle counts the unread rows the inbox PAGE lists,
-     *  every member team's, a team-less row and the personal team's included. */
+    /**
+     * chats.json: the inbox dot counts the unread rows the inbox PAGE lists
+     * for the active team only — another team's unread row never lights it,
+     * and an issue-less row of the team counts.
+     */
     @Test
-    fun inboxUnreadCountsEveryTeam() {
+    fun activeTeamUnreadCountsOnlyTheActiveTeamsRows() {
+        val board = { id: String, teamId: String ->
+            com.exponential.app.data.db.BoardEntity(
+                id = id, teamId = teamId, name = id, slug = id, prefix = "EXP", color = "#8b5cf6",
+                sortOrder = 1.0, createdAt = ts, updatedAt = ts,
+            )
+        }
+        val boards = listOf(board("b1", "team-a"), board("b2", "team-b"))
         val issues = listOf(issue("i1"), issue("i2").copy(boardId = "b2"))
         val notifications = listOf(
             notification("n1", issueId = "i1"),
@@ -385,10 +411,26 @@ class InboxGroupingTest {
             notification("n3", issueId = "i2"),
             notification("n4", teamId = "team-b", type = DomainContract.notificationTypeAgentMessage),
             notification("n5", issueId = "i1", readAt = ts),
-            notification("d1", deviceId = "dev-row-1", type = DomainContract.notificationTypeAgentSignedOut),
-            notification("p1", teamId = "team-personal", type = DomainContract.notificationTypeSessionBlocked),
         )
-        assertEquals(buildInboxState(notifications, issues, emptyList()).totalUnread, inboxUnread(notifications, issues))
-        assertEquals(6, inboxUnread(notifications, issues))
+        assertEquals(1, activeTeamUnread(notifications, issues, boards, "team-a", TEAMS))
+        assertEquals(3, activeTeamUnread(notifications, issues, boards, "team-b", TEAMS))
+        assertEquals(4, activeTeamUnread(notifications, issues, boards, null, TEAMS))
+    }
+
+    /** #EXP-1987: the Assistant's chat lives in the member's personal team
+     *  (no teams row): its rows list and count in every team's inbox. */
+    @Test
+    fun personalTeamRowsListAndCountInEveryTeam() {
+        val notifications = listOf(
+            notification("p1", teamId = "team-personal", type = DomainContract.notificationTypeAgentMessage),
+            notification("p2", teamId = "team-personal", type = DomainContract.notificationTypeSessionBlocked),
+            notification("n1", teamId = "team-b", type = DomainContract.notificationTypeAgentMessage),
+        )
+        for (team in listOf("team-a", "team-b", null)) {
+            val listed = activeTeamNotifications(notifications, emptyList(), emptyList(), team, TEAMS).map { it.id }
+            assertTrue(listed.containsAll(listOf("p1", "p2")))
+        }
+        assertEquals(2, activeTeamUnread(notifications, emptyList(), emptyList(), "team-a", TEAMS))
+        assertEquals(3, activeTeamUnread(notifications, emptyList(), emptyList(), "team-b", TEAMS))
     }
 }

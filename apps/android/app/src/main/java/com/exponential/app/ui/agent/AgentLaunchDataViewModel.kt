@@ -3,6 +3,7 @@ package com.exponential.app.ui.agent
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.routeTeamIdFlow
 import com.exponential.app.data.api.PromptDto
 import com.exponential.app.data.api.RepositoriesApi
@@ -23,7 +24,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -107,28 +107,28 @@ class AgentLaunchDataViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
     private val repositoriesApi: RepositoriesApi,
+    selection: TeamSelection,
     private val json: Json,
 ) : ViewModel() {
 
     // Reactive account scoping (no constructor-time DB snapshot).
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    /** #EXP-2109: the composer's effective team ([setTeam]), its route's
-     *  subject's own until that is known. */
-    private val _team = MutableStateFlow<String?>(null)
-    val teamId: StateFlow<String?> = combine(_team, routeTeamIdFlow(dbFlow, savedStateHandle)) { picked, route -> picked ?: route }
-        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
-
-    fun setTeam(teamId: String?) {
-        _team.value = teamId
-    }
+    /**
+     * EXP-1186: the route's team — the composer seeded from another team's
+     * row, or the action page of another team's action ([routeTeamIdFlow]);
+     * otherwise the selection.
+     */
+    val teamId: StateFlow<String?> =
+        routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
 
     private val scope = combine(auth.activeAccountId, teamId) { accountId, teamId ->
         accountId to teamId
     }
 
     /**
-     * The team's saved prompts (NEW-2: the `prompts` shape), in
+     * The selected team's saved prompts (NEW-2: the `prompts` shape), in
      * server order — "no subject" on the composer is a plain message.
      */
     val actionsState: StateFlow<SheetActionsState> = combine(dbFlow, teamId) { db, teamId ->
@@ -144,21 +144,30 @@ class AgentLaunchDataViewModel @Inject constructor(
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SheetActionsState())
 
     /**
-     * NEW-3: the viewer's Assistant and the agents of EVERY member team
-     * (`listAgents`: rail order, icon + colour + name): the agent row.
+     * NEW-3: the team's agents (`listAgents`: rail order, icon + colour +
+     * name) — the "+" menu's Message an agent › rows.
      */
-    val agents: StateFlow<List<com.exponential.app.domain.SessionTree.AgentRow>> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.agentDefinitionDao().observeAll() },
-        auth.userId,
-    ) { rows, me ->
-        // S-3: `me` keeps the viewer's own Assistant (first) and drops other members'.
-        com.exponential.app.domain.SessionTree.listAgents(
-            rows.map(com.exponential.app.domain.SessionTree::agentDefinition),
-            emptyList(),
-            teamId = null,
-            me = me,
-        )
-    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val agents: StateFlow<List<com.exponential.app.domain.SessionTree.AgentRow>> =
+        combine(dbFlow, teamId, auth.userId) { db, teamId, me -> Triple(db, teamId, me) }
+            .flatMapLatest { (db, teamId, me) ->
+                if (db == null || teamId == null) {
+                    flowOf(emptyList())
+                } else {
+                    combine(db.agentDefinitionDao().observeAll(), db.teamDao().observeAll()) { rows, teams ->
+                        // S-3: `me` keeps the viewer's own Assistant (first)
+                        // and drops other members'; #EXP-1714: `teamIds` brings
+                        // their global Assistant along.
+                        com.exponential.app.domain.SessionTree.listAgents(
+                            rows.map(com.exponential.app.domain.SessionTree::agentDefinition),
+                            emptyList(),
+                            teamId,
+                            me,
+                            teams.map { it.id },
+                        )
+                    }
+                }
+            }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * The synced worktree inventory (EXP-481) behind the composer's "Resume

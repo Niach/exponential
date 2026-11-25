@@ -91,7 +91,7 @@ extension SessionQueries {
 /// page: no team of its own. It finds the viewer's ONE Assistant through
 /// `ensureAssistant` (no team: the page has none) and the synced agents, so it reads the same
 /// before the move (theirs in the current team) and after it (the one in
-/// their personal team). The first team only feeds the per-team pickers
+/// their personal team). The current team only feeds the per-team pickers
 /// (#EXP-2079: the device list is the member's own machines).
 struct AssistantSettingsPage: View {
     /// An agent page pushed for an Assistant (settings, chats, chat);
@@ -104,7 +104,7 @@ struct AssistantSettingsPage: View {
     @State private var resolved: String?
     @State private var loaded = false
 
-    private var teamId: String { teamState.orderedTeams.first?.id ?? "" }
+    private var teamId: String { teamState.activeTeamId ?? "" }
 
     var body: some View {
         Group {
@@ -134,7 +134,7 @@ struct AssistantSettingsPage: View {
             loaded = true
             return
         }
-        let teamId = teamState.orderedTeams.first?.id
+        let teamId = teamState.activeTeamId
         let me = deps.auth.userId
         let answered = AssistantEnsure.agentId(accountId: accountId)
         let observation = ValueObservation.tracking { db in
@@ -206,7 +206,9 @@ private struct AssistantSettingsContent: View {
                 )
             }
         }
-        .pageHeader(AgentSettings.AssistantCopy.title, pushed: true)
+        .navigationTitle(AgentSettings.AssistantCopy.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .voiceSettingsHost(voice)
         .task(id: agentId) { await start() }
         .task(id: draft.autosaveKey) { await autosave() }

@@ -24,7 +24,8 @@ struct SyncDebugView: View {
                 .padding(.bottom, 24)
             }
         }
-        .pageHeader("Sync diagnostics", pushed: true)
+        .navigationTitle("Sync diagnostics")
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
     }
 
     // A hard DB-open / migration / resync failure. When present this is almost

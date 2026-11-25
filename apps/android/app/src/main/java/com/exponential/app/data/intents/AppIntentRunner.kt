@@ -2,8 +2,7 @@ package com.exponential.app.data.intents
 
 import android.content.Context
 import android.widget.Toast
-import com.exponential.app.data.ShellState
-import com.exponential.app.data.crossTeamOrder
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.CreateIssueInput
 import com.exponential.app.data.api.IssuesApi
 import com.exponential.app.data.api.SessionsApi
@@ -42,7 +41,7 @@ class AppIntentRunner @Inject constructor(
     @ApplicationContext private val context: Context,
     private val auth: AuthRepository,
     private val dbs: DatabaseHolder,
-    private val shell: ShellState,
+    private val selection: TeamSelection,
     private val issuesApi: IssuesApi,
     private val sessionsApi: SessionsApi,
     private val deepLinks: DeepLinkBus,
@@ -53,14 +52,12 @@ class AppIntentRunner @Inject constructor(
         val accountId = signedInAccount() ?: return@run toast(AppIntents.SIGNED_OUT)
         val title = AppIntents.intentIssueTitle(spokenTitle.orEmpty()) ?: return@run toast(AppIntents.ASK_TITLE)
         val db = dbs.database(accountId)
-        // Sidebar order: the teams by name, then each team's boards.
-        val teamOrder = crossTeamOrder(db.teamDao().observeAll().first()).withIndex().associate { it.value.id to it.index }
-        val boards = db.boardDao().observeAll().first()
+        val team = selection.selectedId.value
+        val boards = (if (team != null) db.boardDao().observeByTeam(team).first() else db.boardDao().observeAll().first())
             .filter { it.deletedAt == null }
-            .sortedWith(compareBy({ teamOrder[it.teamId] ?: Int.MAX_VALUE }, { it.sortOrder }, { it.id }))
         val boardId = AppIntents.intentBoard(
-            boards.mapIndexed { index, it -> AppIntents.Board(it.id, index.toDouble()) },
-            lastBoardId = shell.lastBoard(accountId),
+            boards.map { AppIntents.Board(it.id, it.sortOrder) },
+            lastBoardId = selection.lastBoard(accountId),
             pickedId = null,
         ) ?: return@run toast(AppIntents.NO_BOARD)
         val created = issuesApi.create(accountId, CreateIssueInput(boardId = boardId, title = title))
@@ -74,11 +71,13 @@ class AppIntentRunner @Inject constructor(
         val message = text?.trim()?.takeIf { it.isNotEmpty() } ?: return@run
         val me = auth.userId.value
         val db = dbs.database(accountId)
+        val team = selection.selectedId.value ?: return@run
         val listed = SessionTree.listAgents(
             db.agentDefinitionDao().observeAll().first().map(SessionTree::agentDefinition),
             emptyList(),
-            teamId = null,
-            me = me,
+            team,
+            me,
+            db.teamDao().observeAll().first().map { it.id },
         )
         val agents = listed.mapIndexed { index, a ->
             AppIntents.Agent(

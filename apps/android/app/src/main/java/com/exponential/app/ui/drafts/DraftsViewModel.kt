@@ -4,13 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.IssueDraftsApi
 import com.exponential.app.data.api.trpcErrorMessage
-import com.exponential.app.data.screenTeamFlow
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.DraftRow
 import com.exponential.app.domain.IssueStatusResolver
-import com.exponential.app.domain.teamDrafts
+import com.exponential.app.domain.activeTeamDrafts
 import com.exponential.app.domain.resolveDraftRows
 import com.exponential.app.ui.components.FailedAction
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -28,18 +28,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOn
 
 /**
- * The board's Drafts chip (EXP-878): the unsent issue drafts of the board's
- * team on the active account, newest-edited first. A draft is
+ * The "Drafts" section of My Work (EXP-878): the ACTIVE team's unsent issue
+ * drafts on the active account, newest-edited first (web's Drafts page,
+ * `useTeamDrafts(teamId)`; the Inbox dot counts the same rows). A draft is
  * personal and each row names the board it will be filed on — which is also
  * why the join drops a draft whose board no longer resolves locally.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class DraftsViewModel @Inject constructor(
-    savedStateHandle: androidx.lifecycle.SavedStateHandle,
     private val holder: DatabaseHolder,
     private val auth: AuthRepository,
     private val issueDraftsApi: IssueDraftsApi,
+    private val teamSelection: TeamSelection,
 ) : ViewModel() {
 
     val drafts: StateFlow<List<DraftRow>> = accountDatabaseFlow(auth, holder)
@@ -52,10 +53,10 @@ class DraftsViewModel @Inject constructor(
                     db.boardDao().observeAll(),
                     db.issueStatusDao().observeAll(),
                     db.teamDao().observeAll(),
-                    screenTeamFlow(flowOf(db), savedStateHandle),
+                    teamSelection.selectedId,
                 ) { drafts, boards, statuses, teams, teamId ->
                     resolveDraftRows(
-                        drafts = teamDrafts(drafts, teamId),
+                        drafts = activeTeamDrafts(drafts, teamId),
                         boards = boards,
                         statusesByTeam = statuses
                             .groupBy { it.teamId }

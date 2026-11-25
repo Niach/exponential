@@ -7,8 +7,8 @@ import SwiftUI
 /// page header (#EXP-1384 `shell.header`: the large title "Chats", the
 /// native search and INBOX circles), then #FEED-191 the Needs you entry
 /// (needs-you.json, none = no row), the Agents section, (#EXP-1733) the Apps
-/// section and EVERY team's chats grouped (#EXP-2109: a row wears its team's
-/// mark; the Assistant's row wears none) (`Chats.chatSections` over `Chats.chatList`: Needs you ·
+/// section and the ACTIVE team's
+/// chats grouped (`Chats.chatSections` over `Chats.chatList`: Needs you ·
 /// Working · Unread · Chats, no bands, no nesting, each newest activity first).
 /// A row opens the chat; an agent row's hold THE session screen menu
 /// (#FEED-239, kind agent / assistant; its settings open that agent's chat
@@ -33,8 +33,7 @@ struct ChatsView: View {
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.toaster) private var toaster
 
-    /// The teams the viewer owns.
-    @State private var ownedTeams = Set<String>()
+    @State private var isOwner = false
     /// A row's or an agent row's menu sheet, and its pick (run on dismiss).
     @State private var menu: ChatMenuTarget?
     @State private var pendingPick: (target: ChatMenuTarget, entry: ChatMenuSheet.Entry)?
@@ -100,11 +99,13 @@ struct ChatsView: View {
             }
         }
         .chatDeleteConfirm(target: $deleteTarget) { rootId in actions.delete(rootId: rootId) }
-        .task(id: accountId) { await observeOwned() }
+        .task(id: teamState.activeTeamId) { await resolveOwner() }
         // S-3: the viewer's Assistant exists once the list mounts (once per
-        // account per app run).
-        .task(id: "assistant/\(accountId)") {
-            if view == .list { await AssistantEnsure.run(deps, accountId: accountId, teamId: nil) }
+        // account + team per app run).
+        .task(id: "\(accountId)/\(teamState.activeTeamId ?? "")") {
+            if view == .list, let teamId = teamState.activeTeamId {
+                await AssistantEnsure.run(deps, accountId: accountId, teamId: teamId)
+            }
         }
         .task {
             while !Task.isCancelled {
@@ -125,9 +126,19 @@ struct ChatsView: View {
 
     private var list: Chats.ChatList {
         lists.chatList(
+            teamId: teamState.activeTeamId,
             view: view,
             now: Self.iso.string(from: now),
             utcOffsetMinutes: TimeZone.current.secondsFromGMT(for: now) / 60
+        )
+    }
+
+    /// The active team's agents in `listAgents` order (the viewer's
+    /// Assistant first; another member's never). #EXP-1714: the viewer's
+    /// global Assistant (its team never syncs) lists in every team.
+    private var teamAgents: [AgentRow] {
+        AgentSettings.agentsInTeam(
+            lists.agents, teamId: teamState.activeTeamId, teamIds: teamState.teams.map(\.id)
         )
     }
 
@@ -136,7 +147,7 @@ struct ChatsView: View {
     /// app row.
     private var agentRows: [Chats.AgentChatRow] {
         Chats.agentChatRows(
-            agents: Chats.chatAgents(lists.listedAgents, apps: lists.appsByTeam.values.flatMap { $0 }),
+            agents: Chats.chatAgents(teamAgents, apps: lists.appsByTeam.values.flatMap { $0 }),
             sessions: lists.sessions,
             messages: lists.chatMessages,
             reads: lists.reads,
@@ -149,10 +160,10 @@ struct ChatsView: View {
     }
 
     /// #EXP-1733: the APPS section between the Agents and the sections
-    /// (`appChatRows`): every team's live apps; none on Archived.
+    /// (`appChatRows`): the active team's live apps; none on Archived.
     private var appRows: [Chats.AppChatRow] {
         Chats.appChatRows(
-            apps: lists.appsByTeam.values.flatMap { $0 },
+            apps: teamState.activeTeamId.flatMap { lists.appsByTeam[$0] } ?? [],
             sessions: lists.sessions,
             messages: lists.chatMessages,
             reads: lists.reads,
@@ -178,7 +189,7 @@ struct ChatsView: View {
         let archivedEntry = view == .list && list.archived > 0
         // #EXP-1950: installs waiting for approval count as Needs you rows.
         let needsYouCount = view == .list
-            ? lists.needsYou(me: deps.auth.userId, now: now).count
+            ? lists.needsYou(teamId: teamState.activeTeamId, me: deps.auth.userId, now: now).count
                 + deps.installTrust.snapshot(accountId).rows.count
             : 0
         ScrollView {
@@ -240,7 +251,7 @@ struct ChatsView: View {
             .padding(.bottom, 16)
         }
         .scrollContentBackground(.hidden)
-        .bulkBarInset(selectionActive)
+        .tabBarBottomInset()
     }
 
     /// #EXP-1388 THE ARCHIVED ENTRY: first under the Chats header.
@@ -274,8 +285,7 @@ struct ChatsView: View {
             previewLabel: previewLabel(row.preview.kind),
             previewItalic: row.preview.kind == .working || row.preview.kind == .locked,
             needsYou: row.needsYou,
-            unreadCount: row.unreadCount,
-            team: row.assistant ? nil : teamMark(agentTeams[row.agentId])
+            unreadCount: row.unreadCount
         ) {
             AgentChatLead(row: row)
         }
@@ -301,8 +311,7 @@ struct ChatsView: View {
             previewLabel: previewLabel(row.preview.kind),
             previewItalic: row.preview.kind == .working || row.preview.kind == .locked,
             needsYou: row.needsYou,
-            unreadCount: row.unreadCount,
-            team: teamMark(appTeams[row.appId])
+            unreadCount: row.unreadCount
         ) {
             AgentChatLead(app: row)
         }
@@ -311,21 +320,6 @@ struct ChatsView: View {
             pushRoute(.app(accountId: accountId, appId: row.appId))
         }, onHold: {})
         .accessibilityIdentifier(Chats.TestIds.appRow)
-    }
-
-    private var agentTeams: [String: String] {
-        Dictionary(lists.agents.map { ($0.agentId, $0.teamId) }, uniquingKeysWith: { a, _ in a })
-    }
-
-    private var appTeams: [String: String] {
-        Dictionary(
-            lists.appsByTeam.flatMap { teamId, apps in apps.map { ($0.appId, teamId) } }, uniquingKeysWith: { a, _ in a }
-        )
-    }
-
-    /// A row's team mark (none outside the synced teams: the Assistant's).
-    private func teamMark(_ teamId: String?) -> ChatRowTeam? {
-        teamState.team(teamId).map { ChatRowTeam(name: $0.name, iconUrl: $0.iconUrl) }
     }
 
     /// #EDE-98 (chats.json `chatMarks`): a chat row's marks off its root
@@ -352,8 +346,7 @@ struct ChatsView: View {
                 wallKind: lists.walls[row.sessionId]?.kind, wallDevice: lists.walls[row.sessionId]?.device
             ),
             wordIcon: row.word == .stack ? AppIcons.prStack : nil,
-            selected: selected,
-            team: teamMark(lists.chatRoots[row.sessionId]?.teamId)
+            selected: selected
         ) {
             ChatLeadMark(lead: row.lead, cli: lists.clis[row.sessionId])
         }
@@ -445,7 +438,7 @@ struct ChatsView: View {
 
     /// The starter or a team owner deletes a chat (`sessions.delete`).
     private func canDelete(_ rootId: String) -> Bool {
-        isStarter(rootId) || (lists.chatRoots[rootId].map { ownedTeams.contains($0.teamId) } ?? false)
+        isOwner || isStarter(rootId)
     }
 
     /// #FEED-239: an agent row's menu = THE session screen menu (kind agent
@@ -455,7 +448,7 @@ struct ChatsView: View {
         guard let agent = lists.agents.first(where: { $0.agentId == agentId }) else { return }
         let kind: SessionScreen.Kind = agent.assistant ? .assistant : .agent
         let entries = SessionScreen.menu(
-            kind: kind, phone: false, member: true, linkIssue: false, settings: agent.assistant || ownedTeams.contains(agent.teamId),
+            kind: kind, phone: false, member: true, linkIssue: false, settings: agent.assistant || isOwner,
             publish: false, export: false, delete: false
         )
         menu = ChatMenuTarget(
@@ -499,20 +492,19 @@ struct ChatsView: View {
     }
 
     /// Owners own the destructive surface (`resolveTeamAccess`).
-    private func observeOwned() async {
-        guard let pool = try? deps.db.pool(forAccountId: accountId), let userId = deps.auth.userId else {
-            ownedTeams = []
+    private func resolveOwner() async {
+        guard let teamId = teamState.activeTeamId,
+              let pool = try? deps.db.pool(forAccountId: accountId) else {
+            isOwner = false
             return
         }
-        let observation = ValueObservation.tracking { db in
-            Set(try TeamMemberEntity
-                .filter(Column("user_id") == userId)
-                .filter(Column("role") == DomainContract.teamRoleOwner)
-                .fetchAll(db).map(\.teamId))
-        }.removeDuplicates()
-        do {
-            for try await next in observation.values(in: pool) { ownedTeams = next }
-        } catch {}
+        let userId = deps.auth.userId
+        isOwner = (try? await pool.read { db in
+            guard let userId else { return false }
+            return try TeamMemberEntity
+                .filter(Column("team_id") == teamId && Column("user_id") == userId)
+                .fetchOne(db)?.role == "owner"
+        }) ?? false
     }
 }
 

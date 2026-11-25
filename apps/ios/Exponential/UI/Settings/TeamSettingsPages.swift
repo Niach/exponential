@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 /// shows and observes only that category. The page of every section stacked
 /// (and the scroll-to inside it) is gone.
 enum TeamSettingsSection: String, Hashable, CaseIterable {
-    case general, members, labels, boards, agents, repositories, prompts, mcp, skills
+    case general, members, labels, boards, agents, repositories, prompts, mcp, skills, devices
 
     init?(_ id: SettingsNav.Id) { self.init(rawValue: id.rawValue) }
 
@@ -36,6 +36,9 @@ struct TeamSettingsPage: View {
         case .mcp: McpSettingsPage(teamId: teamId)
         // #EXP-1661: Settings › Skills (skills.json `list`), read-only.
         case .skills: SkillsSettingsPage(teamId: teamId)
+        // The devices page moved here from the phone tab bar (chats.json
+        // `shell`): the same screen, titled "Devices" by itself.
+        case .devices: AgentsView()
         }
     }
 }
@@ -58,7 +61,9 @@ struct TeamSettingsPageChrome<Content: View>: View {
                 .padding(16)
             }
         }
-        .pageHeader(section.row.label, pushed: true)
+        .navigationTitle(section.row.label)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .accessibilityIdentifier(SettingsNav.pageTestId)
     }
 }

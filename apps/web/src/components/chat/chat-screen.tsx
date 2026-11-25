@@ -158,10 +158,7 @@ function ChatScreenBody({
   search,
   onNavigate,
   agent,
-  tab = false,
 }: {
-  /** #EXP-2109: the phones' Assistant TAB (no back control of its own). */
-  tab?: boolean
   /** The route's search (the chat's or the agent chat's). */
   search: ChatSearch
   /** Navigate the SAME screen to `next` (replace = no history entry). */
@@ -729,7 +726,7 @@ function ChatScreenBody({
               </>
             }
             menu={headerMenu}
-            onBack={nav.pop ?? (tab ? undefined : () => void navigate({ to: `/chats` }))}
+            onBack={nav.pop ?? (() => void navigate({ to: `/t/$teamSlug/chats`, params: { teamSlug } }))}
             onPop={nav.pop}
             onTab={pickTab}
             chat={chat}

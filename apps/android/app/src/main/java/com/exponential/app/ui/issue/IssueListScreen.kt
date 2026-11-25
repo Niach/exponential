@@ -5,6 +5,7 @@ import com.exponential.app.domain.EmptyStateCopy
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,19 +22,25 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,15 +49,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.UserEntity
@@ -84,8 +97,12 @@ import com.exponential.app.ui.components.toPickerRow
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.GlassPillDefaults
+import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.BottomBarInset
+import com.exponential.app.ui.components.BottomNavDefaults
+import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.SelectionBarShell
 import com.exponential.app.ui.components.SelectionBarSlot
 import com.exponential.app.ui.components.SelectionGlyph
@@ -103,12 +120,18 @@ import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.gettingstarted.GettingStartedSection
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.SkeletonRows
+import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.home.HomeViewModel
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.onboarding.CreateBoardSheet
+import com.exponential.app.ui.onboarding.TeamSetupSheet
 import com.exponential.app.ui.parseColor
+import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.dueDateColor
+import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.domain.Prompts
@@ -121,6 +144,7 @@ import com.exponential.app.domain.Prompts
  * - [Pushed] — a pushed `board/{boardId}` destination (share target,
  *   deep link, search): back button, fixed board.
  */
+enum class IssueListMode { Root, Pushed }
 
 // Session 58cb32df: the board chips' keys (chats.json `shell.boardChips`).
 private const val BOARD_CHIP_ALL = "all"
@@ -187,19 +211,31 @@ private fun BoardChips(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IssueListScreen(
-    boardId: String,
+    boardId: String?,
+    mode: IssueListMode,
     onOpenIssue: (String) -> Unit,
-    onBack: () -> Unit,
-    // EXP-825: the selection bar's Start coding navigates to the composer
-    // page with the checked issues chipped.
+    onBack: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
+    // EXP-825: the selection bar's Start coding navigates to the Agent page
+    // composer with the checked issues chipped.
     onOpenAgent: (AgentComposerSeed) -> Unit = {},
-    // EXP-1270: Getting started's "Start a run" opens the composer; the
-    // empty board's own "New issue" pill.
-    onOpenComposer: () -> Unit = {},
+    // EXP-686: search left the bottom bar and rides the board header
+    // instead.
+    onOpenSearch: () -> Unit = {},
+    // EXP-1270: Getting started's "Start a run" opens the Agent home; the
+    // empty board's own "New issue" pill (the compose FAB is hidden behind
+    // the empty state).
+    onOpenAgentHome: () -> Unit = {},
     onNewIssue: () -> Unit = {},
+    // EXP-1075: my LIVE runs grouped by team (AppViewModel.liveRunsByTeam) and
+    // the team the app is on — the board switcher SHEET marks the teams with
+    // live runs (EXP-1210: the pill itself wears no dot). Root mount only; a
+    // pushed board has no switcher.
+    liveRunsByTeam: Map<String, TeamLiveRuns> = emptyMap(),
+    selectedTeamId: String? = null,
     /** Session 58cb32df: a Drafts chip row reopens the New issue page. */
     onOpenDraft: (boardId: String, draftId: String) -> Unit = { _, _ -> },
-    /** #EXP-1830: a My issues widget asked for the My issues chip. */
+    /** #EXP-1830: a My issues widget asked for the My issues chip (Root mount). */
     pendingMyIssues: Boolean = false,
     onMyIssuesShown: () -> Unit = {},
     viewModel: IssueListViewModel = hiltViewModel(),
@@ -210,6 +246,13 @@ fun IssueListScreen(
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     val syncingVisible by viewModel.syncingVisible.collectAsStateWithLifecycle()
+    var showCreateBoard by remember { mutableStateOf(false) }
+    // Which team the create-board sheet targets — the switcher names one, every
+    // other entry point means "the selected team" (null).
+    var createBoardTeamId by remember { mutableStateOf<String?>(null) }
+    // EXP-698: ONE create-or-join sheet, replacing the two stock Material
+    // dialogs — the same form the onboarding wizard's team step renders.
+    var showTeamSetup by remember { mutableStateOf(false) }
     // Collapse state keys on the GROUP KEY (status row id / `builtin:<key>`).
     var collapsed by remember { mutableStateOf(emptySet<String>()) }
 
@@ -228,7 +271,8 @@ fun IssueListScreen(
     // EXP-980: the row whose blocks badge opened the mini-graph (null = none).
     var graphIssueId by remember { mutableStateOf<String?>(null) }
     // EXP-698 r5 (Mechanism A): the selection bar takes the tab bar's slot, so
-    // the tab bar + its FAB slide out while a selection is up. It restores on dispose,
+    // the tab bar + its FAB slide out while a selection is up. Covers both
+    // mounts — the Issues root and a pushed board — and restores on dispose,
     // so a back-out mid-selection never strands a hidden bar.
     val barSuppression = LocalBottomBarSuppression.current
     DisposableEffect(selectionActive) {
@@ -273,25 +317,46 @@ fun IssueListScreen(
     // Back gesture leaves selection mode before it pops the screen.
     BackHandler(enabled = selectionActive) { selectedIds = emptySet() }
 
-    // EXP-1270: Getting started: the block under an EMPTY board, its targets
-    // bound by [GettingStartedSection].
-    val gettingStarted: @Composable (Modifier) -> Unit = { modifier ->
-        GettingStartedSection(onOpenAgent = onOpenComposer, modifier = modifier, contentPadding = PaddingValues(horizontal = ListGutter))
+    // Root mode resolves the board outside the nav args (last-used → first),
+    // so the ViewModel is re-pointed whenever the resolution changes.
+    LaunchedEffect(boardId) { viewModel.setBoard(boardId.orEmpty()) }
+
+    // The switcher tree + bootstrap live in the (old home) switcher ViewModel;
+    // only the Root mount needs them. The mode of a mounted screen never
+    // changes, so the conditional composable calls are stable.
+    val homeViewModel: HomeViewModel? = if (mode == IssueListMode.Root) hiltViewModel() else null
+    // EXP-1270: Getting started is a ROOT affordance (a pushed board is
+    // somewhere you navigated to, not the app's front door): the block under
+    // an EMPTY board, its targets bound by [GettingStartedSection].
+    val gettingStarted: (@Composable (Modifier) -> Unit)? = if (mode == IssueListMode.Root) {
+        { modifier -> GettingStartedSection(onOpenAgent = onOpenAgentHome, modifier = modifier, contentPadding = PaddingValues(horizontal = ListGutter)) }
+    } else {
+        null
+    }
+    val homeState = homeViewModel?.state?.collectAsStateWithLifecycle()?.value
+    if (homeViewModel != null) {
+        // FEED-79: the bootstrap runs on launch, so a failed team load is
+        // quiet (never a toast); the root keeps drawing its empty / syncing
+        // state.
+        LaunchedEffect(Unit) { homeViewModel.bootstrap() }
     }
 
-    // Session 58cb32df: the board chips' state + counts.
+    // Session 58cb32df: the board chips' state + counts (Root mount only).
     var boardChip by rememberSaveable { mutableStateOf(BOARD_CHIP_ALL) }
-    val myIssuesViewModel: com.exponential.app.ui.myissues.MyIssuesViewModel = hiltViewModel()
-    val draftsViewModel: com.exponential.app.ui.drafts.DraftsViewModel = hiltViewModel()
+    val myIssuesViewModel: com.exponential.app.ui.myissues.MyIssuesViewModel? =
+        if (mode == IssueListMode.Root) hiltViewModel() else null
+    val draftsViewModel: com.exponential.app.ui.drafts.DraftsViewModel? =
+        if (mode == IssueListMode.Root) hiltViewModel() else null
     // #EXP-1836: My issues = mine on THIS board (`Chats.boardMineIssues`).
-    LaunchedEffect(myIssuesViewModel, boardId) { myIssuesViewModel.setBoard(boardId) }
-    val myIssuesCount = myIssuesViewModel.state.collectAsStateWithLifecycle().value.groups.sumOf { it.issues.size }
-    val drafts by draftsViewModel.drafts.collectAsStateWithLifecycle()
+    LaunchedEffect(myIssuesViewModel, boardId) { myIssuesViewModel?.setBoard(boardId) }
+    val myIssuesCount = myIssuesViewModel?.state?.collectAsStateWithLifecycle()?.value
+        ?.groups?.sumOf { it.issues.size } ?: 0
+    val drafts = draftsViewModel?.drafts?.collectAsStateWithLifecycle()?.value.orEmpty()
     // The Drafts chip leaves with the last draft: its pick falls back.
     if (boardChip == BOARD_CHIP_DRAFTS && drafts.isEmpty()) boardChip = BOARD_CHIP_ALL
     // #EXP-1830: the My issues widget's header lands on the My issues chip.
     LaunchedEffect(pendingMyIssues) {
-        if (pendingMyIssues) {
+        if (pendingMyIssues && mode == IssueListMode.Root) {
             boardChip = BOARD_CHIP_MINE
             onMyIssuesShown()
         }
@@ -300,12 +365,13 @@ fun IssueListScreen(
     Scaffold(containerColor = Color.Transparent) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // #EXP-2109: a pushed page: the detail header with the board's glyph.
-            val board = state.board
+            // #EXP-1384 (chats.json `shell.header`): THE page header — the
+            // board's name large, search + inbox circles (the shell's). The
+            // board is switched only by the Board tab's menu now; a pushed
+            // board wears the back control before its title.
             PageHeader(
-                title = board?.name.orEmpty(),
-                onBack = onBack,
-                leading = board?.let { { com.exponential.app.ui.components.BoardIcon(it, size = 24.dp) } },
+                title = state.board?.name ?: com.exponential.app.domain.Chats.Copy.TABS.getValue("board"),
+                onBack = if (mode == IssueListMode.Pushed) onBack else null,
             )
 
             // Session 58cb32df (chats.json `shell.boardChips`): All issues ·
@@ -313,12 +379,15 @@ fun IssueListScreen(
             // the session screen's segmented strip (#EXP-1836); My issues =
             // the viewer's assigned issues on THIS board grouped by status,
             // Drafts = the team's drafts.
-            BoardChips(
-                selected = boardChip,
-                mineCount = myIssuesCount,
-                draftsCount = drafts.size,
-                onSelect = { boardChip = it },
-            )
+            val chipsShown = mode == IssueListMode.Root && !boardId.isNullOrBlank()
+            if (chipsShown) {
+                BoardChips(
+                    selected = boardChip,
+                    mineCount = myIssuesCount,
+                    draftsCount = drafts.size,
+                    onSelect = { boardChip = it },
+                )
+            }
 
             // Sync activity, pinned in the same strip (EXP-264): shown while
             // the core shapes are behind, so a list that hasn't caught up
@@ -334,13 +403,84 @@ fun IssueListScreen(
 
             SyncBannerRow(syncBanner, Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
-            if (boardChip == BOARD_CHIP_MINE) {
+            if (mode == IssueListMode.Root && boardId.isNullOrBlank()) {
+                // No board on this account yet (companion app: boards are
+                // created on web/desktop). When the ACTIVE account already has a
+                // board, the current one is still resolving — show skeleton
+                // rows (EXP-1275), not the empty copy. An active account with
+                // only boardless teams (a fresh account) falls through to the
+                // empty state, never a perpetual placeholder.
+                if (homeState?.activeAccountHasBoard == true) {
+                    SkeletonRows(modifier = Modifier.padding(horizontal = ListGutter).padding(top = 4.dp))
+                } else {
+                    // Still syncing until the team resolve finishes AND
+                    // the boards shape has reached up-to-date at least once —
+                    // otherwise a companion account that DOES have boards would
+                    // briefly flash "Create your first board" before its
+                    // boards snapshot lands. Only a settled, genuinely empty
+                    // account shows the create copy.
+                    val stillSyncing = homeState == null ||
+                        homeState.isSyncing ||
+                        !homeState.activeAccountBoardsSynced
+                    val hasTeam = homeState?.activeAccountHasTeam == true
+                    if (!stillSyncing && !hasTeam) {
+                        // Zero teams (EXP-188 — signups get no auto-created
+                        // team): ONE pill onto the create-or-join sheet, which
+                        // owns both paths and its own error lines. Byte-equal
+                        // copy to iOS `IssuesHomeView.emptyStateHint`.
+                        EmptyState(
+                            EmptyStateCopy.noTeam,
+                            action = {
+                                GlassPill(
+                                    "Create or join a team",
+                                    icon = ExpIcons.uiAdd,
+                                    size = PillSize.Md,
+                                    mode = PillMode.Action,
+                                    onClick = { showTeamSetup = true },
+                                )
+                            },
+                        )
+                    } else if (stillSyncing) {
+                        // EXP-1275: still syncing = skeleton rows, never a
+                        // "Syncing…" line.
+                        SkeletonRows(modifier = Modifier.padding(horizontal = ListGutter).padding(top = 4.dp))
+                    } else {
+                        // EXP-698 r5: the boardless team is the other place
+                        // the getting-started checklist belongs — same empty
+                        // state as the IDE and web, cards under it, the whole
+                        // thing scrollable because the cards outgrow a phone.
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(horizontal = ListGutter)
+                                .padding(bottom = BottomBarInset),
+                        ) {
+                            EmptyState(
+                                EmptyStateCopy.boards,
+                                action = {
+                                    GlassPill(
+                                        EmptyStateCopy.boards.action!!,
+                                        icon = ExpIcons.uiAdd,
+                                        size = PillSize.Md,
+                                        primary = true,
+                                        onClick = {
+                                            createBoardTeamId = selectedTeamId
+                                            showCreateBoard = true
+                                        },
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+            } else if (boardChip == BOARD_CHIP_MINE && myIssuesViewModel != null) {
                 com.exponential.app.ui.myissues.MyIssuesListContent(
                     onOpenIssue = onOpenIssue,
                     viewModel = myIssuesViewModel,
                     modifier = Modifier.weight(1f),
                 )
-            } else if (boardChip == BOARD_CHIP_DRAFTS) {
+            } else if (boardChip == BOARD_CHIP_DRAFTS && draftsViewModel != null) {
                 com.exponential.app.ui.drafts.DraftsListContent(
                     onOpenDraft = onOpenDraft,
                     viewModel = draftsViewModel,
@@ -516,6 +656,17 @@ fun IssueListScreen(
         }
     }
 
+    if (showCreateBoard) {
+        // The new board's last-used pointer swaps the root list in place, so
+        // dismissing is all this needs to do on success. The empty state names
+        // the selected team; a null team falls back to the default team.
+        CreateBoardSheet(
+            teamId = createBoardTeamId,
+            onCreated = { showCreateBoard = false; createBoardTeamId = null },
+            onDismiss = { showCreateBoard = false; createBoardTeamId = null },
+        )
+    }
+
     // EXP-980: the mini-graph a row's blocks pill opens — the transitive chain
     // around that issue, the same view the blocked-start dialog draws.
     graphIssueId?.let { subjectId ->
@@ -530,6 +681,16 @@ fun IssueListScreen(
         )
     }
 
+    if (showTeamSetup) {
+        // Both paths already point the team selection at the new team, so the
+        // empty state behind the sheet flips on its own — closing is all this
+        // has to do.
+        TeamSetupSheet(
+            onDismiss = { showTeamSetup = false },
+            onCreated = { showTeamSetup = false },
+            onJoined = { showTeamSetup = false },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -551,8 +712,9 @@ private fun IssueListContent(
     onEnterSelection: (String) -> Unit,
     // EXP-980: a row's blocks pill opens the mini-graph for that issue.
     onOpenGraph: (String) -> Unit,
-    // EXP-698 r5: the empty board's own affordances.
-    gettingStarted: @Composable (Modifier) -> Unit,
+    // EXP-698 r5: the empty board's own affordances — null on a pushed board,
+    // whose empty state is just an empty state.
+    gettingStarted: (@Composable (Modifier) -> Unit)?,
     onNewIssue: () -> Unit,
 ) {
     val usersById = remember(state.users) { state.users.associateBy { it.id } }
@@ -599,8 +761,10 @@ private fun IssueListContent(
                     },
                 )
             }
-            item(key = "getting-started") {
-                gettingStarted(Modifier.padding(top = 20.dp))
+            if (gettingStarted != null) {
+                item(key = "getting-started") {
+                    gettingStarted(Modifier.padding(top = 20.dp))
+                }
             }
         } else {
             state.groups.forEach { group ->

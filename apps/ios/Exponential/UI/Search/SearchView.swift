@@ -2,9 +2,9 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The Search page: issue search over every member team's boards (#EXP-2109,
-/// search-list.json), augmented by a debounced server full-text search
-/// (description + comments) over those teams. Pure search (EXP-58): the empty-query state is a hint — the
+/// The Search page: issue search over the ACTIVE team's boards (#EXP-1382,
+/// search-list.json TEAM SCOPE), augmented by a debounced server full-text
+/// search (description + comments) for that team. Pure search (EXP-58): the empty-query state is a hint — the
 /// "Assigned to you" list that used to live here moved to My Work.
 ///
 /// SLOP-28 (EXP-1259 D4): it is THE search list (`SearchListView`,
@@ -16,6 +16,7 @@ struct SearchView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
+    @Environment(TeamState.self) private var teamState
     @Environment(SessionListsModel.self) private var lists
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: SearchViewModel?
@@ -41,7 +42,7 @@ struct SearchView: View {
                 // The results are the view model's STATE (ranked off the main
                 // actor, #EXP-1382) — the input paints every keystroke at once.
                 SearchListView(
-                    items: vm.results.map { Self.item($0, team: vm.boardStatuses[$0.issue.boardId] ?? []) },
+                    items: vm.results.map { Self.item($0, team: vm.teamStatuses) },
                     query: $query,
                     // EXP-922: the ×4 copy set — same words on web, desktop,
                     // iOS and Android (web `lib/issue-search.ts`;
@@ -96,17 +97,21 @@ struct SearchView: View {
             // Re-arm on every appear: pushing an issue detail stops the
             // observation (onDisappear), popping back must resume it. Same for
             // the server search — onDisappear cancels any in-flight request.
-            viewModel?.startObserving()
+            viewModel?.startObserving(teamId: teamState.activeTeamId)
+        }
+        .onChange(of: teamState.activeTeamId) { _, teamId in
+            // Switching the team re-runs the query against it.
+            viewModel?.startObserving(teamId: teamId)
         }
         .onDisappear {
             viewModel?.stopObserving()
         }
-        // #EDE-99: the Chats rows name every synced root.
-        .onChange(of: lists.searchRoots, initial: true) { _, roots in
+        // #EDE-99: the Chats rows name the ACTIVE team's synced roots.
+        .onChange(of: lists.searchRoots(teamId: teamState.activeTeamId), initial: true) { _, roots in
             viewModel?.setChatRoots(roots)
         }
         .onChange(of: viewModel != nil) { _, _ in
-            viewModel?.setChatRoots(lists.searchRoots)
+            viewModel?.setChatRoots(lists.searchRoots(teamId: teamState.activeTeamId))
         }
         .onChange(of: query) { _, newValue in
             // Debounced + cancelled-on-keystroke inside the VM — never blocks
@@ -139,7 +144,8 @@ struct SearchView: View {
     }
 
     /// One result as THE picker row (EXP-922's flat list, SLOP-28's one row
-    /// type): the issue's TEAM status glyph (EXP-1554: web's clocks), `IDENT Title` with the identifier
+    /// type): the issue's TEAM status glyph (the search is team-scoped,
+    /// #EXP-1382; EXP-1554: web's clocks), `IDENT Title` with the identifier
     /// mono + muted. Keyed by the issue id.
     static func item(_ result: SearchViewModel.Result, team: [ResolvedIssueStatus]) -> PickerItem<String> {
         let issue = result.issue
@@ -256,7 +262,7 @@ struct SearchView: View {
 
     private var searchHint: some View {
         EmptyState(
-            title: "Search issues across all your boards.",
+            title: "Search issues across this team's boards.",
             description: Self.emptyDetail,
             icon: AppIcons.navSearch
         )

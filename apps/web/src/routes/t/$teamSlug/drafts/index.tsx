@@ -1,9 +1,37 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
+import { DraftsList } from "@/components/drafts-list"
+import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
+import { useTeamBySlug } from "@/hooks/use-team-data"
+import { pageTitle } from "@/lib/page-title"
 
-// #EXP-2027 / #EXP-2109: an old team-scoped link: the page is team-less.
+// EXP-878: the team's Drafts surface on web ≥md — reached from the sidebar
+// entry, which only appears while the caller HAS a draft. Below md there is
+// no route: the Inbox grows a third tab instead, so a phone never navigates
+// to a page that can empty itself out from under it.
 export const Route = createFileRoute(`/t/$teamSlug/drafts/`)({
-  validateSearch: (search: Record<string, unknown>): Record<string, unknown> => search,
-  beforeLoad: ({ location }) => {
-    throw redirect({ href: `/drafts${location.searchStr}`, replace: true })
+  head: () => ({ meta: [{ title: pageTitle(`Drafts`) }] }),
+  beforeLoad: async ({ context, location }) => {
+    if (!context.session) {
+      throw redirect({
+        to: `/auth/login`,
+        search: { redirect: location.href },
+      })
+    }
   },
+  component: DraftsPage,
 })
+
+function DraftsPage() {
+  const { teamSlug } = Route.useParams()
+  const team = useTeamBySlug(teamSlug)
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div
+        className={`mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl ${PAGE_END_CLEARANCE}`}
+      >
+        <DraftsList teamId={team?.id} teamSlug={teamSlug} />
+      </div>
+    </div>
+  )
+}

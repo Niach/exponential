@@ -311,7 +311,9 @@ struct AgentSettingsPage: View {
         .onChange(of: draft.instructions.focusedBlockId) { _, focused in
             if focused == nil { Task { await autosave(after: nil) } }
         }
-        .pageHeader(title, pushed: true)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .task(id: agentId) { await start() }
         .onDisappear { observation?.cancel() }
         // The synced row is the truth for the triggers once no write of ours

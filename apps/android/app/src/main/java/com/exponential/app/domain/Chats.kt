@@ -24,25 +24,23 @@ object Chats {
 
         /** `copy.tabs` by [Shell.TABS]. */
         val TABS: Map<String, String> = linkedMapOf(
+            "board" to "Board",
             "chats" to "Chats",
-            "teams" to "Teams",
-            "assistant" to "Assistant",
-            "new" to "New",
-            "settings" to "Settings",
+            "apps" to "Apps",
+            "team" to "Team",
         )
 
-        /** `copy.headers` by page (a team's / folder's / board's title is its name). */
+        /** `copy.headers` by page (the Board / Team titles are the board's /
+         *  team's names). */
         val HEADERS: Map<String, String> = linkedMapOf(
             "chats" to "Chats",
-            "teams" to "Teams",
-            "settings" to "Settings",
+            "apps" to "Apps",
             "devices" to "Devices",
             "agent" to "Agent",
         )
 
-        /** `copy.newMenu` by item. */
-        val NEW_MENU: Map<String, String> = linkedMapOf("issue" to "Issue", "chat" to "Chat")
-
+        const val BOARD_MENU_NEW_BOARD = "New board"
+        const val BOARD_MENU_NEW_TEAM = "New team"
 
         const val PREVIEW_WORKING = "working…"
         const val PREVIEW_QUESTION = "Question: {text}"
@@ -127,6 +125,13 @@ object Chats {
         const val BOARD_CHIP_MINE = "My issues"
         const val BOARD_CHIP_DRAFTS = "Drafts"
 
+        const val TEAM_META = "{members} · {boards}"
+        const val TEAM_MEMBER = "member"
+        const val TEAM_MEMBERS = "members"
+        const val TEAM_BOARD = "board"
+        const val TEAM_BOARDS = "boards"
+        const val TEAM_SWITCH = "Teams"
+
         const val INBOX = "Inbox"
 
         /** #EXP-1380: the transcript's window button and its status line. */
@@ -139,64 +144,24 @@ object Chats {
 
         /** A divider kind's words (`copy.dividers`). */
         fun divider(kind: String): String = if (kind == DIVIDER_KIND_COMPACT) DIVIDER_COMPACT else DIVIDER_NEW
+
+        /** `copy.team.meta` filled (`teamMetaCases`). */
+        fun teamMeta(members: Int, boards: Int): String =
+            TEAM_META
+                .replace("{members}", "$members ${if (members == 1) TEAM_MEMBER else TEAM_MEMBERS}")
+                .replace("{boards}", "$boards ${if (boards == 1) TEAM_BOARD else TEAM_BOARDS}")
     }
 
-    /** #EXP-2109 `shell`: the docked bar's tabs and icon CONCEPTS, the New
-     *  popup, which tab a page lights, the page header, the sizes; [Bar] = the
-     *  floating capsule of a running app's own screens. */
+    /** `shell`: the phone tab order and their icon CONCEPTS (the Team tab's
+     *  icon is the active team's avatar), the bar, the board tab and menu,
+     *  the page header, the sizes. */
     object Shell {
-        val TABS: List<String> = listOf("chats", "teams", "assistant", "new", "settings")
+        val TABS: List<String> = listOf("board", "chats", "apps", "team")
         val TAB_ICONS: Map<String, String> = linkedMapOf(
+            "board" to "nav-issues",
             "chats" to "nav-chats",
-            "teams" to "ui-team",
-            "assistant" to "brand-exponential",
-            "new" to "ui-add",
-            "settings" to "nav-settings",
+            "apps" to "nav-apps",
         )
-
-        /** `shell.dock`: the docked bar (dp; [LABEL] sp). */
-        object Dock {
-            const val HEIGHT = 60
-            const val ICON = 22
-            const val LABEL = 11
-            const val GAP = 4
-            const val DISC = 60
-            const val MARK = 40
-            const val RAISE = 16
-            const val RING = 6
-            const val GLOW = 26
-        }
-
-        /** `shell.newMenu`: the New popup (dp). */
-        object NewMenu {
-            val ITEMS: List<String> = listOf("issue", "chat")
-            val ICONS: Map<String, String> = linkedMapOf("issue" to "nav-create-issue", "chat" to "action-chat")
-            const val OPEN_ICON = "ui-close"
-            const val WIDTH = 160
-            const val ROW_HEIGHT = 48
-            const val RADIUS = 20
-            const val GAP = 26
-        }
-
-        /** `shell.pages`: the tab a page lights and whether the bar shows. */
-        data class Page(val tab: String?, val bar: Boolean)
-
-        val PAGES: Map<String, Page> = linkedMapOf(
-            "chats" to Page("chats", true),
-            "teams" to Page("teams", true),
-            "team" to Page("teams", true),
-            "folder" to Page("teams", true),
-            "board" to Page("teams", true),
-            "team-settings" to Page("teams", true),
-            "assistant" to Page("assistant", true),
-            "settings" to Page("settings", true),
-            "settings-page" to Page("settings", true),
-            "devices" to Page("settings", true),
-            "device" to Page("settings", true),
-        )
-
-        /** A page not listed is a detail: no bar (TS `phonePage`). */
-        fun page(id: String?): Page = PAGES[id] ?: Page(null, false)
 
         /** `shell.bar`: the tab capsule (dp). */
         object Bar {
@@ -243,10 +208,31 @@ object Chats {
             }
         }
 
+        /** `shell.boardTab`: the caret beside the tab's glyph, out of flow
+         *  (#EXP-1645: the Board tab on the board view, the Team tab on the
+         *  Team page, `shell.teamTab`). */
+        object BoardTab {
+            const val CARET = "nav-team-switcher"
+            const val CARET_SIZE = 10
+            const val CARET_GAP = 2
+        }
+
+        /** `shell.boardMenu`: the strip morph (durations / eases name the
+         *  motion tokens). */
+        object BoardMenu {
+            const val ROW_HEIGHT = 48
+            const val MAX_VISIBLE_ROWS = 8
+            const val RADIUS = 28
+            const val OPEN = "slow"
+            const val OPEN_EASE = "decelerate"
+            const val CLOSE = "standard"
+            const val CLOSE_EASE = "accelerate"
+        }
+
         /** `shell.header`: the page header's pages, its trailing circles in
          *  order, the circle size (dp). */
         object Header {
-            val PAGES: List<String> = listOf("chats", "teams", "settings")
+            val PAGES: List<String> = listOf("board", "chats", "apps", "team", "devices", "agent")
             val BUTTONS: List<String> = listOf("nav-search", "nav-inbox")
             const val CIRCLE = 44
         }
@@ -296,16 +282,13 @@ object Chats {
     object TestIds {
         const val CHAT_ROW = "chat-row"
         const val INBOX_BUTTON = "chats-inbox"
-        const val TAB_CHATS = "tab-chats"
-        const val TAB_TEAMS = "tab-teams"
-        const val TAB_ASSISTANT = "tab-assistant"
-        const val TAB_NEW = "tab-new"
-        const val TAB_SETTINGS = "tab-settings"
-        const val NEW_MENU = "new-menu"
-        const val NEW_MENU_ROW = "new-menu-row"
+        const val TAB_TEAM = "tab-team"
         const val BOARD_CHIP = "board-chip"
         const val SURFACE_CARD = "surface-card"
         const val DIVIDER = "transcript-divider"
+        const val TAB_BOARD = "tab-board"
+        const val BOARD_MENU = "board-menu"
+        const val BOARD_MENU_ROW = "board-menu-row"
         const val PAGE_HEADER = "page-header"
         const val SEARCH_BUTTON = "header-search"
         const val LOAD_EARLIER = "transcript-load-earlier"

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react"
-import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router"
-import { BoardGlyph, FAB_FOOT_CLASS, MobileDetailHeader, SkeletonRows, useIsMobile } from "@exp/ui"
+import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { FAB_FOOT_CLASS, SkeletonRows, useIsMobile } from "@exp/ui"
 import { BoardChips, type BoardChip } from "@/components/board-chips"
 import { DraftsList } from "@/components/drafts-list"
 import { MyIssuesView } from "@/components/my-issues-view"
@@ -12,7 +12,7 @@ import { BulkActionBar } from "@/components/bulk-action-bar"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { IssueList } from "@/components/issue-list"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
-import { PushedTitle } from "@/components/team/mobile-page-header"
+import { MobilePageHeader } from "@/components/team/mobile-page-header"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useBulkBarIconOnly } from "@/hooks/use-bulk-bar-fits"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
@@ -49,7 +49,6 @@ function BoardPage() {
   const { boardSlug, teamSlug } = Route.useParams()
   const search = Route.useSearch()
   const navigate = useNavigate()
-  const router = useRouter()
   const openNewDraft = useOpenNewDraft(teamSlug)
   const isMobile = useIsMobile()
 
@@ -139,16 +138,20 @@ function BoardPage() {
     )
   }
 
-  // #EXP-2109 (chats.json `shell`): a phone pushes the board (from its team's
-  // page) under the detail header, the chips under it.
+  // #EXP-1384 (chats.json `shell.header`): phones open the board under THE
+  // page header titled with the board's name (the board is switched from the
+  // Board tab's menu), the chips under it.
   const chips = isMobile ? (
-    <div className="shrink-0 pt-[env(safe-area-inset-top)]">
-      <MobileDetailHeader
-        title={<PushedTitle glyph={<BoardGlyph board={board} className="size-5" />}>{board.name}</PushedTitle>}
-        onBack={() => (router.history.canGoBack() ? router.history.back() : void navigate({ to: `/t/$teamSlug/team`, params: { teamSlug } }))}
-        below={
-          <BoardChips value={chip} counts={{ mine: mine.totalIssueCount, drafts: draftCount }} onChange={setChip} />
-        }
+    <div className="shrink-0">
+      <MobilePageHeader
+        teamSlug={teamSlug}
+        title={board.name}
+        className="px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))]"
+      />
+      <BoardChips
+        value={chip}
+        counts={{ mine: mine.totalIssueCount, drafts: draftCount }}
+        onChange={setChip}
       />
     </div>
   ) : (
@@ -162,7 +165,7 @@ function BoardPage() {
       <div className="relative flex h-full flex-col">
         {chips}
         <div ref={setMineBulkSlot} className="contents" />
-        <div className="min-h-0 flex-1 max-md:pt-4">
+        <div className="min-h-0 flex-1">
           <MyIssuesView teamSlug={teamSlug} boardId={board.id} bulkActionSlot={mineBulkSlot} />
         </div>
       </div>
@@ -173,7 +176,7 @@ function BoardPage() {
     return (
       <div className="relative flex h-full flex-col">
         {chips}
-        <div className={`min-h-0 flex-1 overflow-auto max-md:pt-4 ${PAGE_END_CLEARANCE}`}>
+        <div className={`min-h-0 flex-1 overflow-auto ${PAGE_END_CLEARANCE}`}>
           <DraftsList
             teamId={team.id}
             teamSlug={teamSlug}
@@ -193,8 +196,7 @@ function BoardPage() {
         // the tab bar on phones, so PAGE_END_CLEARANCE's `max()` of the two
         // measured heights already covers a live selection; md+ reserves the
         // floating bar's height while a selection lives.
-        // The phone header's fade (24px) hangs over the list's first rows.
-        className={`flex-1 overflow-auto max-md:pt-4 ${PAGE_END_CLEARANCE} ${
+        className={`flex-1 overflow-auto ${PAGE_END_CLEARANCE} ${
           selectedIssues.length > 0 ? `md:pb-20` : ``
         }`}
       >

@@ -85,6 +85,11 @@ final class InboxViewModel {
     /// Web parity: an issue-less row shows its team name only when the user
     /// is in more than one team.
     var hasMultipleTeams = false
+    /// EXP-1373: the phone's ONE active team — only its rows (an issue's
+    /// team through its board); nil = every team.
+    var teamId: String? {
+        didSet { if teamId != oldValue { rebuild() } }
+    }
 
     private let accountId: String
     private let db: DatabaseManager
@@ -225,7 +230,7 @@ final class InboxViewModel {
             // the personal team) list in every team's inbox; the rest in theirs.
             let rowTeam = n.teamId ?? n.issueId.flatMap { issuesById[$0] }.flatMap { boardTeams[$0.boardId] }
             guard InboxRoute.inboxRowListed(
-                type: n.type, rowTeamId: rowTeam, issueId: n.issueId, teamId: nil, teamIds: teamIds
+                type: n.type, rowTeamId: rowTeam, issueId: n.issueId, teamId: teamId, teamIds: teamIds
             ) else { continue }
             guard let iid = n.issueId else {
                 // Issue-less rows: an agent message (EXP-801) and a blocked
@@ -246,7 +251,7 @@ final class InboxViewModel {
             }
             byIssue[iid]?.append(n)
         }
-        hasMultipleTeams = teams.count > 1
+        hasMultipleTeams = teamId == nil && teams.count > 1
         entries = order.compactMap { key in
             if key.hasPrefix("message:") {
                 let id = String(key.dropFirst("message:".count))
@@ -292,10 +297,11 @@ final class InboxViewModel {
     func markAllRead() {
         // EXP-1373: one team in view — the server clears that team's rows.
         // A failure is the failed-action toast; Retry re-runs it (idempotent).
+        let teamId = teamId
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await notificationsApi.markAllRead(accountId: accountId, teamId: nil)
+                try await notificationsApi.markAllRead(accountId: accountId, teamId: teamId)
             } catch {
                 Toaster.shared.show(ToastItem(
                     kind: .error,

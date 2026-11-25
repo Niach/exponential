@@ -144,17 +144,4 @@ class SettingsNavTest {
         val member = SettingsNavGroups.groups(isOwner = false)
         assertEquals(listOf("@agents", "mcp", "skills"), member["agents"])
     }
-
-    @Test
-    fun `phone settings and team pages equal the fixture`() {
-        val phone = nav.getValue("phone").jsonObject
-        assertEquals(phone.getValue("settings").jsonArray.map { it.jsonPrimitive.content }, SettingsNavGroups.PHONE_SETTINGS)
-        assertEquals(phone.getValue("team").jsonArray.map { it.jsonPrimitive.content }, SettingsNavGroups.PHONE_TEAM)
-        assertEquals(
-            listOf(listOf("account", "assistant", "notifications", "security"), listOf("devices"), listOf("about")),
-            SettingsNavGroups.phoneSettingsGroups(),
-        )
-        assertEquals(SettingsNavGroups.PHONE_TEAM, SettingsNavGroups.phoneTeamRows(isOwner = true).map { it.id })
-        assertEquals(SettingsNavGroups.PHONE_TEAM - "general", SettingsNavGroups.phoneTeamRows(isOwner = false).map { it.id })
-    }
 }

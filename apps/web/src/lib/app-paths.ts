@@ -2,8 +2,9 @@
 // Chats, Needs you, Drafts, the device pages and the personal settings are
 // TEAM-LESS pages; what belongs to a team (boards, issues, sessions, agents,
 // apps, team settings, the creation pages) keeps `/t/$teamSlug/…`. Phones
-// (#EXP-2109, web-mobile) have no active team either: an old team-scoped URL
-// forwards to its team-less page on both.
+// (web-mobile) keep today's team-scoped pages until their own redesign, so
+// each side forwards the other's paths: md+ moves an old team-scoped URL to
+// its team-less page, a phone moves a team-less URL back into a team.
 // Pure, so every mapping is a test.
 
 /** Personal settings pages (settings-nav.json `desktopNavs.personal`; About
@@ -36,7 +37,6 @@ export function widePathFor(pathname: string): string | null {
       return `/drafts`
     // The Devices page is gone: each device is a sidebar row.
     case `/devices`:
-    case `/team`:
       return `/home`
     case `/settings/voice`:
       return `/settings/assistant`
@@ -50,20 +50,20 @@ export function widePathFor(pathname: string): string | null {
   return null
 }
 
-/** Phones (#EXP-2109): the same, plus the pages only phones have: the Devices
- *  list, and the team's Teams page for its old Apps tab. */
-export function phonePathFor(pathname: string): string | null {
+/** Phones: the team-scoped page a team-less path stands for, in `teamSlug`
+ *  (the person's default team); null = not a team-less page. */
+export function phonePathFor(pathname: string, teamSlug: string): string | null {
   const path = trim(pathname)
-  if (path === `/`) return `/chats`
-  const match = TEAM_REST.exec(path)
-  if (match) {
-    const rest = match[2] ?? ``
-    if (rest === `` || rest === `/apps`) return `/t/${match[1]}/team`
-    if (rest === `/devices`) return `/devices`
-    if (rest === `/inbox`) return `/inbox`
-    if (rest === `/team` || rest === `/settings/agents/new`) return null
-  }
-  return widePathFor(path)
+  const base = `/t/${teamSlug}`
+  if (path === `/home`) return `${base}/agent`
+  if (path === `/chats`) return `${base}/chats`
+  if (path === `/needs-you`) return `${base}/needs-you`
+  if (path === `/drafts`) return `${base}/drafts`
+  if (path === `/devices` || path.startsWith(`/devices/`)) return `${base}/devices`
+  if (path === `/settings`) return `${base}/settings`
+  const settings = /^\/settings\/([^/]+)$/.exec(path)
+  if (settings) return `${base}/settings/${settings[1]}`
+  return null
 }
 
 /** The team-less pages' paths. */

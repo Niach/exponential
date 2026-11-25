@@ -120,9 +120,9 @@ class DraftRowsTest {
             draft("d1"),
             draft("d2").copy(teamId = "team-2", boardId = "b2"),
         )
-        assertEquals(listOf("d1"), teamDrafts(drafts, "team-1").map { it.id })
-        assertEquals(listOf("d2"), teamDrafts(drafts, "team-2").map { it.id })
-        assertTrue(teamDrafts(drafts, null).isEmpty())
-        assertTrue(teamDrafts(drafts, "team-3").isEmpty())
+        assertEquals(listOf("d1"), activeTeamDrafts(drafts, "team-1").map { it.id })
+        assertEquals(listOf("d2"), activeTeamDrafts(drafts, "team-2").map { it.id })
+        assertTrue(activeTeamDrafts(drafts, null).isEmpty())
+        assertTrue(activeTeamDrafts(drafts, "team-3").isEmpty())
     }
 }

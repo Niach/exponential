@@ -3,8 +3,7 @@ package com.exponential.app.ui.settings
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.ARG_TEAM
-import com.exponential.app.data.screenTeamFlow
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.PromptDto
 import com.exponential.app.data.api.PromptFields
 import com.exponential.app.data.api.PromptsApi
@@ -56,6 +55,7 @@ class PromptSettingsViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val auth: AuthRepository,
     holder: DatabaseHolder,
+    private val selection: TeamSelection,
     private val prompts: PromptsApi,
 ) : ViewModel() {
 
@@ -64,13 +64,8 @@ class PromptSettingsViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    /** #EXP-2109: the team this screen shows ([screenTeamFlow]; no active team). */
-    private val screenTeam: StateFlow<String?> =
-        screenTeamFlow(dbFlow, savedStateHandle)
-            .stateIn(viewModelScope, SharingStarted.Eagerly, savedStateHandle.get<String>(ARG_TEAM))
-
-    /** The team's prompts, server order (sort_order, then name). */
-    val list: StateFlow<List<PromptDto>?> = combine(dbFlow, screenTeam) { db, team -> db to team }
+    /** The selected team's prompts, server order (sort_order, then name). */
+    val list: StateFlow<List<PromptDto>?> = combine(dbFlow, selection.selectedId) { db, team -> db to team }
         .flatMapLatest { (db, team) ->
             if (db == null || team == null) flowOf(null) else db.promptDao().observeByTeam(team).map { rows -> rows.map { it.toPromptDto() } }
         }
@@ -82,8 +77,8 @@ class PromptSettingsViewModel @Inject constructor(
         if (db == null || id == null) flowOf(null) else db.promptDao().observeById(id).map { it?.toPromptDto() }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** The team the page writes in: the row's own, else the page's. */
-    private val teamId = combine(row, screenTeam) { r, selected -> r?.teamId ?: selected }
+    /** The team the page writes in: the row's own, else the selection. */
+    private val teamId = combine(row, selection.selectedId) { r, selected -> r?.teamId ?: selected }
         .distinctUntilChanged()
 
     /** Whether the caller OWNS that team (every write is owner-only). */
@@ -130,7 +125,7 @@ class PromptSettingsViewModel @Inject constructor(
 
     /** `New prompt` → `prompts.create` in the selected team; [onCreated] gets its id. */
     fun create(fields: PromptFields, onCreated: (String) -> Unit) {
-        val team = screenTeam.value ?: return
+        val team = selection.selectedId.value ?: return
         write("create", { create(fields, onCreated) }) { accountId ->
             onCreated(prompts.create(accountId, team, fields).id)
         }

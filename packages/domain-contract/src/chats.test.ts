@@ -27,7 +27,7 @@ import {
   surfaceReply,
   chatMenuEntries,
   transcriptWindowStart,
-  phonePage,
+  teamMeta,
   chatMarks,
   boardMineIssues,
 } from "./chats"
@@ -56,6 +56,7 @@ describe(`chats.json`, () => {
   for (const c of fixture.boardMineCases)
     test(`board mine: ${c.name}`, () => expect(boardMineIssues(c.issues, c.boardId, c.me).map((i) => i.id)).toEqual(c.expected))
   for (const c of fixture.marksCases) test(`marks: ${c.name}`, () => expect(chatMarks(c.input)).toEqual(c.expected))
+  for (const c of fixture.teamMetaCases) test(`team meta: ${c.expected}`, () => expect(teamMeta(c.members, c.boards)).toBe(c.expected))
   for (const c of fixture.dotCases) test(`dot: ${c.name}`, () => expect(chatsUnread(c.input.groups as never, c.input.reads as never)).toBe(c.expected))
   test(`delete titles`, () => {
     expect(chatDeleteTitle(1)).toBe(fixture.copy.confirmDelete.title)
@@ -68,10 +69,6 @@ describe(`chats.json`, () => {
   })
   test(`every menu entry and tab has copy`, () => {
     for (const e of [`delete`, `compact`, `newConversation`, `settings`]) expect(fixture.copy.menu[e as keyof typeof fixture.copy.menu]).toBeTruthy()
-    for (const i of fixture.shell.newMenu.items) expect(fixture.copy.newMenu[i as keyof typeof fixture.copy.newMenu]).toBeTruthy()
-    for (const page of Object.values(fixture.shell.pages)) expect(fixture.shell.tabs).toContain(page.tab)
-    expect(phonePage(`board`)).toEqual({ tab: `teams`, bar: true })
-    expect(phonePage(`issue`)).toEqual({ tab: null, bar: false })
     for (const t of fixture.shell.tabs) expect(fixture.copy.tabs[t as keyof typeof fixture.copy.tabs]).toBeTruthy()
   })
 })

@@ -7,15 +7,10 @@ import UserNotifications
 import GRDB
 
 enum AppRoute: Hashable {
-    /// Search (EXP-686): a pushed detail off a root page's search button.
+    /// Search (EXP-686): a pushed detail off the board header's search
+    /// button — no longer a tab of its own.
     case search
-    /// #EXP-2109 (sidebar-tree.json `phone`): a team's page, a folder of it,
-    /// and its settings page (its `…` menu).
-    case team(accountId: String, teamId: String)
-    case folder(accountId: String, teamId: String, folderId: String)
-    case teamSettings(accountId: String, teamId: String)
-    /// The Devices page (Settings › Devices).
-    case devices(accountId: String)
+    case agents
     /// NEW-2: one prompt's page in Settings → Prompts (`id` nil = New
     /// prompt) — pushed from a Prompts row or a `prompt` entity ref.
     case prompt(accountId: String, teamId: String, id: String?)
@@ -27,6 +22,9 @@ enum AppRoute: Hashable {
     /// by the first message — on the page). #FEED-239: `settings` = the
     /// agent's settings opened over it (an agent row's `…` › settings).
     case agentChannel(accountId: String, agentId: String, settings: Bool = false)
+    /// VAPP-110: the team's Apps (fixtures/apps.json) — #EXP-1384: the
+    /// Apps TAB's root (a link to it switches the tab).
+    case apps(accountId: String)
     /// VAPP-110: one app's editor (`appId` = its row id). VAPP-242: only
     /// from a `…` › Edit app, New app and an import.
     case app(accountId: String, appId: String, screen: Apps.ScreenRequest? = nil)
@@ -38,10 +36,11 @@ enum AppRoute: Hashable {
     /// check's `details_url`, `/t/<team>/ci/<runId>?job=`); `job` = the
     /// requested job (nil = the default one).
     case ciRun(accountId: String, runId: String, job: String? = nil)
-    /// The Inbox page (EXP-1373: pushed from a root page's inbox circle,
-    /// notifications only — My issues and Drafts moved to the board).
+    /// The Inbox page (EXP-1373: pushed from the Chats header's inbox
+    /// circle, notifications only — My issues and Drafts moved to the board).
     case myWork
-    /// EXP-1291: the Chats tab.
+    /// EXP-1291: the Chats tab (it replaced Reviews) — the agents, then
+    /// the chat roots Needs you · Running · Recent.
     case chats
     /// #EXP-1388: the Chats list's Archived page (the Archived entry row).
     case archivedChats(accountId: String)
@@ -80,23 +79,20 @@ enum AppRoute: Hashable {
     /// `child` opens it on one page (nil = the Conversation; #EXP-1662
     /// `.plan(messageId)` = its plan tab on that plan).
     case chat(accountId: String, chatId: String, child: ChatPage? = nil)
-    /// EXP-825: the composer page, with a play button's preselection (`seed`)
-    /// or an empty seed (#EXP-2109: the New popup's Chat).
+    /// EXP-825: Home's composer pushed with a preselection (a play button's
+    /// `seed`); an empty seed IS the Home tab.
     case agent(accountId: String, seed: AgentComposerSeed)
-    /// The Settings tab.
     case settings
     case serverDetail(accountId: String)
     /// NEW-67: the account's Settings → Voice page (`voice.json`).
     case voiceSettings(accountId: String)
     /// #EXP-1815: the account's Settings › Notifications (the source switches).
     case notificationSettings(accountId: String)
-    /// #EXP-2109: the account's Settings › Security.
-    case securitySettings(accountId: String)
     /// #EXP-1987: the account's Settings › Assistant (the viewer's ONE
-    /// Assistant).
+    /// Assistant, whichever team is current).
     case assistantSettings(accountId: String)
-    /// #EXP-1381 (settings-nav.json): a team settings row → that category's
-    /// OWN page.
+    /// #EXP-1381 (settings-nav.json): a Team page row → that category's
+    /// OWN page (Devices included: it left the tab bar for the Team page).
     case teamSettingsSection(accountId: String, teamId: String, section: TeamSettingsSection)
     /// #VAPP-185: Settings › MCP › Activity (settings-mcp.json `activityPage`).
     case mcpActivity(accountId: String, teamId: String)
@@ -109,23 +105,6 @@ enum AppRoute: Hashable {
     /// never weighs down the settings screen.
     case about
     case thirdPartyLicenses
-
-    /// #EXP-2109 (chats.json `shell.pages`): the page this route is, if it
-    /// is one of the bar's; nil = a detail: no bar.
-    var phonePage: Chats.Shell.Page? {
-        switch self {
-        case .team: .team
-        case .folder: .folder
-        case .board: .board
-        case .teamSettings, .teamSettingsSection, .prompt, .skill, .mcpActivity, .repo: .teamSettings
-        case .devices: .devices
-        case .serverDetail, .voiceSettings, .notificationSettings, .securitySettings, .assistantSettings,
-             .syncDebug, .about, .thirdPartyLicenses: .settingsPage
-        case .chats: .chats
-        case .settings: .settings
-        default: nil
-        }
-    }
 
     /// The draft page draws its own Back (the discard guard).
     var isIssueDraft: Bool {
@@ -261,34 +240,51 @@ extension AppRoute {
     }
 }
 
-/// #EXP-2109 (chats.json `shell.tabs`): the bar's root pages — ROOT siblings
-/// on phones (New is no page: it opens its popup). The selected one IS the
-/// navigation stack's root, so switching swaps the root (no push animation,
-/// no back chevron, no swipe-back) and the path holds only the pushes made
-/// inside it. A tab's pushes are parked while another tab is up and handed
-/// back on return. The app opens on Chats.
+/// EXP-1210: the bottom bar's destinations — ROOT siblings on phones. The
+/// selected one IS the navigation stack's root, so switching swaps the root
+/// (no push animation, no back chevron, no swipe-back) and the path holds
+/// only the pushes made inside it. `agent` = the chat arm's Home, the
+/// screen the app opens on. A tab's pushes are parked while another tab is
+/// up and handed back on return, EXCEPT Home's: it always lands on its root
+/// (Android parity: `popUpTo(agent-tab)` never restores it).
+///
+/// #EXP-1384 (chats.json `shell.tabs`): the bar's tabs are Board · Chats ·
+/// Apps · Team (Devices is a Team page row now); the agent home stays the
+/// chat arm's root.
 enum MainTab: Hashable {
-    case chats, teams, assistant, settings
+    case agent, issues, chats, apps, team
 
-    var page: Chats.Shell.Page {
+    /// The bar tab this root lights (nil = the agent home).
+    var shellTab: Chats.Shell.Tab? {
         switch self {
+        case .agent: nil
+        case .issues: .board
         case .chats: .chats
-        case .teams: .teams
-        case .assistant: .assistant
-        case .settings: .settings
+        case .apps: .apps
+        case .team: .team
         }
     }
 
-    /// nil = New.
-    init?(_ tab: Chats.Shell.Tab) {
+    init(_ tab: Chats.Shell.Tab) {
         switch tab {
+        case .board: self = .issues
         case .chats: self = .chats
-        case .teams: self = .teams
-        case .assistant: self = .assistant
-        case .settings: self = .settings
-        case .new: return nil
+        case .apps: self = .apps
+        case .team: self = .team
         }
     }
+
+    /// Whether this tab's pushes are parked across a switch.
+    var keepsPushes: Bool { self != .agent }
+}
+
+/// The board the Issues tab is currently showing. May belong to a
+/// non-active account while the fallback resolve crosses servers — but a
+/// switcher pick of another server's board activates that account
+/// (EXP-400, Android parity), so the two normally coincide.
+struct CurrentBoardRef: Hashable {
+    let accountId: String
+    let boardId: String
 }
 
 struct AppNavigator: View {
@@ -544,15 +540,16 @@ struct MainNavigator: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.motion) private var motion
     /// EXP-1210: the selected bottom-bar destination = the stack's ROOT. The
-    /// app LANDS on Chats, so a cold start and an account switch
+    /// app LANDS on the Agent tab, so a cold start and an account switch
     /// (`.id(activeAccountId)` recreates this view) both open there.
-    @State private var tab: MainTab = .chats
+    @State private var tab: MainTab = .agent
     // Typed path (not NavigationPath) so the tab bar can inspect the top route.
     // Only the pushes made INSIDE the current tab (issue, run, board list, the
     // New issue page…); a tab switch parks it in `savedPaths`.
     @State private var path: [AppRoute] = []
     /// Each OTHER tab's pushes, parked while it is not selected and handed
-    /// back when it is (Android `restoreState` parity).
+    /// back when it is (Android `restoreState` parity); never the Agent
+    /// tab's (`MainTab.keepsPushes`).
     @State private var savedPaths: [MainTab: [AppRoute]] = [:]
     @State private var teamState = TeamState()
     /// EXP-698 r5: the bulk-selection bar takes the tab bar's slot, so the
@@ -570,34 +567,45 @@ struct MainNavigator: View {
     /// EXP-1635: the share extension's mirror and the direct-share donations.
     @State private var shareTargets: ShareTargetsPublisher?
     @State private var observationTasks: [Task<Void, Never>] = []
+    @State private var syncing = false
     /// EXP-1373: every unread notification the inbox can render: the page
-    /// header's Inbox count reads them through `InboxRoute.inboxRowListed`
-    /// (#EXP-1987), like the inbox's own list.
+    /// header's Inbox count reads the ACTIVE team's (#FEED-232) through
+    /// `InboxRoute.inboxRowListed` (#EXP-1987), like the inbox's own list.
     @State private var unreadRows = UnreadRows()
-    /// The account's resolvable drafts (the iPad sidebar's Drafts count).
-    @State private var draftCount = 0
+    /// EXP-1272: the Inbox tab's dot also lights while a draft resolves: the
+    /// SAME rows the inbox's Drafts segment lists (account-wide, like it).
+    /// The team id of every resolvable draft (one entry per draft); the
+    /// Inbox dot counts the active team's (EXP-1272, web parity).
+    @State private var draftTeamIds: [String] = []
     /// EXP-1291: the session tree's lists — ONE observation for the Chats
-    /// tab and its badge, the Teams pages and the composer.
+    /// tab and its dot, Home's Running band, the launcher dot and the board
+    /// switcher's per-team dots.
     @State private var sessionLists = SessionListsModel()
-    /// #EXP-2109: the Teams pages' tree (layout, agents, apps, owned teams).
-    @State private var sidebarTree = SidebarTreeModel()
-    /// The bar hides while the keyboard is up.
+    /// #EXP-1832: my board folders for the board menu (read-only).
+    @State private var boardFolders = SidebarLayoutModel()
+    @State private var currentBoard: CurrentBoardRef?
+    // EXP-400: the current board resolved before the boards observation
+    // delivered rows, so the active-team alignment couldn't look up its
+    // team yet — re-run it on the next boards emission.
+    @State private var pendingTeamAlign = false
+    /// Home hides the floating bar while the keyboard is up.
     @State private var keyboardVisible = false
-    /// #EXP-2109: the bar's New popup is up.
-    @State private var newMenuOpen = false
-    /// A page of the Assistant's chat a link named before its tab mounted.
-    @State private var assistantPage: ChatPage?
+    /// #EXP-1384: the board menu's New board row → the create-board sheet.
+    @State private var createBoardTarget: CreateBoardTarget?
     /// #EXP-1674: every read-only markdown render's link tap = THE opener. One
     /// closure for the navigator's lifetime, like `pushRouteAction`.
     @State private var markdownLinks: MarkdownLinkHandler?
-    /// A pick of another server's team rebuilds this navigator
-    /// (`.id(activeAccountId)`); the new one lands on that team's page.
-    @MainActor private static var landOnTeam: String?
+    /// #EXP-1645: the Team tab's team menu (every server's teams, New team).
+    @State private var teamLoader: MultiAccountTeamLoader?
+    @State private var showTeamSetup = false
+    /// #EXP-1645: a pick of another server's team rebuilds this navigator
+    /// (`.id(activeAccountId)`); the new one lands on the Team page.
+    @MainActor private static var landOnTeamPage = false
     /// #NEW-12: regular width (iPad full screen, the ⅔ split) = the split
     /// layout (`TabletShell`); compact = the phone's.
     @Environment(\.horizontalSizeClass) private var sizeClass
     /// #NEW-12: the sidebar's open entry (follows `tab` on a landing).
-    @State private var sidebar: SidebarItem = .chats
+    @State private var sidebar: SidebarItem = .agent
     /// #NEW-12: a list column row's open REPLACES the detail.
     @State private var listPushAction = PushRouteAction()
     /// #NEW-12: every sidebar pick (an overlaid sidebar folds on one).
@@ -609,6 +617,11 @@ struct MainNavigator: View {
 
     private var isSplit: Bool { sizeClass == .regular }
 
+    private struct CreateBoardTarget: Identifiable {
+        let accountId: String
+        let teamId: String
+        var id: String { "\(accountId)/\(teamId)" }
+    }
     var body: some View {
         ZStack {
             AppBackground()
@@ -618,17 +631,14 @@ struct MainNavigator: View {
             } else {
                 NavigationStack(path: $path) {
                     tabRoot
-                        .phoneDockInset(dockInset(for: tab.page))
                         // Every root states its bar visible explicitly — the
                         // roots swap inside ONE stack (EXP-1358: Chats wears the
                         // same inline bar as the others again).
-                        .toolbar(tab == .assistant ? .hidden : .visible, for: .navigationBar)
+                        .toolbar(.visible, for: .navigationBar)
                         // EXP-1554: every pushed page's back = the bare arrow;
                         // the draft page draws its own (the discard guard).
                         .navigationDestination(for: AppRoute.self) { route in
-                            destination(for: route)
-                                .phoneDockInset(dockInset(for: route.phonePage))
-                                .bareBackButton(enabled: !route.isIssueDraft)
+                            destination(for: route).bareBackButton(enabled: !route.isIssueDraft)
                         }
                 }
             }
@@ -637,17 +647,17 @@ struct MainNavigator: View {
         .onChange(of: isSplit, initial: true) { _, split in splitActive = split }
         .onChange(of: tab) { _, target in
             // #NEW-12: a landing on a phone root lights its sidebar entry.
-            newMenuOpen = false
-            if sidebar.tab != target { sidebar = SidebarItem(target, assistantId: sessionLists.assistant?.agentId) }
+            if sidebar.tab != target { sidebar = SidebarItem(target, board: currentBoard) }
         }
-        .onChange(of: path) { _, _ in newMenuOpen = false }
+        .onChange(of: currentBoard) { _, board in
+            if case .board = sidebar, let board { sidebar = .board(board.boardId) }
+        }
         // #EXP-1815: the screen's thread (`willPresent` stays quiet on it).
         .onChange(of: viewingRoute, initial: true) { _, route in
             ViewingThread.shared.publish(route, deps: deps)
         }
         .environment(teamState)
         .environment(sessionLists)
-        .environment(sidebarTree)
         .environment(tabBarChrome)
         // EXP-698 r5: the issue list's rows are plain Buttons now (a
         // NavigationLink in a List row draws the system disclosure OUTSIDE
@@ -668,14 +678,23 @@ struct MainNavigator: View {
         .onChange(of: widgetNeedsYou, initial: true) { _, rows in
             HomeWidgetsPublisher.shared.setNeedsYou(rows, accountId: deps.auth.activeAccountId)
         }
+        .sheet(item: $createBoardTarget) { target in
+            CreateBoardSheet(
+                accountId: target.accountId,
+                teamId: target.teamId,
+                onCreated: { boardId in selectBoard(accountId: target.accountId, boardId: boardId) }
+            )
+        }
+        .sheet(isPresented: $showTeamSetup) {
+            TeamSetupSheet()
+        }
         .onAppear {
             if markdownLinks == nil {
                 markdownLinks = LinkOpener.surfaceHandler(accountId: nil, baseURL: nil, teamId: nil, deps: deps)
             }
-            if let teamId = Self.landOnTeam {
-                Self.landOnTeam = nil
-                tab = .teams
-                path = [.team(accountId: deps.auth.activeAccountId ?? "", teamId: teamId)]
+            if Self.landOnTeamPage {
+                Self.landOnTeamPage = false
+                tab = .team
             }
             listPushAction.setHandler { route in
                 if let item = sidebarItem(for: route) {
@@ -684,19 +703,46 @@ struct MainNavigator: View {
                     navigate { path = [route] }
                 }
             }
-            pushRouteAction.setHandler { openRoute($0) }
+            pushRouteAction.setHandler { route in
+                // #NEW-12: the split layout's entries are sidebar picks.
+                if splitActive, let item = sidebarItem(for: route) {
+                    selectSidebar(item)
+                    return
+                }
+                // EXP-1210: a bar destination is never pushed — a link to one
+                // (an entity chip, a getting-started card) switches to it.
+                if let target = Self.tab(for: route) {
+                    selectTab(target)
+                } else if case let .chat(_, chatId, child) = route,
+                          let index = Self.chatIndex(chatId, in: path) {
+                    // EXP-1284 (T-N9): never a second page of the same
+                    // chat — pop back to it and land the child there.
+                    navigate { landOnChat(at: index, chatId: chatId, page: child) }
+                } else {
+                    navigate { path.append(route) }
+                }
+            }
             if boardLoader == nil {
                 boardLoader = MultiAccountBoardLoader(auth: deps.auth, db: deps.db)
                 shareTargets = ShareTargetsPublisher(auth: deps.auth, db: deps.db)
                 shareTargets?.refresh()
             }
+            if teamLoader == nil {
+                teamLoader = MultiAccountTeamLoader(auth: deps.auth, db: deps.db)
+            }
             startObserving()
+            resolveCurrentBoard()
             if teamState.teams.isEmpty {
-                Task { await deps.syncManager.initialSync() }
+                syncing = true
+                Task {
+                    await deps.syncManager.initialSync()
+                    syncing = false
+                }
             }
         }
         .onChange(of: deps.auth.accounts) { _, _ in
             boardLoader?.refresh()
+            teamLoader?.refresh()
             shareTargets?.refresh()
         }
         // Defense-in-depth against a split binding. `.id(activeAccountId)` on
@@ -706,12 +752,20 @@ struct MainNavigator: View {
         // cover is presented), the environment accountId + tRPC re-reads flip to
         // the new account while these observations keep streaming the OLD
         // account's pool — the "wrong account's data" bug. Rebind explicitly:
-        // cancel, clear state, re-observe the new active pool.
+        // cancel, clear state, re-observe the new active pool, re-resolve.
         .onChange(of: deps.auth.activeAccountId) { _, _ in
             stopObserving()
             teamState.teams = []
             teamState.boards = []
+            teamState.activeTeamId = nil
+            currentBoard = nil
             startObserving()
+            resolveCurrentBoard()
+        }
+        // Any change to the available (signed-in) boards re-validates the
+        // Issues tab's current board.
+        .onChange(of: availableBoardKeys) { _, _ in
+            resolveCurrentBoard()
         }
         .onDisappear { stopObserving() }
         .onChange(of: deps.deepLinkBus.pendingIssueId) { _, issueId in
@@ -754,7 +808,8 @@ struct MainNavigator: View {
                 _ = deps.deepLinkBus.consumeSession()
                 navigate {
                     Task { @MainActor in
-                        openRoute(await AppRoute.openingInbox(sessionId, card: card, accountId: accountId, deps: deps))
+                        await activateTeam(forSession: sessionId, accountId: accountId)
+                        path.append(await AppRoute.openingInbox(sessionId, card: card, accountId: accountId, deps: deps))
                     }
                 }
             }
@@ -783,21 +838,17 @@ struct MainNavigator: View {
         .onChange(of: teamState.boards.map(\.id)) { _, _ in
             if deps.deepLinkBus.pendingLaunch == .shortcut(.newIssue) { openLaunch() }
         }
-        // A team was deleted in-app (EXP-43): back to the Teams list so no
-        // pushed view (its page, its settings) still targets it.
+        // A team was deleted in-app (EXP-43): back to the landing tab (Home)
+        // so no pushed view (team settings, server detail) still targets it.
         .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
             savedPaths = [:]
-            tab = .teams
+            tab = .agent
             path = []
         }
         // Drain links that arrived before this navigator mounted (cold launch).
-        // They push ON TOP of Chats, where the app lands, so Back returns
+        // They push ON TOP of Home, where the app lands, so Back returns
         // there — deep links are the only cold-launch navigation.
         .task {
-            if deps.deepLinkBus.pendingSessionId != nil || deps.deepLinkBus.pendingLinkLanding != nil
-                || deps.deepLinkBus.pendingLaunch != nil {
-                await awaitSessionLists()
-            }
             let pendingAccountId = deps.deepLinkBus.pendingIssueAccountId
             let userId = deps.deepLinkBus.pendingIssueUserId
             if let issueId = deps.deepLinkBus.consume() {
@@ -811,7 +862,8 @@ struct MainNavigator: View {
             let sessionCard = deps.deepLinkBus.pendingSessionCard
             if let sessionId = deps.deepLinkBus.consumeSession() {
                 let accountId = issueAccountId(forUserId: sessionUserId)
-                openRoute(await AppRoute.openingInbox(sessionId, card: sessionCard, accountId: accountId, deps: deps))
+                await activateTeam(forSession: sessionId, accountId: accountId)
+                path.append(await AppRoute.openingInbox(sessionId, card: sessionCard, accountId: accountId, deps: deps))
             }
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingDeviceRowId != nil { openDeviceFromLink() }
@@ -827,28 +879,56 @@ struct MainNavigator: View {
                     Color.clear.preference(key: ToastTopInsetKey.self, value: proxy.size.height)
                 })
         })
-        // An OVERLAY over the stack; a page under the bar reserves its
-        // clearance itself (`phoneDockInset`, inside the stack: an ancestor
-        // inset never reliably reaches the pushed scrollables).
+        // Attached as an OVERLAY, not a safeAreaInset (EXP-36): an ancestor
+        // inset outside the NavigationStack never reliably reaches the pushed
+        // scrollables' content insets, so each bar-visible scrollable reserves
+        // its own clearance via `.tabBarBottomInset()` instead — one source of
+        // truth, no double-inset.
         .overlay(alignment: .bottom) {
-            if showsDock, !tabBarChrome.suppressed {
-                PhoneDock(
-                    selected: litTab,
-                    chatsBadge: sessionLists.chatsBadge,
-                    issueEnabled: composeTarget != nil,
-                    newOpen: $newMenuOpen,
+            if showsTabBar && !tabBarChrome.suppressed && !isSplit {
+                MobileTabBar(
+                    selected: barSelection,
+                    agentActive: tab == .agent,
+                    board: activeBoard,
+                    // The board view = the Board tab's root (its menu).
+                    onBoardView: tab == .issues && path.isEmpty,
+                    // The Team page itself; a pushed page's tap returns to it.
+                    onTeamPage: tab == .team && path.isEmpty,
+                    team: teamState.activeTeam,
+                    chatsBadge: sessionLists.chatsBadge(teamId: teamState.activeTeamId),
+                    // The launcher capsule (chat | new issue) rides every
+                    // bar-visible surface (EXP-827/EXP-973); only a team with
+                    // no board leaves the New-issue arm inert.
+                    composeEnabled: composeTarget != nil,
+                    boards: teamState.filteredBoards,
+                    boardFolders: boardFolders.entries,
+                    onNewBoard: newBoardAction,
+                    teams: teamMenuRows,
+                    onNewTeam: { showTeamSetup = true },
                     // EXP-1210: every entry SWITCHES the root (a re-tap pops
                     // back to it); EXP-1212: through the draft hold like
                     // every other path change.
-                    onSelect: { tab in MainTab(tab).map(selectTab) },
-                    onNew: { item in
-                        switch item {
-                        case .issue: newIssueAction?()
-                        case .chat: openNewChat()
+                    onSelect: { selectTab(MainTab($0)) },
+                    onSelectBoard: { board in
+                        guard let accountId = deps.auth.activeAccountId else { return }
+                        selectBoard(accountId: accountId, boardId: board.id)
+                    },
+                    onSelectTeam: { row in switchTeam(accountId: row.accountId, teamId: row.team.id) },
+                    onCompose: {
+                        // EXP-1170: the draft id is minted HERE, at tap time.
+                        guard let target = composeTarget else { return }
+                        navigate {
+                            path.append(.issueDraft(
+                                accountId: target.accountId,
+                                draftId: UUID().uuidString.lowercased(),
+                                boardId: target.boardId
+                            ))
                         }
-                    }
+                    },
+                    // EXP-825: the chat arm SWITCHES to Home (the empty-seed
+                    // page, a bar-visible root) — never a push.
+                    onChat: { selectTab(.agent) }
                 )
-                .ignoresSafeArea(.keyboard)
                 // Slides out of the way when a screen claims its slot, so the
                 // bulk bar arrives in the space the bar just left rather than
                 // popping in on top of it.
@@ -856,6 +936,10 @@ struct MainNavigator: View {
             }
         }
         .animation(motion.standard, value: tabBarChrome.suppressed)
+        .onChange(of: "\(deps.auth.activeAccountId ?? "")|\(teamState.activeTeamId ?? "")", initial: true) { _, _ in
+            guard let accountId = deps.auth.activeAccountId else { return }
+            boardFolders.bind(accountId: accountId, teamId: teamState.activeTeamId, section: "board", db: deps.db)
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
             keyboardVisible = true
         }
@@ -864,44 +948,47 @@ struct MainNavigator: View {
         }
     }
 
-    // MARK: - Docked bar
+    // MARK: - Tab bar
 
-    /// #EXP-2109 (`shell.pages`): the page on top; nil = a detail.
-    private var topPage: Chats.Shell.Page? {
-        guard let top = path.last else { return tab.page }
-        return top.phonePage
+    /// The lit tab: the root's (Devices is pushed over the Team root, so the
+    /// Team tab stays lit there, #EXP-1384).
+    private var barSelection: Chats.Shell.Tab? {
+        tab.shellTab
     }
 
-    /// The tab the page on top lights.
-    private var litTab: Chats.Shell.Tab? { topPage?.tab }
-
-    /// Only the listed pages wear the bar; it hides while the keyboard is up
-    /// (the Assistant's composer, a settings field).
-    private var showsDock: Bool {
-        !isSplit && topPage?.bar == true && !keyboardVisible
+    /// The Board tab's board: the current one, while it is the active team's.
+    private var activeBoard: BoardEntity? {
+        guard let current = currentBoard else { return nil }
+        return teamState.boards.first { $0.id == current.boardId }
     }
 
-    private func dockInset(for page: Chats.Shell.Page?) -> Bool {
-        page?.bar == true && !isSplit && !keyboardVisible && !tabBarChrome.suppressed
+    /// The board menu's New board row (the active team's create-board sheet).
+    private var newBoardAction: (() -> Void)? {
+        guard let accountId = deps.auth.activeAccountId, let teamId = teamState.activeTeam?.id else { return nil }
+        return { createBoardTarget = CreateBoardTarget(accountId: accountId, teamId: teamId) }
     }
 
-    /// The New popup's Chat: the composer page, pushed (once).
-    private func openNewChat() {
-        guard let accountId = deps.auth.activeAccountId else { return }
-        let route = AppRoute.agent(accountId: accountId, seed: .empty)
-        guard path.last != route else { return }
-        navigate { path.append(route) }
+    /// The team menu's rows: the Team page's list, every server's teams.
+    private var teamMenuRows: [MobileTabBar.TeamRow] {
+        let groups = teamLoader?.groups ?? []
+        return groups.flatMap { group in
+            group.teams.map {
+                MobileTabBar.TeamRow(
+                    team: $0,
+                    accountId: group.accountId,
+                    server: groups.count > 1 ? group.hostname : nil
+                )
+            }
+        }
     }
 
-    /// #EXP-1815: the screen on top (a tab root that is a chat, the split
-    /// layout's chat / agent entry, when nothing is pushed over it).
+    /// #FEED-232: the page header's Inbox count: the unread rows of the
+    /// ACTIVE team (or team-less ones).
+    /// #EXP-1815: the screen on top (the split layout's chat / agent entry
+    /// is its detail root when nothing is pushed over it).
     private var viewingRoute: AppRoute? {
         if let top = path.last { return top }
-        guard let accountId = deps.auth.activeAccountId else { return nil }
-        guard isSplit else {
-            guard tab == .assistant, let assistant = sessionLists.assistant else { return nil }
-            return .agentChannel(accountId: accountId, agentId: assistant.agentId)
-        }
+        guard isSplit, let accountId = deps.auth.activeAccountId else { return nil }
         switch sidebar {
         case let .chat(rootId): return .chat(accountId: accountId, chatId: rootId)
         case let .agentChannel(agentId): return .agentChannel(accountId: accountId, agentId: agentId)
@@ -909,11 +996,11 @@ struct MainNavigator: View {
         }
     }
 
-    /// #FEED-232: the page header's Inbox count: every team's unread rows.
     private var activeInboxUnreadCount: Int {
-        unreadRows.rows.filter {
+        let teamId = teamState.activeTeamId
+        return unreadRows.rows.filter {
             InboxRoute.inboxRowListed(
-                type: $0.type, rowTeamId: $0.teamId, issueId: $0.issueId, teamId: nil, teamIds: unreadRows.teamIds
+                type: $0.type, rowTeamId: $0.teamId, issueId: $0.issueId, teamId: teamId, teamIds: unreadRows.teamIds
             )
         }.count
     }
@@ -921,16 +1008,38 @@ struct MainNavigator: View {
     /// #FEED-232: the app icon's number (`NavBadges.appIconBadge` over every
     /// team's needs-you rows).
     private var appIconBadgeCount: Int {
-        // #EXP-1950: installs waiting for approval are Needs you rows.
-        NavBadges.appIconBadge([
-            widgetNeedsYou.count, deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").rows.count,
-        ])
+        // #EXP-1950: installs waiting for approval are rows of every team's Needs you.
+        let pendingInstalls = deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").rows.count
+        return NavBadges.appIconBadge(teamState.teams.map {
+            sessionLists.needsYou(teamId: $0.id, me: deps.auth.userId, now: Date()).count + pendingInstalls
+        })
     }
 
     /// #EXP-1830 (home-widgets.json `needs-you`): THE Needs you rows over
     /// every team of the active account, newest first.
     private var widgetNeedsYou: [NeedsYou.Row] {
-        sessionLists.needsYou(me: deps.auth.userId, now: Date())
+        var seen = Set<String>()
+        return teamState.teams
+            .flatMap { sessionLists.needsYou(teamId: $0.id, me: deps.auth.userId, now: Date()) }
+            .filter { seen.insert($0.messageId).inserted }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// The bar floats only over the tab ROOTS (EXP-1210) and pushed board
+    /// lists; detail and settings screens — Search among them since EXP-686,
+    /// and a SEEDED Home pushed by a play button — get the full height
+    /// back. On the Home root the bar also stands down while the keyboard is
+    /// up, so it never rides above the keyboard over the composer.
+    private var showsTabBar: Bool {
+        guard let top = path.last else {
+            return tab == .agent ? !keyboardVisible : true
+        }
+        if case .board = top { return true }
+        // #EXP-1384: Devices (a Team page row) keeps the bar, Team lit.
+        if case .teamSettingsSection(_, _, .devices) = top { return true }
+        // #EXP-1388: the Archived page (pushed over Chats) keeps it too.
+        if case .archivedChats = top { return true }
+        return false
     }
 
     /// EXP-1210: the root a bar entry (or a link to its destination) lands
@@ -944,7 +1053,6 @@ struct MainNavigator: View {
             return
         }
         navigate {
-            assistantPage = nil
             // A root SWAP, never a pop/push transition.
             var swap = Transaction()
             swap.disablesAnimations = true
@@ -965,70 +1073,21 @@ struct MainNavigator: View {
         path = []
     }
 
-    /// Parks the current tab's pushes before a switch away from it.
+    /// Parks the current tab's pushes before a switch away from it; Home
+    /// drops them (it always lands on its root).
     private func park() {
-        savedPaths[tab] = path
+        savedPaths[tab] = tab.keepsPushes ? path : nil
     }
 
     /// The bar destination a route NAMES, if any — those routes never push
-    /// (EXP-1210).
+    /// (EXP-1210); an empty-seed Home is the Home root itself.
     private static func tab(for route: AppRoute) -> MainTab? {
         switch route {
-        case .chats: .chats
-        case .settings: .settings
-        default: nil
-        }
-    }
-
-    private struct AssistantLanding {
-        let page: ChatPage?
-    }
-
-    /// #EXP-2109: the Assistant's conversation opens as its TAB, from
-    /// anywhere; the page of it the route names (nil = its Conversation).
-    private func assistantLanding(_ route: AppRoute) -> AssistantLanding? {
-        guard !splitActive, let assistant = sessionLists.assistant else { return nil }
-        switch route {
-        case let .agentChannel(_, agentId, settings) where agentId == assistant.agentId && !settings:
-            return AssistantLanding(page: nil)
-        case let .chat(_, chatId, child) where chatId == sessionLists.agentConversations[assistant.agentId]:
-            return AssistantLanding(page: child)
-        default:
-            return nil
-        }
-    }
-
-    /// Opens a route: a bar destination (a link, an entity chip) and the
-    /// Assistant's conversation switch to their tab, a chat already on the
-    /// stack is popped back to (EXP-1284 T-N9), anything else pushes.
-    private func openRoute(_ route: AppRoute) {
-        // #NEW-12: the split layout's entries are sidebar picks.
-        if splitActive, let item = sidebarItem(for: route) {
-            selectSidebar(item)
-        } else if let target = Self.tab(for: route) {
-            selectTab(target)
-        } else if let landing = assistantLanding(route) {
-            navigate { landOnAssistant(landing.page) }
-        } else if case let .chat(_, chatId, child) = route, let index = Self.chatIndex(chatId, in: path) {
-            navigate { landOnChat(at: index, chatId: chatId, page: child) }
-        } else {
-            navigate { path.append(route) }
-        }
-    }
-
-    /// A cold launch's target may be the Assistant: its tab is known once the
-    /// lists' first emission landed (bounded: the target opens either way).
-    private func awaitSessionLists() async {
-        for _ in 0..<30 where !sessionLists.loaded {
-            try? await Task.sleep(for: .milliseconds(100))
-        }
-    }
-
-    private func landOnAssistant(_ page: ChatPage?) {
-        assistantPage = page
-        landOnRoot(of: .assistant)
-        if let page, let rootId = sessionLists.assistant.flatMap({ sessionLists.agentConversations[$0.agentId] }) {
-            chatLanding.land(chatId: rootId, page: page)
+        case .chats: return .chats
+        case .apps: return .apps
+        case .settings: return .team
+        case let .agent(_, seed) where seed == .empty: return .agent
+        default: return nil
         }
     }
 
@@ -1037,34 +1096,46 @@ struct MainNavigator: View {
     private var tabRoot: some View {
         let accountId = deps.auth.activeAccountId ?? ""
         switch tab {
+        case .agent:
+            AgentPageView(seed: .empty, isTabRoot: true)
+                .environment(\.accountId, accountId)
+        case .issues:
+            IssuesHomeView(
+                syncing: syncing,
+                currentBoard: currentBoard,
+                boardLoader: boardLoader,
+                onSelectBoard: { accountId, boardId in
+                    selectBoard(accountId: accountId, boardId: boardId)
+                }
+            )
+        case .team:
+            TeamTabView(
+                onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
+            )
+                .environment(\.accountId, accountId)
+        case .apps:
+            AppsListScreen()
+                .environment(\.accountId, accountId)
         case .chats:
             ChatsView()
-                .environment(\.accountId, accountId)
-        case .teams:
-            TeamsView(onSwitchAccount: { accountId, teamId in switchAccount(accountId, landingOn: teamId) })
-                .environment(\.accountId, accountId)
-        case .assistant:
-            AssistantTabView(page: assistantPage)
-                .environment(\.accountId, accountId)
-                // A tab root: nothing to go back to.
-                .environment(\.detailColumnRoot, true)
-        case .settings:
-            SettingsTabView()
                 .environment(\.accountId, accountId)
         }
     }
 
-    /// New issue's board: the board on screen, else the last used board, else
-    /// the first board of the first team; nil = the viewer has no board.
+    /// Compose targets the board in view: a pushed board list wins, and every
+    /// other bar-visible surface (Issues root, Devices, Inbox,
+    /// Chats) falls back to the CURRENT board — the one the Issues
+    /// tab is pointed at, resolved from the last-used board, else the first of
+    /// the active team (EXP-973). Filing an issue is never route-dependent;
+    /// only a team with no board at all leaves the arm with nowhere to go.
     private var composeTarget: (accountId: String, boardId: String)? {
-        guard let accountId = deps.auth.activeAccountId else { return nil }
-        if case let .board(boardAccount, id)? = path.last { return (boardAccount, id) }
-        if isSplit, case let .board(id) = sidebar { return (accountId, id) }
-        if let last = SharedBoardMirror.readLastUsed(), last.accountId == accountId,
-           teamState.boards.contains(where: { $0.id == last.boardId }) {
-            return (accountId, last.boardId)
+        if case let .board(accountId, id)? = path.last {
+            return (accountId, id)
         }
-        return teamState.firstBoard.map { (accountId, $0.id) }
+        if let current = currentBoard {
+            return (current.accountId, current.boardId)
+        }
+        return nil
     }
 
     /// EXP-1212: every navigator-level path change runs through here. A New
@@ -1250,7 +1321,8 @@ extension MainNavigator {
             picks: sidebarPicks,
             sidebar: AnyView(TabletSidebar(
                 selection: sidebar,
-                draftCount: draftCount,
+                currentBoardId: currentBoard?.boardId,
+                draftCount: draftTeamIds.filter { $0 == teamState.activeTeamId }.count,
                 onSelect: { selectSidebar($0) },
                 onSearch: { openSearch() },
                 onNewIssue: newIssueAction
@@ -1262,9 +1334,7 @@ extension MainNavigator {
             listPush: listPushAction,
             destination: { route, pushed in
                 pushed
-                    ? AnyView(destination(for: route)
-                        .bareBackButton(enabled: !route.isIssueDraft)
-                        .environment(\.pageHeaderAsRoot, false))
+                    ? AnyView(destination(for: route).bareBackButton(enabled: !route.isIssueDraft))
                     : AnyView(destination(for: route))
             }
         )
@@ -1286,7 +1356,7 @@ extension MainNavigator {
         .accessibilityHidden(true)
     }
 
-    /// The New issue page (`composeTarget`).
+    /// The New issue page on the board in view (the tab bar's compose arm).
     private var newIssueAction: (() -> Void)? {
         guard let target = composeTarget else { return nil }
         return {
@@ -1309,10 +1379,10 @@ extension MainNavigator {
     private func sidebarItem(for route: AppRoute) -> SidebarItem? {
         switch route {
         case .chats: .chats
+        case .apps: .apps
         case .settings: .settings
         case let .agent(_, seed) where seed == .empty: .agent
         case .needsYou: .needsYou
-        case .devices: .devices
         case let .board(_, id): .board(id)
         default: nil
         }
@@ -1322,6 +1392,10 @@ extension MainNavigator {
     /// draft hold like every other path change).
     private func selectSidebar(_ item: SidebarItem) {
         navigate {
+            if case let .board(boardId) = item, let accountId = deps.auth.activeAccountId,
+               currentBoard?.boardId != boardId {
+                selectBoard(accountId: accountId, boardId: boardId)
+            }
             var swap = Transaction()
             swap.disablesAnimations = true
             withTransaction(swap) {
@@ -1343,12 +1417,19 @@ extension MainNavigator {
             return AnyView(ChatsView().environment(\.accountId, accountId))
         case .drafts:
             return AnyView(TabletDraftsColumn().environment(\.accountId, accountId))
+        case .apps:
+            return AnyView(AppsListScreen().environment(\.accountId, accountId))
         case .settings:
-            return AnyView(SettingsTabView().environment(\.accountId, accountId))
-        case let .team(teamId):
-            return AnyView(TeamTreePage(teamId: teamId).id(teamId).environment(\.accountId, accountId))
-        case let .board(boardId):
-            return AnyView(BoardPageView(boardId: boardId).id(boardId).environment(\.accountId, accountId))
+            return AnyView(TeamTabView(
+                onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
+            ).environment(\.accountId, accountId))
+        case .board:
+            return AnyView(IssuesHomeView(
+                syncing: syncing,
+                currentBoard: currentBoard,
+                boardLoader: boardLoader,
+                onSelectBoard: { accountId, boardId in selectBoard(accountId: accountId, boardId: boardId) }
+            ))
         case .agent, .devices, .agentChannel, .app, .chat:
             return nil
         }
@@ -1369,7 +1450,7 @@ extension MainNavigator {
         case let .chat(rootId):
             return AnyView(ChatScreen(rootId: rootId, initialPage: .conversation).id(rootId)
                 .environment(\.accountId, accountId))
-        case .needsYou, .chats, .drafts, .settings, .team, .board:
+        case .needsYou, .chats, .drafts, .apps, .settings, .board:
             return nil
         }
     }
@@ -1380,21 +1461,9 @@ extension MainNavigator {
         case .search:
             SearchView()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
-        case let .team(accountId, teamId):
-            TeamTreePage(teamId: teamId)
-                .id(teamId)
-                .environment(\.accountId, accountId)
-        case let .folder(accountId, teamId, folderId):
-            TeamTreePage(teamId: teamId, folderId: folderId)
-                .id(folderId)
-                .environment(\.accountId, accountId)
-        case let .teamSettings(accountId, teamId):
-            TeamSettingsView(teamId: teamId)
-                .id(teamId)
-                .environment(\.accountId, accountId)
-        case let .devices(accountId):
+        case .agents:
             AgentsView()
-                .environment(\.accountId, accountId)
+                .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .prompt(accountId, teamId, id):
             PromptSettingsPage(teamId: teamId, promptId: id)
                 .environment(\.accountId, accountId)
@@ -1404,6 +1473,9 @@ extension MainNavigator {
         case let .agentChannel(accountId, agentId, settings):
             AgentChatRoute(agentId: agentId, settings: settings)
                 .id(agentId)
+                .environment(\.accountId, accountId)
+        case let .apps(accountId):
+            AppsListScreen()
                 .environment(\.accountId, accountId)
         case let .app(accountId, appId, screen):
             AppEditorScreen(appId: appId, screen: screen)
@@ -1434,8 +1506,7 @@ extension MainNavigator {
             NeedsYouPage()
                 .environment(\.accountId, accountId)
         case let .board(accountId, id):
-            BoardPageView(boardId: id)
-                .id(id)
+            IssueListView(boardId: id)
                 .environment(\.accountId, accountId)
         case let .issue(accountId, id):
             // `.id(id)`: a card swaps the top route IN PLACE, and the screen
@@ -1483,10 +1554,14 @@ extension MainNavigator {
                 .id(chatId)
                 .environment(\.accountId, accountId)
         case let .agent(accountId, seed):
+            // Always a pushed detail (a play button's seed): Home is the
+            // stack's root (`tabRoot`, EXP-1210).
             AgentPageView(seed: seed)
                 .environment(\.accountId, accountId)
         case .settings:
-            SettingsTabView()
+            TeamTabView(
+                onSwitchTeam: { accountId, teamId in switchTeam(accountId: accountId, teamId: teamId) }
+            )
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .serverDetail(accountId):
             ServerDetailView(accountId: accountId)
@@ -1495,9 +1570,6 @@ extension MainNavigator {
                 .environment(\.accountId, accountId)
         case let .notificationSettings(accountId):
             NotificationSettingsPage(accountId: accountId)
-                .environment(\.accountId, accountId)
-        case let .securitySettings(accountId):
-            SecuritySettingsPage(accountId: accountId)
                 .environment(\.accountId, accountId)
         case let .assistantSettings(accountId):
             AssistantSettingsPage()
@@ -1539,6 +1611,38 @@ extension MainNavigator {
             do {
                 for try await ws in wsObs.removeDuplicates().values(in: pool) {
                     teamState.teams = ws
+                    // Re-resolve a dangling selection (EXP-43): after a
+                    // team delete syncs out, an activeTeamId
+                    // pointing at a vanished row must not stick around.
+                    // Non-empty emissions only — "Resync now" wipes every
+                    // table before relaunching the pipeline, so this
+                    // observation emits a transient []; nilling there would
+                    // silently re-point a still-valid selection at the
+                    // arbitrary first row once the refetch lands. A real
+                    // delete still heals: its 409 refetch replaces rows in
+                    // one transaction, so the emission is non-empty (or
+                    // becomes non-empty via the personal-team heal).
+                    if !ws.isEmpty,
+                       let active = teamState.activeTeamId,
+                       !ws.contains(where: { $0.id == active }) {
+                        teamState.activeTeamId = nil
+                    }
+                    // EXP-1373: start on the account's remembered team; a
+                    // remembered team that is gone is forgotten (and the
+                    // board re-resolved without it).
+                    let accountId = deps.auth.activeAccountId ?? ""
+                    let remembered = SharedBoardMirror.readActiveTeam(accountId: accountId)
+                    if !ws.isEmpty, let remembered, !ws.contains(where: { $0.id == remembered }) {
+                        SharedBoardMirror.clearActiveTeam(accountId: accountId)
+                        resolveCurrentBoard()
+                    }
+                    if teamState.activeTeamId == nil {
+                        if let remembered, let team = ws.first(where: { $0.id == remembered }) {
+                            teamState.activeTeamId = team.id
+                        } else if let first = ws.first {
+                            teamState.activeTeamId = first.id
+                        }
+                    }
                 }
             } catch {}
         }
@@ -1546,10 +1650,11 @@ extension MainNavigator {
             do {
                 for try await proj in projObs.removeDuplicates().values(in: pool) {
                     teamState.boards = proj
+                    if pendingTeamAlign { alignActiveTeam() }
                 }
             } catch {}
         }
-        // Unread notifications drive the page header's inbox count. The synced issue
+        // Unread notifications drive the tab bar's inbox dot. The synced issue
         // ids ride along because the dot must count ONLY rows the inbox can
         // render and clear (InboxViewModel.isRenderable, REV-15): delivered
         // notification rows outlive membership, so after leaving a team its
@@ -1585,22 +1690,158 @@ extension MainNavigator {
                 }
             } catch {}
         }
+        // EXP-1272: drafts light the Inbox dot too. The same resolved rows
+        // as the Drafts segment (`DraftsViewModel`), so the dot and the
+        // segment agree: a draft whose board is gone lights neither. Only
+        // the ACTIVE team's drafts count (web `useDraftEntries(teamId)`),
+        // so the rows' team ids are kept and the dot reads them against
+        // `teamState.activeTeamId` (a team switch moves the dot at once).
         let draftsObs = ValueObservation.tracking { db in
-            try IssueDraftQueries.resolved(db: db).count
+            try IssueDraftQueries.resolved(db: db).map(\.draft.teamId)
         }
         let draftsTask = Task { @MainActor in
             do {
-                for try await count in draftsObs.removeDuplicates().values(in: pool) {
-                    draftCount = count
+                for try await teamIds in draftsObs.removeDuplicates().values(in: pool) {
+                    draftTeamIds = teamIds
                 }
             } catch {}
         }
-        // EXP-1291: the session tree's lists; #EXP-2109: the Teams pages'.
+        // EXP-1291: the session tree's lists (the Chats tab + its dot,
+        // Home's Running band, the launcher and board switcher dots).
         sessionLists.bind(
             accountId: deps.auth.activeAccountId ?? "", userId: deps.auth.userId, db: deps.db
         )
-        sidebarTree.bind(accountId: deps.auth.activeAccountId ?? "", userId: deps.auth.userId, db: deps.db)
         observationTasks = [wsTask, projTask, notifTask, draftsTask]
+    }
+
+    // MARK: - Current board (Issues tab)
+
+    /// Every selectable board across all signed-in servers, as
+    /// `accountId/boardId` keys. `MultiAccountBoardLoader` already limits
+    /// this to boards of signed-in accounts, so key membership doubles as
+    /// validity.
+    private var availableBoardKeys: [String] {
+        (boardLoader?.groups ?? []).flatMap { group in
+            group.teamBlocks.flatMap { block in
+                block.boards.map { "\(group.accountId)/\($0.id)" }
+            }
+        }
+    }
+
+    /// Resolution order: keep a still-valid selection → last-used board →
+    /// first board of the first team (active account sorts first) →
+    /// none (empty state, switcher disabled). A changed resolution also
+    /// re-points the active team at the board's team (EXP-400).
+    private func resolveCurrentBoard() {
+        let available = Set(availableBoardKeys)
+        if let current = currentBoard,
+           available.contains("\(current.accountId)/\(current.boardId)") {
+            return
+        }
+        // EXP-1373: the active account's remembered team wins over a
+        // last-used board of another team (which would pull the shell back
+        // to that board's team); a board-less one leaves no board. An
+        // unknown team (teams not synced yet) counts until the teams
+        // observation drops a stale one.
+        if let accountId = deps.auth.activeAccountId,
+           let teamId = SharedBoardMirror.readActiveTeam(accountId: accountId),
+           teamState.teams.isEmpty || teamState.teams.contains(where: { $0.id == teamId }) {
+            guard let boards = boardLoader?.groups.first(where: { $0.accountId == accountId })?
+                .teamBlocks.first(where: { $0.team.id == teamId })?.boards else {
+                currentBoard = nil
+                return
+            }
+            let last = SharedBoardMirror.readLastUsed()
+            if !(last?.accountId == accountId && boards.contains { $0.id == last?.boardId }),
+               let board = boards.first {
+                currentBoard = CurrentBoardRef(accountId: accountId, boardId: board.id)
+                alignActiveTeam()
+                return
+            }
+        }
+        if let last = SharedBoardMirror.readLastUsed(),
+           available.contains("\(last.accountId)/\(last.boardId)") {
+            currentBoard = CurrentBoardRef(accountId: last.accountId, boardId: last.boardId)
+            alignActiveTeam()
+            return
+        }
+        if let group = boardLoader?.groups.first,
+           let board = group.teamBlocks.first?.boards.first {
+            currentBoard = CurrentBoardRef(accountId: group.accountId, boardId: board.id)
+            alignActiveTeam()
+            return
+        }
+        currentBoard = nil
+    }
+
+    private func selectBoard(accountId: String, boardId: String) {
+        // Remember the choice so the Share Extension defaults its picker to it
+        // and the next launch lands back in it.
+        SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
+        if let teamId = boardLoader?.groups.first(where: { $0.accountId == accountId })?
+            .teamBlocks.first(where: { $0.boards.contains { $0.id == boardId } })?.team.id {
+            SharedBoardMirror.writeActiveTeam(accountId: accountId, teamId: teamId)
+        }
+        // EXP-1275 (D8 BLOCKING): a pick that switches ACCOUNT or TEAM covers
+        // the window with the mark and one line while it lands.
+        if accountId != (deps.auth.activeAccountId ?? "") {
+            let account = deps.auth.accounts.first { $0.id == accountId }
+            let name = account?.userEmail ?? account?.displayName ?? ""
+            BlockingFeedback.shared.show(FeedbackStates.Blocking.switchAccount(name)) {
+                applyBoardSelection(accountId: accountId, boardId: boardId)
+            }
+            return
+        }
+        if let teamId = teamState.boards.first(where: { $0.id == boardId })?.teamId,
+           teamId != teamState.activeTeamId,
+           let team = teamState.teams.first(where: { $0.id == teamId }) {
+            BlockingFeedback.shared.show(FeedbackStates.Blocking.switchTeam(team.name)) {
+                applyBoardSelection(accountId: accountId, boardId: boardId)
+            }
+            return
+        }
+        applyBoardSelection(accountId: accountId, boardId: boardId)
+    }
+
+    private func applyBoardSelection(accountId: String, boardId: String) {
+        currentBoard = CurrentBoardRef(accountId: accountId, boardId: boardId)
+        // EXP-400: the tab bar's team-scoped surfaces (Home's composer)
+        // key off the active team — without a
+        // re-point here a cross-team pick left them all serving the previous
+        // team. A cross-server pick activates the picked account instead
+        // (Android parity): `.id(activeAccountId)` recreates this navigator
+        // and the fresh resolve lands on the just-written last-used board,
+        // aligning the team on the way.
+        if accountId != (deps.auth.activeAccountId ?? "") {
+            deps.auth.switchAccount(id: accountId)
+            return
+        }
+        alignActiveTeam()
+    }
+
+    /// Points the active team at the current board's team (EXP-400). Called
+    /// only when the current board actually CHANGES — a team picked elsewhere
+    /// (the team switcher) deliberately differs from the current board's, and
+    /// that choice must survive unrelated re-renders and sync deltas.
+    private func alignActiveTeam() {
+        guard let current = currentBoard,
+              current.accountId == (deps.auth.activeAccountId ?? "") else {
+            // A foreign-account board can't be looked up in the active
+            // account's pool — nothing to align (and nothing pending).
+            pendingTeamAlign = false
+            return
+        }
+        guard let teamId = teamState.boards.first(where: { $0.id == current.boardId })?.teamId else {
+            // Boards not observed yet (cold start / fresh account switch) —
+            // retry on the next boards emission.
+            pendingTeamAlign = true
+            return
+        }
+        pendingTeamAlign = false
+        if teamState.activeTeamId != teamId {
+            teamState.activeTeamId = teamId
+        }
+        SharedBoardMirror.writeActiveTeam(accountId: current.accountId, teamId: teamId)
     }
 
     /// Push the issue detail from a deep-link/push tap. Shared by both drain
@@ -1616,6 +1857,19 @@ extension MainNavigator {
     private func appendIssueRoute(
         accountId: String, issueId: String, replacingTop: Bool = false, commentId: String? = nil
     ) {
+        // EXP-1373: ONE active team: a link into another team switches it
+        // first, silently.
+        // The local `issues` row has no `team_id`: resolve through its board.
+        // #PERF-5: off main; the switch lands just after the push.
+        Task { @MainActor in
+            await activateTeam(accountId: accountId) { db in
+                try String.fetchOne(db, sql: """
+                    SELECT "b"."team_id" FROM "issues" AS "i"
+                    JOIN "boards" AS "b" ON "b"."id" = "i"."board_id"
+                    WHERE "i"."id" = ?
+                    """, arguments: [issueId])
+            }
+        }
         let route: AppRoute = if let commentId {
             .issueComment(accountId: accountId, id: issueId, commentId: commentId)
         } else {
@@ -1633,24 +1887,54 @@ extension MainNavigator {
         path.append(route)
     }
 
-    /// EXP-801: land on the Inbox for the push's recipient — it renders the
-    /// ACTIVE account, so a push for another signed-in account switches first
-    /// and leaves the tap PENDING (`.id(activeAccountId)` recreates this
-    /// navigator and its cold-launch `.task` drains it).
+    /// EXP-801: land on My Work's Inbox segment for the push's recipient —
+    /// My Work renders the ACTIVE account, so a push for another signed-in
+    /// account switches first (the issue routes carry their account instead).
     private func openInboxFromPush() {
-        let accountId = issueAccountId(forUserId: deps.deepLinkBus.pendingInboxUserId)
+        let (_, userId, pushTeamId) = deps.deepLinkBus.consumeInbox()
+        let accountId = issueAccountId(forUserId: userId)
         if !accountId.isEmpty, accountId != deps.auth.activeAccountId {
-            deps.auth.switchAccount(id: accountId)
-            return
+            // EXP-1373: the rebuilt navigator opens on the row's team.
+            // #EXP-2079: NEVER a team that account does not sync (the
+            // Assistant's chat's push names its member's personal team: no
+            // teams row, so remembering it would drop the last team instead);
+            // the navigator then opens on the team it last had.
+            Task { @MainActor in
+                if let pushTeamId, await teamSynced(pushTeamId, accountId: accountId) {
+                    let block = boardLoader?.groups.first { $0.accountId == accountId }?
+                        .teamBlocks.first { $0.team.id == pushTeamId }
+                    if let board = block?.boards.first {
+                        SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: board.id)
+                    }
+                    SharedBoardMirror.writeActiveTeam(accountId: accountId, teamId: pushTeamId)
+                }
+                deps.auth.switchAccount(id: accountId)
+            }
+        } else {
+            // EXP-1373: the inbox lists the ACTIVE team's rows only, so the
+            // tapped row's team becomes active first: the payload's, else
+            // the newest unread row's (the one the push announced).
+            // #PERF-5: off main; the switch lands just after the push.
+            Task { @MainActor in
+                await activateTeam(accountId: accountId) { db in
+                    if let pushTeamId { return pushTeamId }
+                    return try String.fetchOne(db, sql: """
+                        SELECT COALESCE("n"."team_id", "b"."team_id") FROM "notifications" AS "n"
+                        LEFT JOIN "issues" AS "i" ON "i"."id" = "n"."issue_id"
+                        LEFT JOIN "boards" AS "b" ON "b"."id" = "i"."board_id"
+                        WHERE "n"."read_at" IS NULL
+                        ORDER BY "n"."created_at" DESC LIMIT 1
+                        """)
+                }
+            }
         }
-        _ = deps.deepLinkBus.consumeInbox()
         // EXP-1373: the Inbox is a page pushed over the Chats tab.
         landOnRoot(of: .chats)
         path.append(.myWork)
     }
 
-    /// #EXP-1534 (inbox-route.json): land on the Devices page (Settings ›
-    /// Devices) and hand it the devices ROW id whose
+    /// #EXP-1534 (inbox-route.json): land on the Devices page (the Team
+    /// tab's Devices row, the same page) and hand it the devices ROW id whose
     /// settings sheet it opens. A push for another signed-in account switches
     /// first and leaves the tap PENDING: `.id(activeAccountId)` recreates this
     /// navigator and its cold-launch `.task` drains it under that account.
@@ -1665,24 +1949,26 @@ extension MainNavigator {
         _ = bus.consumeDevice()
         bus.pendingDeviceSettingsRowId = rowId
         // Already on the Devices page: it opens the sheet in place.
-        if case .devices? = path.last { return }
-        landOnRoot(of: .settings)
-        path.append(.devices(accountId: accountId))
+        if case .teamSettingsSection(_, _, .devices)? = path.last { return }
+        landOnRoot(of: .team)
+        path.append(.teamSettingsSection(
+            accountId: accountId, teamId: teamState.activeTeamId ?? "", section: .devices
+        ))
     }
 
     /// #EXP-1638 / #EXP-1830 (app-shortcuts.json OPENING): open what an
     /// app-icon shortcut, a widget tap or an App Intent names, through the
     /// openers the app already has, with THE back stack rule: whatever was
-    /// showing drops back to the Chats root, then the target is pushed
-    /// (`launch`), so Back returns to Chats; the target already on
+    /// showing drops back to the Agent tab root, then the target is pushed
+    /// (`launch`), so Back returns to the Agent tab; the target already on
     /// top is not pushed twice. A chat that is gone opens the start screen.
-    /// New issue opens on `composeTarget`
+    /// New issue opens on the current board, else the active team's first
     /// (the page's board picker moves it); with no board synced yet it waits
     /// for the boards, at most `shortcutBoardWait`, then drops.
     private func openLaunch() {
         let bus = deps.deepLinkBus
         guard let target = bus.pendingLaunch else { return }
-        if target == .shortcut(.newIssue), composeTarget == nil {
+        if target == .shortcut(.newIssue), shortcutBoard == nil {
             Task { @MainActor in
                 try? await Task.sleep(for: Self.shortcutBoardWait)
                 if bus.pendingLaunch == .shortcut(.newIssue) { _ = bus.consumeLaunch() }
@@ -1693,48 +1979,56 @@ extension MainNavigator {
         let accountId = deps.auth.activeAccountId ?? ""
         switch target {
         case .home:
-            landOnRoot(of: .chats)
+            landOnRoot(of: .agent)
         case .shortcut(.newIssue):
-            guard let board = composeTarget else { return }
+            guard let board = shortcutBoard else { return }
             launch(.issueDraft(
                 accountId: board.accountId,
                 draftId: UUID().uuidString.lowercased(),
                 boardId: board.boardId
             ))
         case .shortcut(.newChat):
+            landOnRoot(of: .agent)
             bus.pendingComposerFocus = true
-            launch(.agent(accountId: accountId, seed: .empty))
         case .shortcut(.search):
             launch(.search)
         case let .shortcut(.chat(sessionId)):
-            landOnRoot(of: .chats)
+            landOnRoot(of: .agent)
             Task { @MainActor in
                 let exists = (try? await deps.db.pool(forAccountId: accountId).read { db in
                     try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM \"sessions\" WHERE \"id\" = ?)", arguments: [sessionId])
                 }) ?? nil
                 guard exists == true else { return }
+                await activateTeam(forSession: sessionId, accountId: accountId)
                 launch(await AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
             }
         case let .shortcut(.agent(agentId)):
             launch(.agentChannel(accountId: accountId, agentId: agentId))
+            Task { @MainActor in
+                await activateTeam(accountId: accountId) { db in
+                    try String.fetchOne(db, sql: "SELECT \"team_id\" FROM \"agents\" WHERE \"id\" = ?", arguments: [agentId])
+                }
+            }
         case let .issue(issueId):
-            landOnRoot(of: .chats)
+            landOnRoot(of: .agent)
             appendIssueRoute(accountId: accountId, issueId: issueId)
         case let .board(boardId):
             launch(.board(accountId: accountId, id: boardId))
-        case .myIssues:
-            // The last board's own chip.
-            guard let board = composeTarget else {
-                landOnRoot(of: .chats)
-                return
+            Task { @MainActor in
+                await activateTeam(accountId: accountId) { db in
+                    try String.fetchOne(db, sql: "SELECT \"team_id\" FROM \"boards\" WHERE \"id\" = ?", arguments: [boardId])
+                }
             }
+        case .myIssues:
+            // The Board tab's own chip: a tab root, not a push.
             bus.pendingMyIssues = true
-            launch(.board(accountId: board.accountId, id: board.boardId))
+            landOnRoot(of: .issues)
         case .needsYou:
             launch(.needsYou(accountId: accountId))
         case let .needsYouRow(rootId, messageId, opens):
-            landOnRoot(of: .chats)
+            landOnRoot(of: .agent)
             Task { @MainActor in
+                await activateTeam(forSession: rootId, accountId: accountId)
                 launch(await AppRoute.openingNeedsYou(
                     rootId: rootId, messageId: messageId, opens: opens,
                     accountId: accountId, deps: deps
@@ -1743,60 +2037,148 @@ extension MainNavigator {
         }
     }
 
-    /// #EXP-1830 THE BACK STACK RULE: the Chats root under `route` (a board's
-    /// is the Teams root; the Assistant's conversation is its tab); `route`
-    /// already on top of it is left alone.
+    /// #EXP-1830 THE BACK STACK RULE: the Agent tab root under `route`;
+    /// `route` already on top of it is left alone.
     private func launch(_ route: AppRoute) {
-        if splitActive, let item = sidebarItem(for: route) {
-            selectSidebar(item)
-            return
-        }
-        if let landing = assistantLanding(route) {
-            landOnAssistant(landing.page)
-            return
-        }
-        let root: MainTab = if case .board = route { .teams } else { .chats }
-        if tab == root, path == [route] { return }
-        if case .issueDraft = route, tab == root, path.count == 1, path.first?.isIssueDraft == true { return }
-        landOnRoot(of: root)
+        if tab == .agent, path == [route] { return }
+        if case .issueDraft = route, tab == .agent, path.count == 1, path.first?.isIssueDraft == true { return }
+        landOnRoot(of: .agent)
         path = [route]
     }
 
     private static let shortcutBoardWait: Duration = .seconds(15)
 
+    /// The New issue shortcut's board: the tab bar's compose target, else the
+    /// active team's first board, else the account's first.
+    private var shortcutBoard: (accountId: String, boardId: String)? {
+        if let composeTarget { return composeTarget }
+        guard let accountId = deps.auth.activeAccountId else { return nil }
+        let board = teamState.filteredBoards.first
+            ?? teamState.boards.first { $0.teamId == teamState.activeTeamId }
+            ?? teamState.boards.first
+        return board.map { (accountId, $0.id) }
+    }
+
     /// #EXP-1674: land where a link resolved to. Another signed-in account
     /// switches first and leaves the landing PENDING (`.id(activeAccountId)`
-    /// recreates this navigator and its cold-launch `.task` drains it).
+    /// recreates this navigator and its cold-launch `.task` drains it); a link
+    /// into another team switches it silently, then opens.
     private func openLinkLanding() {
         let bus = deps.deepLinkBus
         guard let landing = bus.pendingLinkLanding else { return }
         if !landing.accountId.isEmpty, landing.accountId != deps.auth.activeAccountId {
+            if let teamId = landing.teamId {
+                SharedBoardMirror.writeActiveTeam(accountId: landing.accountId, teamId: teamId)
+            }
             deps.auth.switchAccount(id: landing.accountId)
             return
         }
         _ = bus.consumeLinkLanding()
+        if let teamId = landing.teamId, teamId != teamState.activeTeamId {
+            if teamState.teams.contains(where: { $0.id == teamId }) {
+                applyTeam(teamId)
+            } else {
+                // Cold launch: the teams observation opens on the remembered team.
+                SharedBoardMirror.writeActiveTeam(accountId: landing.accountId, teamId: teamId)
+            }
+        }
         switch landing.destination {
         case .home:
-            landOnRoot(of: .chats)
+            landOnRoot(of: .agent)
         case let .tab(target):
             landOnRoot(of: target)
+        case let .board(boardId):
+            SharedBoardMirror.writeLastUsed(accountId: landing.accountId, boardId: boardId)
+            applyBoardSelection(accountId: landing.accountId, boardId: boardId)
+            landOnRoot(of: .issues)
         case let .push(route, target):
             // #EXP-1674: a link from a running app pushes: back returns to it.
             if let target, !Self.opensOverRun(route, on: path) { landOnRoot(of: target) }
             // EXP-1288: a chat already on the stack is popped back to.
-            openRoute(route)
+            if case let .chat(_, chatId, child) = route, let index = Self.chatIndex(chatId, in: path) {
+                landOnChat(at: index, chatId: chatId, page: child)
+            } else {
+                path.append(route)
+            }
         }
     }
 
-    /// Another server's team: activates that account, whose navigator lands on
-    /// the team's page.
-    private func switchAccount(_ accountId: String, landingOn teamId: String) {
-        Self.landOnTeam = teamId
-        let account = deps.auth.accounts.first { $0.id == accountId }
-        BlockingFeedback.shared.show(
-            FeedbackStates.Blocking.switchAccount(account?.userEmail ?? account?.displayName ?? "")
-        ) {
-            deps.auth.switchAccount(id: accountId)
+    /// EXP-1373 (chats.json `shell`): the phone shows ONE active team; a
+    /// push or link naming another team of the active account switches it
+    /// first, silently (no prompt), re-pointing the board too.
+    /// #PERF-5: the team reads off main (async).
+    private func activateTeam(accountId: String, teamOf query: @escaping @Sendable (Database) throws -> String?) async {
+        guard accountId == (deps.auth.activeAccountId ?? ""),
+              let pool = try? deps.db.pool(forAccountId: accountId),
+              let teamId = (try? await pool.read { try query($0) }) ?? nil,
+              teamId != teamState.activeTeamId,
+              teamState.teams.contains(where: { $0.id == teamId })
+        else { return }
+        applyTeam(teamId)
+    }
+
+    /// #EXP-2079: is `teamId` one of the account's synced teams (never a
+    /// personal team, which has no `teams` row)? Unreadable = no.
+    private func teamSynced(_ teamId: String, accountId: String) async -> Bool {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return false }
+        return (try? await pool.read { try TeamEntity.fetchOne($0, key: teamId) != nil }) ?? false
+    }
+
+    private func activateTeam(forSession sessionId: String, accountId: String) async {
+        await activateTeam(accountId: accountId) { db in
+            try String.fetchOne(db, sql: "SELECT \"team_id\" FROM \"sessions\" WHERE \"id\" = ?", arguments: [sessionId])
+        }
+    }
+
+    /// The Team tab's pick: another server's team activates that account
+    /// first (its navigator rebuilds on the team's board); this server's
+    /// covers the window while the team lands (EXP-1275 D8).
+    private func switchTeam(accountId: String, teamId: String) {
+        if accountId != (deps.auth.activeAccountId ?? "") {
+            let block = boardLoader?.groups.first { $0.accountId == accountId }?
+                .teamBlocks.first { $0.team.id == teamId }
+            if let board = block?.boards.first {
+                SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: board.id)
+            }
+            // A pick on the Team tab lands on that team's Team page.
+            Self.landOnTeamPage = tab == .team
+            // The rebuilt navigator opens on this team, board or not.
+            SharedBoardMirror.writeActiveTeam(accountId: accountId, teamId: teamId)
+            let account = deps.auth.accounts.first { $0.id == accountId }
+            BlockingFeedback.shared.show(
+                FeedbackStates.Blocking.switchAccount(account?.userEmail ?? account?.displayName ?? "")
+            ) {
+                deps.auth.switchAccount(id: accountId)
+            }
+            return
+        }
+        guard teamId != teamState.activeTeamId,
+              let team = teamState.teams.first(where: { $0.id == teamId }) else { return }
+        BlockingFeedback.shared.show(FeedbackStates.Blocking.switchTeam(team.name)) {
+            applyTeam(teamId)
+        }
+    }
+
+    /// Points the active team (and the board in view) at `teamId`.
+    private func applyTeam(_ teamId: String) {
+        teamState.activeTeamId = teamId
+        guard let accountId = deps.auth.activeAccountId else { return }
+        // EXP-1373: remembered per account, so the pick survives relaunch
+        // even when the team has no board to be the last-used one.
+        SharedBoardMirror.writeActiveTeam(accountId: accountId, teamId: teamId)
+        if let current = currentBoard,
+           teamState.boards.first(where: { $0.id == current.boardId })?.teamId == teamId {
+            return
+        }
+        let boards = boardLoader?.groups.first { $0.accountId == accountId }?
+            .teamBlocks.first { $0.team.id == teamId }?.boards ?? []
+        if let board = boards.first {
+            currentBoard = CurrentBoardRef(accountId: accountId, boardId: board.id)
+            SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: board.id)
+        } else {
+            // A board-less team: the Board tab must not keep showing (and
+            // filing into) the previous team's board.
+            currentBoard = nil
         }
     }
 
@@ -1804,7 +2186,6 @@ extension MainNavigator {
         for task in observationTasks { task.cancel() }
         observationTasks = []
         sessionLists.stop()
-        sidebarTree.stop()
     }
 
     // Pushes carry the recipient's server user id: on a multi-account device

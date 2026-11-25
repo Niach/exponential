@@ -36,6 +36,7 @@ struct DraftsListContent: View {
             .padding(.top, 4)
         }
         // Clearance for the floating tab bar (EXP-36).
+        .tabBarBottomInset()
     }
 
     /// Web's `DraftsList` row (`ListRow`: p-3, gap-3): the status glyph, the

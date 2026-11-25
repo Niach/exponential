@@ -6,6 +6,7 @@ import com.exponential.app.data.api.OFFLINE_MESSAGE
 import com.exponential.app.data.api.isOfflineError
 import com.exponential.app.data.api.isPlanLimitError
 import com.exponential.app.ui.components.FailedAction
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.TeamInvitesApi
 import com.exponential.app.data.api.TeamsApi
 import com.exponential.app.data.api.trpcErrorMessage
@@ -48,6 +49,7 @@ class TeamSetupViewModel @Inject constructor(
     private val teamsApi: TeamsApi,
     private val invitesApi: TeamInvitesApi,
     private val holder: DatabaseHolder,
+    private val selection: TeamSelection,
     private val ownDevices: OwnDevices,
 ) : ViewModel() {
 
@@ -101,6 +103,7 @@ class TeamSetupViewModel @Inject constructor(
             runCatching {
                 val team = teamsApi.create(accountId, trimmed)
                 runCatching { holder.database(forAccountId = accountId).teamDao().upsert(team) }
+                selection.select(team.id)
                 team.id
             }.onSuccess {
                 _events.emit(TeamSetupEvent.Created(it))
@@ -137,6 +140,7 @@ class TeamSetupViewModel @Inject constructor(
                 runCatching {
                     holder.database(forAccountId = accountId).teamDao().upsert(result.team)
                 }
+                selection.select(result.team.id)
             }.onSuccess {
                 if (ownDevices.needsJoinDeviceStep()) {
                     _state.value = UiState(showDeviceStep = true)

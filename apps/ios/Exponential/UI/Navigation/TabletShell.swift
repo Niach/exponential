@@ -9,9 +9,7 @@ import SwiftUI
 /// ⅓ split, every iPhone) keeps the phone layout. Every column hosts the
 /// pages the phone already has; only the arrangement is the iPad's.
 enum SidebarItem: Hashable {
-    case agent, needsYou, chats, devices, drafts, settings
-    /// #EXP-2109: a team's row (its page: the tree, its menu).
-    case team(String)
+    case agent, needsYou, chats, devices, drafts, apps, settings
     case agentChannel(String)
     case app(String)
     case board(String)
@@ -21,19 +19,22 @@ enum SidebarItem: Hashable {
     /// on a `MainTab`; the sidebar follows them).
     var tab: MainTab {
         switch self {
-        case .agent, .needsYou, .chats, .chat, .drafts: .chats
-        case .agentChannel: .chats
-        case .team, .app, .board: .teams
-        case .devices, .settings: .settings
+        case .agent: .agent
+        case .needsYou, .chats, .agentChannel, .chat: .chats
+        case .devices, .settings: .team
+        case .drafts, .board: .issues
+        case .apps, .app: .apps
         }
     }
 
     /// The entry a landing on `tab` lights.
-    init(_ tab: MainTab, assistantId: String?) {
+    init(_ tab: MainTab, board: CurrentBoardRef?) {
         switch tab {
-        case .chats, .teams: self = .chats
-        case .assistant: self = assistantId.map { .agentChannel($0) } ?? .chats
-        case .settings: self = .settings
+        case .agent: self = .agent
+        case .issues: self = board.map { .board($0.boardId) } ?? .agent
+        case .chats: self = .chats
+        case .apps: self = .apps
+        case .team: self = .settings
         }
     }
 
@@ -43,7 +44,7 @@ enum SidebarItem: Hashable {
         case .needsYou: AppIcons.navNeedsYou
         case .chats: AppIcons.navChats
         case .drafts: AppIcons.navDrafts
-        case .team: AppIcons.uiTeam
+        case .apps: AppIcons.navApps
         case .settings: AppIcons.navSettings
         case .board: AppIcons.navIssues
         default: AppIcons.navIssues
@@ -124,6 +125,7 @@ struct TabletShell: View {
             if isWide { sidebarOpen = false }
         }
         .onChange(of: picks) { _, _ in sidebarOpen = false }
+        .environment(\.tabBarShown, false)
         .environment(\.pageHeaderAsRoot, true)
     }
 
@@ -204,12 +206,12 @@ struct TabletShell: View {
 }
 
 /// The sidebar: the desktop rail's entries in its order (Agent, Needs you
-/// while any, Chats, Devices, Drafts while any), the viewer's Assistant, then
-/// one section per team (#EXP-2109, sidebar-tree.json: its mixed list, the
-/// folders folded in place) and the Active sessions; the account at the
-/// bottom.
+/// while any, Chats, Devices, Drafts while any), then the team's Agents, its
+/// Apps, its Boards and the Active sessions; the account at the bottom.
 struct TabletSidebar: View {
     let selection: SidebarItem
+    /// The Board tab's board: its row carries the tab's test id.
+    let currentBoardId: String?
     let draftCount: Int
     let onSelect: (SidebarItem) -> Void
     let onSearch: () -> Void
@@ -218,9 +220,7 @@ struct TabletSidebar: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(TeamState.self) private var teamState
     @Environment(SessionListsModel.self) private var lists
-    @Environment(SidebarTreeModel.self) private var tree
-    /// Folds flipped here (also written to UserDefaults).
-    @State private var flipped: [String: Bool] = [:]
+    @State private var apps = AppsListModel()
     @State private var now = Date()
 
     var body: some View {
@@ -230,9 +230,9 @@ struct TabletSidebar: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
                         entries
-                        ForEach(teamState.orderedTeams, id: \.id) { team in
-                            section(team.name, onTitle: { onSelect(.team(team.id)) }, rows: teamRows(team.id))
-                        }
+                        section(SessionTree.ListCopy.agents, rows: agentRows)
+                        section(Apps.Copy.title, onTitle: { onSelect(.apps) }, rows: appRows)
+                        section("Boards", rows: boardRows)
                         if !activeRows.isEmpty {
                             section(SessionTree.ListCopy.rail, rows: activeSessionRows)
                         }
@@ -244,7 +244,7 @@ struct TabletSidebar: View {
                 accountRow
             }
         }
-        .navigationTitle(Chats.Copy.Headers.teams)
+        .navigationTitle(teamState.activeTeam?.name ?? Chats.Copy.Tabs.team)
         .toolbarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -259,6 +259,9 @@ struct TabletSidebar: View {
                 .accessibilityLabel("New issue")
             }
         }
+        .onAppear { bindApps() }
+        .onChange(of: teamState.activeTeamId) { _, _ in bindApps() }
+        .onDisappear { apps.stop() }
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(60))
@@ -269,11 +272,20 @@ struct TabletSidebar: View {
         .accessibilityIdentifier("tablet-sidebar")
     }
 
+    private func bindApps() {
+        apps.bind(
+            accountId: deps.auth.activeAccountId ?? "",
+            teamId: teamState.activeTeamId,
+            userId: deps.auth.userId,
+            db: deps.db
+        )
+    }
+
     // MARK: - Entries
 
     private var needsYouCount: Int {
         // #EXP-1950: installs waiting for approval count as Needs you rows.
-        lists.needsYou(me: deps.auth.userId, now: now).count
+        lists.needsYou(teamId: teamState.activeTeamId, me: deps.auth.userId, now: now).count
             + deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").rows.count
     }
 
@@ -285,86 +297,55 @@ struct TabletSidebar: View {
                 glyph(AppIcons.navNeedsYou, color: DesignTokens.Semantic.yellow)
             }
         }
-        row(.chats, title: Chats.Copy.Headers.chats, badge: lists.chatsBadge) {
+        row(.chats, title: Chats.Copy.Headers.chats, badge: lists.chatsBadge(teamId: teamState.activeTeamId)) {
             glyph(AppIcons.navChats)
         }
         row(.devices, title: Chats.Copy.Headers.devices) { glyph(AppIcons.navDevices) }
         if draftCount > 0 || selection == .drafts {
             row(.drafts, title: "Drafts", badge: NavBadges.Value(count: draftCount, tone: .muted)) { glyph(AppIcons.navDrafts) }
         }
-        if let assistant = lists.assistant {
-            row(.agentChannel(assistant.agentId), title: assistant.name, badge: lists.agentBadge(assistant)) {
-                ExpLogoMark(size: 18, color: .white)
-            }
+    }
+
+    private var agentRows: [AnyView] {
+        // #EXP-1714: the viewer's global Assistant lists in every team.
+        // #FEED-239 (`sidebarAgents`): an app's agent is listed under Apps only.
+        Chats.sidebarAgents(
+            AgentSettings.agentsInTeam(
+                lists.agents, teamId: teamState.activeTeamId, teamIds: teamState.teams.map(\.id)
+            ),
+            agentId: { $0.agentId },
+            appAgentIds: apps.apps.map(\.agentId)
+        ).map { agent in
+            AnyView(row(.agentChannel(agent.agentId), title: agent.name, badge: lists.agentBadge(agent)) {
+                if agent.assistant {
+                    ExpLogoMark(size: 18, color: .white)
+                } else {
+                    AgentRowIcon(icon: agent.icon, color: agent.color)
+                }
+            })
         }
     }
 
-    /// A team's tree: its items, a folder's indented under it while open.
-    private func teamRows(_ teamId: String) -> [AnyView] {
-        let boards = teamState.boards(of: teamId)
-        let top = tree.page(teamId: teamId, folderId: nil, boards: boards, sessions: lists.sessions) ?? []
-        return top.flatMap { node -> [AnyView] in
-            guard node.kind == .folder else { return [AnyView(treeRow(node))] }
-            let children = tree.page(teamId: teamId, folderId: node.id, boards: boards, sessions: lists.sessions) ?? []
-            let open = isOpen(node.id, teamId: teamId)
-            let folder = AnyView(folderRow(node, count: children.count, open: open, teamId: teamId))
-            return [folder] + (open ? children.map { AnyView(treeRow($0).padding(.leading, 20)) } : [])
+    private var appRows: [AnyView] {
+        apps.apps.map { app in
+            AnyView(row(.app(app.id), title: app.name) {
+                AgentRowIcon(icon: app.glyph, color: app.color ?? AppGlyph.neutralColor)
+            })
         }
     }
 
-    @ViewBuilder
-    private func treeRow(_ node: SidebarTree.PhoneRow) -> some View {
-        if let item = item(node) {
-            row(
-                item,
-                title: TeamTreeRowValues.title(node, teamState: teamState, lists: lists, tree: tree),
-                badge: TeamTreeRowValues.badge(node, lists: lists)
-            ) { TeamTreeGlyph(row: node, size: 18) }
+    private var boardRows: [AnyView] {
+        teamState.filteredBoards.map { board in
+            AnyView(row(.board(board.id), title: board.name) {
+                AppIcon(BoardTypeDisplay.iconName(for: board), size: 18)
+                    .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
+            })
         }
-    }
-
-    private func item(_ node: SidebarTree.PhoneRow) -> SidebarItem? {
-        switch node.kind {
-        case .folder: nil
-        case .item(.board): .board(node.id)
-        case .item(.agent): .agentChannel(node.id)
-        case .item(.app): .app(node.id)
-        case .item(.session): .chat(node.id)
-        }
-    }
-
-    private func isOpen(_ folderId: String, teamId: String) -> Bool {
-        flipped[folderId] ?? SidebarFolders.isOpen(teamId: teamId, folderId: folderId)
-    }
-
-    /// A folder: never navigable, a tap folds it.
-    private func folderRow(_ node: SidebarTree.PhoneRow, count: Int, open: Bool, teamId: String) -> some View {
-        Button {
-            flipped[node.id] = !open
-            SidebarFolders.setOpen(!open, teamId: teamId, folderId: node.id)
-        } label: {
-            HStack(spacing: 10) {
-                glyph(AppIcons.uiFolder, color: .white.opacity(TextOpacity.secondary))
-                    .frame(width: 20, height: 20)
-                Text(node.name ?? SidebarFolders.defaultFolderName)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                FolderRowTrailing(count: count, open: open)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 36)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityValue(open ? "Expanded" : "Collapsed")
-        .accessibilityIdentifier("sidebar-folder-\(node.id)")
     }
 
     /// The desktop rail's Active band (`SessionTree.railChats`).
     private var activeRows: [ChatsListRow] {
-        SessionTree.railChats(lists.groups) { lists.words[$0.rootId] }
+        SessionTree.railChats(lists.teamGroups(teamState.activeTeamId)) { lists.words[$0.rootId] }
             .filter { $0.depth == 0 }
     }
 
@@ -431,19 +412,20 @@ struct TabletSidebar: View {
         .accessibilityIdentifier(testId(item))
     }
 
-    /// The phone bar's ids on their sidebar twins (the capture walks drive
-    /// both), else `sidebar-<entry>`.
+    /// The phone tab bar's ids on their sidebar twins (the capture walks
+    /// drive both), else `sidebar-<entry>`.
     private func testId(_ item: SidebarItem) -> String {
         switch item {
-        case .agent: "sidebar-agent"
-        case .chats: Chats.TestIds.tabChats
-        case let .team(id): "sidebar-team-\(id)"
+        case .agent: "tab-agent"
+        case .chats: "tab-chats"
+        case .apps: "tab-apps"
+        case let .board(id) where id == currentBoardId: "tab-board"
         case let .board(id): "sidebar-board-\(id)"
         case .needsYou: "sidebar-needs-you"
         case .devices: "sidebar-devices"
         case .drafts: "sidebar-drafts"
-        case .settings: Chats.TestIds.tabSettings
-        case let .agentChannel(id): lists.assistant?.agentId == id ? Chats.TestIds.tabAssistant : "sidebar-agent-\(id)"
+        case .settings: "tab-team"
+        case let .agentChannel(id): "sidebar-agent-\(id)"
         case let .app(id): "sidebar-app-\(id)"
         case let .chat(id): "sidebar-chat-\(id)"
         }
@@ -485,13 +467,14 @@ struct TabletSidebar: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
-        .accessibilityIdentifier(Chats.TestIds.tabSettings)
+        .accessibilityIdentifier("tab-team")
     }
 }
 
-/// The sidebar's Drafts entry: every team's drafts as a column.
+/// The sidebar's Drafts entry: the board's Drafts chip list as a column.
 struct TabletDraftsColumn: View {
     @Environment(AppDependencies.self) private var deps
+    @Environment(TeamState.self) private var teamState
     @State private var drafts: DraftsViewModel?
 
     var body: some View {
@@ -506,8 +489,10 @@ struct TabletDraftsColumn: View {
             if drafts == nil, let accountId = deps.auth.activeAccountId {
                 drafts = DraftsViewModel(accountId: accountId, db: deps.db, api: deps.issueDraftsApi)
             }
+            drafts?.teamId = teamState.activeTeamId
             drafts?.startObserving()
         }
         .onDisappear { drafts?.stopObserving() }
+        .onChange(of: teamState.activeTeamId) { _, teamId in drafts?.teamId = teamId }
     }
 }

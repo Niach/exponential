@@ -18,6 +18,7 @@ pub(crate) mod dock_card;
 pub(crate) mod feedback_states;
 pub(crate) mod mention_pill;
 pub(crate) mod needs_you;
+pub(crate) mod phone_board_menu;
 pub(crate) mod phone_page_header;
 pub(crate) mod phone_tab_bar;
 pub(crate) mod plan_card;
@@ -71,6 +72,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: feedback_states::ID, owner: feedback_states::OWNER, render: feedback_states::render },
     Entry { id: mention_pill::ID, owner: mention_pill::OWNER, render: mention_pill::render },
     Entry { id: needs_you::ID, owner: needs_you::OWNER, render: needs_you::render },
+    Entry { id: phone_board_menu::ID, owner: phone_board_menu::OWNER, render: phone_board_menu::render },
     Entry { id: phone_page_header::ID, owner: phone_page_header::OWNER, render: phone_page_header::render },
     Entry { id: phone_tab_bar::ID, owner: phone_tab_bar::OWNER, render: phone_tab_bar::render },
     Entry { id: plan_card::ID, owner: plan_card::OWNER, render: plan_card::render },

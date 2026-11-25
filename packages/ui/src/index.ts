@@ -142,7 +142,7 @@ export * from "./composer-agent-row"
 // #EXP-1388: THE bulk action bar capsule (issue list + Chats selection).
 export * from "./bulk-bar"
 export * from "./phone-tab-bar"
-export * from "./phone-dock"
+export * from "./phone-board-menu"
 export * from "./page-header"
 // EXP-1248: THE session row, small | big.
 export * from "./session-row"

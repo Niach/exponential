@@ -6,32 +6,26 @@ description: Native iOS and Android apps for your boards, your inbox and the ses
 import { Aside, LinkButton } from "@astrojs/starlight/components"
 import PlatformShots from "../../../../components/PlatformShots.astro"
 
-Exponential runs natively on iOS 17.4+ and Android 8+, synced in real time with the web and desktop apps, across all your teams.
+Exponential runs natively on iOS 17.4+ and Android 8+, synced in real time with the web and desktop apps, for one team at a time.
 
 <LinkButton href="https://apps.apple.com/app/exponential-vibecode-together/id6788189402">App Store</LinkButton>
 <LinkButton href="https://play.google.com/store/apps/details?id=at.exponential" variant="secondary">Google Play</LinkButton>
-
-## Getting around
-
-The bar along the bottom holds **Chats**, **Teams**, the Exponential logo, **New** and **Settings**. The logo opens your Assistant. **New** files an issue or starts a chat. Chats, Teams and Settings have round search and inbox buttons, which cover every team.
-
-<PlatformShots view="teams" platforms={["ios", "android"]} />
-
-**Teams** lists your teams. A team holds its boards, agents and apps and the chats you placed there, in your own order and folders from the desktop sidebar. Its **…** menu creates a board, agent or app and opens the team's settings.
-
-<PlatformShots view="team" platforms={["ios", "android"]} />
 
 ## The board
 
 <PlatformShots view="board" platforms={["ios", "android"]} />
 
-A board has **All issues**, **My issues** and **Drafts** under its title. Long-press an issue for its menu, or select several and the bulk bar takes the bar's place.
+The bar along the bottom holds **Board**, **Chats**, **Apps** and **Team**. Board is named after the board you are on, with **All issues**, **My issues** and **Drafts** as chips under the title. Every page has round search and inbox buttons. Beside the bar, the chat button opens the Agent composer and the pencil files a new issue. Long-press an issue for its menu, or select several and the bulk bar takes the tab bar's place.
+
+<PlatformShots view="phone-board-menu" platforms={["ios", "android"]} />
+
+Tap **Board** again to switch boards or add one with **New board**. **Team**, named after the active team, switches teams and holds the team's settings, your devices and your account.
 
 ## Steer from anywhere
 
 <PlatformShots view="chats" platforms={["ios", "android"]} />
 
-**Chats** lists your agents on top, then your chats from every team under **Needs you**, **Working**, **Unread** and **Chats**. The **Needs you** row opens every plan, question and PR ready to merge in one list. Open a chat to watch the agent work live and steer it: answer its question, approve a plan, add a constraint. The feed and your messages travel straight between the phone and the machine running the session, end-to-end encrypted.
+**Chats** lists the team's agents on top, then your chats under **Needs you**, **Working**, **Unread** and **Chats**. The **Needs you** row opens every plan, question and PR ready to merge in one list. Open a chat to watch the agent work live and steer it: answer its question, approve a plan, add a constraint. The feed and your messages travel straight between the phone and the machine running the session, end-to-end encrypted.
 
 <PlatformShots view="steering" platforms={["ios", "android"]} />
 

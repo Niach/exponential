@@ -2037,8 +2037,6 @@ struct AgentChatRoute: View {
     /// #FEED-239: open the agent's settings over the chat (an agent row's
     /// `…` › settings).
     var settings = false
-    /// The page its conversation opens on (nil = the Conversation).
-    var page: ChatPage?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -2064,7 +2062,7 @@ struct AgentChatRoute: View {
     private var channel: some View {
         Group {
             if let conversationId = model.conversationId {
-                ChatScreen(rootId: conversationId, initialPage: page ?? (settings ? .settings : .conversation))
+                ChatScreen(rootId: conversationId, initialPage: settings ? .settings : .conversation)
                     .id(conversationId)
             } else if let agent = model.agent {
                 AgentChatEmpty(agent: agent, settings: settings)

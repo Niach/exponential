@@ -3,8 +3,7 @@ package com.exponential.app.ui.settings
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.exponential.app.data.ARG_TEAM
-import com.exponential.app.data.screenTeamFlow
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AgentCreateInput
 import com.exponential.app.data.api.AgentsApi
 import com.exponential.app.data.api.SteerDevice
@@ -65,6 +64,7 @@ class AgentSettingsViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val auth: AuthRepository,
     holder: DatabaseHolder,
+    selection: TeamSelection,
     private val agentsApi: AgentsApi,
     private val mcpServersApi: com.exponential.app.data.api.McpServersApi,
     private val uploads: com.exponential.app.data.api.IssueImagesApi,
@@ -76,8 +76,9 @@ class AgentSettingsViewModel @Inject constructor(
 
     /** S-3: the Settings Agents group makes sure the viewer has an Assistant. */
     fun ensureAssistant() {
+        val team = teamId.value
         viewModelScope.launch {
-            com.exponential.app.data.api.AssistantEnsurer.ensureForAccount(agentsApi, auth.activeAccountId.value)
+            com.exponential.app.data.api.AssistantEnsurer.ensure(agentsApi, auth.activeAccountId.value, team)
         }
     }
 
@@ -86,18 +87,13 @@ class AgentSettingsViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    /** #EXP-2109: the team this screen shows ([screenTeamFlow]; no active team). */
-    private val screenTeam: StateFlow<String?> =
-        screenTeamFlow(dbFlow, savedStateHandle)
-            .stateIn(viewModelScope, SharingStarted.Eagerly, savedStateHandle.get<String>(ARG_TEAM))
-
-    /** The team the list shows and a new agent lands in (the page's). */
-    val teamId: StateFlow<String?> get() = screenTeam
+    /** The team the list shows and a new agent lands in (the selection). */
+    val teamId: StateFlow<String?> = selection.selectedId
 
     private val sessionRows = dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeAgents() }
         .map { rows -> rows.map(SessionTree::session) }
 
-    /** The team's agents, rail order ([SessionTree.listAgents]);
+    /** The selected team's agents, rail order ([SessionTree.listAgents]);
      *  null = not read yet (#EXP-1788: skeleton rows, not the empty state). */
     val agents: StateFlow<List<SessionTree.AgentRow>?> = combine(
         dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },

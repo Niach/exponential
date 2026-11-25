@@ -83,7 +83,7 @@ export function useChatActions(teamSlug: string | undefined): {
       // The open chat closes back to the list.
       const path = router.state.location.pathname
       if (teamSlug && path.endsWith(`/sessions/${rootId}`)) {
-        void navigate({ to: `/chats` })
+        void navigate({ to: `/t/$teamSlug/chats`, params: { teamSlug } })
       }
       await sessionCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
     } catch (error) {

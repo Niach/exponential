@@ -56,21 +56,6 @@ object SettingsNavGroups {
 
     val NEW_ENTRIES: Map<String, String> = mapOf(NEW_BOARD to "owner", NEW_AGENT to "owner", NEW_APP to "owner")
 
-    /** #EXP-2109 `nav.phone`: the Settings tab's pages, and a team's settings
-     *  page in order. */
-    val PHONE_SETTINGS: List<String> = listOf("account", ASSISTANT, "notifications", "security", "devices", "about")
-    val PHONE_TEAM: List<String> = listOf("general", "members", "labels", "repositories", "prompts", "boards", "agents", "mcp", "skills")
-
-    /** The Settings tab's rows in their groups (account… · devices · about). */
-    fun phoneSettingsGroups(): List<List<String>> = PHONE_SETTINGS
-        .filter { id -> page(id)?.platforms?.let { PLATFORM in it } ?: true }
-        .groupBy { if (it == "devices" || it == "about") it else "account" }
-        .values.toList()
-
-    /** The team settings page's rows a viewer sees, in order. */
-    fun phoneTeamRows(isOwner: Boolean): List<SettingsNav.Row> =
-        PHONE_TEAM.map(SettingsNav::row).filter { SettingsNav.isVisible(it, isOwner, cloud = false) }
-
     private fun visible(visible: String, isOwner: Boolean, cloud: Boolean): Boolean = when (visible) {
         "all" -> true
         "owner" -> isOwner

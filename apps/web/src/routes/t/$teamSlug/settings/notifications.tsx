@@ -1,10 +1,20 @@
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { createFileRoute } from "@tanstack/react-router"
+import {
+  loadNotificationSettings,
+  NotificationSettingsBody,
+} from "@/components/settings/personal-settings"
+import { pageTitle } from "@/lib/page-title"
 
-// #EXP-2027 / #EXP-2109: an old team-scoped link: the personal settings are
-// team-less.
+// #EXP-2027: phones keep the team-scoped page; md+ forwards this URL to
+// `/settings/notifications` (the same body, components/settings).
 export const Route = createFileRoute(`/t/$teamSlug/settings/notifications`)({
-  validateSearch: (search: Record<string, unknown>): Record<string, unknown> => search,
-  beforeLoad: ({ location }) => {
-    throw redirect({ href: `/settings/notifications${location.searchStr}`, replace: true })
-  },
+  head: () => ({
+    meta: [{ title: pageTitle(`Notifications`, `Settings`) }],
+  }),
+  loader: loadNotificationSettings,
+  component: SettingsNotifications,
 })
+
+function SettingsNotifications() {
+  return <NotificationSettingsBody data={Route.useLoaderData()} />
+}

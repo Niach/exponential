@@ -26,6 +26,9 @@ final class DeepLinkBus: @unchecked Sendable {
     // server user id like the other push kinds.
     var pendingInbox = false
     var pendingInboxUserId: String?
+    // EXP-1373: the row's team when the payload names one — the inbox shows
+    // the active team's rows only, so the tap switches to it first.
+    var pendingInboxTeamId: String?
     // A push tap naming a session (EXP-980 wall, #EXP-1456 any type): the
     // navigator opens it by `InboxRoute.sessionTarget`.
     // Carries the recipient's server user id like the other push kinds, so a
@@ -56,12 +59,12 @@ final class DeepLinkBus: @unchecked Sendable {
     // #EXP-1638 / #EXP-1830 (app-shortcuts.json OPENING): a long-press menu
     // pick on the app icon, a home widget tap or an App Intent, under the
     // ACTIVE account (the menu and the widgets follow it). The navigator
-    // drops back to the Chats root, then pushes it.
+    // drops back to the Agent tab root, then pushes it.
     var pendingLaunch: LaunchTarget?
-    // #EXP-1830: the board opens on its My issues chip (a My issues
-    // widget's header); cleared by `BoardPageView`.
+    // #EXP-1830: the Board tab opens on its My issues chip (a My issues
+    // widget's header); cleared by `IssuesHomeView`.
     var pendingMyIssues = false
-    // #EXP-1638: the New chat page's composer takes focus once it is up (the
+    // #EXP-1638: the Agent tab's composer takes focus once it is up (the
     // `new-chat` shortcut); cleared by `AgentPageView`.
     var pendingComposerFocus = false
 
@@ -85,8 +88,9 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingInviteToken = token
     }
 
-    func navigateToInbox(userId: String? = nil) {
+    func navigateToInbox(userId: String? = nil, teamId: String? = nil) {
         pendingInboxUserId = userId
+        pendingInboxTeamId = teamId
         pendingInbox = true
     }
 
@@ -166,17 +170,18 @@ final class DeepLinkBus: @unchecked Sendable {
 
     /// Returns the recipient's user id (nil when none) when an inbox tap is
     /// pending; `nil` with `pending == false` otherwise.
-    func consumeInbox() -> (pending: Bool, userId: String?) {
-        let result = (pending: pendingInbox, userId: pendingInboxUserId)
+    func consumeInbox() -> (pending: Bool, userId: String?, teamId: String?) {
+        let result = (pending: pendingInbox, userId: pendingInboxUserId, teamId: pendingInboxTeamId)
         pendingInbox = false
         pendingInboxUserId = nil
+        pendingInboxTeamId = nil
         return result
     }
 }
 
 /// #EXP-1830 (app-shortcuts.json OPENING, home-widgets.json TAPS): what a
 /// launcher surface opens: an app shortcut, a widget's header or row, an
-/// App Intent. Every one lands with THE back stack rule (the Chats root
+/// App Intent. Every one lands with THE back stack rule (the Agent tab root
 /// under it), cold or warm.
 enum LaunchTarget: Equatable {
     case shortcut(AppShortcuts.Target)

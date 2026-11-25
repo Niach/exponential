@@ -24,21 +24,13 @@ describe(`widePathFor (#EXP-2027)`, () => {
   })
 })
 
-describe(`phonePathFor (#EXP-2109)`, () => {
-  it(`forwards an old team-scoped page to its team-less one`, () => {
-    expect(phonePathFor(`/`)).toBe(`/chats`)
-    expect(phonePathFor(`/t/acme`)).toBe(`/t/acme/team`)
-    expect(phonePathFor(`/t/acme/apps`)).toBe(`/t/acme/team`)
-    expect(phonePathFor(`/t/acme/chats`)).toBe(`/chats`)
-    expect(phonePathFor(`/t/acme/agent`)).toBe(`/home`)
-    expect(phonePathFor(`/t/acme/devices`)).toBe(`/devices`)
-    expect(phonePathFor(`/t/acme/inbox`)).toBe(`/inbox`)
-    expect(phonePathFor(`/t/acme/settings/security`)).toBe(`/settings/security`)
-  })
-  it(`keeps a team's pages and the team-less ones`, () => {
-    for (const path of [`/t/acme/team`, `/t/acme/boards/web`, `/t/acme/settings`, `/t/acme/settings/general`, `/t/acme/settings/agents/new`, `/home`, `/chats`, `/devices/d-1`]) {
-      expect(phonePathFor(path)).toBeNull()
-    }
+describe(`phonePathFor (#EXP-2027)`, () => {
+  it(`forwards a team-less page into the default team`, () => {
+    expect(phonePathFor(`/home`, `acme`)).toBe(`/t/acme/agent`)
+    expect(phonePathFor(`/chats`, `acme`)).toBe(`/t/acme/chats`)
+    expect(phonePathFor(`/devices/d-1/settings`, `acme`)).toBe(`/t/acme/devices`)
+    expect(phonePathFor(`/settings/security`, `acme`)).toBe(`/t/acme/settings/security`)
+    expect(phonePathFor(`/t/acme/boards/web`, `acme`)).toBeNull()
   })
 })
 

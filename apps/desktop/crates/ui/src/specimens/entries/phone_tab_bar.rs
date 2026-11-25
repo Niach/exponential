@@ -1,165 +1,167 @@
-//! Session 58cb32df (#EXP-1373) → #EXP-2109: `phone-tab-bar` (Special
-//! components): THE phone bottom bar (`fixtures/chats.json` `shell.dock` +
-//! `shell.newMenu`). The IDE has no phone shell, so this twin paints the web
-//! entry's specimen statically: the docked bar (one hairline on top), five
-//! equal cells: Chats (THE count badge) · Teams · the Assistant (the white
-//! Exponential mark on its raised disc, no label) · New · Settings. Four
-//! states: Chats, Teams and the Assistant selected, then New with its popup.
+//! Session 58cb32df (#EXP-1373) → #EXP-1384: `phone-tab-bar` (Special
+//! components): THE phone bottom bar (`fixtures/chats.json` `shell.tabs` +
+//! `shell.bar`). The IDE has no phone shell, so this twin paints the web
+//! entry's specimen statically in the same look: the glass tab capsule (the
+//! FAB chrome: the card fill and hairline, fully round) with Board · Chats ·
+//! Apps · Team in order, each an icon over its label and as wide as its
+//! label (+ `tabPaddingX` each side, at least `tabMinWidth`), the selected
+//! one on the glass-active pill. The Board tab = the active board's glyph +
+//! name; the Team tab = the team mark (#EXP-1645: this specimen's team has no
+//! image, so the glyph) + name; a dot on Chats. #EXP-1645 (`shell.boardTab`):
+//! the chevrons caret sits BESIDE the glyph, out of flow, while the tab can open
+//! its menu: Board on the board view, Team on the Team page. Beside the capsule, `gap` away,
+//! the two-armed new chat (`action-chat`) / new issue (`nav-create-issue`)
+//! capsule at the same height. Four states (the web specimen's): Board
+//! selected on the board view, Chats and Team selected, then the drag LENS
+//! mid-drag (the lens scaled to `lensScale` between Chats and Apps, Apps the
+//! candidate in the foreground, the selected tab's pill lifted off).
 
-use gpui::{div, prelude::FluentBuilder as _, px, AnyElement, App, Div, IntoElement as _, ParentElement as _, Styled as _, Window};
+use gpui::{div, px, AnyElement, App, Div, IntoElement as _, ParentElement as _, Styled as _, Window};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use domain::chats::CHATS;
 
 use crate::icons::registry;
+use crate::phone_bar::{capsule, look_color, tab_cell, Look};
 
 pub(crate) const ID: &str = "phone-tab-bar";
-pub(crate) const OWNER: &str = "EXP-2109";
+pub(crate) const OWNER: &str = "EXP-1384";
 
-const PHONE_W: f32 = 390.;
+/// The specimen team.
+pub(crate) const TEAM: &str = "Acme";
+/// The specimen team's boards in sidebar order (name, icon, colour), the
+/// screenshot seed's; the first is the active one.
+pub(crate) const BOARDS: [(&str, &str, &str); 3] = [
+    ("Mobile App", "code", "#6366f1"),
+    ("Launch Marketing", "square-kanban", "#f59e0b"),
+    ("Product Feedback", "megaphone", "#22c55e"),
+];
 
-fn glyph(tab: &str, selected: bool) -> Icon {
-    Icon::new(match tab {
-        "chats" => registry::NAV_CHATS,
-        "teams" => registry::UI_TEAM,
-        "new" if selected => registry::UI_CLOSE,
-        "new" => registry::UI_ADD,
-        _ => registry::NAV_SETTINGS,
-    })
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tab {
+    Board,
+    Chats,
+    Apps,
+    Team,
 }
 
-fn label(tab: &str) -> String {
+const TABS: [Tab; 4] = [Tab::Board, Tab::Chats, Tab::Apps, Tab::Team];
+
+/// A board's glyph (web `BoardGlyph`): its icon tinted with its colour.
+pub(crate) fn board_glyph(icon: &str, color: &str, size: f32) -> AnyElement {
+    crate::icons::app_icon(Some(icon), Some(color)).with_size(px(size)).into_any_element()
+}
+
+fn tab(tab: Tab, look: Look, caret: bool, cx: &App) -> AnyElement {
     let tabs = &CHATS.copy.tabs;
-    match tab {
-        "chats" => tabs.chats.clone(),
-        "teams" => tabs.teams.clone(),
-        "new" => tabs.new.clone(),
-        _ => tabs.settings.clone(),
+    let color = look_color(look, cx);
+    let concept = |icon| Icon::new(icon).with_size(px(20.)).text_color(color).into_any_element();
+    let (board, board_icon, board_color) = BOARDS[0];
+    let (label, glyph): (String, AnyElement) = match tab {
+        Tab::Board => (board.to_string(), board_glyph(board_icon, board_color, 20.)),
+        Tab::Chats => (tabs.chats.clone(), concept(registry::NAV_CHATS)),
+        Tab::Apps => (tabs.apps.clone(), concept(registry::NAV_APPS)),
+        Tab::Team => (TEAM.to_string(), crate::user_avatar::team_glyph(20.)),
+    };
+    let glyph = div().relative().child(glyph).when_dot(tab == Tab::Chats);
+    tab_cell(glyph.into_any_element(), label, caret, look, cx).into_any_element()
+}
+
+trait PhoneExt {
+    fn when_dot(self, dot: bool) -> Self;
+}
+
+impl PhoneExt for Div {
+    fn when_dot(self, dot: bool) -> Self {
+        if !dot {
+            return self;
+        }
+        self.child(
+            div()
+                .absolute()
+                .top(px(-2.))
+                .right(px(-4.))
+                .size(px(8.))
+                .rounded_full()
+                .bg(theme::tokens::YELLOW.to_hsla()),
+        )
     }
 }
 
-fn cell(tab: &str, selected: bool, cx: &App) -> AnyElement {
-    let dock = &CHATS.shell.dock;
-    let cell = v_flex().flex_1().h_full().items_center().justify_center();
-    if tab == "assistant" {
-        let ground = cx.theme().background;
-        return cell
-            .child(
-                div().relative().top(px(-(dock.raise + (dock.height - dock.disc) / 2.))).child(
-                    div().p(px(dock.ring)).m(px(-dock.ring)).rounded_full().bg(ground).child(
-                        div()
-                            .size(px(dock.disc))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_full()
-                            .border_1()
-                            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                            .bg(cx.theme().secondary)
-                            .when(selected, |this| {
-                                this.shadow(vec![gpui::BoxShadow {
-                                    color: cx.theme().foreground.opacity(0.18),
-                                    offset: gpui::point(px(0.), px(0.)),
-                                    blur_radius: px(dock.glow),
-                                    spread_radius: px(dock.ring),
-                                    inset: false,
-                                }])
-                            })
-                            .child(Icon::new(crate::icons::ExpIcon::BrandExponential).with_size(px(dock.mark)).text_color(cx.theme().foreground)),
-                    ),
-                ),
-            )
-            .into_any_element();
-    }
-    let color = if selected { cx.theme().foreground } else { cx.theme().muted_foreground };
-    let badge = (tab == "chats").then(|| crate::surface::count_badge(2, crate::surface::BadgeTone::Attention, cx)).flatten();
-    cell.gap(px(dock.gap))
-        .child(
-            div()
-                .relative()
-                .child(glyph(tab, selected).with_size(px(dock.icon)).text_color(color))
-                .children(badge.map(|badge| div().absolute().top(px(-6.)).left(px(dock.icon / 2. + 4.)).child(badge))),
-        )
-        .child(div().text_size(px(dock.label)).text_color(color).child(label(tab)))
+/// The tab capsule: `selected` on its pill; `dragging` = the lens over Apps
+/// (the selected tab's pill lifted off).
+pub(crate) fn tabs(selected: Tab, dragging: bool, cx: &App) -> AnyElement {
+    capsule()
+        .children(TABS.into_iter().map(|t| {
+            let look = match (dragging, t == selected, t == Tab::Apps) {
+                (true, _, true) => Look::Candidate,
+                (true, _, false) => Look::Rest,
+                (false, true, _) => Look::Selected,
+                (false, false, _) => Look::Rest,
+            };
+            tab(t, look, t == selected && matches!(t, Tab::Board | Tab::Team), cx)
+        }))
         .into_any_element()
 }
 
-fn bar(selected: &str, cx: &App) -> Div {
-    h_flex()
-        .w_full()
-        .h(px(CHATS.shell.dock.height))
-        .px(px(6.))
-        .bg(cx.theme().popover)
-        .border_t_1()
-        .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-        .children(CHATS.shell.tabs.iter().map(|tab| cell(tab, tab == selected, cx)))
+/// The two-armed new chat · new issue capsule.
+pub(crate) fn launcher(cx: &App) -> AnyElement {
+    let arm = |icon| {
+        div()
+            .size(px(CHATS.shell.bar.height - 10.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(Icon::new(icon).with_size(px(20.)).text_color(cx.theme().foreground))
+    };
+    capsule()
+        .px_1()
+        .child(arm(registry::ACTION_CHAT))
+        .child(div().w(px(1.)).h(px(22.)).bg(theme::tokens::glass::STROKE_CARD.to_hsla()))
+        .child(arm(registry::NAV_CREATE_ISSUE))
+        .into_any_element()
 }
 
-/// The New cell's popup, ending over the fourth of the five cells.
-fn new_menu(cx: &App) -> AnyElement {
-    let menu = &CHATS.shell.new_menu;
-    let copy = &CHATS.copy.new_menu;
-    let rows = menu.items.iter().map(|item| {
-        let (icon, label) = match item.as_str() {
-            "issue" => (registry::NAV_CREATE_ISSUE, copy.issue.clone()),
-            _ => (registry::ACTION_CHAT, copy.chat.clone()),
-        };
-        h_flex()
-            .h(px(menu.row_height))
-            .px(px(14.))
-            .gap(px(14.))
-            .items_center()
-            .text_size(px(15.))
-            .text_color(cx.theme().foreground)
-            .child(Icon::new(icon).with_size(px(20.)).text_color(cx.theme().foreground))
-            .child(label)
-    });
+/// The whole strip: the tab capsule, `gap`, the launcher.
+pub(crate) fn strip(selected: Tab, dragging: bool, cx: &App) -> AnyElement {
     h_flex()
-        .w_full()
-        .justify_end()
-        .pr(px(PHONE_W * 0.3 - menu.width / 2.))
-        .pb(px(menu.gap))
-        .child(
-            v_flex()
-                .w(px(menu.width))
-                .p(px(6.))
-                .rounded(px(menu.radius))
-                .bg(cx.theme().popover)
-                .border_1()
-                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-                .children(rows),
-        )
+        .gap(px(CHATS.shell.bar.gap))
+        .items_center()
+        .child(tabs(selected, dragging, cx))
+        .child(launcher(cx))
         .into_any_element()
 }
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let muted = cx.theme().muted_foreground;
-    let state = |caption: &'static str, selected: &str, cx: &App| {
+    let state = |caption: &'static str, selected: Tab, dragging: bool, cx: &App| {
         v_flex()
-            .gap(px(24.))
-            .child(div().px_4().text_sm().text_color(muted).child(caption))
-            .when(selected == "new", |this| this.child(v_flex().child(new_menu(cx)).child(bar(selected, cx))))
-            .when(selected != "new", |this| this.child(bar(selected, cx)))
+            .gap_3()
+            .child(div().text_sm().text_color(muted).child(caption))
+            .child(strip(selected, dragging, cx))
     };
     v_flex()
-        .w(px(PHONE_W))
-        .gap(px(28.))
-        .py_4()
+        .gap_8()
+        .p_4()
         .rounded_xl()
         .bg(cx.theme().background)
-        .child(state("Chats selected", "chats", cx))
-        .child(state("Teams selected", "teams", cx))
-        .child(state("Assistant selected", "assistant", cx))
-        .child(state("New open", "new", cx))
+        .child(state("On the board view (the caret opens the board menu)", Tab::Board, false, cx))
+        .child(state("Chats selected", Tab::Chats, false, cx))
+        .child(state("Team selected", Tab::Team, false, cx))
+        .child(state("Dragging: the lens between Chats and Apps", Tab::Chats, true, cx))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The tabs are the fixture's, in order; the caret is its concept.
     #[test]
-    fn the_bar_follows_the_shell() {
-        assert_eq!(CHATS.shell.tabs, ["chats", "teams", "assistant", "new", "settings"]);
-        assert_eq!(CHATS.shell.new_menu.items, ["issue", "chat"]);
+    fn the_tabs_follow_the_shell() {
+        assert_eq!(CHATS.shell.tabs, ["board", "chats", "apps", "team"]);
+        assert_eq!(TABS.len(), CHATS.shell.tabs.len());
+        assert_eq!(CHATS.shell.board_tab.caret, "nav-team-switcher");
+        assert_eq!(CHATS.shell.board_tab.caret_size, 10.);
+        assert_eq!(CHATS.shell.board_tab.caret_gap, 2.);
     }
 }

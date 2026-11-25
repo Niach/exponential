@@ -259,7 +259,7 @@
     }
   ],
   "nav": {
-    "$comment": "S-3 (owner 2026-10-28): THE SETTINGS NAV ×4 (web SETTINGS_NAV settings/-shared.tsx + web-mobile Team page, desktop settings/mod.rs NAV_GROUPS, iOS SettingsView, Android SettingsScreen): `groups` in order, each with its `items` in order. An item = a page id (a `rows` id or a `pages` id) or an INJECTED list `@<list>` drawn at render from synced data: `@boards` = one row per board, `@new-board` = the muted New board entry, `@agents` = one row per team agent (role agent; other members' Assistants never show), `@new-agent` (team owners), `@apps` / `@new-app`. `children` = sub-pages folded under their parent (the sidebar folds them, the phone strip flattens them after it). A page with `platforms` exists only there (Plan & Billing + Import web-only, This device desktop-only; About on the natives + desktop, the web's lives in the account menu). The Features and Advanced groups are GONE; Voice leaves Personal: its block is the Assistant page's Voice section (agent-settings.json `assistant`). #EXP-1987 (the Assistant move, #EXP-1984): THE ASSISTANT IS AN ACCOUNT PAGE: `assistant` in Personal right after Account (label `agent-settings.json` `assistant.copy.title`, drawn with the Assistant's brand mark as its leading glyph, never `icon`'s glyph: `icon` only names the concept for lists that need one), the viewer's ONE Assistant whichever team is current; it replaces the Agents group's old `@assistant` entry (gone ×4, the group lists the team's agents only). `~/settings/assistant` and every client's settings route for it open that page on all four (phones: the account settings' Assistant page, never `web only`); the page finds the Assistant through `agents.ensureAssistant` WITHOUT a team (agent-settings.json: the account page has none), so it reads the same before the move (the member's Assistant in the current team) and after it (the one in their personal team). Import (web-only, owner) closes the Team group. `visible` like `rows` (all | owner | ownerCloud). Every platform's settings-nav test replays `navCases`. #EXP-2027 (owner 2026-11-20) THE SPLIT, web md+ and the desktop IDE (`desktopNavs`; phones and web-mobile keep `groups` until their new UI): there is no current team, so Settings is TWO navs. `personal` = the gear next to the member's name: only what is theirs (`about` per `pages.about.platforms`), nothing team related; web `/settings/<id>`. `team` = a team row's menu › Settings: that team's pages only (`visible` and `platforms` as everywhere; `issues` keeps its `children`); web `/t/$teamSlug/settings/<id>`; its sidebar header is the team (mark + name) with the back control. The Boards, Agents and Apps groups LEAVE Settings: a board's, agent's or app's own settings open from its sidebar row (board gear, agent and app menus), and New board / New agent / New app are the team menu's New entries (sidebar-tree.json, creation PAGES). `device` = the This device pages, which leave Settings for the device page of the viewer's THIS device (desktop only; sidebar-tree.json). `desktopNavCases` lock the visible ids per group for a viewer. #EXP-2109 PHONES (`phone`; iOS, Android, web-mobile): the SETTINGS TAB = the viewer's card (avatar, name, email; opens Account), then `phone.settings` in groups (account, assistant, notifications, security · devices · about, the last only where `pages.about.platforms` says, web-mobile none), then what that phone's old Team page carried below its team rows (servers, sync diagnostics, sign out…); nothing team related. A team's SETTINGS page (from its `…` menu) = `phone.team` in order under the title Settings, each row as before (`visible`, counts, its own page), web-mobile's web-only pages after them; the Team page with the team avatar and switcher is gone; Devices is a Settings row.",
+    "$comment": "S-3 (owner 2026-10-28): THE SETTINGS NAV ×4 (web SETTINGS_NAV settings/-shared.tsx + web-mobile Team page, desktop settings/mod.rs NAV_GROUPS, iOS SettingsView, Android SettingsScreen): `groups` in order, each with its `items` in order. An item = a page id (a `rows` id or a `pages` id) or an INJECTED list `@<list>` drawn at render from synced data: `@boards` = one row per board, `@new-board` = the muted New board entry, `@agents` = one row per team agent (role agent; other members' Assistants never show), `@new-agent` (team owners), `@apps` / `@new-app`. `children` = sub-pages folded under their parent (the sidebar folds them, the phone strip flattens them after it). A page with `platforms` exists only there (Plan & Billing + Import web-only, This device desktop-only; About on the natives + desktop, the web's lives in the account menu). The Features and Advanced groups are GONE; Voice leaves Personal: its block is the Assistant page's Voice section (agent-settings.json `assistant`). #EXP-1987 (the Assistant move, #EXP-1984): THE ASSISTANT IS AN ACCOUNT PAGE: `assistant` in Personal right after Account (label `agent-settings.json` `assistant.copy.title`, drawn with the Assistant's brand mark as its leading glyph, never `icon`'s glyph: `icon` only names the concept for lists that need one), the viewer's ONE Assistant whichever team is current; it replaces the Agents group's old `@assistant` entry (gone ×4, the group lists the team's agents only). `~/settings/assistant` and every client's settings route for it open that page on all four (phones: the account settings' Assistant page, never `web only`); the page finds the Assistant through `agents.ensureAssistant` WITHOUT a team (agent-settings.json: the account page has none), so it reads the same before the move (the member's Assistant in the current team) and after it (the one in their personal team). Import (web-only, owner) closes the Team group. `visible` like `rows` (all | owner | ownerCloud). Every platform's settings-nav test replays `navCases`. #EXP-2027 (owner 2026-11-20) THE SPLIT, web md+ and the desktop IDE (`desktopNavs`; phones and web-mobile keep `groups` until their new UI): there is no current team, so Settings is TWO navs. `personal` = the gear next to the member's name: only what is theirs (`about` per `pages.about.platforms`), nothing team related; web `/settings/<id>`. `team` = a team row's menu › Settings: that team's pages only (`visible` and `platforms` as everywhere; `issues` keeps its `children`); web `/t/$teamSlug/settings/<id>`; its sidebar header is the team (mark + name) with the back control. The Boards, Agents and Apps groups LEAVE Settings: a board's, agent's or app's own settings open from its sidebar row (board gear, agent and app menus), and New board / New agent / New app are the team menu's New entries (sidebar-tree.json, creation PAGES). `device` = the This device pages, which leave Settings for the device page of the viewer's THIS device (desktop only; sidebar-tree.json). `desktopNavCases` lock the visible ids per group for a viewer.",
     "groups": [
       {
         "id": "team",
@@ -724,27 +724,6 @@
           ]
         }
       }
-    ],
-    "phone": {
-      "settings": [
-        "account",
-        "assistant",
-        "notifications",
-        "security",
-        "devices",
-        "about"
-      ],
-      "team": [
-        "general",
-        "members",
-        "labels",
-        "repositories",
-        "prompts",
-        "boards",
-        "agents",
-        "mcp",
-        "skills"
-      ]
-    }
+    ]
   }
 }

@@ -22,8 +22,13 @@ data class DraftRow(
     val team: TeamEntity? = null,
 )
 
-/** The drafts of one team (the board's Drafts chip); no team = none. */
-fun teamDrafts(drafts: List<IssueDraftEntity>, teamId: String?): List<IssueDraftEntity> =
+/**
+ * EXP-1272 parity: every drafts surface (the Inbox tab's dot, the Drafts
+ * list) shows the ACTIVE team's drafts only, as web (`useTeamDrafts(teamId)`,
+ * a disabled query with no team) and iOS do — the shape itself is static per
+ * user, so the team scope is applied here. No active team = no drafts.
+ */
+fun activeTeamDrafts(drafts: List<IssueDraftEntity>, teamId: String?): List<IssueDraftEntity> =
     if (teamId == null) emptyList() else drafts.filter { it.teamId == teamId }
 
 /**

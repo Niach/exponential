@@ -10,6 +10,7 @@ final class SharedBoardMirrorTests: XCTestCase {
     // Mirrors SharedBoardMirror's private keys (stable persisted names).
     private let boardsKey = "picker_boards_v1"
     private let lastUsedKey = "picker_last_used_board_v1"
+    private let activeTeamsKey = "active_team_by_account_v1"
 
     private var defaults: UserDefaults!
 
@@ -26,6 +27,7 @@ final class SharedBoardMirrorTests: XCTestCase {
     private func wipe() {
         defaults.removeObject(forKey: boardsKey)
         defaults.removeObject(forKey: lastUsedKey)
+        defaults.removeObject(forKey: activeTeamsKey)
     }
 
     private func board(account: String, board: String) -> MirroredBoard {
@@ -118,5 +120,30 @@ final class SharedBoardMirrorTests: XCTestCase {
         SharedBoardMirror.pruneLastUsed(signedInAccountIds: ["A", "B"])
 
         XCTAssertEqual(SharedBoardMirror.readLastUsed()?.boardId, "a1")
+    }
+
+    // EXP-1373: the active team is kept per account and survives a rewrite
+    // of another account's.
+    func testActiveTeamIsPerAccount() {
+        SharedBoardMirror.writeActiveTeam(accountId: "A", teamId: "t1")
+        SharedBoardMirror.writeActiveTeam(accountId: "B", teamId: "t2")
+        SharedBoardMirror.writeActiveTeam(accountId: "A", teamId: "t3")
+
+        XCTAssertEqual(SharedBoardMirror.readActiveTeam(accountId: "A"), "t3")
+        XCTAssertEqual(SharedBoardMirror.readActiveTeam(accountId: "B"), "t2")
+        XCTAssertNil(SharedBoardMirror.readActiveTeam(accountId: "C"))
+    }
+
+    // Removing an account drops its active team; the last one leaves nothing.
+    func testRemoveClearsActiveTeamOfThatAccount() {
+        SharedBoardMirror.writeActiveTeam(accountId: "A", teamId: "t1")
+        SharedBoardMirror.writeActiveTeam(accountId: "B", teamId: "t2")
+
+        SharedBoardMirror.remove(accountId: "A")
+        XCTAssertNil(SharedBoardMirror.readActiveTeam(accountId: "A"))
+        XCTAssertEqual(SharedBoardMirror.readActiveTeam(accountId: "B"), "t2")
+
+        SharedBoardMirror.remove(accountId: "B")
+        XCTAssertNil(defaults.object(forKey: activeTeamsKey))
     }
 }

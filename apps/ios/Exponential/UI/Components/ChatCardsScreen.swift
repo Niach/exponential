@@ -14,7 +14,7 @@ struct ChatCardsScreen: View {
 
     @Environment(AppDependencies.self) private var deps
 
-    static let kinds: Set<String> = ["record-form-field-states", "work-card", "script-card", "comment-call-card", "trace", "code-block", "chat-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "team-avatar", "phone-page-header", "chat-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "needs-you", "results-tab", "results-tab-lightbox", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "sealed-locked", "pr-row", "pr-checks", "ci-run", "runner-settings", "repo-runs", "repo-ci", "session-row", "device-attention", "device-attention-menu", "install-approval", "install-waiting"]
+    static let kinds: Set<String> = ["record-form-field-states", "work-card", "script-card", "comment-call-card", "trace", "code-block", "chat-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-team-menu", "team-avatar", "phone-page-header", "chat-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "call-pill", "chat-selection", "needs-you", "results-tab", "results-tab-lightbox", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "sealed-locked", "pr-row", "pr-checks", "ci-run", "runner-settings", "repo-runs", "repo-ci", "session-row", "device-attention", "device-attention-menu", "install-approval", "install-waiting"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -66,6 +66,16 @@ struct ChatCardsScreen: View {
                 .preferredColorScheme(.dark)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("chat-cards-screen")
+        } else if kind == "phone-board-menu" || kind == "phone-team-menu" {
+            // EXP-1554: a whole phone screen, so the panel grows from the
+            // bottom strip where the live one does (Android's shot).
+            ZStack {
+                AppBackground()
+                PhoneBoardMenuSpecimens(teamMenu: kind == "phone-team-menu")
+            }
+            .preferredColorScheme(.dark)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("chat-cards-screen")
         } else {
             cards
         }

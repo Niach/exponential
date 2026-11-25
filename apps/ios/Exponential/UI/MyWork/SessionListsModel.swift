@@ -13,7 +13,8 @@ import GRDB
 /// the derived lists.
 @MainActor @Observable
 final class SessionListsModel {
-    /// Every team's chat groups (`partitionChats(teamId: nil)`).
+    /// Every team's chat groups (`partitionChats(teamId: nil)` — phones
+    /// band the rows per team).
     private(set) var groups: [ChatsListGroup] = []
     /// Every team's agents (`listAgents(teamId: nil)`, NEW-2: the synced
     /// `agents` definitions).
@@ -89,19 +90,10 @@ final class SessionListsModel {
     nonisolated init() {}
 
     /// #FEED-232 (nav-badges.json `chatsCases`): the Chats destination's
-    /// count badge (the phone tab, the iPad sidebar row), over every team.
-    var chatsBadge: NavBadges.Value { NavBadges.chatsBadge(groups, reads: reads) }
-
-    /// The viewer's ONE Assistant: the global one (its personal team never
-    /// syncs), else the first of theirs.
-    var assistant: AgentRow? {
-        let mine = agents.filter(\.assistant)
-        return mine.first { !syncedTeamIds.contains($0.teamId) } ?? mine.first
-    }
-
-    /// Every team's agents, the viewer's one Assistant first.
-    var listedAgents: [AgentRow] {
-        (assistant.map { [$0] } ?? []) + agents.filter { !$0.assistant }
+    /// count badge (the phone tab, the iPad sidebar row). EXP-1373: ONE
+    /// active team drives the phone: it reads that team's rows alone.
+    func chatsBadge(teamId: String?) -> NavBadges.Value {
+        NavBadges.chatsBadge(teamGroups(teamId), reads: reads)
     }
 
     /// #EXP-1990 (agent-settings.json `groupChat.chatCases`): each agent's
@@ -132,14 +124,14 @@ final class SessionListsModel {
         return NavBadges.rowBadge(unreadCount: unread, needsYou: agent.needsYou)
     }
 
-    /// The Chats tab's list (`Chats.chatList`) over every team, computed once
-    /// per sync emission, view and clock tick (a push over the list
+    /// The Chats tab's list (`Chats.chatList`) of a team, computed once per
+    /// sync emission, team, view and clock tick (a push over the list
     /// re-renders it without rebuilding the rows).
-    func chatList(view: Chats.ChatListView, now: String, utcOffsetMinutes: Int) -> Chats.ChatList {
+    func chatList(teamId: String?, view: Chats.ChatListView, now: String, utcOffsetMinutes: Int) -> Chats.ChatList {
         // The inputs are read either way, so the caller observes them.
-        let groups = groups, messages = chatMessages, reads = reads, prStates = prStates, words = words, sessions = sessions
+        let groups = teamGroups(teamId), messages = chatMessages, reads = reads, prStates = prStates, words = words, sessions = sessions
         let viewerId = viewerId, memberNames = memberNames
-        let key = "\(revision)|\(view)|\(now)|\(utcOffsetMinutes)"
+        let key = "\(revision)|\(teamId ?? "")|\(view)|\(now)|\(utcOffsetMinutes)"
         if let memo = chatListMemo[view], memo.key == key { return memo.list }
         let list = Chats.chatList(
             groups: groups,
@@ -159,24 +151,55 @@ final class SessionListsModel {
         return list
     }
 
-    /// A root's row in the chat groups.
-    func chatRow(_ rootId: String) -> ChatsListRow? {
-        for group in groups {
-            if let row = group.rows.first(where: { $0.sessionId == rootId }) { return row }
+    /// `partitionChats` narrowed to one team (empty groups dropped).
+    func teamGroups(_ teamId: String?) -> [ChatsListGroup] {
+        guard let teamId else { return groups }
+        return groups.compactMap { group in
+            let rows = group.rows.filter { shows($0, in: teamId) }
+            return rows.isEmpty ? nil : ChatsListGroup(key: group.key, title: group.title, rows: rows)
         }
-        return nil
     }
 
-    /// #EDE-99 (search-list.json `globalChatRows`): every synced root I can
-    /// see, titled as the chat list titles them.
-    var searchRoots: [String: SearchList.GlobalChatRoot] {
-        chatRoots.mapValues { SearchList.GlobalChatRoot(title: $0.title, agent: $0.agent) }
+    /// #EXP-1714: a row of `teamId`, or the viewer's own row of an unsynced
+    /// (personal) team.
+    private func shows(_ row: ChatsListRow, in teamId: String) -> Bool {
+        AgentSettings.inTeamOrPersonal(
+            teamId: row.teamId, userId: rootStarter[row.rootId], team: teamId,
+            teamIds: syncedTeamIds, me: viewerId
+        )
     }
 
-    /// #FEED-191 (needs-you.json): every plan, question and ready PR waiting
-    /// on the viewer in this team, newest first.
-    func needsYou(teamId: String, me: String?, now: Date) -> [NeedsYou.Row] {
-        guard let input = needsYouInputs[teamId] else { return [] }
+    /// #EDE-99 (search-list.json `globalChatRows`): the ACTIVE team's synced
+    /// roots I can see, titled as the chat list titles them.
+    func searchRoots(teamId: String?) -> [String: SearchList.GlobalChatRoot] {
+        guard let teamId else { return [:] }
+        var out: [String: SearchList.GlobalChatRoot] = [:]
+        for (id, root) in chatRoots where AgentSettings.inTeamOrPersonal(
+            teamId: root.teamId, userId: root.userId, team: teamId, teamIds: syncedTeamIds, me: viewerId
+        ) {
+            out[id] = SearchList.GlobalChatRoot(title: root.title, agent: root.agent)
+        }
+        return out
+    }
+
+    /// #FEED-191 (needs-you.json): every plan, question and ready PR waiting on
+    /// the viewer in this team, newest first. #EXP-1714: plus the viewer's own
+    /// sessions of an unsynced (personal) team.
+    func needsYou(teamId: String?, me: String?, now: Date) -> [NeedsYou.Row] {
+        guard let teamId else { return [] }
+        var input = needsYouInputs[teamId] ?? NeedsYouInput()
+        for (key, other) in needsYouInputs where key != teamId && !syncedTeamIds.isEmpty {
+            let mine = other.sessions.filter {
+                AgentSettings.inTeamOrPersonal(
+                    teamId: key, userId: $0.userId, team: teamId, teamIds: syncedTeamIds, me: me
+                )
+            }
+            guard !mine.isEmpty else { continue }
+            let ids = Set(mine.map(\.id))
+            input.sessions += mine
+            input.messages += other.messages.filter { ids.contains($0.sessionId) }
+            input.pullRequests += other.pullRequests.filter { ids.contains($0.rootSessionId ?? "") }
+        }
         return NeedsYou.rows(
             now: now.timeIntervalSince1970 * 1000,
             me: me,
@@ -187,21 +210,6 @@ final class SessionListsModel {
             owner: me.map { input.owners.contains($0) } ?? false,
             groupChatIds: groupChatIds
         )
-    }
-
-    /// Every team's Needs you rows, newest first, with the viewer's own of an
-    /// unsynced (personal) team (#EXP-1714): each team folds with its own
-    /// merge mode and owners.
-    func needsYou(me: String?, now: Date) -> [NeedsYou.Row] {
-        var seen = Set<String>()
-        return needsYouInputs.keys.sorted()
-            .flatMap { teamId -> [NeedsYou.Row] in
-                let rows = needsYou(teamId: teamId, me: me, now: now)
-                guard !syncedTeamIds.isEmpty, !syncedTeamIds.contains(teamId) else { return rows }
-                return rows.filter { rootStarter[$0.rootId] == me }
-            }
-            .filter { seen.insert($0.messageId).inserted }
-            .sorted { $0.createdAt > $1.createdAt }
     }
 
     /// (Re)binds to an account's pool; a no-op while already bound to it.

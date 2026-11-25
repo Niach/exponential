@@ -14,6 +14,7 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.SessionsApi
 import com.exponential.app.data.api.SessionsSendInput
 import com.exponential.app.data.api.trpcErrorMessage
@@ -36,7 +37,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
@@ -46,11 +49,12 @@ import kotlinx.coroutines.launch
 
 /**
  * EXP-1291 → session 58cb32df CHATS: the Chats TAB's model.
- * #EXP-2109 (chats.json): no active team, so [SessionTree.partitionChats] runs
- * over every member team; the phone list = [Chats.chatList] over its
+ * chats.json: ONE active team drives every phone screen (no team bands), so
+ * [SessionTree.partitionChats] runs over the ACTIVE team
+ * ([TeamSelection.selectedId]); the phone list = [Chats.chatList] over its
  * groups, the Agents section = [Chats.agentChatRows] over
  * [SessionTree.listAgents], the Apps section (#EXP-1733) = [Chats.appChatRows]
- * over every member team's apps, the Needs you entry and page = [NeedsYou.needsYou]. The menus' calls (Stop = `sessions.end` on the
+ * over the active team's apps, the Needs you entry and page = [NeedsYou.needsYou]. The menus' calls (Stop = `sessions.end` on the
  * root, Delete = `sessions.delete`, the agent's turn Stop = `sessions.stop`,
  * Compact / New conversation = the builtin lines through `sessions.send`)
  * live here too.
@@ -71,6 +75,7 @@ private val LIST_SHARING = SharingStarted.WhileSubscribed(stopTimeoutMillis = 0)
 class ChatsViewModel @Inject constructor(
     private val auth: AuthRepository,
     holder: DatabaseHolder,
+    selection: TeamSelection,
     private val sessionsApi: SessionsApi,
     private val sender: SessionSender,
     private val agentsApi: com.exponential.app.data.api.AgentsApi,
@@ -78,18 +83,24 @@ class ChatsViewModel @Inject constructor(
     private val pullRequestsApi: com.exponential.app.data.api.PullRequestsApi,
 ) : ViewModel() {
 
-    /** S-3: the chats list makes sure the viewer has an Assistant (once
-     *  per app run; #EXP-2109: no active team). */
+    /** S-3: the chats list makes sure the viewer has an Assistant (once per
+     *  team per app run). */
     fun ensureAssistant() {
+        val team = activeTeam.value
         viewModelScope.launch {
-            com.exponential.app.data.api.AssistantEnsurer.ensureForAccount(agentsApi, auth.activeAccountId.value)
+            com.exponential.app.data.api.AssistantEnsurer.ensure(agentsApi, auth.activeAccountId.value, team)
         }
     }
 
+    /** chats.json: the ONE active team every phone list filters to. */
+    private val activeTeam: StateFlow<String?> = selection.selectedId
+
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    private val ownedTeams: Flow<Set<String>> =
-        com.exponential.app.data.ownedTeamIdsFlow(dbFlow, auth.userId)
+    /** #EXP-1714: the synced teams' ids — a session or conversation in none of
+     *  them sits in the viewer's personal team (the global Assistant's chat). */
+    private val syncedTeamIds: Flow<List<String>> =
+        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() }.map { rows -> rows.map { it.id } }
 
     // One shared query per table: the list, rowMeta, the nav dots and the
     // PR rows all read these, so they must not each re-run them (and the
@@ -133,14 +144,23 @@ class ChatsViewModel @Inject constructor(
         sessions,
         dbFlow.scopedQuery(emptyList()) { it.sessionIssueDao().observeAll() }.map { it.map(SessionTree::sessionIssue) },
         dbFlow.scopedQuery(emptyList()) { it.issueDao().observeAll() }.map { issueCache.read(it) },
-        // #EXP-1380 / session e4a04d22: the session DIGESTS (#EXP-1730:
-        // `sessions.digest`), never the messages — every list row, preview,
-        // unread count and bubble ring reads the server-kept digest turned
-        // back into messages (`Chats.digestMessages`, chats.json
-        // `digestCases`), so no transcript loads here and a new message
-        // re-reads one row. #EXP-2109: every member team's, plus the
-        // viewer's personal team's (the Assistant's chat).
-        sessionRows.combine(digestMessagesById) { rows, byId ->
+        // #EXP-1380 / session e4a04d22: the ACTIVE team's session DIGESTS
+        // (#EXP-1730: `sessions.digest`), never its messages — every list
+        // row, preview, unread count and bubble ring reads the server-kept
+        // digest turned back into messages (`Chats.digestMessages`,
+        // chats.json `digestCases`), so no transcript loads here and a new
+        // message re-reads one row.
+        // #EXP-1714: plus the personal team's (the viewer's Assistant chat):
+        // only its owner syncs it, so any session outside the synced teams is theirs.
+        activeTeam.flatMapLatest { team ->
+            if (team == null) {
+                sessionRows
+            } else {
+                combine(sessionRows, syncedTeamIds) { rows, ids ->
+                    rows.filter { it.teamId == team || (ids.isNotEmpty() && it.teamId !in ids) }
+                }
+            }
+        }.combine(digestMessagesById) { rows, byId ->
             rows.flatMap { row -> byId[row.id].orEmpty() }
         },
         // EXP-1323: the viewer's read marks (bold rows + the nav dot).
@@ -157,15 +177,15 @@ class ChatsViewModel @Inject constructor(
         val reads: List<SessionTree.SessionRead>,
     )
 
-    /** The grouped chat list of EVERY member team (chats.json PHONE SHELL);
-     *  #EXP-1461: root rows only. */
-    val groups: StateFlow<List<SessionTree.ChatsListGroup>> = inputs.map { input ->
+    /** The grouped chat list of the ACTIVE team (chats.json: one team per
+     *  phone screen); #EXP-1461: root rows only. */
+    val groups: StateFlow<List<SessionTree.ChatsListGroup>> = combine(inputs, activeTeam) { input, team ->
         com.exponential.app.domain.perfTrace("ChatsViewModel.groups") { SessionTree.partitionChats(
             input.sessions,
             input.links,
             input.issues,
             input.messages,
-            teamId = null,
+            teamId = team,
             reads = input.reads,
             // NEW-1: Recent's 24 h window (read on every input change).
             now = SessionTree.nowIso(),
@@ -179,12 +199,12 @@ class ChatsViewModel @Inject constructor(
      * [SessionTree.chatsNavBadge] reads the same rule without building it and
      * emits only on a change.
      */
-    val chatsBadge: StateFlow<NavBadges.Badge> = inputs.map { input ->
+    val chatsBadge: StateFlow<NavBadges.Badge> = combine(inputs, activeTeam) { input, team ->
         com.exponential.app.domain.perfTrace("ChatsViewModel.chatsBadge") {
             SessionTree.chatsNavBadge(
                 input.sessions,
                 input.messages,
-                teamId = null,
+                teamId = team,
                 reads = input.reads,
                 now = SessionTree.nowIso(),
             )
@@ -301,8 +321,12 @@ class ChatsViewModel @Inject constructor(
         agentDefinitions,
         sessions,
         auth.userId,
-    ) { defs, s, me ->
-        SessionTree.listAgents(defs, s, teamId = null, me = me)
+        activeTeam,
+        // Its own query: `teams` below is initialised after this property.
+        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
+    ) { defs, s, me, team, teamRows ->
+        // #EXP-1714: `teamIds` brings the viewer's global Assistant along.
+        SessionTree.listAgents(defs, s, teamId = team, me = me, teamIds = teamRows.map { it.id })
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _view = MutableStateFlow(Chats.ChatListView.List)
@@ -328,53 +352,51 @@ class ChatsViewModel @Inject constructor(
         }
 
     /** #FEED-191 (needs-you.json): every plan, question and ready PR waiting on
-     *  the viewer in EVERY member team (#EXP-2109; web `useCrossTeamNeedsYou`:
-     *  each team folded with its own merge mode and owner flag, the viewer's
-     *  Assistant's once), plans and questions first, then the PRs, newest
-     *  first; a session named by THE session title, an agent conversation by
-     *  its agent; only the digests' waiting kinds. */
+     *  the viewer in the ACTIVE team, newest first; web `useNeedsYou`'s input: a
+     *  session named by THE session title, an agent conversation by its agent;
+     *  only the digests' waiting kinds; the team's pull requests. */
     val needsYouRows: StateFlow<List<NeedsYou.Row>> = combine(
-        combine(inputs, needsYouTeamFacts()) { input, facts -> input to facts },
+        combine(inputs, activeTeam, needsYouTeamFacts()) { input, team, facts -> Triple(input, team, facts) },
         agentDefinitions,
         pullRequestRows,
         auth.userId,
         minuteClock,
-    ) { (input, facts), definitions, prs, me, now ->
-        val titleOf = SessionTree.titler(input.links, input.issues, input.messages)
-        fun fold(sessions: List<SessionTree.Session>, team: TeamEntity?) = needsYouFold(
-            sessions, input.links, input.issues, input.messages, definitions,
-            if (team == null) emptyList() else prs, team?.id, me, now,
-            mergeMode = team?.mergeMode ?: MergeTrain.MODE_AUTO,
-            owner = team != null && team.id in facts.owned,
+    ) { (input, team, facts), definitions, prs, me, now ->
+        needsYouFold(
+            input.sessions, input.links, input.issues, input.messages, definitions, prs, team, me, now,
+            teamIds = facts.teamIds,
+            mergeMode = facts.mergeMode,
+            owner = facts.owner,
             devices = facts.devices,
-            titleOf = titleOf,
         )
-        val teamIds = facts.teams.mapTo(HashSet()) { it.id }
-        // The viewer's own sessions in no synced team: their Assistant's.
-        val personal = input.sessions.filter { teamIds.isNotEmpty() && it.teamId !in teamIds && it.userId == me }
-        (facts.teams.flatMap { fold(input.sessions, it) } + fold(personal, null))
-            .sortedWith(
-                compareBy<NeedsYou.Row> { it.kind == NeedsYou.Kind.Pr }
-                    .thenByDescending { WireTimestamps.parseEpochMs(it.createdAt) ?: 0L }
-                    .thenByDescending { it.messageId },
-            )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyList())
 
     /** #EXP-1710: what the Needs you fold reads beyond the list's inputs. */
     private data class NeedsYouTeamFacts(
-        val teams: List<TeamEntity>,
-        /** The teams the viewer owns. */
-        val owned: Set<String>,
+        val mergeMode: String,
+        val owner: Boolean,
         val devices: List<DeviceEntity>,
+        /** #EXP-1714: the synced teams' ids. */
+        val teamIds: List<String> = emptyList(),
     )
 
-    /** The member teams (their merge modes), the ones the viewer owns, and the
-     *  synced devices (a stuck row's offline clock). */
-    private fun needsYouTeamFacts(): Flow<NeedsYouTeamFacts> = combine(
-        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
-        ownedTeams,
-        dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
-    ) { teams, owned, devices -> NeedsYouTeamFacts(teams, owned, devices) }
+    /** The ACTIVE team's merge mode (no active team = `auto`), whether the
+     *  viewer owns it, and the synced devices (a stuck row's offline clock). */
+    private fun needsYouTeamFacts(): Flow<NeedsYouTeamFacts> = combine(activeTeam, auth.userId) { team, me -> team to me }
+        .flatMapLatest { (team, me) ->
+            combine(
+                dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
+                if (team == null) flowOf(emptyList()) else dbFlow.scopedQuery(emptyList()) { it.teamMemberDao().observeByTeam(team) },
+                dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
+            ) { teams, members, devices ->
+                NeedsYouTeamFacts(
+                    mergeMode = teams.firstOrNull { it.id == team }?.mergeMode ?: MergeTrain.MODE_AUTO,
+                    owner = me != null && members.any { it.userId == me && it.role == "owner" },
+                    devices = devices,
+                    teamIds = teams.map { it.id },
+                )
+            }
+        }
 
     /** #EXP-1710: the synced pull requests a Needs you PR row acts on (the
      *  row's PR + its team's stack pool for THE pill's confirm and Merge now). */
@@ -435,10 +457,14 @@ class ChatsViewModel @Inject constructor(
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, Chats.ChatList(emptyList()))
 
-    /** #EXP-1733: every member team's live apps (the dao hides trashed rows). */
-    private val teamAppRows: Flow<List<com.exponential.app.data.db.AppEntity>> =
-        dbFlow.scopedQuery(emptyList()) { it.appDao().observeAll() }
-            .map { rows -> rows.sortedWith(compareBy({ it.name.lowercase() }, { it.id })) }
+    /** #EXP-1733: the ACTIVE team's live apps (the dao hides trashed rows). */
+    private val teamAppRows: Flow<List<com.exponential.app.data.db.AppEntity>> = activeTeam.flatMapLatest { team ->
+        if (team == null) {
+            flowOf(emptyList())
+        } else {
+            dbFlow.scopedQuery(emptyList()) { it.appDao().observeByTeam(team) }
+        }
+    }
 
     private val teamApps: Flow<List<Chats.AppChatInput>> = teamAppRows.map { rows ->
         rows.map { Chats.AppChatInput(appId = it.id, slug = it.slug, name = it.name, icon = it.icon, color = it.color) }
@@ -513,28 +539,17 @@ class ChatsViewModel @Inject constructor(
         }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
 
-    /** The teams the viewer owns (a row's delete, the agent menu's settings). */
-    val owned: StateFlow<Set<String>> =
-        ownedTeams.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
-
-    /** #EXP-2109: a row's TEAM MARK by its root, agent or app id; a row
-     *  outside the member teams (the viewer's Assistant) has none. */
-    val rowTeams: StateFlow<Map<String, TeamEntity>> = combine(
-        sessionRows,
-        agentDefinitions,
-        teamAppRows,
-        dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() },
-        auth.userId,
-    ) { rows, defs, apps, teamRows, me ->
-        val byId = teamRows.associateBy { it.id }
-        buildMap {
-            rows.forEach { row -> if (row.isRoot) byId[row.teamId]?.let { put(row.id, it) } }
-            defs.forEach { def ->
-                if (!(def.isAssistant && def.ownerId == me)) byId[def.teamId]?.let { put(def.id, it) }
+    /** The viewer owns the active team (the agent menu's Agent settings). */
+    val isOwner: StateFlow<Boolean> = combine(activeTeam, auth.userId) { team, me -> team to me }
+        .flatMapLatest { (team, me) ->
+            if (team == null || me == null) {
+                flowOf(false)
+            } else {
+                dbFlow.scopedQuery(emptyList()) { it.teamMemberDao().observeByTeam(team) }
+                    .map { members -> members.any { it.userId == me && it.role == "owner" } }
             }
-            apps.forEach { app -> byId[app.teamId]?.let { put(app.id, it) } }
         }
-    }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, LIST_SHARING, emptyMap())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     // ── the menus' calls (chats.json MENUS) ─────────────────────────────────
 

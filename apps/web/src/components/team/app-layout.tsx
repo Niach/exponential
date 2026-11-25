@@ -3,7 +3,7 @@ import { isGlobalSearchKey } from "./global-search-shortcut"
 import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router"
 import { useEffect, useMemo, useState } from "react"
 import { rememberLastVisited } from "@/lib/last-visited"
-import { phonePathFor, widePathFor } from "@/lib/app-paths"
+import { widePathFor } from "@/lib/app-paths"
 import type { SessionData } from "@/lib/auth/client"
 import { SidebarProvider, useIsMobile } from "@exp/ui"
 import { MobileTabBar } from "@/components/team/mobile-tab-bar"
@@ -69,23 +69,23 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
   const gettingStarted = useGettingStartedProgress(team)
   // Child-route params (loose match): `boardSlug` is set while any
   // board-scoped route (board, issue detail) is active.
-  const { boardSlug, teamSlug: routeTeamSlug } = useParams({ strict: false })
+  const { boardSlug } = useParams({ strict: false })
   const isMobile = useIsMobile()
-  // #EXP-2027 / #EXP-2109: no active team: an old team-scoped URL of a page
-  // that went team-less (Agent → Home, Chats, Needs you, personal settings…)
-  // moves to it.
+  // #EXP-2027: md+ has no active team: an old team-scoped URL of a page that
+  // went team-less (Agent → Home, Chats, Needs you, Drafts, personal
+  // settings…) moves to it. Phones keep today's pages.
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const searchStr = useRouterState({ select: (s) => s.location.searchStr })
-  const movedTo = isMobile ? phonePathFor(pathname) : widePathFor(pathname)
+  const wideTarget = isMobile ? null : widePathFor(pathname)
   useEffect(() => {
-    if (movedTo) void navigate({ href: `${movedTo}${searchStr}`, replace: true })
-  }, [movedTo, searchStr, navigate])
-  // EXP-69: this device's last-used board (a new issue's default one). A
-  // team-less page (its providers read the default team) remembers nothing.
+    if (wideTarget) void navigate({ href: `${wideTarget}${searchStr}`, replace: true })
+  }, [wideTarget, searchStr, navigate])
+  // EXP-69: remember this device's last-used team/board so the root
+  // redirect can jump straight back on the next app entry.
   useEffect(() => {
-    if (routeTeamSlug) rememberLastVisited(routeTeamSlug, boardSlug)
-  }, [routeTeamSlug, boardSlug])
+    rememberLastVisited(teamSlug, boardSlug)
+  }, [teamSlug, boardSlug])
   // The steer-store reaper runs here, on every breakpoint — no sidebar or
   // work-tab surface is mounted on phones, so none of them can own the
   // sockets.
@@ -133,18 +133,19 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
   // reachable. EXP-1293: route-driven — no screen calls into it. Settings is
   // tab-less (desktop EXP-1192): the band keeps its height, without tabs.
   const showWorkTabs = !isMobile && Boolean(team)
-  // #EXP-2027 / #EXP-2109: the search reads every member team.
-  const { myTeams } = useTeamMemberships(user?.id)
+  // #EXP-2027: the md+ search reads every member team (no active team); a
+  // phone keeps the route's team.
+  const { myTeams } = useTeamMemberships(isMobile ? undefined : user?.id)
   const teamsKey = myTeams.map((row) => `${row.id}:${row.slug}:${row.name}`).join(`|`)
   const searchTeams = useMemo(
     () =>
-      myTeams.length === 0
+      isMobile || myTeams.length === 0
         ? team
           ? [{ id: team.id, slug: teamSlug }]
           : []
         : [...myTeams].sort(compareTeams).map((row) => ({ id: row.id, slug: row.slug })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [teamsKey, team?.id, teamSlug]
+    [isMobile, teamsKey, team?.id, teamSlug]
   )
   // #EXP-2027: the work tabs span every member team (md+ only), each tab
   // linking into its own entity's team.
@@ -237,7 +238,7 @@ export function AppLayout({ teamSlug, user }: AppLayoutProps) {
 
             {/* Native-style bottom navigation (EXP-189) — fixed-position,
                 so JSX placement only affects stacking. */}
-            <MobileTabBar />
+            <MobileTabBar teamSlug={teamSlug} team={team} boards={boards} />
             {/* EXP-792 (EXP-747 A2): the one "Sign in to <agent>" dialog a
                 failed remote start's toast or a machine row opens. */}
             <AgentLoginDialogHost />

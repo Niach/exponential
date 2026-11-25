@@ -3,7 +3,6 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { APPS_COPY, APPS_RUN, APPS_TEST_IDS } from "@exp/domain-contract/apps"
 import { conceptIcon, ListRow, SETTINGS_LIST_CLASS, Separator } from "@exp/ui"
 import { AppImportForm } from "@/components/apps/app-import-dialog"
-import { NewPageHeading } from "@/components/team/new-page-heading"
 import { PAGE_END_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useNewApp } from "@/hooks/use-new-app"
 import { useSettingsPage } from "@/routes/t/$teamSlug/settings/-shared"
@@ -41,7 +40,8 @@ function NewAppRoute() {
   } as const
   return (
     <div className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${PAGE_END_CLEARANCE}`}>
-      <NewPageHeading teamSlug={teamSlug}>{APPS_COPY.newApp}</NewPageHeading>
+      <h1 className="text-2xl font-bold">{APPS_COPY.newApp}</h1>
+      <Separator />
       <div className={SETTINGS_LIST_CLASS}>
         {APPS_RUN.newMenu.map((id) => {
           const entry = entries[id as keyof typeof entries]

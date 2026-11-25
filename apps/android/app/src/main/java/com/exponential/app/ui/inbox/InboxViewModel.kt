@@ -140,8 +140,8 @@ internal fun buildInboxState(
     issues: List<IssueEntity>,
     teams: List<TeamEntity>,
     /** web/iOS parity: a row names its team only on the every-team stream of
-     *  a member of several teams (a row of a
-     *  team none of [teams] name, the Assistant's personal team, says none). */
+     *  a member of several teams; one active team's inbox (and a row of a
+     *  team none of [teams] name: the Assistant's personal team) says none. */
     labelTeams: Boolean = true,
 ): InboxState {
     val issueMap = issues.associateBy { it.id }
@@ -187,13 +187,42 @@ internal fun buildInboxState(
     return InboxState(entries = entries, totalUnread = entries.sumOf { it.unread }, loaded = true)
 }
 
-/** The inbox circle's count (#EXP-2109: every member team): the unread rows
- *  the inbox PAGE shows, counted the way the page counts them, so the two
- *  never disagree. */
-internal fun inboxUnread(
+/** Session 58cb32df: the notifications of [teamId] (null = all): an issue
+ *  row's team = its board's, an issue-less row's its own `team_id`. A
+ *  team-less row (#EXP-1534 `agent_signed_out`) lists in every team;
+ *  #EXP-1987 (`InboxRoute.inboxRowListed`): so does a session row of a team
+ *  none of [teamIds] (the synced teams) name, the Assistant's chat in the
+ *  member's personal team. */
+internal fun activeTeamNotifications(
     notifications: List<NotificationEntity>,
     issues: List<IssueEntity>,
-): Int = buildInboxState(notifications, issues, emptyList()).totalUnread
+    boards: List<com.exponential.app.data.db.BoardEntity>,
+    teamId: String?,
+    teamIds: Collection<String>,
+): List<NotificationEntity> {
+    if (teamId == null) return notifications
+    val boardTeam = boards.associate { it.id to it.teamId }
+    val issueTeam = issues.associate { it.id to boardTeam[it.boardId] }
+    return notifications.filter { n ->
+        val team = n.teamId?.takeIf { it.isNotEmpty() } ?: n.issueId?.let(issueTeam::get)
+        com.exponential.app.domain.InboxRoute.inboxRowListed(n.type, team, n.issueId, teamId, teamIds)
+    }
+}
+
+/** The inbox dot (chats.json): the unread rows the inbox PAGE shows for
+ *  [teamId] (null = every team), counted the way the page counts them, so
+ *  the dot and the page never disagree. */
+internal fun activeTeamUnread(
+    notifications: List<NotificationEntity>,
+    issues: List<IssueEntity>,
+    boards: List<com.exponential.app.data.db.BoardEntity>,
+    teamId: String?,
+    teamIds: Collection<String>,
+): Int = buildInboxState(
+    activeTeamNotifications(notifications, issues, boards, teamId, teamIds),
+    issues,
+    emptyList(),
+).totalUnread
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -201,7 +230,14 @@ class InboxViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val holder: DatabaseHolder,
     private val notificationsApi: NotificationsApi,
+    selection: com.exponential.app.data.TeamSelection,
 ) : ViewModel() {
+
+    /** Session 58cb32df (chats.json): the inbox page lists the ACTIVE team's
+     *  rows only (an issue's team = its board's; an issue-less row carries
+     *  its own); null = every team, before one resolves. */
+    private val activeTeam = selection.selectedId
+    private val boardsFlow = accountDatabaseFlow(auth, holder).scopedQuery(emptyList()) { it.boardDao().observeAll() }
 
     // Reactive account scoping: all queries re-scope on account switch (no
     // constructor-time DB/user snapshot).
@@ -221,8 +257,15 @@ class InboxViewModel @Inject constructor(
         notificationsFlow,
         issuesFlow,
         teamsFlow,
-    ) { notifications, issues, teams ->
-        buildInboxState(notifications, issues, teams, labelTeams = teams.size > 1)
+        boardsFlow,
+        activeTeam,
+    ) { notifications, issues, teams, boards, team ->
+        buildInboxState(
+            activeTeamNotifications(notifications, issues, boards, team, teams.map { it.id }),
+            issues,
+            teams,
+            labelTeams = team == null && teams.size > 1,
+        )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxState())
 
     fun markGroupRead(group: InboxGroup) = markRead(group.notifications)
@@ -243,12 +286,13 @@ class InboxViewModel @Inject constructor(
         }
     }
 
-    /** Mark all read = every team's rows (`notifications.markAllRead()`). */
+    /** Mark all read = the ACTIVE team's rows (session 58cb32df:
+     *  `notifications.markAllRead({ teamId })`; no team yet = every team). */
     fun markAllRead() {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             try {
-                notificationsApi.markAllRead(accountId, null)
+                notificationsApi.markAllRead(accountId, activeTeam.value)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 // FEED-79: the failed-action toast; Retry re-runs it (idempotent).

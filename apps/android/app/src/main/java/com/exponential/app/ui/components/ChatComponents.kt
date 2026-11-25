@@ -37,8 +37,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -151,8 +149,6 @@ fun ChatRow(
     selected: Boolean? = null,
     /** #EDE-98: the root's marks ([Chats.chatMarks]) right after the title. */
     marks: List<String> = emptyList(),
-    /** #EXP-2109: the row's team mark, after the title, before the time. */
-    team: com.exponential.app.data.db.TeamEntity? = null,
 ) {
     val unread = row.unreadCount > 0
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
@@ -196,7 +192,6 @@ fun ChatRow(
                         )
                         com.exponential.app.ui.chat.ChatMarks(marks)
                     }
-                    ChatTeamMark(team)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         row.time,
@@ -264,7 +259,6 @@ fun AgentChatRowItem(
     /** #FEED-191: the hold opens the agent menu (the bubble's, gone). */
     onLongClick: (() -> Unit)? = null,
     divider: Boolean = true,
-    team: com.exponential.app.data.db.TeamEntity? = null,
 ) {
     DiscChatRow(
         name = row.name,
@@ -278,7 +272,6 @@ fun AgentChatRowItem(
         onLongClick = onLongClick,
         divider = divider,
         modifier = modifier,
-        team = team,
     ) {
         AgentBubbleDisc(
             icon = row.icon,
@@ -305,7 +298,6 @@ fun AppChatRowItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     divider: Boolean = true,
-    team: com.exponential.app.data.db.TeamEntity? = null,
 ) {
     DiscChatRow(
         name = row.name,
@@ -319,7 +311,6 @@ fun AppChatRowItem(
         onLongClick = null,
         divider = divider,
         modifier = modifier,
-        team = team,
     ) {
         Box(
             Modifier
@@ -350,7 +341,6 @@ private fun DiscChatRow(
     onLongClick: (() -> Unit)?,
     divider: Boolean,
     modifier: Modifier,
-    team: com.exponential.app.data.db.TeamEntity?,
     disc: @Composable () -> Unit,
 ) {
     val unread = unreadCount > 0
@@ -401,7 +391,6 @@ private fun DiscChatRow(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    ChatTeamMark(team)
                     if (time.isNotEmpty()) {
                         Spacer(Modifier.width(8.dp))
                         Text(time, style = MaterialTheme.typography.labelMedium, color = timeColor, maxLines = 1)
@@ -422,21 +411,6 @@ private fun DiscChatRow(
             }
         }
     }
-}
-
-/** #EXP-2109: a Chats row's TEAM MARK (the sidebars' Active rows'); none for a
- *  row outside the member teams (the viewer's Assistant). */
-@Composable
-private fun ChatTeamMark(team: com.exponential.app.data.db.TeamEntity?) {
-    if (team == null) return
-    Spacer(Modifier.width(8.dp))
-    TeamAvatar(
-        team.iconUrl,
-        size = 16.dp,
-        modifier = Modifier
-            .testTag("chat-team-mark")
-            .semantics { contentDescription = team.name },
-    )
 }
 
 /** A chat row's text edge from the screen edge (both sides). */

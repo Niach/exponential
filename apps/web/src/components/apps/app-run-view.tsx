@@ -71,7 +71,7 @@ export function AppRunView({
       await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
       setDeleteOpen(false)
       void (isMobile
-        ? navigate({ to: `/t/$teamSlug/team`, params: { teamSlug }, replace: true })
+        ? navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug }, replace: true })
         : navigate({ to: `/t/$teamSlug`, params: { teamSlug }, replace: true }))
     } catch (error) {
       failedAction(`delete`, `the app`, error)
@@ -145,7 +145,7 @@ export function AppRunView({
             <span className="truncate">{app.name}</span>
           </span>
         }
-        onBack={() => void navigate({ to: `/t/$teamSlug/team`, params: { teamSlug } })}
+        onBack={() => void navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug } })}
         menu={
           entries.length > 0 ? (
             <Menu

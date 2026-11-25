@@ -38,7 +38,9 @@ struct SkillSettingsPage: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
-        .pageHeader(skill?.name ?? Skills.title, pushed: true)
+        .navigationTitle(skill?.name ?? Skills.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .task { await start() }
         .onDisappear {
             observation?.cancel()

@@ -17,14 +17,14 @@ class ViewingThreadsTest {
         assertEquals(ViewingScreen.Session("c1"), of(Routes.SESSION_PATTERN, "sessionId" to "c1"))
         assertEquals(
             ViewingScreen.Thread("device:d1"),
-            of(Routes.DEVICES_PATTERN, "device" to "d1"),
+            of(Routes.TEAM_SETTINGS_PATTERN, "section" to SettingsNav.DEVICES, "device" to "d1"),
         )
         assertEquals(ViewingScreen.Thread("inbox"), of(MainTabs.INBOX))
     }
 
     @Test
     fun `any other screen has none`() {
-        assertNull(of(Routes.DEVICES_PATTERN))
+        assertNull(of(Routes.TEAM_SETTINGS_PATTERN, "section" to SettingsNav.DEVICES))
         assertNull(of(Routes.TEAM_SETTINGS_PATTERN, "section" to SettingsNav.GENERAL))
         assertNull(of(MainTabs.CHATS))
         assertNull(of(null))

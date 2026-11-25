@@ -2,64 +2,45 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// #EXP-2109 (chats.json `shell.header`): THE PAGE HEADER. A root page
-/// (`header.pages`: Chats, Teams, Settings) wears the large inline navigation
-/// title on the left and `header.buttons` as the NATIVE toolbar circles on
-/// the right (plain ToolbarItems: the system's iOS 26 Liquid Glass circles,
-/// never hand-drawn ones): SEARCH (the search screen) then the INBOX (the
-/// inbox page; #FEED-232 THE count badge, muted, of every team's unread
-/// notifications, `\.inboxUnreadCount`). A pushed page (team, folder, board,
-/// a settings page, Devices; `pushed: true`) = the phone DETAIL header: the
-/// bare back arrow, the leading glyph, the title, all leading (EXP-1554: the
-/// system centres an inline title on a pushed page, so it rides the back
-/// arrow's item).
+/// #EXP-1384 (chats.json `shell.header`): THE PAGE HEADER on every top-level
+/// phone page (`header.pages`: Board, Chats, Apps, Team, Devices, Agent) —
+/// the large inline navigation title on the left and `header.buttons` as the
+/// NATIVE toolbar circles on the right (plain ToolbarItems: the system's
+/// iOS 26 Liquid Glass circles, never hand-drawn ones): SEARCH (the search
+/// screen) then the INBOX (the inbox page; #FEED-232 THE count badge, muted,
+/// of the active team's unread notifications — MainNavigator publishes
+/// `\.inboxUnreadCount`).
+/// A pushed page (Devices, `pushed: true`) gets the bare back arrow before
+/// its title (EXP-1554, `bareBackButton`): the system centres an inline
+/// title on a pushed page, so there the large title rides the back arrow's
+/// leading item.
 extension View {
-    func pageHeader(_ title: String, pushed: Bool = false, glyph: PageHeaderGlyphKind? = nil) -> some View {
-        modifier(PageHeaderModifier(title: title, pushed: pushed, glyph: glyph) { EmptyView() })
+    func pageHeader(_ title: String, pushed: Bool = false) -> some View {
+        modifier(PageHeaderModifier(title: title, pushed: pushed))
     }
-
-    /// A root page with its own circle before the search and inbox ones.
-    func pageHeader<Action: View>(_ title: String, @ViewBuilder action: () -> Action) -> some View {
-        modifier(PageHeaderModifier(title: title, pushed: false, glyph: nil, action: action))
-    }
-}
-
-/// A detail header's leading glyph.
-enum PageHeaderGlyphKind: Equatable {
-    /// The team's mark.
-    case team(iconUrl: String?)
-    case folder
-    /// A board's (agent's, app's) glyph in its colour.
-    case icon(String, color: String)
 }
 
 extension EnvironmentValues {
-    /// #FEED-232: the page header's Inbox count: every team's unread
+    /// #FEED-232: the page header's Inbox count: the ACTIVE team's unread
     /// notifications.
     @Entry var inboxUnreadCount = 0
     /// #NEW-12: the iPad's split columns host a `pushed` page (Needs you,
-    /// Devices, a board) as a column ROOT: no back arrow to carry its title.
+    /// Devices) as a column ROOT: no back arrow to carry its title.
     @Entry var pageHeaderAsRoot = false
     /// #NEW-12: the page is the iPad detail column's ROOT (a list row opened
-    /// it beside its list): there is nothing to go back to. #EXP-2109: the
-    /// phone's Assistant TAB too.
+    /// it beside its list): there is nothing to go back to.
     @Entry var detailColumnRoot = false
 }
 
-private struct PageHeaderModifier<Action: View>: ViewModifier {
+private struct PageHeaderModifier: ViewModifier {
     let title: String
     let requestedPushed: Bool
-    let glyph: PageHeaderGlyphKind?
     @Environment(\.inboxUnreadCount) private var inboxUnreadCount
     @Environment(\.pageHeaderAsRoot) private var asRoot
 
-    let action: Action
-
-    init(title: String, pushed: Bool, glyph: PageHeaderGlyphKind?, @ViewBuilder action: () -> Action) {
+    init(title: String, pushed: Bool) {
         self.title = title
         requestedPushed = pushed
-        self.glyph = glyph
-        self.action = action()
     }
 
     private var pushed: Bool { requestedPushed && !asRoot }
@@ -69,16 +50,10 @@ private struct PageHeaderModifier<Action: View>: ViewModifier {
             .navigationTitle(title)
             .toolbarTitleDisplayMode(pushed ? .inline : .inlineLarge)
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-            .modifier(PushedTitle(title: PushedTitleKey.Title(text: title, glyph: glyph), enabled: pushed))
-        if pushed {
-            titled
-        } else if #available(iOS 26.0, *) {
-            // Circles, not one shared capsule: a fixed spacer between them.
+            .modifier(PushedTitle(title: title, enabled: pushed))
+        if #available(iOS 26.0, *) {
+            // Two circles, not one shared capsule: a fixed spacer between them.
             titled.toolbar {
-                if Action.self != EmptyView.self {
-                    ToolbarItem(placement: .topBarTrailing) { action }
-                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                }
                 ToolbarItem(placement: .topBarTrailing) { PageHeaderSearchButton() }
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 ToolbarItem(placement: .topBarTrailing) { PageHeaderInboxButton(count: inboxUnreadCount) }
@@ -86,7 +61,6 @@ private struct PageHeaderModifier<Action: View>: ViewModifier {
         } else {
             titled.toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    action
                     PageHeaderSearchButton()
                     PageHeaderInboxButton(count: inboxUnreadCount)
                 }
@@ -108,7 +82,7 @@ struct PageHeaderSearchButton: View {
     }
 }
 
-/// The header's inbox entry, its count badge over every team.
+/// The header's inbox entry, its count badge while the active team has news.
 struct PageHeaderInboxButton: View {
     let count: Int
 
@@ -139,10 +113,10 @@ struct PageHeaderGlyph: View {
     }
 }
 
-/// A pushed page's title, handed up to the bare back item
-/// (`PushedTitleKey`; the principal inline title stands down).
+/// A pushed page's large title, handed up to the bare back item
+/// (`PushedLargeTitleKey`; the principal inline title stands down).
 private struct PushedTitle: ViewModifier {
-    let title: PushedTitleKey.Title
+    let title: String
     let enabled: Bool
 
     func body(content: Content) -> some View {
@@ -153,39 +127,9 @@ private struct PushedTitle: ViewModifier {
                         Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
                     }
                 }
-                .preference(key: PushedTitleKey.self, value: title)
+                .preference(key: PushedLargeTitleKey.self, value: title)
         } else {
             content
-        }
-    }
-}
-
-/// The detail header's leading part after the back arrow.
-struct PageHeaderDetailTitle: View {
-    let title: PushedTitleKey.Title
-
-    var body: some View {
-        HStack(spacing: 10) {
-            if let glyph = title.glyph {
-                Group {
-                    switch glyph {
-                    case let .team(iconUrl):
-                        TeamAvatar(iconUrl: iconUrl, size: 24).foregroundStyle(.white)
-                    case .folder:
-                        AppIcon(AppIcons.uiFolder, size: 20)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    case let .icon(name, color):
-                        AppIcon(name, size: 20).foregroundStyle(Color(hex: color) ?? .gray)
-                    }
-                }
-                .frame(width: 24, height: 24)
-            }
-            Text(title.text)
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .fixedSize()
-                .accessibilityAddTraits(.isHeader)
         }
     }
 }
