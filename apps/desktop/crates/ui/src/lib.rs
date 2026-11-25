@@ -332,7 +332,7 @@ pub use session::{
 };
 pub use session_registry::install_end_observer as install_session_end_observer;
 pub use shell::Shell;
-pub use window_hooks::{resident_device, set_open_shell_window_hook, set_resident_device, set_window_opened_hook, QUIT_MODE};
+pub use window_hooks::{relaunch_as, resident_device, set_open_shell_window_hook, set_resident_device, set_window_opened_hook, take_session_device, QUIT_MODE};
 
 use gpui::{App, AppContext as _};
 use gpui_component::dock::{panel_handle, register_panel};
