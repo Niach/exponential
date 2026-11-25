@@ -81,6 +81,8 @@ pub mod mcp_servers;
 pub mod memory_pressure;
 pub mod process;
 pub mod prompt;
+/// #FEED-311: the person's own MCP clients on this device, sealed here.
+pub mod client_mcp;
 pub mod pickup;
 pub mod prune;
 pub mod remote_admin;

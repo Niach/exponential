@@ -428,6 +428,10 @@ export const PLAIN_IN_SEALED_TREE_MESSAGE = `This chat is end-to-end encrypted: 
  *  and card answer, even when launched before the device's key holder ran. */
 export const SEALING_WRITER_MIN_VERSION = `0.14.96`
 
+/** #FEED-311: the first desktop/CLI release that seals for the person's own
+ *  MCP clients and scripts on the device (`coding::client_mcp`). */
+export const LOCAL_CLIENT_MIN_VERSION = `0.14.184`
+
 /** #FEED-184: what a refused plaintext write says about its writer: the
  *  device (and its version) the session runs on, and what sealing needs. */
 export async function plainWriterHint(
@@ -439,7 +443,7 @@ export async function plainWriterHint(
   // (an MCP client outside one, or an app that did not seal): say so
   // instead of blaming devices that may well be current.
   if (!writerSessionId) {
-    return `: this sender is not an Exponential session (an MCP client outside a session cannot encrypt). Send from the web, iOS or Android app, or from a session on ${needs}`
+    return `: this sender is not an Exponential session (only a device that holds the chat's key can encrypt). Run your MCP client through the key holder on your own device: \`exponential mcp serve\`, or the desktop app started with the argument \`mcp\` (${LOCAL_CLIENT_MIN_VERSION} or newer, the app or \`exponential daemon\` running and approved); from a shell use \`exponential sessions message\` or \`exponential agents message\`. Or send from the web, iOS or Android app`
   }
   const [session] = await database
     .select({ userId: sessions.userId, deviceId: sessions.deviceId })

@@ -423,11 +423,25 @@ fn message(args: &[String]) -> CommandResult {
         text: Some(text.to_string()),
         ..Default::default()
     };
-    mcp_tools::sessions_send(&ctx.trpc, &input)
-        .map_err(super::devices::tool_error)
-        .context("send the message")?;
+    send(&ctx, &input)?;
     println!("Queued for session {id}.");
     Ok(ExitCode::SUCCESS)
+}
+
+/// #FEED-311: a send goes through the key holder on this machine (the
+/// daemon's or the desktop app's), which seals it. Without one it goes as
+/// given: the server takes it only into a chat that is in clear.
+pub fn send(ctx: &Ctx, input: &mcp_tools::SessionsSendInput) -> anyhow::Result<mcp_tools::SentSession> {
+    let arguments = serde_json::to_value(input)?;
+    match coding::client_mcp::call_tool(&ctx.data_dir, &ctx.account.id, "exponential_sessions_send", &arguments) {
+        Some(result) => {
+            let sent = result.map_err(super::devices::tool_error).context("send the message")?;
+            Ok(serde_json::from_value(sent)?)
+        }
+        None => mcp_tools::sessions_send(&ctx.trpc, input).map_err(super::devices::tool_error).context(
+            "send the message (no key holder runs on this machine: start `exponential daemon` or the desktop app to send into an encrypted chat)",
+        ),
+    }
 }
 
 fn stop(args: &[String]) -> CommandResult {
