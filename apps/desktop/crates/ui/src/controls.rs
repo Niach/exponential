@@ -1918,6 +1918,44 @@ pub(crate) fn typeahead_row(id: impl Into<ElementId>, selected: bool, cx: &App) 
 mod tests {
     use super::{tail_reached, TailFollow, TailLayout};
 
+    /// EXP-1859: a row wider than its menu (the voice menu's Wake word with
+    /// several phrases) truncates its label; the trailing control stays inside.
+    #[gpui::test]
+    fn a_long_menu_row_keeps_its_trailing_inside(cx: &mut gpui::TestAppContext) {
+        use gpui::{canvas, px, Bounds, Entity, IntoElement, Pixels, Render, Styled as _};
+        use std::{cell::Cell, rc::Rc};
+        struct Host(Entity<gpui_component::menu::PopupMenu>);
+        impl Render for Host {
+            fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+                self.0.clone()
+            }
+        }
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+        });
+        let drawn: Rc<Cell<Option<Bounds<Pixels>>>> = Rc::default();
+        let seen = drawn.clone();
+        let (_, cx) = cx.add_window_view(move |window, cx| {
+            let menu = gpui_component::menu::PopupMenu::build(window, cx, move |menu, _, _| {
+                menu.max_w(px(280.)).item(super::pointer_menu_item(
+                    None,
+                    "Wake word · Hey Assistant, Hey Studio, Hey Triage, Hey Operations",
+                    move |_| {
+                        let seen = seen.clone();
+                        Some(canvas(move |bounds, _, _| seen.set(Some(bounds)), |_, _, _, _| {}).flex_shrink_0().w(px(30.)).h(px(16.)).into_any_element())
+                    },
+                    |_, _| {},
+                ))
+            });
+            Host(menu)
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let trailing = drawn.get().expect("drawn");
+        assert!(trailing.right() <= px(280.), "{trailing:?}");
+        assert_eq!(trailing.size.width, px(30.));
+    }
+
     /// EXP-1316 (1n): the follow opens pinned, an upward wheel releases
     /// it, growth keeps it, landing back on the end re-arms it, the button
     /// re-pins.
