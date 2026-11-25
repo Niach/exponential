@@ -55,7 +55,10 @@ final class AgentComposerModel {
     /// row's recipient, apart from the launch options: no control re-inits
     /// it, an agent pick keeps the issue chips (`AgentComposerSubjectState`).
     private(set) var subjectState = AgentComposerSubjectState() {
-        didSet { if subjectState.checked != oldValue.checked { rebuildIssueOptions() } }
+        didSet {
+            if subjectState.checked != oldValue.checked { rebuildIssueOptions() }
+            if subjectState.agentId != oldValue.agentId { followChatTeams() }
+        }
     }
     /// Checked issue ids in pick order (the send's `issueIds` order).
     var checked: [String] { subjectState.checked }
@@ -118,7 +121,14 @@ final class AgentComposerModel {
     /// #EXP-1715: the viewer's synced teams (the Teams pick's rows) and the
     /// pick itself (nil = every team).
     private var teamRows: [TeamEntity] = []
-    var teamsPicked: [String]?
+    var teamsPicked: [String]? {
+        didSet { if teamsPicked != oldValue { followChatTeams() } }
+    }
+    /// The `@` vocabulary's two tables (#EXP-2094: filtered by the chat teams).
+    @ObservationIgnored private var mentionUserRows: [UserEntity] = []
+    @ObservationIgnored private var mentionMemberRows: [TeamMemberEntity] = []
+    /// The chat teams the `#` resolvers and the `@` list were last pointed at.
+    @ObservationIgnored private var wiredChatTeamIds: [String] = []
     /// #EXP-2109: the New chat page spans every team (a play button's page
     /// keeps its subject's): the agent row lists every team's agents, and a
     /// plain chat carries the Teams pick, the page's (`plain*`; its `teamId`
@@ -260,6 +270,7 @@ final class AgentComposerModel {
                     self.syncedTeamIds = agents.1.map(\.id)
                     self.teamRows = agents.1
                     self.appAgentIds = agents.2
+                    self.followChatTeams()
                     self.openPulls = pulls
                     self.pullLinks = links
                     self.rebuildPullRequestRows()
@@ -310,7 +321,10 @@ final class AgentComposerModel {
     /// composer does (EXP-802).
     private func configureDraftEditor() {
         guard let teamId else { return }
-        let scope = IssueRefLookup.Scope.team(id: teamId)
+        // #EXP-2094: addressed to my Assistant, the chat teams.
+        let teamIds = chatTeamIds
+        wiredChatTeamIds = teamIds
+        let scope: IssueRefLookup.Scope = teamIds == [teamId] || teamIds.isEmpty ? .team(id: teamId) : .teams(ids: teamIds)
         let database = deps.db
         let account = accountId
         draftEditor.issueRefResolver = { identifier in
@@ -352,9 +366,43 @@ final class AgentComposerModel {
             (try UserEntity.fetchAll(db), try TeamMemberEntity.fetchAll(db))
         }
         guard let (users, members) = rows else { return }
-        let memberIds = Set(members.filter { $0.teamId == teamId }.map(\.userId))
-        draftEditor.mentionMembers = AgentSettings.chatMembers(users.filter { memberIds.contains($0.id) })
+        mentionUserRows = users
+        mentionMemberRows = members
+        rebuildMentionMembers()
+    }
+
+    /// EXP-487: membership is what an `@` may name. #EXP-2094: the members
+    /// of the chat teams, one row per person; #EXP-2095: in the one order.
+    private func rebuildMentionMembers() {
+        let teamIds = Set(chatTeamIds)
+        let memberIds = Set(mentionMemberRows.filter { teamIds.contains($0.teamId) }.map(\.userId))
+        draftEditor.mentionMembers = AgentSettings.chatMembers(mentionUserRows.filter { memberIds.contains($0.id) })
             .map { MentionMember(name: $0.name ?? $0.email, email: $0.email) }
+    }
+
+    /// #EXP-2094 (agent-settings.json `assistant.chatTeams`, THE HOME LAUNCH
+    /// COMPOSER): the teams the `#` issues, `@` members, `/` prompts and the
+    /// "+" issue search read: addressed to my Assistant, the chat teams with
+    /// no own team (the Teams pick ∩ the synced teams, else all of them);
+    /// else this composer's team.
+    var chatTeamIds: [String] {
+        let toMyAssistant = agentId.flatMap { id in agentRows.first { $0.id == id } }
+            .map { AgentSettings.isMyAssistant($0, me: deps.auth.userId) } ?? false
+        return AgentSettings.homeComposerTeams(
+            toMyAssistant: toMyAssistant,
+            teamId: teamId,
+            syncedTeamIds: TeamGroups.ordered(teamRows).map(\.id),
+            pickedTeamIds: teamsPicked
+        )
+    }
+
+    /// Re-point the `#` resolvers and the `@` list when the chat teams move
+    /// (the agent row's pick, the Teams pick, the synced teams).
+    private func followChatTeams() {
+        guard chatTeamIds != wiredChatTeamIds else { return }
+        draftEditor.issueRefSearch = nil
+        configureDraftEditor()
+        rebuildMentionMembers()
     }
 
     // MARK: - Pools
@@ -372,11 +420,14 @@ final class AgentComposerModel {
 
     /// The `/` menu's pool: the team's saved prompts, sortOrder-then-name
     /// like the server list.
+    /// #EXP-2094: addressed to my Assistant, the chat teams' prompts, team
+    /// by team.
     var prompts: [PromptEntity] {
-        guard let teamId else { return [] }
-        return promptRows
-            .filter { $0.teamId == teamId }
-            .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+        chatTeamIds.flatMap { teamId in
+            promptRows
+                .filter { $0.teamId == teamId }
+                .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
+        }
     }
 
     /// The team's agents in their order (`SessionQueries.agents`: sortOrder,

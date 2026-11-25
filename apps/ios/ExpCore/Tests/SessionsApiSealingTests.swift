@@ -182,6 +182,96 @@ final class SessionsApiSealingTests: XCTestCase {
         )
     }
 
+    /// #EXP-2093 (agent-settings.json `assistant.chatTeams` (1)): a sealed
+    /// send names the issues its `#IDENT`s resolve to over the chat teams
+    /// (`refIssueIds`): a team chat's one team; the Assistant's (a personal
+    /// team that never syncs) the send's Teams pick, else the root's, else
+    /// every synced team; an identifier in several = the first team's.
+    func testASealedSendCarriesTheRefsOfItsChatTeams() async throws {
+        let auth = AuthRepository(accountStore: AccountStore(keychain: FakeKeychain()))
+        auth.setInstanceUrl("https://exp.example.com")
+        auth.setToken("t", email: "u@x.com", userId: "u", onboardingKnown: true)
+        let accountId = ServerAccount.makeId(instanceUrl: "https://exp.example.com", userId: "u")
+        let db = DatabaseManager()
+        defer {
+            db.closePool(forAccountId: accountId)
+            DatabaseManager.deleteFiles(forAccountId: accountId)
+        }
+        let pool = try db.pool(forAccountId: accountId)
+        try DatabaseManager.runMigrations(on: pool)
+        let rows = [
+            #"{"id":"assistant","team_id":"p-me","user_id":"u","device_id":"d","seal_public_key":"k","seal_epoch":1,"created_at":"x","updated_at":"x"}"#,
+            #"{"id":"picked","team_id":"p-me","user_id":"u","device_id":"d","seal_public_key":"k","seal_epoch":1,"scope_team_ids":["t-b"],"created_at":"x","updated_at":"x"}"#,
+            #"{"id":"team-chat","team_id":"t-b","user_id":"u","device_id":"d","seal_public_key":"k","seal_epoch":1,"created_at":"x","updated_at":"x"}"#,
+        ]
+        try await pool.write { conn in
+            for row in rows { try JSONDecoder().decode(SessionEntity.self, from: Data(row.utf8)).save(conn) }
+            // Teams by name: Alpha (t-a) before Beta (t-b), whatever the ids.
+            for (id, name) in [("t-b", "Beta"), ("t-a", "alpha")] {
+                try conn.execute(
+                    sql: #"INSERT INTO "teams" ("id", "name", "slug", "created_at", "updated_at") VALUES (?, ?, ?, 'x', 'x')"#,
+                    arguments: [id, name, id]
+                )
+                try conn.execute(
+                    sql: #"INSERT INTO "boards" ("id", "team_id", "name", "slug", "prefix", "created_at", "updated_at") VALUES (?, ?, 'B', 'b', 'B', 'x', 'x')"#,
+                    arguments: ["board-\(id)", id]
+                )
+            }
+            for (id, board, identifier) in [
+                ("alp-1", "board-t-a", "ALP-1"), ("bet-2", "board-t-b", "BET-2"),
+                ("dup-a", "board-t-a", "DUP-1"), ("dup-b", "board-t-b", "DUP-1"),
+            ] {
+                try conn.execute(
+                    sql: #"INSERT INTO "issues" ("id", "board_id", "identifier", "title", "created_at", "updated_at") VALUES (?, ?, ?, 'x', 'x', 'x')"#,
+                    arguments: [id, board, identifier]
+                )
+            }
+        }
+        let crypto = StubCrypto()
+        let api = SessionsApi(trpc: TrpcClient(httpClient: HTTPClient(auth: auth, protocolClasses: [Server.self]), auth: auth))
+        api.sealing.sealer = SessionSealer(
+            holder: TreeKeyHolder(
+                keys: Keys(), installs: nil, crypto: crypto, ring: SealedKeyRing(persistence: .memory),
+                identity: { Data(repeating: 3, count: 32) }, installId: { _ in "install-me" }
+            ),
+            opener: SealedOpener(crypto: crypto, ring: SealedKeyRing(persistence: .memory)),
+            db: db,
+            userId: { _ in "u" }
+        )
+        Server.bodies.mutate { $0 = [] }
+
+        let text = "see #bet-2, #DUP-1 and #ALP-1 #NOPE-9"
+        try await api.send(accountId: accountId, .message(sessionId: "assistant", text: text))
+        try await api.send(accountId: accountId, .message(sessionId: "picked", text: text))
+        try await api.send(accountId: accountId, .message(sessionId: "assistant", text: text, scope: .teams(["t-b"])))
+        try await api.send(accountId: accountId, .message(sessionId: "picked", text: text, scope: .allTeams))
+        try await api.send(accountId: accountId, .message(sessionId: "team-chat", text: text))
+        try await api.send(accountId: accountId, .message(sessionId: "team-chat", text: "no refs"))
+
+        let sent = Server.bodies.value
+        XCTAssertEqual(sent.map { $0["refIssueIds"] as? [String] }, [
+            ["bet-2", "dup-a", "alp-1"],
+            ["bet-2", "dup-b"],
+            ["bet-2", "dup-b"],
+            ["bet-2", "dup-a", "alp-1"],
+            ["bet-2", "dup-b"],
+            nil,
+        ])
+        XCTAssertTrue(sent.allSatisfy { ($0["text"] as? String)?.hasPrefix("exp-sealed:") == true })
+    }
+
+    func testIssueRefsOfAText() {
+        XCTAssertEqual(SealedIssueRefs.identifiers(in: "#exp-1 #EXP-1 foo#X-2 ##Y-3 #Z-4-2 (#w-5)"), ["EXP-1", "W-5"])
+        XCTAssertEqual(
+            SealedIssueRefs.resolve(
+                identifiers: ["A-1", "B-2"],
+                issues: [("b2-late", "B-2", "t2"), ("a1", "a-1", "t2"), ("b2", "B-2", "t1"), ("x", "B-2", "t9")],
+                teamIds: ["t1", "t2"]
+            ),
+            ["a1", "b2"]
+        )
+    }
+
     /// #EXP-1958 (sealed-content.json `cardStamps`): a tap on a sealed card
     /// goes through the same writer: the text sealed, a Start's `name` as
     /// `sealedName` (no clear `name`), `cardItem` passed through untouched.

@@ -673,6 +673,17 @@ public enum AgentSettings {
         return turn.isEmpty ? syncedTeamIds : turn
     }
 
+    /// #EXP-2094 (`assistant.chatTeams`, THE HOME LAUNCH COMPOSER): the teams
+    /// its lists read: while the agent row picks the viewer's own Assistant
+    /// the chat teams with no own team (the Teams pick ∩ the synced teams,
+    /// else all of them); a team agent or Temporary session keeps its team.
+    public static func homeComposerTeams(
+        toMyAssistant: Bool, teamId: String?, syncedTeamIds: [String], pickedTeamIds: [String]?
+    ) -> [String] {
+        guard toMyAssistant else { return teamId.map { [$0] } ?? [] }
+        return chatTeams(ownTeamId: nil, syncedTeamIds: syncedTeamIds, pickedTeamIds: pickedTeamIds)
+    }
+
     /// #EXP-2094 (`assistant.chatTeams`): a composer's Teams pick over its
     /// root's stored `scopeTeamIds`. The chat teams read the composer's own
     /// pick the moment it moves (a removed Teams chip = nil = every synced

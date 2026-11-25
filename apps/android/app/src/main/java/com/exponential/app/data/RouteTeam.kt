@@ -158,6 +158,51 @@ fun chatTeamIdsFlow(
     }.distinctUntilChanged()
 }
 
+/**
+ * #EXP-2094 (agent-settings.json `assistant.chatTeams`, THE HOME LAUNCH
+ * COMPOSER): the teams its lists read (`#` issues, `@` members, `/` prompts,
+ * the "+" issue search). While the agent row picks the viewer's own
+ * Assistant: the chat teams with NO own team ([teamsPick] ∩ [synced], else
+ * all of [synced], in their cross-team order). Addressed to a team agent or
+ * Temporary session: its team ([teamId]; a resumed Assistant chat's unsynced
+ * personal team = that chat root's [routePick], #EXP-2079).
+ */
+fun homeComposerChatTeams(
+    toMyAssistant: Boolean,
+    teamId: String?,
+    synced: List<String>,
+    teamsPick: List<String>?,
+    routePick: List<String>? = null,
+): List<String> =
+    if (toMyAssistant) {
+        com.exponential.app.domain.AgentSettings.Assistant.chatTeams(null, synced, teamsPick)
+    } else {
+        com.exponential.app.domain.AgentSettings.Assistant.chatTeams(teamId, synced, routePick)
+    }
+
+/** #EXP-2094: [homeComposerChatTeams] over the synced teams in the
+ *  cross-team order. */
+@OptIn(ExperimentalCoroutinesApi::class)
+fun homeComposerChatTeamIdsFlow(
+    dbFlow: Flow<ExponentialDatabase?>,
+    toMyAssistant: Flow<Boolean>,
+    teamId: Flow<String?>,
+    teamsPick: Flow<List<String>?>,
+    routePick: Flow<List<String>?> = flowOf(null),
+): Flow<List<String>> {
+    val synced: Flow<List<String>> = dbFlow.flatMapLatest { db ->
+        db?.teamDao()?.observeAll()?.map { rows -> crossTeamOrder(rows).map { it.id } } ?: flowOf(emptyList())
+    }
+    return combine(
+        combine(toMyAssistant, teamId, ::Pair),
+        synced,
+        teamsPick,
+        routePick,
+    ) { (assistant, team), ids, pick, route ->
+        homeComposerChatTeams(assistant, team, ids, pick, route)
+    }.distinctUntilChanged()
+}
+
 /** #EXP-2079: the Teams pick of [session]'s conversation ROOT
  *  (`sessions.scope_team_ids`); null = none picked. */
 @OptIn(ExperimentalCoroutinesApi::class)
