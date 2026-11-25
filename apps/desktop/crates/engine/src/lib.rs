@@ -66,6 +66,8 @@ pub use eagent::engine::sink;
 // FEED-61: a turn that died on a transient API error is re-prompted by the
 // engine after a backoff. Pure; the lifecycle ticker drives it.
 pub use eagent::engine::api_retry;
+// EXP-2099: a turn the usage wall ended continues once its reset passed.
+pub use eagent::engine::wall_resume;
 // FEED-25: the stall watchdog — a live turn silent for `STALL_AFTER` is
 // interrupted, one that ignores the interrupt for `STALL_KILL_GRACE` ends the
 // run with a reason. Pure; the lifecycle ticker drives it.

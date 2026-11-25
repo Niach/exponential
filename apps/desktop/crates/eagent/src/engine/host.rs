@@ -253,6 +253,10 @@ pub trait RunBackend: Send + Sync + 'static {
     /// EXP-1051: the measured context base, for the next resume.
     fn record_context_base(&self, _ctx: &SessionCtx, _tokens: u64, _model: &str) {}
 
+    /// EXP-2099: the usage-wall reset (unix ms) this run's continuation
+    /// waits for moved; `None` = nothing waits any more.
+    fn wall_resume(&self, _ctx: &SessionCtx, _resets_at: Option<i64>) {}
+
     /// EXP-784: the agent-native id the host recorded for this run (the
     /// `session/load` hint), if any.
     fn recorded_native_session_id(&self, _ctx: &SessionCtx) -> Option<String> {
@@ -1227,6 +1231,8 @@ pub struct SessionCtx {
     /// FEED-61: the API-error retry's view of the turn stream, fed by
     /// [`SessionCtx::dispatch`] and ticked by the lifecycle.
     pub api_retry: Mutex<super::api_retry::ApiRetry>,
+    /// EXP-2099: the continuation of a turn the usage wall ended.
+    pub wall_resume: Mutex<super::wall_resume::WallResume>,
     /// #EXP-2069: the last turn's note ([`RunBackend::turn_note`]), waiting
     /// for the next input to the agent. Never on the wire, never in the
     /// transcript; gone with the run.
@@ -1418,6 +1424,13 @@ impl SessionCtx {
             for event in &out.wire {
                 retry.observe(event, now);
             }
+            drop(retry);
+            let now_ms = wire::activity::now_unix_millis();
+            self.with_wall_resume(|wall| {
+                for event in &out.wire {
+                    wall.observe(event, now_ms);
+                }
+            });
         }
         self.deliver(out);
         if gate_edge {
@@ -1429,6 +1442,33 @@ impl SessionCtx {
         if idle_edge && compaction_step_owed {
             if let Some(commands) = self.queue_commands.get() {
                 let _ = commands.send(EngineCommand::AdvanceCompaction);
+            }
+        }
+    }
+
+    /// EXP-2099: one step of the usage-wall continuation; the backend keeps
+    /// the reset it waits for.
+    pub fn with_wall_resume<T>(&self, step: impl FnOnce(&mut super::wall_resume::WallResume) -> T) -> T {
+        let mut wall = self.wall_resume.lock().unwrap_or_else(|err| err.into_inner());
+        let before = wall.armed();
+        let result = step(&mut wall);
+        if wall.armed() != before {
+            if let Some(backend) = self.backend.get() {
+                backend.wall_resume(self, wall.armed());
+            }
+        }
+        result
+    }
+
+    /// EXP-2099: the reset an earlier process of this session waited for. A
+    /// fresh conversation (no resume) never met that wall; a seed turn takes it.
+    pub fn load_wall_resume(&self, recorded: Option<i64>) {
+        let kept = recorded.filter(|_| self.resume.is_some());
+        let seeded = self.prompt.as_deref().is_some_and(|prompt| !prompt.trim().is_empty());
+        self.with_wall_resume(|wall| wall.load(kept, seeded));
+        if kept != recorded {
+            if let Some(backend) = self.backend.get() {
+                backend.wall_resume(self, kept);
             }
         }
     }
@@ -2643,6 +2683,7 @@ fn handle_command(
             // FEED-61: a person's Stop also stops the engine's own retry of
             // a turn that died on an API error.
             ctx.api_retry.lock().unwrap_or_else(|err| err.into_inner()).disarm();
+            ctx.with_wall_resume(|wall| wall.stop());
             ctx.with_mapper(|mapper| mapper.forget_deliveries());
             // EXP-1292: the person's Stop drops their queued rows with the
             // turn — handed and gone, so they are consumed, never re-sent.

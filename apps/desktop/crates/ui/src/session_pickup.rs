@@ -189,7 +189,10 @@ pub(crate) fn install(cx: &mut App) {
             for session_id in &released {
                 log::info!("[pickup] released session {session_id}'s agent process (idle)");
             }
-            if !released.is_empty() {
+            // EXP-2099: a usage wall's reset passing moves no row: the pass
+            // it waits for is scheduled here.
+            let wall_due = cx.update(|cx| !live.wall_due(&coding_flow::coding_data_dir(cx)).is_empty());
+            if !released.is_empty() || wall_due {
                 cx.update(schedule);
             }
             // #EXP-1514 (row 15): the adoption's second step, once the rows
@@ -506,6 +509,7 @@ fn run_pass(cx: &mut App) {
     let stalled = cx.global::<PickupHost>().stalled.clone();
     let views = live.live_views();
     let revive_held = live.revive_held();
+    let wall_due = live.wall_due(&coding_flow::coding_data_dir(cx));
     // EXP-1542: the server's move records (a moved session's hand-off).
     // #LOGS-11: only the move lines are cloned (was every synced event).
     let moves = pickup::move_records(
@@ -531,6 +535,7 @@ fn run_pass(cx: &mut App) {
         live: &views,
         in_flight: &in_flight,
         revive_held: &revive_held,
+        wall_due: &wall_due,
         moves: &moves,
         member_inputs: &member_inputs,
     });
