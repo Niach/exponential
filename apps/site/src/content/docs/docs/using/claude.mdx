@@ -41,6 +41,32 @@ If the plugin is not in your directory yet, add its marketplace first:
 
 Run `/mcp` to sign in; the same consent screen opens in your browser.
 
+## Encrypted chats from your editor or a script
+
+Chats are end-to-end encrypted, so a connector cannot write into one: it holds no key. The desktop app and the CLI daemon on your machine do, and both seal for your own clients there. Keep one of them running, signed in and approved.
+
+Claude Code through the CLI:
+
+```bash
+claude mcp add exponential -- exponential mcp serve
+```
+
+Through the desktop app (Windows too), start its binary with `mcp`:
+
+```bash
+claude mcp add exponential -- "C:\path\to\Exponential.exe" mcp
+```
+
+The tools are the same. Messages are encrypted on your machine before they reach the server, and the chats this machine can read come back decrypted. A device that waits for approval sends nothing.
+
+From a shell:
+
+```bash
+exponential sessions message <session> "text"
+exponential agents message <agent> "text"
+exponential agents new <agent>   # a new conversation: changed instructions apply
+```
+
 ## Tools
 
 Every area is two tools: one that only reads (marked read-only, so Claude can call it without asking) and a `_write` twin for changes (Claude asks before it runs one, depending on your settings). Each call names an `op`, for example `exponential_issues {op: "get", id: "EXP-12"}` or `exponential_issues_write {op: "create", boardId, title}`.

@@ -79,6 +79,13 @@ pub fn call_tool_result_via(
     emcp::client::call_once(&upstream, CLIENT_NAME, name, arguments.clone(), MCP_TIMEOUT).map_err(mcp_error)
 }
 
+/// [`call_tool`] at another MCP endpoint (#FEED-311: the key holder on this
+/// device, whose gateway seals the call).
+pub fn call_tool_at(upstream: &emcp::Upstream, name: &str, arguments: &Value) -> Result<Value, ApiError> {
+    let result = emcp::client::call_once(upstream, CLIENT_NAME, name, arguments.clone(), MCP_TIMEOUT).map_err(mcp_error)?;
+    decode_tool_result(&result)
+}
+
 /// A call result → the tool's JSON output, or its error sentence as
 /// [`ApiError::Http`] (status 400). A success text that is not JSON comes
 /// back as a JSON string.

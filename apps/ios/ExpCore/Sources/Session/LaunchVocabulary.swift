@@ -167,6 +167,16 @@ public enum LaunchVocabulary {
         device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
     }
 
+    /// The "nothing to start on" hint: the PICKED agent signed out on the
+    /// online machines (EXP-409, the fix it names), else no desktop online.
+    /// Another agent's missing sign-in never blocks this start.
+    public static func noDeviceNote(agent: String, devices: [SteerDevice]) -> String {
+        if devices.contains(where: { $0.isOnline && $0.unauthedAgentIds.contains(agent) }) {
+            return "\(agent) not signed in on your machines. Sign in on the machine first."
+        }
+        return "No desktop online. Open the Exponential desktop app to start a session."
+    }
+
     /// EXP-773: the note under the options when the picked agent is outside
     /// the machine's reported ACP set — with the PTY path gone it cannot start
     /// there at all, so the caller also disables the start button. Nil when

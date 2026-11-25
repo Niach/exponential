@@ -70,6 +70,7 @@ pub(crate) fn pending_row(row: &TrustRow, title: &str) -> Value {
                 "id": format!("install-{id}-actions"),
                 "component": "Stack",
                 "props": {"direction": "horizontal", "gap": "sm"},
+                "style": {"paddingHorizontal": "$spacing.md", "paddingBottom": "$spacing.md"},
                 "children": [
                     {
                         "id": format!("install-{id}-approve"),
@@ -356,6 +357,7 @@ mod tests {
         let actions = &tree["children"][1];
         assert_eq!(actions["id"], "install-install-N-actions");
         assert_eq!(actions["props"], json!({"direction": "horizontal", "gap": "sm"}));
+        assert_eq!(actions["style"], json!({"paddingHorizontal": "$spacing.md", "paddingBottom": "$spacing.md"}));
         assert_eq!(actions["children"][0]["props"], json!({"label": "Approve", "size": "sm"}));
         assert_eq!(actions["children"][1]["props"], json!({"label": "Remove", "size": "sm", "variant": "ghost"}));
         assert_eq!(actions["children"][0]["on"]["press"]["event"], json!({"name": "approve", "context": {"id": "install-N"}}));

@@ -62,6 +62,8 @@ pub struct SealingTransform {
     trpc: Option<Arc<TrpcClient>>,
     /// New-root seals sent and not yet adopted, by public key.
     new_roots: Mutex<HashMap<String, NewRootSeal>>,
+    /// #FEED-311: the PERSON's own client on this device, no session.
+    outside: bool,
 }
 
 impl SealingTransform {
@@ -72,7 +74,42 @@ impl SealingTransform {
             service.keyring().note_root(session_id, root_id);
             service.keyring().note_root(root_id, root_id);
         }
-        Self { session_id: session_id.to_string(), root_id: root_id.to_string(), trpc, new_roots: Mutex::default() }
+        Self { session_id: session_id.to_string(), root_id: root_id.to_string(), trpc, new_roots: Mutex::default(), outside: false }
+    }
+
+    /// #FEED-311: the transform of the person's own MCP client or script on
+    /// this device (`client_mcp`): no session, so no tree of its own.
+    pub fn outside(trpc: Option<Arc<TrpcClient>>) -> Self {
+        Self { session_id: String::new(), root_id: String::new(), trpc, new_roots: Mutex::default(), outside: true }
+    }
+
+    /// #FEED-311: what an outside client may not send. A session's own tools
+    /// have no session to act on here; and an install that waits for
+    /// approval (install-trust.json) seals nothing on a client's behalf:
+    /// refused per call, before anything leaves the device.
+    fn check_outside(&self, tool: &str, op: &str, args: &Value) -> Result<(), String> {
+        let content = match (tool, op) {
+            (SHOW_TOOL, _) | (SELF_TOOL, "suggest") | (SESSIONS_TOOL | SESSIONS_WRITE_TOOL, "escalate") => {
+                return Err(OUTSIDE_SESSION_TOOL.to_string());
+            }
+            (SEND_TOOL, _) => ["text", "name", "answer"].iter().any(|key| args.get(key).is_some_and(|v| !v.is_null())),
+            (SESSIONS_TOOL | SESSIONS_WRITE_TOOL, "end") => args.get("summary").is_some_and(|v| !v.is_null()),
+            _ => false,
+        };
+        if !content {
+            return Ok(());
+        }
+        let service = sealing::sealer().map_err(|err| match err {
+            SealError::NoService => no_holder("", "The message", ""),
+            err => refused("The message", &err),
+        })?;
+        if let Some(code) = sealing::install_waiting() {
+            return Err(outside_waiting(Some(&code)));
+        }
+        if !service.makes_keys() {
+            return Err(outside_waiting(sealing::install_waiting().as_deref()));
+        }
+        Ok(())
     }
 
     fn root_for(&self, session_id: &str) -> Option<String> {
@@ -689,6 +726,11 @@ impl SealingTransform {
         if let Some(root) = out.get("rootId").and_then(Value::as_str) {
             service.keyring().note_root(target, root);
         }
+        // #FEED-311: a person's message is no agent-to-agent one: it reaches
+        // its device over the shape.
+        if self.outside {
+            return;
+        }
         let deliver_to = out.get("deliverTo").filter(|v| !v.is_null()).and_then(|v| serde_json::from_value::<DeliverTo>(v.clone()).ok());
         let message_id = out.get("messageId").and_then(Value::as_str);
         let (Some(deliver_to), Some(message_id)) = (deliver_to, message_id) else { return };
@@ -722,6 +764,9 @@ impl GatewayTransform for SealingTransform {
 
     fn request_with(&self, tool: &str, args: Value, upstream: &dyn GatewayUpstream) -> Result<Value, String> {
         let op = args.get("op").and_then(Value::as_str).unwrap_or_default().to_string();
+        if self.outside {
+            self.check_outside(tool, &op, &args)?;
+        }
         match (tool, op.as_str()) {
             (SEND_TOOL, _) => {
                 let args = if args.get("answer").is_some_and(Value::is_object) && args.get("sessionId").is_some() {
@@ -787,6 +832,16 @@ impl GatewayTransform for SealingTransform {
         }
         result
     }
+}
+
+/// #FEED-311: a session's own tool, called by a client that is no session.
+pub const OUTSIDE_SESSION_TOOL: &str = "Only an Exponential session can call this tool; nothing was sent.";
+
+/// #FEED-311: an outside client's send on an install that waits for approval.
+fn outside_waiting(code: Option<&str>) -> String {
+    log::warn!("gateway: a local client's send was refused: this install waits for approval");
+    let code = code.map(|code| format!(" · {code}")).unwrap_or_default();
+    format!("This device waits for approval{code}. Nothing was sent. Approve it under Needs you on a device you already use, then send again.")
 }
 
 #[derive(serde::Deserialize)]

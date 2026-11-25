@@ -4789,7 +4789,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_agents_update`,
     {
-      description: `Update an agent by UUID (owners only; your own Assistant is yours, its prompt fixed). Pass only what changes. triggers REPLACES the whole list: keep each kept trigger's id from get, or its firing history resets (a kept one keeps prompt/run unless named); enabled: false switches one off. An app's automations are its agent's triggers (apps catalog, section automations). A new deviceId moves its conversations there. Returns the agent.`,
+      description: `Update an agent by UUID (owners only; your own Assistant is yours, its prompt fixed). Pass only what changes. triggers REPLACES the whole list: keep each kept trigger's id from get, or its firing history resets (a kept one keeps prompt/run unless named); enabled: false switches one off. An app's automations are its agent's triggers (apps catalog, section automations). A new deviceId moves its conversations there. New instructions apply from its next conversation: exponential_sessions_send {agentId, text: "/new"} starts it. Returns the agent.`,
       inputSchema: strictInput({
         id: uuidString,
         name: agentFacetsSchema.shape.name.optional(),
