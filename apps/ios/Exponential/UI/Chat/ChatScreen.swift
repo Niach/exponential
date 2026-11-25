@@ -634,19 +634,25 @@ struct ChatScreen: View {
             return
         }
         let now = Date().timeIntervalSince1970 * 1000
-        if planLink?.target != messageId {
-            planLink = WaitingCards.DeepLink(target: messageId, takenAtMs: now)
+        // Past `deepLinkMs` the link gives up even if no page lands again.
+        func deadline() {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(WaitingCards.Constants.deepLinkMs + 16))
                 if planLink?.target == messageId { stepPlanLink() }
             }
         }
+        if planLink?.target != messageId {
+            planLink = WaitingCards.DeepLink(target: messageId, takenAtMs: now)
+            deadline()
+        }
         guard var link = planLink else { return }
         let found = reaches(.plan(messageId))
         let action = link.step(
-            .init(found: found, distance: found ? 0 : nil, more: rows.messagesMore),
+            .init(found: found, distance: found ? 0 : nil, more: rows.messagesMore, loaded: "\(rows.messages.count)"),
             nowMs: now
         )
+        // #FEED-298: a landed page restarted the clock.
+        if link.takenAtMs != planLink?.takenAtMs { deadline() }
         planLink = link.settled ? nil : link
         switch action {
         case .ring:
