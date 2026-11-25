@@ -2752,6 +2752,7 @@ export function registerExponentialTools(
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         id: uuidString.optional(),
+        // With `sealedReport`: the summary sealed as a body (#FEED-313).
         summary: z.string().trim().min(1).max(4000).optional(),
         // EXP-1458: the device's sealed report card + one per listening tree.
         sealedReport: sealedCardEnvelope.optional(),
