@@ -571,6 +571,7 @@ pub(crate) fn needs_you_row(row: &NeedsYouRow, team: Option<&RowTeam>, actions: 
         .px_3()
         .py_2()
         .child(div().flex_shrink_0().mt(px(2.)).child(with_team_mark(
+            &row.message_id,
             Icon::new(row_glyph(row.kind)).with_size(px(GLYPH_PX)).text_color(theme::tokens::YELLOW.to_hsla()),
             GLYPH_PX,
             team,

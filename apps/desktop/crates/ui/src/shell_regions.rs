@@ -462,7 +462,7 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     for list in ["devices", "active"] {
         for row in value[list].as_array_mut().into_iter().flatten() {
             if let Some(mark) = row["teamMark"].as_str().map(str::to_string) {
-                row["icon"] = json!(format!("{TEAM_MARKED}{mark}|{}", row["icon"].as_str().unwrap_or_default()));
+                row["icon"] = json!(format!("{TEAM_MARKED}{}|{mark}|{}", row["id"].as_str().unwrap_or_default(), row["icon"].as_str().unwrap_or_default()));
             }
         }
     }
@@ -475,7 +475,7 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     value
 }
 
-/// A glyph wearing a team's mark: `ide:marked:<team mark>|<glyph>`.
+/// A glyph wearing a team's mark: `ide:marked:<row>|<team mark>|<glyph>`.
 const TEAM_MARKED: &str = "ide:marked:";
 
 /// #EXP-2124: the Assistant row's glyph (the IDE paints the brand mark,
@@ -1527,7 +1527,7 @@ impl HostPlugin for RegionHost {
             let corner = crate::sidebar::rail_badge_element(parse_count(badge.strip_prefix("count:")?)?, 12., cx);
             return Some(uicore_gpui::glyphs::cornered(inner, corner, size));
         }
-        if let Some((mark, glyph)) = name.strip_prefix(TEAM_MARKED).and_then(|rest| rest.split_once('|')) {
+        if let Some((mark, glyph)) = name.strip_prefix(TEAM_MARKED).and_then(|rest| rest.split_once('|')).and_then(|(_, rest)| rest.split_once('|')) {
             let inner = self.icon_element(glyph, size, color, cx).or_else(|| {
                 let path = crate::exponential_ui_host::icon_path(glyph)?;
                 Some(gpui::svg().path(path).size(gpui::px(size)).text_color(color).into_any_element())
@@ -1540,7 +1540,7 @@ impl HostPlugin for RegionHost {
                 name: sync::Store::try_global(cx).and_then(|store| store.collections().teams.read(cx).get(&team).map(|row| row.name.clone())).unwrap_or_default().into(),
                 image: self.team_marks.borrow().get(&team).cloned().flatten(),
             });
-            return Some(crate::user_avatar::with_team_mark(inner, size, team.as_ref(), crate::user_avatar::sidebar_ground(), cx));
+            return Some(crate::user_avatar::with_team_mark(name, inner, size, team.as_ref(), crate::user_avatar::sidebar_ground(), cx));
         }
         let glyphs = self.glyphs.borrow();
         let element = match glyphs.get(name)? {

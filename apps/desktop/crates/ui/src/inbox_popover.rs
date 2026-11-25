@@ -157,7 +157,7 @@ fn compact_row(parts: RowParts, cx: &App) -> gpui::Stateful<gpui::Div> {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
     crate::surface::flat_row_compact()
-        .id(parts.id)
+        .id(parts.id.clone())
         .w_full()
         .min_w_0()
         .flex_shrink_0()
@@ -171,7 +171,7 @@ fn compact_row(parts: RowParts, cx: &App) -> gpui::Stateful<gpui::Div> {
                 .flex_shrink_0()
                 .items_center()
                 .justify_center()
-                .child(with_team_mark(parts.icon.xsmall().text_color(muted), GLYPH_PX, parts.team.as_ref(), theme.popover, cx)),
+                .child(with_team_mark(&parts.id, parts.icon.xsmall().text_color(muted), GLYPH_PX, parts.team.as_ref(), theme.popover, cx)),
         )
         .children(parts.identifier.map(|identifier| {
             div().flex_shrink_0().text_xs().text_color(muted).child(SharedString::from(identifier))

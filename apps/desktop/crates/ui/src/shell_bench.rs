@@ -480,7 +480,7 @@ fn sample() -> IdeSidebarInput {
             },
             IdeTeamInput { id: "t2".into(), name: "Side project".into(), mark: "ui-team".into(), open: false, owner: true, needs_you: 2, items: vec![item("board", "b9", "Site")], layout: Vec::new() },
         ],
-        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], team_mark: Some("ui-team".into()), team: Some("t1".into()) }],
+        active: vec![IdeActiveInput { id: "r1".into(), title: "Fix the login redirect".into(), icon: "nav-chats".into(), session_ids: vec!["r1".into()], team_mark: Some("ide:team:t1".into()), team: Some("t1".into()) }],
         repos: vec![IdeRepoInput { id: "repo1".into(), name: "engine".into(), prs: vec![pr("p2", 2, "Faster sync", "sync → main", 0), pr("p3", 3, "Sync tests", "sync-tests → sync", 1)] }],
         closed: Vec::new(),
         editing_folder: None,
@@ -771,7 +771,7 @@ fn a_chats_row_drops_only_into_its_team_list() {
     let row = ChatRow { session_id: "s1".into(), team_id: "t1".into(), title: "Store screenshots".into(), device_id: None, group: domain::session_tree::ChatsListKey::Recent, lead: ChatLead::Open, preview: ChatPreview { kind: ChatPreviewKind::Agent, text: String::new() }, activity_at: String::new(), time: "9:41".into(), unread_count: 0, needs_you: false, busy: false, word: None, waiting: None, wall: None, dim: false };
     // The Chats row sits outside the sidebar, below every tree row.
     let bounds = std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::new(gpui::point(px(400.), px(2000.)), size(px(500.), px(40.)))));
-    let drag = crate::chats_view::ChatRowDrag { id: "s1".into(), team_id: "t1".into(), bounds, row, mark: None };
+    let drag = crate::chats_view::ChatRowDrag { id: "s1".into(), team_id: "t1".into(), bounds, row, team: None };
     let painted = |cx: &mut HeadlessAppContext, id: &str| cx.update(|cx| surface.read(cx).painted_bounds(id)).unwrap_or_else(|| panic!("{id} painted"));
     let drop_at = |cx: &mut HeadlessAppContext, at: gpui::Point<gpui::Pixels>| {
         cx.update(|cx| region.update(cx, |region, cx| region.chat_drag_move(&drag, at, cx)));

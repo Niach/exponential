@@ -132,6 +132,7 @@ impl DraftsView {
                 div()
                     .flex_shrink_0()
                     .child(crate::user_avatar::with_team_mark(
+                        &draft.id,
                         crate::icons::resolved_status_icon(&status, cx).with_size(px(16.)),
                         16.,
                         team,

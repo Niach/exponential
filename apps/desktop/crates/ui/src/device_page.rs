@@ -421,6 +421,7 @@ impl DevicePageView {
                             navigate(window, cx, screen);
                         })
                         .child(crate::user_avatar::with_team_mark(
+                            &root.root_id,
                             crate::run_rows::run_mark(crate::run_rows::run_agent(root.cli.as_deref()), root.state, cx),
                             domain::list_item::MARK,
                             row_team.as_ref(),

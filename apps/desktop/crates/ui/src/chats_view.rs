@@ -350,7 +350,7 @@ impl Render for ChatDragPreview {
         let row = &self.drag.row;
         let agent = root_agent(session_data::session(&row.session_id, cx).as_ref());
         let lead = crate::chat_list::chat_lead_disc(row.lead, agent, false, cx);
-        let lead = with_team_mark(lead, CHATS.shell.lead_disc, self.drag.team.as_ref(), cx.theme().popover, cx);
+        let lead = with_team_mark(&row.session_id, lead, CHATS.shell.lead_disc, self.drag.team.as_ref(), cx.theme().popover, cx);
         let content = crate::chat_list::chat_row(row, lead, &crate::chat_list::root_marks(&row.session_id, cx), cx);
         let shadow = gpui::BoxShadow { color: gpui::black().opacity(0.35), offset: gpui::point(px(0.0), px(8.0)), blur_radius: px(24.0), spread_radius: px(0.0), inset: false };
         gpui::div()
@@ -379,7 +379,7 @@ fn chats_page_row(
     let lead = crate::chat_list::chat_lead_disc(row.lead, agent, selected, cx);
     // A selected row's check takes the corner: no mark.
     let team = row_team(marks, Some(&row.team_id)).filter(|_| !selected);
-    let lead = with_team_mark(lead, CHATS.shell.lead_disc, team, card_ground(), cx);
+    let lead = with_team_mark(&row.session_id, lead, CHATS.shell.lead_disc, team, card_ground(), cx);
     let session_id = row.session_id.clone();
     let toggle_id = row.session_id.clone();
     let menu_root = row.session_id.clone();

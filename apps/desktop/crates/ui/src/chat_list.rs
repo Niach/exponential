@@ -593,7 +593,7 @@ fn pinned_chat_row(
                     .bg(theme::tokens::YELLOW.to_hsla()),
             )
         });
-    let lead = crate::user_avatar::with_team_mark(lead, CHATS.shell.lead_disc, team, crate::user_avatar::card_ground(), cx);
+    let lead = crate::user_avatar::with_team_mark(&session_id, lead, CHATS.shell.lead_disc, team, crate::user_avatar::card_ground(), cx);
     let as_chat = ChatRow {
         session_id,
         team_id: String::new(),

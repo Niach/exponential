@@ -826,7 +826,7 @@ fn chat_row_body(row: &GlobalChatRow, team: Option<&RowTeam>, cx: &App) -> gpui:
         .min_w_0()
         .items_center()
         .gap_2()
-        .child(with_team_mark(Icon::new(icon).size(px(14.)).flex_shrink_0().text_color(muted), 14., team, theme.popover, cx))
+        .child(with_team_mark(&row.key, Icon::new(icon).size(px(14.)).flex_shrink_0().text_color(muted), 14., team, theme.popover, cx))
         .child(
             v_flex()
                 .flex_1()
@@ -901,6 +901,7 @@ impl Render for SearchSheetView {
                 shell(("issue-hit", ix).into(), position, cx)
                     .child(search_list::issue_row_body(
                         Some(with_team_mark(
+                            &hit.issue_id,
                             crate::icons::resolved_status_icon(&hit.status, cx).xsmall(),
                             12.,
                             row_team(&marks, crate::queries::issue_team_id(cx, &hit.issue_id).as_deref()),
