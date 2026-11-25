@@ -571,7 +571,7 @@
             {
               "id": "gantt",
               "component": "Gantt",
-              "catalogId": "https://acme.example/catalogs/charts/v1",
+              "@catalogId": "https://acme.example/catalogs/charts/v1",
               "rows": {
                 "@path": "/rows"
               }

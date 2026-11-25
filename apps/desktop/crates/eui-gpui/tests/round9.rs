@@ -84,14 +84,14 @@ fn severities() -> Value {
 #[gpui::test]
 fn an_advisory_paints_the_error_part_and_keeps_the_control(cx: &mut TestAppContext) {
     let field = |id: &str, component: &str, path: &str| -> Value {
-        let mut props = json!({"label": "L", "name": id, "checks": check(path)});
+        let mut props = json!({"label": "L", "name": id});
         if matches!(component, "Radio" | "ChoiceTiles" | "Select") {
             props["options"] = json!([{"label": "A", "value": "a"}, {"label": "B", "value": "b"}]);
         }
         if component == "ChoiceTiles" {
             props.as_object_mut().unwrap().remove("label");
         }
-        json!({"id": id, "component": component, "props": props})
+        json!({"id": id, "component": component, "props": props, "@checks": check(path)})
     };
     let mut children = vec![];
     for component in ["Input", "Checkbox", "Radio", "ChoiceTiles", "Select"] {
@@ -125,7 +125,7 @@ fn an_advisory_paints_the_error_part_and_keeps_the_control(cx: &mut TestAppConte
 #[gpui::test]
 fn an_error_is_invalid_and_one_message_shows(cx: &mut TestAppContext) {
     let tree = json!({"id": "f", "component": "Form", "props": {"name": "f"}, "children": [
-        {"id": "x", "component": "Input", "props": {"label": "X", "name": "x", "validateOn": "submit", "checks": [{"condition": {"@path": "/w"}}, {"condition": {"@path": "/e"}}, {"condition": {"@path": "/e2"}}]}},
+        {"id": "x", "component": "Input", "props": {"label": "X", "name": "x", "validateOn": "submit"}, "@checks": [{"condition": {"@path": "/w"}}, {"condition": {"@path": "/e"}}, {"condition": {"@path": "/e2"}}]},
         {"id": "go", "component": "Button", "props": {"label": "Send", "submit": true}}
     ]});
     let mut data = severities();
@@ -143,9 +143,9 @@ fn an_error_is_invalid_and_one_message_shows(cx: &mut TestAppContext) {
 #[gpui::test]
 fn only_an_error_disables_a_button(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
-        {"id": "e", "component": "Button", "props": {"label": "E", "checks": check("/e")}},
-        {"id": "w", "component": "Button", "props": {"label": "W", "checks": check("/w")}},
-        {"id": "i", "component": "Button", "props": {"label": "I", "checks": check("/i")}}
+        {"id": "e", "component": "Button", "props": {"label": "E"}, "@checks": check("/e")},
+        {"id": "w", "component": "Button", "props": {"label": "W"}, "@checks": check("/w")},
+        {"id": "i", "component": "Button", "props": {"label": "I"}, "@checks": check("/i")}
     ]});
     let (view, cx) = surface(cx, tree, severities());
     let disabled = |cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.placed_nodes().iter().find(|n| n.id == id).unwrap().props.get("disabled") == Some(&json!(true)));
@@ -157,10 +157,10 @@ fn only_an_error_disables_a_button(cx: &mut TestAppContext) {
 #[gpui::test]
 fn live_holds_on_any_component_and_wins_over_a_text_s_own(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
-        {"id": "a", "component": "Text", "props": {"text": "a"}, "accessibility": {"live": "polite"}},
-        {"id": "b", "component": "Stack", "props": {"gap": "sm"}, "accessibility": {"live": "assertive"}},
-        {"id": "c", "component": "Text", "props": {"text": "c", "live": "polite"}, "accessibility": {"live": "assertive"}},
-        {"id": "d", "component": "Text", "props": {"text": "d", "live": "polite"}, "accessibility": {"live": "off"}},
+        {"id": "a", "component": "Text", "props": {"text": "a"}, "@accessibility": {"live": "polite"}},
+        {"id": "b", "component": "Stack", "props": {"gap": "sm"}, "@accessibility": {"live": "assertive"}},
+        {"id": "c", "component": "Text", "props": {"text": "c", "live": "polite"}, "@accessibility": {"live": "assertive"}},
+        {"id": "d", "component": "Text", "props": {"text": "d", "live": "polite"}, "@accessibility": {"live": "off"}},
         {"id": "e", "component": "Text", "props": {"text": "e", "live": "polite"}}
     ]});
     let (view, cx) = surface(cx, tree, json!({}));
@@ -175,10 +175,10 @@ fn live_holds_on_any_component_and_wins_over_a_text_s_own(cx: &mut TestAppContex
 #[gpui::test]
 fn hidden_is_a_dynamic_boolean_over_the_subtree(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
-        {"id": "a", "component": "Text", "props": {"text": "a"}, "accessibility": {"hidden": true}},
-        {"id": "b", "component": "Text", "props": {"text": "b"}, "accessibility": {"hidden": {"@path": "/on"}}},
-        {"id": "c", "component": "Text", "props": {"text": "c"}, "accessibility": {"hidden": {"@path": "/off"}}},
-        {"id": "box", "component": "Box", "accessibility": {"hidden": true}, "children": [
+        {"id": "a", "component": "Text", "props": {"text": "a"}, "@accessibility": {"hidden": true}},
+        {"id": "b", "component": "Text", "props": {"text": "b"}, "@accessibility": {"hidden": {"@path": "/on"}}},
+        {"id": "c", "component": "Text", "props": {"text": "c"}, "@accessibility": {"hidden": {"@path": "/off"}}},
+        {"id": "box", "component": "Box", "@accessibility": {"hidden": true}, "children": [
             {"id": "inner", "component": "Button", "props": {"label": "Inner"}}
         ]}
     ]});

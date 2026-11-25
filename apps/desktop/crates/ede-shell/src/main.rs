@@ -90,6 +90,7 @@ mod engine;
 mod issues;
 mod assets;
 mod connect;
+mod session_account;
 mod control;
 mod dbus;
 mod inbox;
@@ -379,6 +380,12 @@ struct Shell {
     workspaces: accounts::Workspaces,
     /// #EDE-56: Connect Exponential's state.
     connect: connect::Connect,
+    /// #EDE-226: the installs waiting for approval, as the holder tells it.
+    installs: session_account::Installs,
+    /// #EDE-226: the account being signed out (Settings' button waits).
+    signing_out: Option<String>,
+    /// #EDE-226: a sign-out the shell did itself (the account's id).
+    signed_out_tx: mpsc::Sender<String>,
     /// #EDE-57: Share as a team's state.
     share: share::Share,
     /// The Local desktop opened for a share (its store, blobs, identity).
@@ -570,7 +577,7 @@ impl HostPlugin for Host {
     }
 
     /// #EDE-65: the rail's glyphs as the IDE paints them (the agent's mark,
-    /// its dot), and lane I: a team agent's icon in its colour by the IDE
+    /// its count badge or working dot), and lane I: a team agent's icon in its colour by the IDE
     /// rail's own name (`ide:agent:<id>`, its `shell_regions` glyphs), which
     /// the host owns and paints from its glyph map.
     fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, _cx: &App) -> Option<gpui::AnyElement> {
@@ -591,7 +598,7 @@ impl HostPlugin for Host {
             let path = assets::icon_path(&glyph.icon)?;
             return Some(svg().path(path).size(px(size)).text_color(gpui::rgb(glyph.color)).into_any_element());
         }
-        uicore_gpui::glyphs::paint(name, size, color, &assets::icon_path)
+        uicore_gpui::glyphs::paint(name, size, color, &assets::icon_path, _cx)
     }
 
     fn on_action(&self, event: &ActionEvent, cx: &mut App) {
@@ -629,6 +636,13 @@ impl HostPlugin for Host {
                 (chat::PLUS_PROMPTS, Some(id)) => chat_load_prompt(&shell, id, cx),
                 other => tracing::warn!(?other, "a + row eDE does not serve"),
             });
+            return;
+        }
+        // #EDE-226: the sign-out dialog's answer is an event (a function
+        // call there would replace the dialog's own close).
+        if event.name == "ede_account" && event.context["action"] == "sign-out" && allowed(&self.shell.borrow(), &event.surface_id, "ede_account") {
+            let shell = self.shell.clone();
+            cx.defer(move |cx| account_sign_out(&shell, cx));
             return;
         }
         // Lane Q: a chat card's Embed bubbles its inner events as
@@ -995,8 +1009,12 @@ impl HostPlugin for Host {
                             Err(e) => tracing::warn!("new local desktop: {e}"),
                         }
                     }
+                    // #EDE-226: one account per login: signed in, Connect is
+                    // Settings' Account page.
+                    Some("connect") if shell.borrow().workspaces.session_account().is_some() => settings_open_page(&shell, "account", cx),
                     Some("connect") => {
                         close(&shell, "start-menu", cx);
+                        close(&shell, "settings", cx);
                         open_on_demand(&shell, "connect", cx);
                         refresh(&shell, cx);
                     }
@@ -1021,11 +1039,23 @@ impl HostPlugin for Host {
                     sharing_changed(&shell, cx);
                 });
             }
+            // #EDE-226: Approve / Remove on an install waiting in Needs you.
+            "ede_install" => {
+                let arg = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("").to_string();
+                let (action, id, code) = (arg("action"), arg("id"), arg("code"));
+                cx.defer(move |cx| install_press(&shell, &action, id, code, cx));
+            }
             // #EDE-56: Connect Exponential.
             "ede_connect" => {
                 let args = args.clone();
                 cx.defer(move |cx| {
                     let instance = args.get("instance").and_then(Value::as_str).unwrap_or("").to_string();
+                    // #EDE-226: exactly one account: a second sign-in never starts.
+                    let starts = matches!(args.get("action").and_then(Value::as_str), Some("start" | "code"));
+                    if starts && shell.borrow().workspaces.session_account().is_some() {
+                        tracing::info!("an account is signed in: no second one");
+                        return;
+                    }
                     {
                         let mut s = shell.borrow_mut();
                         match args.get("action").and_then(Value::as_str) {
@@ -1040,6 +1070,11 @@ impl HostPlugin for Host {
                         }
                         let feed = s.connect.feed();
                         s.feed.set("/connecting", feed);
+                    }
+                    // #EDE-226: the browser is what the person looks at now;
+                    // Connect comes back with the result (or when opened again).
+                    if starts && shell.borrow().connect.in_browser() {
+                        close(&shell, "connect", cx);
                     }
                     refresh(&shell, cx);
                 });
@@ -1410,7 +1445,7 @@ fn local_desktop(shell: &SharedShell) -> Option<Arc<elocal::LocalDesktop>> {
 /// Share as a team…: the accounts to pick from and what goes up.
 fn share_start(shell: &SharedShell, _cx: &mut App) {
     let Some(desktop) = local_desktop(shell) else { return };
-    let accounts: Vec<(String, String)> = shell.borrow().workspaces.auth.signed_in_accounts().iter().map(|a| (a.id.clone(), a.email.clone())).collect();
+    let accounts: Vec<(String, String)> = shell.borrow().workspaces.session_accounts().iter().map(|a| (a.id.clone(), a.email.clone())).collect();
     let summary = share::summary(&desktop);
     shell.borrow_mut().share.start(&desktop.entry.id, accounts, summary);
 }
@@ -1418,7 +1453,7 @@ fn share_start(shell: &SharedShell, _cx: &mut App) {
 /// The upload, to the picked account, named as asked (else as the desktop).
 fn share_run(shell: &SharedShell, name: &str, account: &str) {
     let Some(desktop) = local_desktop(shell) else { return };
-    let accounts = shell.borrow().workspaces.auth.signed_in_accounts();
+    let accounts = shell.borrow().workspaces.session_accounts();
     let Some(account) = accounts.iter().find(|a| a.id == account).or_else(|| accounts.first()).cloned() else {
         shell.borrow_mut().share.state = share::State::NeedsAccount;
         return;
@@ -1465,7 +1500,11 @@ fn account_changed(shell: &SharedShell, event: api::AuthEvent, cx: &mut App) {
     tracing::info!(?event, "accounts.json changed");
     match &event {
         api::AuthEvent::SignedIn { account_id } => {
-            let account = shell.borrow().workspaces.account(account_id);
+            // #EDE-226: exactly one account per login: another one's sign-in changes nothing here.
+            let account = shell.borrow().workspaces.session_account().filter(|a| &a.id == account_id);
+            if account.is_none() {
+                return;
+            }
             if let Some(account) = account {
                 shell.borrow().workspaces.start_account(&account);
             }
@@ -1476,6 +1515,12 @@ fn account_changed(shell: &SharedShell, event: api::AuthEvent, cx: &mut App) {
         }
         api::AuthEvent::SignedOut { account_id } | api::AuthEvent::Unauthorized { account_id } => {
             shell.borrow().workspaces.stop_account(account_id);
+            // #EDE-226: a deliberate sign-out leaves no store behind.
+            shell.borrow().workspaces.wipe_when_forgotten(account_id);
+            if shell.borrow().signing_out.as_ref() == Some(account_id) {
+                shell.borrow_mut().signing_out = None;
+            }
+            connect_reset(shell);
             let pending = shell.borrow().pending_pick.account.as_ref() == Some(account_id);
             if pending {
                 shell.borrow_mut().pending_pick = accounts::Pending::default();
@@ -1491,8 +1536,112 @@ fn account_changed(shell: &SharedShell, event: api::AuthEvent, cx: &mut App) {
             }
         }
     }
-    let accounts = shell.borrow().workspaces.accounts_json();
-    shell.borrow_mut().feed.set("/accounts", accounts);
+    accounts_feed(shell);
+    installs_follow(shell, cx);
+}
+
+/// `/accounts` (one at most) and whether its sign-out runs.
+fn accounts_feed(shell: &SharedShell) {
+    let (accounts, busy) = {
+        let s = shell.borrow();
+        (s.workspaces.accounts_json(), s.signing_out.is_some())
+    };
+    let mut s = shell.borrow_mut();
+    s.feed.set("/accounts", accounts);
+    s.feed.set("/account", json!({"signingOut": busy}));
+}
+
+/// #EDE-226: the account left: Connect starts over.
+fn connect_reset(shell: &SharedShell) {
+    let mut s = shell.borrow_mut();
+    if matches!(s.connect.state, connect::State::Done { .. }) {
+        s.connect.cancel();
+        let feed = s.connect.feed();
+        s.feed.set("/connecting", feed);
+    }
+}
+
+/// #EDE-226: Connect with the sign-in's result, still on the instance it was for.
+fn connect_reopen(shell: &SharedShell, cx: &mut App) {
+    if shell.borrow().surfaces.is_open("connect") {
+        return;
+    }
+    let instance = shell.borrow().connect.instance.clone();
+    shell.borrow_mut().feed.set("/connect", json!({"instance": instance}));
+    open_on_demand(shell, "connect", cx);
+    refresh(shell, cx);
+    // The person's to edit from here.
+    shell.borrow_mut().feed.remove("/connect");
+}
+
+/// #EDE-226: Sign out of Exponential, the holder's to do; the shell does it
+/// when no holder takes it ([`session_account::sign_out`]).
+fn account_sign_out(shell: &SharedShell, cx: &mut App) {
+    let account = shell.borrow().workspaces.session_account();
+    let Some(account) = account.filter(|_| shell.borrow().signing_out.is_none() && !shell.borrow().demo) else { return };
+    shell.borrow_mut().signing_out = Some(account.id.clone());
+    accounts_feed(shell);
+    refresh(shell, cx);
+    let asked = accounts::ide_send(&api::holder::Command::SignOut { account: account.id.clone() }.to_datagram());
+    let (auth, done) = (shell.borrow().workspaces.auth.clone(), shell.borrow().signed_out_tx.clone());
+    let spawned = std::thread::Builder::new().name("ede-shell-sign-out".into()).spawn(move || {
+        if session_account::sign_out(&auth, &api::default_data_dir(), &account, asked) {
+            let _ = done.send(account.id);
+        }
+    });
+    if let Err(e) = spawned {
+        shell.borrow_mut().signing_out = None;
+        accounts_feed(shell);
+        failed_action(shell, "sign out of", "Exponential", &e.to_string(), cx);
+    }
+}
+
+/// #EDE-226: the press goes to the holder, with the code the person compared.
+fn install_press(shell: &SharedShell, action: &str, install: String, code: String, cx: &mut App) {
+    let account = shell.borrow().workspaces.session_account().map(|a| a.id);
+    let Some(account) = account.filter(|_| !shell.borrow().demo) else { return };
+    let command = match action {
+        "approve" => api::holder::Command::Approve { account, install, code },
+        "remove" => api::holder::Command::Remove { account, install, code },
+        other => return tracing::warn!(action = other, "unknown install action"),
+    };
+    if !accounts::ide_send(&command.to_datagram()) {
+        failed_action(shell, action, "the install", "The Exponential app is not running", cx);
+    }
+}
+
+/// #EDE-226: `/installs` as the holder's file has it now, a failed press told once.
+fn installs_follow(shell: &SharedShell, cx: &mut App) {
+    if shell.borrow().demo {
+        return;
+    }
+    let (changed, failed) = {
+        let mut s = shell.borrow_mut();
+        let account = s.workspaces.session_account().map(|a| a.id);
+        let changed = s.installs.follow(&api::default_data_dir(), account.as_deref());
+        (changed, s.installs.failed())
+    };
+    if changed {
+        {
+            let mut s = shell.borrow_mut();
+            let installs = s.installs.feed();
+            s.feed.set("/installs", installs);
+            let needs = needs_feed(&s);
+            s.feed.set("/needsYou", needs);
+        }
+        refresh(shell, cx);
+    }
+    if let Some((verb, message)) = failed {
+        failed_action(shell, &verb, "the install", &message, cx);
+    }
+}
+
+/// `/needsYou`: the installs waiting for approval count too (the app's rule,
+/// `ui::install_approval::counted`); this install waiting shows the list.
+fn needs_feed(s: &Shell) -> Value {
+    let mut feed = inbox::needs_you_feed(&s.needs_you);
+    feed["count"] = json!(s.needs_you.len() + s.installs.count());
+    feed
 }
 
 /// `Local`, then `Local 2`, `Local 3`… among the desktops that exist.
@@ -3945,8 +4094,9 @@ fn tray_apply(shell: &SharedShell, items: Vec<inbox::InboxItem>, needs: Vec<inbo
         let mut s = shell.borrow_mut();
         let since = s.started_ms;
         s.notifications.set_inbox(items, since);
-        s.feed.set("/needsYou", inbox::needs_you_feed(&needs));
         s.needs_you = needs;
+        let needs = needs_feed(&s);
+        s.feed.set("/needsYou", needs);
     }
     notifications_changed(shell, cx);
 }
@@ -4275,8 +4425,11 @@ fn main() {
     let account_changes = workspaces.account_changes();
     let (connect_tx, connect_rx) = mpsc::channel::<connect::Event>();
     let (urls_tx, urls_rx) = mpsc::channel::<String>();
+    let (connect_open_tx, connect_open_rx) = mpsc::channel::<()>();
+    let (signed_out_tx, signed_out_rx) = mpsc::channel::<String>();
     if !demo {
         connect::listen_urls(urls_tx);
+        connect::listen_open(connect_open_tx);
     }
     let connect = connect::Connect::new(workspaces.auth.clone(), connect_tx);
     let (share_tx, share_rx) = mpsc::channel::<share::Event>();
@@ -4316,6 +4469,9 @@ fn main() {
         feed.set("/spacesList", json!({"open": demo_spaces.as_deref() == Some("list")}));
         feed.set("/connecting", connect.feed());
         feed.set("/accounts", workspaces.accounts_json());
+        feed.set("/account", json!({"signingOut": false}));
+        let installs = if demo { session_account::Installs::demo() } else { session_account::Installs::default() };
+        feed.set("/installs", installs.feed());
         feed.set("/sharing", settings_pages::demo_sharing().unwrap_or_else(|| share.feed()));
         // The goldens: the sample conversation (Local, or a demo team's).
         let on_team = workspaces.current_local().is_some_and(|e| e.kind == uicore_model::SwitcherKind::Team);
@@ -4473,6 +4629,9 @@ fn main() {
             tray: Vec::new(),
             workspaces,
             connect,
+            installs,
+            signing_out: None,
+            signed_out_tx,
             share,
             local: None,
             // #EDE-65: the team picked last, once its account's teams are listed.
@@ -4590,6 +4749,8 @@ fn main() {
         cx.spawn(async move |cx| {
             let mut minute = clock::time();
             let (mut tray_pending, mut last_tray) = (false, Instant::now());
+            let mut last_installs = Instant::now();
+            let mut first_login = !demo && connect::first_login(&config_dir, s.borrow().workspaces.session_account().is_some());
             // #EDE-65 lane I: an open team chat repaints at most every 250 ms while a reply streams.
             let (mut chat_pending, mut last_chat) = (false, Instant::now());
             loop {
@@ -4692,14 +4853,43 @@ fn main() {
                     }
                 }
                 while let Ok(url) = urls_rx.try_recv() {
-                    s.borrow_mut().connect.callback(&url);
+                    // #EDE-226: the shell is this desktop's handler of
+                    // exponential:// links: the sign-in's return is its own,
+                    // every other link the app's.
+                    let mine = s.borrow_mut().connect.callback(&url);
+                    if !mine {
+                        cx.update(|_| hand_off(&s, &url));
+                    }
+                }
+                // #EDE-226: the app asks for the sign-in (its login is Connect).
+                if connect_open_rx.try_iter().count() > 0 {
+                    cx.update(|cx| open_on_demand(&s, "connect", cx));
+                    dirty = true;
+                }
+                while let Ok(account_id) = signed_out_rx.try_recv() {
+                    cx.update(|cx| account_changed(&s, api::AuthEvent::SignedOut { account_id }, cx));
+                    teams_changed = true;
+                    dirty = true;
+                }
+                if last_installs.elapsed() >= Duration::from_secs(1) {
+                    last_installs = Instant::now();
+                    cx.update(|cx| installs_follow(&s, cx));
+                }
+                // #EDE-226: nobody signed in yet on this machine's eDE: Connect
+                // shows at the first login, once.
+                if first_login && s.borrow().surfaces.is_open("taskbar") {
+                    first_login = false;
+                    tracing::info!("the first login: Connect Exponential");
+                    cx.update(|cx| open_on_demand(&s, "connect", cx));
+                    dirty = true;
                 }
                 while let Ok(event) = connect_rx.try_recv() {
+                    if matches!(event, connect::Event::Signed(_) | connect::Event::Failed(_)) {
+                        cx.update(|cx| connect_reopen(&s, cx));
+                    }
                     let signed = s.borrow_mut().connect.apply(event);
                     if let Some(account) = signed {
-                        s.borrow().workspaces.start_account(&account);
-                        let accounts = s.borrow().workspaces.accounts_json();
-                        s.borrow_mut().feed.set("/accounts", accounts);
+                        cx.update(|cx| account_changed(&s, api::AuthEvent::SignedIn { account_id: account.id }, cx));
                         teams_changed = true;
                     }
                     let feed = s.borrow().connect.feed();
@@ -5714,7 +5904,7 @@ mod start_menu_document {
         let submit = &node(root, "search").expect("the search box")["on"]["submit"]["functionCall"];
         assert_eq!((submit["@call"].as_str(), &submit["args"]), (Some("ede_start_menu"), &serde_json::json!({"activate": true})));
         assert!(source.lines().any(|l| l.starts_with('#') && l.contains("#EDE-92")), "the document says what the keys do");
-        for (id, f) in [("whats_new", "ede_launch"), ("account", "ede_launch"), ("devices", "ede_launch"), ("settings", "ede_open_document")] {
+        for (id, f) in [("whats_new", "ede_launch"), ("account", "ede_open_document"), ("devices", "ede_launch"), ("settings", "ede_open_document")] {
             assert_eq!(call(node(root, id).expect(id)).0, f, "{id}");
         }
         assert_eq!(doc.to_string().matches("\"activate\"").count(), 1, "only the search box runs the selection");

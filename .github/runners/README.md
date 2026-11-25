@@ -218,6 +218,33 @@ cache and the read-only Gradle dependency cache); `docker compose down -v`
 drops them and the registration. sccache is capped at 15 GB
 (`SCCACHE_CACHE_SIZE`, compose + Dockerfile).
 
+Each job gives its disk back (#EXP-2150): the image's job hooks
+(`job-cleanup.sh`, at every job's start and end) empty the checkout (all but
+`.git`) and `/tmp`, and cap Gradle's build cache at 4 GB a runner; a job does
+not start with under 10 GB free. Before, a container kept its last target
+(19-25 GB) and everything test runs left in `/tmp` (2026-11-25: 16 + 11 GB in
+105,000 entries), and the disk keeper below skipped it, a job running every
+time it looked. A hard quota per runner needs root (overlay2 on ext4 has no
+project quota), so the bound is one job's own target. Check:
+`docker ps --format '{{.Names}} {{.Size}}'`, about 4 GB idle.
+
+**Before a runner is recreated**, compare it with the new image: a recreate
+drops whatever jobs left in the container's own layer. `docker exec <c>
+dpkg-query -W -f '${Package}\n'` against the same in `docker run --rm
+--entrypoint sh <image>`, its env, and `docker diff <c>`. On 2026-11-25 that
+was 183 packages beyond the image (all from the ede and eui jobs' apt lines,
+now in the Dockerfile; everything in /etc, /usr and /var belongs to them), env
+the same but the compose settings, and caches: the Android SDK + NDK (3 GB, the
+android job reinstalls it), `~/.m2`, `~/.config`. An idle runner can be between
+two jobs or already assigned one: wait for an empty queue.
+
+**The sccache stays CI's own.** It is one volume for both runners, 15 GB, and
+release builds (`desktop-build.yml`, `build-android.yml`) read what PR jobs
+wrote. A host session must never use it (or the other way round): a compiler
+cache is trusted input, and a pull request's job can write any entry. Every
+PR-written cache in the container has that reach (sccache, `~/.cargo`,
+`~/.rustup`, Gradle; jobs also have sudo): #EXP-2151.
+
 Between jobs, a systemd user timer keeps the whole Mint above 60 GB free
 across the runners and every session (2026-11-12: 241 GB free on 11-08, 9.5 GB
 four days later: 107 GB of build cache the weekly prune never matched, ~80 GB

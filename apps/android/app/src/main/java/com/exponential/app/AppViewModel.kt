@@ -1,13 +1,14 @@
 package com.exponential.app
 
 import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.ShareTargets
+import com.exponential.app.domain.SidebarTree
 import com.exponential.app.ui.components.Blocking
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.ShellState
-import com.exponential.app.data.crossTeamOrder
 import com.exponential.app.navigation.AssistantRef
 import com.exponential.app.ui.inbox.inboxUnread
 import com.exponential.app.ui.settings.AssistantSettingsRouteViewModel
@@ -183,9 +184,10 @@ class AppViewModel @Inject constructor(
             if (db == null || accountId == null) flowOf(null)
             else combine(db.boardDao().observeAll(), db.teamDao().observeAll()) { boards, teams ->
                 val last = shell.lastBoard(accountId)
-                boards.firstOrNull { it.id == last }?.id ?: crossTeamOrder(teams).firstNotNullOfOrNull { team ->
-                    boards.filter { it.teamId == team.id }.minByOrNull { it.sortOrder }?.id
-                }
+                boards.firstOrNull { it.id == last }?.id ?: IssueDraftPage.boards(
+                    teams.map { SidebarTree.Team(it.id, it.name) },
+                    boards.map { IssueDraftPage.Board(it.id, it.teamId, it.sortOrder) },
+                ).boards.firstOrNull()?.id
             }
         }
         .distinctUntilChanged()

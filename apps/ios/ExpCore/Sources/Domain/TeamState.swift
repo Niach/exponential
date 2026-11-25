@@ -19,9 +19,7 @@ public final class TeamState {
 
     /// A team's boards in sidebar order.
     public func boards(of teamId: String) -> [BoardEntity] {
-        boards
-            .filter { $0.teamId == teamId }
-            .sorted { ($0.sortOrder ?? 0, $0.id) < ($1.sortOrder ?? 0, $1.id) }
+        BoardOrder.sorted(boards.filter { $0.teamId == teamId })
     }
 
     /// The first board of the first team that has one.

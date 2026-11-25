@@ -5,6 +5,7 @@ import java.io.File
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -17,11 +18,12 @@ import org.junit.Test
 
 /** #FEED-250: packages/domain-contract/fixtures/sealed-content.json `staleTree` replayed through [StaleTree]. */
 class StaleTreeFixtureTest {
-    private val staleTree: JsonObject = run {
+    private val fixture: JsonObject = run {
         val path = System.getProperty("exponential.enet.sealedFixture")
             ?: error("exponential.enet.sealedFixture is not set (app/build.gradle.kts)")
-        Json.parseToJsonElement(File(path).readText()).jsonObject.getValue("staleTree").jsonObject
+        Json.parseToJsonElement(File(path).readText()).jsonObject
     }
+    private val staleTree: JsonObject = fixture.getValue("staleTree").jsonObject
 
     private fun JsonObject.str(key: String) = getValue(key).jsonPrimitive.content
 
@@ -177,5 +179,39 @@ class StaleTreeFixtureTest {
             publicKey = { serverKey },
         )
         assertEquals(TreeWire.Sealed(root, serverKey), session)
+    }
+
+    /** #EXP-2141: `dedupedSend` through [settleNewRoot] (what SealedWriter runs once a new root's send is answered). */
+    @Test
+    fun dedupedSendCasesReplayTheFixture() = runBlocking {
+        val cases = fixture.getValue("dedupedSend").jsonObject.getValue("cases").jsonArray
+        assertTrue(cases.isNotEmpty())
+        val own = PublicTreeKey("own-key", 1)
+        cases.forEach { element ->
+            val case = element.jsonObject
+            val name = case.str("name")
+            val asks = mutableListOf<String>()
+            val did = mutableListOf<String>()
+            settleNewRoot(
+                keyed = case.getValue("keyed").jsonPrimitive.boolean,
+                rootId = root,
+                own = own,
+                publicKey = {
+                    asks += it
+                    when (case.str("server")) {
+                        "own" -> own
+                        "other" -> PublicTreeKey("other-key", 1)
+                        "otherEpoch" -> PublicTreeKey("other-key", 2)
+                        "keyless" -> null
+                        "unknown" -> throw TrpcException("offline")
+                        else -> error("unknown server in $name")
+                    }
+                },
+                adopt = { did += "adopt" },
+                fetch = { did += "fetch" },
+            )
+            assertEquals(name, if (case.getValue("asks").jsonPrimitive.boolean) listOf(root) else emptyList<String>(), asks)
+            assertEquals(name, listOf(case.str("step")), did)
+        }
     }
 }

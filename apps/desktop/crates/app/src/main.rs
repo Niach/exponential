@@ -35,10 +35,6 @@ mod windows_integration;
 /// (`packages/shots/src/capture-desktop.ts` `assertBinaryFromCheckout`).
 const BUILT_FROM: &str = concat!("exp-built-from:", env!("CARGO_MANIFEST_DIR"));
 
-/// #EDE-64: set by eDE's `exponential-device.service`: this launch is the
-/// session's device, resident and windowless until the person opens it.
-const SESSION_DEVICE_ENV: &str = "EXPONENTIAL_SESSION_DEVICE";
-
 fn main() {
     // EXP-2060: first, before any thread: an inherited SIG_IGN of the
     // termination signals becomes a no-op handler, so every git this host
@@ -58,12 +54,19 @@ fn main() {
     observability::run_crash_monitor_if_requested();
     // Read once and cleared before any thread starts, so the terminals and
     // agents this app spawns don't inherit it.
-    let session_device = std::env::var_os(SESSION_DEVICE_ENV).is_some_and(|v| v == "1");
-    std::env::remove_var(SESSION_DEVICE_ENV);
+    // #EDE-64: the session's device is resident and windowless until the
+    // person opens it.
+    let session_device = ui::take_session_device();
     // EXP-1287: code mode's script worker (`__codemode-worker`, one
     // child per `exec`): the engine and nothing else, killable by its host.
     if coding::codemode::worker::requested() {
         coding::codemode::worker::run_and_exit();
+    }
+    // #FEED-311: `<binary> mcp` = the stdio MCP server of the person's own
+    // clients, forwarding to the key holder of the running app.
+    if std::env::args().nth(1).is_some_and(|arg| arg == "mcp") {
+        coding::client_mcp::run_stdio(api::default_data_dir());
+        return;
     }
     // NEW-53: exponentialTalk's speech worker (`__speech-worker`, one child
     // per app): the voice model and the audio device, killable by the host.
@@ -165,6 +168,7 @@ fn main() {
     // #EXP-1938: closing the last window quits only when the shell, the tray
     // or `ui`'s observer say so; gpui's default would end the loop first.
     let app = gpui_platform::application().with_quit_mode(ui::QUIT_MODE).with_assets(assets::Assets);
+    let app = ui::relaunch_as(app, session_device);
 
     // on_open_urls is the macOS OAuth-callback surface (exponential:// → §5.7).
     // Real signature: FnMut(Vec<String>) — NO cx.
@@ -284,6 +288,8 @@ fn main() {
         // (headless verification, dev-only) or a warm-start resume of the
         // persisted account — else the team boots to the login surface.
         ui::bootstrap_session(cx);
+        // #EDE-226: eDE's shell signs in and out (its Connect, its Settings).
+        ui::follow_accounts(cx);
 
         // Update check (§11.2, EXP-68): at launch and periodically while
         // running; non-blocking, offline-safe; flips a global the Shell

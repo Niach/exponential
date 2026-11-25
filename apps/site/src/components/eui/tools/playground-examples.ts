@@ -23,7 +23,7 @@ const form: Nested = {
   props: { title: `Join the beta`, description: `We will email you when your seat is ready.`, padded: true },
   children: [
     { id: `name`, component: `Input`, props: { label: `Name`, name: `name`, placeholder: `Ada Lovelace`, value: { "@path": `/form/name` } } },
-    { id: `email`, component: `Input`, props: { label: `Email`, name: `email`, type: `email`, placeholder: `ada@example.com`, value: { "@path": `/form/email` }, checks: [{ condition: { "@call": `email`, args: { value: { "@path": `/form/email` } } }, message: `Enter a valid email` }] } },
+    { id: `email`, component: `Input`, props: { label: `Email`, name: `email`, type: `email`, placeholder: `ada@example.com`, value: { "@path": `/form/email` }}, "@checks": [{ condition: { "@call": `email`, args: { value: { "@path": `/form/email` } } }, message: `Enter a valid email` }] },
     { id: `platform`, component: `Select`, props: { label: `Platform`, name: `platform`, options: [{ label: `Web`, value: `web` }, { label: `iOS`, value: `ios` }, { label: `Android`, value: `android` }, { label: `Desktop`, value: `desktop` }], value: `web` } },
     { id: `news`, component: `Switch`, props: { label: `Product news`, name: `news`, checked: true, description: `At most one email a month.` } },
     {

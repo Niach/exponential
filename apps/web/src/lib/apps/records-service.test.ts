@@ -12,6 +12,8 @@ const ALLOWED = new Set([
   `lib/apps/records-service.ts`, // the service
   `lib/app-records-purge.ts`, // the watchdog purge (owner role, hard delete)
   `lib/billing.ts`, // the plan quota count (team-wide, before the role switch)
+  // #EXP-2115: the Storage sweep reads which images a record names.
+  `lib/storage/image-references.ts`,
   `lib/session-attachment-sweep.ts`, // VAPP-221: which app files records still reference (owner role)
   `routes/api/shapes/app-records.ts`, // Electric's shape proxy
 ])

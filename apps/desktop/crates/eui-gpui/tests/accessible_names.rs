@@ -272,7 +272,7 @@ fn stateless(name: &str, text: &str) -> Vec<String> {
             }
         }
     }
-    let key = "\"accessibility\": {";
+    let key = "\"@accessibility\": {";
     for (at, _) in text.match_indices(key) {
         // The node object holding it: the nearest unclosed `{` before it.
         let bytes = text.as_bytes();
@@ -333,11 +333,11 @@ fn the_scan_sees_an_unset_state() {
     let lit_ok = r#"div().id("r").role(gpui::Role::ListItem).aria_label(t).aria_selected(on).when(on, |r| r.bg(c)).on_click(f)"#;
     let fold = r#"div().id("f").role(gpui::Role::Button).aria_label(if open { "Collapse" } else { "Expand" }).on_click(f)"#;
     let fold_ok = r#"div().id("f").role(gpui::Role::Button).aria_label(if open { "Collapse" } else { "Expand" }).aria_expanded(open).on_click(f)"#;
-    let doc_row = r#"json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("label")}, "style": {"backgroundColor": path("fill")}})"#;
-    let doc_row_ok = r#"json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("label"), "selected": path("lit")}, "style": {"backgroundColor": path("fill")}})"#;
-    let doc_fold = r#"json!({"id": "fold", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("foldLabel")}})"#;
-    let doc_fold_ok = r#"json!({"id": "fold", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("foldLabel"), "expanded": path("open")}})"#;
-    let child_fill = r#"json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "x"}, "children": [{"id": "c", "component": "Box", "style": {"backgroundColor": path("fill")}}]})"#;
+    let doc_row = r#"json!({"id": "row", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": path("label")}, "style": {"backgroundColor": path("fill")}})"#;
+    let doc_row_ok = r#"json!({"id": "row", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": path("label"), "selected": path("lit")}, "style": {"backgroundColor": path("fill")}})"#;
+    let doc_fold = r#"json!({"id": "fold", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": path("foldLabel")}})"#;
+    let doc_fold_ok = r#"json!({"id": "fold", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": path("foldLabel"), "expanded": path("open")}})"#;
+    let child_fill = r#"json!({"id": "row", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": "x"}, "children": [{"id": "c", "component": "Box", "style": {"backgroundColor": path("fill")}}]})"#;
     for unset in [lit, fold, doc_row, doc_fold] {
         assert_eq!(stateless("t", unset), vec!["t:1".to_string()], "{unset}");
     }

@@ -350,6 +350,9 @@ pub struct PickupInput<'a> {
     /// EXP-1374: the same set holds an interrupted run's
     /// [`PickupAction::Continue`] (once per absence).
     pub revive_held: &'a HashSet<String>,
+    /// EXP-2099: sessions whose last turn the usage wall ended and whose
+    /// reset has passed ([`LiveRegistry::wall_due`]).
+    pub wall_due: &'a HashSet<String>,
     /// EXP-1542: the server's move records ([`move_records`] over the
     /// synced `events`); empty while that shape is not up.
     pub moves: &'a [MoveRecord],
@@ -613,7 +616,8 @@ impl PickupAction {
 ///   left mid-turn (`blocked` = an interruption with `resume: true`,
 ///   [`SessionRow::continue_interruption`]), unless
 ///   [`PickupInput::revive_held`] names it. A pending input wins (Resume:
-///   its report clears the flag).
+///   its report clears the flag). EXP-2099: also any row whose usage wall
+///   reset ([`PickupInput::wall_due`]).
 /// - **Revoke**: a handed message whose row is gone (unqueued).
 /// - **Deliver**: a live session's pending person messages not yet handed.
 /// - **Answer**: an open card of a live session whose row is answered.
@@ -782,6 +786,9 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
             queue.extend(answered.get(row.id.as_str()).into_iter().flatten().map(|m| (*m).clone()));
             if !queue.is_empty() {
                 starts.push((row, PickupAction::Resume { session: row.clone(), messages: queue }));
+            } else if input.wall_due.contains(&row.id) {
+                // EXP-2099: persistent or not, and whatever ran here before.
+                starts.push((row, PickupAction::Continue { session: row.clone() }));
             } else if row.is_root() && row.is_persistent() && !input.revive_held.contains(&row.id) {
                 starts.push((row, PickupAction::Revive { session: row.clone() }));
             } else if !row.is_persistent()
@@ -916,6 +923,51 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     actions.extend(deliveries.into_iter().map(|(_, action)| action));
     actions.extend(answers.into_iter().map(|(_, action)| action));
     actions
+}
+
+/// #EXP-2144: this host drains for an update's restart (see
+/// [`hold_turns`]).
+static TURNS_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// #EXP-2144: hold new turns back on this host (`updater::restart`'s drain),
+/// or let them go again. What is held stays where it is (a queued row, an
+/// unconsumed message), so the next pass, or the process after the restart,
+/// starts it. Returns whether that changed.
+pub fn hold_turns(hold: bool) -> bool {
+    TURNS_HELD.swap(hold, std::sync::atomic::Ordering::SeqCst) != hold
+}
+
+/// Whether [`hold_turns`] holds new turns back.
+pub fn turns_held() -> bool {
+    TURNS_HELD.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+impl PickupAction {
+    /// Would this start a turn (or reach into the running one as a steer)?
+    /// An answer to an open card does not: the running turn waits for it.
+    pub fn starts_turn(&self) -> bool {
+        match self {
+            Self::Launch { .. }
+            | Self::Resume { .. }
+            | Self::Revive { .. }
+            | Self::Continue { .. }
+            | Self::Deliver { .. }
+            | Self::DeliverAnswer { .. }
+            | Self::Switch { .. } => true,
+            Self::Revoke { .. }
+            | Self::Answer { .. }
+            | Self::Kill { .. }
+            | Self::Release { .. }
+            | Self::HandOff { .. } => false,
+        }
+    }
+}
+
+/// While [`turns_held`], a pass keeps only what starts no turn.
+pub fn drop_held_turns(actions: &mut Vec<PickupAction>) {
+    if turns_held() {
+        actions.retain(|action| !action.starts_turn());
+    }
 }
 
 /// EXP-849: the profile a live session must move to — its row names an
@@ -1080,7 +1132,8 @@ fn is_open_own_plan_card(message: &MessageRow) -> bool {
 /// reads `Message from <name> (member <userId>): <body>`
 /// (`domain::transcript_grouping::member_input`), `<name>` = the author's
 /// synced name, else `copy.formerMember`. Only this prompt wears it: the
-/// row's body is never rewritten.
+/// row's body is never rewritten. #FEED-312: a builtin command (`/new`) is
+/// acted on, so it stays bare ([`is_new_conversation`] reads it).
 pub fn input_text(message: &MessageRow, sessions: &[SessionRow], members: &MemberInputs) -> String {
     let text = input_body_text(message, sessions);
     if let Some(key) = input_tag(message) {
@@ -1091,6 +1144,7 @@ pub fn input_text(message: &MessageRow, sessions: &[SessionRow], members: &Membe
         Some(author)
             if message.is_from_user()
                 && action_card(message).is_none()
+                && !domain::transcript_grouping::is_steer_command(&text)
                 && members.group_chats.contains(&message.session_id) =>
         {
             members.word(author, &text)
@@ -1566,8 +1620,9 @@ fn key_and_reseal(trpc: &api::TrpcClient, row: &SessionRow, device_id: &str) {
 /// A per-session lockfile under `{data_dir}/session-claims/` held for the
 /// lifetime of the session's engine in this process (inside its
 /// [`LiveRegistry`] entry). A `proper-lockfile` mkdir lock
-/// ([`crate::lockfile`]) with a heartbeat, so a crashed holder's claim goes
-/// stale on its own; taking it never waits.
+/// ([`crate::lockfile`]) with a heartbeat and a holder file, so a dead
+/// holder's claim is free at once (an older build's, without the file, once
+/// it is stale); taking it never waits.
 pub struct ClaimLock {
     guard: crate::lockfile::LockGuard,
 }
@@ -1576,6 +1631,19 @@ impl std::fmt::Debug for ClaimLock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClaimLock").field("path", &self.guard.path()).finish()
     }
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    // SAFETY: signal 0 sends nothing; an invalid pid is an errno.
+    let sent = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    sent || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// Not known here: alive.
+#[cfg(not(unix))]
+fn process_alive(_pid: u32) -> bool {
+    true
 }
 
 /// The claims directory under the data dir.
@@ -1610,7 +1678,14 @@ impl ClaimLock {
             std::fs::create_dir_all(parent)
                 .map_err(|err| format!("create {}: {err}", parent.display()))?;
         }
-        match crate::lockfile::acquire(&path, CLAIM_LOCK_OPTIONS) {
+        // EXP-2130: the claim a dead (or re-exec'd) process left is taken at
+        // once, unless the agent it ran is still there (the startup reap
+        // clears the record): then only once it is stale, as ever.
+        let agent_gone = || {
+            let child = crate::run_registry::get(data_dir, session_id).and_then(|record| record.acp_child_pid);
+            child.is_none_or(|pid| !process_alive(pid))
+        };
+        match crate::lockfile::acquire_held(&path, CLAIM_LOCK_OPTIONS, &agent_gone) {
             Ok(guard) => Ok(Some(Self { guard })),
             Err(crate::lockfile::LockError::Contended) => Ok(None),
             Err(err) => Err(format!("claim lock {}: {err}", path.display())),
@@ -1898,6 +1973,19 @@ impl LiveRegistry {
             .filter(|(_, state)| state.settled || state.attempts >= MAX_LAUNCH_ATTEMPTS || now < state.not_before)
             .map(|(id, _)| id.clone())
             .collect()
+    }
+
+    /// EXP-2099: the sessions a usage wall's passed reset continues
+    /// ([`crate::wall_resume::due`]), less the ones backing off. Its file IS
+    /// the once, so a settled revive (an engine ran here) never holds it.
+    pub fn wall_due(&self, data_dir: &std::path::Path) -> HashSet<String> {
+        let mut due = crate::wall_resume::due(data_dir, eagent::wire::activity::now_unix_millis());
+        if !due.is_empty() {
+            let now = std::time::Instant::now();
+            let revives = locked(&self.revives);
+            due.retain(|id| revives.get(id).is_none_or(|state| now >= state.not_before));
+        }
+        due
     }
 
     /// Count a revive attempt (the backoff starts now); returns the count.
@@ -3312,6 +3400,11 @@ pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), W
         deps.live.settle_revive(session_id);
         return Ok(());
     }
+    // EXP-2099: a passed wall reset goes first (its file is taken by any
+    // turn, so it can never be continued a second time).
+    if crate::wall_resume::due(&deps.coding.data_dir, eagent::wire::activity::now_unix_millis()).contains(session_id) {
+        return continue_walled(row, deps);
+    }
     let Some(kind) = row.continue_interruption() else {
         return Ok(());
     };
@@ -3347,6 +3440,48 @@ pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), W
     spawn_continuation(row, record, claim, brief, continue_prompt(kind), deps)
         .map(|()| log::info!("pickup: continued interrupted session {session_id} ({kind})"))
         .map_err(WakeError::from)
+}
+
+/// EXP-2099: resume a run the usage wall stopped, its reset passed, with
+/// [`eagent::engine::wall_resume::WALL_RESUME_PROMPT`] as the seed turn. The
+/// reset is dropped when that turn STARTS (the engine does), so a process
+/// that dies before it tries again, as often as `continue_attempts` allows.
+fn continue_walled(row: &SessionRow, deps: &PickupDeps) -> Result<(), WakeError> {
+    let session_id = row.id.as_str();
+    let data_dir = &deps.coding.data_dir;
+    let Some(claim) = ClaimLock::try_acquire(data_dir, session_id)? else {
+        // The process that holds it continues it; a dying one is retried.
+        return contended(session_id, deps);
+    };
+    // Read again under the claim: another process may have continued it.
+    if crate::wall_resume::get(data_dir, session_id).is_none() {
+        return Ok(());
+    }
+    let Some(record) = crate::run_registry::get(data_dir, session_id) else {
+        crate::wall_resume::set(data_dir, session_id, None);
+        log::info!("pickup: walled session {session_id} has no run record here — not continued");
+        return Ok(());
+    };
+    deps.live.note_revive(session_id);
+    let brief = fetch_brief(&deps.coding.trpc, session_id)
+        .map_err(|err| format!("brief of session {session_id}: {err}"))?;
+    if !crate::continue_attempts::note(data_dir, session_id) {
+        crate::wall_resume::set(data_dir, session_id, None);
+        log::warn!("pickup: walled session {session_id} was continued too often lately — not continued");
+        return Ok(());
+    }
+    let prompt = eagent::engine::wall_resume::WALL_RESUME_PROMPT.to_string();
+    match spawn_continuation(row, record, claim, brief, prompt, deps) {
+        Ok(()) => {
+            log::info!("pickup: continued session {session_id} after its usage wall reset");
+            Ok(())
+        }
+        // Replied and idled: theirs to restart.
+        Err(err) => {
+            crate::wall_resume::set(data_dir, session_id, None);
+            Err(err.into())
+        }
+    }
 }
 
 /// #EXP-1492: a revive/continuation whose claim another process of this
@@ -4219,8 +4354,10 @@ fn hand(
     let ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
     for message in messages {
         let body = message.body.clone().unwrap_or_default();
-        // An answered tool card is the person's answer.
-        if message.is_from_user() || is_answered_tool_card(message) {
+        // An answered tool card is the person's answer. #FEED-298: a firing
+        // (a schedule tick, an event: an `event` card the server authors as
+        // the member so every device delivers it) is no person's turn.
+        if (message.is_from_user() && input_tag(message).is_none()) || is_answered_tool_card(message) {
             engine.deliver(message.id.clone(), body);
         } else {
             engine.deliver_wake(message.id.clone(), body);
@@ -4480,6 +4617,7 @@ mod tests {
         live: HashMap<String, LiveView>,
         in_flight: HashSet<String>,
         revive_held: HashSet<String>,
+        wall_due: HashSet<String>,
         moves: Vec<MoveRecord>,
     }
 
@@ -4491,6 +4629,7 @@ mod tests {
                 live: HashMap::new(),
                 in_flight: HashSet::new(),
                 revive_held: HashSet::new(),
+                wall_due: HashSet::new(),
                 moves: Vec::new(),
             }
         }
@@ -4513,6 +4652,7 @@ mod tests {
                 live: &self.live,
                 in_flight: &self.in_flight,
                 revive_held: &self.revive_held,
+                wall_due: &self.wall_due,
                 moves: &self.moves,
                 member_inputs: &MemberInputs::default(),
             })
@@ -4529,6 +4669,32 @@ mod tests {
     /// idle with no engine and nothing pending, is revived; a chat, a
     /// child, another device's row, a queued/ended row, a live or in-flight
     /// one and one the registry holds are not.
+    /// #EXP-2144: while a host drains, nothing that starts a turn leaves a
+    /// pass; ends and card answers do, and the plan itself still holds every
+    /// message for the pass after.
+    #[test]
+    fn held_turns_stay_planned_and_unexecuted() {
+        let deliver = || PickupAction::Deliver { session_id: "s".into(), messages: vec![message("m", "s", "1")] };
+        let kill = || PickupAction::Kill { session_id: "s".into() };
+        let answer = || PickupAction::Answer {
+            session_id: "s".into(),
+            message_id: "m".into(),
+            question_id: "q".into(),
+            card: serde_json::json!({}),
+        };
+        let launch = || PickupAction::Launch { session: session("q", "queued", "d", "1") };
+        let all = || vec![kill(), launch(), deliver(), answer()];
+        let mut actions = all();
+        drop_held_turns(&mut actions);
+        assert_eq!(actions, all());
+        assert!(hold_turns(true));
+        let mut actions = all();
+        drop_held_turns(&mut actions);
+        assert!(hold_turns(false));
+        assert!(!hold_turns(false), "unchanged");
+        assert_eq!(actions, vec![kill(), answer()]);
+    }
+
     #[test]
     fn plan_revives_a_persistent_root_once_its_device_is_back() {
         let running = agent("a1", SESSION_STATUS_RUNNING);
@@ -4579,6 +4745,64 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// EXP-2099: a usage wall's passed reset continues a row with no engine,
+    /// persistent or not, whatever ran here before; never a live, ended or
+    /// other device's one, and a newer input wins.
+    #[test]
+    fn plan_continues_a_run_whose_usage_wall_reset() {
+        let at = "2026-10-01T00:00:00Z";
+        let row = |id: &str| session(id, SESSION_STATUS_IDLE, DEV, at);
+        let mut pass = Pass::new(
+            vec![
+                row("t1"),
+                agent("a1", SESSION_STATUS_IDLE),
+                row("held"),
+                session("ended", SESSION_STATUS_ENDED, DEV, at),
+                session("moved", SESSION_STATUS_IDLE, "dev-2", at),
+                row("live"),
+                row("spoken"),
+                row("other"),
+            ],
+            vec![message("m1", "spoken", "2026-10-02T00:00:00Z")],
+        )
+        .live("live", LiveView::default());
+        pass.revive_held.insert("held".to_string());
+        pass.wall_due =
+            ["t1", "a1", "held", "ended", "moved", "live", "spoken"].into_iter().map(str::to_string).collect();
+        let mut ids = continued(&pass);
+        ids.sort();
+        assert_eq!(ids, vec!["a1", "held", "t1"]);
+    }
+
+    /// EXP-2099: the continuation resumes the recorded run with the wall
+    /// prompt; the kept reset is the engine's to drop (its turn's start), so
+    /// a process that dies before that tries again, up to the cap.
+    #[test]
+    fn a_passed_wall_reset_resumes_the_session_with_the_wall_prompt() {
+        let dir = temp_dir("pickup-wall");
+        let base = canned_server(vec![
+            (200, BRIEF_OK.to_string()), (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let row = session("sess-1", SESSION_STATUS_IDLE, DEV, "t");
+        let now = eagent::wire::activity::now_unix_millis();
+        crate::wall_resume::set(&dir.0, "sess-1", Some(now + 60_000));
+        assert!(host.deps.live.wall_due(&dir.0).is_empty(), "the wall still stands");
+        continue_interrupted(&row, &host.deps).unwrap();
+        assert!(host.spawned.lock().unwrap().is_empty());
+        crate::wall_resume::set(&dir.0, "sess-1", Some(now - 120_000));
+        host.deps.live.settle_revive("sess-1");
+        assert!(host.deps.live.wall_due(&dir.0).contains("sess-1"), "an engine that ran here never holds it");
+        continue_interrupted(&row, &host.deps).unwrap();
+        let spawned = host.spawned.lock().unwrap().clone();
+        assert_eq!(spawned.len(), 1);
+        assert!(spawned[0].prompt.as_deref().unwrap().ends_with(eagent::engine::wall_resume::WALL_RESUME_PROMPT));
+        // Live now: nothing more.
+        continue_interrupted(&row, &host.deps).unwrap();
+        assert_eq!(host.spawned.lock().unwrap().len(), 1);
     }
 
     /// EXP-1374: a non-persistent row its device left mid-turn continues
@@ -5381,6 +5605,13 @@ mod tests {
         assert_eq!(input_text(&by("p1", "u-mira", "Ship it"), &sessions, &members), "Ship it");
         assert_eq!(input_text(&by("c1", "u-mira", "Ship it"), &sessions, &members), "Ship it");
         assert_eq!(input_text(&by("g1", "u-mira", "Ship it"), &sessions, &MemberInputs::default()), "Ship it");
+        // #FEED-312: a command stays the command the device acts on.
+        for command in ["/new", " /new\n", "/compact keep the plan", "/model opus"] {
+            let row = by("g1", "u-mira", command);
+            let body = input_text(&row, &sessions, &members);
+            assert_eq!(body, command);
+            assert_eq!(is_new_conversation(&MessageRow { body: Some(body), ..row }), command.trim() == "/new");
+        }
         // A message without an author keeps its body.
         assert_eq!(input_text(&message("m1", "g1", "t"), &sessions, &members), "body of m1");
         // A trigger's event card keeps its tag, an action card its form,
@@ -5413,6 +5644,7 @@ mod tests {
             live: &live,
             in_flight: &HashSet::new(),
             revive_held: &HashSet::new(),
+            wall_due: &HashSet::new(),
             moves: &[],
             member_inputs: &MemberInputs::new(&rows, &agents, &users),
         });
@@ -5448,6 +5680,7 @@ mod tests {
             live: &live,
             in_flight: &HashSet::new(),
             revive_held: &HashSet::new(),
+            wall_due: &HashSet::new(),
             moves: &[],
             member_inputs: &MemberInputs::new(&rows, &agents, &users),
         });
@@ -5895,6 +6128,151 @@ mod tests {
 
     // ---- ClaimLock + LiveRegistry ----
 
+    /// EXP-2130, the other process of the tests below: takes a claim, says
+    /// so, then holds it (`hold`) or re-execs (`exec`, what an update does).
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "a helper process of the claim tests"]
+    fn claim_holder_process() {
+        let Ok(dir) = std::env::var("EXP_TEST_CLAIM_DIR") else { return };
+        let dir = std::path::PathBuf::from(dir);
+        let claim = ClaimLock::try_acquire(&dir, "s-1").unwrap().expect("free");
+        std::fs::write(dir.join("held"), "").unwrap();
+        if std::env::var("EXP_TEST_CLAIM_EXEC").is_ok() {
+            use std::os::unix::process::CommandExt;
+            panic!("{}", std::process::Command::new("sleep").arg("120").exec());
+        }
+        std::thread::sleep(std::time::Duration::from_secs(120));
+        drop(claim);
+    }
+
+    #[cfg(unix)]
+    struct ClaimHolder(std::process::Child);
+
+    #[cfg(unix)]
+    impl ClaimHolder {
+        fn start(dir: &std::path::Path, exec: bool) -> Self {
+            let _ = std::fs::remove_file(dir.join("held"));
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "pickup::tests::claim_holder_process", "--ignored", "--nocapture"])
+                .env("EXP_TEST_CLAIM_DIR", dir)
+                .stdout(std::process::Stdio::null());
+            if exec {
+                command.env("EXP_TEST_CLAIM_EXEC", "1");
+            }
+            let held = Self(command.spawn().unwrap());
+            for _ in 0..600 {
+                if dir.join("held").exists() {
+                    return held;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            panic!("the holder never took the claim");
+        }
+
+        fn kill(mut self) {
+            self.0.kill().unwrap();
+            self.0.wait().unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ClaimHolder {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// EXP-2130: a live process's claim is never taken (also once its
+    /// heartbeat stalled past `stale`); a killed one's at once, not 30 s later.
+    #[cfg(unix)]
+    #[test]
+    fn a_killed_process_claim_is_taken_at_once_and_a_live_ones_never() {
+        let dir = temp_dir("pickup-claim-killed");
+        let holder = ClaimHolder::start(&dir.0, false);
+        assert!(ClaimLock::try_acquire(&dir.0, "s-1").unwrap().is_none(), "held by a live process");
+        // A stalled host: stopped, its directory an hour old.
+        unsafe { libc::kill(holder.0.id() as i32, libc::SIGSTOP) };
+        let lock = ClaimLock::path(&dir.0, "s-1").unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::open(&lock).unwrap().set_modified(old).unwrap();
+        assert!(ClaimLock::try_acquire(&dir.0, "s-1").unwrap().is_none(), "stalled is not gone");
+        unsafe { libc::kill(holder.0.id() as i32, libc::SIGCONT) };
+        holder.kill();
+
+        let holder = ClaimHolder::start(&dir.0, false);
+        holder.kill();
+        assert!(lock.is_dir(), "killed: nothing was released");
+        let claim = ClaimLock::try_acquire(&dir.0, "s-1").unwrap().expect("taken at once");
+        assert!(ClaimLock::try_acquire(&dir.0, "s-1").unwrap().is_none(), "by one process only");
+        drop(claim);
+        assert_eq!(std::fs::read_dir(dir.0.join(CLAIMS_DIR)).unwrap().count(), 0, "released in full");
+    }
+
+    /// EXP-2130: an update re-execs the daemon under the SAME pid.
+    #[cfg(unix)]
+    #[test]
+    fn a_re_execd_process_claim_is_taken_at_once() {
+        let dir = temp_dir("pickup-claim-exec");
+        let _holder = ClaimHolder::start(&dir.0, true);
+        let mut claim = None;
+        // The helper says "held" before it execs.
+        for _ in 0..100 {
+            claim = ClaimLock::try_acquire(&dir.0, "s-1").unwrap();
+            if claim.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(claim.is_some());
+    }
+
+    /// EXP-2130: many processes' worth of contenders over one dead claim:
+    /// one gets it.
+    #[cfg(unix)]
+    #[test]
+    fn one_contender_takes_a_dead_claim() {
+        let dir = temp_dir("pickup-claim-race");
+        ClaimHolder::start(&dir.0, false).kill();
+        let gate = std::sync::Barrier::new(16);
+        let taken: Vec<ClaimLock> = std::thread::scope(|scope| {
+            let runs: Vec<_> = (0..16)
+                .map(|_| scope.spawn(|| {
+                    gate.wait();
+                    ClaimLock::try_acquire(&dir.0, "s-1").unwrap()
+                }))
+                .collect();
+            runs.into_iter().filter_map(|run| run.join().unwrap()).collect()
+        });
+        assert_eq!(taken.len(), 1);
+    }
+
+    /// EXP-2130: what keeps the 30 s rule: a dead holder whose AGENT still
+    /// runs, and a claim an older build (no holder file) took after it.
+    #[cfg(unix)]
+    #[test]
+    fn a_dead_holders_live_agent_and_an_older_builds_claim_are_not_taken_over() {
+        let dir = temp_dir("pickup-claim-agent");
+        let mut agent = std::process::Command::new("sleep").arg("120").spawn().unwrap();
+        ClaimHolder::start(&dir.0, false).kill();
+        crate::run_registry::record(&dir.0, RunRecord { acp_child_pid: Some(agent.id()), ..record(&dir.0, "s-1") });
+        let taken = ClaimLock::try_acquire(&dir.0, "s-1");
+        agent.kill().unwrap();
+        agent.wait().unwrap();
+        assert!(taken.unwrap().is_none(), "its agent still runs");
+        assert!(ClaimLock::try_acquire(&dir.0, "s-1").unwrap().is_some(), "the agent went");
+
+        ClaimHolder::start(&dir.0, false).kill();
+        let lock = ClaimLock::path(&dir.0, "s-1").unwrap();
+        std::fs::remove_dir(&lock).unwrap();
+        std::fs::create_dir(&lock).unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(2);
+        std::fs::File::open(&lock).unwrap().set_modified(later).unwrap();
+        assert!(ClaimLock::try_acquire(&dir.0, "s-1").unwrap().is_none(), "an older build's");
+    }
+
     #[test]
     fn a_claim_is_exclusive_until_released() {
         let dir = temp_dir("pickup-claim");
@@ -6155,6 +6533,7 @@ mod tests {
             live: &views,
             in_flight: &HashSet::new(),
             revive_held: &held,
+            wall_due: &HashSet::new(),
             moves: &[],
             member_inputs: &MemberInputs::default(),
         });
@@ -6802,14 +7181,22 @@ mod tests {
             author_session_id: Some("child-1".to_string()),
             ..message("w1", "s1", "2026-10-02T00:00:02Z")
         };
+        // #FEED-298: a schedule tick, authored as the member by the server
+        // (so every device delivers it), is no person's turn either.
+        let tick = MessageRow {
+            body: Some("Schedule `0 * * * *` fired.".to_string()),
+            card: Some(serde_json::json!({"kind": "event", "event": "trigger_fired", "triggerId": "t1", "name": null})),
+            ..message("t1", "s1", "2026-10-02T00:00:05Z")
+        };
         let rows = vec![
             report("r1", "s1", "child-1", "done"),
             wake,
+            tick,
             message("m1", "s1", "2026-10-02T00:00:09Z"),
         ];
-        assert_eq!(deliver_messages("s1", &rows, &host.deps).unwrap(), vec!["w1", "r1", "m1"]);
-        assert_eq!(host.engine.delivered_ids(), vec!["w1", "r1", "m1"]);
-        assert_eq!(*host.engine.wakes.lock().unwrap(), vec!["w1", "r1"]);
+        assert_eq!(deliver_messages("s1", &rows, &host.deps).unwrap(), vec!["w1", "r1", "t1", "m1"]);
+        assert_eq!(host.engine.delivered_ids(), vec!["w1", "r1", "t1", "m1"]);
+        assert_eq!(*host.engine.wakes.lock().unwrap(), vec!["w1", "r1", "t1"]);
     }
 
     /// #FEED-237: the pickup acks each person message it RECEIVED once
@@ -7427,6 +7814,7 @@ mod tests {
                 live: &views,
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                wall_due: &HashSet::new(),
                 moves: &[],
                 member_inputs: &MemberInputs::default(),
             })
@@ -8217,6 +8605,7 @@ mod tests {
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                wall_due: &HashSet::new(),
                 moves: &[],
                 member_inputs: &MemberInputs::default(),
             })
@@ -8328,6 +8717,7 @@ mod tests {
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                wall_due: &HashSet::new(),
                 moves: &[],
                 member_inputs: &MemberInputs::default(),
             })
@@ -8712,6 +9102,7 @@ mod tests {
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                wall_due: &HashSet::new(),
                 moves: &[],
                 member_inputs: &MemberInputs::default(),
             })
@@ -8934,6 +9325,7 @@ mod tests {
                     live,
                     in_flight: &HashSet::new(),
                     revive_held: &HashSet::new(),
+                    wall_due: &HashSet::new(),
                     moves: &[],
                     member_inputs: &MemberInputs::default(),
                 })

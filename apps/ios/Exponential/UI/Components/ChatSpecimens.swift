@@ -236,6 +236,8 @@ struct PhoneTabBarSpecimens: View {
         PhoneDock(
             selected: selected,
             chatsBadge: NavBadges.Value(count: 2, tone: .attention),
+            teamsBadge: NavBadges.Value(count: 1, tone: .attention),
+            assistantBadge: NavBadges.Value(count: 3, tone: .muted),
             newOpen: .constant(newOpen),
             specimen: true
         )
@@ -883,7 +885,7 @@ struct NeedsYouSpecimens: View {
             AppBackground()
             VStack(alignment: .leading, spacing: 16) {
                 NeedsYouEntryRow(count: Self.rows.count)
-                NeedsYouList(rows: Self.rows, onOpen: { _ in }, onAction: { _, _ in })
+                NeedsYouList(rows: Self.rows, onOpen: { _ in }, onAction: { _, _ in }, onDismiss: { _ in })
             }
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

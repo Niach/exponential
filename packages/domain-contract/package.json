@@ -49,6 +49,7 @@
     "./session-title": "./src/session-title.ts",
     "./transcript-grouping": "./src/transcript-grouping.ts",
     "./session-kind": "./src/session-kind.ts",
+    "./held-gone": "./src/held-gone.ts",
     "./inbox-route": "./src/inbox-route.ts",
     "./chat-row-action": "./src/chat-row-action.ts",
     "./message-conversation": "./src/message-conversation.ts",
@@ -100,6 +101,7 @@
     "./sidebar-folders": "./src/sidebar-folders.ts",
     "./sidebar-tree": "./src/sidebar-tree.ts",
     "./header-actions": "./src/header-actions.ts",
+    "./issue-draft": "./src/issue-draft.ts",
     "./sidebar-menus": "./src/sidebar-menus.ts",
     "./sidebar-compat": "./src/sidebar-compat.ts",
     "./image-actions": "./src/image-actions.ts"

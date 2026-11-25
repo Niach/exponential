@@ -84,7 +84,7 @@ abstract class HomeWidgetConfigActivity(private val kind: HomeWidgetKind) : Comp
     private fun BoardPick(boards: List<BoardEntity>, teams: List<TeamEntity>) {
         val teamRank = teams.sortedBy { it.name.lowercase() }.withIndex().associate { (i, t) -> t.id to i }
         val ordered = boards.filter { it.deletedAt == null }.sortedWith(
-            compareBy<BoardEntity> { teamRank[it.teamId] ?: Int.MAX_VALUE }.thenBy { it.sortOrder }.thenBy { it.name },
+            compareBy<BoardEntity> { teamRank[it.teamId] ?: Int.MAX_VALUE }.thenBy { it.sortOrder }.thenBy { it.id },
         )
         var value by remember { mutableStateOf(HomeWidgetPrefs.board(this, widgetId)) }
         Picker(

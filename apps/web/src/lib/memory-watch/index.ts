@@ -8,9 +8,11 @@
 import { captureMessage } from "@sentry/core"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 import { DEFAULT_THRESHOLDS, MemoryAlertState, type MemoryAlert, type MemoryThresholds } from "./evaluate"
+import { processHeapLine, readProcessHeap, type ProcessHeap } from "./process-heap"
 import { readMemory, type MemoryReading } from "./readings"
 
 const READ_INTERVAL_MS = 60 * 1000
+const HEAP_LOG_INTERVAL_MS = 10 * 60 * 1000
 
 type Env = Record<string, string | undefined>
 
@@ -130,4 +132,12 @@ export function startMemoryWatch(): void {
   }
   setInterval(() => void run(), READ_INTERVAL_MS)
   void run()
+  // The baseline is the first sample, ten minutes in: boot is not growth.
+  let first: ProcessHeap | null = null
+  setInterval(() => {
+    const heap = readProcessHeap()
+    if (!heap) return
+    first ??= heap
+    console.log(`[memory-watch] ${processHeapLine(heap, first)}`)
+  }, HEAP_LOG_INTERVAL_MS)
 }

@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 
 import { Link, useNavigate } from "@tanstack/react-router"
 import { CHATS_COPY, railAgents } from "@exp/domain-contract/chats"
 import { NEEDS_YOU_COPY, NEEDS_YOU_TEST_IDS } from "@exp/domain-contract/needs-you"
-import type { CountBadgeValue } from "@exp/domain-contract/nav-badges"
+import { sumBadges, teamBadge, type CountBadgeValue } from "@exp/domain-contract/nav-badges"
 import type { SidebarEntry } from "@exp/domain-contract/sidebar-folders"
 import { SIDEBAR_MENU_COPY, sidebarMoveTargets, type SidebarMenuKind } from "@exp/domain-contract/sidebar-menus"
 import {
@@ -32,6 +32,7 @@ import {
   SidebarMenuItem,
   SidebarMenuTrailing,
   TeamAvatar,
+  TeamLead,
   toast,
   TREE_INDENT,
   TreeGuides,
@@ -94,6 +95,7 @@ import { useAgentSends } from "@/components/chat/chat-menu"
 // right-click.
 
 const NavHomeIcon = conceptIcon(`nav-home`)
+const NO_BADGE: CountBadgeValue = { count: 0, tone: `muted` }
 const NavNeedsYouIcon = conceptIcon(`nav-needs-you`)
 const NavChatsIcon = conceptIcon(`nav-chats`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
@@ -337,11 +339,12 @@ function AssistantMenu({ session, assistant }: { session: MenuSessionProps; assi
 }
 
 /** #EXP-2124 device Rename: the name in place (the device settings' rename). */
-function renameDevice(deviceId: string, label: string, current: string) {
+export function renameDevice(deviceId: string, label: string, current: string, onRenamed?: () => void) {
   const next = label.trim()
   if (!next || next === current) return
   void trpc.devices.rename
     .mutate({ deviceId, label: next }, SKIP_ERROR_TOAST)
+    .then(() => onRenamed?.())
     .catch((error: unknown) => failedAction(`rename`, `the device`, error))
 }
 
@@ -431,7 +434,9 @@ function SidebarDevicesRows({
                   params={{ deviceId: device.id }}
                   {...menuProps(SIDEBAR_ROOT_MENU_KIND, `${DEVICE_MENU_PREFIX}${device.id}`)}
                 >
-                  <Glyph className="h-4 w-4 shrink-0" />
+                  <TeamLead team={!device.mine && team ? team : null} lead={16} ground="bg-sidebar">
+                    <Glyph className="h-4 w-4 shrink-0" />
+                  </TeamLead>
                   <span className="min-w-0 flex-1 truncate">{device.name}</span>
                 </Link>
               </SidebarMenuButton>
@@ -439,13 +444,7 @@ function SidebarDevicesRows({
             {!editing && (
               <>
                 <SidebarMenuTrailing className="pointer-events-none group-hover/menu-item:opacity-0">
-                  {device.mine ? (
-                    !device.muted && <LiveDot tone="live" className="size-2" />
-                  ) : (
-                    <span title={team?.name} data-testid="sidebar-device-team" className="flex">
-                      <TeamAvatar iconUrl={team?.iconUrl} size={14} />
-                    </span>
-                  )}
+                  {device.mine && !device.muted && <LiveDot tone="live" className="size-2" />}
                 </SidebarMenuTrailing>
                 <SidebarMenuAction asChild showOnHover title={SIDEBAR_TREE_COPY.deviceSettings}>
                   <Link
@@ -509,7 +508,7 @@ export function SidebarTeamsGroup({
         title={SIDEBAR_TREE_COPY.teams}
         entries={teamsMenu()}
         trigger={
-          <SidebarGroupAction title={SIDEBAR_TREE_COPY.teams} aria-label={SIDEBAR_TREE_COPY.teams} data-testid="sidebar-teams-add">
+          <SidebarGroupAction title={SIDEBAR_TREE_COPY.newTeam} aria-label={SIDEBAR_TREE_COPY.newTeam} data-testid="sidebar-teams-add">
             <AddIcon className="h-4 w-4" />
           </SidebarGroupAction>
         }
@@ -531,7 +530,6 @@ export function SidebarTeamSections({
   chatRows,
   me,
   active,
-  sessionBadges,
   onCount,
 }: {
   teams: readonly Team[]
@@ -540,8 +538,6 @@ export function SidebarTeamSections({
   chatRows: ReadonlyMap<string, ChatsListRow>
   me: string | null | undefined
   active: SidebarActive
-  /** #EXP-2109: a placed session's count badge (touch density). */
-  sessionBadges?: ReadonlyMap<string, CountBadgeValue>
   /** #EXP-2109: a team's top-level node count, once its lists are in. */
   onCount?: (teamId: string, count: number) => void
 }) {
@@ -555,7 +551,6 @@ export function SidebarTeamSections({
       needsYou={needsYou.get(team.id) ?? 0}
       data={sidebarTeamSlice(data, team.id)}
       active={active}
-      sessionBadges={sessionBadges}
       onCount={onCount}
     />
   ))
@@ -611,7 +606,6 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
   needsYou,
   data,
   active,
-  sessionBadges,
   onCount,
 }: {
   team: Team
@@ -619,7 +613,6 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
   needsYou: number
   data: SidebarTeamSlice
   active: SidebarActive
-  sessionBadges?: ReadonlyMap<string, CountBadgeValue>
   onCount?: (teamId: string, count: number) => void
 }) {
   const navigate = useNavigate()
@@ -660,6 +653,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
   )
   const folders = useSidebarFolders(team.id, `team`, itemsOf)
 
+  const badgeOf = (id: string): CountBadgeValue => badges.get(id) ?? NO_BADGE
   const count = boardsReady ? folders.items.length : null
   useEffect(() => {
     if (count !== null) onCount?.(team.id, count)
@@ -769,6 +763,8 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
     }
   }
 
+  // nav-badges.json `teamCases` / `sumCases`.
+  const badge = teamBadge({ needsYou, open, rows: folders.items.map(badgeOf) })
   const renderTeamRow = (itemProps: SidebarRowItemProps) => (
     <SidebarMenuItem {...itemProps} data-testid="sidebar-team-row" data-team-slug={team.slug}>
       <SidebarMenuButton
@@ -782,12 +778,12 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
         <span className="min-w-0 flex-1 truncate">{team.name}</span>
       </SidebarMenuButton>
       <SidebarMenuTrailing className={cn(`pointer-events-none gap-1 text-muted-foreground`, touch && `right-4 justify-end`)}>
-        {needsYou > 0 && (
+        {badge.count > 0 && (
           <Badge
-            count={needsYou}
-            tone="attention"
-            title={NEEDS_YOU_COPY.entry}
-            data-testid="sidebar-team-needs-you"
+            count={badge.count}
+            tone={badge.tone}
+            title={needsYou > 0 ? NEEDS_YOU_COPY.entry : undefined}
+            data-testid="sidebar-team-badge"
             className={
               touch ? `mr-18` : `group-hover/menu-item:invisible group-has-[[data-state=open]]/menu-item:invisible`
             }
@@ -892,7 +888,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
             menu={itemMenuProps(id)}
             title={titles.get(id) ?? chatRows.get(id)?.title ?? ``}
             row={chatRows.get(id)}
-            badge={sessionBadges?.get(id)}
+            badge={badges.get(id)}
             active={here && active.session === id}
             itemProps={itemProps}
             guides={guides}
@@ -908,6 +904,7 @@ const SidebarTeamSection = memo(function SidebarTeamSection({
         teamId={team.id}
         section="team"
         team={{ open, render: renderTeamRow }}
+        folderBadge={(ids) => sumBadges(ids.map(badgeOf))}
         renderItem={renderItem}
         menus={{ [sidebarTeamMenuKind(team.id)]: teamMenu, [sidebarItemMenuKind(team.id)]: itemMenu }}
         testId="sidebar-team-items"
@@ -1046,8 +1043,8 @@ function SidebarSessionRow({
           </span>
         </Link>
       </SidebarMenuButton>
-      {density === `touch` && badge && badge.count > 0 && (
-        <SidebarMenuTrailing className="pointer-events-none right-4">
+      {badge && badge.count > 0 && (
+        <SidebarMenuTrailing className={cn(`pointer-events-none`, density === `touch` && `right-4`)}>
           <Badge count={badge.count} tone={badge.tone} />
         </SidebarMenuTrailing>
       )}

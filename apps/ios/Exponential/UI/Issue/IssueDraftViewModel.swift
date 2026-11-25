@@ -117,7 +117,9 @@ final class IssueDraftViewModel {
     private(set) var teamStatuses: [ResolvedIssueStatus] = IssueStatusResolver.builtinFallbackTeam
     private(set) var labels: [LabelEntity] = []
     private(set) var users: [UserEntity] = []
-    private(set) var teamBoards: [BoardEntity] = []
+    /// #EXP-2125: what the board picker offers (`IssueDraftPage.boards`):
+    /// every member team's boards, or the chat's / the parent's team's alone.
+    private(set) var boards: [BoardEntity] = []
     private(set) var teamId: String?
     private(set) var singleMemberTeam = false
     /// #EXP-1383: the team's agents in the assignee picker's order.
@@ -162,6 +164,7 @@ final class IssueDraftViewModel {
     @ObservationIgnored private var deps: AppDependencies?
     @ObservationIgnored private var accountId = ""
     @ObservationIgnored private var started = false
+    @ObservationIgnored private var boardPicks = 0
     /// The page is being left: the final write may DELETE an emptied row.
     @ObservationIgnored private var leaving = false
     /// Create filed the issue / Discard dropped the draft: nothing more is
@@ -282,10 +285,10 @@ final class IssueDraftViewModel {
 
     var canCreate: Bool { !trimmedTitle.isEmpty && !creating }
 
-    var board: BoardEntity? { teamBoards.first { $0.id == boardId } }
+    var board: BoardEntity? { boards.first { $0.id == boardId } }
 
     /// The board chip shows only when there is another board to pick.
-    var showsBoardChip: Bool { teamBoards.count > 1 }
+    var showsBoardChip: Bool { boards.count > 1 }
 
     var assignee: UserEntity? { users.first { $0.id == assigneeId } }
 
@@ -410,74 +413,91 @@ final class IssueDraftViewModel {
         }
         let teamId = board.teamId
         self.teamId = teamId
+        guard let vocabulary = await loadVocabulary(teamId: teamId) else { return }
+        apply(vocabulary)
+        // Solo team (EXP-50): no assignee chip, and a NEW draft is pre-assigned
+        // to the one member. A reopened draft already says who it is for.
+        if let sole = vocabulary.soleMemberId, !rowExists { assigneeId = sole }
+        // Drop an assignee who is no longer on the team (once it loaded).
+        if !users.isEmpty, let id = assigneeId, !users.contains(where: { $0.id == id }) {
+            assigneeId = nil
+        }
+        var picked = IssueStatusResolver.resolve(statusId: seededStatusId, anchor: nil, team: teamStatuses)
+        // A draft can't be a duplicate (nothing to link yet).
+        if picked.category == .duplicate {
+            picked = IssueStatusResolver.resolve(statusId: nil, anchor: nil, team: teamStatuses)
+        }
+        status = picked
+        // Drop labels deleted while the draft sat (once they loaded).
+        if !labels.isEmpty {
+            labelIds = labelIds.filter { id in labels.contains { $0.id == id } }
+        }
+
+        // A chat's or a parent's draft never leaves its team.
+        let only = parentId != nil || chatId != nil ? teamId : nil
+        if let (teams, rows) = try? await pool.read({ db in
+            (try TeamEntity.fetchAll(db), try BoardEntity.fetchAll(db))
+        }) {
+            boards = IssueDraftPage.boards(teams: teams, boards: rows, only: only).boards
+        }
+    }
+
+    /// One team's vocabulary: what the chips and the pickers read.
+    private struct Vocabulary {
+        var users: [UserEntity]
+        var soleMemberId: String?
+        var agents: [AgentDefinitionEntity]
+        var statuses: [ResolvedIssueStatus]
+        var labels: [LabelEntity]
+        var permissions: TeamPermissions
+    }
+
+    private func loadVocabulary(teamId: String) async -> Vocabulary? {
+        guard let deps, let pool = try? deps.db.pool(forAccountId: accountId) else { return nil }
         let team: TeamEntity? = (try? await pool.read { db in
             try TeamEntity.fetchOne(db, key: teamId)
         }) ?? nil
-
         // Assignee/mention candidates are the TEAM's members (EXP-487).
         let members = (try? await pool.read { db in
             try teamMemberUsers(teamId: teamId, db: db)
         }) ?? []
-        users = membersByDisplayName(members)
-        // Solo team (EXP-50): no assignee chip, and a NEW draft is pre-assigned
-        // to the one member. A reopened draft already says who it is for.
-        if let humanIds = try? await pool.read({ db in
+        let humanIds = (try? await pool.read { db in
             try humanTeamMemberIds(teamId: teamId, db: db)
-        }), humanIds.count == 1 {
-            singleMemberTeam = true
-            if !rowExists { assigneeId = humanIds.first }
-        }
-        // Drop an assignee who is no longer on the team (once it loaded).
-        if !members.isEmpty, let id = assigneeId, !members.contains(where: { $0.id == id }) {
-            assigneeId = nil
-        }
-        // #EXP-1383: the team's agents follow the members in the picker.
-        agents = AgentSettings.assigneeAgents((try? await pool.read { db in
+        }) ?? []
+        let agents = (try? await pool.read { db in
             try AgentDefinitionEntity.filter(Column("team_id") == teamId).fetchAll(db)
-        }) ?? [])
-
-        if let rows = try? await pool.read({ db in
+        }) ?? []
+        let statuses = (try? await pool.read { db in
             try IssueStatusEntity.filter(Column("team_id") == teamId).fetchAll(db)
-        }) {
-            let resolved = IssueStatusResolver.teamStatusesOrFallback(rows)
-            teamStatuses = resolved
-            var picked = IssueStatusResolver.resolve(statusId: seededStatusId, anchor: nil, team: resolved)
-            // A draft can't be a duplicate (nothing to link yet).
-            if picked.category == .duplicate {
-                picked = IssueStatusResolver.resolve(statusId: nil, anchor: nil, team: resolved)
-            }
-            status = picked
-        }
-
-        if let loaded = try? await pool.read({ db in
-            try LabelEntity
-                .filter(Column("team_id") == teamId)
-                .order(Column("name"))
-                .fetchAll(db)
-        }) {
-            labels = loaded.sorted {
+        }) ?? []
+        let labels = (try? await pool.read { db in
+            try LabelEntity.filter(Column("team_id") == teamId).order(Column("name")).fetchAll(db)
+        }) ?? []
+        return Vocabulary(
+            users: membersByDisplayName(members),
+            soleMemberId: humanIds.count == 1 ? humanIds.first : nil,
+            // #EXP-1383: the team's agents follow the members in the picker.
+            agents: AgentSettings.assigneeAgents(agents),
+            statuses: IssueStatusResolver.teamStatusesOrFallback(statuses),
+            labels: labels.sorted {
                 $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
-            // Drop labels deleted while the draft sat (once they loaded).
-            if !loaded.isEmpty {
-                labelIds = labelIds.filter { id in loaded.contains { $0.id == id } }
-            }
-        }
-
-        if let boards = try? await pool.read({ db in
-            try BoardEntity.filter(Column("team_id") == teamId).fetchAll(db)
-        }) {
-            teamBoards = boards.sorted {
-                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
-        }
-
-        permissions = await TeamPermissions.resolve(
-            team: team,
-            currentUserId: deps.auth.userId,
-            isAdmin: deps.auth.isAdmin,
-            dbPool: pool
+            },
+            permissions: await TeamPermissions.resolve(
+                team: team,
+                currentUserId: deps.auth.userId,
+                isAdmin: deps.auth.isAdmin,
+                dbPool: pool
+            )
         )
+    }
+
+    private func apply(_ vocabulary: Vocabulary) {
+        users = vocabulary.users
+        singleMemberTeam = vocabulary.soleMemberId != nil
+        agents = vocabulary.agents
+        teamStatuses = vocabulary.statuses
+        labels = vocabulary.labels
+        permissions = vocabulary.permissions
     }
 
     private func configureEditor() {
@@ -528,8 +548,42 @@ final class IssueDraftViewModel {
     }
 
     func setBoard(_ id: String) {
-        guard id != boardId, teamBoards.contains(where: { $0.id == id }) else { return }
-        boardId = id
+        guard id != boardId, let board = boards.first(where: { $0.id == id }) else { return }
+        boardPicks += 1
+        guard board.teamId != teamId else {
+            boardId = id
+            noteChipChange()
+            return
+        }
+        // #EXP-2125: the draft moves to that team in place, its vocabulary
+        // in the same update (a later pick wins).
+        let picks = boardPicks
+        Task {
+            guard let vocabulary = await loadVocabulary(teamId: board.teamId), picks == boardPicks, !creating, !finished
+            else { return }
+            move(to: board, vocabulary)
+        }
+    }
+
+    private func move(to board: BoardEntity, _ vocabulary: Vocabulary) {
+        let next = IssueDraftPage.pick(
+            .init(
+                teamId: teamId ?? "", boardId: boardId, statusId: status.rowId, labelIds: Array(labelIds),
+                assigneeId: assigneeId, assigneeAgentId: assigneeAgentId
+            ),
+            board: (board.id, board.teamId),
+            soleMemberId: vocabulary.soleMemberId
+        )
+        teamId = next.teamId
+        boardId = next.boardId
+        labelIds = Set(next.labelIds)
+        assigneeId = next.assigneeId
+        assigneeAgentId = next.assigneeAgentId
+        apply(vocabulary)
+        status = IssueStatusResolver.resolve(statusId: next.statusId, anchor: nil, team: vocabulary.statuses)
+        // The `#` search and chips follow the board's team.
+        issueRefAugmentor = nil
+        configureEditor()
         noteChipChange()
     }
 
@@ -1173,7 +1227,7 @@ extension IssueDraftViewModel: IssuePropertyActions {
     var teamAgents: [AgentDefinitionEntity] { agents }
     var teamLabels: [LabelEntity] { labels }
     var assignedLabelIds: Set<String> { labelIds }
-    var pickerBoards: [BoardEntity] { teamBoards }
+    var pickerBoards: [BoardEntity] { boards }
     var pickedBoardId: String { boardId }
 
     func pickStatus(_ status: ResolvedIssueStatus) {

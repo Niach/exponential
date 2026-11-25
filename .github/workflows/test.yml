@@ -183,7 +183,7 @@ jobs:
           echo "gaps=$(grep -qE "$gaps" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           merge_train='^(scripts/merge-train/|packages/domain-contract/(src/merge-train|fixtures/merge-train)|\.exponential/|\.github/workflows/(test|train)\.yml$)'
           echo "merge_train=$(grep -qE "$merge_train" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
-          release_scripts='^(scripts/release/|\.github/workflows/test\.yml$)'
+          release_scripts='^(scripts/release/|\.github/hetzner/|\.github/workflows/test\.yml$)'
           echo "release_scripts=$(grep -qE "$release_scripts" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
           # #NEW-23: the harness adapters and what they are generated from.
           plugins='^(integrations/|packages/plugin-kit/|packages/design-tokens/tokens\.json$|\.github/workflows/test\.yml$)'
@@ -1020,6 +1020,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash scripts/release/test-tagkeep.sh
+      # #EXP-2147: which GlitchTip symbols the nightly retention deletes.
+      - run: python3 .github/hetzner/test_glitchtip_maintenance.py
 
   # #NEW-23: the harness adapters. plugin-kit's own suite (the drift gate, the
   # launcher's pinned constants, the view-models), then the Claude plugins

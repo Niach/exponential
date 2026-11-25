@@ -4626,6 +4626,19 @@
       "props": [
         "status"
       ]
+    },
+    {
+      "name": "AvatarBadge",
+      "kind": "macro",
+      "parts": [
+        "root",
+        "anchor",
+        "tile",
+        "mark"
+      ],
+      "props": [
+        "size"
+      ]
     }
   ]
 }

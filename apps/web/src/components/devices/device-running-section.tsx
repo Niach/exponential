@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router"
-import { chatRunMarkState, GlassSectionHeader, SessionRow, SETTINGS_LIST_CLASS, TeamAvatar } from "@exp/ui"
+import { chatRunMarkState, GlassSectionHeader, SessionRow, SETTINGS_LIST_CLASS } from "@exp/ui"
 import type { ChatsListGroup, ChatsListRow } from "@/lib/session-tree"
 import type { Team } from "@/db/schema"
 import { useChatsList } from "@/hooks/use-session-tree"
@@ -42,11 +42,11 @@ export function DeviceRunningSection({ deviceId, teams }: { deviceId: string; te
                 markState={chatRunMarkState(row)}
                 title={row.title}
                 unread={row.unread}
+                team={team ? { iconUrl: team.iconUrl, name: team.name } : null}
                 data-testid={`device-running-${row.sessionId}`}
                 trailing={
                   team && (
                     <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-3 text-muted-foreground">
-                      <TeamAvatar iconUrl={team.iconUrl} size={16} />
                       <span className="truncate">{team.name}</span>
                     </span>
                   )

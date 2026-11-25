@@ -13,12 +13,14 @@ import SwiftUI
 
 public extension BoardPickerBoard {
     /// A board row: its curated glyph (else the shape fallback) in its colour.
-    init(_ board: BoardEntity) {
+    /// `teamName` (#EXP-2125) = the muted description of a list over several teams.
+    init(_ board: BoardEntity, teamName: String? = nil) {
         self.init(
             id: board.id,
             name: board.name,
             icon: BoardTypeDisplay.iconName(for: board),
-            colorHex: board.color
+            colorHex: board.color,
+            teamName: teamName
         )
     }
 }

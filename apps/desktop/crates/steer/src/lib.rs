@@ -82,6 +82,7 @@ pub mod exp_tool;
 pub mod exp_tool_group;
 pub mod feed;
 pub mod frames;
+pub mod held_gone;
 pub mod history;
 pub mod install_trust;
 // EXP-825: the image-message shape lives in `domain` now (the launcher

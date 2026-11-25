@@ -570,6 +570,7 @@ fn build_ctx(spec: SessionSpec) -> Arc<SessionCtx> {
         turns_started: std::sync::atomic::AtomicU64::new(0),
         busy_at_shutdown: std::sync::atomic::AtomicBool::new(false),
         api_retry: Mutex::new(super::api_retry::ApiRetry::new()),
+        wall_resume: Mutex::new(super::wall_resume::WallResume::default()),
         turn_note: Mutex::new(None),
         start_note: Mutex::new(spec.start_note),
         background_list: Mutex::new(Vec::new()),

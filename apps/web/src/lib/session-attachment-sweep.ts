@@ -19,6 +19,7 @@ import { sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { deleteStorageObjectsViaBun } from "@/lib/storage/bun-s3-cleanup"
 import { collectAttachmentStorageKeys } from "@/lib/storage/issue-attachments"
+import { purgeSweptImagesInTx, SWEPT_IMAGE_RETENTION_MS } from "@/lib/swept-images"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 
 type Tx = Parameters<Parameters<(typeof db)[`transaction`]>[0]>[0]
@@ -147,6 +148,11 @@ export async function runSessionAttachmentSweep(
     const appFiles = await reclaimUnreferencedAppFilesInTx(tx, cutoff)
     return { storageKeys: [...orphans.storageKeys, ...appFiles.storageKeys] }
   })
+  storageKeys.push(
+    ...(await db.transaction((tx) =>
+      purgeSweptImagesInTx(tx, new Date(now.getTime() - SWEPT_IMAGE_RETENTION_MS))
+    )).storageKeys
+  )
   if (storageKeys.length === 0) return { attachmentsDeleted: 0, objectsDeleted: 0 }
   // Best-effort, per-key error-swallowed (bun-s3-cleanup.ts: this module
   // must not reach aws-sdk).

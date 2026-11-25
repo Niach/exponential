@@ -2,7 +2,7 @@ import { type ComponentProps, type ReactNode } from "react"
 import { CHATS_SHELL } from "@exp/domain-contract/chats"
 import { NEEDS_YOU_COPY, NEEDS_YOU_TEST_IDS, type NeedsYouRow } from "@exp/domain-contract/needs-you"
 import fixture from "@exp/domain-contract/fixtures/needs-you.json"
-import { WAITING_CARDS_ICONS } from "@exp/domain-contract/waiting-cards"
+import { WAITING_CARDS_COPY, WAITING_CARDS_ICONS } from "@exp/domain-contract/waiting-cards"
 import mergeTrain from "@exp/domain-contract/fixtures/merge-train.json"
 import {
   MERGE_TRAIN_COPY,
@@ -12,6 +12,7 @@ import {
   type StuckRow,
 } from "@exp/domain-contract/merge-train"
 import { Badge } from "./badge"
+import { TeamLead, type RowTeam } from "./team-avatar"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { EmptyState } from "./empty-state"
@@ -25,7 +26,8 @@ import { conceptIcon } from "./icons.generated"
 //   NeedsYouList      one reading column of THE inbox page's ListRow, else
 //                     THE EmptyState; a stuck PR's actions under its meta
 //   NeedsYouEntryRow  the phones' first row of Chats (the Archived row's box)
-//   NeedsYouStuckButtons  a stuck PR's THE Button sm row (merge-train `stuckRow`)
+//   NeedsYouStuckButtons  a row's THE Button sm row: a stuck PR's (merge-train
+//                     `stuckRow`), a plan's or question's Dismiss (#FEED-298)
 //   NeedsYouSpecimen  the styleguide's `needs-you`: `cases[1]` + one stuck row
 //                     (merge-train `stuckRow` cases[0]) + the entry row
 
@@ -45,8 +47,8 @@ export function NeedsYouList<Row extends NeedsYouRow>({
 }: {
   rows: readonly Row[]
   onOpen?: (row: Row) => void
-  /** #EXP-2027: a row's team mark on the cross-team list (md+), else null. */
-  teamOf?: (row: Row) => ReactNode
+  /** #EXP-2027: a row's team mark on the cross-team list, else null. */
+  teamOf?: (row: Row) => RowTeam | null
   /** #EXP-1710: a row's THE Button sm row under its meta (a stuck PR's
    *  Retry / Merge now / Close PR); null = none. */
   actions?: (row: Row) => ReactNode
@@ -71,11 +73,12 @@ export function NeedsYouList<Row extends NeedsYouRow>({
             data-kind={row.kind}
             onClick={() => onOpen?.(row)}
           >
-            <Glyph className={cn(`mt-0.5 size-4 shrink-0`, NEEDS_YOU_TONE)} />
+            <TeamLead team={teamOf?.(row)} lead={16} className="mt-0.5">
+              <Glyph className={cn(`size-4 shrink-0`, NEEDS_YOU_TONE)} />
+            </TeamLead>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-medium">{row.title}</span>
-                {teamOf?.(row)}
                 <span className="ml-auto shrink-0 pl-2 text-right text-xs text-muted-foreground">{row.age}</span>
               </div>
               <div className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -122,23 +125,32 @@ export function NeedsYouEntryRow({
 }
 
 export type StuckAction = StuckRow[`actions`][number]
+/** #FEED-298 (needs-you.json DISMISS): a plan's or question's one action. */
+export type NeedsYouAction = StuckAction | `dismiss`
 
-const STUCK_LABELS: Record<StuckAction, string> = {
+const STUCK_LABELS: Record<NeedsYouAction, string> = {
   retry: MERGE_TRAIN_COPY.needsYou.retry,
   "merge-now": MERGE_TRAIN_COPY.needsYou.mergeNow,
   "close-pr": MERGE_TRAIN_COPY.needsYou.close,
+  dismiss: WAITING_CARDS_COPY.dismiss,
 }
 
+/** #FEED-298: the actions of a plan / question row (a PR row's are its own). */
+export const NEEDS_YOU_CARD_ACTIONS: readonly NeedsYouAction[] = [`dismiss`]
+
 /** #EXP-1710 (merge-train.json `stuckRow`): a stuck PR's actions as THE
- *  Button sm row under its meta: Retry · Merge now (owners) · Close PR. A
- *  press never opens the row. `children` = the caller's dialogs. */
-export function NeedsYouStuckButtons({
+ *  Button sm row under its meta: Retry · Merge now (owners) · Close PR;
+ *  #FEED-298: a plan's or question's Dismiss in the same row. A press never
+ *  opens the row. `children` = the caller's dialogs. */
+export function NeedsYouStuckButtons<A extends NeedsYouAction>({
   actions,
   onAction,
+  disabled,
   children,
 }: {
-  actions: readonly StuckAction[]
-  onAction?: (action: StuckAction) => void
+  actions: readonly A[]
+  onAction?: (action: A) => void
+  disabled?: boolean
   children?: ReactNode
 }) {
   return (
@@ -148,7 +160,7 @@ export function NeedsYouStuckButtons({
       onClick={(event) => event.stopPropagation()}
     >
       {actions.map((id) => (
-        <Button key={id} type="button" size="sm" variant="outline" data-action={id} onClick={() => onAction?.(id)}>
+        <Button key={id} type="button" size="sm" variant="outline" data-action={id} disabled={disabled} onClick={() => onAction?.(id)}>
           {STUCK_LABELS[id]}
         </Button>
       ))}
@@ -192,7 +204,13 @@ export function NeedsYouSpecimen({ width = 560 }: { width?: number }) {
       <NeedsYouEntryRow count={SPECIMEN_ROWS.length} />
       <NeedsYouList
         rows={SPECIMEN_ROWS}
-        actions={(row) => (row.actions ? <NeedsYouStuckButtons actions={row.actions} /> : null)}
+        actions={(row) =>
+          row.actions ? (
+            <NeedsYouStuckButtons actions={row.actions} />
+          ) : row.kind !== `pr` ? (
+            <NeedsYouStuckButtons actions={NEEDS_YOU_CARD_ACTIONS} />
+          ) : null
+        }
       />
     </div>
   )

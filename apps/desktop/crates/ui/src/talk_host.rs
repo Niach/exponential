@@ -628,12 +628,13 @@ impl TalkHost for ExponentialHost {
         }))
     }
 
-    fn call_ended(&self, session_id: &str, cx: &App) {
+    fn call_ended(&self, session_id: &str, report: Option<&etalk::call::host::HostReport>, cx: &App) {
         let Some(trpc) = crate::queries::trpc_client(cx) else { return };
         let session_id = session_id.to_string();
+        let report = report.and_then(|report| serde_json::to_value(report).ok());
         cx.background_executor()
             .spawn(async move {
-                if let Err(err) = api::voice::voice_call_ended(&trpc, &session_id) {
+                if let Err(err) = api::voice::voice_call_ended(&trpc, &session_id, report.as_ref()) {
                     log::warn!("[voice] the call's end did not reach the server: {err}");
                 }
             })

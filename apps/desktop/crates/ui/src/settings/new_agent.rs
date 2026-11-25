@@ -467,7 +467,7 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     runs_on.extend(divided(ink, account_none));
     runs_on.extend(divided(ink, select_row("model", crate::chat_screen::MENU_MODEL, "model", "model", json!({}))));
     let runs_on_block = json!({"id": "runs_on_block", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
-        "children": [ink.band("runs_on_band", &AGENT_SETTINGS.copy.runs_on, None), ink.group("runs_on_group", runs_on),
+        "children": [ink.band("runs_on_band", AGENT_SETTINGS.copy.runs_on.as_str(), None), ink.group("runs_on_group", runs_on),
             field_error(ink, chrome, "device_error", path("/pane/deviceError"), path("/pane/hasDeviceError"))]});
     let instructions = json!({"id": "instructions_card", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25), "width": "100%"},
         "children": [ink.group("instructions_group", vec![instructions_field(json!(true))]), instructions_caption(ink),
@@ -477,7 +477,7 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     let size = ink.r(SM);
     let draw = |dim: bool| {
         let id = if dim { "create_dim" } else { "create" };
-        let mut button = json!({"id": id, "component": "Box", "visible": if dim { path("/pane/pending") } else { super::doc::not(path("/pane/pending")) }, "accessibility": {"label": CREATE_AGENT},
+        let mut button = json!({"id": id, "component": "Box", "visible": if dim { path("/pane/pending") } else { super::doc::not(path("/pane/pending")) }, "@accessibility": {"label": CREATE_AGENT},
             "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "height": 32, "paddingHorizontal": 12, "borderRadius": chrome.radius, "backgroundColor": chrome.primary},
             "children": [{"id": format!("{id}_text"), "component": "Text", "props": {"text": CREATE_AGENT}, "style": {"fontSize": size, "lineHeight": size, "color": chrome.primary_fg, "flexShrink": 0}}]});
         if dim {

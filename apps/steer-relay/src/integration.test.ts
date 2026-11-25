@@ -211,6 +211,9 @@ describe(`steer relay end-to-end`, () => {
     expect(await kill.json()).toEqual({ ok: true, delivered: true })
     expect(await desktopIn.nextJson()).toEqual({ t: `kill`, sessionId: `sess-k` })
 
+    await admin(`/sessions/sess-k/kill`, { ...device, reason: `deleted` })
+    expect(await desktopIn.nextJson()).toEqual({ t: `kill`, sessionId: `sess-k`, reason: `deleted` })
+
     // Another device (or another owner) is not connected: not delivered.
     const offline = await admin(`/sessions/sess-k/kill`, { userId: `host-2`, deviceId: `dev-k` })
     expect(await offline.json()).toEqual({ ok: true, delivered: false })
@@ -368,6 +371,36 @@ describe(`voice call end-to-end (NEW-55)`, () => {
     caller.send(JSON.stringify({ t: `call_end` }))
     expect(await hostIn.nextJson()).toEqual({ t: `call_end` })
     expect(await hostClosed).toBe(4001)
+    device.close()
+  })
+
+  // EXP-2110: the end is collected over the secret-gated admin surface.
+  test(`an ended call is reported until it is acknowledged`, async () => {
+    const collect = async (body: object, secret = `integration-secret`) =>
+      fetch(`${base}/calls/reports`, { method: `POST`, headers: { "content-type": `application/json`, "x-relay-secret": secret }, body: JSON.stringify(body) })
+    // 401, or the failed-auth throttle the tests above used up.
+    expect([401, 429]).toContain((await collect({}, `wrong`)).status)
+    const device = await connect(ticket({ role: `control`, sub: `report-owner`, team: `` }))
+    device.send(JSON.stringify({ t: `online`, deviceId: `mint` }))
+    const deviceIn = collector(device)
+    await Bun.sleep(50)
+    const caller = await connect(
+      ticket({ role: `caller`, sub: `report-owner`, team: ``, callId: `call-report`, agentId: `agent-1`, deviceId: `mint`, deviceOwnerId: `report-owner` })
+    )
+    expect((await deviceIn.nextJson()).t).toBe(`call_ring`)
+    const host = await connect(ticket({ role: `call_host`, sub: `report-owner`, team: ``, callId: `call-report`, deviceId: `mint` }))
+    const hostIn = collector(host)
+    expect(await hostIn.nextJson()).toEqual({ t: `call_ready` })
+    caller.send(new Uint8Array([1, 0, 0, 1, 2, 3]))
+    expect(await hostIn.next()).toBeInstanceOf(Uint8Array)
+    caller.send(JSON.stringify({ t: `call_end` }))
+    expect(await hostIn.nextJson()).toEqual({ t: `call_end` })
+    const answer = (await (await collect({})).json()) as { boot: string; startedAt: number; ended: { seq: number; callId: string }[]; counters: Record<string, number> }
+    const end = answer.ended.find((entry) => entry.callId === `call-report`)
+    expect(end).toMatchObject({ by: `caller`, reason: `hung_up`, framesUp: 1 })
+    expect(answer.counters.callFramesForwarded).toBeGreaterThan(0)
+    const after = (await (await collect({ ack: { boot: answer.boot, seq: answer.ended.at(-1)!.seq } })).json()) as { ended: unknown[] }
+    expect(after.ended).toEqual([])
     device.close()
   })
 

@@ -125,4 +125,38 @@ object IssueDraftPage {
      * the caller has a draft in the team, the SAME dot and colour as unread.
      */
     fun inboxDotLit(unread: Int, drafts: Int): Boolean = unread > 0 || drafts > 0
+
+    // ── #EXP-2125 the board picker (`boards`, `picks`; the pure reference is
+    //    `packages/domain-contract/src/issue-draft.ts`) ────────────────────
+
+    data class Board(val id: String, val teamId: String, val sortOrder: Double?)
+
+    /** [showTeam]: the rows say their team (the list spans more than one). */
+    data class Boards(val boards: List<Board>, val showTeam: Boolean)
+
+    /** A team's boards: sortOrder, ties by id, whatever order they synced in. */
+    val boardOrder: Comparator<Board> = compareBy({ it.sortOrder ?: Double.POSITIVE_INFINITY }, { it.id })
+
+    /** The boards the picker offers, in its order; [only] holds it to one team. */
+    fun boards(teams: List<SidebarTree.Team>, boards: List<Board>, only: String? = null): Boards {
+        val rows = SidebarTree.teams(teams)
+            .filter { only == null || it == only }
+            .flatMap { teamId -> boards.filter { it.teamId == teamId }.sortedWith(boardOrder) }
+        return Boards(rows, rows.distinctBy { it.teamId }.size > 1)
+    }
+
+    /** What a pick touches; everything else on the draft stays. */
+    data class PickFields(
+        val teamId: String,
+        val boardId: String,
+        val statusId: String?,
+        val labelIds: List<String>,
+        val assigneeId: String?,
+        val assigneeAgentId: String?,
+    )
+
+    /** The draft after a pick; [soleMemberId] = the picked team's only member. */
+    fun pick(draft: PickFields, boardId: String, teamId: String, soleMemberId: String?): PickFields =
+        if (teamId == draft.teamId) draft.copy(boardId = boardId)
+        else PickFields(teamId, boardId, null, emptyList(), soleMemberId, null)
 }

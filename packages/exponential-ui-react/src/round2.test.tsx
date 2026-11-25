@@ -202,7 +202,7 @@ describe(`built-in strings replace the hard-coded labels (§3)`, () => {
       id: `b`,
       component: `Box`,
       children: [
-        { id: `in`, component: `Input`, props: { label: `Name`, name: `n`, validateOn: `change`, value: ``, checks: [{ condition: false }] } },
+        { id: `in`, component: `Input`, props: { label: `Name`, name: `n`, validateOn: `change`, value: ``}, "@checks": [{ condition: false }] },
         { id: `cp`, component: `Composer`, props: { placeholder: `Ask…` } },
         { id: `cb`, component: `CodeBlock`, props: { code: `x`, copyable: false } },
         { id: `dl`, component: `Dialog`, props: { open: true } },

@@ -481,6 +481,10 @@ struct AgentSessionView: View {
             .onChange(of: model?.session?.scopeTeamIds ?? session.scopeTeamIds) { _, _ in teamsDraft.reseed() }
             .onChange(of: session.id) { _, _ in teamsDraft.reseed() }
             .task(id: session.viaAppId) { await observeViaApp() }
+            // This client's own lost connection: the synced tail stands in.
+            .onChange(of: model != nil && SyncDebug.shared.disconnected.contains(accountId), initial: true) { _, offline in
+                if model?.clientOffline != offline { model?.clientOffline = offline }
+            }
             .task(id: "\(session.id)|\(model == nil)|\(chatTeamIds)") { await loadMcpPick() }
             // #EXP-2079: the `/` prompts of the chat's teams, team by team.
             .task(id: chatTeamIds) {
@@ -1004,10 +1008,8 @@ struct AgentSessionView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Nothing here scrolls: a tap puts the composer's keyboard away
-        // (the Assistant tab's bar comes back with it).
-        .contentShape(Rectangle())
-        .onTapGesture { UIApplication.endEditing() }
+        // Nothing here scrolls (the Assistant tab's bar comes back with it).
+        .dismissesKeyboard()
     }
 
     /// Bottom-anchored feed (a short feed sits above the input bar, not at the
@@ -3173,11 +3175,17 @@ struct AgentSessionView: View {
     /// view is the viewer's OWN Assistant conversation ROOT; nil anywhere
     /// else (a child included: the server refuses a scope there).
     private var teamsPick: ComposerTeamsBinding? {
+        let teams = ComposerTeamsBinding.teams(teamState?.teams ?? [])
+        if let plain = ComposerTeamsBinding(
+            root: model?.session ?? session, me: deps.auth.userId, draft: teamsDraft, teams: teams,
+            onPick: { teamsDraft.pick($0) }
+        ) { return plain }
         guard session.parentId == nil,
               AgentSettings.isMyAssistant(transcriptRows?.agent, me: deps.auth.userId)
         else { return nil }
         return ComposerTeamsBinding(
-            teams: ComposerTeamsBinding.teams(teamState?.teams ?? []),
+            owner: .assistant,
+            teams: teams,
             picked: teamsPicked,
             onChange: { teamsDraft.pick($0) }
         )

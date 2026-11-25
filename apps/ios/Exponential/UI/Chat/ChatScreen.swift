@@ -634,19 +634,25 @@ struct ChatScreen: View {
             return
         }
         let now = Date().timeIntervalSince1970 * 1000
-        if planLink?.target != messageId {
-            planLink = WaitingCards.DeepLink(target: messageId, takenAtMs: now)
+        // Past `deepLinkMs` the link gives up even if no page lands again.
+        func deadline() {
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(WaitingCards.Constants.deepLinkMs + 16))
                 if planLink?.target == messageId { stepPlanLink() }
             }
         }
+        if planLink?.target != messageId {
+            planLink = WaitingCards.DeepLink(target: messageId, takenAtMs: now)
+            deadline()
+        }
         guard var link = planLink else { return }
         let found = reaches(.plan(messageId))
         let action = link.step(
-            .init(found: found, distance: found ? 0 : nil, more: rows.messagesMore),
+            .init(found: found, distance: found ? 0 : nil, more: rows.messagesMore, loaded: "\(rows.messages.count)"),
             nowMs: now
         )
+        // #FEED-298: a landed page restarted the clock.
+        if link.takenAtMs != planLink?.takenAtMs { deadline() }
         planLink = link.settled ? nil : link
         switch action {
         case .ring:
@@ -1223,10 +1229,7 @@ struct ChatScreen: View {
         guard let rows else { return }
         let boardId = rows.issues.first?.boardId
             ?? chatTeamIds.lazy.compactMap { teamId in
-                teamState.boards
-                    .filter { $0.teamId == teamId }
-                    .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
-                    .first?.id
+                teamState.boards(of: teamId).first?.id
             }.first
         guard let boardId else {
             toaster.error(FeedbackStates.Errors.title(verb: "file", thing: "the issue"), description: "The team has no board yet.")
@@ -1643,14 +1646,19 @@ struct ChatComposer: View {
 
     /// #EXP-1715 (composer-menu.json `teamsPick`): the Teams pick while this
     /// composer writes into the viewer's OWN Assistant conversation ROOT (or
-    /// opens it); nil anywhere else, a child included (the server refuses a
-    /// scope there).
+    /// opens it), #EXP-2122 or a plain chat's root; nil anywhere else, a child
+    /// included (the server refuses a scope there).
     private var teamsPick: ComposerTeamsBinding? {
+        let teams = ComposerTeamsBinding.teams(teamState?.teams ?? [])
+        if sessionId == root?.id, let plain = ComposerTeamsBinding(
+            root: root, me: deps.auth.userId, draft: teamsDraft, teams: teams, onPick: { teamsDraft.pick($0) }
+        ) { return plain }
         guard AgentSettings.isMyAssistant(agentRow, me: deps.auth.userId),
               sessionId.isEmpty || sessionId == root?.id
         else { return nil }
         return ComposerTeamsBinding(
-            teams: ComposerTeamsBinding.teams(teamState?.teams ?? []),
+            owner: .assistant,
+            teams: teams,
             picked: teamsPicked,
             onChange: { teamsDraft.pick($0) }
         )
@@ -2222,8 +2230,7 @@ private struct AgentChatEmpty: View {
             } else {
                 Color.clear
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture { UIApplication.endEditing() }
+                    .dismissesKeyboard()
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {

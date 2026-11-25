@@ -34,6 +34,16 @@ describe(`makeDataDir`, () => {
     }
   })
 
+  test(`#EXP-2121: the Assistant button already welcomed the signed-in member`, () => {
+    const dir = makeDataDir(undefined, `u1`)
+    try {
+      const settings = JSON.parse(readFileSync(join(dir, `settings.json`), `utf8`))
+      expect(settings.assistantFab).toEqual({ u1: { entered: true, welcomed: true, bubbled: [] } })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   test(`the desktop head id is the web head id`, () => {
     expect(desktopChangelogHeadId()).toBe(latestChangelogEntry()!.id)
   })

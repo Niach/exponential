@@ -83,4 +83,14 @@ object LaunchDeviceRules {
             else -> null
         }
     }
+
+    /** The "nothing to start on" hint: the PICKED [agent] signed out on the
+     *  online machines (EXP-409), else no desktop online (#EXP-2136: another
+     *  agent's missing sign-in never blocks this start). */
+    fun noDeviceNote(agent: String, devices: List<SteerDevice>): String =
+        if (devices.any { it.online && agent in it.unauthedAgentIds }) {
+            "$agent not signed in on your machines. Sign in on the machine first."
+        } else {
+            "No desktop online. Open the Exponential desktop app to start a session."
+        }
 }

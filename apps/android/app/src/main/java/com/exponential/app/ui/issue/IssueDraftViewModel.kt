@@ -22,6 +22,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueLabelEntity
 import com.exponential.app.data.db.LabelEntity
+import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
@@ -33,10 +34,13 @@ import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
 import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.domain.SidebarTree
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.ui.components.FailedAction
+import com.exponential.app.ui.components.picker.BoardPickerBoard
+import com.exponential.app.ui.components.toPickerBoard
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.markdownEmbedUrls
@@ -188,7 +192,11 @@ class IssueDraftViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
     private val boardIdFlow = _state.map { it.boardId }.distinctUntilChanged()
-    private val allBoards = dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() }
+    private val allBoards: StateFlow<List<BoardEntity>> = dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** A board's team NOW ([board] may trail a pick by a frame). */
+    private fun teamOf(boardId: String): String? = allBoards.value.firstOrNull { it.id == boardId }?.teamId
 
     val board: StateFlow<BoardEntity?> = combine(allBoards, boardIdFlow) { boards, id ->
         id?.let { boards.firstOrNull { b -> b.id == it } }
@@ -201,9 +209,29 @@ class IssueDraftViewModel @Inject constructor(
             if (db == null || team == null) flowOf(empty) else query(db, team)
         }
 
-    /** Same-team boards — the board chip shows with 2+. */
-    val teamBoards: StateFlow<List<BoardEntity>> = combine(allBoards, teamId) { boards, team ->
+    /** The target team's boards. */
+    private val teamBoards: StateFlow<List<BoardEntity>> = combine(allBoards, teamId) { boards, team ->
         if (team == null) emptyList() else boards.filter { it.teamId == team }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #EXP-2125 (`boards`): what the board chip offers, shown with 2+; a
+     *  chat's and a sub-issue's stay in their team. */
+    val pickerBoards: StateFlow<List<BoardPickerBoard>> = combine(
+        allBoards,
+        dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() },
+        teamId,
+        _state.map { it.chatId != null || parentId != null }.distinctUntilChanged(),
+    ) { boards, teams, team, held ->
+        val offered = IssueDraftPage.boards(
+            teams = teams.map { SidebarTree.Team(it.id, it.name) },
+            boards = boards.map { IssueDraftPage.Board(it.id, it.teamId, it.sortOrder) },
+            only = team.takeIf { held },
+        )
+        val rows = boards.associateBy { it.id }
+        val names = teams.associate { it.id to it.name }
+        offered.boards.mapNotNull { row ->
+            rows[row.id]?.toPickerBoard()?.copy(teamName = names[row.teamId].takeIf { offered.showTeam })
+        }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val labels: StateFlow<List<LabelEntity>> = teamQuery(emptyList()) { db, team -> db.labelDao().observeByTeam(team) }
@@ -561,8 +589,35 @@ class IssueDraftViewModel @Inject constructor(
 
     /** Re-point the page at another board (the board chip / share mode). */
     fun setBoard(boardId: String) {
-        if (boardId == _state.value.boardId) return
-        onChipChange { it.copy(boardId = boardId) }
+        val from = _state.value.boardId
+        if (boardId == from) return
+        val team = teamOf(boardId)
+        val fromTeam = from?.let(::teamOf)
+        if (team == null || fromTeam == null || team == fromTeam) {
+            onChipChange { it.copy(boardId = boardId) }
+            return
+        }
+        // #EXP-2125 (`picks`): another team's board moves the draft there.
+        viewModelScope.launch {
+            val sole = dbFlow.first()?.teamMemberDao()?.observeByTeam(team)?.first()?.singleOrNull()?.userId
+            pendingStatusId = null
+            onChipChange { s ->
+                val moved = IssueDraftPage.pick(
+                    IssueDraftPage.PickFields(fromTeam, from, s.status.rowId, s.labelIds.toList(), s.assigneeId, s.assigneeAgentId),
+                    boardId,
+                    team,
+                    sole,
+                )
+                s.copy(
+                    boardId = moved.boardId,
+                    // No row of the new team yet: its Backlog ([repointStatus]).
+                    status = IssueStatusResolver.builtinDefaults.first { it.builtinKey == IssueStatus.Backlog },
+                    labelIds = moved.labelIds.toSet(),
+                    assigneeId = moved.assigneeId,
+                    assigneeAgentId = moved.assigneeAgentId,
+                )
+            }
+        }
     }
 
     private var oversizeReported = false
@@ -654,8 +709,8 @@ class IssueDraftViewModel @Inject constructor(
             if (leaving && s.rowExists && attachmentsKnown) deleteRow(accountId)
             return true
         }
-        val team = board.value?.teamId ?: return false
         val boardId = s.boardId ?: return false
+        val team = teamOf(boardId) ?: return false
         if (s.rowExists && snapshotOf(s, boardId) == lastWritten) return true
         return runCatching { upsert(accountId, team, boardId, s) }
             .onFailure { error ->
@@ -794,8 +849,8 @@ class IssueDraftViewModel @Inject constructor(
         if (holdWrites || sealed) return false
         if (_state.value.rowExists) return true
         val accountId = auth.activeAccountId.value ?: return false
-        val team = board.value?.teamId ?: return false
         val boardId = _state.value.boardId ?: return false
+        val team = teamOf(boardId) ?: return false
         val ok = saveMutex.withLock {
             if (_state.value.rowExists) return@withLock true
             runCatching { upsert(accountId, team, boardId, _state.value) }

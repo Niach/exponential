@@ -48,6 +48,30 @@ pub(crate) fn board_picker(
         .empty_text("No boards")
 }
 
+/// [`board_picker`] over several teams' boards (#EXP-2125): `teams` = each
+/// board's team name as the row's muted description, found by the search.
+pub(crate) fn team_board_picker(
+    boards: &[Board],
+    teams: &[Option<String>],
+    value: Option<String>,
+    trigger: AnyElement,
+    on_change: OnPickerChange<String>,
+) -> Picker<String> {
+    let mut picker = board_picker(boards, value, trigger, on_change);
+    picker.items = std::mem::take(&mut picker.items)
+        .into_iter()
+        .zip(teams)
+        .map(|(item, team)| match team {
+            Some(team) => {
+                let label = item.label.clone();
+                item.description(team.clone()).keywords(vec![label, team.clone().into()])
+            }
+            None => item,
+        })
+        .collect();
+    picker
+}
+
 /// [`board_picker`] with the clearing row on top — an OPTIONAL board pick
 /// (an action's `board` input). `value: None` picks that row, so "no board"
 /// is a marked row like any other, not an empty selection.

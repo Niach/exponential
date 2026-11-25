@@ -689,6 +689,11 @@ final class ConformanceTests: XCTestCase {
                 return same(got, c["expected"]!)
             })
         }
+        for c in f["rendererCalls"]?.array ?? [] {
+            out.append(run("rendererCall: \(c["name"]?.string ?? "")") {
+                same(try answerRendererCallJson(opJson: c["op"]!.json, dataJson: c["data"]?.json ?? "{}", availableCatalogIds: nil), c["expected"]!)
+            })
+        }
         for c in f["actions"]?.array ?? [] {
             let i = c["input"]!
             out.append(run("action: \(c["name"]?.string ?? "")") {

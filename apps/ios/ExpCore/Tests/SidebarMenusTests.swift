@@ -12,20 +12,34 @@ final class SidebarMenusTests: XCTestCase {
         return try XCTUnwrap(try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any])
     }
 
-    private func replay(_ key: String, _ run: (SidebarMenus.Kind, Bool) -> [SidebarMenus.Action]) throws {
+    private func replay(_ key: String, _ run: (SidebarMenus.Kind, SidebarMenus.Input) -> [SidebarMenus.Action]) throws {
         var replayed = 0
         for c in try XCTUnwrap(try fixture()[key] as? [[String: Any]]) {
             guard let kind = SidebarMenus.Kind(rawValue: try XCTUnwrap(c["kind"] as? String)) else { continue }
-            let owner = (c["input"] as? [String: Any])?["owner"] as? Bool ?? false
-            XCTAssertEqual(run(kind, owner).map(\.rawValue), c["expected"] as? [String], "\(c["name"] ?? "")")
+            let flags = c["input"] as? [String: Any]
+            let input = SidebarMenus.Input(owner: flags?["owner"] as? Bool ?? false, mine: flags?["mine"] as? Bool ?? false)
+            XCTAssertEqual(run(kind, input).map(\.rawValue), c["expected"] as? [String], "\(c["name"] ?? "")")
             replayed += 1
         }
         XCTAssertGreaterThan(replayed, 5)
     }
 
     func testMenus() throws {
-        try replay("menuCases") { SidebarMenus.menu($0, owner: $1) }
-        try replay("phoneCases") { SidebarMenus.phoneMenu($0, owner: $1) }
+        try replay("menuCases") { SidebarMenus.menu($0, $1) }
+        try replay("phoneCases") { SidebarMenus.phoneMenu($0, $1) }
+        // Every phone case is a kind this app draws.
+        for c in try XCTUnwrap(try fixture()["phoneCases"] as? [[String: Any]]) {
+            XCTAssertNotNil(SidebarMenus.Kind(rawValue: try XCTUnwrap(c["kind"] as? String)), "\(c["name"] ?? "")")
+        }
+    }
+
+    /// The phones' Devices list has no device page: its verbs
+    /// without a destination are left out.
+    func testDeviceMenusOnThePhones() {
+        XCTAssertEqual(
+            SidebarMenus.deviceMenu(mine: true), [.rename, .copyLink, .separator, .settings]
+        )
+        XCTAssertEqual(SidebarMenus.deviceMenu(mine: false), [.copyLink])
     }
 
     func testCopyAndIcons() throws {

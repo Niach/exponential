@@ -88,6 +88,55 @@ class VoiceCallCallerTest {
         }
     }
 
+    /** EXP-2111: every `log.cases` row: the lines and the one event. */
+    @Test
+    fun everyLogCaseReplays() {
+        val fixture = Json.parseToJsonElement(etalkFixtureJson("voice-call.json")).jsonObject.getValue("log").jsonObject
+        assertEquals(VoiceCall.CallLog.QUIET, fixture.getValue("quiet").jsonArray.map { it.jsonPrimitive.content }.toSet())
+        val rows = fixture.getValue("cases").jsonArray.map { it.jsonObject }
+        assertTrue(rows.size >= 13)
+        for (row in rows) {
+            val name = row.str("name")
+            val lines = mutableListOf<String>()
+            val ends = mutableListOf<VoiceCall.CallLog.End>()
+            var now = 0L
+            val log = VoiceCall.CallLog({ now }, { lines += it }, { ends += it })
+            var state = VoiceCall.Caller.IDLE
+            for (step in row.getValue("steps").jsonArray.map { it.jsonObject }) {
+                now = step.getValue("at").jsonPrimitive.int.toLong()
+                step["note"]?.let { log.note(note(it.jsonObject)) }
+                step["input"]?.let {
+                    val input = input(it.jsonObject)
+                    val stepped = VoiceCall.Caller.step(state, input)
+                    log.input(input, state, stepped)
+                    state = stepped.state
+                }
+            }
+            assertEquals(name, row.getValue("lines").jsonArray.map { it.jsonPrimitive.content }, lines)
+            val end = (row["end"] as? JsonObject)?.let {
+                VoiceCall.CallLog.End(
+                    tag = it.str("tag")!!, by = it.str("by")!!, reason = it.str("reason")!!, stage = it.str("stage")!!, phase = it.str("phase")!!,
+                    answered = it.bool("answered")!!, sealed = it.bool("sealed")!!, lastedMs = it.str("lastedMs")!!.toLong(),
+                    upFrames = it.str("upFrames")!!.toLong(), downFrames = it.str("downFrames")!!.toLong(), lastDownMs = it.str("lastDownMs")?.toLong(),
+                )
+            }
+            assertEquals(name, listOfNotNull(end), ends)
+            end?.let { assertEquals(name, fixture.str("message")!!.replace("{reason}", it.reason), it.message) }
+        }
+    }
+
+    private fun note(n: JsonObject): VoiceCall.CallLog.Note = when (n.str("n")) {
+        "ticket" -> VoiceCall.CallLog.Note.Ticket(n.str("callId"), n.bool("fallback")!!, n.bool("sealed")!!)
+        "socketOpen" -> VoiceCall.CallLog.Note.SocketOpen
+        "up" -> VoiceCall.CallLog.Note.Up
+        "down" -> VoiceCall.CallLog.Note.Down
+        "silent" -> VoiceCall.CallLog.Note.Silent(n.str("ms")!!.toLong())
+        "dialFailed" -> VoiceCall.CallLog.Note.DialFailed
+        "noSeal" -> VoiceCall.CallLog.Note.NoSeal
+        "audioFailed" -> VoiceCall.CallLog.Note.AudioFailed
+        else -> error("unknown note $n")
+    }
+
     @Test
     fun theRingCarriesTheFixturesBound() {
         val ring = cases.first().getValue("effects").jsonArray[1].jsonArray[0].jsonObject

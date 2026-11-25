@@ -65,9 +65,7 @@ public enum AppIntentsModel {
         let ids = Set(boards.map(\.id))
         if let pickedId, ids.contains(pickedId) { return pickedId }
         if let lastBoardId, ids.contains(lastBoardId) { return lastBoardId }
-        return boards.enumerated()
-            .min { a, b in a.element.sortOrder != b.element.sortOrder ? a.element.sortOrder < b.element.sortOrder : a.offset < b.offset }?
-            .element.id
+        return boards.min { BoardOrder.precedes(($0.sortOrder, $0.id), ($1.sortOrder, $1.id)) }?.id
     }
 
     public struct Agent: AgentRoleOrdered, Equatable, Sendable {

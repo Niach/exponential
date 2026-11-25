@@ -1,0 +1,3939 @@
+{
+  "$comment": "#EXP-2138 (Danny, 2026-11-25): DELETING REMOVES THE TRANSCRIPT. What a device keeps of a chat (its run record, journal and diff sidecar, scratch dir, its rows of the chat store) is removed by deleting the chat, its agent or its team, and by nothing else here: ending, archiving, moving (device, Assistant, group chat) or trashing a board keeps it, and a row missing from sync or from a read never removes anything (a message cache of a chat the account may no longer read goes too, see `unreadable`; the other removers are the machine's `Keep session history` window and a deliberate sign-out of the chat store). SERVER: `sessions.heldGone {ids: uuid[] (at most limits.batch)}` (POST) -> `{gone: uuid[], unreadable: uuid[]}`, a person's login only (an `expu_` key, an MCP call or an agent gets FORBIDDEN). heldAnswer(row, caller): an id is KEPT when its row exists and the caller STARTED it (no membership needed), or is a member of its team and it is `shared`, or OWNS a device row of the machine the row names (whoever may read it: a shared box runs teammates' private chats). Else `gone` = the row does NOT exist (deleted), `unreadable` = it exists and the caller may not have it (a left team, `shared` off, a move off the caller's machine, a changed or deleted devices row: no deletion). So the caller learns that an id still exists; only for ids it already holds (random UUIDs, a person's login, limits.batch per call). `serverCases`. THE SIGNAL: the delete itself (`sessions.delete`, `agents.delete`, `teams.delete`, the admin's and the import sweep's team delete) sends every session of the deleted trees, live or not, `kill {sessionId, reason: \"deleted\"}` down its device's control socket, after the commit, the targets read before it. An older relay or client drops `reason` (an ordinary kill). DEVICE (desktop app and CLI daemon), per account (its id names the instance and the user, so another login never shares state): candidates = the session ids of the account's run records (repo-backed too; a `/btw` aside is no session of the server) and of its chat store (a root's own rows carry its id), uuids only (`candidateCases`). It asks once signed in and synced, then every limits.askEveryHours; a notice asks at once, for the noticed ids only. heldPass({now (ms), holds, cached (the ids the chat store names), asked, answer {gone, unreadable} (null = the whole ask failed, was refused or did not parse, both fields required: nothing changes), state {id: {kind, first, last}}, notices}) -> {remove, uncache, state, notices, capped}: an asked id answered neither loses its first answer and its notice; an unreadable one loses its notice (it was not deleted) and, when not cached, its first answer (nothing to remove); an id in both lists is unreadable; a gone one with a notice is removed at once; any other one stores its kind and the answer's time (`first`, `last`) durably and is removed by an answer at least limits.confirmHours after `first`; `now` before `last` (the clock went backwards) or the other kind starts over. A gone id goes to `remove`, an unreadable one to `uncache`. A notice alone removes nothing. Only asked ids count. CAP: more than limits.capCount removals, both kinds together (noticed ids exempt), that are more than half of `holds` remove nothing but the noticed ones; the first answers stay. State and notices of ids no longer held are dropped; a removed id keeps its entry until its files are really gone (the host clears it). A run live here is ended first; while it lives nothing of it is removed (the next pass tries again). `passCases`. UNCACHED: the chat store's messages, events, docs and tools of the session, nothing else: the run record, journal + sidecar and scratch dir of a run this device hosted stay. A journal whose session is not synced is not taken into the chat store again. REMOVED (`removeCases`): this account's run record, its scratch dir (only when no other record names it; a repo worktree is never touched), the journal + diff sidecar when the record is this account's, or when no record names it, this account's chat store does and no other account's on this machine does; the chat store's messages, events, docs and tools of the session. A journal no account can be tied to stays. Mirrors: TS src/held-gone.ts, desktop `domain::held_gone` (host half `steer::held_gone`); the phones and the web hold no run records.",
+  "limits": {
+    "batch": 500,
+    "askEveryHours": 6,
+    "confirmHours": 24,
+    "capCount": 20,
+    "killReason": "deleted"
+  },
+  "serverCases": [
+    {
+      "name": "the caller's own chat",
+      "row": {
+        "userId": "me",
+        "teamId": "t",
+        "shared": false,
+        "deviceId": "box"
+      },
+      "caller": {
+        "userId": "me",
+        "teamIds": [
+          "t"
+        ],
+        "deviceIds": []
+      },
+      "answer": "kept"
+    },
+    {
+      "name": "the caller's own chat in a team they left",
+      "row": {
+        "userId": "me",
+        "teamId": "t",
+        "shared": false,
+        "deviceId": "box"
+      },
+      "caller": {
+        "userId": "me",
+        "teamIds": [],
+        "deviceIds": []
+      },
+      "answer": "kept"
+    },
+    {
+      "name": "a teammate's shared chat",
+      "row": {
+        "userId": "mate",
+        "teamId": "t",
+        "shared": true,
+        "deviceId": "box"
+      },
+      "caller": {
+        "userId": "me",
+        "teamIds": [
+          "t"
+        ],
+        "deviceIds": []
+      },
+      "answer": "kept"
+    },
+    {
+      "name": "a teammate's chat no longer shared",
+      "row": {
+        "userId": "mate",
+        "teamId": "t",
+        "shared": false,
+        "deviceId": "box"
+      },
+      "caller": {
+        "userId": "me",
+        "teamIds": [
+          "t"
+        ],
+        "deviceIds": []
+      },
+      "answer": "unreadable"
+    },
+    {
+      "name": "a shared chat of a team they left",
+      "row": {
+        "userId": "mate",
+        "teamId": "t",
+        "shared": true,
+        "deviceId": "box"
+      },
+      "caller": {
+        "userId": "me",
+        "teamIds": [],
+        "deviceIds": []
+      },
+      "answer": "unreadable"
+    },
+    {
+      "name": "a teammate's private chat on the caller's machine",
+      "row": {
+        "userId": "mate",
+        "teamId": "t",
+        "shared": false,
+        "deviceId": "box"
+      },
+      "caller": {
+        "userId": "me",
+        "teamIds": [
+          "t"
+        ],
+        "deviceIds": [
+          "box"
+        ]
+      },
+      "answer": "kept"
+    },
+    {
+      "name": "a private chat on the caller's machine, of a team they are not in",
+      "row": {
+        "userId": "mate",
+        "teamId": "t",
+        "shared": false,
+        "deviceId": "box"
+      },
+      "caller": {
+        "userId": "me",
+        "teamIds": [],
+        "deviceIds": [
+          "box"
+        ]
+      },
+      "answer": "kept"
+    },
+    {
+      "name": "a chat naming no device",
+      "row": {
+        "userId": "mate",
+        "teamId": "t",
+        "shared": false,
+        "deviceId": ""
+      },
+      "caller": {
+        "userId": "me",
+        "teamIds": [
+          "t"
+        ],
+        "deviceIds": [
+          ""
+        ]
+      },
+      "answer": "unreadable"
+    },
+    {
+      "name": "a stranger's chat",
+      "row": {
+        "userId": "x",
+        "teamId": "other",
+        "shared": true,
+        "deviceId": "box"
+      },
+      "caller": {
+        "userId": "me",
+        "teamIds": [
+          "t"
+        ],
+        "deviceIds": []
+      },
+      "answer": "unreadable"
+    },
+    {
+      "name": "no row",
+      "row": null,
+      "caller": {
+        "userId": "me",
+        "teamIds": [
+          "t"
+        ],
+        "deviceIds": []
+      },
+      "answer": "gone"
+    }
+  ],
+  "candidateCases": [
+    {
+      "name": "the account's records and its chat store, once each, sorted",
+      "account": "i--me",
+      "records": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "account": "i--me",
+          "aside": false
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "account": "i--me",
+          "aside": false
+        }
+      ],
+      "store": [
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003"
+      ],
+      "expected": [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000003"
+      ]
+    },
+    {
+      "name": "another account's record is not asked for, whichever instance",
+      "account": "i--me",
+      "records": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "account": "j--me",
+          "aside": false
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "account": "i--you",
+          "aside": false
+        }
+      ],
+      "store": [],
+      "expected": []
+    },
+    {
+      "name": "an aside and a local id are no sessions of the server",
+      "account": "i--me",
+      "records": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "account": "i--me",
+          "aside": true
+        },
+        {
+          "id": "local-1",
+          "account": "i--me",
+          "aside": false
+        }
+      ],
+      "store": [
+        "x"
+      ],
+      "expected": []
+    }
+  ],
+  "passCases": [
+    {
+      "name": "the first gone answer is stored, nothing goes",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "state": {},
+        "notices": [],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800000000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "a second one before 24 h only moves `last`",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799978400000,
+            "last": 1799978400000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799978400000,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "a second one 24 h later removes; the entry stays until the host removed it",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799913600000,
+            "last": 1799913600000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799913600000,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "one millisecond short of 24 h does not",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799913600001,
+            "last": 1799913600001,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799913600001,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "a kept answer in between starts over",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799892000000,
+            "last": 1799892000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "cached": [],
+        "answer": {
+          "gone": [],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [],
+        "state": {},
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "a clock before the last answer starts over",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799892000000,
+            "last": 1800003600000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800000000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "a clock before the first answer starts over",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800032400000,
+            "last": 1800032400000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800000000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "a failed ask changes nothing",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799892000000,
+            "last": 1799892000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "cached": [],
+        "answer": null
+      },
+      "expected": {
+        "remove": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799892000000,
+            "last": 1799892000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "an id that was not asked for counts for nothing",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000002": {
+            "first": 1799892000000,
+            "last": 1799892000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000001",
+            "00000000-0000-4000-8000-000000000002"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800000000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000002": {
+            "first": 1799892000000,
+            "last": 1799892000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "a notice and one gone answer remove at once",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {},
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {},
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "a notice the server does not confirm removes nothing and is dropped",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799996400000,
+            "last": 1799996400000,
+            "kind": "gone"
+          }
+        },
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "cached": [],
+        "answer": {
+          "gone": [],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [],
+        "state": {},
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "a notice alone (nothing asked) waits",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [],
+        "state": {},
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "cached": [],
+        "answer": {
+          "gone": [],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [],
+        "state": {},
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "a notice with a failed ask waits",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {},
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "cached": [],
+        "answer": null
+      },
+      "expected": {
+        "remove": [],
+        "state": {},
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "a notice removes despite a clock that went backwards",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800032400000,
+            "last": 1800032400000,
+            "kind": "gone"
+          }
+        },
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800032400000,
+            "last": 1800032400000,
+            "kind": "gone"
+          }
+        },
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "the state and the notice of an id no longer held go",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799996400000,
+            "last": 1799996400000,
+            "kind": "gone"
+          }
+        },
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "cached": [],
+        "answer": {
+          "gone": [],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [],
+        "state": {},
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "21 of 42 is no more than half: removed",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000120": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000100",
+            "00000000-0000-4000-8000-000000000101",
+            "00000000-0000-4000-8000-000000000102",
+            "00000000-0000-4000-8000-000000000103",
+            "00000000-0000-4000-8000-000000000104",
+            "00000000-0000-4000-8000-000000000105",
+            "00000000-0000-4000-8000-000000000106",
+            "00000000-0000-4000-8000-000000000107",
+            "00000000-0000-4000-8000-000000000108",
+            "00000000-0000-4000-8000-000000000109",
+            "00000000-0000-4000-8000-000000000110",
+            "00000000-0000-4000-8000-000000000111",
+            "00000000-0000-4000-8000-000000000112",
+            "00000000-0000-4000-8000-000000000113",
+            "00000000-0000-4000-8000-000000000114",
+            "00000000-0000-4000-8000-000000000115",
+            "00000000-0000-4000-8000-000000000116",
+            "00000000-0000-4000-8000-000000000117",
+            "00000000-0000-4000-8000-000000000118",
+            "00000000-0000-4000-8000-000000000119",
+            "00000000-0000-4000-8000-000000000120"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000120": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "22 of 42 is more than half and more than 20: nothing goes, the first answers stay",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000120": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000121": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000100",
+            "00000000-0000-4000-8000-000000000101",
+            "00000000-0000-4000-8000-000000000102",
+            "00000000-0000-4000-8000-000000000103",
+            "00000000-0000-4000-8000-000000000104",
+            "00000000-0000-4000-8000-000000000105",
+            "00000000-0000-4000-8000-000000000106",
+            "00000000-0000-4000-8000-000000000107",
+            "00000000-0000-4000-8000-000000000108",
+            "00000000-0000-4000-8000-000000000109",
+            "00000000-0000-4000-8000-000000000110",
+            "00000000-0000-4000-8000-000000000111",
+            "00000000-0000-4000-8000-000000000112",
+            "00000000-0000-4000-8000-000000000113",
+            "00000000-0000-4000-8000-000000000114",
+            "00000000-0000-4000-8000-000000000115",
+            "00000000-0000-4000-8000-000000000116",
+            "00000000-0000-4000-8000-000000000117",
+            "00000000-0000-4000-8000-000000000118",
+            "00000000-0000-4000-8000-000000000119",
+            "00000000-0000-4000-8000-000000000120",
+            "00000000-0000-4000-8000-000000000121"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000120": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000121": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "capped": true,
+        "uncache": []
+      }
+    },
+    {
+      "name": "20 of 20 is no more than 20: removed",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000100",
+            "00000000-0000-4000-8000-000000000101",
+            "00000000-0000-4000-8000-000000000102",
+            "00000000-0000-4000-8000-000000000103",
+            "00000000-0000-4000-8000-000000000104",
+            "00000000-0000-4000-8000-000000000105",
+            "00000000-0000-4000-8000-000000000106",
+            "00000000-0000-4000-8000-000000000107",
+            "00000000-0000-4000-8000-000000000108",
+            "00000000-0000-4000-8000-000000000109",
+            "00000000-0000-4000-8000-000000000110",
+            "00000000-0000-4000-8000-000000000111",
+            "00000000-0000-4000-8000-000000000112",
+            "00000000-0000-4000-8000-000000000113",
+            "00000000-0000-4000-8000-000000000114",
+            "00000000-0000-4000-8000-000000000115",
+            "00000000-0000-4000-8000-000000000116",
+            "00000000-0000-4000-8000-000000000117",
+            "00000000-0000-4000-8000-000000000118",
+            "00000000-0000-4000-8000-000000000119"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "noticed ids go although the rest is capped",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000120": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000121": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [
+          "00000000-0000-4000-8000-000000000122"
+        ],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000100",
+            "00000000-0000-4000-8000-000000000101",
+            "00000000-0000-4000-8000-000000000102",
+            "00000000-0000-4000-8000-000000000103",
+            "00000000-0000-4000-8000-000000000104",
+            "00000000-0000-4000-8000-000000000105",
+            "00000000-0000-4000-8000-000000000106",
+            "00000000-0000-4000-8000-000000000107",
+            "00000000-0000-4000-8000-000000000108",
+            "00000000-0000-4000-8000-000000000109",
+            "00000000-0000-4000-8000-000000000110",
+            "00000000-0000-4000-8000-000000000111",
+            "00000000-0000-4000-8000-000000000112",
+            "00000000-0000-4000-8000-000000000113",
+            "00000000-0000-4000-8000-000000000114",
+            "00000000-0000-4000-8000-000000000115",
+            "00000000-0000-4000-8000-000000000116",
+            "00000000-0000-4000-8000-000000000117",
+            "00000000-0000-4000-8000-000000000118",
+            "00000000-0000-4000-8000-000000000119",
+            "00000000-0000-4000-8000-000000000120",
+            "00000000-0000-4000-8000-000000000121",
+            "00000000-0000-4000-8000-000000000122"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [
+          "00000000-0000-4000-8000-000000000122"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000120": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000121": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [
+          "00000000-0000-4000-8000-000000000122"
+        ],
+        "capped": true,
+        "uncache": []
+      }
+    },
+    {
+      "name": "noticed ids do not count towards the cap",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "cached": [],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000100",
+            "00000000-0000-4000-8000-000000000101",
+            "00000000-0000-4000-8000-000000000102",
+            "00000000-0000-4000-8000-000000000103",
+            "00000000-0000-4000-8000-000000000104",
+            "00000000-0000-4000-8000-000000000105",
+            "00000000-0000-4000-8000-000000000106",
+            "00000000-0000-4000-8000-000000000107",
+            "00000000-0000-4000-8000-000000000108",
+            "00000000-0000-4000-8000-000000000109",
+            "00000000-0000-4000-8000-000000000110",
+            "00000000-0000-4000-8000-000000000111",
+            "00000000-0000-4000-8000-000000000112",
+            "00000000-0000-4000-8000-000000000113",
+            "00000000-0000-4000-8000-000000000114",
+            "00000000-0000-4000-8000-000000000115",
+            "00000000-0000-4000-8000-000000000116",
+            "00000000-0000-4000-8000-000000000117",
+            "00000000-0000-4000-8000-000000000118",
+            "00000000-0000-4000-8000-000000000119",
+            "00000000-0000-4000-8000-000000000120",
+            "00000000-0000-4000-8000-000000000121",
+            "00000000-0000-4000-8000-000000000122",
+            "00000000-0000-4000-8000-000000000123",
+            "00000000-0000-4000-8000-000000000124",
+            "00000000-0000-4000-8000-000000000125",
+            "00000000-0000-4000-8000-000000000126",
+            "00000000-0000-4000-8000-000000000127",
+            "00000000-0000-4000-8000-000000000128",
+            "00000000-0000-4000-8000-000000000129",
+            "00000000-0000-4000-8000-000000000130",
+            "00000000-0000-4000-8000-000000000131",
+            "00000000-0000-4000-8000-000000000132",
+            "00000000-0000-4000-8000-000000000133",
+            "00000000-0000-4000-8000-000000000134",
+            "00000000-0000-4000-8000-000000000135",
+            "00000000-0000-4000-8000-000000000136",
+            "00000000-0000-4000-8000-000000000137",
+            "00000000-0000-4000-8000-000000000138",
+            "00000000-0000-4000-8000-000000000139",
+            "00000000-0000-4000-8000-000000000140",
+            "00000000-0000-4000-8000-000000000141"
+          ],
+          "unreadable": []
+        }
+      },
+      "expected": {
+        "remove": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "capped": false,
+        "uncache": []
+      }
+    },
+    {
+      "name": "unreadable: the first answer is stored, nothing goes",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "cached": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "answer": {
+          "gone": [],
+          "unreadable": [
+            "00000000-0000-4000-8000-000000000001"
+          ]
+        },
+        "state": {},
+        "notices": []
+      },
+      "expected": {
+        "remove": [],
+        "uncache": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800000000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": [],
+        "capped": false
+      }
+    },
+    {
+      "name": "unreadable 24 h later: the cache goes, the run stays",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "cached": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "answer": {
+          "gone": [],
+          "unreadable": [
+            "00000000-0000-4000-8000-000000000001"
+          ]
+        },
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799913600000,
+            "last": 1799913600000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": []
+      },
+      "expected": {
+        "remove": [],
+        "uncache": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799913600000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": [],
+        "capped": false
+      }
+    },
+    {
+      "name": "unreadable with nothing cached: nothing to wait for",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "cached": [],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "answer": {
+          "gone": [],
+          "unreadable": [
+            "00000000-0000-4000-8000-000000000001"
+          ]
+        },
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799892000000,
+            "last": 1799892000000,
+            "kind": "gone"
+          }
+        },
+        "notices": []
+      },
+      "expected": {
+        "remove": [],
+        "uncache": [],
+        "state": {},
+        "notices": [],
+        "capped": false
+      }
+    },
+    {
+      "name": "gone after unreadable starts over",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "cached": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          "unreadable": []
+        },
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799892000000,
+            "last": 1799996400000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": []
+      },
+      "expected": {
+        "remove": [],
+        "uncache": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800000000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [],
+        "capped": false
+      }
+    },
+    {
+      "name": "unreadable after gone starts over",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "cached": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "answer": {
+          "gone": [],
+          "unreadable": [
+            "00000000-0000-4000-8000-000000000001"
+          ]
+        },
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799892000000,
+            "last": 1799996400000,
+            "kind": "gone"
+          }
+        },
+        "notices": []
+      },
+      "expected": {
+        "remove": [],
+        "uncache": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800000000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": [],
+        "capped": false
+      }
+    },
+    {
+      "name": "a notice never shortens unreadable and is dropped",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "cached": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "answer": {
+          "gone": [],
+          "unreadable": [
+            "00000000-0000-4000-8000-000000000001"
+          ]
+        },
+        "state": {},
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ]
+      },
+      "expected": {
+        "remove": [],
+        "uncache": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800000000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": [],
+        "capped": false
+      }
+    },
+    {
+      "name": "an id in both lists is unreadable",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "cached": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          "unreadable": [
+            "00000000-0000-4000-8000-000000000001"
+          ]
+        },
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799892000000,
+            "last": 1799892000000,
+            "kind": "gone"
+          }
+        },
+        "notices": [
+          "00000000-0000-4000-8000-000000000001"
+        ]
+      },
+      "expected": {
+        "remove": [],
+        "uncache": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1800000000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": [],
+        "capped": false
+      }
+    },
+    {
+      "name": "a kept answer ends unreadable",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "cached": [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000001",
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        "answer": {
+          "gone": [],
+          "unreadable": []
+        },
+        "state": {
+          "00000000-0000-4000-8000-000000000001": {
+            "first": 1799892000000,
+            "last": 1799892000000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": []
+      },
+      "expected": {
+        "remove": [],
+        "uncache": [],
+        "state": {},
+        "notices": [],
+        "capped": false
+      }
+    },
+    {
+      "name": "the cap counts both kinds",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "cached": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000100",
+            "00000000-0000-4000-8000-000000000101",
+            "00000000-0000-4000-8000-000000000102",
+            "00000000-0000-4000-8000-000000000103",
+            "00000000-0000-4000-8000-000000000104",
+            "00000000-0000-4000-8000-000000000105",
+            "00000000-0000-4000-8000-000000000106",
+            "00000000-0000-4000-8000-000000000107",
+            "00000000-0000-4000-8000-000000000108",
+            "00000000-0000-4000-8000-000000000109",
+            "00000000-0000-4000-8000-000000000110"
+          ],
+          "unreadable": [
+            "00000000-0000-4000-8000-000000000111",
+            "00000000-0000-4000-8000-000000000112",
+            "00000000-0000-4000-8000-000000000113",
+            "00000000-0000-4000-8000-000000000114",
+            "00000000-0000-4000-8000-000000000115",
+            "00000000-0000-4000-8000-000000000116",
+            "00000000-0000-4000-8000-000000000117",
+            "00000000-0000-4000-8000-000000000118",
+            "00000000-0000-4000-8000-000000000119",
+            "00000000-0000-4000-8000-000000000120",
+            "00000000-0000-4000-8000-000000000121"
+          ]
+        },
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000120": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000121": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": []
+      },
+      "expected": {
+        "remove": [],
+        "uncache": [],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000120": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000121": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": [],
+        "capped": true
+      }
+    },
+    {
+      "name": "under the cap both go",
+      "input": {
+        "now": 1800000000000,
+        "holds": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "cached": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "asked": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110",
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120",
+          "00000000-0000-4000-8000-000000000121",
+          "00000000-0000-4000-8000-000000000122",
+          "00000000-0000-4000-8000-000000000123",
+          "00000000-0000-4000-8000-000000000124",
+          "00000000-0000-4000-8000-000000000125",
+          "00000000-0000-4000-8000-000000000126",
+          "00000000-0000-4000-8000-000000000127",
+          "00000000-0000-4000-8000-000000000128",
+          "00000000-0000-4000-8000-000000000129",
+          "00000000-0000-4000-8000-000000000130",
+          "00000000-0000-4000-8000-000000000131",
+          "00000000-0000-4000-8000-000000000132",
+          "00000000-0000-4000-8000-000000000133",
+          "00000000-0000-4000-8000-000000000134",
+          "00000000-0000-4000-8000-000000000135",
+          "00000000-0000-4000-8000-000000000136",
+          "00000000-0000-4000-8000-000000000137",
+          "00000000-0000-4000-8000-000000000138",
+          "00000000-0000-4000-8000-000000000139",
+          "00000000-0000-4000-8000-000000000140",
+          "00000000-0000-4000-8000-000000000141"
+        ],
+        "answer": {
+          "gone": [
+            "00000000-0000-4000-8000-000000000100",
+            "00000000-0000-4000-8000-000000000101",
+            "00000000-0000-4000-8000-000000000102",
+            "00000000-0000-4000-8000-000000000103",
+            "00000000-0000-4000-8000-000000000104",
+            "00000000-0000-4000-8000-000000000105",
+            "00000000-0000-4000-8000-000000000106",
+            "00000000-0000-4000-8000-000000000107",
+            "00000000-0000-4000-8000-000000000108",
+            "00000000-0000-4000-8000-000000000109",
+            "00000000-0000-4000-8000-000000000110"
+          ],
+          "unreadable": [
+            "00000000-0000-4000-8000-000000000111",
+            "00000000-0000-4000-8000-000000000112",
+            "00000000-0000-4000-8000-000000000113",
+            "00000000-0000-4000-8000-000000000114",
+            "00000000-0000-4000-8000-000000000115",
+            "00000000-0000-4000-8000-000000000116",
+            "00000000-0000-4000-8000-000000000117",
+            "00000000-0000-4000-8000-000000000118",
+            "00000000-0000-4000-8000-000000000119",
+            "00000000-0000-4000-8000-000000000120"
+          ]
+        },
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000120": {
+            "first": 1799910000000,
+            "last": 1799910000000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": []
+      },
+      "expected": {
+        "remove": [
+          "00000000-0000-4000-8000-000000000100",
+          "00000000-0000-4000-8000-000000000101",
+          "00000000-0000-4000-8000-000000000102",
+          "00000000-0000-4000-8000-000000000103",
+          "00000000-0000-4000-8000-000000000104",
+          "00000000-0000-4000-8000-000000000105",
+          "00000000-0000-4000-8000-000000000106",
+          "00000000-0000-4000-8000-000000000107",
+          "00000000-0000-4000-8000-000000000108",
+          "00000000-0000-4000-8000-000000000109",
+          "00000000-0000-4000-8000-000000000110"
+        ],
+        "uncache": [
+          "00000000-0000-4000-8000-000000000111",
+          "00000000-0000-4000-8000-000000000112",
+          "00000000-0000-4000-8000-000000000113",
+          "00000000-0000-4000-8000-000000000114",
+          "00000000-0000-4000-8000-000000000115",
+          "00000000-0000-4000-8000-000000000116",
+          "00000000-0000-4000-8000-000000000117",
+          "00000000-0000-4000-8000-000000000118",
+          "00000000-0000-4000-8000-000000000119",
+          "00000000-0000-4000-8000-000000000120"
+        ],
+        "state": {
+          "00000000-0000-4000-8000-000000000100": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000101": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000102": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000103": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000104": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000105": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000106": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000107": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000108": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000109": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000110": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "gone"
+          },
+          "00000000-0000-4000-8000-000000000111": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000112": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000113": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000114": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000115": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000116": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000117": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000118": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000119": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          },
+          "00000000-0000-4000-8000-000000000120": {
+            "first": 1799910000000,
+            "last": 1800000000000,
+            "kind": "unreadable"
+          }
+        },
+        "notices": [],
+        "capped": false
+      }
+    }
+  ],
+  "removeCases": [
+    {
+      "name": "a repo-less chat's record: everything",
+      "account": "i--me",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "records": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "account": "i--me",
+          "aside": false,
+          "cwd": "/s/r/a",
+          "scratch": true
+        }
+      ],
+      "store": true,
+      "otherStores": false,
+      "expected": {
+        "record": true,
+        "journal": true,
+        "scratch": true,
+        "store": true
+      }
+    },
+    {
+      "name": "a repo-backed chat keeps its worktree",
+      "account": "i--me",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "records": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "account": "i--me",
+          "aside": false,
+          "cwd": "/w/a",
+          "scratch": false
+        }
+      ],
+      "store": true,
+      "otherStores": false,
+      "expected": {
+        "record": true,
+        "journal": true,
+        "scratch": false,
+        "store": true
+      }
+    },
+    {
+      "name": "a scratch dir another run uses stays",
+      "account": "i--me",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "records": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "account": "i--me",
+          "aside": false,
+          "cwd": "/s/r/a",
+          "scratch": true
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "account": "i--me",
+          "aside": false,
+          "cwd": "/s/r/a",
+          "scratch": true
+        }
+      ],
+      "store": false,
+      "otherStores": false,
+      "expected": {
+        "record": true,
+        "journal": true,
+        "scratch": false,
+        "store": false
+      }
+    },
+    {
+      "name": "another account's run is not this account's to remove",
+      "account": "i--me",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "records": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "account": "i--you",
+          "aside": false,
+          "cwd": "/s/r/a",
+          "scratch": true
+        }
+      ],
+      "store": true,
+      "otherStores": false,
+      "expected": {
+        "record": false,
+        "journal": false,
+        "scratch": false,
+        "store": true
+      }
+    },
+    {
+      "name": "no record: the journal goes with the cache that names it",
+      "account": "i--me",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "records": [],
+      "store": true,
+      "otherStores": false,
+      "expected": {
+        "record": false,
+        "journal": true,
+        "scratch": false,
+        "store": true
+      }
+    },
+    {
+      "name": "no record: a journal another account's cache names too stays",
+      "account": "i--me",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "records": [],
+      "store": true,
+      "otherStores": true,
+      "expected": {
+        "record": false,
+        "journal": false,
+        "scratch": false,
+        "store": true
+      }
+    },
+    {
+      "name": "a record of this account: its journal goes whoever cached the chat",
+      "account": "i--me",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "records": [
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "account": "i--me",
+          "aside": false,
+          "cwd": "/s/r/a",
+          "scratch": true
+        }
+      ],
+      "store": true,
+      "otherStores": true,
+      "expected": {
+        "record": true,
+        "journal": true,
+        "scratch": true,
+        "store": true
+      }
+    },
+    {
+      "name": "nothing names it: the journal stays",
+      "account": "i--me",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "records": [],
+      "store": false,
+      "otherStores": false,
+      "expected": {
+        "record": false,
+        "journal": false,
+        "scratch": false,
+        "store": false
+      }
+    }
+  ]
+}

@@ -74,8 +74,8 @@ route to it and the Hetzner firewall stays unchanged. Ways in:
 Server settings: org `exponential`, projects web, web-server, desktop, ede, ios,
 android; IP addresses and PII scrubbed at ingest (org + project
 `scrub_ip_addresses`, `scrub_config` with `ip_address`/`ip`/`remote_addr` keys
-and emails); retention `GLITCHTIP_RETENTION_DAYS=30`; debug files: the newest
-5 per binary, upload chunks gone after 1 h, a disk alert at 80%
+and emails); retention `GLITCHTIP_RETENTION_DAYS=30`; debug files: versions
+at or above the client floor, upload chunks gone after 1 h, a disk alert at 80%
 (`.github/hetzner/README.md`, #ERR-15). Uptime monitors (60 s):
 app + next, both `/api/health` (`"ok":true`), the teams shape
 (`snapshot-end`) and the site. Backups: a systemd timer on the host

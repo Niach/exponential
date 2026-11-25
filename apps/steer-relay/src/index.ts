@@ -153,6 +153,24 @@ app.get(`/stats`, (c) =>
   })
 )
 
+// EXP-2110 (voice-call.json `record`): the web server collects the calls that
+// ended here, the ones that ring or run now, and the counters, every minute
+// and on a host's hang-up report; `ack` = what it has stored, so a lost
+// answer is sent again. Metadata only, gone with this process.
+app.post(`/calls/reports`, async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { ack?: { boot?: unknown; seq?: unknown } } | null
+  const boot = body?.ack?.boot
+  const seq = body?.ack?.seq
+  const ack = typeof boot === `string` && typeof seq === `number` ? { boot, seq } : undefined
+  return c.json({
+    ok: true,
+    startedAt,
+    now: Date.now(),
+    ...hub.collectCallReports(ack),
+    counters: { ...hub.counters(), rateLimitedRejections },
+  })
+})
+
 // EXP-481: fire-and-forget check-in nudge — the web server persisted new
 // work for the device (a queued command, edited launch defaults); an online
 // device heartbeats immediately instead of waiting its cadence. Secret-gated
@@ -195,10 +213,17 @@ async function readDeviceBody(c: {
 
 // Server-side kill (every end the server makes; the DB row flip is the
 // durable path). 200 with delivered=false when the device is not connected.
+const KILL_REASON_MAX_CHARS = 32
+
 app.post(`/sessions/:id/kill`, async (c) => {
   const parsed = await readDeviceBody(c)
   if (!parsed) return c.json({ error: `Bad request` }, 400)
-  const delivered = hub.killSession(c.req.param(`id`), parsed.device)
+  const { reason } = parsed.body
+  const delivered = hub.killSession(
+    c.req.param(`id`),
+    parsed.device,
+    typeof reason === `string` && reason.length <= KILL_REASON_MAX_CHARS ? reason : undefined
+  )
   return c.json({ ok: true, delivered })
 })
 

@@ -18,7 +18,7 @@ final class MobileTabBarMetricsTests: XCTestCase {
         XCTAssertEqual(PhoneDockMetrics.raise, 16)
         XCTAssertEqual(PhoneDockMetrics.ring, 4)
         XCTAssertEqual(PhoneDockMetrics.glow, 26)
-        XCTAssertEqual(PhoneDockMetrics.clearance, 82)
+        XCTAssertEqual(PhoneDockMetrics.clearance, 80)
         XCTAssertEqual(PhoneDockMetrics.menuWidth, 160)
         XCTAssertEqual(PhoneDockMetrics.menuRowHeight, 48)
         XCTAssertEqual(PhoneDockMetrics.menuRadius, 20)

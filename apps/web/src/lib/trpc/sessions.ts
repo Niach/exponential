@@ -1,4 +1,5 @@
 import { isPersistent, linksIssues } from "@exp/domain-contract/session-kind"
+import { HELD_GONE_BATCH } from "@exp/domain-contract/held-gone"
 import { isGroupChat } from "@/lib/agents/group-chat"
 import { titleLine } from "@exp/domain-contract/session-title"
 import { isBlankText } from "@exp/domain-contract/transcript-grouping"
@@ -42,6 +43,8 @@ import {
   assertDeviceHost,
   loadSessionForUser,
 } from "@/lib/sessions/access"
+import { isApiKeySession } from "@/lib/auth/api-key-kind"
+import { heldGone } from "@/lib/sessions/held-gone"
 import { composeSessionBrief, stampAgentInstructionsAt } from "@/lib/sessions/brief"
 import {
   handOffOutcomeValues,
@@ -56,6 +59,7 @@ import { unwatch as unwatchSession } from "@/lib/sessions/watches"
 import { sessionLaunchPick, sessionLaunchSkillIds } from "@/lib/agents/team-picks"
 import {
   cardAnswerInput,
+  dismissAskMirror,
   loadCardForAnswer,
   stampAnsweredCard,
 } from "@/lib/sessions/answer"
@@ -487,6 +491,20 @@ export const sessionsRouter = router({
       deleteSession({ userId: ctx.session.user.id, sessionId: input.sessionId })
     ),
 
+  /** #EXP-2138 (held-gone.json SERVER): a device asks which of the sessions
+   *  it holds something of are deleted, and which this account may not have
+   *  any more. A person's login only
+   *  (FORBIDDEN, never a 401: that signs a device out). A mutation for its
+   *  body: 500 ids do not fit a URL. */
+  heldGone: authedProcedure
+    .input(z.object({ ids: z.array(uuid).max(HELD_GONE_BATCH) }))
+    .mutation(async ({ ctx, input }): Promise<{ gone: string[]; unreadable: string[] }> => {
+      if (ctx.viaMcp || (await isApiKeySession(ctx.db, ctx.session))) {
+        throw new TRPCError({ code: `FORBIDDEN`, message: `Only a signed-in device can ask this` })
+      }
+      return heldGone(ctx.session.user.id, input.ids, ctx.db)
+    }),
+
   /** Link issues to a session (NEW-1: the rows sit on the session that
    *  holds them; the chat header's "+" names the root). */
   linkIssues: authedProcedure
@@ -545,10 +563,13 @@ export const sessionsRouter = router({
   answer: authedProcedure
     .input(cardAnswerInput)
     .mutation(async ({ ctx, input }) => {
+      // #FEED-298: a Needs you row's dismiss may name an `ask` mirror.
+      const mirror = input.dismissed ? await dismissAskMirror(ctx.db, ctx.session.user.id, input.messageId) : null
+      if (mirror && `closed` in mirror) return { txid: mirror.txid }
       const { message, session, card } = await loadCardForAnswer(
         ctx.db,
         ctx.session.user.id,
-        input
+        mirror ? { ...input, messageId: mirror.messageId } : input
       )
       if (message.answeredAt) {
         throw new TRPCError({ code: `CONFLICT`, message: `Already answered` })
