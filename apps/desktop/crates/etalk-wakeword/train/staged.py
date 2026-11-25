@@ -97,7 +97,35 @@ def _augment(job: tuple[str, str]) -> None:
     _quiet_threads()
     import re
 
+    from livekit.wakeword.data import augment as a
     from livekit.wakeword.data.augment import AudioAugmentor, _augment_directory
+
+    # livekit-wakeword puts positives at the END of the window and negatives
+    # in its CENTRE, so a classifier can tell them apart by position alone:
+    # the first "Hey Claude" run scored 0 of 10,000 centred near misses and
+    # 37 of 40 of the same phrase at the end, where a stream always passes
+    # it (NEW-129). Near misses go where positives go (a fifth stays centred).
+    at_end = "positive" in split or split.startswith("negative")
+    if split.startswith("negative"):
+        align_to_end = getattr(a.align_clip_to_end, "original", a.align_clip_to_end)
+
+        def placed(audio, target_length, *args):
+            if random.random() >= 0.2:
+                return align_to_end(audio, target_length, *args)
+            import numpy as np
+
+            if len(audio) >= target_length:
+                start = (len(audio) - target_length) // 2
+                return audio[start : start + target_length]
+            out = np.zeros(target_length, dtype=np.float32)
+            start = (target_length - len(audio)) // 2
+            out[start : start + len(audio)] = audio
+            return out
+
+        placed.original = align_to_end
+        a.align_clip_to_end = placed
+    else:
+        a.align_clip_to_end = getattr(a.align_clip_to_end, "original", a.align_clip_to_end)
 
     clip_dir = config.model_output_dir / split
     finished = config.model_output_dir / f".augmented-{split}"
@@ -111,7 +139,7 @@ def _augment(job: tuple[str, str]) -> None:
         rir_paths=[Path(p) for p in config.augmentation.rir_paths],
     )
     for round_idx in range(config.augmentation.rounds):
-        _augment_directory(clip_dir, augmentor, is_positive="positive" in split, round_idx=round_idx, target_duration_s=config.augmentation.clip_duration)
+        _augment_directory(clip_dir, augmentor, is_positive=at_end, round_idx=round_idx, target_duration_s=config.augmentation.clip_duration)
     finished.touch()
 
 
