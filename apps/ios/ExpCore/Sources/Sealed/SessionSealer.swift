@@ -239,7 +239,9 @@ public final class SessionSealer: @unchecked Sendable {
                 mentionUserIds: mentionUserIds(accountId: accountId, text: text),
                 refIssueIds: refIssueIds(accountId: accountId, input, root: local?.id == rootId ? local : nil)
             ),
-            newKey: nil
+            newKey: nil,
+            accountId: accountId,
+            sealedTo: (target.id, key.epoch)
         )
     }
 
