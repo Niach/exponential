@@ -1265,11 +1265,12 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 coding::pickup::hold_turns(false);
             }
             if gate == updater::restart::RestartGate::Now {
-                coding::pickup::hold_turns(false);
                 pending_update = None;
                 match super::update::check_and_install() {
                     Ok(super::update::UpdateOutcome::Updated { version }) => {
                         log::info!("updated to {version} — restarting the daemon");
+                        // Nothing starts beside the suspends.
+                        coding::pickup::hold_turns(true);
                         suspend_for_restart(&sessions, trigger);
                         if let Some(handle) = control.take() {
                             handle.stop();
@@ -1281,6 +1282,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     }
                     Ok(other) => {
                         log::info!("update check: {other:?}");
+                        updater::pending::clear();
                         if trigger == UpdateTrigger::Gated {
                             log::warn!(
                                 "still gated and no newer cli release is installable yet — retrying in {}s",
@@ -1322,6 +1324,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         }
                     }
                 }
+                // Still here (nothing installed, or the exec failed).
+                coding::pickup::hold_turns(false);
             }
         }
 
