@@ -207,7 +207,7 @@ fn start(scenario: &str, seed: Option<String>) -> Harness {
 
 /// [`start`] for a run the pickup relaunched with a note (#EXP-2085).
 fn start_noted(scenario: &str, seed: Option<String>, start_note: Option<String>) -> Harness {
-    start_parts(scenario, seed, start_note, None, None, false)
+    start_parts(scenario, seed, start_note, None, None)
 }
 
 /// [`start_noted`], optionally as the RELAUNCH of a recorded conversation
@@ -219,7 +219,6 @@ fn start_parts(
     start_note: Option<String>,
     transcript: Option<&str>,
     conversation: Option<Arc<RecordingConversation>>,
-    agent: bool,
 ) -> Harness {
     let work = std::env::temp_dir().join(format!(
         "exp-claude-engine-{scenario}-{}",
@@ -232,10 +231,7 @@ fn start_parts(
     let sink = RecordingSink::new();
     let child_exit = ChildExitLink::new();
     let mut spec = adapter_spec(scenario, &work, &session_id, child_exit.clone());
-    // A team agent's root runs in its scratch dir (#EXP-2138).
-    let cwd = if agent { coding::scratch::scratch_root(&work).join(&session_id).join(&session_id) } else { work.clone() };
-    std::fs::create_dir_all(&cwd).expect("the run's dir");
-    let mut launch = coding::PreparedLaunch { start_note, ..prepared(&session_id, &cwd, seed) };
+    let mut launch = coding::PreparedLaunch { start_note, ..prepared(&session_id, &work, seed) };
     if let Some(transcript) = transcript {
         let project = work.join("claude-config/projects/-work-tree");
         std::fs::create_dir_all(&project).expect("a projects dir");
@@ -256,7 +252,7 @@ fn start_parts(
             account_id: "acct-1".to_string(),
             own_user_id: Some("user-1".to_string()),
             personal_key: Some("expu_test-key".to_string()),
-            persistent: agent,
+            persistent: false,
             foreign_host: false,
             rotation_host: false,
             publish: false,
@@ -896,7 +892,7 @@ fn a_relaunch_replays_its_last_reply_before_the_seed_never_as_a_live_row() {
         "\n",
     );
     let conversation = Arc::new(RecordingConversation::default());
-    let harness = start_parts("basic", None, None, Some(transcript), Some(conversation.clone()), false);
+    let harness = start_parts("basic", None, None, Some(transcript), Some(conversation.clone()));
     until("the host seeds the turn slot", || !events_of(&harness.sink, "turn").is_empty());
     // Past the coalescers' idle flush (250 ms, on a 250 ms tick).
     std::thread::sleep(Duration::from_millis(1200));
@@ -925,37 +921,4 @@ fn a_relaunch_replays_its_last_reply_before_the_seed_never_as_a_live_row() {
     assert_eq!(history, vec!["alpha\nbeta\ngamma"], "the replay, its last message included, precedes the seed: {wire:?}");
     assert_eq!(live, vec!["ok"], "after the seed only what the agent says now: {wire:?}");
     assert_eq!(conversation.replies(), vec!["ok".to_string()]);
-}
-
-/// #EXP-2138: the group chat move ends a team agent's row while its engine is
-/// live: the pickup kills it (`KILL_OUTCOME`), which is no kept workspace to
-/// either host, and the purge both run then keeps the agent's record, dir and
-/// journal.
-#[test]
-fn an_agent_killed_by_the_move_keeps_its_record_and_journal() {
-    let _session = one_session_at_a_time();
-    let harness = start_parts("basic", Some("Hello".to_string()), None, None, None, true);
-    until("the turn to end", || ended_turns(&harness.sink) >= 1);
-    let session_id = "sess-basic";
-    let cwd = coding::scratch::scratch_root(&harness.work).join(session_id).join(session_id);
-    let record: coding::run_registry::RunRecord = serde_json::from_value(serde_json::json!({
-        "sessionId": session_id, "accountId": "acct-1", "agent": "claude", "kind": "agent",
-        "teamId": "team-1", "cwd": cwd, "model": "opus", "effort": "", "transport": "acp",
-        "recordedAt": coding::run_registry::now_secs(),
-    }))
-    .expect("a run record");
-    coding::run_registry::record(&harness.work, record);
-    let journal = steer::journal_path(&harness.work, session_id).expect("a journal path");
-    std::fs::create_dir_all(journal.parent().unwrap()).unwrap();
-    std::fs::write(&journal, "{}\n").unwrap();
-
-    harness.session.kill(coding::pickup::KILL_OUTCOME);
-    let exit = harness.session.wait_timeout(Duration::from_secs(10)).expect("the run ends");
-    assert_eq!(exit.outcome, coding::pickup::KILL_OUTCOME);
-    assert!(!engine::keeps_workspace(&exit.outcome));
-    assert!(coding::scratch::is_scratch_dir(&harness.work, &cwd));
-    assert!(!coding::scratch::purge(&harness.work, session_id, &cwd, std::time::SystemTime::now()));
-    assert!(coding::run_registry::get(&harness.work, session_id).is_some());
-    assert!(cwd.is_dir());
-    assert!(journal.is_file());
 }
