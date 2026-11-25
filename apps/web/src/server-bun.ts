@@ -63,6 +63,7 @@ import { importLegacyMcpOAuthAtBoot } from "@/lib/auth/legacy-mcp-oauth"
 import { startSessionAttachmentSweepScheduler } from "@/lib/session-attachment-sweep"
 import { startAttachmentSizeBackfillScheduler } from "@/lib/attachment-size-backfill"
 import { startIssueEmbeddingScheduler } from "@/lib/issue-embeddings"
+import { startMemoryWatch } from "@/lib/memory-watch"
 import {
   captureLanding,
   captureReturnVisit,
@@ -124,9 +125,13 @@ startAttachmentSizeBackfillScheduler()
 
 // Issue embeddings (#NEW-134): periodic pass embedding the issues whose
 // vector is missing or older than the issue, in small batches, inside this
-// process (a worker thread, no third party). A no-op without pgvector, the
-// model on disk, or with ISSUE_EMBEDDINGS=off.
+// process or the host's one embedder (ISSUE_EMBEDDER_URL; no third party). A
+// no-op without pgvector, the model on disk, or with ISSUE_EMBEDDINGS=off.
 startIssueEmbeddingScheduler()
+
+// Memory watch (#EXP-2133): alerts before the host or a container runs out of
+// memory. A no-op unless MEMORY_WATCH=on.
+startMemoryWatch()
 
 // FCM tokens: periodic sweep deleting token rows not re-registered within the
 // staleness window — the server-side backstop for sign-outs whose best-effort

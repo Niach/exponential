@@ -1,7 +1,10 @@
 import { useMemo, useRef } from "react"
-import { agentChatRows } from "@exp/domain-contract/chats"
+import { useLiveQuery } from "@tanstack/react-db"
+import { agentChatRows, unreadCount } from "@exp/domain-contract/chats"
 import { rowBadge, type CountBadgeValue } from "@exp/domain-contract/nav-badges"
-import type { AgentRow, ChatsListRow } from "@/lib/session-tree"
+import { sessionAsks } from "@exp/domain-contract/session-tree"
+import { sidebarLayoutCollection } from "@/lib/collections"
+import type { AgentRow, ChatsListRow, TreeMessage } from "@/lib/session-tree"
 import { useTeamAgentRows } from "@/hooks/use-agent-row"
 import {
   useAgents,
@@ -25,7 +28,7 @@ export type SidebarChatMark = Pick<ChatsListRow, `needsYou` | `busy` | `unread` 
 export interface SidebarTeamSlice {
   /** The team's agents (`listAgents` order), the viewer's Assistant aside. */
   agents: readonly AgentRow[]
-  /** #FEED-232: each agent row's badge. */
+  /** #FEED-232: each agent row's and placed session's badge (`rowBadge`). */
   badges: ReadonlyMap<string, CountBadgeValue>
   /** The team's synced sessions (`sidebarTeamItems`' input). */
   sessions: readonly { id: string; teamId: string; parentId: string | null }[]
@@ -61,6 +64,11 @@ export function useSidebarTeamsData(
   const { messages } = useDigestMessages({ teamIds: scope })
   const reads = useSessionReads()
   const titles = useTeamChatTitles(ids)
+  const { data: entries } = useLiveQuery((query) => query.from({ s: sidebarLayoutCollection }), [])
+  const placed = useMemo(
+    () => new Set((entries ?? []).flatMap((entry) => (entry.kind === `item` && entry.targetId ? [entry.targetId] : []))),
+    [entries]
+  )
   const badges = useMemo(() => {
     const out = agentChatRows({
       agents,
@@ -71,8 +79,20 @@ export function useSidebarTeamsData(
       now: new Date(0).toISOString(),
       utcOffsetMinutes: 0,
     })
-    return new Map(out.map((row) => [row.agentId, rowBadge(row)]))
-  }, [agents, tree, messages, reads, me])
+    const map = new Map(out.map((row) => [row.agentId, rowBadge(row)]))
+    const asking = new Set(tree.filter(sessionAsks).map((session) => session.rootId))
+    const byRoot = new Map<string, TreeMessage[]>()
+    for (const message of messages) {
+      const list = byRoot.get(message.sessionId)
+      if (list) list.push(message)
+      else byRoot.set(message.sessionId, [message])
+    }
+    for (const root of tree) {
+      if (root.parentId !== null || !placed.has(root.id)) continue
+      map.set(root.id, rowBadge({ unreadCount: unreadCount(root.id, byRoot.get(root.id) ?? [], reads), needsYou: asking.has(root.id) }))
+    }
+    return map
+  }, [agents, tree, messages, reads, me, placed])
 
   const previous = useRef(new Map<string, { signature: string; slice: SidebarTeamSlice }>())
   return useMemo(() => {
@@ -84,6 +104,10 @@ export function useSidebarTeamsData(
       for (const agent of teamAgents) {
         const badge = badges.get(agent.agentId)
         if (badge) teamBadges.set(agent.agentId, badge)
+      }
+      for (const row of rows) {
+        const badge = row.teamId === teamId && placed.has(row.id) ? badges.get(row.id) : undefined
+        if (badge && badge.count > 0) teamBadges.set(row.id, badge)
       }
       const sessions = rows
         .filter((row) => row.teamId === teamId)
@@ -108,7 +132,7 @@ export function useSidebarTeamsData(
     }
     previous.current = kept
     return byTeam
-  }, [ids, agents, badges, rows, titles, chatRows])
+  }, [ids, agents, badges, rows, titles, chatRows, placed])
 }
 
 /** A team with no slice yet (its first render). */

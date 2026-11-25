@@ -15,6 +15,8 @@ import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AgentDefinitionEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.DatabaseHolder
+import com.exponential.app.data.db.DeviceEntity
+import com.exponential.app.data.ownedTeamIdsFlow
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.IssueStatusEntity
 import com.exponential.app.data.db.PullRequestEntity
@@ -28,7 +30,7 @@ import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.WidgetLinks
-import com.exponential.app.ui.chats.needsYouFold
+import com.exponential.app.ui.chats.needsYouRead
 import com.exponential.app.ui.components.boardIcon
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
@@ -134,7 +136,9 @@ class HomeWidgetsRefresher @Inject constructor(
             sessions,
             dbFlow.scopedQuery(emptyList<AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() },
             dbFlow.scopedQuery(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeAll() },
-        ) { s, agents, prs -> ChatInputs(s, agents, prs) }
+            ownedTeamIdsFlow(dbFlow, auth.userId),
+            dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() },
+        ) { s, agents, prs, owned, devices -> ChatInputs(s, agents, prs, owned, devices) }
         return combine(
             issueInputs,
             chatInputs,
@@ -156,6 +160,8 @@ class HomeWidgetsRefresher @Inject constructor(
         val sessions: List<SessionEntity>,
         val agents: List<AgentDefinitionEntity>,
         val prs: List<PullRequestEntity>,
+        val owned: Set<String>,
+        val devices: List<DeviceEntity>,
     )
 
     private fun build(issueInputs: IssueInputs, chats: ChatInputs, me: String?, now: Long): Data {
@@ -199,14 +205,23 @@ class HomeWidgetsRefresher @Inject constructor(
                 updatedAt = issue.updatedAt,
             )
         }
-        // THE Needs you rows (the Chats screen's fold), every team.
+        // THE Needs you rows (the Chats page's read; a widget row names no
+        // chat, so no issue links).
         val sessionRows = chats.sessions.map(SessionTree::session)
         val messages = chats.sessions.flatMap { row -> Chats.digestMessages(row.id, Chats.parseDigest(row.digest)) }
-        val rows = needsYouFold(
-            sessionRows, emptyList(), emptyList(), messages,
-            chats.agents.map(SessionTree::agentDefinition), chats.prs, null, me, now,
-            teamIds = issueInputs.teams.map { it.id },
-        )
+        val rows = needsYouRead(
+            sessions = sessionRows,
+            links = emptyList(),
+            issues = emptyList(),
+            messages = messages,
+            definitions = chats.agents.map(SessionTree::agentDefinition),
+            pullRequests = chats.prs,
+            teams = issueInputs.teams,
+            owned = chats.owned,
+            devices = chats.devices,
+            me = me,
+            now = now,
+        ).rows
         val needsYou = rows.map {
             HomeWidgets.NeedsYouInput(it.messageId, it.sessionId, it.rootId, it.kind.wire, it.opens.wire, it.title, it.age)
         }

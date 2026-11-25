@@ -39,6 +39,23 @@ describe(`guardMcpAuthorize`, () => {
     expect(await guarded.response.text()).toContain(`isn't registered here`)
   })
 
+  it(`#NEW-141: leaves a metadata-document client to the provider, known or not`, async () => {
+    const clientId = encodeURIComponent(`https://client.example/oauth/meta.json`)
+    for (const rows of [[], [{ redirectUris: [`http://localhost/cb`], disabled: false }]]) {
+      h.rows = rows
+      const guarded = await guardMcpAuthorize(authorize(`client_id=${clientId}&redirect_uri=${encodeURIComponent(`http://localhost:1/cb`)}`))
+      if (!(`request` in guarded)) throw new Error(`expected a request`)
+      expect(new URL(guarded.request.url).searchParams.get(`prompt`)).toBe(`consent`)
+    }
+    h.rows = []
+    process.env.MCP_CIMD_ENABLED = `false`
+    try {
+      expect(`response` in (await guardMcpAuthorize(authorize(`client_id=${clientId}`)))).toBe(true)
+    } finally {
+      delete process.env.MCP_CIMD_ENABLED
+    }
+  })
+
   it(`answers a redirect_uri the client never registered`, async () => {
     h.rows = [{ redirectUris: [`http://localhost:1/cb`], disabled: false }]
     const guarded = await guardMcpAuthorize(authorize(`client_id=c&redirect_uri=${encodeURIComponent(`http://evil.test/cb`)}`))

@@ -70,6 +70,9 @@ data class InstallTrustSnapshot(
     /** Waiting for approval: the waiting EmptyState instead of the rows. */
     val waiting: Boolean get() = state == InstallTrustState.Waiting && code != null
 
+    /** The installs Needs you counts: 0 while this install itself waits. */
+    val installs: Int get() = if (waiting) 0 else rows.size
+
     companion object {
         val NONE = InstallTrustSnapshot(InstallTrustState.Unknown, emptyList(), null)
     }

@@ -35,6 +35,14 @@ enum SidebarItem: Hashable {
         }
     }
 
+    /// The entry's page is a chat screen, its header its own.
+    var ownsHeader: Bool {
+        switch self {
+        case .agentChannel, .chat: true
+        default: false
+        }
+    }
+
     /// The muted glyph of an empty detail column.
     var placeholderIcon: String {
         switch self {
@@ -62,7 +70,7 @@ struct TabletShell: View {
     /// The entry's own page under the detail stack (nil = the detail's root
     /// is the path's first route, else the empty glyph).
     let detailRoot: AnyView?
-    let placeholderIcon: String
+    let placeholder: SidebarItem
     @Binding var path: [AppRoute]
     /// A list-column row's open: REPLACES the detail.
     let listPush: PushRouteAction
@@ -173,7 +181,9 @@ struct TabletShell: View {
         if let detailRoot {
             NavigationStack(path: $path) {
                 detailRoot
-                    .toolbar(.visible, for: .navigationBar)
+                    // A chat draws its own header: the bar stands only while
+                    // it carries the sidebar's toggle.
+                    .toolbar(wide && placeholder.ownsHeader ? .hidden : .visible, for: .navigationBar)
                     .toolbar { sidebarToggle }
                     // A one-page entry's root (the Assistant): nothing to go back to.
                     .environment(\.detailColumnRoot, true)
@@ -190,7 +200,7 @@ struct TabletShell: View {
                     } else {
                         ZStack {
                             AppBackground()
-                            AppIcon(placeholderIcon, size: 44)
+                            AppIcon(placeholder.placeholderIcon, size: 44)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         }
                         .toolbar(.hidden, for: .navigationBar)
@@ -272,9 +282,10 @@ struct TabletSidebar: View {
     // MARK: - Entries
 
     private var needsYouCount: Int {
-        // #EXP-1950: installs waiting for approval count as Needs you rows.
-        lists.needsYou(me: deps.auth.userId, now: now).count
-            + deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").rows.count
+        lists.needsYouCounts(
+            me: deps.auth.userId, now: now,
+            installs: deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").waitingRows
+        ).total
     }
 
     @ViewBuilder
@@ -293,7 +304,7 @@ struct TabletSidebar: View {
             row(.drafts, title: "Drafts", badge: NavBadges.Value(count: draftCount, tone: .muted)) { glyph(AppIcons.navDrafts) }
         }
         if let assistant = lists.assistant {
-            row(.agentChannel(assistant.agentId), title: assistant.name, badge: lists.agentBadge(assistant)) {
+            row(.agentChannel(assistant.agentId), title: assistant.name, badge: lists.assistantBadge) {
                 ExpLogoMark(size: 18, color: .white)
             }
         }
@@ -321,6 +332,11 @@ struct TabletSidebar: View {
             let lead: Chats.ChatLead = chat.needsYou ? .needsYou : chat.busy ? .working : .waiting
             return AnyView(row(.chat(chat.rootId), title: chat.title, bold: chat.unread) {
                 ChatLeadMark(lead: lead, cli: lists.clis[chat.sessionId], size: 18)
+                    .teamCorner(
+                        teamState.team(lists.chatRoots[chat.rootId]?.teamId)
+                            .map { ChatRowTeam(name: $0.name, iconUrl: $0.iconUrl) },
+                        lead: 18
+                    )
             })
         }
     }
