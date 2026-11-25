@@ -64,6 +64,35 @@ pub(crate) fn request_shell_window(cx: &mut App) -> bool {
 /// the panel (a second launch, forwarded) brings a window up.
 struct ResidentDevice;
 
+/// #EDE-64: what eDE's `exponential-device.service` starts the app with.
+const SESSION_DEVICE_ENV: &str = "EXPONENTIAL_SESSION_DEVICE";
+
+/// #EDE-230: the same for the app's own relaunch (an update): the variable is
+/// cleared at start, so the restart carries an argument instead.
+const SESSION_DEVICE_ARG: &str = "--session-device";
+
+/// This launch is the session's device. Clears the variable, so the terminals
+/// and agents the app spawns don't inherit it: called once, before any thread.
+pub fn take_session_device() -> bool {
+    let env = std::env::var_os(SESSION_DEVICE_ENV);
+    std::env::remove_var(SESSION_DEVICE_ENV);
+    is_session_device(env.as_deref(), std::env::args_os().skip(1))
+}
+
+fn is_session_device(env: Option<&std::ffi::OsStr>, mut args: impl Iterator<Item = std::ffi::OsString>) -> bool {
+    env.is_some_and(|value| value == "1") || args.any(|arg| arg == SESSION_DEVICE_ARG)
+}
+
+/// #EDE-230: the session's device relaunches as the session's device
+/// (gpui's restart passes its arguments on; they reach no child of the app).
+pub fn relaunch_as(app: gpui::Application, session_device: bool) -> gpui::Application {
+    if session_device {
+        app.with_restart_arguments(vec![SESSION_DEVICE_ARG.into()])
+    } else {
+        app
+    }
+}
+
 impl Global for ResidentDevice {}
 
 /// Mark this process as the session's resident device. Called once from `app`.
@@ -170,5 +199,64 @@ mod tests {
             "the app did not outlive its last window\nstdout:\n{stdout}\nstderr:\n{}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[test]
+    fn the_session_device_is_the_unit_s_launch_or_its_relaunch() {
+        let device = |env: Option<&str>, args: &[&str]| is_session_device(env.map(std::ffi::OsStr::new), args.iter().map(|a| a.into()));
+        assert!(device(Some("1"), &[]), "exponential-device.service");
+        assert!(device(None, &[SESSION_DEVICE_ARG]), "its relaunch");
+        assert!(!device(None, &[]) && !device(Some("0"), &["exponential://new-issue"]), "a person's launch");
+    }
+
+    /// #EDE-230: gpui's real restart (headless, in a child process) of the
+    /// session's device: the new version is started as the device again, a
+    /// person's app as a person's app. Before: never as the device.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_relaunch_of_the_session_device_is_the_session_device() {
+        use std::{os::unix::fs::PermissionsExt as _, path::PathBuf, process::Command, time::Duration};
+
+        const CHILD: &str = "EXP_RELAUNCH_CHILD";
+        if let Some(next) = std::env::var_os(CHILD).map(PathBuf::from) {
+            let device = take_session_device();
+            relaunch_as(gpui_platform::headless(), device).run(move |cx| {
+                cx.spawn(async move |cx| {
+                    // Once the loop runs: a quit before it is lost.
+                    cx.background_executor().timer(Duration::from_millis(200)).await;
+                    cx.update(|cx| {
+                        cx.set_restart_path(next);
+                        cx.restart();
+                    });
+                })
+                .detach();
+            });
+            return;
+        }
+        let module = module_path!().split_once("::").map_or(module_path!(), |(_, module)| module);
+        let name = format!("{module}::a_relaunch_of_the_session_device_is_the_session_device");
+        let dir = tempfile::tempdir().unwrap();
+        for (device, expected) in [(true, "env= args=--session-device"), (false, "env= args=")] {
+            let out = dir.path().join(format!("started-{device}"));
+            // The "new version": writes down how it was started.
+            let next = dir.path().join(format!("next-{device}"));
+            std::fs::write(&next, format!("#!/bin/sh\necho \"env=${SESSION_DEVICE_ENV} args=$*\" > '{0}.part'\nmv '{0}.part' '{0}'\n", out.display())).unwrap();
+            std::fs::set_permissions(&next, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let mut child = Command::new(std::env::current_exe().expect("the test binary"));
+            child.args(["--exact", &name, "--nocapture"]).env(CHILD, &next).env_remove("DISPLAY").env_remove("WAYLAND_DISPLAY");
+            if device {
+                child.env(SESSION_DEVICE_ENV, "1");
+            } else {
+                child.env_remove(SESSION_DEVICE_ENV);
+            }
+            // Reaped here: the restart script waits for the old pid to go.
+            child.status().expect("the child runs");
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            while !out.exists() {
+                assert!(std::time::Instant::now() < deadline, "the new version was never started");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            assert_eq!(std::fs::read_to_string(&out).unwrap().trim_end(), expected, "device {device}");
+        }
     }
 }
