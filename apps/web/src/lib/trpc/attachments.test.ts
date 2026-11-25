@@ -44,6 +44,7 @@ interface AttachmentRow {
   messageId?: string | null
   appId?: string | null
   sessionId?: string | null
+  sweptAt?: Date | null
   asFile?: boolean
   uploaderId?: string | null
   filename: string
