@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-25-desktop-cli-0-14-181`,
+    date: `2026-11-25`,
+    title: `A woken team agent answers out loud`,
+    summary: `Desktop and CLI 0.14.181: when you wake a team agent by its own phrase, its reply is spoken in its voice, and chats locked by a new device open again by themselves.`,
+    body: `- **Wake phrases**: when you wake a team agent by its own phrase, its reply is spoken in that agent's voice.
+- **New devices**: a device that waits for your approval can no longer lock a chat for the others, and a chat that was locked that way opens again by itself.
+- **Everything from 0.14.180**: a wake phrase for every agent, your Assistant on top of the sidebar, a menu on every sidebar row, and tabs for every page.`,
+  },
+  {
     id: `2026-11-25-desktop-cli-0-14-180-phones`,
     date: `2026-11-25`,
     title: `A wake phrase for every agent, and menus in the sidebar`,
