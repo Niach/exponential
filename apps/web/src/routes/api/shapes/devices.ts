@@ -48,6 +48,11 @@ const DEVICE_COLUMNS = [
   `last_seen_at`,
   // FEED-33: uuid[] — every team the server is shared with (`{}` = private).
   `shared_team_ids`,
+  // #EXP-2161 (member-space.json): the opt-in per team; a space row's host
+  // and team (set = a space: clients never list it as a device).
+  `assistant_team_ids`,
+  `space_host_id`,
+  `space_team_id`,
   `is_default`,
   `update_requested_at`,
   // #EXP-1617: the CI runner settings (NULL = not a runner).

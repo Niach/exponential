@@ -1383,6 +1383,37 @@ CREATE OR REPLACE TRIGGER unshare_deleted_team
   AFTER DELETE ON teams
   FOR EACH ROW EXECUTE FUNCTION unshare_deleted_team();
 
+-- 16b. (#EXP-2161) devices.assistant_team_ids is always a subset of
+--     shared_team_ids (an unshare, a deleted team, a kind flip drop the
+--     opt-in with the share, whichever path wrote it), and a member SPACE
+--     (space_host_id set) is never shared, never opted in, never the default
+--     and always a server.
+CREATE OR REPLACE FUNCTION clamp_device_assistant_teams()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.space_host_id IS NOT NULL THEN
+    NEW.kind := 'server';
+    NEW.shared_team_ids := '{}'::uuid[];
+    NEW.assistant_team_ids := '{}'::uuid[];
+    NEW.is_default := false;
+  ELSIF cardinality(NEW.assistant_team_ids) > 0 THEN
+    NEW.assistant_team_ids := (
+      SELECT COALESCE(array_agg(DISTINCT s.id ORDER BY s.id), '{}')
+      FROM unnest(NEW.assistant_team_ids) AS s(id)
+      WHERE NEW.kind = 'server' AND s.id = ANY(NEW.shared_team_ids));
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER clamp_device_assistant_teams
+  BEFORE INSERT OR UPDATE ON devices
+  FOR EACH ROW EXECUTE FUNCTION clamp_device_assistant_teams();
+
+-- Heal pass (idempotent, every boot): opt-ins a pre-trigger binary left.
+UPDATE devices SET updated_at = updated_at
+  WHERE cardinality(assistant_team_ids) > 0 AND NOT (assistant_team_ids <@ shared_team_ids AND kind = 'server');
+
 -- Heal pass (idempotent, every boot): shares left pointing at teams deleted
 -- in the migrate→boot gap or under a pre-trigger binary.
 UPDATE devices d

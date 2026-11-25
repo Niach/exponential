@@ -1243,6 +1243,31 @@ export async function notifyDeviceShareRemoved(args: {
   }
 }
 
+/** #EXP-2161 (member-space.json, THE END): the member's Assistant lost its
+ *  team device. Issue-less, in their personal team, opening the
+ *  conversation. Best effort, never throws. */
+export async function notifySpaceEnded(args: { userId: string; sessionId: string | null; title: string }): Promise<void> {
+  try {
+    const [team] = await db
+      .select({ id: teams.id, slug: teams.slug })
+      .from(teams)
+      .where(and(eq(teams.ownerId, args.userId), eq(teams.kind, `personal`)))
+      .limit(1)
+    if (!team) return
+    await deliverToTeam({
+      teamId: team.id,
+      recipientIds: [args.userId],
+      type: `agent_message`,
+      title: args.title,
+      body: null,
+      pushData: { teamId: team.id, teamSlug: team.slug },
+      ...(args.sessionId ? { sessionId: args.sessionId } : {}),
+    })
+  } catch (err) {
+    console.error(`[notify] member space ended failed:`, err)
+  }
+}
+
 /** #VAPP-220: why an app automation paused (@exp/emcp automations.json
  *  `sponsorStates`), as its owners read it. */
 export const AUTOMATION_PAUSED_COPY: Record<string, string> = {

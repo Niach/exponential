@@ -44,7 +44,8 @@ export async function defaultDeviceFor(userId: string): Promise<string | null> {
   const rows = await db
     .select({ deviceId: devices.deviceId, isDefault: devices.isDefault, lastSeenAt: devices.lastSeenAt })
     .from(devices)
-    .where(eq(devices.userId, userId))
+    // #EXP-2161: never a member space.
+    .where(and(eq(devices.userId, userId), isNull(devices.spaceHostId)))
     .orderBy(desc(devices.isDefault), desc(devices.lastSeenAt))
     .limit(1)
   return rows[0]?.deviceId ?? null

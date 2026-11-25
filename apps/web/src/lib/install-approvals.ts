@@ -10,8 +10,10 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { installApprovals, installs, teamMembers, teams, type Install } from "@/db/schema"
 import type { Reader } from "@/lib/sessions/tree-keys"
+import { approvedSpaceInstallIds, SPACE_APPROVAL_KIND, SPACE_INSTALL_KIND } from "@/lib/spaces/grant"
 
 export const APPROVAL_SIGNATURE_REFUSAL = `An approval's signature is not your install's over this install`
+export const SPACE_INSTALL_REFUSAL = `A member space's install is let in by its member's own approval only`
 export const ROOT_CONFLICT = `This account already has a trusted install`
 
 type Database = typeof import("@/db/connection").db
@@ -45,15 +47,23 @@ function servedInstall(row: Install): ServedInstall {
 
 /** `installs.trust`: every live install of the caller's account and of its
  *  team-mates, and every approval about them (`reconcileTrust`'s input). */
-export async function trustAnswer(database: Reader, userId: string): Promise<{ installs: ServedInstall[]; approvals: ServedApproval[] }> {
-  const userIds = await trustUserIds(database, userId)
+/** #EXP-2161: member-space installs (and `space` approvals) are served to a
+ *  client that asks (`spaces`; released builds decode the approval kinds as
+ *  a closed set), the caller's own account's only. `ownOnly` (a space's
+ *  key): no team-mate. */
+export async function trustAnswer(
+  database: Reader,
+  userId: string,
+  opts: { spaces?: boolean; ownOnly?: boolean } = {}
+): Promise<{ installs: ServedInstall[]; approvals: ServedApproval[] }> {
+  const userIds = opts.ownOnly ? [userId] : await trustUserIds(database, userId)
   const rows = (
     await database
       .select()
       .from(installs)
       .where(and(inArray(installs.userId, userIds), isNull(installs.revokedAt)))
       .orderBy(asc(installs.createdAt), asc(installs.id))
-  ).filter((row) => !row.revokedAt && userIds.includes(row.userId))
+  ).filter((row) => !row.revokedAt && userIds.includes(row.userId) && (row.kind !== SPACE_INSTALL_KIND || (opts.spaces && row.userId === userId)))
   if (rows.length === 0) return { installs: [], approvals: [] }
   const ids = rows.map((row) => row.id)
   const approvals = (
@@ -62,7 +72,7 @@ export async function trustAnswer(database: Reader, userId: string): Promise<{ i
       .from(installApprovals)
       .where(inArray(installApprovals.subjectInstallId, ids))
       .orderBy(asc(installApprovals.createdAt), asc(installApprovals.id))
-  ).filter((row) => ids.includes(row.subjectInstallId))
+  ).filter((row) => ids.includes(row.subjectInstallId) && (opts.spaces || row.kind !== SPACE_APPROVAL_KIND))
   return {
     installs: rows.map(servedInstall),
     approvals: approvals.map((row) => ({
@@ -95,13 +105,20 @@ async function chainedInstalls(database: Reader, installIds: string[]): Promise<
   return new Set(rows.filter((row) => installIds.includes(row.subjectInstallId)).map((row) => row.subjectInstallId))
 }
 
-type WaitingFields = Pick<Install, `id` | `userId` | `approvalRequestedAt` | `registrationSignature`>
+type WaitingFields = Pick<Install, `id` | `userId` | `approvalRequestedAt` | `registrationSignature` | `kind`>
 
 /** #EXP-2123 (install-trust.json `keyMaker.serverCases`): the ids among
  *  `rows` (live installs) the server lists as WAITING for approval (the New
  *  install rule of `waitingInstalls`), in a fixed number of queries. */
 export async function waitingInstallIds(database: Reader, rows: readonly WaitingFields[]): Promise<Set<string>> {
   if (rows.length === 0) return new Set()
+  // #EXP-2161: a space's install waits until its member's `space` approval.
+  const spaces = rows.filter((row) => row.kind === SPACE_INSTALL_KIND).map((row) => row.id)
+  if (spaces.length > 0) {
+    const approved = await approvedSpaceInstallIds(database, spaces)
+    const others = await waitingInstallIds(database, rows.filter((row) => row.kind !== SPACE_INSTALL_KIND))
+    return new Set([...others, ...spaces.filter((id) => !approved.has(id))])
+  }
   const userIds = [...new Set(rows.map((row) => row.userId))]
   const own = (
     await database.select({ id: installs.id, userId: installs.userId, revokedAt: installs.revokedAt }).from(installs).where(inArray(installs.userId, userIds))
@@ -142,6 +159,7 @@ export async function claimRoot(
     const me = await liveInstall(tx, input.installId)
     if (!me || me.userId !== userId) throw new TRPCError({ code: `FORBIDDEN`, message: `Not your install` })
     checkSignature(`root`, me, input.signature, me.endpointId)
+    if (me.kind === SPACE_INSTALL_KIND) throw new TRPCError({ code: `FORBIDDEN`, message: SPACE_INSTALL_REFUSAL })
     const others = (
       await tx
         .select({ id: installs.id, userId: installs.userId, revokedAt: installs.revokedAt })
@@ -154,7 +172,7 @@ export async function claimRoot(
     const approved: (typeof installApprovals.$inferInsert)[] = []
     for (const approval of input.approvals ?? []) {
       const subject = await liveInstall(tx, approval.subjectInstallId)
-      if (!subject || subject.userId !== userId || subject.id === me.id) throw new TRPCError({ code: `NOT_FOUND`, message: `Install not found` })
+      if (!subject || subject.userId !== userId || subject.id === me.id || subject.kind === SPACE_INSTALL_KIND) throw new TRPCError({ code: `NOT_FOUND`, message: `Install not found` })
       checkSignature(`approve`, subject, approval.signature, me.endpointId)
       approved.push({ kind: `approve`, subjectInstallId: subject.id, subjectEndpointId: subject.endpointId, approverInstallId: me.id, approverEndpointId: me.endpointId, signature: approval.signature })
     }
@@ -172,14 +190,22 @@ export async function claimRoot(
 export async function approveInstall(
   database: Database,
   userId: string,
-  input: { installId: string; subjectInstallId: string; kind: `approve` | `reset` | `decline`; signature: string }
+  input: { installId: string; subjectInstallId: string; kind: `approve` | `reset` | `decline` | `space`; signature: string }
 ): Promise<{ ok: true }> {
   const approver = await liveInstall(database, input.installId)
   if (!approver || approver.userId !== userId) throw new TRPCError({ code: `FORBIDDEN`, message: `Not your install` })
   const subject = await liveInstall(database, input.subjectInstallId)
   const notFound = () => new TRPCError({ code: `NOT_FOUND`, message: `Install not found` })
   if (!subject || subject.id === approver.id) throw notFound()
-  if (input.kind === `approve`) {
+  // #EXP-2161: a space's install approves nothing, and only the member's
+  // `space` approval is ever about one (never `approve`).
+  if (approver.kind === SPACE_INSTALL_KIND) throw new TRPCError({ code: `FORBIDDEN`, message: SPACE_INSTALL_REFUSAL })
+  if ((subject.kind === SPACE_INSTALL_KIND) !== (input.kind === `space`)) throw new TRPCError({ code: `BAD_REQUEST`, message: SPACE_INSTALL_REFUSAL })
+  if (input.kind === `space`) {
+    if (subject.userId !== userId) throw notFound()
+    // The server lets an approved one read: an install on no chain says nothing.
+    if (await installWaits(database, approver)) throw new TRPCError({ code: `FORBIDDEN`, message: SPACE_INSTALL_REFUSAL })
+  } else if (input.kind === `approve`) {
     if (subject.userId !== userId) throw notFound()
   } else {
     if (subject.userId === userId || !(await trustUserIds(database, userId)).includes(subject.userId)) throw notFound()
@@ -236,9 +262,14 @@ export async function waitingInstalls(database: Reader, userId: string): Promise
     const about = approvals.filter((approval) => approval.subjectInstallId === row.id)
     const chained = about.some((approval) => approval.kind === `root` || approval.kind === `approve`)
     if (row.userId === userId) {
+      if (row.kind === SPACE_INSTALL_KIND) {
+        if (row.registrationSignature && !about.some((approval) => approval.kind === SPACE_APPROVAL_KIND)) out.push(waitingRow(`newInstall`, row))
+        continue
+      }
       if (!chained && (row.approvalRequestedAt || (ownChain && row.registrationSignature))) out.push(waitingRow(`newInstall`, row))
       continue
     }
+    if (row.kind === SPACE_INSTALL_KIND) continue
     const root = about.find((approval) => approval.kind === `root`)
     if (!root) continue
     const earlier = approvals.some(

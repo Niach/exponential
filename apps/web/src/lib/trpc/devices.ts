@@ -21,6 +21,11 @@ import {
   restoreDeviceSessionsInTx,
 } from "@/lib/sessions/watchdog"
 import { z } from "zod"
+import { MEMBER_SPACE, mayOptIn } from "@exp/domain-contract/member-space"
+import { assertNotAgentApiKeySession } from "@/lib/auth/api-key-kind"
+import { assertOutsideSpace } from "@/lib/spaces/context"
+import { endInvalidSpacesInTx, endSpacesInTx, finishEndedSpaces, spaceIdsOf, spacesOnHosts, type EndedSpace } from "@/lib/spaces/end"
+import { isSpaceDeviceId } from "@/lib/spaces/grant"
 import { TRPCError } from "@trpc/server"
 import {
   and,
@@ -28,6 +33,7 @@ import {
   asc,
   desc,
   eq,
+  isNull,
   ne,
   sql,
 } from "drizzle-orm"
@@ -646,7 +652,8 @@ export async function visibleDeviceRows(
   rows: Array<typeof devices.$inferSelect>
   ownerNames: Map<string, { id: string; name: string }>
 }> {
-  const own = await db.select().from(devices).where(eq(devices.userId, userId))
+  // #EXP-2161: a member space is never listed as a device.
+  const own = await db.select().from(devices).where(and(eq(devices.userId, userId), isNull(devices.spaceHostId)))
   if (!teamId) return { rows: own, ownerNames: new Map() }
   const shared = await db
     .select({ device: devices, ownerName: users.name })
@@ -731,6 +738,7 @@ export async function dropDeviceShare(
   db: Context[`db`],
   input: { id: string; teamId: string; actorId: string }
 ): Promise<{ ok: true; txid: number }> {
+  const spaces: EndedSpace[] = []
   const { txid, target, hosted } = await db.transaction(async (tx) => {
     const id = await generateTxId(tx)
     const [target] = await tx
@@ -742,9 +750,10 @@ export async function dropDeviceShare(
       throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
     }
     await lockDeviceShares(tx, target.deviceId)
-    const hosted = await withdrawShareInTx(tx, target, [input.teamId])
+    const hosted = await withdrawShareInTx(tx, target, [input.teamId], spaces)
     return { txid: id, target, hosted }
   })
+  await finishEndedSpaces(spaces)
   const ended = await endHostedSessions(hostedIds(hosted), {
     actorId: input.actorId,
     deviceLabel: target.label,
@@ -806,6 +815,7 @@ export async function clearDeviceKey(
   db: Context[`db`],
   input: { deviceId: string; actorId: string; pinTo?: string }
 ): Promise<{ ok: true; txid: number }> {
+  const spaces: EndedSpace[] = []
   const { txid, withdrawn, ending } = await db.transaction(async (tx) => {
     const id = await generateTxId(tx)
     await lockDeviceShares(tx, input.deviceId)
@@ -843,14 +853,35 @@ export async function clearDeviceKey(
     const withdrawn: SquatRow[] = rows.map((row) => ({ ...row, sharedTeamIds: row.sharedTeamIds ?? [] }))
     const ending = new Map<string, HostedByTeam>()
     for (const row of withdrawn) {
-      ending.set(row.id, await withdrawShareInTx(tx, row, row.sharedTeamIds))
+      ending.set(row.id, await withdrawShareInTx(tx, row, row.sharedTeamIds, spaces))
     }
     return { txid: id, withdrawn, ending }
   })
+  await finishEndedSpaces(spaces)
   // FEED-159: an instance admin is no teammate: the owners and the ended
   // runs read a neutral line, never the admin's name.
   await settleSquats(input.actorId, withdrawn, ending, `admin`)
   return { ok: true, txid }
+}
+
+/** #EXP-2161: one team in or out of a device's opt-in (sorted, distinct). */
+async function writeAssistantTeam(tx: Pick<Context[`db`], `update`>, rowId: string, teamId: string, allowed: boolean): Promise<void> {
+  await tx
+    .update(devices)
+    .set({
+      assistantTeamIds: allowed
+        ? sql`ARRAY(SELECT DISTINCT t FROM unnest(array_append(${devices.assistantTeamIds}, ${teamId}::uuid)) AS t ORDER BY 1)`
+        : sql`array_remove(${devices.assistantTeamIds}, ${teamId}::uuid)`,
+      updatedAt: new Date(),
+    })
+    .where(eq(devices.id, rowId))
+}
+
+/** #EXP-2161: a member space is no device of the lists: the device procedures
+ *  that act on a machine by its id never name one, nor run through one. */
+function assertNotSpace(deviceId: string): void {
+  assertOutsideSpace()
+  if (isSpaceDeviceId(deviceId)) throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
 }
 
 export const devicesRouter = router({
@@ -911,6 +942,38 @@ export const devicesRouter = router({
     .mutation(async ({ ctx, input }) => {
       const now = new Date()
       const userId = ctx.session.user.id
+      // #EXP-2161: a space's key refreshes its own row, never creates one and
+      // never its kind, label, icon or sharing; nobody else registers its id.
+      if (ctx.space) {
+        const accounts = input.agentAccounts ? clampAgentAccounts(input.agentAccounts) : null
+        const [row] = await ctx.db
+          .update(devices)
+          .set({
+            platform: input.platform ?? null,
+            agents: clampAgentIds(input.agents),
+            caps: input.caps ?? [],
+            unauthedAgents: clampAgentIds(input.unauthedAgents),
+            acpAgents: input.acpAgents ? clampAgentIds(input.acpAgents) : null,
+            ...(accounts ? { agentAccounts: accounts } : {}),
+            doctor: clampDoctor(input.doctor),
+            version: input.version ?? null,
+            updateRequestedAt: null,
+            lastSeenAt: now,
+            updatedAt: now,
+          })
+          .where(eq(devices.id, ctx.space.spaceId))
+          .returning({ launchDefaults: devices.launchDefaults, launchDefaultsUpdatedAt: devices.launchDefaultsUpdatedAt })
+        return {
+          ok: !!row,
+          removed: !row,
+          keyAccepted: false,
+          launchDefaults: row?.launchDefaults ?? null,
+          launchDefaultsUpdatedAt: stampOf(row?.launchDefaultsUpdatedAt ?? null),
+        }
+      }
+      if (isSpaceDeviceId(input.deviceId)) {
+        throw new TRPCError({ code: `FORBIDDEN`, message: `This device id is a member space's` })
+      }
       // EXP-1417: Remove sticks. A removed machine's still-running build
       // re-registered it on the next heartbeat miss or re-dial; while the
       // removal stands only a fresh launch brings it back.
@@ -1017,16 +1080,18 @@ export const devicesRouter = router({
       // and clears the shares other accounts hold of it without the key.
       let keyAccepted = false
       if (publicKey) {
+        const spaces: EndedSpace[] = []
         const { pinned, squats, ending } = await ctx.db.transaction(async (tx) => {
           await lockDeviceShares(tx, input.deviceId)
           const pin = await pinDeviceKeyInTx(tx, { userId, deviceId: input.deviceId, publicKey })
           const ending = new Map<string, HostedByTeam>()
           for (const squat of pin.squats) {
-            ending.set(squat.id, await withdrawShareInTx(tx, squat, squat.sharedTeamIds))
+            ending.set(squat.id, await withdrawShareInTx(tx, squat, squat.sharedTeamIds, spaces))
           }
           return { ...pin, ending }
         })
         keyAccepted = pinned
+        await finishEndedSpaces(spaces)
         await settleSquats(userId, squats, ending)
       }
       // Return the (post-seed) server copy so the device converges
@@ -1105,13 +1170,16 @@ export const devicesRouter = router({
         liveSessionIds = clean.ids
       }
       const accounts = input.agentAccounts ? clampAgentAccounts(input.agentAccounts) : null
-      const settled = accounts
+      // #EXP-2161: a space reports the HOST's logins: no notice to its member,
+      // and no other device's usage moves.
+      const settled = accounts && !ctx.space
         ? await settleAgentSignOuts(ctx.db, ctx.session.user.id, input.deviceId, accounts)
         : null
       // #FEED-304: each account's newest read, on every device of the owner.
       const usage = input.agentUsage ? clampAgentUsage(input.agentUsage, now) : null
-      const shared =
-        accounts || usage
+      const shared = ctx.space
+        ? { agentAccounts: accounts, agentUsage: usage }
+        : accounts || usage
           ? await settleSharedUsage(
               ctx.db,
               ctx.session.user.id,
@@ -1201,12 +1269,12 @@ export const devicesRouter = router({
       const wantsDefaults = input.defaultsSyncedAt !== serverStamp
       // NEW-67: the member's voice settings ride every beat (one small row);
       // the device speaks and listens only while it is the voice device.
-      const voice = await voiceSettingsOf(ctx.db, ctx.session.user.id)
+      const voice = ctx.space ? undefined : await voiceSettingsOf(ctx.db, ctx.session.user.id)
       return {
         ok: true,
         updateRequested: Boolean(row.updateRequestedAt),
         commands: pending,
-        voice,
+        ...(voice ? { voice } : {}),
         ...(wantsDefaults
           ? {
               launchDefaults: row.launchDefaults,
@@ -1230,6 +1298,7 @@ export const devicesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      assertNotSpace(input.deviceId)
       const ownRow = and(
         eq(devices.userId, ctx.session.user.id),
         eq(devices.deviceId, input.deviceId)
@@ -1329,6 +1398,7 @@ export const devicesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      assertNotSpace(input.deviceId)
       const [row] = await ctx.db
         .select({
           id: devices.id,
@@ -1593,6 +1663,7 @@ export const devicesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      assertNotSpace(input.deviceId)
       const [row] = await ctx.db
         .select({
           id: devices.id,
@@ -1902,6 +1973,7 @@ export const devicesRouter = router({
         })
     )
     .mutation(async ({ ctx, input }) => {
+      assertNotSpace(input.deviceId)
       const [row] = await ctx.db
         .select({
           id: devices.id,
@@ -1960,7 +2032,7 @@ export const devicesRouter = router({
         const member = await getTeamMember(ctx.session.user.id, teamId)
         if (member?.role !== `owner`) disarm.push(teamId)
       }
-      const { txid, ending } = await ctx.db.transaction(async (tx) => {
+      const { txid, ending, spaces } = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
         // FEED-148: a machine id is unique per account only, so anyone can
         // register a box's id. One sharing row per (machine, team): a
@@ -1998,11 +2070,15 @@ export const devicesRouter = router({
         // #EXP-1951: its installs no longer read the revoked teams' trees
         // as the device: their wraps go, the trees are due for rotation.
         await dropReaderKeysInTx(tx, { deviceRowIds: [row.id] }, revoked)
+        // #EXP-2161: the opt-in went with the share (trigger): the spaces
+        // that live on it end.
+        const spaces = revoked.length > 0 ? await endInvalidSpacesInTx(tx, spacesOnHosts([row.id]), `unshared`) : []
         if (pause.length > 0) {
           await pauseDeviceAgents(tx, pause, input.deviceId)
         }
-        return { txid: id, ending }
+        return { txid: id, ending, spaces }
       })
+      await finishEndedSpaces(spaces)
       await endHostedSessions(ending, { actorId: ctx.session.user.id, deviceLabel: row.label, cause: `unshared` })
       // NEW-57: a share can make the voice agent's machine team-visible.
       if (added.length > 0) await stopMeetingUnlessPrivate(ctx.db, ctx.session.user.id)
@@ -2018,8 +2094,73 @@ export const devicesRouter = router({
   dropShare: authedProcedure
     .input(z.object({ id: z.string().uuid(), teamId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      assertOutsideSpace()
       await assertTeamOwner(ctx.session.user.id, input.teamId)
       return dropDeviceShare(ctx.db, { ...input, actorId: ctx.session.user.id })
+    }),
+
+  // #EXP-2161 (member-space.json, THE OPT-IN): the device's OWNER lets the
+  // members of one team it is shared with run their Assistant here.
+  setAssistantTeam: authedProcedure
+    .input(z.object({ deviceId: deviceIdInput, teamId: z.string().uuid(), allowed: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      assertOutsideSpace()
+      await assertNotAgentApiKeySession(ctx.db, ctx.session, `An agent's key cannot change who runs on a device`)
+      const userId = ctx.session.user.id
+      if (input.allowed) await assertTeamMember(userId, input.teamId)
+      const spaces: EndedSpace[] = []
+      const txid = await ctx.db.transaction(async (tx) => {
+        const id = await generateTxId(tx)
+        await lockDeviceShares(tx, input.deviceId)
+        const [row] = await tx
+          .select({ id: devices.id, kind: devices.kind, sharedTeamIds: devices.sharedTeamIds, doctor: devices.doctor })
+          .from(devices)
+          .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.deviceId), isNull(devices.spaceHostId)))
+          .limit(1)
+          .for(`update`)
+        if (!row) throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+        const item = row.doctor?.items.find((entry) => entry.key === MEMBER_SPACE.doctorKey)
+        const may = mayOptIn({
+          caller: `deviceOwner`,
+          allowed: input.allowed,
+          kind: row.kind,
+          shared: (row.sharedTeamIds ?? []).includes(input.teamId),
+          doctor: item?.state ?? null,
+        })
+        if (!may) {
+          throw new TRPCError({ code: `PRECONDITION_FAILED`, message: item?.detail || `This device cannot run members' Assistants` })
+        }
+        await writeAssistantTeam(tx, row.id, input.teamId, input.allowed)
+        if (!input.allowed) spaces.push(...(await endInvalidSpacesInTx(tx, spacesOnHosts([row.id]), `optedOut`)))
+        return id
+      })
+      await finishEndedSpaces(spaces)
+      return { ok: true, txid }
+    }),
+
+  // #EXP-2161: an OWNER of that team switches it off on a device they do not own.
+  dropAssistantTeam: authedProcedure
+    .input(z.object({ id: z.string().uuid(), teamId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      assertOutsideSpace()
+      await assertNotAgentApiKeySession(ctx.db, ctx.session, `An agent's key cannot change who runs on a device`)
+      await assertTeamOwner(ctx.session.user.id, input.teamId)
+      const spaces: EndedSpace[] = []
+      const txid = await ctx.db.transaction(async (tx) => {
+        const id = await generateTxId(tx)
+        const [found] = await tx
+          .select({ deviceId: devices.deviceId })
+          .from(devices)
+          .where(and(eq(devices.id, input.id), arrayContains(devices.sharedTeamIds, [input.teamId])))
+          .limit(1)
+        if (!found) throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+        await lockDeviceShares(tx, found.deviceId)
+        await writeAssistantTeam(tx, input.id, input.teamId, false)
+        spaces.push(...(await endInvalidSpacesInTx(tx, spacesOnHosts([input.id]), `optedOut`)))
+        return id
+      })
+      await finishEndedSpaces(spaces)
+      return { ok: true, txid }
     }),
 
   rename: authedProcedure
@@ -2027,6 +2168,7 @@ export const devicesRouter = router({
       z.object({ deviceId: deviceIdInput, label: z.string().min(1).max(255) })
     )
     .mutation(async ({ ctx, input }) => {
+      assertNotSpace(input.deviceId)
       const txid = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
         await tx
@@ -2037,6 +2179,13 @@ export const devicesRouter = router({
               eq(devices.userId, ctx.session.user.id),
               eq(devices.deviceId, input.deviceId)
             )
+          )
+        // #EXP-2161: the spaces it hosts read as it.
+        await tx
+          .update(devices)
+          .set({ label: input.label, updatedAt: new Date() })
+          .where(
+            sql`${devices.spaceHostId} IN (SELECT h.id FROM devices h WHERE h.user_id = ${ctx.session.user.id} AND h.device_id = ${input.deviceId})`
           )
         return id
       })
@@ -2050,6 +2199,7 @@ export const devicesRouter = router({
       z.object({ deviceId: deviceIdInput, icon: deviceIconSchema.nullable() })
     )
     .mutation(async ({ ctx, input }) => {
+      assertNotSpace(input.deviceId)
       const txid = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
         await tx
@@ -2077,6 +2227,7 @@ export const devicesRouter = router({
   setDefault: authedProcedure
     .input(z.object({ deviceId: deviceIdInput, isDefault: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
+      assertNotSpace(input.deviceId)
       const [row] = await ctx.db
         .select({ id: devices.id })
         .from(devices)
@@ -2131,14 +2282,15 @@ export const devicesRouter = router({
     .input(z.object({ deviceId: deviceIdInput }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
-      const { txid, ending, label } = await ctx.db.transaction(async (tx) => {
+      assertOutsideSpace()
+      const { txid, ending, label, spaces } = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
         await lockDeviceShares(tx, input.deviceId)
         // FEED-159: the shares (and so which teams disarm) are read HERE,
         // locked, never from a probe before the transaction: a team shared
         // in between would keep its agents armed on a removed machine.
         const [row] = await tx
-          .select({ id: devices.id, label: devices.label, sharedTeamIds: devices.sharedTeamIds })
+          .select({ id: devices.id, label: devices.label, sharedTeamIds: devices.sharedTeamIds, spaceHostId: devices.spaceHostId })
           .from(devices)
           .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.deviceId)))
           .limit(1)
@@ -2146,6 +2298,12 @@ export const devicesRouter = router({
         if (!row) {
           throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
         }
+        // #EXP-2161: an older client lists a space as a device: its member's
+        // Remove ends it. A host's takes its spaces along.
+        if (row.spaceHostId) {
+          return { txid: id, ending: [] as string[], label: row.label, spaces: await endSpacesInTx(tx, [row.id], `picked`) }
+        }
+        const spaces = await endSpacesInTx(tx, await spaceIdsOf(tx, spacesOnHosts([row.id])), `deviceRemoved`)
         const shared = row.sharedTeamIds ?? []
         const disarmable: string[] = []
         for (const teamId of shared) {
@@ -2194,8 +2352,9 @@ export const devicesRouter = router({
               eq(userVoiceSettings.voiceDeviceId, input.deviceId)
             )
           )
-        return { txid: id, ending, label: row.label }
+        return { txid: id, ending, label: row.label, spaces }
       })
+      await finishEndedSpaces(spaces)
       await endHostedSessions(ending, { actorId: userId, deviceLabel: label, cause: `removed` })
       return { ok: true, txid }
     }),
@@ -2235,6 +2394,7 @@ export const devicesRouter = router({
   // caller — no device-code round trip. 15-minute TTL; only the sha256 is
   // stored (lib/auth/cli-install-token.ts).
   createInstallToken: authedProcedure.mutation(async ({ ctx }) => {
+    assertOutsideSpace()
     const userId = ctx.session.user.id
     const limit = installTokenMintLimiter.tryTake(userId)
     if (!limit.ok) {
