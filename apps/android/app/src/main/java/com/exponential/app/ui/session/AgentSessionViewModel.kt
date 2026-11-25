@@ -1121,6 +1121,31 @@ class AgentSessionViewModel @AssistedInject constructor(
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncedWindow(emptyList(), emptyList(), false, null))
 
+    /** The transcript's person rows of the main lane, as HANDOFF and ECHOED PENDING read them; first = no feed. */
+    private val feedEchoes: Flow<Pair<Boolean, List<com.exponential.app.domain.MessageDelivery.Echo>>> = activity.map { state ->
+        state.feed.isEmpty() to state.feed.mapNotNull { item ->
+            (item as? com.exponential.app.domain.AgentFeedItem.UserMessage)
+                ?.takeIf { it.subagentId == null }
+                ?.let { com.exponential.app.domain.MessageDelivery.Echo(it.text, it.at) }
+        }
+    }.distinctUntilChanged()
+
+    /**
+     * #EXP-2129 (message-delivery.json ECHOED PENDING): the not-consumed rows
+     * the transcript echoes already (a restarted run's, before the device
+     * stamps them), off the queue and the loaded window's consumed inputs.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val echoedPending: StateFlow<Set<String>> = combine(
+        dbFlow.scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeQueued(codingSessionId) },
+        tailRows,
+        feedEchoes,
+    ) { queued, (_, window), (_, echoes) ->
+        if (queued.isEmpty()) emptySet() else echoedPendingIds(queued, window, echoes)
+    }.distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
     /**
      * #FEED-237 (message-delivery.json): the viewer's OWN bubbles at the
      * transcript's bottom: the consumed rows whose echo has not reached the
@@ -1144,13 +1169,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.OutboxEntity>()) { it.outboxDao().observeBySession(codingSessionId) },
         auth.userId,
         // HANDOFF's echoes: the transcript's person rows of the main lane.
-        activity.map { state ->
-            state.feed.isEmpty() to state.feed.mapNotNull { item ->
-                (item as? com.exponential.app.domain.AgentFeedItem.UserMessage)
-                    ?.takeIf { it.subagentId == null }
-                    ?.let { com.exponential.app.domain.MessageDelivery.Echo(it.text, it.at) }
-            }
-        }.distinctUntilChanged(),
+        feedEchoes,
     ) { rows, entries, me, (feedEmpty, echoes) ->
         OwnTailInputs(
             me = me,
@@ -1980,6 +1999,29 @@ internal fun dockActivityOf(state: ActivityFeedState) = AgentSessionViewModel.Do
 
 /** #FEED-237: how many of the viewer's newest own rows the outbox matches against. */
 private const val OWN_ROWS = 100
+
+/** #EXP-2129: [AgentSessionViewModel.echoedPending] over the session's
+ *  unconsumed rows and its newest synced ones (bodies opened here). */
+internal fun echoedPendingIds(
+    queued: List<MessageEntity>,
+    window: List<MessageEntity>,
+    echoes: List<com.exponential.app.domain.MessageDelivery.Echo>,
+): Set<String> {
+    val queuedIds = queued.mapTo(HashSet()) { it.id }
+    val rows = (queued + window.filter { it.id !in queuedIds }).map { row ->
+        val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row)
+        com.exponential.app.domain.MessageDelivery.Row(
+            id = row.id,
+            authorKind = row.authorKind,
+            authorId = row.authorId,
+            body = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body,
+            createdAt = row.createdAt,
+            consumedAt = row.consumedAt,
+            hasCard = row.card != null && row.card != "null",
+        )
+    }
+    return com.exponential.app.domain.MessageDelivery.echoedPending(rows, echoes).toSet()
+}
 
 /** #EXP-1990: [AgentSessionViewModel.teammateTail]'s rule over the session's
  *  unconsumed person rows (bodies opened): another member's card-less,

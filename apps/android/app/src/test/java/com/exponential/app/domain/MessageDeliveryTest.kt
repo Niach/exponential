@@ -161,6 +161,43 @@ class MessageDeliveryTest {
         }
     }
 
+    // #EXP-2129: `echoedPendingCases`, through what the screen draws.
+    @Test
+    fun `every echoed pending case matches the fixture`() {
+        val cases = fixture.getValue("echoedPendingCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val name = case.str("name")
+            val input = case.getValue("input").jsonObject
+            val rows = input.getValue("rows").jsonArray.map { it.jsonObject }.map { r ->
+                MessageDelivery.Row(
+                    id = r.str("id")!!,
+                    authorKind = r.str("authorKind")!!,
+                    authorId = r.str("authorId"),
+                    body = r.str("body")!!,
+                    createdAt = r.str("createdAt")!!,
+                    consumedAt = r.str("consumedAt"),
+                    hasCard = r["card"]?.let { it !is JsonNull } == true,
+                )
+            }
+            val echoes = input.getValue("echoes").jsonArray.map { it.jsonObject }.map { e ->
+                MessageDelivery.Echo(e.str("text")!!, e["at"]?.takeUnless { it is JsonNull }?.jsonPrimitive?.long)
+            }
+            val expected = case.getValue("expected").jsonArray.map { it.jsonPrimitive.content }
+            assertEquals(name, expected, MessageDelivery.echoedPending(rows, echoes))
+            val own = MessageDelivery.tail("u1", emptyList(), rows.filter { it.authorId == "u1" && !it.hasCard }).bubbles
+            val teammates = rows
+                .filter { it.authorKind == "user" && it.authorId != "u1" && it.consumedAt == null && !it.hasCard }
+                .map { MessageDelivery.Bubble("member-row-${it.id}", it.body, it.createdAt, MessageDelivery.State.Sending, true, null, it.id, it.authorId) }
+            val before = MessageDelivery.pendingTail(teammates, own).mapNotNull { it.messageId }
+            assertEquals(
+                name,
+                before.filterNot { it in expected },
+                MessageDelivery.withoutEchoed(MessageDelivery.pendingTail(teammates, own), MessageDelivery.echoedPending(rows, echoes)).mapNotNull { it.messageId },
+            )
+        }
+    }
+
     @Test
     fun `every handoff case matches the fixture`() {
         val cases = fixture.getValue("handoffCases").jsonArray.map { it.jsonObject }

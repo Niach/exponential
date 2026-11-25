@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/message-delivery.json"
 import { MESSAGE_DELIVERY_HANDOFF_MAX_MS } from "@exp/domain-contract/message-delivery"
-import { sessionOwnHandoff } from "./own-handoff"
+import { pendingChatRows, sessionEchoedPending, sessionOwnHandoff } from "./own-handoff"
 
 // #FEED-237 (message-delivery.json HANDOFF): the web view's wrapper replays
 // the fixture with the echoes as feed items (main lane only).
@@ -17,6 +17,20 @@ describe(`sessionOwnHandoff`, () => {
       })
       expect(result.order).toEqual(c.expected)
       expect([...result.ids]).toEqual(c.expected)
+    })
+  }
+
+  // #EXP-2129: the chat open across a daemon restart: the woken run's echo is
+  // in the feed, the row is still pending. Through what the chat draws.
+  for (const c of fixture.echoedPendingCases) {
+    it(`echoedPendingCases: ${c.name}`, () => {
+      const feed = c.input.echoes.map((echo) => ({ kind: `user_message`, text: echo.text, at: echo.at ?? undefined }))
+      const pending = c.input.rows.filter((r) => r.authorKind === `user` && !r.card && !r.consumedAt)
+      const drawn = pendingChatRows(
+        pending.map((r) => ({ id: r.id, type: `message` })),
+        { sent: new Set(), held: new Set(), echoed: sessionEchoedPending({ rows: c.input.rows, feed }) }
+      )
+      expect(drawn.map((r) => r.id)).toEqual(pending.map((r) => r.id).filter((id) => !c.expected.includes(id)))
     })
   }
 
