@@ -141,6 +141,8 @@ import com.exponential.app.ui.settings.SecuritySettingsScreen
 import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.settings.TeamSettingsRootScreen
 import com.exponential.app.ui.teams.TeamsScreen
+import com.exponential.app.ui.teams.TeamsViewModel
+import com.exponential.app.ui.teams.leafBadges
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
 import com.exponential.app.ui.settings.TeamSettingsScreen
 import com.exponential.app.ui.settings.ThirdPartyLicensesScreen
@@ -627,6 +629,7 @@ private fun AuthenticatedNav(
 
     // #FEED-232: the Chats tab's count badge (`chatsBadge`), over every team.
     val chatsVm: ChatsViewModel = hiltViewModel()
+    val teamsVm: TeamsViewModel = hiltViewModel()
     val chatsBadge by chatsVm.chatsBadge.collectAsStateWithLifecycle()
     // EXP-825: every launcher entry point is NAVIGATION onto the composer page
     // with a preselection seed — every play button with what it acts on.
@@ -768,6 +771,7 @@ private fun AuthenticatedNav(
                 },
                 onOpenComposer = { navController.navigateDeepLink(AGENT_ROUTE) },
                 chats = chatsVm,
+                viewModel = teamsVm,
             )
         }
         composable(Routes.TEAM_SETTINGS_ROOT_PATTERN) {
@@ -1445,7 +1449,7 @@ private fun AuthenticatedNav(
         PhoneDock(
             selected = lit.value,
             newOpen = newOpen,
-            badges = dockBadges(chatsVm, assistant, chatsBadge),
+            badges = dockBadges(chatsVm, teamsVm, assistant, chatsBadge),
             onSelect = { tab ->
                 if (tab == "new") {
                     newOpen = !newOpen
@@ -1465,13 +1469,21 @@ private fun AuthenticatedNav(
 @Composable
 private fun dockBadges(
     chats: ChatsViewModel,
+    teams: TeamsViewModel,
     assistant: kotlinx.coroutines.flow.StateFlow<AssistantRef?>,
     chatsBadge: NavBadges.Badge,
 ): Map<String, NavBadges.Badge> {
     val ref by assistant.collectAsStateWithLifecycle()
     val rows by chats.rowBadges.collectAsStateWithLifecycle()
+    val needsYou by chats.needsYou.collectAsStateWithLifecycle()
+    val conversations by chats.conversations.collectAsStateWithLifecycle()
+    val tree by teams.state.collectAsStateWithLifecycle()
+    val teamsBadge = remember(tree, needsYou, rows, conversations) {
+        tree.tabBadge(needsYou.counts(installs = 0).teams, leafBadges(rows, conversations))
+    }
     return mapOf(
         "chats" to chatsBadge,
+        "teams" to teamsBadge,
         "assistant" to (rows[ref?.sessionId] ?: NavBadges.NONE),
     )
 }

@@ -24,6 +24,7 @@ import com.exponential.app.domain.Chats
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.domain.SidebarFolders
 import com.exponential.app.domain.SidebarMenus
+import com.exponential.app.domain.NavBadges
 import com.exponential.app.domain.SidebarTree
 import com.exponential.app.domain.WebLinks
 import com.exponential.app.ui.components.FailedAction
@@ -98,9 +99,30 @@ data class TeamsState(
     val trees: Map<String, SidebarTree.PhoneTreeTeam> = emptyMap(),
     /** Every leaf by id, folded ones too (a board's header). */
     val leaves: Map<String, TeamTreeRow> = emptyMap(),
+    /** The leaf ids a team or a folder hides while folded, by its id. */
+    val inside: Map<String, List<String>> = emptyMap(),
     /** The folder whose name is in edit. */
     val editingId: String? = null,
 ) {
+    /** nav-badges.json `teamBadge` / `sumBadges`: a team's or a folder's badge;
+     *  [needsYou] = the teams' shares, [badgeOf] = a leaf's own badge. */
+    fun groupBadge(
+        row: SidebarTree.PhoneTreeRow,
+        needsYou: Map<String, Int>,
+        badgeOf: (leafId: String) -> NavBadges.Badge,
+    ): NavBadges.Badge = when {
+        row.kind == SidebarTree.ROW_TEAM -> teamBadge(row.id, row.open, needsYou, badgeOf)
+        row.open -> NavBadges.NONE
+        else -> NavBadges.sumBadges(inside[row.id].orEmpty().map(badgeOf))
+    }
+
+    private fun teamBadge(teamId: String, open: Boolean, needsYou: Map<String, Int>, badgeOf: (leafId: String) -> NavBadges.Badge) =
+        NavBadges.teamBadge(needsYou[teamId] ?: 0, open, inside[teamId].orEmpty().map(badgeOf))
+
+    /** The Teams tab's badge: its team rows, each folded. */
+    fun tabBadge(needsYou: Map<String, Int>, badgeOf: (leafId: String) -> NavBadges.Badge): NavBadges.Badge =
+        NavBadges.sumBadges(trees.keys.map { teamBadge(it, open = false, needsYou, badgeOf) })
+
     /** A folder Move to folder offers, the team's rows from its top level. */
     fun moveTargets(row: TeamTreeRow): SidebarMenus.MoveTargets {
         val tree = trees[row.team.id] ?: return SidebarMenus.MoveTargets(emptyList(), null)
@@ -233,8 +255,8 @@ class TeamsViewModel @Inject constructor(
                 },
         )
         val rows = withEditingFolder(pure, trees, editingId).map(::resolve).filter { it.target != null || it.row.kind in FOLDS }
-        val leaves = SidebarTree.phoneTreeRows(trees.map { it.copy(open = true, closedFolders = emptySet()) })
-            .filter { it.kind !in FOLDS }.associate { it.id to resolve(it) }
+        val unfolded = SidebarTree.phoneTreeRows(trees.map { it.copy(open = true, closedFolders = emptySet()) })
+        val leaves = unfolded.filter { it.kind !in FOLDS }.associate { it.id to resolve(it) }
         TeamsState(
             loaded = true,
             rows = rows,
@@ -243,6 +265,7 @@ class TeamsViewModel @Inject constructor(
             emptyTeamId = SidebarTree.phoneTeamsEmpty(pure.filter { it.kind == SidebarTree.ROW_TEAM }.map { it.id to it.count }),
             trees = trees.associateBy { it.id },
             leaves = leaves,
+            inside = leavesInside(unfolded),
             editingId = editingId,
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamsState())
@@ -261,6 +284,17 @@ class TeamsViewModel @Inject constructor(
             SidebarTree.ROW_FOLDER, folder.id, team.id, 1, folder.name ?: SidebarFolders.DEFAULT_FOLDER_NAME, open = true, count = 0,
         )
         return rows.take(at) + row + rows.drop(at)
+    }
+
+    /** Each fold's leaves off the fully unfolded [rows]. */
+    private fun leavesInside(rows: List<SidebarTree.PhoneTreeRow>): Map<String, List<String>> {
+        val out = HashMap<String, MutableList<String>>()
+        val open = ArrayDeque<SidebarTree.PhoneTreeRow>()
+        for (row in rows) {
+            while (open.isNotEmpty() && open.last().depth >= row.depth) open.removeLast()
+            if (row.kind in FOLDS) open.addLast(row) else open.forEach { out.getOrPut(it.id) { mutableListOf() } += row.id }
+        }
+        return out
     }
 
     /** A team of another server: that account first, every screen re-scopes. */
