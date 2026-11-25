@@ -560,6 +560,9 @@ export class Hub {
     switch (msg.t) {
       case `online`: {
         if (conn.claims.role !== `control`) return
+        // #EXP-2161: a ticket that names its device (a member space's) is
+        // that device's presence and no other's.
+        if (conn.claims.deviceId && conn.claims.deviceId !== msg.deviceId) return
         let byDevice = this.devices.get(conn.claims.sub)
         // REV-11: a socket re-announcing under a NEW deviceId must evict the
         // entry it registered before — onClose only reclaims the LAST

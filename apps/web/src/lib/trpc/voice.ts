@@ -29,7 +29,7 @@
 
 import { z } from "zod"
 import { TRPCError } from "@trpc/server"
-import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm"
 
 import { VOICE_DEFAULTS, VOICE_LANGUAGES, VOICE_LIMITS, VOICE_SHORTCUT_GRAMMAR, shortcutCanonical, wakePhraseError } from "@exp/etalk/voice"
 import { callTarget, type CallTargetDevice } from "@exp/etalk/voice-call"
@@ -370,7 +370,7 @@ export async function callDevicesOf(
   const rows = await database
     .select({ deviceId: devices.deviceId, kind: devices.kind, label: devices.label, lastSeenAt: devices.lastSeenAt, doctor: devices.doctor })
     .from(devices)
-    .where(and(eq(devices.userId, userId), inArray(devices.kind, [`desktop`, `server`])))
+    .where(and(eq(devices.userId, userId), inArray(devices.kind, [`desktop`, `server`]), isNull(devices.spaceHostId)))
   const sorted = [...rows].sort((a, b) => new Date(b.lastSeenAt ?? 0).getTime() - new Date(a.lastSeenAt ?? 0).getTime())
   const of = (kind: string) =>
     sorted
@@ -827,7 +827,7 @@ export const voiceRouter = router({
         const [own] = await ctx.db
           .select({ deviceId: devices.deviceId })
           .from(devices)
-          .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.deviceId)))
+          .where(and(eq(devices.userId, userId), eq(devices.deviceId, input.deviceId), isNull(devices.spaceHostId)))
           .limit(1)
         if (!own) throw new TRPCError({ code: `NOT_FOUND`, message: `That device isn't yours` })
         deviceId = own.deviceId

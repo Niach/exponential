@@ -512,7 +512,7 @@ export const mcpServersRouter = router({
         const [device] = await ctx.db
           .select({ id: devices.id, kind: devices.kind })
           .from(devices)
-          .where(and(eq(devices.id, input.deviceId), eq(devices.userId, userId)))
+          .where(and(eq(devices.id, input.deviceId), eq(devices.userId, userId), isNull(devices.spaceHostId)))
           .limit(1)
         if (!device) {
           throw new TRPCError({ code: `NOT_FOUND`, message: `Pick one of your own devices` })

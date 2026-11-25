@@ -10,7 +10,7 @@
 // cap: a server shared with the team first, then any member's daemon. The
 // payload carries a short-lived JOB token (`repo-token.ts`, scope `job`) for
 // `/api/ecode/git/*`: the device needs no other credential.
-import { and, arrayContains, desc, eq, gt, sql } from "drizzle-orm"
+import { and, arrayContains, desc, eq, gt, isNull, sql } from "drizzle-orm"
 import type { ForgeReason } from "@exp/ecode"
 import { db } from "@/db/connection"
 import { deviceCommands, devices, teamMembers } from "@/db/schema"
@@ -55,7 +55,7 @@ export async function pickJobDevice(teamId: string, now = new Date()): Promise<J
     .select({ rowId: devices.id, deviceId: devices.deviceId, ownerId: devices.userId })
     .from(devices)
     .innerJoin(teamMembers, and(eq(teamMembers.userId, devices.userId), eq(teamMembers.teamId, teamId)))
-    .where(and(gt(devices.lastSeenAt, new Date(now.getTime() - ONLINE_MS)), sql`${devices.caps} @> ${JSON.stringify([ECODE_JOBS_CAP])}::jsonb`))
+    .where(and(isNull(devices.spaceHostId), gt(devices.lastSeenAt, new Date(now.getTime() - ONLINE_MS)), sql`${devices.caps} @> ${JSON.stringify([ECODE_JOBS_CAP])}::jsonb`))
     .orderBy(desc(sql`coalesce(${arrayContains(devices.sharedTeamIds, [teamId])}, false)`), desc(devices.lastSeenAt))
     .limit(1)
   return row ?? null

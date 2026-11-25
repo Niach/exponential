@@ -19,6 +19,8 @@ export const Route = createFileRoute(`/api/mcp_/apps`)({
       GET: async ({ request }) => {
         const gated = await authenticateMcpRequest(request)
         if (`response` in gated) return gated.response
+        // #EXP-2161: no long-lived stream for a member space's key.
+        if (gated.space) return new Response(null, { status: 405 })
         return appsListChangedStream(gated.caller, gated.request)
       },
       DELETE: methodNotAllowed,

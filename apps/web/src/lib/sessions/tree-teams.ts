@@ -3,6 +3,7 @@ import { treeScope, type TreeRootKind } from "@exp/emcp/access"
 import { db } from "@/db/connection"
 import { agents, sessions, teams } from "@/db/schema"
 import { getMemberTeamIds } from "@/lib/auth/membership"
+import { spaceTeamsOfDevice } from "@/lib/spaces/grant"
 
 // #EXP-1720 + #EXP-2027 (eagent tree.json `treeTeams`, emcp access.json
 // `treeScope`): the teams a session tree works in. A team agent's tree =
@@ -23,6 +24,9 @@ export interface TreeRoot {
   /** The agent whose tree started this root (`started_by_agent_id`). */
   startedByAgentId?: string | null
   scopeTeamIds: string[] | null
+  /** #EXP-2161: the Assistant's conversation on a member space works only in
+   *  its personal team and the space's teams. */
+  deviceId: string | null
 }
 
 /** #EXP-2027: what `root` is: the Assistant's conversation, a team agent's
@@ -49,6 +53,8 @@ export async function treeReachOfRoot(root: TreeRoot, exec: Exec = db): Promise<
     memberTeamIds: await getMemberTeamIds(root.userId),
     pickedTeamIds: root.scopeTeamIds,
   })
+  const spaceTeams = kind === `assistant` && root.deviceId ? await spaceTeamsOfDevice(exec, root.userId, root.deviceId) : null
+  if (spaceTeams) return { kind, teams: teams.filter((id) => id === root.teamId || spaceTeams.includes(id)) }
   return { kind, teams }
 }
 
@@ -71,6 +77,7 @@ export async function treeReach(rootId: string, exec: Exec = db): Promise<{ kind
       agentId: sessions.agentId,
       startedByAgentId: sessions.startedByAgentId,
       scopeTeamIds: sessions.scopeTeamIds,
+      deviceId: sessions.deviceId,
     })
     .from(sessions)
     .where(eq(sessions.id, rootId))

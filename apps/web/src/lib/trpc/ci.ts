@@ -7,7 +7,7 @@
 //   and a device's runner settings (its owner).
 
 import { TRPCError } from "@trpc/server"
-import { and, eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { z } from "zod"
 import { LABEL_MAX, checkConclusionValues } from "@exp/ecode"
 import { ciJobs, devices, repositories, type DeviceRunnerSettings, type RepositoryCiConfig } from "@/db/schema"
@@ -240,7 +240,7 @@ export const ciRouter = router({
       const updated = await ctx.db
         .update(devices)
         .set({ runner })
-        .where(and(eq(devices.userId, ctx.session.user.id), eq(devices.deviceId, input.deviceId)))
+        .where(and(eq(devices.userId, ctx.session.user.id), eq(devices.deviceId, input.deviceId), isNull(devices.spaceHostId)))
         .returning({ id: devices.id })
       if (updated.length === 0) throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
       if (runner.enabled) void dispatchQueued().catch((err) => console.error(`[ci] dispatch failed`, err))

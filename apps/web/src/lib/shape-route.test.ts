@@ -34,11 +34,14 @@ import { Route as ciJobsRoute } from "@/routes/api/shapes/ci-jobs"
 
 const {
   resolveSession,
+  spaceGrant,
   prepareElectricUrl,
   proxyElectricRequest,
   SessionResolveError,
 } = vi.hoisted(() => ({
   resolveSession: vi.fn(),
+  // #EXP-2161: the member space the request speaks through.
+  spaceGrant: { current: null as unknown },
   prepareElectricUrl: vi.fn(),
   proxyElectricRequest: vi.fn(),
   SessionResolveError: class SessionResolveError extends Error {},
@@ -56,6 +59,7 @@ const membership = vi.hoisted(() => ({
 
 vi.mock(`@/lib/auth/resolve-bearer`, () => ({
   resolveSession,
+  resolveSessionOrSpace: async (request: Request) => ({ session: await resolveSession(request), space: spaceGrant.current }),
   SessionResolveError,
 }))
 
@@ -171,6 +175,19 @@ describe(`shape route handler`, () => {
     expect(response.headers.get(`retry-after`)).toBe(`5`)
     expect(response.headers.get(`cache-control`)).toBe(`no-store`)
     expect(proxyElectricRequest).not.toHaveBeenCalled()
+  })
+
+  it(`#EXP-2161: a member space reaches its own shapes only, over its own sessions`, async () => {
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    spaceGrant.current = { userId: `user-1`, reach: [] }
+    try {
+      const handler = createShapeRouteHandler({ table: `devices`, getWhere: async () => `"user_id" = 'user-1'` })
+      const response = await handler({ request: new Request(`https://example.com/api/shapes/devices?offset=-1`) })
+      expect(response.status).toBe(403)
+      expect(proxyElectricRequest).not.toHaveBeenCalled()
+    } finally {
+      spaceGrant.current = null
+    }
   })
 
   it(`rethrows a non-session error from resolveSession`, async () => {

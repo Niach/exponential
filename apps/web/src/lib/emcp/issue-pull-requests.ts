@@ -1,3 +1,5 @@
+import { currentSpace } from "@/lib/spaces/context"
+import { spaceReachCondition } from "@/lib/spaces/grant"
 import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { statusPill, type HoldReason, type MergeWait, type PrMergeState } from "@exp/domain-contract/merge-train"
@@ -109,6 +111,7 @@ export interface IssueSessionWire {
  *  (lib/sessions/access.ts: shared or the caller's own, on the row and its
  *  root). */
 export async function loadIssueSessions(issueId: string, userId: string): Promise<IssueSessionWire[]> {
+  const space = currentSpace()
   const root = alias(sessions, `issue_session_root`)
   return db
     .select({
@@ -128,7 +131,9 @@ export async function loadIssueSessions(issueId: string, userId: string): Promis
         eq(sessionIssues.issueId, issueId),
         ne(sessions.status, `ended`),
         or(eq(sessions.shared, true), eq(sessions.userId, userId)),
-        or(eq(root.shared, true), eq(root.userId, userId))
+        or(eq(root.shared, true), eq(root.userId, userId)),
+        // #EXP-2161: a member space reaches its own sessions only.
+        space ? spaceReachCondition(space) : undefined
       )
     )
     .orderBy(desc(sessions.updatedAt))

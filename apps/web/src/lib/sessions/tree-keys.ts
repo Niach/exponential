@@ -6,10 +6,12 @@ import { KEY_MAKER_REFUSAL, KEY_MAKER_REFUSAL_CODE } from "@exp/domain-contract/
 import { CLEAR_TREE_REFUSAL, STALE_TREE_REFUSAL, WRAP_REFUSAL } from "@exp/domain-contract/sealed-content"
 import { TRPCError } from "@trpc/server"
 import { and, eq, inArray, sql } from "drizzle-orm"
-import { devices, installs, sessionKeys, sessions, type Session } from "@/db/schema"
+import { agents, devices, installs, sessionKeys, sessions, type Session } from "@/db/schema"
 import { teamMemberPairs } from "@/lib/auth/membership"
 import { installWaits } from "@/lib/install-approvals"
 import type { Tx } from "@/lib/sessions/tx"
+import { spaceOf } from "@/lib/spaces/context"
+import { approvedSpaceInstallIds, SPACE_INSTALL_KIND, spaceRows } from "@/lib/spaces/grant"
 import { signedWrapColumns } from "@/lib/sessions/wrap-signatures"
 
 // 32 bytes as unpadded base64url (43 chars; the last carries 4 bits).
@@ -30,7 +32,7 @@ export interface TreeReader {
   executing: boolean
 }
 
-export type Root = Pick<Session, `id` | `teamId` | `userId` | `shared` | `parentId` | `sealPublicKey` | `sealEpoch`>
+export type Root = Pick<Session, `id` | `teamId` | `userId` | `shared` | `parentId` | `sealPublicKey` | `sealEpoch` | `deviceId` | `agentId`>
 
 export const notFound = () => new TRPCError({ code: `NOT_FOUND`, message: `Session not found` })
 
@@ -135,12 +137,19 @@ export async function treeReadersMany(database: Reader, roots: readonly Root[]):
     }
   }
 
+  // #EXP-2161 (member-space.json, THE INSTALL): a space's install reads its
+  // member's Assistant conversation that runs on its live space, once its
+  // member approved it, and no other tree.
+  const spaceInstalls = [...new Map([...byUser.values(), ...byDevice.values()].flat().filter((row) => row.kind === SPACE_INSTALL_KIND).map((row) => [row.id, row])).values()]
+  const spaceReads = spaceInstalls.length > 0 ? await spaceReaderRule(database, spaceInstalls, roots) : () => false
+
   for (const root of roots) {
     const members = membersOf.get(root.teamId) ?? new Set<string>()
     const readers = out.get(root.id)!
     const add = (rows: Array<typeof installs.$inferSelect>, executing: boolean) => {
       for (const row of rows) {
         if (row.revokedAt) continue
+        if (row.kind === SPACE_INSTALL_KIND && !(executing && spaceReads(row, root))) continue
         // A host's install reads while its host is a member where it runs.
         if (executing ? hostOfRow.get(row.deviceId ?? ``) !== row.userId : !members.has(row.userId)) continue
         const known = readers.get(row.id)
@@ -159,6 +168,36 @@ export async function treeReadersMany(database: Reader, roots: readonly Root[]):
   return out
 }
 
+/** Whether a space install reads a root (`treeReadersMany`). */
+async function spaceReaderRule(
+  database: Reader,
+  rows: ReadonlyArray<typeof installs.$inferSelect>,
+  roots: readonly Root[]
+): Promise<(row: typeof installs.$inferSelect, root: Root) => boolean> {
+  const approved = await approvedSpaceInstallIds(database, rows.map((row) => row.id))
+  const rowIds = [...new Set(rows.flatMap((row) => (row.deviceId && approved.has(row.id) ? [row.deviceId] : [])))]
+  if (rowIds.length === 0) return () => false
+  const live = new Map((await spaceRows(database, inArray(devices.id, rowIds))).filter((space) => space.live).map((space) => [space.spaceId, space]))
+  const agentIds = [...new Set(roots.flatMap((root) => (root.agentId ? [root.agentId] : [])))]
+  const assistants = new Set(
+    agentIds.length > 0
+      ? (await database.select({ id: agents.id }).from(agents).where(and(inArray(agents.id, agentIds), eq(agents.role, `assistant`)))).map((row) => row.id)
+      : []
+  )
+  return (row, root) => {
+    const space = row.deviceId ? live.get(row.deviceId) : undefined
+    return (
+      !!space &&
+      approved.has(row.id) &&
+      space.userId === row.userId &&
+      root.userId === row.userId &&
+      root.deviceId === space.deviceId &&
+      root.agentId !== null &&
+      assistants.has(root.agentId)
+    )
+  }
+}
+
 const ms = (at: Date | null | undefined) => (at ? at.getTime() : 0)
 
 /** The caller's own, non-revoked install. */
@@ -168,7 +207,11 @@ export async function ownInstall(database: Reader, userId: string, installId: st
     .from(installs)
     .where(and(eq(installs.id, installId), eq(installs.userId, userId)))
     .limit(1)
-  if (!row || row.userId !== userId || row.revokedAt) {
+  // #EXP-2161: a space's key speaks for its own install only, and its
+  // install only through it.
+  const space = spaceOf(userId)
+  const foreign = row && (space ? row.deviceId !== space.spaceId || row.kind !== SPACE_INSTALL_KIND : row.kind === SPACE_INSTALL_KIND)
+  if (!row || row.userId !== userId || row.revokedAt || foreign) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Not your install` })
   }
   return row

@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, isNotNull, or } from "drizzle-orm"
+import { and, asc, desc, eq, isNotNull, isNull, or } from "drizzle-orm"
 import {
   ASSISTANT,
   ASSISTANT_COPY,
@@ -74,7 +74,8 @@ async function assistantDevice(exec: Exec, userId: string): Promise<string | nul
   const own = await exec
     .select({ deviceId: devices.deviceId, kind: devices.kind })
     .from(devices)
-    .where(eq(devices.userId, userId))
+    // #EXP-2161: never a member space.
+    .where(and(eq(devices.userId, userId), isNull(devices.spaceHostId)))
     .orderBy(desc(devices.lastSeenAt))
   return (own.find((row) => row.kind === `desktop`) ?? own[0])?.deviceId ?? null
 }
@@ -82,13 +83,19 @@ async function assistantDevice(exec: Exec, userId: string): Promise<string | nul
 /** The member's Assistant, created on first use. Null while they have no
  *  device to run it on. Their ONE Assistant in their personal team; `teamId`
  *  (clients with a current team send it) is a membership check only. */
-export async function ensureAssistant(userId: string, teamId?: string | null, exec: Exec = db): Promise<Agent | null> {
+/** #EXP-2161 `onDevice`: where a fresh one runs (a member space's device). */
+export async function ensureAssistant(
+  userId: string,
+  teamId?: string | null,
+  exec: Exec = db,
+  onDevice?: string
+): Promise<Agent | null> {
   if (teamId && !(await getTeamMember(userId, teamId))) {
     throw new TRPCError({ code: `FORBIDDEN`, message: `Not a member of this team` })
   }
   const existing = await findAssistant(exec, userId)
   if (existing) return existing
-  const deviceId = await assistantDevice(exec, userId)
+  const deviceId = onDevice ?? (await assistantDevice(exec, userId))
   if (!deviceId) return null
   const home = await ensurePersonalTeam(exec, userId)
   const [created] = await exec

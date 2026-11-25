@@ -43,6 +43,8 @@ import { startDiskWarning } from "@/lib/device-disk"
 import { issueOverlapWarning } from "@/lib/sessions/issue-overlap"
 import { assertTeamMember, getMemberTeamIds, getPersonalTeamId, getTeamMember, getUserTeamIds } from "@/lib/auth/membership"
 import { rules as eagentRules } from "@exp/eagent/copy"
+import { maySpaceRun } from "@exp/domain-contract/member-space"
+import { isSpaceDeviceId } from "@/lib/spaces/grant"
 import { ownAssistantTeam, treeReach, treeRootKind, treeTeams } from "@/lib/sessions/tree-teams"
 import { conversationInTx, loadAgentForUser } from "@/lib/agents/conversation"
 import {
@@ -250,8 +252,15 @@ export async function resolveSessionDevice(
   userId: string,
   teamId: string,
   deviceId: string,
-  exec: Db = db
+  exec: Db = db,
+  /** #EXP-2161: the start belongs to the Assistant conversation that runs on
+   *  this space (the conversation itself, its children). */
+  opts: { space?: boolean } = {}
 ): Promise<{ shared: boolean; ownerId: string }> {
+  // A member space runs only the trees of its Assistant conversation.
+  if (isSpaceDeviceId(deviceId) && !opts.space) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: DEVICE_NOT_SHARED_MESSAGE })
+  }
   const rows = await exec
     .select({ userId: devices.userId, sharedTeamIds: devices.sharedTeamIds })
     .from(devices)
@@ -291,10 +300,20 @@ export async function resolveSessionDeviceInTx(
   tx: Tx,
   userId: string,
   teamId: string,
-  deviceId: string
+  deviceId: string,
+  opts: { space?: boolean } = {}
 ): Promise<{ shared: boolean; ownerId: string }> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${`device-share:${deviceId}`}, 0))`)
-  return resolveSessionDevice(userId, teamId, deviceId, tx)
+  return resolveSessionDevice(userId, teamId, deviceId, tx, opts)
+}
+
+/** #EXP-2161 (member-space.json `startCases`): whether a session of the tree
+ *  `rootId` may run on `deviceId` although it is a member space: the tree is
+ *  the Assistant's conversation and its root runs there. */
+async function spaceStart(rootId: string | null, deviceId: string): Promise<{ space?: boolean }> {
+  if (!rootId || !isSpaceDeviceId(deviceId)) return {}
+  const [root] = await db.select().from(sessions).where(eq(sessions.id, rootId)).limit(1)
+  return { space: !!root && maySpaceRun(await treeRootKind(root), root.deviceId === deviceId) }
 }
 
 async function assertRepositoryInTeam(tx: Tx, teamId: string, repositoryId: string) {
@@ -1570,9 +1589,10 @@ async function messageSession(
   if (deviceId === target.deviceId && input.account !== undefined && input.account !== target.account) {
     await assertSessionAccount(target, input.account, cli)
   }
+  const space = await spaceStart(target.rootId, deviceId)
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    const device = await resolveSessionDeviceInTx(tx, userId, target.teamId, deviceId)
+    const device = await resolveSessionDeviceInTx(tx, userId, target.teamId, deviceId, space)
     const result = await continueSession(tx, {
       ended: target,
       userId,
@@ -1930,18 +1950,19 @@ async function startChild(
   // #FEED-182: profile ids are device-local — a child on ANOTHER device gets
   // a login of THAT device (the named one, or the parent's by email).
   const crossDevice = deviceId !== parent.deviceId
+  const space = await spaceStart(parent.rootId, deviceId)
   const childAccount = crossDevice
     ? await childAccountOnDevice(
         parent,
         input.cli ?? (await effectiveCli(parent)) ?? `claude`,
-        { deviceId, ownerId: (await resolveSessionDevice(userId, teamId, deviceId)).ownerId },
+        { deviceId, ownerId: (await resolveSessionDevice(userId, teamId, deviceId, db, space)).ownerId },
         input.account
       )
     : undefined
 
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
-    const device = await resolveSessionDeviceInTx(tx, userId, teamId, deviceId)
+    const device = await resolveSessionDeviceInTx(tx, userId, teamId, deviceId, space)
     // #EXP-1899: the parent's value unless the child opts out (a person may
     // also opt it back in; #FEED-302: over MCP the device owner's own tree).
     const { computerUse, raised } = await resolveComputerUseAtStart(tx, {

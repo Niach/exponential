@@ -1,3 +1,4 @@
+import { MEMBER_SPACE_COPY } from "@exp/domain-contract/member-space"
 import { TRPCError } from "@trpc/server"
 import { and, eq, isNull } from "drizzle-orm"
 import { db } from "@/db/connection"
@@ -176,7 +177,11 @@ export async function conversationInTx(
   if (groupChatAgent(agent)) return groupChatInTx(tx, agent, userId)
   const existing = await findConversation(tx, agent, userId)
   if (existing) return { session: existing, created: null }
-  const device = await resolveSessionDevice(userId, agent.teamId, agent.deviceId)
+  // #EXP-2161: an Assistant whose space ended has no device until one is picked.
+  if (agent.role === `assistant` && agent.deviceId === ``) {
+    throw new TRPCError({ code: `PRECONDITION_FAILED`, message: MEMBER_SPACE_COPY.noDevice })
+  }
+  const device = await resolveSessionDevice(userId, agent.teamId, agent.deviceId, tx, { space: agent.role === `assistant` })
   const id = crypto.randomUUID()
   const [session] = await tx
     .insert(sessions)

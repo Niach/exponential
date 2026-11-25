@@ -58,6 +58,8 @@ export interface WatchdogRun {
   offlineLong: number
   /** FEED-129: usage walls whose reset time passed, cleared this tick. */
   expired: number
+  /** #EXP-2161: member spaces that may no longer live, ended this tick. */
+  spacesEnded: number
   /** NEW-2: agent schedule firings this tick, and pruned event rows. */
   fired: number
   pruned: number
@@ -809,6 +811,11 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     // #NEW-49 (eagent watchdog.json TIME WATCHES): due `at` watches fire.
     timeWatches: await fireDueTimeWatches(now).catch((err) => {
       console.error(`[watchdog] time watches failed`, err)
+      return 0
+    }),
+    // #EXP-2161: a member space whose teams are gone ends.
+    spacesEnded: await import(`@/lib/spaces/end`).then((m) => m.endInvalidSpaces()).catch((err) => {
+      console.error(`[watchdog] member spaces failed`, err)
       return 0
     }),
     // NEW-2: the same tick fires the agents' schedules (a missed tick is

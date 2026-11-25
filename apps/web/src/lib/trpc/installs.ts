@@ -9,6 +9,10 @@
 import { teamMemberPairs } from "@/lib/auth/membership"
 import { createPublicKey, verify } from "node:crypto"
 import { z } from "zod"
+import { MEMBER_SPACE } from "@exp/domain-contract/member-space"
+import { assertOutsideSpace } from "@/lib/spaces/context"
+import { endSpacesInTx, finishEndedSpaces } from "@/lib/spaces/end"
+import { approvedSpaceInstallIds, isSpaceDeviceId, SPACE_INSTALL_KIND } from "@/lib/spaces/grant"
 import { TRPCError } from "@trpc/server"
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm"
 import { router, authedProcedure } from "@/lib/trpc"
@@ -18,7 +22,7 @@ import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import { loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
 import { dropReaderKeysInTx, ownInstall } from "@/lib/sessions/tree-keys"
 import { nudgeDevice } from "@/lib/trpc/devices"
-import { approveInstall, claimRoot, trustAnswer, waitingInstalls } from "@/lib/install-approvals"
+import { approveInstall, claimRoot, SPACE_INSTALL_REFUSAL, trustAnswer, waitingInstalls } from "@/lib/install-approvals"
 import { CLIENT_VERSION_HEADER, parseClientVersionHeader, parseVersionTuple } from "@/lib/client-version"
 
 /**
@@ -61,7 +65,8 @@ export function teamlessStarterEndpoints<T extends { appVersion: string | null }
   return rows.length > 0 && rows.every((row) => versionAtLeast(row.appVersion, floor)) ? [...rows] : []
 }
 
-export const INSTALL_KINDS = [`desktop`, `daemon`, `ios`, `android`, `web`] as const
+// #EXP-2161: `space` = a member space's daemon, through its space key only.
+export const INSTALL_KINDS = [`desktop`, `daemon`, `ios`, `android`, `web`, `space`] as const
 /** At most this many non-revoked installs per user. */
 export const MAX_INSTALLS_PER_USER = 50
 /** How old (or how far ahead) a registration's `signedAt` may be. */
@@ -97,9 +102,11 @@ export function installMessage(
   userId: string,
   endpointId: string,
   x25519Public: string,
-  signedAt: string
+  signedAt: string,
+  /** #EXP-2161: a space's install signs its own label, so it never verifies as an ordinary one. */
+  kind?: string
 ): string {
-  return `exp-install-v1\n${userId}\n${endpointId}\n${x25519Public}\n${signedAt}`
+  return `${kind === SPACE_INSTALL_KIND ? MEMBER_SPACE.registrationLabel : `exp-install-v1`}\n${userId}\n${endpointId}\n${x25519Public}\n${signedAt}`
 }
 
 /** Null when `signature` is the endpoint key's ed25519 signature over
@@ -172,14 +179,21 @@ export const installsRouter = router({
       }
       const refusal = signatureRefusal(
         input.endpointId,
-        installMessage(userId, input.endpointId, input.x25519Public, input.signedAt),
+        installMessage(userId, input.endpointId, input.x25519Public, input.signedAt, input.kind),
         input.signature
       )
       if (refusal) throw bad(refusal)
 
+      // #EXP-2161: a space's key registers its own install, nothing else
+      // registers one.
+      const space = ctx.space ?? null
+      if ((input.kind === SPACE_INSTALL_KIND) !== (space !== null) || (space && input.deviceId !== space.deviceId)) {
+        throw new TRPCError({ code: `FORBIDDEN`, message: SPACE_INSTALL_REFUSAL })
+      }
+
       let deviceRowId: string | null = null
       if (input.deviceId !== undefined) {
-        if (input.kind !== `desktop` && input.kind !== `daemon`) {
+        if (input.kind !== `desktop` && input.kind !== `daemon` && !space) {
           throw bad(`deviceId is only for desktop and daemon installs`)
         }
         const [device] = await ctx.db
@@ -196,9 +210,10 @@ export const installsRouter = router({
       const client = parseClientVersionHeader(ctx.request.headers.get(CLIENT_VERSION_HEADER))
       const fields = {
         kind: input.kind,
-        label: input.label || null,
+        // Needs you names a space by its host.
+        label: space ? space.label.slice(0, 64) : input.label || null,
         platform: input.platform || null,
-        appVersion: client && (input.kind === `desktop` || input.kind === `daemon`) ? client.version.slice(0, 32) : null,
+        appVersion: client && (input.kind === `desktop` || input.kind === `daemon` || space) ? client.version.slice(0, 32) : null,
         deviceId: deviceRowId,
         x25519Public: input.x25519Public,
         // #EXP-1950: kept, so a client re-checks the binding (`installMessage`).
@@ -211,7 +226,7 @@ export const installsRouter = router({
           // Serializes one user's registrations, so the cap holds under races.
           await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`installs:${userId}`}))`)
           const [existing] = await tx
-            .select({ id: installs.id, userId: installs.userId, revokedAt: installs.revokedAt, deviceId: installs.deviceId })
+            .select({ id: installs.id, userId: installs.userId, revokedAt: installs.revokedAt, deviceId: installs.deviceId, kind: installs.kind })
             .from(installs)
             .where(eq(installs.endpointId, input.endpointId))
             .limit(1)
@@ -221,6 +236,11 @@ export const installsRouter = router({
             }
             if (existing.revokedAt) {
               throw new TRPCError({ code: `FORBIDDEN`, message: `This install was revoked` })
+            }
+            // #EXP-2161: an ordinary install never becomes a space's (its
+            // approvals are about another key class), nor the other way.
+            if ((existing.kind === SPACE_INSTALL_KIND) !== (space !== null) || (space && existing.deviceId !== space.spaceId)) {
+              throw new TRPCError({ code: `FORBIDDEN`, message: SPACE_INSTALL_REFUSAL })
             }
             await tx
               .update(installs)
@@ -242,6 +262,17 @@ export const installsRouter = router({
           if (live.length >= MAX_INSTALLS_PER_USER) {
             throw bad(`At most ${MAX_INSTALLS_PER_USER} installs per account: revoke one first`)
           }
+          // #EXP-2161: one install per space; a fresh data directory's
+          // replaces the earlier one (and asks again).
+          if (space) {
+            const earlier = (
+              await tx.select({ id: installs.id }).from(installs).where(and(eq(installs.deviceId, space.spaceId), isNull(installs.revokedAt)))
+            ).map((install) => install.id)
+            if (earlier.length > 0) {
+              await tx.update(installs).set({ revokedAt: new Date() }).where(inArray(installs.id, earlier))
+              await dropReaderKeysInTx(tx, { installIds: earlier })
+            }
+          }
           const [row] = await tx
             .insert(installs)
             .values({ ...fields, userId, endpointId: input.endpointId })
@@ -250,7 +281,7 @@ export const installsRouter = router({
         })
         // EXP-1472: a new install reads its trees once a holder wraps their
         // keys for it; nudge the holders now instead of their next pass.
-        if (registered.fresh) void nudgeKeyHolders(ctx.db, userId).catch(() => {})
+        if (registered.fresh && !space) void nudgeKeyHolders(ctx.db, userId).catch(() => {})
         return { installId: registered.installId }
       } catch (err) {
         // Another account registered the endpoint concurrently.
@@ -276,7 +307,9 @@ export const installsRouter = router({
         .orderBy(asc(installs.createdAt))
       const machines = await machineIds(ctx.db, rows)
       return rows
-        .filter((row) => !row.revokedAt)
+        // #EXP-2161: a space's install is its member's alone; through a space,
+        // its member's own installs (the peers its daemon admits).
+        .filter((row) => !row.revokedAt && (ctx.space ? row.userId === ctx.space.userId : row.kind !== SPACE_INSTALL_KIND || row.userId === ctx.session.user.id))
         .map((row) => ({
           installId: row.id,
           userId: row.userId,
@@ -329,11 +362,14 @@ export const installsRouter = router({
               installs.deviceId,
               machines.map((machine) => machine.id)
             ),
-            inArray(installs.kind, [`desktop`, `daemon`]),
+            // #EXP-2161: a session on a space = the space's install.
+            inArray(installs.kind, isSpaceDeviceId(session.deviceId) ? [SPACE_INSTALL_KIND] : [`desktop`, `daemon`]),
             isNull(installs.revokedAt)
           )
         )
-      const live = rows.filter((row) => !row.revokedAt)
+      const unrevoked = rows.filter((row) => !row.revokedAt)
+      const approved = isSpaceDeviceId(session.deviceId) ? await approvedSpaceInstallIds(ctx.db, unrevoked.map((row) => row.id)) : null
+      const live = approved ? unrevoked.filter((row) => approved.has(row.id)) : unrevoked
       return (personal ? teamlessStarterEndpoints(live, teamlessStarterFloor) : live)
         .sort((a, b) => (b.lastSeenAt?.getTime() ?? 0) - (a.lastSeenAt?.getTime() ?? 0))
         .map((row) => ({ endpointId: row.endpointId, kind: row.kind }))
@@ -366,9 +402,9 @@ export const installsRouter = router({
 
   /** Every live install of the caller's account and its team-mates, with
    *  every approval about them (`reconcileTrust`'s input). */
-  trust: authedProcedure.input(z.object({ installId: z.string().uuid() })).query(async ({ ctx, input }) => {
+  trust: authedProcedure.input(z.object({ installId: z.string().uuid(), spaces: z.boolean().optional() })).query(async ({ ctx, input }) => {
     await ownInstall(ctx.db, ctx.session.user.id, input.installId)
-    return trustAnswer(ctx.db, ctx.session.user.id)
+    return trustAnswer(ctx.db, ctx.session.user.id, { spaces: input.spaces || !!ctx.space, ownOnly: !!ctx.space })
   }),
 
   /** A build that follows the trust rule and is not trusted yet asks once. */
@@ -396,7 +432,7 @@ export const installsRouter = router({
           .optional(),
       })
     )
-    .mutation(({ ctx, input }) => claimRoot(ctx.db, ctx.session.user.id, input)),
+    .mutation(({ ctx, input }) => (assertOutsideSpace(), claimRoot(ctx.db, ctx.session.user.id, input))),
 
   /** `approve` an own install, confirm (`reset`) or turn down (`decline`) a team-mate's new root. */
   approve: authedProcedure
@@ -404,11 +440,12 @@ export const installsRouter = router({
       z.object({
         installId: z.string().uuid(),
         subjectInstallId: z.string().uuid(),
-        kind: z.enum([`approve`, `reset`, `decline`]),
+        // #EXP-2161: `space` lets a member space's install read its Assistant.
+        kind: z.enum([`approve`, `reset`, `decline`, `space`]),
         signature: z.string().regex(SIGNATURE_RE, `base64url of 64 bytes`),
       })
     )
-    .mutation(({ ctx, input }) => approveInstall(ctx.db, ctx.session.user.id, input)),
+    .mutation(({ ctx, input }) => (assertOutsideSpace(), approveInstall(ctx.db, ctx.session.user.id, input))),
 
   /** The Needs-you source: installs waiting for this account's approval. */
   waiting: authedProcedure.query(({ ctx }) => waitingInstalls(ctx.db, ctx.session.user.id)),
@@ -418,7 +455,7 @@ export const installsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
       const [row] = await ctx.db
-        .select({ id: installs.id, revokedAt: installs.revokedAt })
+        .select({ id: installs.id, revokedAt: installs.revokedAt, kind: installs.kind, deviceId: installs.deviceId })
         .from(installs)
         .where(and(eq(installs.id, input.installId), eq(installs.userId, userId)))
         .limit(1)
@@ -426,7 +463,9 @@ export const installsRouter = router({
       // #EXP-1951 (sealed-content.json `rotation`): in the same transaction
       // its wraps go and every tree it read is due for rotation. An install
       // revoked before that rule keeps its rows until it is revoked again.
-      await ctx.db.transaction(async (tx) => {
+      const ended = await ctx.db.transaction(async (tx) => {
+        // #EXP-2161: removing a space's install ends the space.
+        const ended = row.kind === SPACE_INSTALL_KIND && row.deviceId ? await endSpacesInTx(tx, [row.deviceId], `installRemoved`) : []
         if (!row.revokedAt) {
           await tx
             .update(installs)
@@ -434,7 +473,9 @@ export const installsRouter = router({
             .where(and(eq(installs.id, row.id), eq(installs.userId, userId)))
         }
         await dropReaderKeysInTx(tx, { installIds: [row.id] })
+        return ended
       })
+      await finishEndedSpaces(ended)
       return { ok: true }
     }),
 })

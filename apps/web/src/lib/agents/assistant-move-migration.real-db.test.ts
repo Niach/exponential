@@ -35,7 +35,6 @@ import {
 } from "@exp/domain-contract/sealed-content"
 import {
   agents,
-  devices,
   installs,
   mcpServers,
   messages,
@@ -102,6 +101,17 @@ function folderBefore(): string {
   return folder
 }
 
+/** Today's triggers as that schema can take them: without #EXP-2161's, on
+ *  columns a later migration adds. */
+function triggersBefore(): string {
+  const text = readFileSync(join(OUT, `custom`, `0001_triggers.sql`), `utf8`)
+  const from = text.indexOf(`-- 16b. (#EXP-2161)`)
+  const to = text.indexOf(`-- Heal pass (idempotent, every boot): shares left`)
+  expect(from).toBeGreaterThan(0)
+  expect(to).toBeGreaterThan(from)
+  return text.slice(0, from) + text.slice(to)
+}
+
 const indexDef = async (pool: Pool) =>
   (await pool.query<{ indexdef: string }>(`SELECT indexdef FROM pg_indexes WHERE indexname = 'uniq_agents_assistant'`)).rows[0]
     ?.indexdef ?? ``
@@ -133,7 +143,7 @@ describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzl
     // The release before: every migration up to 0292, then its boot's triggers.
     await on(names.moved, async (db, pool) => {
       await migrate(db, { migrationsFolder: folderBefore() })
-      await pool.query(readFileSync(join(OUT, `custom`, `0001_triggers.sql`), `utf8`))
+      await pool.query(triggersBefore())
       expect(await applied(pool)).toBe(before)
       expect(await indexDef(pool)).toMatch(TEAM_OWNER_INDEX)
     })
@@ -212,7 +222,8 @@ describe.skipIf(!ready.ok)(`the one-Assistant-per-owner migration through drizzl
       const teamA = await team([me, mate])
       const teamB = await team([me])
       const deviceId = `dev-${id8()}`
-      await db.insert(devices).values({ userId: me, deviceId, label: `desk`, kind: `desktop`, lastSeenAt: new Date(), sharedTeamIds: [teamA] } as never)
+      // Raw: that schema has no columns a later migration adds (#EXP-2161).
+      await db.execute(sql`INSERT INTO devices (user_id, device_id, label, kind, shared_team_ids) VALUES (${me}, ${deviceId}, 'desk', 'desktop', ARRAY[${teamA}]::uuid[])`)
       const myPhone = await install(me)
       const matePhone = await install(mate)
       const [skA, skB, skB2] = [await skill(teamA, `alpha`), await skill(teamB, `beta`), await skill(teamB, `gamma`)]

@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server"
 import { createFileRoute } from "@tanstack/react-router"
-import { resolveSession } from "@/lib/auth/resolve-bearer"
+import { resolveSessionOrSpace } from "@/lib/auth/resolve-bearer"
 import { errorToResponse } from "@/lib/http-errors"
 import { getObject, toResponseBody } from "@/lib/storage"
 import {
@@ -9,6 +9,8 @@ import {
 } from "@/lib/storage/issue-attachments"
 import { verifyAttachmentToken } from "@/lib/storage/attachment-token"
 import { db } from "@/db/connection"
+import { runInSpace } from "@/lib/spaces/context"
+import { attachmentInSpace } from "@/lib/spaces/shapes"
 import { appAccessLevel } from "@/lib/apps/records-service"
 import {
   assertTeamMember,
@@ -83,7 +85,7 @@ async function getAttachment({
   // keys and session cookie/bearer — resolveSession is the shared chokepoint
   // and also downgrades auth-plugin throws to null instead of leaking them as
   // 500s.
-  const session = await resolveSession(request)
+  const { session, space } = await resolveSessionOrSpace(request)
 
   // EXP-704: a signed download token is an alternative credential, scoped to
   // exactly this attachment. MCP attachments_get mints it AFTER running its
@@ -142,7 +144,15 @@ async function getAttachment({
       throw error
     })
   if (!tokenAuthorized) {
-    await assertTeamMember(session!.user.id, attachment.teamId)
+    const member = () => assertTeamMember(session!.user.id, attachment.teamId)
+    if (space) {
+      // #EXP-2161: a space reads its teams' issue files and its own
+      // conversation's, nothing else of its member's.
+      await runInSpace(space, member)
+      if (!(await attachmentInSpace(db, space, attachment))) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Attachment not found` })
+      }
+    } else await member()
     // EXP-1291: a private session's message files are its starter's alone
     // (the ONE session visibility rule); NOT_FOUND, no existence oracle.
     if (
