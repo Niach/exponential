@@ -46,6 +46,36 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-25-desktop-cli-0-14-180-phones",
+    date: "2026-11-25",
+    title: "A wake phrase for every agent, and menus in the sidebar",
+    summary: "Desktop and CLI 0.14.180, Android 0.14.158 and iOS 0.14.146: a team agent can listen for its own wake phrase, the sidebar has the Assistant on top and a menu on every row, and a newly approved device reads a chat's older messages.",
+    body: r##"- **Wake phrases per agent**: a team agent's settings page has a Wake word switch, on every platform. Turn it on and your voice device listens for that agent's own phrase next to your Assistant's, for up to five agents, and what you say after the phrase goes to that agent. A short tone confirms each wake, and the tray's Wake word item names the phrases it listens for.
+- **Sidebar menus on the desktop**: your Assistant is the first row of the sidebar, every sidebar row has a right-click menu, the + next to the tabs starts a chat, agent, app or board in any team, and boards, apps, devices, Home, Chats, Needs you and Drafts open as tabs. See "Sidebar menus" below.
+- **Older messages on a new device**: a device you approve now also receives the keys of a chat's earlier messages, so what was written before the chat's keys last changed is readable there.
+- **No false "offline"**: an ended chat no longer says its device is offline while that device is online.
+- **Desktop**: an agent's chat stays in place while its device's daemon restarts instead of showing as ended, and a message you sent no longer shows twice for a moment when the agent wakes up.
+- **Android**: opening a chat that no longer exists says so and offers a way back instead of staying empty.
+- **iOS**: the approval notice leaves a chat as soon as the device is approved.
+- **Search on your phone**: the issue search also lists issues by meaning, and `similar:NEW-12` finds an issue's likely duplicates. See "Search finds issues by meaning" below.
+- **New phone layout**: on Android and iOS a bar docked at the bottom holds Teams, the Assistant in the centre, New and Settings. There is no active team to switch any more: the Teams tab lists every team with its boards, agents and apps.
+- **Everything from 0.14.179**: what you say in a voice call is never sent unencrypted."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_360: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-25-desktop-cli-0-14-179",
+    date: "2026-11-25",
+    title: "Spoken words in a call stay encrypted",
+    summary: "Desktop and CLI 0.14.179: what you say in a voice call is never sent unencrypted, even when its encryption is not ready.",
+    body: r##"- **Voice calls**: when the app or the daemon could not encrypt what you said in a call, it sent the words unencrypted. Now nothing leaves the device in that case.
+- **Everything from 0.14.178**: new devices need your OK, sessions start again on Windows, and cards stay encrypted."##,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_359: ChangelogEntry = ChangelogEntry {
     id: "2026-11-24-sidebar-menus",
     date: "2026-11-24",
     title: "Sidebar menus",
