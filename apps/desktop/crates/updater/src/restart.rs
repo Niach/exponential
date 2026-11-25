@@ -102,9 +102,15 @@ pub fn decide(seen: &Observed, rested: Duration, waited: Duration) -> RestartGat
 pub struct Watch {
     ready_since: Option<Instant>,
     last_working: Option<Instant>,
+    speed: u32,
 }
 
 impl Watch {
+    /// DEV: a watch whose wait passes `speed` times as fast.
+    pub fn at_speed(speed: u32) -> Self {
+        Watch { speed, ..Watch::default() }
+    }
+
     /// One tick at `now`. `ready` = an update waits for the restart; its
     /// clock starts at the first such tick and stops with it.
     pub fn tick(&mut self, now: Instant, ready: bool, seen: &Observed) -> RestartGate {

@@ -525,6 +525,7 @@ fn watch_restart(cx: &mut App, model: Entity<UpdateState>) {
 /// this process itself ([`coding::process::await_relaunch`]). gpui's restart
 /// stays the fallback, and the path everywhere else.
 pub(crate) fn relaunch(restart_path: Option<PathBuf>, cx: &mut App) {
+    log::info!("[ui] update: relaunching ({})", restart_path.as_ref().map_or("this build".to_string(), |path| path.display().to_string()));
     let exe = cfg!(target_os = "windows")
         .then(|| restart_path.clone().or_else(|| std::env::current_exe().ok()))
         .flatten();
