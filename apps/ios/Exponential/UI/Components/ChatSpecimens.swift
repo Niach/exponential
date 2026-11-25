@@ -367,7 +367,7 @@ struct ChatHeaderSpecimens: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             specimenCaption(
-                "A chat that needs you (\(Int(Chats.Shell.ChatHeader.row))px, ghost buttons, always leading)"
+                "A chat that needs you (\(Int(Chats.Shell.ChatHeader.row))px, always leading)"
             )
             ChatHeader {
                 ChatHeaderTitle(
@@ -410,7 +410,8 @@ struct ChatHeaderSpecimens: View {
                     agentColor: "#a855f7"
                 )
             } trailing: {
-                ChatHeaderGhostButton(icon: AppIcons.voiceCall, label: "Call") {}
+                HeaderCircleButton(icon: AppIcons.voiceCall, label: "Call") {}
+                HeaderCircleButton(icon: AppIcons.uiAdd, label: "New conversation") {}
                 more
             }
         }
@@ -420,7 +421,7 @@ struct ChatHeaderSpecimens: View {
     }
 
     private var more: some View {
-        ChatHeaderGhostButton(icon: AppIcons.uiMore, label: "More") {}
+        HeaderCircleButton(icon: AppIcons.uiMore, label: "More") {}
     }
 }
 

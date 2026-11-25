@@ -21,6 +21,7 @@ struct BoardPageView: View {
     // fresh one per body pass would invalidate every reader on every render.
     @State private var gettingStartedContext = GettingStartedContext()
     @State private var createBoardOpen = false
+    @State private var menuOpen = false
     @State private var chip: Chats.Shell.BoardChip = .all
     @State private var myIssues: MyIssuesViewModel?
     @State private var drafts: DraftsViewModel?
@@ -48,6 +49,17 @@ struct BoardPageView: View {
             board?.name ?? "", pushed: true,
             glyph: board.map { .icon(BoardTypeDisplay.iconName(for: $0), color: $0.color ?? "#888888") }
         )
+        // header-actions.json `board`: + = New issue, `…` = the board's menu.
+        .headerActionItems {
+            PageHeaderButton(icon: AppIcons.uiAdd, label: SidebarMenus.copy[.newIssue] ?? "", identifier: "board-new-issue") {
+                pushRoute(.issueDraft(accountId: accountId, draftId: UUID().uuidString.lowercased(), boardId: boardId))
+            }
+        } more: {
+            PageHeaderButton(icon: AppIcons.uiMore, label: "\(board?.name ?? "") actions", identifier: "board-menu") {
+                menuOpen = true
+            }
+        }
+        .background { BoardMenuHost(board: board, isPresented: $menuOpen) }
         .onAppear {
             gettingStartedContext.onCreateBoard = { createBoardOpen = true }
             // The New issue page, the share sheet and the intents default to
@@ -154,5 +166,88 @@ struct BoardPageView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 6)
         .padding(.bottom, 8)
+    }
+}
+
+/// The board header's `…` (the board's menu through `HeaderActions.menu`).
+private struct BoardMenuHost: View {
+    let board: BoardEntity?
+    @Binding var isPresented: Bool
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(TeamState.self) private var teamState
+    @Environment(SidebarTreeModel.self) private var tree
+    @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.toaster) private var toaster
+    @State private var pending: SidebarMenus.Action?
+    @State private var archiving = false
+
+    private var actions: [SidebarMenus.Action] {
+        HeaderActions.menu(
+            SidebarMenus.phoneMenu(.board, owner: board.map { tree.isOwner($0.teamId) } ?? false).map(\.rawValue)
+        ).compactMap(SidebarMenus.Action.init)
+    }
+
+    var body: some View {
+        Color.clear
+            .sheet(isPresented: $isPresented, onDismiss: run) {
+                TeamMenuSheet(
+                    title: board?.name ?? "",
+                    items: actions.enumerated().map { index, action in
+                        .init(
+                            pick: "\(index)-\(action.rawValue)", label: SidebarMenus.copy[action] ?? "",
+                            icon: SidebarMenus.icons[action].flatMap { AppIcons.conceptOrName($0) },
+                            testId: "sidebar-menu-\(action.rawValue)",
+                            destructive: SidebarMenus.destructive(.board, action), separator: action == .separator
+                        )
+                    }
+                ) { pick in
+                    pending = actions.indices.first { pick.hasPrefix("\($0)-") }.map { actions[$0] }
+                    isPresented = false
+                }
+            }
+            .background {
+                Color.clear.glassAlert(
+                    isPresented: $archiving,
+                    title: "Archive \"\(board?.name ?? "")\"?",
+                    message: "It and its issues disappear for the whole team. An owner can bring it back in team settings.",
+                    actions: [
+                        GlassAlertAction("Cancel", role: .outline, isCancel: true, id: "cancel") {},
+                        GlassAlertAction("Archive", id: "archive", action: archive),
+                    ]
+                )
+            }
+    }
+
+    private func run() {
+        guard let action = pending, let board else { return }
+        pending = nil
+        switch action {
+        case .copyLink:
+            guard let base = deps.auth.accounts.first(where: { $0.id == accountId })?.instanceUrl,
+                  let team = teamState.team(board.teamId) else { return }
+            let root = base.hasSuffix("/") ? String(base.dropLast()) : base
+            UIPasteboard.general.string = "\(root)/t/\(team.slug)/boards/\(board.slug)"
+            toaster.success(SidebarMenus.linkCopied)
+        case .settings: pushRoute(.teamSettingsSection(accountId: accountId, teamId: board.teamId, section: .boards))
+        case .archive: archiving = true
+        default: break
+        }
+    }
+
+    private func archive() {
+        guard let board else { return }
+        Task { @MainActor in
+            do {
+                try await deps.boardsApi.archive(accountId: accountId, boardId: board.id)
+                dismiss()
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "archive", thing: "the board"), description: error.trpcUserMessage
+                )
+            }
+        }
     }
 }

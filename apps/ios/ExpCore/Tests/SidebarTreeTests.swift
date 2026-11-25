@@ -129,7 +129,8 @@ final class SidebarTreeTests: XCTestCase {
             let teams = try XCTUnwrap(c["teams"] as? [[String: Any]]).map {
                 (id: try string($0, "id"), count: try XCTUnwrap($0["count"] as? Int))
             }
-            XCTAssertEqual(SidebarTree.phoneTeamsEmpty(teams), c["expected"] as? String, try string(c, "name"))
+            let name = try string(c, "name")
+            XCTAssertEqual(SidebarTree.phoneTeamsEmpty(teams), c["expected"] as? String, name)
         }
     }
 

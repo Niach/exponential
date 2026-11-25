@@ -18,7 +18,8 @@ extension View {
         modifier(PageHeaderModifier(title: title, pushed: pushed, glyph: glyph) { EmptyView() })
     }
 
-    /// A root page with its own circle before the search and inbox ones.
+    /// A root page with its own circle after the search and inbox ones
+    /// (header-actions.json).
     func pageHeader<Action: View>(_ title: String, @ViewBuilder action: () -> Action) -> some View {
         modifier(PageHeaderModifier(title: title, pushed: false, glyph: nil, action: action))
     }
@@ -75,20 +76,20 @@ private struct PageHeaderModifier<Action: View>: ViewModifier {
         } else if #available(iOS 26.0, *) {
             // Circles, not one shared capsule: a fixed spacer between them.
             titled.toolbar {
-                if Action.self != EmptyView.self {
-                    ToolbarItem(placement: .topBarTrailing) { action }
-                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
-                }
                 ToolbarItem(placement: .topBarTrailing) { PageHeaderSearchButton() }
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
                 ToolbarItem(placement: .topBarTrailing) { PageHeaderInboxButton(count: inboxUnreadCount) }
+                if Action.self != EmptyView.self {
+                    ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                    ToolbarItem(placement: .topBarTrailing) { action }
+                }
             }
         } else {
             titled.toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    action
                     PageHeaderSearchButton()
                     PageHeaderInboxButton(count: inboxUnreadCount)
+                    action
                 }
             }
         }
@@ -119,6 +120,41 @@ struct PageHeaderInboxButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel(count > 0 ? "\(Chats.Copy.inbox), \(count) unread" : Chats.Copy.inbox)
         .accessibilityIdentifier(Chats.TestIds.inboxButton)
+    }
+}
+
+/// A header's own trailing circle (header-actions.json), in a toolbar.
+struct PageHeaderButton: View {
+    let icon: String
+    let label: String
+    var identifier = ""
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) { PageHeaderGlyph(icon: icon) }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier(identifier)
+    }
+}
+
+extension View {
+    /// header-actions.json: a toolbar's + then `…`, each its own circle.
+    func headerActionItems<Add: View, More: View>(
+        @ViewBuilder add: @escaping () -> Add, @ViewBuilder more: @escaping () -> More
+    ) -> some View {
+        toolbar {
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .topBarTrailing) { add() }
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+                ToolbarItem(placement: .topBarTrailing) { more() }
+            } else {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    add()
+                    more()
+                }
+            }
+        }
     }
 }
 
