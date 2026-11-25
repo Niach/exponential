@@ -201,7 +201,10 @@ def _batches(trainer, start_step: int):
             n = per_class[name]
             if n == 0:
                 continue
-            indices = np.sort(np.arange(step * n, step * n + n) % array.shape[0])
+            if name == "ACAV100M_sample":  # 16 GB on disk: in file order
+                indices = np.sort(np.arange(step * n, step * n + n) % array.shape[0])
+            else:  # the German clips follow the English ones: mix them in every batch
+                indices = np.sort(np.random.randint(0, array.shape[0], n))
             features.append(np.asarray(array[indices]))
             labels.append(np.full(n, 1.0 if name == "positive" else 0.0, dtype=np.float32))
         features, labels = np.concatenate(features), np.concatenate(labels)

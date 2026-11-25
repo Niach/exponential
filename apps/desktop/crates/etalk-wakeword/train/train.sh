@@ -7,7 +7,8 @@
 # that order). On a shared machine (NEW-129: mint's heavy lane has a 45 min
 # hold) run them a few per call, with staged.py's cuts in place of the long
 # ones: generate-fast for generate, augment-clips + features for augment,
-# train-resume for train (checkpoints every 5,000 steps).
+# `german` (hey_claude's German clips) after
+# it, train-resume for train (checkpoints every 5,000 steps).
 #
 # Defaults: train/hey_spezl.yaml, ~/.cache/etalk-wakeword-train (any disk
 # with ~40 GB free for the 25k-sample settings: the setup step downloads livekit-wakeword's
@@ -70,6 +71,20 @@ PY
       ;;
     generate | augment | train | export | eval)
       lkww "$stage" "$work/config.yaml"
+      ;;
+    german)
+      # The German clips of hey_claude (german.py); piper-tts in an env of its own (GPL, a tool only).
+      if [ ! -x ttsenv/bin/python ]; then
+        uv venv -q --python 3.11 ttsenv && uv pip install -q --python ttsenv/bin/python piper-tts scipy
+      fi
+      mkdir -p voices
+      for voice in thorsten/medium/de_DE-thorsten-medium thorsten/high/de_DE-thorsten-high thorsten_emotional/medium/de_DE-thorsten_emotional-medium kerstin/low/de_DE-kerstin-low; do
+        for ext in onnx onnx.json; do
+          [ -f "voices/${voice##*/}.$ext" ] || curl -sSfL -o "voices/${voice##*/}.$ext" "https://huggingface.co/rhasspy/piper-voices/resolve/main/de/de_DE/$voice.$ext"
+        done
+      done
+      "$py" "$here/german.py" accent "$work/config.yaml"
+      ttsenv/bin/python "$here/german.py" voices voices output/hey_claude
       ;;
     generate-fast | augment-clips | features | train-resume)
       (cd "$work" && "$py" "$here/staged.py" "$work/config.yaml" "$stage")
