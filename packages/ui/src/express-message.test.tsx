@@ -54,7 +54,7 @@ describe(`ExpressMessage`, () => {
     expect(screen.getByTestId(`express-block`).dataset.status).toBe(`ok`)
     expect(screen.getByTestId(`surface-card`).textContent).toContain(`Build 1482 is green`)
     // #EXP-2122: the row fills the column, never its text's width.
-    expect(container.querySelector(`[data-slot="express-row"]`)).toHaveClass(`w-full`)
+    expect(container.querySelector(`[data-slot="express-row"]`)?.classList.contains(`w-full`)).toBe(true)
   })
 
   it(`a press posts the event with its block origin`, () => {
