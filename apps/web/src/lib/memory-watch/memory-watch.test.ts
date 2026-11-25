@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { MemoryAlertState, REPEAT_MS, memoryAlerts } from "./evaluate"
 import { alertRecipients, createMemoryWatch, memoryWatchEnabled, thresholdsFrom } from "./index"
+import { processHeapLine, readProcessHeap, type ProcessHeap } from "./process-heap"
 import { readMemory, type MemoryReading } from "./readings"
 
 const GB = 1024 ** 3
@@ -100,6 +101,19 @@ describe(`MemoryAlertState`, () => {
     expect(state.next(killed(4), 1)).toEqual([])
     expect(state.next(killed(5), 2).map((a) => a.key)).toEqual([`oom:aaaaaaaaaaaa`])
     expect(state.next(killed(5), 3)).toEqual([])
+  })
+})
+
+describe(`the process heap line`, () => {
+  it(`names what grew most, and is nothing outside Bun`, () => {
+    const MB = 1024 ** 2
+    const first: ProcessHeap = { rssBytes: 400 * MB, heapBytes: 100 * MB, heapCapacityBytes: 150 * MB, extraBytes: 10 * MB, committedBytes: 380 * MB, objects: 10, types: { string: 100, Response: 5, Map: 9 } }
+    const now: ProcessHeap = { ...first, rssBytes: 900 * MB, objects: 50, types: { string: 110, Response: 95, Map: 9, Socket: 3 } }
+    expect(processHeapLine(first, first)).toBe(`rss 400 MB, heap 100/150 MB, extra 10 MB, committed 380 MB, 10 objects`)
+    expect(processHeapLine(now, first)).toBe(
+      `rss 900 MB, heap 100/150 MB, extra 10 MB, committed 380 MB, 50 objects; grown: Response 95 (+90), string 110 (+10), Socket 3 (+3)`
+    )
+    expect(readProcessHeap()).toBeNull()
   })
 })
 
