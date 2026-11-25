@@ -1,3 +1,4 @@
+import { assistantWithoutDevice } from "@/lib/spaces/no-device"
 import { and, desc, eq, gt, ne, sql } from "drizzle-orm"
 import { memberChatsChanged } from "@/lib/agents/assistant-chat"
 import type { AgentTrigger, AgentTriggerState } from "@exp/db-schema/domain"
@@ -226,6 +227,8 @@ export async function fireScheduledTriggers(now: Date = new Date()): Promise<num
         const after = checkedAt > catchUpSince ? checkedAt : catchUpSince
         const at = latestCronMatch(fields, after, now, trigger.tz ?? null)
         if (!at) continue
+        // #EXP-2161: an Assistant without a device: the tick is spent.
+        if (assistantWithoutDevice(agent)) continue
         // #EXP-1829: a `run` trigger runs its app binding (no card, no fold,
         // never skipped as quiet), after the tick's transaction.
         if (trigger.run) {
@@ -325,6 +328,7 @@ export async function fireEventTriggersInTx(
   const hosts: Array<{ ownerId: string; deviceId: string } | null> = []
   const runAgents: string[] = []
   for (const agent of rows) {
+    if (assistantWithoutDevice(agent)) continue
     const listening = enabledTriggers(agent).filter((trigger) => trigger.kind === `event` && trigger.name === event.name)
     // #EXP-1829: an app agent's `run` event triggers run after the commit.
     if (listening.some((trigger) => trigger.run)) runAgents.push(agent.id)

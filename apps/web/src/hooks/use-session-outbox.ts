@@ -7,7 +7,8 @@ import {
 } from "@exp/domain-contract/message-delivery"
 import { messageCollection } from "@/lib/collections"
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
-import { SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { MEMBER_SPACE_COPY } from "@exp/domain-contract/member-space"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
 import {
   outboxFileAsFile,
@@ -172,8 +173,10 @@ async function deliver(sessionId: string, clientId: string) {
     const result = await sendSessionMessage(input, SKIP_ERROR_TOAST)
     patch(sessionId, clientId, { messageId: result.messageId, state: `sending`, uploading: false })
     await messageCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
-  } catch {
+  } catch (error) {
     patch(sessionId, clientId, { state: `failed`, uploading: false })
+    // #EXP-2161: the failed bubble keeps the text; WHY (no device) is news.
+    if (error instanceof Error && error.message === MEMBER_SPACE_COPY.noDevice) failedAction(`send`, `the message`, error)
   } finally {
     inFlight.delete(clientId)
   }

@@ -4,14 +4,14 @@
 // REAL migrated Postgres, through the real routers, the real api keys and the
 // real credential chokepoint.
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest"
-import { and, eq, inArray, isNull, like, sql } from "drizzle-orm"
+import { and, eq, inArray, like, sql } from "drizzle-orm"
 import { randomBytes } from "node:crypto"
 import { MEMBER_SPACE, MEMBER_SPACE_COPY } from "@exp/domain-contract/member-space"
 import { installX25519Of, reconcileTrust, emptyTrustStore, signApproval, signRegistration, type TrustStore } from "@exp/domain-contract/install-trust"
 import { endpointIdOf } from "@exp/domain-contract/wrap-signature"
 import { db } from "@/db/connection"
 import { apikeys } from "@/db/auth-schema"
-import { deviceCommands, devices, installs, messages, notifications, sessionKeys, sessions, teamMembers, teams } from "@/db/schema"
+import { agents, deviceCommands, devices, installs, messages, notifications, sessionKeys, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 
 process.env.BETTER_AUTH_SECRET ||= `member-spaces-test-secret-0123456789abcdef`
@@ -503,6 +503,62 @@ describe.skipIf(!ready.ok)(`#EXP-2161 member spaces`, () => {
     [`removed`, (r) => as(r.hostOwner).memberSpaces.remove({ spaceId: r.spaceId })],
     [`removed`, (r) => as(r.teamOwner).memberSpaces.remove({ spaceId: r.spaceId })],
   ]
+  const SEALED = `exp-sealed:v1:1:${randomBytes(120).toString(`base64url`)}`
+  const count = async (rootId: string) => (await db.select({ id: messages.id }).from(messages).where(eq(messages.rootId, rootId))).length
+  /** The Assistant has no device: nothing reaches it, nothing is stored. */
+  async function refusesEverything(r: Awaited<ReturnType<typeof running>>) {
+    const me = as(r.member)
+    const before = await count(r.root.id)
+    const refusal = (promise: Promise<unknown>) => promise.then(() => `ok`, (error: Error) => error.message)
+    for (const send of [
+      { agentId: r.agentId, text: `plain` },
+      { agentId: r.agentId, text: SEALED },
+      { sessionId: r.root.id, text: SEALED },
+      { parentId: r.root.id, text: `child`, deviceId: r.laptop.deviceId },
+    ]) {
+      expect(await refusal(me.sessions.send(send as never)), JSON.stringify(send)).toBe(MEMBER_SPACE_COPY.noDevice)
+    }
+    const [card] = await db
+      .insert(messages)
+      .values({ conversationId: sql`(SELECT id FROM conversations WHERE session_id = ${r.root.id})`, teamId: r.root.teamId, rootId: r.root.id, ownerId: r.member, shared: false, authorKind: `agent`, body: ``, card: { kind: `question`, question: `?`, options: [`a`] } } as never)
+      .returning({ id: messages.id })
+    expect(await refusal(me.sessions.answer({ messageId: card!.id, answer: `a` } as never))).toBe(MEMBER_SPACE_COPY.noDevice)
+    expect(await refusal(me.sessions.answer({ messageId: card!.id, dismissed: true } as never))).toBe(`ok`)
+    for (const call of [
+      me.voice.startCall({ agentId: r.agentId, platform: `web` } as never),
+      me.voice.callSession({ agentId: r.agentId }),
+    ]) {
+      expect(await refusal(call)).toBe(MEMBER_SPACE_COPY.noDevice)
+    }
+    // Its schedules are spent, not piled up.
+    const { fireScheduledTriggers } = await import(`@/lib/agents/triggers`)
+    const past = new Date(Date.now() - 10 * 60_000).toISOString()
+    await db
+      .update(agents)
+      .set({ triggers: [{ kind: `schedule`, id: `t1`, cron: `* * * * *`, enabled: true }] as never, triggerState: { t1: { checkedAt: past } } as never })
+      .where(eq(agents.id, r.agentId))
+    await fireScheduledTriggers()
+    const [agent] = await db.select().from(agents).where(eq(agents.id, r.agentId))
+    expect(agent!.triggerState.t1!.checkedAt! > past).toBe(true)
+    expect(agent!.triggerState.t1!.firedAt).toBeUndefined()
+    await db.update(agents).set({ triggers: [] }).where(eq(agents.id, r.agentId))
+    expect(await count(r.root.id)).toBe(before + 1)
+  }
+
+  it(`after the end a new team device starts clean: the old chat keeps what it held`, async () => {
+    const r = await running({ key: false })
+    await as(r.member).sessions.send({ agentId: r.agentId, text: `unread` } as never)
+    await as(r.hostOwner).memberSpaces.remove({ spaceId: r.spaceId })
+    const held = await count(r.root.id)
+    const { deviceId } = await as(r.member).memberSpaces.request({ deviceId: r.host.deviceId, teamId: r.teamId })
+    expect(await session(r.root.id)).toMatchObject({ status: `ended`, agentId: null })
+    const { sessionId } = await as(r.member).sessions.send({ agentId: r.agentId, text: `fresh` } as never)
+    expect(sessionId).not.toBe(r.root.id)
+    expect(await session(sessionId)).toMatchObject({ deviceId, status: `queued` })
+    expect(await count(sessionId)).toBe(1)
+    expect(await count(r.root.id)).toBe(held)
+  })
+
   async function leave(owner: string, teamId: string, userId: string) {
     const [membership] = await db.select().from(teamMembers).where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
     return as(owner).teamMembers.remove({ memberId: membership!.id } as never)
@@ -542,11 +598,14 @@ describe.skipIf(!ready.ok)(`#EXP-2161 member spaces`, () => {
       if (cause !== `deviceRemoved` && at !== 7) expect(nudges).toContain(`${r.hostOwner}:${r.host.deviceId}`)
       // Idempotent.
       expect(await db.transaction((tx) => endSpacesInTx(tx, [r.spaceId], `removed`))).toEqual([])
-      if (silent || cause === `unshared`) return
+      if (silent) return
       expect(await as(r.member).memberSpaces.mine()).toEqual({ space: null, ended: true })
-      await db.insert(messages).values({ conversationId: sql`(SELECT id FROM conversations WHERE session_id = ${r.root.id})`, teamId: r.root.teamId, rootId: r.root.id, ownerId: r.member, shared: false, authorKind: `user`, authorId: r.member, body: `still here` } as never)
-      const [queued] = await db.select().from(messages).where(and(eq(messages.rootId, r.root.id), eq(messages.body, `still here`), isNull(messages.consumedAt)))
-      expect(queued).toBeTruthy()
+      await refusesEverything(r)
+      // An own device: the same conversation goes on.
+      await as(r.member).agents.update({ id: r.agentId, deviceId: r.laptop.deviceId })
+      expect(await session(r.root.id)).toMatchObject({ agentId: r.agentId, deviceId: r.laptop.deviceId, status: `queued` })
+      const { sessionId } = await as(r.member).sessions.send({ agentId: r.agentId, text: SEALED } as never)
+      expect(sessionId).toBe(r.root.id)
     })
   }
 
