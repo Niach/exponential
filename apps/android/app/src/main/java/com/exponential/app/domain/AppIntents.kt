@@ -41,7 +41,7 @@ object AppIntents {
         val ids = boards.map { it.id }.toSet()
         if (pickedId != null && pickedId in ids) return pickedId
         if (lastBoardId != null && lastBoardId in ids) return lastBoardId
-        return boards.sortedBy { it.sortOrder }.firstOrNull()?.id
+        return boards.minWithOrNull(compareBy({ it.sortOrder }, { it.id }))?.id
     }
 
     /** The agent a spoken name means: exact, then prefix, in agent order. */
