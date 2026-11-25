@@ -33,13 +33,6 @@
 #   EXP_FAKE_CLAUDE_HANGS  with EXP_FAKE_CLAUDE_SPAWNS (a counter file): the
 #                          first N spawns answer NOTHING, not even
 #                          `initialize` (#FEED-253: the CLI wedged at startup)
-#   EXP_FAKE_CLAUDE_PRESSURE with EXP_CGROUP_ROOT (a fake cgroup2 root): a
-#                          hanging spawn first builds, under that root, its
-#                          OWN cgroup path (wherever it runs: a run scope of
-#                          its own on a systemd host) with the parent slice
-#                          over its memory.high and a sibling scope holding
-#                          most of it, and writes the slice's name to
-#                          EXP_FAKE_CLAUDE_PRESSURE (#FEED-306)
 set -u
 
 dir="${EXP_FAKE_CLAUDE_DIR:?EXP_FAKE_CLAUDE_DIR is required}"
@@ -47,22 +40,6 @@ dir="${EXP_FAKE_CLAUDE_DIR:?EXP_FAKE_CLAUDE_DIR is required}"
 if [ -n "${EXP_FAKE_CLAUDE_HANGS:-}" ] && [ -n "${EXP_FAKE_CLAUDE_SPAWNS:-}" ]; then
     echo spawn >> "$EXP_FAKE_CLAUDE_SPAWNS"
     if [ "$(wc -l < "$EXP_FAKE_CLAUDE_SPAWNS")" -le "$EXP_FAKE_CLAUDE_HANGS" ]; then
-        if [ -n "${EXP_FAKE_CLAUDE_PRESSURE:-}" ] && [ -n "${EXP_CGROUP_ROOT:-}" ]; then
-            own=$(sed -n 's/^0:://p' "/proc/$$/cgroup" 2>/dev/null)
-            slice=${own%/*}
-            if [ -n "$own" ] && [ -n "${slice#/}" ]; then
-                calm='some avg10=0.00 avg60=0.00 avg300=0.00 total=0
-full avg10=0.00 avg60=0.00 avg300=0.00 total=0'
-                for entry in "$slice 17609365913 17179869184" "$own 52428800 max" "$slice/run-exp-hog.scope 13529146982 max"; do
-                    set -- $entry
-                    mkdir -p "$EXP_CGROUP_ROOT$1"
-                    echo "$2" > "$EXP_CGROUP_ROOT$1/memory.current"
-                    echo "$3" > "$EXP_CGROUP_ROOT$1/memory.high"
-                    echo "$calm" > "$EXP_CGROUP_ROOT$1/memory.pressure"
-                done
-                echo "${slice##*/}" > "$EXP_FAKE_CLAUDE_PRESSURE"
-            fi
-        fi
         # Swallow stdin, say nothing, until stopped.
         while IFS= read -r _; do :; done
         sleep 30
