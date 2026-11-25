@@ -1,7 +1,8 @@
 //! #EDE-107 headless: a sealed prompt (polkit, consent, share: an Exclusive
 //! layer of `exponential-sealed`) that opens while a window is fullscreen is
 //! the one layer drawn above that window, and it takes the keyboard and the
-//! click. Every other layer stays hidden under fullscreen (#EDE-103).
+//! click. #EDE-225: so are the shell's switcher, Expo, Scale and OSD. Every
+//! other layer stays hidden under fullscreen (#EDE-103).
 
 mod common;
 
@@ -336,4 +337,99 @@ fn with_two_outputs_only_the_prompts_output_shows_it() {
     }
     click(&h, 640.0, 400.0);
     wait_for(&mut sealed, |c| c.state.press_serial.is_some());
+}
+
+/// A layer of the shell (the test's own process standing in for it while
+/// the surface maps: a layer's origin is decided once, then).
+fn shell_layer(h: &Harness, s: &mut Session, namespace: &str, on: Layer, anchor: Anchor, size: (u32, u32)) -> common::Layer {
+    let pid = std::process::id();
+    h.with(move |ede| ede.shell_stand_in = Some(pid));
+    let l = layer_on(s, namespace, on, None, anchor, size, KeyboardInteractivity::None);
+    h.with(|ede| ede.shell_stand_in = None);
+    l
+}
+
+/// #EDE-225: the shell's Alt-Tab switcher, Expo, Scale and the OSD are
+/// drawn above a fullscreen window (a game) and get their frame callbacks
+/// at the refresh rate; its toasts stay hidden and slow. The switcher's
+/// tiles take the pointer.
+#[test]
+fn the_shells_switcher_expo_scale_and_osd_show_above_a_fullscreen_window_and_toasts_do_not() {
+    let h = harness(1);
+    let mut game = Session::connect(h.connect());
+    let _game_pointer = game.pointer();
+    let _t = fullscreen_window(&h, &mut game, "game", RED, 0);
+
+    let mut shell = Session::connect(h.connect());
+    let _shell_pointer = shell.pointer();
+    let toast = shell_layer(&h, &mut shell, "exponential-shell:notifications", Layer::Top, Anchor::Top | Anchor::Right, (300, 80));
+    shell.draw_layer(&toast, YELLOW);
+    for namespace in ede_protocol::ABOVE_FULLSCREEN_NAMESPACES {
+        // Centred, 200×100: (540, 350) to (740, 450).
+        let l = shell_layer(&h, &mut shell, namespace, Layer::Overlay, Anchor::empty(), (200, 100));
+        shell.draw_layer(&l, GREEN);
+        wait_for(&mut shell, |_| h.capture(0).at(640, 400) == GREEN);
+        let frame = h.capture(0);
+        assert_eq!((frame.at(540, 350), frame.at(739, 449)), (GREEN, GREEN), "{namespace}: the whole overlay");
+        assert_eq!((frame.at(539, 400), frame.at(100, 100)), (RED, RED), "{namespace}: the fullscreen window around it");
+        assert_eq!(frame.at(1100, 40), RED, "a toast is drawn above a fullscreen window");
+        let frames = shell.count_frames(&l.surface, Duration::from_millis(500));
+        assert!(frames >= 10, "{namespace} above a fullscreen window gets one frame callback per refresh: {frames}");
+        if namespace == "exponential-shell:switcher" {
+            click(&h, 640.0, 400.0);
+            wait_for(&mut shell, |c| c.state.press_serial.is_some());
+            game.state.press_serial = None;
+            game.roundtrip();
+            assert_eq!(game.state.press_serial, None, "the fullscreen window took the switcher's click");
+            shell.state.press_serial = None;
+        }
+        close_layer(&mut shell, l);
+        wait_for(&mut shell, |_| h.capture(0).at(640, 400) == RED);
+    }
+    let frames = shell.count_frames(&toast.surface, Duration::from_millis(500));
+    assert!(frames <= 2, "a hidden toast gets its frames at the hidden rate: {frames}");
+}
+
+/// #EDE-225: the namespace alone is not enough: another client's layer
+/// named as the shell's switcher stays hidden under a fullscreen window.
+#[test]
+fn another_clients_layer_named_as_the_switcher_stays_hidden_under_fullscreen() {
+    let h = harness(1);
+    let mut game = Session::connect(h.connect());
+    let _t = fullscreen_window(&h, &mut game, "game", RED, 0);
+    let mut other = Session::connect(h.connect());
+    let l = layer_on(&mut other, "exponential-shell:switcher", Layer::Overlay, None, Anchor::empty(), (200, 100), KeyboardInteractivity::None);
+    other.draw_layer(&l, BLUE);
+    for _ in 0..20 {
+        std::thread::sleep(Duration::from_millis(10));
+        other.roundtrip();
+    }
+    assert_eq!(h.capture(0).at(640, 400), RED, "an impostor switcher is drawn above a fullscreen window");
+}
+
+/// #EDE-225: a switcher the shell opens without naming an output lands on
+/// the output of the focused window, not on the first output; a toast
+/// still goes to the first one.
+#[test]
+fn the_switcher_opens_on_the_output_of_the_focused_window() {
+    let h = harness(2);
+    let mut app = Session::connect(h.connect());
+    // A window on the second output (new windows open where the pointer is).
+    h.with(|ede| ede.pointer_motion_to((1280.0 + 640.0, 400.0).into(), 0));
+    let t = app.toplevel("files");
+    app.draw(&t, 400, 300, RED);
+    wait_for(&mut app, |_| h.capture(1).at(640, 400) == RED);
+    // The pointer goes back to the first output: the focus is what counts.
+    h.with(|ede| ede.pointer_motion_to((640.0, 400.0).into(), 0));
+
+    let mut shell = Session::connect(h.connect());
+    let switcher = shell_layer(&h, &mut shell, "exponential-shell:switcher", Layer::Overlay, Anchor::empty(), (200, 100));
+    shell.draw_layer(&switcher, GREEN);
+    wait_for(&mut shell, |_| h.capture(1).at(640, 400) == GREEN);
+    assert_ne!(h.capture(0).at(640, 400), GREEN, "the switcher is on the first output too");
+
+    let toast = shell_layer(&h, &mut shell, "exponential-shell:notifications", Layer::Top, Anchor::Top | Anchor::Left, (100, 50));
+    shell.draw_layer(&toast, BLUE);
+    wait_for(&mut shell, |_| h.capture(0).at(50, 25) == BLUE);
+    assert_ne!(h.capture(1).at(50, 25), BLUE);
 }

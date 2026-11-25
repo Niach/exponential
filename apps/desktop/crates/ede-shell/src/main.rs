@@ -343,6 +343,9 @@ struct Shell {
     locked: bool,
     /// The first person output's x, y, width, height (a fullscreen window over it covers the view).
     first_output: Option<(i32, i32, i32, i32)>,
+    /// #EDE-225: every person output's x, y, width, height: the switcher
+    /// opens on the one with the focused window.
+    person_outputs: Vec<(i32, i32, i32, i32)>,
     /// #EXP-2024: when each layer document last opened (a counter): a later
     /// top layer lies above an earlier one.
     layers_opened: HashMap<String, u64>,
@@ -1723,6 +1726,29 @@ fn output_size(shell: &Shell) -> (u32, u32) {
         .unwrap_or((1280, 720))
 }
 
+/// The person outputs' x, y, width, height.
+fn person_outputs(outputs: &[ede_protocol::OutputInfo]) -> Vec<(i32, i32, i32, i32)> {
+    outputs.iter().filter(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height)).collect()
+}
+
+/// #EDE-225: the output most of `window` is on, as the compositor picks the
+/// output a shell overlay that names none opens on.
+fn output_of(outputs: &[(i32, i32, i32, i32)], window: &ede_protocol::WindowInfo) -> Option<(i32, i32, i32, i32)> {
+    let overlap = |&(x, y, w, h): &(i32, i32, i32, i32)| {
+        let width = (x + w).min(window.x + window.width) - x.max(window.x);
+        let height = (y + h).min(window.y + window.height) - y.max(window.y);
+        if width > 0 && height > 0 { width as i64 * height as i64 } else { 0 }
+    };
+    outputs.iter().copied().filter(|o| overlap(o) > 0).max_by_key(overlap)
+}
+
+/// #EDE-225: the logical size of the output the switcher opens on: the
+/// focused window's, else the first.
+fn focused_output_size(shell: &Shell) -> (u32, u32) {
+    let focused = shell.windows.iter().find(|w| w.focused && w.is_persons() && !w.minimized);
+    focused.and_then(|w| output_of(&shell.person_outputs, w)).filter(|o| o.2 > 0 && o.3 > 0).map(|o| (o.2 as u32, o.3 as u32)).unwrap_or_else(|| output_size(shell))
+}
+
 /// A stretched axis (anchored to both of its edges) sized to the output,
 /// since the window takes the size it asks for; the sidebar the rail's
 /// width and exclusive zone (`shell-layout.json`), standing on the taskbar
@@ -1730,9 +1756,10 @@ fn output_size(shell: &Shell) -> (u32, u32) {
 fn header_for(shell: &Shell, doc: &Document) -> SurfaceHeader {
     let out = output_size(shell);
     let mut header = layer_header(doc, out);
-    // The Alt-Tab popup hugs its tiles (#EDE-65).
+    // The Alt-Tab popup hugs its tiles (#EDE-65), capped at the output it
+    // opens on (#EDE-225: the focused window's).
     if let (true, SurfaceHeader::Layer { size, .. }) = (doc.name == "switcher", &mut header) {
-        size.width = Some(switcher_width(uicore_model::alt_tab_order(&shell.model).len(), out.0));
+        size.width = Some(switcher_width(uicore_model::alt_tab_order(&shell.model).len(), focused_output_size(shell).0));
     }
     // #EXP-2024: the pinned view is sized by the display and its space (spaces.json).
     if let (true, SurfaceHeader::Layer { size, .. }) = (doc.name == spaces::VIEW, &mut header) {
@@ -3890,6 +3917,7 @@ fn outputs_refresh(shell: &SharedShell) {
     let outputs = with_ede(shell, |ede| ede.outputs()).unwrap_or_default();
     let mut s = shell.borrow_mut();
     s.first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
+    s.person_outputs = person_outputs(&outputs);
     s.feed.set("/outputs", Value::Array(settings::outputs_json(&outputs)));
 }
 
@@ -4280,6 +4308,7 @@ fn main() {
             spaces: demo_spaces.as_deref().map(spaces::Spaces::demo).unwrap_or_default(),
             locked: false,
             first_output: None,
+            person_outputs: Vec::new(),
             layers_opened: HashMap::new(),
             osd_until: None,
             popups_opened: HashMap::new(),
@@ -4370,7 +4399,9 @@ fn main() {
         } else {
             // #EDE-168: the output the taskbar's popups measure their room on.
             let outputs = with_ede(&shell, |ede| ede.outputs()).unwrap_or_default();
-            shell.borrow_mut().first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
+            let mut s = shell.borrow_mut();
+            s.first_output = outputs.iter().find(|o| o.is_persons()).map(|o| (o.x, o.y, o.width, o.height));
+            s.person_outputs = person_outputs(&outputs);
         }
         // #EXP-2024: the spaces' feeds at the first display's size.
         spaces_feed(&shell);
@@ -5086,6 +5117,23 @@ mod switcher {
         assert_eq!(switcher_width(3, 1920), 2 * 16 + 3 * 208 + 2 * 8);
         assert_eq!(switcher_width(0, 1920), switcher_width(1, 1920));
         assert_eq!(switcher_width(40, 1280), 1280 - 32);
+    }
+
+    /// #EDE-225: the switcher opens on the output with most of the focused
+    /// window, as the compositor places it, and is sized to that one.
+    #[test]
+    fn the_switcher_is_sized_to_the_focused_windows_output() {
+        let outputs = [(0, 0, 1920, 1080), (1920, 0, 1280, 800)];
+        let window = |x: i32, width: i32| ede_protocol::WindowInfo { id: ede_protocol::WindowId::new("w").unwrap(), title: None, app_id: None, x, y: 100, width, height: 600, focused: true, fullscreen: false, protected: false, x11: false, workspace: 0, minimized: false, space: None };
+        assert_eq!(output_of(&outputs, &window(100, 800)), Some(outputs[0]));
+        assert_eq!(output_of(&outputs, &window(1920, 1280)), Some(outputs[1]));
+        // Across the edge: where most of it is.
+        assert_eq!(output_of(&outputs, &window(1800, 800)), Some(outputs[1]));
+        assert_eq!(output_of(&outputs, &window(-5000, 800)), None);
+        // The shell's overlays are named as the compositor lets them above a fullscreen window.
+        for name in ["switcher", "expo", "scale", "osd"] {
+            assert!(ede_protocol::ABOVE_FULLSCREEN_NAMESPACES.contains(&uicore_gpui::layer_namespace(&uicore_gpui::LayerShellHost::default().namespace, name).as_str()), "{name}");
+        }
     }
 }
 

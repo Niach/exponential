@@ -100,6 +100,10 @@ pub struct LayerOrigin {
     /// [`ede_protocol::SPACE_VIEW_NAMESPACE`] from `exponential-shell`): black
     /// in captures of the person's output, as a sealed surface is.
     pub space_view: bool,
+    /// #EDE-225: one of the shell's overlays a fullscreen window does not
+    /// hide ([`ede_protocol::ABOVE_FULLSCREEN_NAMESPACES`] from
+    /// `exponential-shell`): the switcher, Expo, Scale, the OSD.
+    pub shell_overlay: bool,
 }
 
 #[derive(Debug)]
@@ -178,19 +182,22 @@ pub fn is_shell(ede: &Ede, client: &Client) -> bool {
 }
 
 pub fn origin_of(ede: &Ede, surface: &WlSurface, namespace: &str) -> LayerOrigin {
-    let Ok(client) = ede.display_handle.get_client(surface.id()) else { return LayerOrigin { pid: 0, sealed: false, space_view: false } };
+    let Ok(client) = ede.display_handle.get_client(surface.id()) else { return LayerOrigin { pid: 0, sealed: false, space_view: false, shell_overlay: false } };
     let pid = client_pid(&ede.display_handle, &client);
     // Consent and the share chooser (the shell's and the portal's) still
     // connect by the socket. #EDE-172 (P5'): the consent prompt the
     // compositor spawned is known by its pid, as the lock is.
     let sealed = made_for(&client) == Some(Kind::Sealed) || (pid != 0 && (ede.sealed_stand_in == Some(pid) || ede.consent_prompt_pid() == Some(pid))) || is_installed(ede, &client, crate::peer::SEALED);
     // Only the shell's own view hides: another client naming the namespace stays in captures.
-    let space_view = namespace == ede_protocol::SPACE_VIEW_NAMESPACE && is_shell(ede, &client);
-    LayerOrigin { pid, sealed, space_view }
+    let shell = is_shell(ede, &client);
+    let space_view = namespace == ede_protocol::SPACE_VIEW_NAMESPACE && shell;
+    // #EDE-225: and only the shell's overlays show above a fullscreen window.
+    let shell_overlay = ede_protocol::ABOVE_FULLSCREEN_NAMESPACES.contains(&namespace) && shell;
+    LayerOrigin { pid, sealed, space_view, shell_overlay }
 }
 
 pub fn layer_origin(layer: &LayerSurface) -> LayerOrigin {
-    layer.user_data().get::<LayerOrigin>().copied().unwrap_or(LayerOrigin { pid: 0, sealed: false, space_view: false })
+    layer.user_data().get::<LayerOrigin>().copied().unwrap_or(LayerOrigin { pid: 0, sealed: false, space_view: false, shell_overlay: false })
 }
 
 impl Ede {

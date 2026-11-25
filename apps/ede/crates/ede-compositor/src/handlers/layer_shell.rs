@@ -51,6 +51,17 @@ pub(crate) fn is_sealed_prompt(layer: &LayerSurface) -> bool {
         && smithay::backend::renderer::utils::with_renderer_surface_state(layer.wl_surface(), |s| s.buffer().is_some()).unwrap_or(false)
 }
 
+/// #EDE-225: what a fullscreen window does not hide: a sealed prompt
+/// (above everything), and the shell's switcher, Expo, Scale and OSD
+/// (Danny's pick; its toasts stay hidden) once they drew. Drawn above the
+/// window at the refresh rate, and the press on them is theirs.
+pub(crate) fn is_above_fullscreen(layer: &LayerSurface) -> bool {
+    is_sealed_prompt(layer)
+        || (crate::sealed::layer_origin(layer).shell_overlay
+            && matches!(layer.layer(), Layer::Top | Layer::Overlay)
+            && smithay::backend::renderer::utils::with_renderer_surface_state(layer.wl_surface(), |s| s.buffer().is_some()).unwrap_or(false))
+}
+
 fn root_of(surface: &WlSurface) -> WlSurface {
     let mut root = surface.clone();
     while let Some(parent) = get_parent(&root) {
@@ -147,12 +158,15 @@ impl WlrLayerShellHandler for Ede {
     }
 
     fn new_layer_surface(&mut self, surface: WlrLayerSurface, wl_output: Option<wl_output::WlOutput>, _layer: Layer, namespace: String) {
-        let Some(output) = wl_output.as_ref().and_then(Output::from_resource).or_else(|| self.desk.space.outputs().next().cloned()) else {
+        let origin = crate::sealed::origin_of(self, surface.wl_surface(), &namespace);
+        // #EDE-225: a shell overlay (Alt-Tab) that names no output opens
+        // where the person works: the output of the focused window.
+        let focused = || origin.shell_overlay.then(|| self.focused_window(DeskId::PERSON)).flatten().and_then(|w| crate::backend::primary_output(self, &w));
+        let Some(output) = wl_output.as_ref().and_then(Output::from_resource).or_else(focused).or_else(|| self.desk.space.outputs().next().cloned()) else {
             // No output yet: nothing can show it.
             surface.send_close();
             return;
         };
-        let origin = crate::sealed::origin_of(self, surface.wl_surface(), &namespace);
         let layer = LayerSurface::new(surface, namespace);
         layer.user_data().insert_if_missing(|| origin);
         let mut map = layer_map_for_output(&output);

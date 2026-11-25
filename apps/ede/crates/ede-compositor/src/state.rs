@@ -32,7 +32,10 @@ use smithay::{
 use crate::{
     config::Config,
     desk::{on_person, DeskId},
-    handlers::{input_method::on_person_input_method, layer_shell::is_sealed_prompt},
+    handlers::{
+        input_method::on_person_input_method,
+        layer_shell::{is_above_fullscreen, is_sealed_prompt},
+    },
     layout::{self, Rect, Tile},
 };
 
@@ -535,8 +538,11 @@ impl Ede {
         if let Some(window) = self.fullscreen_on(output) {
             // #EDE-103: the output draws only that window (and its popups):
             // nothing hidden behind it takes the pointer. #EDE-107: but a
-            // sealed prompt, drawn above it.
-            let prompt = sealed_prompt_under(&layer_map_for_output(output), output_geo.loc, pos);
+            // sealed prompt, drawn above it; #EDE-225: and the shell's
+            // overlays under that (the switcher's tiles).
+            let layers = layer_map_for_output(output);
+            let prompt = sealed_prompt_under(&layers, output_geo.loc, pos, is_sealed_prompt).or_else(|| sealed_prompt_under(&layers, output_geo.loc, pos, is_above_fullscreen));
+            drop(layers);
             if prompt.is_some() {
                 return prompt;
             }
@@ -908,10 +914,11 @@ fn layer_surface_under(layers: &LayerMap, origin: Point<i32, Logical>, layer: Wl
     })
 }
 
-/// The topmost sealed prompt ([`is_sealed_prompt`]) under `pos`, or its
-/// popup: what a fullscreen window does not hide (#EDE-107).
-fn sealed_prompt_under(layers: &LayerMap, origin: Point<i32, Logical>, pos: Point<f64, Logical>) -> Option<(WlSurface, Point<f64, Logical>)> {
-    layers.layers().rev().filter(|l| is_sealed_prompt(l)).find_map(|l| {
+/// The topmost layer `which` picks under `pos` (a sealed prompt, a shell
+/// overlay), or its popup: what a fullscreen window does not hide
+/// (#EDE-107, #EDE-225).
+fn sealed_prompt_under(layers: &LayerMap, origin: Point<i32, Logical>, pos: Point<f64, Logical>, which: fn(&smithay::desktop::LayerSurface) -> bool) -> Option<(WlSurface, Point<f64, Logical>)> {
+    layers.layers().rev().filter(|l| which(l)).find_map(|l| {
         let loc = layers.layer_geometry(l)?.loc + origin;
         l.surface_under(pos - loc.to_f64(), WindowSurfaceType::ALL).map(|(s, p)| (s, (p + loc).to_f64()))
     })
