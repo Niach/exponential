@@ -33,3 +33,8 @@ ENV RUSTC_WRAPPER=sccache \
     SCCACHE_DIR=/home/runner/.cache/sccache \
     SCCACHE_CACHE_SIZE=15G \
     CARGO_INCREMENTAL=0
+
+# #EXP-2150: between jobs the runner's disk goes back (job-cleanup.sh).
+COPY job-cleanup.sh job-started.sh job-completed.sh /opt/exp-runner/
+ENV ACTIONS_RUNNER_HOOK_JOB_STARTED=/opt/exp-runner/job-started.sh \
+    ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/opt/exp-runner/job-completed.sh

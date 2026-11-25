@@ -23,6 +23,8 @@ export LANE_SWEEP_CLI="$root/no-sweep"
 # subshell, `(VAR=x; fn …)`, never `VAR=x fn …`: before a FUNCTION, sh keeps
 # the assignment afterwards, and macOS's sh (bash 3.2) exports it to every
 # later lane.sh too.
+# #EXP-2150: nor does the machine's own free disk decide a check.
+export LANE_MIN_FREE_GB=0
 fails=0
 ok() { echo "ok - $1"; }
 no() { echo "not ok - $1"; fails=$((fails + 1)); }
@@ -342,6 +344,35 @@ if running "$job" || running "$child"; then no "a TERM to lane.sh ends its job's
 grep -q "$(printf 'lane\t%s' "$tdlane")" "$root/manifests/$sess" 2>/dev/null && no "lane.sh drops its manifest line at its end" || ok "lane.sh drops its manifest line at its end"
 [ ! -e "$root/exp-perf-heavy-1" ] && ok "a terminated run releases its slot" || no "a terminated run releases its slot"
 unset EXP_SESSION_MANIFEST_DIR
+
+# #EXP-2150: a heavy or emulator job is refused on a nearly full disk, before
+# the command, and the slot is freed; the simulator lane never is.
+# A lock root of its own: the checks above leave hand-taken locks behind.
+EXP_LANE_LOCK_ROOT="$root/disk"
+mkdir -p "$EXP_LANE_LOCK_ROOT"
+disk_lane() { ( LANE_MIN_FREE_GB=$1; LANE_FREE_GB=$2; export LANE_MIN_FREE_GB LANE_FREE_GB; "$here/lane.sh" "$3" disk -- touch "$root/disk.ran" 2>"$root/disk.err" ); }
+for l in heavy android; do
+  rm -f "$root/disk.ran"
+  disk_lane 30 29 "$l"; rc=$?
+  [ "$rc" -eq 75 ] && [ ! -e "$root/disk.ran" ] && grep -q "REFUSED: 29 GB free, below 30 GB" "$root/disk.err" && ok "$l: refused below the floor" || no "$l: refused below the floor (rc $rc)"
+  [ ! -d "$(lane_lock_dir "$l")" ] && ok "$l: a refused job frees its slot" || no "$l: a refused job frees its slot"
+  disk_lane 30 30 "$l"; rc=$?
+  [ "$rc" -eq 0 ] && [ -e "$root/disk.ran" ] && ok "$l: runs at the floor" || no "$l: runs at the floor (rc $rc)"
+done
+rm -f "$root/disk.ran"; disk_lane 30 1 ios && [ -e "$root/disk.ran" ] && ok "ios: never refused" || no "ios: never refused"
+rm -f "$root/disk.ran"; disk_lane 0 1 heavy && [ -e "$root/disk.ran" ] && ok "LANE_MIN_FREE_GB=0: never refused" || no "LANE_MIN_FREE_GB=0: never refused"
+
+# #EXP-2150: a private target the job creates is listed for its session; one
+# that exists already (someone else's) and the shared target are not.
+mkdir -p "$root/mine/target-there" "$root/home"
+for t in "$root/mine/new-target" "$root/mine/target-there" "$root/home/.cache/exp-abcd1234/target" "$root/home/.cache/other/target"; do
+  ( EXP_SESSION_MANIFEST_DIR="$root/manifests"; EXP_MCP_SESSION_ID=tgt; HOME="$root/home"; CARGO_TARGET_DIR=$t; TMPDIR="$root/mine"
+    export EXP_SESSION_MANIFEST_DIR EXP_MCP_SESSION_ID HOME CARGO_TARGET_DIR TMPDIR
+    "$here/lane.sh" heavy tgt -- true 2>/dev/null )
+done
+m=$(cat "$root/manifests/tgt" 2>/dev/null)
+case "$m" in *"dir	$root/home/.cache/exp-abcd1234/target"*) ok "a private target is listed in the session's manifest" ;; *) no "a private target is listed in the session's manifest ($m)" ;; esac
+case "$m" in *target-there*) no "an existing target is not listed" ;; *) ok "an existing target is not listed" ;; esac
 
 # Gradle daemons don't outlive their session (#EXP-1844): an idle timeout
 # well under the 3 h default.
