@@ -18,8 +18,11 @@ HTTP, one of two credentials:
   `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported`
   includes `none`), and every authorization passes the consent page that
   writes the grant (`lib/auth/mcp-authorize-guard.ts`, `lib/emcp/scope.ts`).
-  Client ID Metadata Documents are NOT served yet (NEW-24, not in the
-  2026-11-24 batch).
+  A client may instead name itself by the https URL of its metadata document
+  (CIMD, `client_id_metadata_document_supported`, NEW-141): the document is
+  fetched through `lib/auth/client-metadata-fetch.ts` (public addresses only,
+  pinned, no redirects), the consent page names the client with the host that
+  serves it, and `MCP_CIMD_ENABLED=false` turns it off. Registering stays.
 
 Five noun tools carry an MCP Apps binding (`_meta.ui.resourceUri`, the stable
 `io.modelcontextprotocol/ui` extension, protocol 2026-01-26) to one of FOUR
@@ -306,7 +309,7 @@ our `openai/ui` entrypoint). What ChatGPT adds is distribution and auth:
   from plugin-kit: the same skill and the same MCP entry as the Claude plugin,
   no hooks, no UI code.
 - Auth: ChatGPT requires OAuth 2.1 with PKCE and prefers CIMD over DCR; our
-  server passes with DCR today and gains CIMD with INT-14.
+  server takes both (NEW-141).
 - Codex draws no MCP Apps today, so the bundle gives Codex users text tools
   and the playbook; ChatGPT users get the HTML views from the same bundle.
 
