@@ -77,6 +77,10 @@ object NeedsYou {
         /** #EXP-1710: when the opener session's device went offline (wire
          *  timestamp), null while online or unknown. */
         val deviceOfflineSince: String? = null,
+        /** Its team's merge mode and whether the viewer owns that team, when
+         *  the read spans teams (null = the fold's own arguments). */
+        val mergeMode: String? = null,
+        val owner: Boolean? = null,
     )
 
     // ── output ─────────────────────────────────────────────────────────────
@@ -198,7 +202,7 @@ object NeedsYou {
                 holdReason = pr.holdReason,
                 deviceOfflineSince = pr.deviceOfflineSince,
                 nowMs = now,
-                owner = owner,
+                owner = pr.owner ?: owner,
             ) ?: return@mapNotNull null
             Row(
                 messageId = pr.id,
@@ -299,11 +303,9 @@ object NeedsYou {
         }
         val stuck = stuckRows(now, me, owner, sessions, pullRequests, group)
         val stuckIds = stuck.mapTo(HashSet()) { it.messageId }
-        val ready = if (mergeMode == MergeTrain.MODE_AUTO) {
-            emptyList()
-        } else {
-            pullRequestRows(now, me, sessions, pullRequests, group).filter { it.messageId !in stuckIds }
-        }
+        val auto = pullRequests.filter { (it.mergeMode ?: mergeMode) == MergeTrain.MODE_AUTO }.mapTo(HashSet()) { it.id }
+        val ready = pullRequestRows(now, me, sessions, pullRequests, group)
+            .filter { it.messageId !in stuckIds && it.messageId !in auto }
         return (rows.values + stuck + ready)
             .sortedWith(compareBy<Row> { it.kind == Kind.Pr }.thenByDescending { ms(it.createdAt) }.thenByDescending { it.messageId })
     }

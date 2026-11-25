@@ -144,8 +144,8 @@ fun TeamsScreen(
     viewModel: TeamsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val needsYou by chats.needsYouByTeam.collectAsStateWithLifecycle()
-    val agentRows by chats.agentRows.collectAsStateWithLifecycle()
+    val needsYou by chats.needsYou.collectAsStateWithLifecycle()
+    val rowBadges by chats.rowBadges.collectAsStateWithLifecycle()
     val list by chats.chatList.collectAsStateWithLifecycle()
     val conversations by chats.conversations.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
@@ -158,10 +158,8 @@ fun TeamsScreen(
     var archiving by remember { mutableStateOf<BoardEntity?>(null) }
     var menuFor by remember { mutableStateOf<TeamTreeRow?>(null) }
 
-    val badges = remember(agentRows, list) {
-        agentRows.associate { it.agentId to NavBadges.rowBadge(it.unreadCount, it.needsYou) } +
-            list.rows.associate { it.sessionId to NavBadges.rowBadge(it.unreadCount, it.needsYou) }
-    }
+    val shares = remember(needsYou) { needsYou.counts(installs = 0).teams }
+    val badgeOf = leafBadges(rowBadges, conversations)
     val marks = remember(list) {
         list.rows.associate { it.sessionId to SessionTree.chatRowMarkState(it.needsYou, it.busy) }
     }
@@ -246,8 +244,8 @@ fun TeamsScreen(
                     )
                     state.rows.isNotEmpty() -> TeamsTree(
                         state = state,
-                        needsYou = needsYou,
-                        badges = badges,
+                        needsYou = shares,
+                        badgeOf = badgeOf,
                         marks = marks,
                         onOpen = open,
                         onMenu = { row ->
@@ -324,12 +322,18 @@ fun TeamsScreen(
     }
 }
 
+/** A leaf's `rowBadge`: a placed chat's, an agent's by its [conversations]. */
+internal fun leafBadges(
+    rowBadges: Map<String, NavBadges.Badge>,
+    conversations: Map<String, String>,
+): (leafId: String) -> NavBadges.Badge = { id -> rowBadges[conversations[id] ?: id] ?: NavBadges.NONE }
+
 /** The active account's tree: one glass group, no hairlines, tree guides. */
 @Composable
 private fun TeamsTree(
     state: TeamsState,
     needsYou: Map<String, Int>,
-    badges: Map<String, NavBadges.Badge>,
+    badgeOf: (leafId: String) -> NavBadges.Badge,
     marks: Map<String, SessionTree.SessionState?>,
     onOpen: (TeamTreeRow) -> Unit,
     onMenu: (TeamTreeRow) -> Unit,
@@ -357,7 +361,7 @@ private fun TeamsTree(
                     trailing = {
                         when {
                             row.row.kind == SidebarTree.ROW_TEAM -> {
-                                CountBadge(needsYou[row.team.id] ?: 0, NavBadges.Tone.Attention, testTag = "team-row-badge")
+                                CountBadge(state.groupBadge(row.row, needsYou, badgeOf), testTag = "team-row-badge")
                                 // header-actions.json `rows.team`: + then `…`.
                                 MenuAnchor(groups = { newMenu(row) }) { open ->
                                     CircleIconButton(
@@ -379,8 +383,11 @@ private fun TeamsTree(
                                 }
                                 FoldChevron(row, showCount = false)
                             }
-                            row.group -> FoldChevron(row, showCount = true)
-                            else -> CountBadge(badges[row.row.id] ?: NavBadges.NONE, testTag = "team-item-badge")
+                            row.group -> {
+                                CountBadge(state.groupBadge(row.row, needsYou, badgeOf), testTag = "team-folder-badge")
+                                FoldChevron(row, showCount = true)
+                            }
+                            else -> CountBadge(badgeOf(row.row.id), testTag = "team-item-badge")
                         }
                     },
                     mark = marks[row.row.id],

@@ -1675,8 +1675,8 @@
         "file": "shots/chats/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 52812,
-        "sha256": "ebdf4c560db084fc918fccc7ae194902701e1c0e36e1cc8a629964b41fa85ede"
+        "bytes": 52862,
+        "sha256": "22cff050d0004d323eae04bc572607778c1254ae7425778d9bdec7bdf9f40e19"
       },
       "desktop": {
         "file": "shots/chats/desktop.webp",
@@ -2172,8 +2172,8 @@
         "file": "shots/ede-chat/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 21804,
-        "sha256": "684784dadddcbcdb1117e6262d42654383fda192fb8ca852d92639aa1fb67a26"
+        "bytes": 21720,
+        "sha256": "0e2403b262cfb68b322b7d49611b91f8fe283ac6ce085ffe9e604d64abc616db"
       }
     },
     "ede-connect": {
@@ -2253,8 +2253,8 @@
         "file": "shots/ede-panel-menu/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 21452,
-        "sha256": "93e0e983d0795490a77724f729ea08ee58fac3b2277a266eddd091144c1aa5b4"
+        "bytes": 21306,
+        "sha256": "1acb272782de4acce4f58d8d32f7ef51f0db497ffd6d89d2fb75bbd03c9f3620"
       }
     },
     "ede-scale": {
@@ -2271,8 +2271,8 @@
         "file": "shots/ede-settings/ede.webp",
         "width": 1280,
         "height": 720,
-        "bytes": 20866,
-        "sha256": "2f84b04406b424cbb275e17a93def19dc4c7ebe7ac28f4a7e54cf7a4e81b5fa2"
+        "bytes": 20818,
+        "sha256": "9ed8807241dbd7c7399a498afdc4c5bded669b47004c5899e392413032d520be"
       }
     },
     "ede-settings-share": {
@@ -6458,8 +6458,8 @@
         "file": "shots/phone-tab-bar/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 31200,
-        "sha256": "997f94aca5c40b43f760c9edfa76fca2dd556c3b264d506533b31d5c4e5c7c7d"
+        "bytes": 32568,
+        "sha256": "5c01bf9728fd7016dc0580a425d556a19efba15a9db45d2d755f12ba246a5813"
       },
       "desktop": {
         "file": "shots/phone-tab-bar/desktop.webp",
@@ -8197,8 +8197,8 @@
         "file": "shots/teams/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 40602,
-        "sha256": "f725b6f78d4cbb76063bee0efae10febfb7f5635cb7d78f1374e22ab497a7f35"
+        "bytes": 40312,
+        "sha256": "76333ed16a9a5642e52ad52666a9d134482f2dd748b9a413ecff27f64b4c8715"
       },
       "ios": {
         "file": "shots/teams/ios.webp",

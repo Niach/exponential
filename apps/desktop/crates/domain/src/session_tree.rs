@@ -2531,7 +2531,7 @@ pub struct ChatsListRow {
     pub device_id: Option<String>,
     pub busy: bool,
     pub needs_you: bool,
-    /// EXP-1323: bold title (the tree's newest agent message is newer than
+    /// EXP-1323: bold title (the root's newest agent message is newer than
     /// the viewer's read of the root).
     #[serde(default)]
     pub unread: bool,
@@ -2652,18 +2652,17 @@ pub fn chat_list_rows(input: ChatsListInput<'_>) -> Vec<(ChatsListKey, ChatsList
         .iter()
         .map(|read| (read.session_id.as_str(), ms_or_zero(read.read_at.as_deref())))
         .collect();
-    let root_of: HashMap<&str, &str> =
-        input.sessions.iter().map(|session| (session.id.as_str(), session.root_id_or_self())).collect();
-    let mut newest_agent_in_tree: HashMap<&str, i64> = HashMap::new();
+    // Exactly chats.json `unread_count` > 0 (event cards excluded): the Chats
+    // badge never counts a row that shows none.
+    let mut newest_agent: HashMap<&str, i64> = HashMap::new();
     for message in input.messages {
-        if message.author_kind.as_deref() != Some(MESSAGE_AUTHOR_KIND_AGENT) {
+        let event = message.card.as_ref().and_then(|card| card.get("kind")).and_then(Value::as_str) == Some("event");
+        if message.author_kind.as_deref() != Some(MESSAGE_AUTHOR_KIND_AGENT) || event {
             continue;
         }
         let at = ms_or_zero(message.created_at.as_deref());
-        if let Some(root) = root_of.get(message.session_id.as_str()) {
-            let tree = newest_agent_in_tree.entry(root).or_insert(at);
-            *tree = (*tree).max(at);
-        }
+        let newest = newest_agent.entry(message.session_id.as_str()).or_insert(at);
+        *newest = (*newest).max(at);
     }
     let unread_at = |newest: Option<&i64>, session_id: &str| {
         newest.is_some_and(|newest| *newest > read_at.get(session_id).copied().unwrap_or(-1))
@@ -2716,7 +2715,7 @@ pub fn chat_list_rows(input: ChatsListInput<'_>) -> Vec<(ChatsListKey, ChatsList
             device_id: root.device_id.clone(),
             busy: live.iter().any(|session| session.busy),
             needs_you,
-            unread: unread_at(newest_agent_in_tree.get(root.id.as_str()), &root.id),
+            unread: unread_at(newest_agent.get(root.id.as_str()), &root.id),
             activity_at: activity,
             wall: tree_wall(tree),
             // #NEW-49: the root's own wait (its live children by title,
@@ -2727,7 +2726,7 @@ pub fn chat_list_rows(input: ChatsListInput<'_>) -> Vec<(ChatsListKey, ChatsList
         };
         // #EXP-1461 (owner 2026-10-30: 'we don't wanna see all the nested
         // child sessions, only the root ones'): a row is a ROOT, never a
-        // child; the tree's state (needs you, working, unread) rolls up into it.
+        // child; the tree's state (needs you, working) rolls up into it.
         out.push((key, row));
     }
     out
@@ -3097,7 +3096,7 @@ pub fn list_agents(
                 icon: agent.icon.clone().unwrap_or_else(|| defaults.icon.clone()),
                 color: agent.color.clone().unwrap_or_else(|| defaults.color.clone()),
                 busy: live && conversation.is_some_and(|session| session.busy),
-                needs_you: live && conversation.is_some_and(|session| session.needs_input),
+                needs_you: conversation.is_some_and(session_asks),
                 assistant: agent.is_assistant(),
                 group_chat_id: agent.group_chat_id.clone(),
             }

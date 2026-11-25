@@ -17134,6 +17134,82 @@
           "status": "failed"
         }
       }
+    },
+    {
+      "name": "AvatarBadge/example",
+      "node": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AvatarBadge/size=sm",
+      "node": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "sm"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AvatarBadge/size=default",
+      "node": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "default"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AvatarBadge/size=lg",
+      "node": {
+        "id": "avatar_badge",
+        "component": "AvatarBadge",
+        "props": {
+          "size": "lg"
+        },
+        "children": [
+          {
+            "id": "avatar_badge_child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
     }
   ]
 }

@@ -11,6 +11,8 @@ const h = vi.hoisted(() => ({
   navigate: vi.fn(),
   scope: undefined as readonly string[] | undefined,
   chats: { count: 0, tone: `muted` } as { count: number; tone: `attention` | `muted` },
+  teamsTab: { count: 0, tone: `muted` } as { count: number; tone: `attention` | `muted` },
+  assistant: { count: 0, tone: `muted` } as { count: number; tone: `attention` | `muted` },
   boards: [] as unknown[],
   last: null as { teamSlug: string; boardSlug?: string } | null,
   bulk: false,
@@ -37,7 +39,9 @@ vi.mock(`@/hooks/use-nav-counts`, () => ({
     h.scope = teamIds
     return h.chats
   },
+  useTeamsTabBadge: () => h.teamsTab,
 }))
+vi.mock(`@/hooks/use-sidebar-assistant`, () => ({ useSidebarAssistant: () => ({ badge: h.assistant }) }))
 vi.mock(`@/components/home/use-member-teams`, () => ({
   useMemberTeams: () => ({
     teams: [
@@ -102,6 +106,14 @@ describe(`MobileTabBar`, () => {
     render(<MobileTabBar />)
     expect(h.scope).toEqual([`t1`, `t2`])
     expect(screen.getByTestId(IDS.tabChats).textContent).toContain(`3`)
+  })
+
+  it(`badges the Assistant's disc and Teams (nav-badges.json)`, () => {
+    h.assistant = { count: 2, tone: `muted` }
+    h.teamsTab = { count: 120, tone: `attention` }
+    render(<MobileTabBar />)
+    expect(screen.getByTestId(IDS.tabAssistant).textContent).toBe(`2`)
+    expect(screen.getByTestId(IDS.tabTeams).textContent).toContain(`99+`)
   })
 
   it(`New opens the popup: Chat opens the composer, Issue a draft on the target board`, () => {

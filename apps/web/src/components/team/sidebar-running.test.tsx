@@ -138,7 +138,7 @@ describe(`SidebarRunningSection`, () => {
     ).toBe(`Alex's MacBook Pro`)
     expect(rows[1].querySelector(`[data-slot="session-row-device"]`)).toBeNull()
     // #EXP-2027: every row wears its team's mark, trailing.
-    expect(rows[1].closest(`li`)?.querySelector(`[data-testid="running-team-mark"]`)?.getAttribute(`title`)).toBe(`Acme`)
+    expect(rows[1].closest(`li`)?.querySelector(`[data-slot="team-corner"]`)?.getAttribute(`title`)).toBe(`Acme`)
     expect(screen.queryByText(`Fix flaky scroll`)).toBeNull()
     // The needs-you chat wears the yellow badge.
     expect(rows[0].querySelector(`[data-slot="run-mark"]`)?.getAttribute(`data-state`)).toBe(

@@ -1,11 +1,13 @@
 package com.exponential.app.data.push
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationChannelGroup
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.os.Build
+import android.service.notification.StatusBarNotification
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -38,6 +40,8 @@ object PushNotifier {
         post: Post,
         contentIntent: PendingIntent,
         actions: List<NotificationCompat.Action> = emptyList(),
+        /** The app icon's number ([AppIconBadge]); 0 = none. */
+        number: Int = 0,
     ) {
         val channel = ensureChannel(context, post.channel)
         val builder = NotificationCompat.Builder(context, channel)
@@ -59,6 +63,7 @@ object PushNotifier {
             .setContentIntent(contentIntent)
             .setGroup(post.thread)
             .setGroupSummary(true)
+            .setNumber(number)
             .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
             .addExtras(PushThreads.extras(null, post.thread, post.teamId).apply { putBoolean(PushThreads.EXTRA_SUMMARY, true) })
             .build()
@@ -66,9 +71,40 @@ object PushNotifier {
             val manager = NotificationManagerCompat.from(context)
             manager.notify(post.thread, post.id, builder.build())
             manager.notify(post.thread, PushThreads.SUMMARY_ID, summary)
+            setNumber(context, number, post.thread)
         } catch (err: SecurityException) {
             // POST_NOTIFICATIONS not granted — drop silently.
             Log.w(TAG, "notify denied: ${err.message}")
+        }
+    }
+
+    private fun summaries(context: Context): List<StatusBarNotification> {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return emptyList()
+        return runCatching { manager.activeNotifications.toList() }.getOrDefault(emptyList())
+            .filter { it.notification.extras.getBoolean(PushThreads.EXTRA_SUMMARY) }
+    }
+
+    fun hasSummary(context: Context): Boolean = summaries(context).isNotEmpty()
+
+    /**
+     * The launcher adds the numbers of an app's notifications up, so ONE
+     * summary carries [number] ([thread]'s, else the one that has it, else the
+     * newest) and the others none; a summary whose number stands is left alone.
+     */
+    fun setNumber(context: Context, number: Int, thread: String? = null) {
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        val all = summaries(context)
+        val carrier = all.firstOrNull { thread != null && it.tag == thread }
+            ?: all.firstOrNull { it.notification.number > 0 }
+            ?: all.maxByOrNull { it.postTime }
+        for (sbn in all) {
+            val next = if (sbn.key == carrier?.key) number else 0
+            // [post] already drew its own summary with the number.
+            if (sbn.notification.number == next || (thread != null && sbn.tag == thread)) continue
+            runCatching {
+                val rebuilt = Notification.Builder.recoverBuilder(context, sbn.notification).setNumber(next).setOnlyAlertOnce(true).build()
+                manager.notify(sbn.tag, sbn.id, rebuilt)
+            }
         }
     }
 

@@ -29,6 +29,7 @@ class FcmService : FirebaseMessagingService() {
     @Inject lateinit var liveActivities: LiveActivityNotifier
     @Inject lateinit var inApp: InAppNotifications
     @Inject lateinit var databaseHolder: DatabaseHolder
+    @Inject lateinit var appIconBadge: AppIconBadge
 
     override fun onNewToken(token: String) {
         Log.i(TAG, "FCM token rotated")
@@ -78,6 +79,7 @@ class FcmService : FirebaseMessagingService() {
         // shows NOTHING.
         if (payload.data["type"] == NotificationDelivery.Keys.DISMISS_TYPE) {
             PushNotifier.dismiss(this, payload.data)
+            appIconBadge.refresh()
             return
         }
         // #VAPP-45: a question push carries its tree-sealed text; opened
@@ -191,6 +193,7 @@ class FcmService : FirebaseMessagingService() {
             ),
             contentIntent = pendingIntent,
             actions = actionViews,
+            number = runBlocking { appIconBadge.count() },
         )
     }
 
