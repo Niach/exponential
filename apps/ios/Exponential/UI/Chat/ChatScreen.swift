@@ -1654,6 +1654,7 @@ struct ChatComposer: View {
               sessionId.isEmpty || sessionId == root?.id
         else { return nil }
         return ComposerTeamsBinding(
+            owner: .assistant,
             teams: teams,
             picked: teamsPicked,
             onChange: { teamsDraft.pick($0) }

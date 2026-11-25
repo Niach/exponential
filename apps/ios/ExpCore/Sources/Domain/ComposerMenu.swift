@@ -307,6 +307,24 @@ public enum ComposerMenu {
         return rest.isEmpty ? nil : nextTeamsPick(rest, teams: teams)
     }
 
+    /// Who the pick belongs to: the Assistant, a plain root (`own` = its own
+    /// team), or Home's plain chat.
+    public enum TeamPickOwner: Equatable, Sendable {
+        case assistant
+        case root(own: String)
+        case home
+    }
+
+    /// #EXP-2122 (`removableCases`, TS `removableTeamChips`): the chips with
+    /// an ×: never one that could only widen a plain chat's pick.
+    public static func removableTeamChips(owner: TeamPickOwner, chips: [String]) -> [String] {
+        switch owner {
+        case .assistant: chips
+        case .root(let own): chips.filter { $0 != own }
+        case .home: chips.count == 1 ? [] : chips
+        }
+    }
+
     /// #EXP-2122 (`plainCases`, TS `plainTeamsPick`): a plain root's pick: its
     /// own team always, the others from the composer's `picked` (nil =
     /// untouched: the stored ones). `scope` = the next send's `scopeTeamIds`

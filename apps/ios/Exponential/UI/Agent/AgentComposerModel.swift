@@ -453,6 +453,7 @@ final class AgentComposerModel {
     var teamsPick: ComposerTeamsBinding? {
         if crossTeam, agentId == nil {
             return ComposerTeamsBinding(
+                owner: .home,
                 teams: ComposerTeamsBinding.teams(teamRows),
                 picked: plainPicked,
                 onChange: { [weak self] next in
@@ -466,6 +467,7 @@ final class AgentComposerModel {
               AgentSettings.isMyAssistant(agent, me: deps.auth.userId)
         else { return nil }
         return ComposerTeamsBinding(
+            owner: .assistant,
             teams: ComposerTeamsBinding.teams(teamRows),
             picked: teamsPicked,
             onChange: { [weak self] next in self?.teamsPicked = next }

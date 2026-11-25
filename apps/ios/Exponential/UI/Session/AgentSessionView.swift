@@ -3182,6 +3182,7 @@ struct AgentSessionView: View {
               AgentSettings.isMyAssistant(transcriptRows?.agent, me: deps.auth.userId)
         else { return nil }
         return ComposerTeamsBinding(
+            owner: .assistant,
             teams: teams,
             picked: teamsPicked,
             onChange: { teamsDraft.pick($0) }

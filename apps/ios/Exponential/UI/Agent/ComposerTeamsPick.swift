@@ -17,9 +17,14 @@ struct ComposerTeamsBinding {
     /// The next send's `scopeTeamIds`; nil = left out (#EXP-2122: a plain
     /// chat's unchanged pick).
     let scope: TeamsScope?
+    let owner: ComposerMenu.TeamPickOwner
 
     /// The Assistant's (and Home's) pick: every send carries it.
-    init(teams: [ComposerMenu.PickTeam], picked: [String]?, onChange: @escaping ([String]?) -> Void) {
+    init(
+        owner: ComposerMenu.TeamPickOwner, teams: [ComposerMenu.PickTeam], picked: [String]?,
+        onChange: @escaping ([String]?) -> Void
+    ) {
+        self.owner = owner
         self.teams = teams
         self.picked = picked
         self.onChange = onChange
@@ -40,6 +45,7 @@ struct ComposerTeamsBinding {
         let pick = ComposerMenu.plainTeamsPick(
             own: own, stored: root.scopeTeamIds, picked: draft.picked(stored: root.scopeTeamIds), teams: teams
         )
+        owner = .root(own: own)
         self.teams = teams
         picked = pick.shown
         scope = pick.scope
@@ -95,9 +101,10 @@ struct TeamsPickChips: View {
 
     var body: some View {
         let chips = ComposerMenu.teamsPickChips(binding.picked, teams: binding.teams)
+        let removable = ComposerMenu.removableTeamChips(owner: binding.owner, chips: chips.map(\.id))
         if !chips.isEmpty {
             FlowLayout(spacing: 8, lineSpacing: 6) {
-                ForEach(chips) { team in chip(team) }
+                ForEach(chips) { team in chip(team, removable: removable.contains(team.id)) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .contain)
@@ -105,7 +112,7 @@ struct TeamsPickChips: View {
         }
     }
 
-    private func chip(_ team: ComposerMenu.PickTeam) -> some View {
+    private func chip(_ team: ComposerMenu.PickTeam, removable: Bool) -> some View {
         GlassPill(
             team.name,
             mode: .readonly,
@@ -114,23 +121,27 @@ struct TeamsPickChips: View {
                     .foregroundStyle(.white)
             },
             trailing: {
-                AppIcon(AppIcons.uiClose, size: 10)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                if removable {
+                    AppIcon(AppIcons.uiClose, size: 10)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
             }
         )
         .overlay(alignment: .trailing) {
             // A readonly pill takes no hits: the ✕'s 28pt button sits over it.
-            Button {
-                binding.onChange(ComposerMenu.removingTeamChip(team.id, picked: binding.picked, teams: binding.teams))
-            } label: {
-                Color.clear
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
+            if removable {
+                Button {
+                    binding.onChange(ComposerMenu.removingTeamChip(team.id, picked: binding.picked, teams: binding.teams))
+                } label: {
+                    Color.clear
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(disabled)
+                .accessibilityLabel("Remove \(team.name)")
+                .accessibilityIdentifier("agent-composer-chip-team-\(team.id)-remove")
             }
-            .buttonStyle(.plain)
-            .disabled(disabled)
-            .accessibilityLabel("Remove \(team.name)")
-            .accessibilityIdentifier("agent-composer-chip-team-\(team.id)-remove")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-composer-chip-team-\(team.id)")

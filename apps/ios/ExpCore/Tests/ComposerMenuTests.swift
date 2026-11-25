@@ -188,6 +188,28 @@ final class ComposerMenuTests: XCTestCase {
         }
     }
 
+    /// #EXP-2122: `teamsPick.removableCases`, the chips with an ×.
+    func testRemovableTeamChipsReplaysEveryCase() throws {
+        let block = try XCTUnwrap(try fixture()["teamsPick"] as? [String: Any])
+        let cases = try XCTUnwrap(block["removableCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for testCase in cases {
+            let name = try XCTUnwrap(testCase["name"] as? String)
+            let owner: ComposerMenu.TeamPickOwner
+            switch try XCTUnwrap(testCase["kind"] as? String) {
+            case "assistant": owner = .assistant
+            case "root": owner = .root(own: try XCTUnwrap(testCase["own"] as? String))
+            case "home": owner = .home
+            case let kind: return XCTFail("\(name): unknown kind \(kind)")
+            }
+            XCTAssertEqual(
+                ComposerMenu.removableTeamChips(owner: owner, chips: try XCTUnwrap(testCase["chips"] as? [String])),
+                testCase["expected"] as? [String],
+                name
+            )
+        }
+    }
+
     /// #EXP-1715: every team (or none) stores as nil; chips only on a subset.
     func testTeamsPickNextAndChips() {
         let teams = [
