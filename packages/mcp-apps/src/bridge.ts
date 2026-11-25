@@ -5,6 +5,7 @@
 //
 //   view → host  ui/initialize (request), ui/notifications/initialized,
 //                tools/call (request), ui/open-link (request), ui/message,
+//                ui/update-model-context (request, #NEW-141),
 //                ui/notifications/size-changed,
 //                ui/request-display-mode (request, #VAPP-292)
 //   host → view  ui/notifications/tool-input, ui/notifications/tool-result,
@@ -74,6 +75,7 @@ type Message = {
 
 export class AppBridge {
   private nextId = 1
+  private modelContext = false
   private pending = new Map<number | string, Pending>()
   private readonly target: Window
   private readonly onMessage: (event: MessageEvent) => void
@@ -96,7 +98,8 @@ export class AppBridge {
       appInfo: { name: `Exponential`, version: `1.0.0` },
       appCapabilities: { availableDisplayModes: VIEW_DISPLAY_MODES },
       protocolVersion: MCP_APPS_PROTOCOL_VERSION,
-    })) as { hostContext?: HostContext } | undefined
+    })) as { hostContext?: HostContext; hostCapabilities?: { updateModelContext?: unknown } } | undefined
+    this.modelContext = Boolean(result?.hostCapabilities?.updateModelContext)
     this.notify(`ui/notifications/initialized`, {})
     return result?.hostContext ?? {}
   }
@@ -137,6 +140,16 @@ export class AppBridge {
     return this.request(`ui/message`, {
       role: `user`,
       content: [{ type: `text`, text }],
+    })
+  }
+
+  /** #NEW-141: what the person has open, for the model's next turn; each call
+   *  replaces the last, null clears it. Only a host that takes it is asked. */
+  updateModelContext(context: { title: string; text: string } | null): void {
+    if (!this.modelContext) return
+    const content = context ? [{ type: `text`, text: context.text, _meta: { "openai/title": context.title } }] : []
+    void this.request(`ui/update-model-context`, { content }).catch(() => {
+      // A refusal leaves the conversation without it.
     })
   }
 
