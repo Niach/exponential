@@ -1362,7 +1362,11 @@ The dry run's `electric` block is the exact figure for an instance.
 
 The Exponential-signed samples were re-signed over their format 6 content: `EXP_APP_TEMPLATES_SEED=… bun scripts/a2ui10-migrate.ts --apply --files ../../samples/apps/*.app.json` (without the seed it writes nothing).
 
-### 14.2 The converter
+### 14.2 The converter (migration only)
+
+Not an SDK export: `@exponential_app/eui`, `eui-core`, the FFI and the wasm
+have no 0.9 code. §14.2 and §14.3 specify the two private copies the
+migrations of §14.1 use.
 
 The converter is pure and exists in two mirrors: TS
 `apps/web/src/lib/apps/a2ui10-migrate/upgrade09.ts` and Rust
