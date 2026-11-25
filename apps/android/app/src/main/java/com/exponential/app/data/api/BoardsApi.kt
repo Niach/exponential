@@ -198,6 +198,10 @@ class BoardsApi @Inject constructor(
             outputSerializer = ListSerializer(PutAwayBoard.serializer()),
         )
 
+    /** `boards.archive` (owner-only). */
+    suspend fun archive(accountId: String, boardId: String) =
+        trpc.mutationUnit(accountId, path = "boards.archive", input = PutAwayBoardInput(boardId), inputSerializer = PutAwayBoardInput.serializer())
+
     /** `boards.unarchive` (owner-only). */
     suspend fun unarchive(accountId: String, boardId: String) =
         trpc.mutationUnit(accountId, path = "boards.unarchive", input = PutAwayBoardInput(boardId), inputSerializer = PutAwayBoardInput.serializer())

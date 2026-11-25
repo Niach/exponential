@@ -1,5 +1,8 @@
 package com.exponential.app.ui.settings
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.Voice
 import androidx.compose.ui.platform.testTag
@@ -21,13 +24,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,8 +66,6 @@ import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.ui.components.DangerZoneSection
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
@@ -532,19 +531,14 @@ fun ServerDetailScreen(
     var showRemoveConfirm by remember { mutableStateOf(false) }
     var showDeleteAccountConfirm by remember { mutableStateOf(false) }
 
-    Scaffold(
+    PinnedScaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { TopBarTitle("Account") },
-                navigationIcon = {
-                    TopBarBackButton(onClick = onBack)
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = Color.Transparent,
-                ),
+            PageHeader(
+                title = "Account",
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
-        containerColor = Color.Transparent,
     ) { padding ->
         Column(
             modifier = Modifier

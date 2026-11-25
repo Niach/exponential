@@ -71,6 +71,7 @@ import com.exponential.app.ui.styleguide.RecordFormFieldStatesSpecimenScreen
 import com.exponential.app.ui.styleguide.RecordFormFieldStatesSpecimenTestId
 import com.exponential.app.ui.styleguide.ChatCardsScreen
 import com.exponential.app.domain.Chats
+import com.exponential.app.domain.SidebarTree
 import com.exponential.app.ui.teams.TeamsTestIds
 import com.exponential.app.ui.styleguide.ChatListSpecimenScreen
 import com.exponential.app.ui.styleguide.ChatListSpecimenTestId
@@ -183,7 +184,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_app-record-undo · sg_app-csv-import · sg_app-settings-links · sg_app-settings-automations ·
  *   sg_app-events (#EXP-1850) ·
  *   sg_device-attention · sg_os-live-activity · sg_os-live-activity-island · sg_os-notification-actions ·
- *   sg_teams · sg_team · sg_assistant-tab · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
+ *   sg_teams · sg_teams-menu · sg_assistant-tab · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
  *   sg_session-synced-tail · sg_chat-results · sg_plan-page · sg_needs-you · sg_results-tab ·
@@ -558,15 +559,20 @@ class StyleguideScreenshotsTest {
             flow.settle()
         }
 
-        // --- sg_teams / sg_team / sg_assistant-tab (#EXP-2109): the Teams tab's
-        // root, the team's mixed list, the Assistant's conversation as a tab.
+        // --- sg_teams* / sg_assistant-tab (#EXP-2109): the Teams tab's one tree
+        // (open, a board's menu), the Assistant's conversation as a tab.
         step("teams") {
-            openTeamsRoot()
-            flow.screenshot("sg_teams")
             openTeamPage()
-            flow.waitFor(hasText(EMPTY_BOARD_NAME), SYNC_TIMEOUT)
+            unfoldAll()
+            composeRule.onAllNodes(hasTestTag(TeamsTestIds.TEAM_ROW)).onFirst().performScrollTo()
             flow.settle()
-            flow.screenshot("sg_team")
+            flow.screenshot("sg_teams")
+            composeRule.onNode(hasText(TEAM_BOARD_NAME) and isTeamsItem()).performTouchInput { longClick() }
+            flow.waitFor(hasTestTag("team-row-menu"), NAV_TIMEOUT)
+            flow.settle(longer = true)
+            flow.screenshot("sg_teams-menu")
+            Espresso.pressBack()
+            flow.waitForGone(hasTestTag("team-row-menu"), NAV_TIMEOUT)
         }
         step("assistant-tab") {
             composeRule.onNode(hasTestTag(Chats.TestIds.TAB_ASSISTANT)).performClick()
@@ -731,7 +737,8 @@ class StyleguideScreenshotsTest {
         // addresses it without a tag. Gate on a real hit — an unseeded
         // backend would render "No issues match".
         step("search") {
-            openBoardRoot()
+            // The root pages wear Search (header-actions.json), a board does not.
+            openTeamsRoot()
             composeRule.onNode(hasTestTag(Chats.TestIds.SEARCH_BUTTON)).performClick()
             // EXP-1649: no "Search" title any more (web-mobile's header):
             // the field itself is the gate.
@@ -742,7 +749,7 @@ class StyleguideScreenshotsTest {
             flow.settle()
             flow.screenshot("sg_search")
             composeRule.onNode(hasContentDescription("Back")).performClick()
-            flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag(TeamsTestIds.TEAMS), NAV_TIMEOUT)
             flow.settle()
         }
 
@@ -2128,30 +2135,44 @@ class StyleguideScreenshotsTest {
         flow.settle()
     }
 
-    private fun openTeamPage() {
-        openTeamsRoot()
-        val team = hasTestTag(TeamsTestIds.TEAM_ROW) and (hasText(TEAM_NAME) or hasAnyDescendant(hasText(TEAM_NAME)))
-        flow.waitFor(team, SYNC_TIMEOUT)
-        composeRule.onAllNodes(team).onFirst().performClick()
-        flow.waitFor(hasTestTag(TeamsTestIds.TEAM), NAV_TIMEOUT)
-        flow.settle()
+    /** A folded team or folder row. */
+    private fun isFolded(tag: String): SemanticsMatcher = hasTestTag(tag) and
+        SemanticsMatcher("is folded") { it.config.getOrNull(SemanticsProperties.StateDescription) != "Expanded" }
+
+    /** A leaf of the Teams tree. */
+    private fun isTeamsItem(): SemanticsMatcher = SemanticsMatcher("is a team-item-row-*") { node ->
+        node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith(TeamsTestIds.ITEM_ROW) == true
     }
 
-    /** A row of the team's list, by its name (also inside its folders). */
-    private fun openTeamItem(name: String) {
-        openTeamPage()
-        val row = hasText(name) and hasAnyAncestor(hasTestTag(TeamsTestIds.TEAM))
-        flow.waitFor(hasText(EMPTY_BOARD_NAME) and hasAnyAncestor(hasTestTag(TeamsTestIds.TEAM)), SYNC_TIMEOUT)
-        if (!flow.waitForOptional(row, 2_000L)) {
-            val folders = composeRule.onAllNodes(hasTestTag(TeamsTestIds.FOLDER_ROW))
-            for (index in 0 until folders.fetchSemanticsNodes().size) {
-                composeRule.onAllNodes(hasTestTag(TeamsTestIds.FOLDER_ROW))[index].performClick()
-                flow.settle()
-                if (flow.waitForOptional(row, NAV_TIMEOUT)) break
-                Espresso.pressBack()
+    /** Unfolds every team and folder. */
+    private fun unfoldAll() {
+        for (tag in listOf(TeamsTestIds.TEAM_ROW, TeamsTestIds.FOLDER_ROW)) {
+            val folded = isFolded(tag)
+            repeat(20) {
+                if (!flow.exists(folded)) return@repeat
+                composeRule.onAllNodes(folded).onFirst().performSemanticsAction(SemanticsActions.OnClick)
                 flow.settle()
             }
         }
+    }
+
+    /** The Teams tab with the demo team unfolded. */
+    private fun openTeamPage() {
+        openTeamsRoot()
+        val team = hasTestTag(TeamsTestIds.TEAM_ROW) and hasText(TEAM_NAME)
+        flow.waitFor(team, SYNC_TIMEOUT)
+        if (!flow.exists(hasText(EMPTY_BOARD_NAME)) && flow.exists(team and isFolded(TeamsTestIds.TEAM_ROW))) {
+            composeRule.onAllNodes(team).onFirst().performSemanticsAction(SemanticsActions.OnClick)
+        }
+        flow.settle()
+    }
+
+    /** A row of the team's tree, by its name (also inside its folders). */
+    private fun openTeamItem(name: String) {
+        openTeamPage()
+        val row = hasText(name) and isTeamsItem()
+        if (!flow.waitForOptional(row, 2_000L)) unfoldAll()
+        flow.waitFor(row, SYNC_TIMEOUT)
         tapClearOfBar(row)
         flow.settle(longer = true)
     }
@@ -2196,7 +2217,7 @@ class StyleguideScreenshotsTest {
     /** The run view back to the team's list. */
     private fun leaveAppRun() {
         Espresso.pressBack()
-        flow.waitFor(hasTestTag(TeamsTestIds.TEAM), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag(TeamsTestIds.TEAMS), NAV_TIMEOUT)
         flow.settle()
     }
 
@@ -2404,7 +2425,8 @@ class StyleguideScreenshotsTest {
     /** The team's settings page (its `…` › Settings). */
     private fun openTeamRoot() {
         openTeamPage()
-        composeRule.onNode(hasTestTag(TeamsTestIds.MORE)).performClick()
+        composeRule.onAllNodes(hasContentDescription("${SidebarTree.Copy.TEAM_ACTIONS}, $TEAM_NAME")).onFirst()
+            .performSemanticsAction(SemanticsActions.OnClick)
         flow.waitFor(hasTestTag("team-menu-settings"), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag("team-menu-settings")).performClick()
         flow.waitFor(hasTestTag(TeamsTestIds.TEAM_SETTINGS), NAV_TIMEOUT)

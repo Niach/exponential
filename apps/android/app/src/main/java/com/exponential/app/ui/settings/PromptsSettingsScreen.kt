@@ -1,5 +1,8 @@
 package com.exponential.app.ui.settings
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import androidx.compose.foundation.clickable
 import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Arrangement
@@ -17,14 +20,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
@@ -59,8 +60,6 @@ import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -176,13 +175,12 @@ fun PromptsSettingsScreen(
     onOpenPrompt: (promptId: String) -> Unit,
     onNewPrompt: () -> Unit,
 ) {
-    Scaffold(
-        containerColor = Color.Transparent,
+    PinnedScaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { TopBarTitle(PROMPTS_TITLE) },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+            PageHeader(
+                title = PROMPTS_TITLE,
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
     ) { padding ->
@@ -271,13 +269,12 @@ fun PromptSettingsScreen(
     val canSubmit = editable && form.valid && form.differsFrom(loaded) && !state.loading && !state.loadFailed
     val title = if (creating) NEW_PROMPT_LABEL else row?.name ?: loaded?.name.orEmpty()
 
-    Scaffold(
-        containerColor = Color.Transparent,
+    PinnedScaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { TopBarTitle(title) },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+            PageHeader(
+                title = title,
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
     ) { padding ->

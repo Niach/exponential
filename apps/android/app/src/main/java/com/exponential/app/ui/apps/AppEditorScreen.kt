@@ -633,9 +633,9 @@ private fun AppEditorMenu(
     var open by remember { mutableStateOf(false) }
     if (entries.isEmpty()) return
     Box {
-        com.exponential.app.ui.chat.ChatHeaderButton(
+        com.exponential.app.ui.components.PageHeaderCircle(
             ExpIcons.uiMore,
-            contentDescription = "App actions",
+            "App actions",
             onClick = { open = true },
             modifier = Modifier.testTag(Apps.TestIds.MENU),
         )

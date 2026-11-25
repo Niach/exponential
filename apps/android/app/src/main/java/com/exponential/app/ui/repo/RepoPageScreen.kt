@@ -1,5 +1,8 @@
 package com.exponential.app.ui.repo
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.clickable
@@ -13,12 +16,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,8 +64,6 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.TextFieldRow
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.ExpMono
@@ -128,17 +127,12 @@ fun RepoPageScreen(
     var tab by rememberSaveable { mutableStateOf(viewModel.initialTab) }
     val repo = state.repo
 
-    Scaffold(
-        containerColor = Color.Transparent,
+    PinnedScaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    // The bar holds the title only (repo-page.json): the
-                    // provider lives in the Settings tab.
-                    TopBarTitle(repo?.fullName.orEmpty())
-                },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+            PageHeader(
+                title = repo?.fullName.orEmpty(),
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
     ) { padding ->

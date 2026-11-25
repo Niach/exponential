@@ -1,5 +1,8 @@
 package com.exponential.app.ui.settings
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import android.content.Context
 import com.exponential.app.ui.theme.ExpMono
 import androidx.compose.foundation.layout.Arrangement
@@ -14,8 +17,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -28,8 +29,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.domain.ThirdPartyNotices
 import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
@@ -86,15 +85,12 @@ fun ThirdPartyLicensesScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     AppBackground {
-        Scaffold(
-            containerColor = Color.Transparent,
+        PinnedScaffold(
             topBar = {
-                TopAppBar(
-                    title = { TopBarTitle("Third-party licenses") },
-                    navigationIcon = {
-                        TopBarBackButton(onClick = onBack)
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                PageHeader(
+                    title = "Third-party licenses",
+                    onBack = onBack,
+                    modifier = Modifier.statusBarsPadding(),
                 )
             },
         ) { padding ->

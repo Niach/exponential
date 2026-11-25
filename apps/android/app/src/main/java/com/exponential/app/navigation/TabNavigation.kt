@@ -44,8 +44,6 @@ object MainTabs {
         TEAMS -> "teams"
         ASSISTANT -> "assistant"
         SETTINGS -> "settings"
-        Routes.TEAM_PATTERN -> "team"
-        Routes.FOLDER_PATTERN -> "folder"
         Routes.BOARD_PATTERN -> "board"
         Routes.TEAM_SETTINGS_ROOT_PATTERN, Routes.TEAM_SETTINGS_PATTERN -> "team-settings"
         Routes.DEVICES_PATTERN -> "devices"

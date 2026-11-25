@@ -1,5 +1,8 @@
 package com.exponential.app.ui.settings
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -7,10 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,8 +32,6 @@ import com.exponential.app.domain.NotificationDelivery
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SwitchRow
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.glassGroup
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -144,15 +143,14 @@ fun NotificationSettingsContent(
     onToggle: (key: String, on: Boolean) -> Unit,
 ) {
     AppBackground {
-        Scaffold(
+        PinnedScaffold(
             topBar = {
-                CenterAlignedTopAppBar(
-                    title = { TopBarTitle("Notifications") },
-                    navigationIcon = { TopBarBackButton(onClick = onBack) },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+                PageHeader(
+                    title = "Notifications",
+                    onBack = onBack,
+                    modifier = Modifier.statusBarsPadding(),
                 )
             },
-            containerColor = Color.Transparent,
         ) { padding ->
             Column(
                 modifier = Modifier

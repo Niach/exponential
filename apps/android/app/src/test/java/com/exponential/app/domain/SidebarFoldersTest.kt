@@ -148,4 +148,32 @@ class SidebarFoldersTest {
             )
         }
     }
+
+    @Test
+    fun `move to a new folder, and its overlay`() {
+        fun entry(id: String, kind: String, target: String?, parent: String?, name: String?, order: Double) =
+            SidebarFolders.Entry(id, kind, target, parent, name, order)
+        val items = listOf("a", "b")
+        // Top level: at the item's place.
+        val writes = SidebarFolders.moveToNewFolder(items, emptyList(), "b", "f")!!
+        assertEquals("f", writes.createdFolderId)
+        val shown = SidebarFolders.applyWrites(emptyList(), writes)
+        assertEquals(
+            listOf(SidebarFolders.Node.Item("a"), SidebarFolders.Node.Folder("f", "New folder", listOf("b"))),
+            SidebarFolders.tree(items, shown),
+        )
+        assertTrue(SidebarFolders.shows(shown, writes))
+        assertTrue(!SidebarFolders.shows(emptyList(), writes))
+        // The only item of a folder: that folder goes.
+        val entries = listOf(entry("g", "folder", null, null, "G", 1.0), entry("e", "item", "a", "g", null, 1.0))
+        val moved = SidebarFolders.moveToNewFolder(items, entries, "a", "f")!!
+        assertEquals(listOf("g"), moved.deletes)
+        assertEquals(
+            listOf(SidebarFolders.Node.Folder("f", "New folder", listOf("a")), SidebarFolders.Node.Item("b")),
+            SidebarFolders.tree(items, SidebarFolders.applyWrites(entries, moved)),
+        )
+        // A folder itself, an unknown id: refused.
+        assertEquals(null, SidebarFolders.moveToNewFolder(items, entries, "g", "f"))
+        assertEquals(null, SidebarFolders.moveToNewFolder(items, entries, "x", "f"))
+    }
 }

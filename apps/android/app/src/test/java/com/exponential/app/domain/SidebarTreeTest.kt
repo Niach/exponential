@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.double
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -69,35 +70,56 @@ class SidebarTreeTest {
     }
 
     @Test
-    fun `phone team menu replay`() {
-        for (case in fixture.getValue("phone").jsonObject.list("teamMenu")) {
-            val expected = case.list("expected").map { SidebarTree.MenuItem(it.str("id")!!, strings(it.getValue("children")).map(::kind)) }
-            assertEquals(case.str("name"), expected, SidebarTree.phoneTeamMenu(case.getValue("owner").jsonPrimitive.boolean))
+    fun `phone rows replay`() {
+        val cases = fixture.getValue("phone").jsonObject.list("rows")
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val teams = case.list("teams").map {
+                SidebarTree.PhoneTreeTeam(
+                    id = it.str("id")!!,
+                    items = items(it.list("items")),
+                    entries = entries(it.list("entries")),
+                    open = it.getValue("open").jsonPrimitive.boolean,
+                    closedFolders = strings(it.getValue("closedFolders")).toSet(),
+                )
+            }
+            val expected = case.list("expected").map {
+                SidebarTree.PhoneTreeRow(
+                    kind = it.str("kind")!!,
+                    id = it.str("id")!!,
+                    teamId = it.str("teamId")!!,
+                    depth = it.getValue("depth").jsonPrimitive.int,
+                    name = it.str("name"),
+                    open = it.getValue("open").jsonPrimitive.boolean,
+                    count = it.getValue("count").jsonPrimitive.int,
+                )
+            }
+            assertEquals(case.str("name"), expected, SidebarTree.phoneTreeRows(teams))
         }
     }
 
     @Test
-    fun `phone team page replay`() {
-        val cases = fixture.getValue("phone").jsonObject.list("page")
+    fun `phone empty replay`() {
+        val cases = fixture.getValue("phone").jsonObject.list("empty")
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
-            val expected = case.getValue("expected").takeUnless { it is JsonNull }?.jsonArray?.map { row ->
-                val o = row.jsonObject
-                SidebarTree.PhoneRow(o.str("kind")!!.takeIf { it != "folder" }?.let(::kind), o.str("id")!!, o.str("name"))
-            }
-            val actual = SidebarTree.phoneTeamPage(items(case.list("items")), entries(case.list("entries")), case.str("folderId"))
-            assertEquals(case.str("name"), expected, actual)
+            val teams = case.list("teams").map { it.str("id")!! to it.getValue("count").jsonPrimitive.int }
+            assertEquals(case.str("name"), case.str("expected"), SidebarTree.phoneTeamsEmpty(teams))
         }
+    }
+
+    @Test
+    fun `the team open key`() {
+        val template = fixture.getValue("openKeys").jsonObject.str("team")!!
+        assertEquals(template.replace("{teamId}", "t-1"), SidebarTree.teamOpenKey("t-1"))
     }
 
     @Test
     fun `copy equals the fixture`() {
         val copy = fixture.getValue("copy").jsonObject
         assertEquals(copy.str("teamActions"), SidebarTree.Copy.TEAM_ACTIONS)
-        assertEquals(copy.str("new"), SidebarTree.Copy.NEW)
         assertEquals(copy.str("settings"), SidebarTree.Copy.SETTINGS)
         assertEquals(copy.str("newTeam"), SidebarTree.Copy.NEW_TEAM)
         assertEquals(copy.str("joinTeam"), SidebarTree.Copy.JOIN_TEAM)
-        for ((kind, label) in SidebarTree.Copy.KINDS) assertEquals(copy.str(kind.wire), label)
     }
 }

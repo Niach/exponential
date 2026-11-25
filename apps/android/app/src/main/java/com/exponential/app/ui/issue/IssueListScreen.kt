@@ -197,6 +197,7 @@ fun IssueListScreen(
     // empty board's own "New issue" pill.
     onOpenComposer: () -> Unit = {},
     onNewIssue: () -> Unit = {},
+    onOpenTeamSettings: (teamId: String, section: String) -> Unit = { _, _ -> },
     /** Session 58cb32df: a Drafts chip row reopens the New issue page. */
     onOpenDraft: (boardId: String, draftId: String) -> Unit = { _, _ -> },
     /** #EXP-1830: a My issues widget asked for the My issues chip. */
@@ -306,6 +307,15 @@ fun IssueListScreen(
                 title = board?.name.orEmpty(),
                 onBack = onBack,
                 leading = board?.let { { com.exponential.app.ui.components.BoardIcon(it, size = 24.dp) } },
+                // header-actions.json `board`: + = New issue, `…` = its menu.
+                ownActions = {
+                    com.exponential.app.ui.teams.BoardHeaderActions(
+                        boardId = boardId,
+                        onNewIssue = onNewIssue,
+                        onOpenTeamSettings = onOpenTeamSettings,
+                        onArchived = onBack,
+                    )
+                },
             )
 
             // Session 58cb32df (chats.json `shell.boardChips`): All issues ·

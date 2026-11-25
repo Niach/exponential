@@ -4,8 +4,8 @@ package com.exponential.app.domain
 // pure reference is `packages/domain-contract/src/sidebar-folders.ts`, the
 // desktop's `domain::sidebar_folders`, iOS ExpCore `SidebarFolders.swift`).
 // Each member arranges their own Boards, Agents and Apps into folders on the
-// desktop IDE and wide web; the phone SHOWS that layout read-only (the board
-// pickers, the Apps list): folders fold, nothing drags, nothing is created.
+// desktop IDE and wide web; the phone shows it (the board pickers read-only, the
+// Teams tab with its menus): folders fold, nothing drags.
 // `SidebarFoldersTest` replays every list of the fixture.
 
 object SidebarFolders {
@@ -208,6 +208,54 @@ object SidebarFolders {
         tree.addAll(index, folder.children.map { Node.Item(it) })
         return materialize(tree, entries, listOf(folderId), null)
     }
+
+    /** #EXP-2124 (sidebar-menus.json `move` › New folder): a NEW folder holding
+     *  the item alone, at its place (inside a folder: right after that folder,
+     *  deleted when the move empties it). Null = no such (visible) item. */
+    fun moveToNewFolder(items: List<String>, entries: List<Entry>, id: String, newFolderId: String): Writes? {
+        val tree = tree(items, entries).toMutableList()
+        val found = locate(tree, id) ?: return null
+        if (found.node !is Node.Item) return null
+        val folder = Node.Folder(newFolderId, DEFAULT_FOLDER_NAME, listOf(id))
+        val deletes = mutableListOf<String>()
+        if (found.folder == null) {
+            tree[tree.indexOfFirst { it.id == id }] = folder
+        } else {
+            val at = tree.indexOfFirst { it.id == found.folder }
+            val rest = (tree[at] as Node.Folder).children - id
+            tree.add(at + 1, folder)
+            if (rest.isEmpty()) {
+                tree.removeAt(at)
+                deletes.add(found.folder)
+            } else {
+                tree[at] = (tree[at] as Node.Folder).copy(children = rest)
+            }
+        }
+        return materialize(tree, entries, deletes, newFolderId)
+    }
+
+    /** The section's rows after [writes]: the optimistic overlay. */
+    fun applyWrites(entries: List<Entry>, writes: Writes): List<Entry> {
+        val out = LinkedHashMap<String, Entry>()
+        for (entry in entries) if (entry.id !in writes.deletes) out[entry.id] = entry
+        for (write in writes.upserts) {
+            val existing = write.id?.let { out[it] } ?: out.values.firstOrNull {
+                write.kind == KIND_ITEM && it.kind == KIND_ITEM && it.targetId == write.targetId
+            }
+            val id = existing?.id ?: write.id ?: "pending:${write.targetId}"
+            out[id] = Entry(id, write.kind, write.targetId, write.parentId, write.name, write.sortOrder)
+        }
+        return out.values.toList()
+    }
+
+    /** Whether the synced [entries] already show [writes]. */
+    fun shows(entries: List<Entry>, writes: Writes): Boolean =
+        entries.none { it.id in writes.deletes } && writes.upserts.all { write ->
+            entries.any {
+                (if (write.kind == KIND_FOLDER) it.id == write.id else it.kind == KIND_ITEM && it.targetId == write.targetId) &&
+                    it.parentId == write.parentId && it.sortOrder == write.sortOrder
+            }
+        }
 
     /** A folder name as saved: trimmed, at most 80 characters, empty = the default. */
     fun folderName(input: String): String {

@@ -1065,10 +1065,10 @@
     "assistant-tab": {
       "android": {
         "file": "shots/assistant-tab/android.webp",
-        "width": 876,
+        "width": 810,
         "height": 1800,
-        "bytes": 39138,
-        "sha256": "5927ca7b28b9d6a13c79cff6958ec45477421cb98250ef73c1c318ff51856475"
+        "bytes": 38330,
+        "sha256": "08ee4029be1ca081ee73370636055e14c8b73fca4e7374a05b8498af25dbff1a"
       },
       "ios": {
         "file": "shots/assistant-tab/ios.webp",
@@ -1342,8 +1342,8 @@
         "file": "shots/chat-header/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 22402,
-        "sha256": "fa876d577e9abef330ac100fdede6c33de951a7e820b47408cc02561ce9594d8"
+        "bytes": 24704,
+        "sha256": "dd2a4baef2eab18be825afbb3f14f301cbbd910484d57cebab06a0023db3b45b"
       },
       "desktop": {
         "file": "shots/chat-header/desktop.webp",
@@ -1673,10 +1673,10 @@
     "chats": {
       "android": {
         "file": "shots/chats/android.webp",
-        "width": 876,
+        "width": 810,
         "height": 1800,
-        "bytes": 53196,
-        "sha256": "ae2a0f3dc026f9c7e2260df4a453b417aa50c72610f57b4249ad75ee1b0ab5ca"
+        "bytes": 52812,
+        "sha256": "ebdf4c560db084fc918fccc7ae194902701e1c0e36e1cc8a629964b41fa85ede"
       },
       "desktop": {
         "file": "shots/chats/desktop.webp",
@@ -6421,8 +6421,8 @@
         "file": "shots/phone-page-header/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 16880,
-        "sha256": "4efb9a56e42b4bb753364f74848736ed50d30c97e2b691e5bcfc234115a0cf0f"
+        "bytes": 15574,
+        "sha256": "e1213b009cdd18c8a1f2add80318c81a59a4f0a36268900264f284ef961a5b66"
       },
       "desktop": {
         "file": "shots/phone-page-header/desktop.webp",
@@ -6458,8 +6458,8 @@
         "file": "shots/phone-tab-bar/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 28384,
-        "sha256": "4ac0153bcd22aead7ebebb0ce84be35ebe091a62dae72d75f7ecc850f6c74049"
+        "bytes": 31200,
+        "sha256": "997f94aca5c40b43f760c9edfa76fca2dd556c3b264d506533b31d5c4e5c7c7d"
       },
       "desktop": {
         "file": "shots/phone-tab-bar/desktop.webp",
@@ -8195,10 +8195,10 @@
     "teams": {
       "android": {
         "file": "shots/teams/android.webp",
-        "width": 876,
+        "width": 810,
         "height": 1800,
-        "bytes": 19636,
-        "sha256": "6189ee156d751fbd32c25867771305e616d302755ac75c3754f4debfe16204f2"
+        "bytes": 40602,
+        "sha256": "f725b6f78d4cbb76063bee0efae10febfb7f5635cb7d78f1374e22ab497a7f35"
       },
       "ios": {
         "file": "shots/teams/ios.webp",
@@ -8218,10 +8218,10 @@
     "teams-menu": {
       "android": {
         "file": "shots/teams-menu/android.webp",
-        "width": 876,
+        "width": 810,
         "height": 1800,
-        "bytes": 32522,
-        "sha256": "38fd3ea11d76f02fa7a03a46f0773a9de3823028736bbb3b44c2e46204efbf46"
+        "bytes": 16306,
+        "sha256": "d1e9b41e1d62add950d5d9f5e348e628a1eb7903f9ff74bd75d67ef88d8487b5"
       },
       "ios": {
         "file": "shots/teams-menu/ios.webp",
