@@ -246,7 +246,7 @@ fun CardSurfaceView(
         FeedMarkerRow(
             ChatExpress.Copy.BLOCK_FAILED,
             modifier = modifier,
-            hairline = DesignTokens.Palette.Border.copy(alpha = 0.6f),
+            hairline = DesignTokens.Palette.Border.let { it.copy(alpha = it.alpha * 0.6f) },
         )
         return
     }
