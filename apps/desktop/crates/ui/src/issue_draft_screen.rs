@@ -1487,6 +1487,15 @@ impl IssueDraftView {
                             let parts = this.parts.as_mut()?;
                             parts.target.board_id = board_id.clone();
                             let draft_id = parts.target.draft_id.clone();
+                            // #EXP-2125: a board of another team moves the
+                            // draft there, in place.
+                            let team_id = Store::global(cx).collections().boards.read(cx).get(&board_id).map(|board| board.team_id.clone());
+                            if let Some(team_id) = team_id.filter(|team_id| *team_id != parts.target.team_id) {
+                                parts.target.team_id = team_id.clone();
+                                let (description, props) = (parts.description.clone(), parts.props.clone());
+                                description.update(cx, |description, cx| description.set_team(team_id.clone(), cx));
+                                props.update(cx, |props, cx| props.move_team(team_id, cx));
+                            }
                             this.save_now(cx);
                             cx.notify();
                             Some(draft_id)
@@ -1498,7 +1507,7 @@ impl IssueDraftView {
                         crate::navigation::set_draft_board(window, cx, &draft_id, &board_id);
                     }
                 });
-            chips.extend(IssueDraft::board_chip("draft", &board, on_pick, cx));
+            chips.extend(IssueDraft::board_chip("draft", &board, parts.target.chat_id.is_some().then(|| board.team_id.clone()), on_pick, cx));
         }
         // EXP-1284: the chat this issue files into, "In <chat>".
         if let Some(chat_id) = parts.target.chat_id.as_deref() {
