@@ -172,6 +172,20 @@ jobs:
           # a German and an English sentence about one bug land close together.
           docker run --rm --network none exponential-web:smoke bun apps/web/embedder/bench.mjs | tee /tmp/embed-bench.json
           bun -e 'const b = JSON.parse(require("fs").readFileSync("/tmp/embed-bench.json", "utf8")); if (!(b.cosine["en_bug~de_bug"] > b.cosine["en_bug~en_other"] + 0.05)) { console.error("the embedder does not separate related from unrelated text"); process.exit(1) }'
+          # #EXP-2133: the same image as the host's one embedder, inside its
+          # production limit (1 GB, no swap), answering the web container's way.
+          secret=$(openssl rand -hex 32)
+          docker run -d --name smoke-embedder --network smoke --memory 1g --memory-swap 1g \
+            -e EXPONENTIAL_ROLE=embedder -e ISSUE_EMBEDDER_SECRET="$secret" exponential-web:smoke
+          for _ in $(seq 30); do docker logs smoke-embedder 2>&1 | grep -q 'loaded on the first request' && break; sleep 1; done
+          docker run --rm --network smoke -e SECRET="$secret" exponential-web:smoke bun -e '
+            const model = (await Bun.file("apps/web/embedder/model.json").json()).id
+            const ask = (secret) => fetch("http://smoke-embedder:3000/embed", { method: "POST", headers: { authorization: "Bearer " + secret }, body: JSON.stringify({ kind: "passage", text: "word ".repeat(2000), model }) })
+            if ((await ask("wrong")).status !== 401) throw new Error("the embedder answered without the secret")
+            for (let i = 0; i < 5; i++) { const res = await ask(process.env.SECRET); const bytes = (await res.arrayBuffer()).byteLength; if (res.status !== 200 || bytes !== 384 * 4) throw new Error("embed " + i + ": HTTP " + res.status + ", " + bytes + " bytes") }
+            console.log("the embedder role answers 384 dimensions")' || { docker logs smoke-embedder; exit 1; }
+          [ "$(docker inspect -f '{{.State.OOMKilled}} {{.RestartCount}}' smoke-embedder)" = 'false 0' ]
+          docker rm -f smoke-embedder
           # bun is PID 1 in the image: without server-bun.ts's SIGTERM handler
           # `docker stop` waits out its timeout and SIGKILLs (exit 137).
           start=$(date +%s%N)

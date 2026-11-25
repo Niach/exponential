@@ -106,3 +106,9 @@ public extension AppIcon {
         public static let xlarge: CGFloat = 44
     }
 }
+
+public extension View {
+    /// The glyphs keep their drawn size in a slot that does not grow with the
+    /// text (a disc, a row's leading column, a header's circles).
+    func fixedGlyphs() -> some View { dynamicTypeSize(.large) }
+}

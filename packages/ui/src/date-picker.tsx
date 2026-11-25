@@ -1,5 +1,5 @@
 import * as React from "react"
-import { formatDateForMutation } from "@exp/db-schema/domain"
+import { formatDateForMutation } from "@exp/db-schema/date"
 
 import { Button } from "./button"
 import { Calendar } from "./calendar"

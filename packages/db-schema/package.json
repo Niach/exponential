@@ -10,7 +10,8 @@
     ".": "./src/schema.ts",
     "./schema": "./src/schema.ts",
     "./auth-schema": "./src/auth-schema.ts",
-    "./domain": "./src/domain.ts"
+    "./domain": "./src/domain.ts",
+    "./date": "./src/date.ts"
   },
   "dependencies": {
     "date-fns": "^4.1.0",

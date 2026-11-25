@@ -46,6 +46,9 @@ export interface DeepLinkEffects {
   ring: () => void
   /** Not there: the link settles, the view stays where it is. */
   missing: () => void
+  /** #FEED-298: an older page LANDED: the link's clock restarts (`now`),
+   *  so a card far above keeps paging in while pages keep arriving. */
+  progress?: (now: number) => void
 }
 
 export function takeDeepLink(now: number): DeepLinkCursor {
@@ -60,6 +63,12 @@ export function deepLinkTick(
   now: number,
   effects: DeepLinkEffects
 ): { step: DeepLinkStep; cursor: DeepLinkCursor; settled: boolean } {
+  // #FEED-298 (waiting-cards.json DEEP LINKS): a page that landed restarts
+  // the clock: `deepLinkMs` bounds a link that stopped making progress.
+  if (cursor.paged !== null && cursor.paged.mark !== probe.mark) {
+    cursor = { takenAt: now, paged: null }
+    effects.progress?.(now)
+  }
   const inFlight =
     cursor.paged !== null && cursor.paged.mark === probe.mark && now - cursor.paged.at < DEEP_LINK_PAGE_GRACE_MS
   const step = deepLinkStep({

@@ -74,7 +74,8 @@ pub mod log_capture {
     }
 }
 
-use std::sync::{Arc, OnceLock};
+use std::collections::BTreeMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub use server::SERVER_NAME;
 
@@ -218,6 +219,29 @@ fn live() -> Result<&'static Live, String> {
     })
     .as_ref()
     .map_err(Clone::clone)
+}
+
+/// #FEED-313: why computer use could not run for a session, as its last
+/// call (or its launch) said; a call that works clears it.
+static CANNOT_RUN: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
+
+fn cannot_run_map() -> std::sync::MutexGuard<'static, BTreeMap<String, String>> {
+    CANNOT_RUN.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// #FEED-313: computer use cannot run for `session_id` now, and why (the
+/// launcher's answer, or a call the screen refused); `None` = it ran.
+pub fn note_cannot_run(session_id: &str, reason: Option<&str>) {
+    match reason {
+        Some(reason) => cannot_run_map().insert(session_id.to_string(), reason.to_string()),
+        None => cannot_run_map().remove(session_id),
+    };
+}
+
+/// #FEED-313: why computer use could not run for `session_id`, when that is
+/// how its last try went: what its end says when the agent says nothing.
+pub fn cannot_run(session_id: &str) -> Option<String> {
+    cannot_run_map().get(session_id).cloned()
 }
 
 /// The IDE's banner, registered before the endpoint exists.
