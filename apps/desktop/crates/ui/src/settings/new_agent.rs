@@ -477,7 +477,7 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     let size = ink.r(SM);
     let draw = |dim: bool| {
         let id = if dim { "create_dim" } else { "create" };
-        let mut button = json!({"id": id, "component": "Box", "visible": if dim { path("/pane/pending") } else { super::doc::not(path("/pane/pending")) }, "accessibility": {"label": CREATE_AGENT},
+        let mut button = json!({"id": id, "component": "Box", "visible": if dim { path("/pane/pending") } else { super::doc::not(path("/pane/pending")) }, "@accessibility": {"label": CREATE_AGENT},
             "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "height": 32, "paddingHorizontal": 12, "borderRadius": chrome.radius, "backgroundColor": chrome.primary},
             "children": [{"id": format!("{id}_text"), "component": "Text", "props": {"text": CREATE_AGENT}, "style": {"fontSize": size, "lineHeight": size, "color": chrome.primary_fg, "flexShrink": 0}}]});
         if dim {

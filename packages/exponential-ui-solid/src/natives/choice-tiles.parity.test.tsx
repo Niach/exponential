@@ -30,14 +30,14 @@ const shapes: Record<string, NestedNode> = {
   "a relative picture, denied by the media policy": tiles({ options: [{ label: `Rel`, value: `r`, image: `/api/attachments/1` }], value: `r` }),
   "disabled multiple": tiles({ options: opts, type: `multiple`, value: `a,b`, disabled: true }),
   "bound value": tiles({ options: opts, value: { "@path": `/pick` } }),
-  "with accessibility": { ...tiles({ options: opts, value: `a` }), accessibility: { label: `Pick a layout` } } as NestedNode,
+  "with accessibility": { ...tiles({ options: opts, value: `a` }), "@accessibility": { label: `Pick a layout` } } as NestedNode,
   "a style on the node": { ...tiles({ options: opts, value: `a` }), style: { gap: `$spacing.md`, padding: 4 } } as NestedNode,
 }
 const form: NestedNode = {
   id: `form`,
   component: `Form`,
   props: {},
-  children: [{ id: `tiles`, component: `ChoiceTiles`, props: { name: `layout`, options: opts, validateOn: `change`, checks: [{ condition: { "@call": `required`, args: { value: { "@path": `/pick` } } }, message: `Pick one` }], value: { "@path": `/pick` } } }],
+  children: [{ id: `tiles`, component: `ChoiceTiles`, props: { name: `layout`, options: opts, validateOn: `change`, value: { "@path": `/pick` } }, "@checks": [{ condition: { "@call": `required`, args: { value: { "@path": `/pick` } } }, message: `Pick one` }] }],
 } as unknown as NestedNode
 
 describe(`ChoiceTiles DOM parity with React`, () => {

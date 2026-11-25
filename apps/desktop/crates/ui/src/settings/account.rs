@@ -532,7 +532,7 @@ fn danger_zone(ink: &Ink, chrome: &Chrome) -> Value {
     sentence["style"]["flexShrink"] = json!(1);
     sentence["style"]["minWidth"] = json!(0);
     let size = ink.r(XS);
-    let button = json!({"id": "danger_delete", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Delete account"}, "on": {"press": {"event": {"name": "deleteAccount"}}},
+    let button = json!({"id": "danger_delete", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": "Delete account"}, "on": {"press": {"event": {"name": "deleteAccount"}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 24, "paddingHorizontal": 8, "borderRadius": chrome.radius, "backgroundColor": chrome.button, "cursor": "pointer", ":hover": {"backgroundColor": chrome.button_hover}},
         "children": [
             {"id": "danger_delete_icon", "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": ink.r(0.75), "height": ink.r(0.75), "color": chrome.button_fg, "flexShrink": 0}},

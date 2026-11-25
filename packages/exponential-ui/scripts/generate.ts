@@ -178,18 +178,16 @@ function stripComments(value: unknown): unknown {
  *  with zero diffs, and the reduced tree keeps its node count. */
 /** A nested fixture → the A2UI wire list (the nested form's `template`
  *  becomes `children: {componentId, path, key?}`, its node stays where it is
- *  listed: the reducer lifts it; `checks` rides as `@checks`). */
+ *  listed: the reducer lifts it). */
 function nestedToFlat(tree: NestedNode): FlatComponent[] {
   const out: FlatComponent[] = []
   const walk = (n: NestedNode): string => {
-    const { checks, ...props } = (n.props ?? {}) as Record<string, unknown>
-    const flat: FlatComponent = { id: n.id, component: n.component, ...props, ...(checks !== undefined ? { "@checks": checks } : {}) }
-    if (n.catalogId) flat.catalogId = n.catalogId
-    if (n.metadata) flat.metadata = n.metadata
+    const flat: FlatComponent = { id: n.id, component: n.component, ...(n.props ?? {}) }
+    for (const key of [`@catalogId`, `@metadata`, `@checks`] as const) if (n[key] !== undefined) (flat as Record<string, unknown>)[key] = n[key]
     if (n.style) flat.style = n.style
     if (n.on) flat.on = n.on
     if (n.visible !== undefined) flat.visible = n.visible
-    if (n.accessibility) flat.accessibility = n.accessibility
+    if (n[`@accessibility`]) flat[`@accessibility`] = n[`@accessibility`]
     out.push(flat)
     const ids = (n.children ?? []).map(walk)
     if (n.template) flat.children = { componentId: n.template.component, path: n.template.path, ...(n.template.key ? { key: n.template.key } : {}) }
@@ -211,7 +209,7 @@ const EXPRESS_EXTRAS: NestedNode = {
   children: [
     { id: `rows`, component: `List`, props: { divided: true }, template: { component: `row`, path: `/rows`, key: `id` }, children: [] },
     { id: `row`, component: `Row`, props: { title: { "@path": `title` }, subtitle: { "@path": `owner` } } },
-    { id: `name`, component: `Input`, props: { label: `Name`, name: `name`, value: { "@path": `/form/name` }, checks: [{ condition: { "@call": `required`, args: { value: { "@path": `/form/name` } } }, message: `A name is required` }] } },
+    { id: `name`, component: `Input`, props: { label: `Name`, name: `name`, value: { "@path": `/form/name` } }, "@checks": [{ condition: { "@call": `required`, args: { value: { "@path": `/form/name` } } }, message: `A name is required` }] },
     { id: `clear`, component: `Button`, props: { label: `Clear`, variant: `outline` }, on: { press: { functionCall: { "@call": `set`, args: { path: `/form/name`, value: `` } } } } },
     { id: `save`, component: `Button`, props: { label: `Save` }, on: { press: { event: { name: `save`, context: { name: { "@path": `/form/name` } } } } } },
   ],
@@ -2347,8 +2345,14 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     datasets: [{ etc: { hosts: `PWNED` }, suffix: `today` }, {}],
   },
   {
+    // Round 9 §5.5: `${fn()}` resolves against the enclosing call's catalog.
+    name: `Text/formatString:calls`,
+    input: { id: `text`, component: `Text`, props: { text: { "@call": `formatString`, args: { value: `\${add(a: \${/n}, b: 1)} of \${/total}` } } }, "@accessibility": { label: { "@call": `formatString`, catalogId: A2UI_BASIC_CATALOG_ID, args: { value: `\${add(a: 1, b: 1)}` } }, description: { "@call": `formatString`, catalogId: A2UI_BASIC_CATALOG_ID, args: { value: `\${formatNumber(value: \${/n}, decimals: 1)}` } } } },
+    datasets: [{ n: 2, total: 5 }, {}],
+  },
+  {
     name: `Text/accessibility:bound-label`,
-    input: { id: `text`, component: `Text`, props: { text: `hi` }, accessibility: { label: { "@path": `/l` }, description: `$string.close` } },
+    input: { id: `text`, component: `Text`, props: { text: `hi` }, "@accessibility": { label: { "@path": `/l` }, description: `$string.close` } },
     datasets: [{ l: `Hello` }, {}],
   },
   {
@@ -2390,7 +2394,7 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
       id: `text`,
       component: `Text`,
       props: { text: { "@call": `formatDuration`, args: { hours: { "@call": `expr`, args: { expr: `round(minutes / 60, 2)`, vars: { minutes: { "@path": `/minutes` } } } }, format: `h:mm` } } },
-      accessibility: { label: { "@call": `dateAdd`, args: { date: { "@path": `/day` }, n: 1, unit: `month` } } },
+      "@accessibility": { label: { "@call": `dateAdd`, args: { date: { "@path": `/day` }, n: 1, unit: `month` } } },
       visible: { "@call": `expr`, args: { expr: `weekday(d) >= 6 || mul(minutes, 2) > 1000`, vars: { d: { "@path": `/day` }, minutes: { "@path": `/minutes` } } } },
     },
     datasets: [{ minutes: 450, day: `2026-01-31` }, { minutes: 600, day: `2026-02-02` }, { minutes: 450, day: `2026-02-02` }, { minutes: `x`, day: `nope` }, {}],

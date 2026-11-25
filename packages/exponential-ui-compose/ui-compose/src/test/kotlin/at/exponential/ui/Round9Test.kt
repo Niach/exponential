@@ -83,7 +83,7 @@ class Round9Test {
             val host = RecordingHost()
             val m = fixedModel(
                 """{"id":"f","component":"Form","props":{"name":"f"},"on":{"submit":{"event":{"name":"submit"}},"invalid":{"event":{"name":"invalid"}}},"children":[
-                {"id":"x","component":"Input","props":{"label":"X","name":"x","value":"v","validateOn":"submit","checks":${c["checks"]!!.json}}},
+                {"id":"x","component":"Input","props":{"label":"X","name":"x","value":"v","validateOn":"submit"}, "@checks": ${c["checks"]!!.json}},
                 {"id":"go","component":"Button","props":{"label":"Send","submit":true}}]}""",
                 c["data"],
                 host,
@@ -115,7 +115,7 @@ class Round9Test {
             val name = c["name"]!!.string!!
             val host = RecordingHost()
             val m = fixedModel(
-                """{"id":"root","component":"Box","children":[{"id":"b","component":"Button","props":{"label":"Go","checks":${c["checks"]!!.json}},"on":{"press":{"event":{"name":"press"}}}}]}""",
+                """{"id":"root","component":"Box","children":[{"id":"b","component":"Button","props":{"label":"Go"}, "@checks": ${c["checks"]!!.json},"on":{"press":{"event":{"name":"press"}}}}]}""",
                 c["data"],
                 host,
             )
@@ -127,12 +127,12 @@ class Round9Test {
     }
 
     private fun input(id: String, label: String, value: String, path: String) =
-        """{"id":"$id","component":"Input","props":{"label":"$label","name":"$id","value":"$value","validateOn":"submit","checks":[{"condition":{"@path":"$path"}}]}}"""
+        """{"id":"$id","component":"Input","props":{"label":"$label","name":"$id","value":"$value","validateOn":"submit"}, "@checks": [{"condition":{"@path":"$path"}}]}"""
 
     /** The styleguide's field states (web `ExponentialUiFieldStates`), revealed by the Form's submit. */
     private val fieldStates = """{"id":"f","component":"Form","props":{"name":"f"},"children":[{"id":"stack","component":"Stack","props":{"gap":"md"},"children":[
         ${input("email", "Email", "ada@", "/error")},${input("password", "Password", "hunter2", "/warning")},${input("nickname", "Nickname", "ada", "/info")},
-        {"id":"news","component":"Checkbox","props":{"label":"Newsletter (info)","name":"news","checked":true,"checks":[{"condition":{"@path":"/news"}}]}},
+        {"id":"news","component":"Checkbox","props":{"label":"Newsletter (info)","name":"news","checked":true}, "@checks": [{"condition":{"@path":"/news"}}]},
         {"id":"go","component":"Button","props":{"label":"Save","submit":true}}]}]}"""
 
     private fun result(severity: String, message: String) =
@@ -198,7 +198,7 @@ class Round9Test {
     @Test
     fun aBlurRevealsAnAdvisory() {
         val m = makeModel()
-        m.setNested("""{"id":"x","component":"Input","props":{"label":"X","name":"x","value":"v","validateOn":"blur","checks":[{"condition":{"@path":"/w"}}]}}""")
+        m.setNested("""{"id":"x","component":"Input","props":{"label":"X","name":"x","value":"v","validateOn":"blur"}, "@checks": [{"condition":{"@path":"/w"}}]}""")
         m.setData("/w", result("warning", "Looks short"))
         assertNull(m.indexOf("x.error"))
         m.fieldFocused(m.idx("x.field"), false)
@@ -210,11 +210,11 @@ class Round9Test {
         val m = makeModel()
         m.setNested(
             """{"id":"root","component":"Box","children":[
-            {"id":"a","component":"Text","props":{"text":"Alpha","live":"polite"},"accessibility":{"live":"assertive"}},
-            {"id":"b","component":"Text","props":{"text":"Beta","live":"polite"},"accessibility":{"live":"off"}},
+            {"id":"a","component":"Text","props":{"text":"Alpha","live":"polite"},"@accessibility":{"live":"assertive"}},
+            {"id":"b","component":"Text","props":{"text":"Beta","live":"polite"},"@accessibility":{"live":"off"}},
             {"id":"c","component":"Text","props":{"text":"Gamma","live":"assertive"}},
-            {"id":"d","component":"Box","accessibility":{"hidden":{"@path":"/hide"}},"children":[{"id":"e","component":"Text","props":{"text":"Delta"}}]},
-            {"id":"f","component":"Text","props":{"text":"Epsilon"},"accessibility":{"hidden":true}}]}""",
+            {"id":"d","component":"Box","@accessibility":{"hidden":{"@path":"/hide"}},"children":[{"id":"e","component":"Text","props":{"text":"Delta"}}]},
+            {"id":"f","component":"Text","props":{"text":"Epsilon"},"@accessibility":{"hidden":true}}]}""",
         )
         m.setData("/hide", JsonValue.Bool(true))
         render(m)

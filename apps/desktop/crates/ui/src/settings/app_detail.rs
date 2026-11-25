@@ -1020,7 +1020,7 @@ pub(super) fn button(ink: &Ink, tints: &Tints, id: &str, paint: Paint, icon: Opt
         }
         if !dim {
             button["props"] = json!({"pressable": true});
-            button["accessibility"] = json!({"label": label.clone()});
+            button["@accessibility"] = json!({"label": label.clone()});
             button["on"] = json!({"press": {"event": event.clone()}});
             button["style"]["cursor"] = json!("pointer");
             button["style"][":hover"] = json!({"backgroundColor": hover});

@@ -65,7 +65,7 @@
                   "name": "submit"
                 }
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "and",
@@ -174,7 +174,7 @@
                   "name": "submit"
                 }
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "required",
@@ -217,7 +217,7 @@
                   "name": "submit"
                 }
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "and",
@@ -1099,7 +1099,7 @@
               "value": {
                 "@path": "/formData/email"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "required",
@@ -1158,7 +1158,7 @@
               "value": {
                 "@path": "/formData/interests"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "length",
@@ -1198,7 +1198,7 @@
               "value": {
                 "@path": "/formData/rating"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "numeric",
@@ -1236,7 +1236,7 @@
               "value": {
                 "@path": "/formData/agreed"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "required",
@@ -1273,7 +1273,7 @@
               "value": {
                 "@path": "/formData/date"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "required",
@@ -1310,7 +1310,7 @@
               "value": {
                 "@path": "/formData/phone"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "regex",
@@ -1348,7 +1348,7 @@
               "value": {
                 "@path": "/formData/pw"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "length",
@@ -1389,7 +1389,7 @@
               "value": {
                 "@path": "/formData/score"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "numeric",
@@ -1428,7 +1428,7 @@
               "value": {
                 "@path": "/formData/code"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "and",
@@ -1502,7 +1502,7 @@
               "value": {
                 "@path": "/formData/email"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "email",
@@ -1538,7 +1538,7 @@
               "value": {
                 "@path": "/formData/name"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "formatString",
@@ -1589,7 +1589,7 @@
               "value": {
                 "@path": "/formData/interests"
               },
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "length",
@@ -1916,7 +1916,7 @@
                 "@path": "/contact/email"
               },
               "variant": "shortText",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "email",
@@ -2305,7 +2305,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "required",
@@ -2340,7 +2340,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "required",
@@ -2372,7 +2372,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "required",
@@ -2408,7 +2408,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "regex",
@@ -2444,7 +2444,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "regex",
@@ -2480,7 +2480,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "length",
@@ -2516,7 +2516,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "length",
@@ -2552,7 +2552,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "length",
@@ -2588,7 +2588,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "numeric",
@@ -2625,7 +2625,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "email",
@@ -3007,7 +3007,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "length",
@@ -3044,7 +3044,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "length",
@@ -3081,7 +3081,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "numeric",
@@ -3118,7 +3118,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "numeric",
@@ -3155,7 +3155,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "regex",
@@ -3192,7 +3192,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "email",
@@ -3375,7 +3375,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "and",
@@ -3411,7 +3411,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "and",
@@ -3447,7 +3447,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "or",
@@ -3483,7 +3483,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "or",
@@ -3519,7 +3519,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "not",
@@ -3552,7 +3552,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "not",
@@ -3586,7 +3586,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "not",
@@ -3620,7 +3620,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "required",
@@ -3657,7 +3657,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "regex",
@@ -3694,7 +3694,7 @@
               "component": "TextField",
               "label": "L",
               "value": "",
-              "checks": [
+              "@checks": [
                 {
                   "condition": {
                     "@call": "and",
@@ -4525,7 +4525,7 @@
             {
               "id": "root",
               "component": "Text",
-              "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+              "@catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
               "text": "Component with explicit catalogId"
             }
           ]
@@ -4774,7 +4774,7 @@
     {
       "file": "initial_state_validation.json",
       "index": 16,
-      "description": "Valid component with metadata.extensions in createSurface",
+      "description": "Valid component with @metadata.extensions in createSurface",
       "schema": "agent_to_renderer",
       "data": {
         "version": "1.0",
@@ -4786,7 +4786,7 @@
               "id": "root",
               "component": "Text",
               "text": "Hello world",
-              "metadata": {
+              "@metadata": {
                 "extensions": {
                   "custom_theme": {
                     "variant": "dark"
@@ -4803,7 +4803,7 @@
     {
       "file": "initial_state_validation.json",
       "index": 17,
-      "description": "Invalid: component metadata.extensions has invalid key name",
+      "description": "Invalid: component @metadata.extensions has invalid key name",
       "schema": "agent_to_renderer",
       "data": {
         "version": "1.0",
@@ -4815,7 +4815,7 @@
               "id": "root",
               "component": "Text",
               "text": "Hello world",
-              "metadata": {
+              "@metadata": {
                 "extensions": {
                   "123start_with_number": true
                 }
@@ -4851,7 +4851,7 @@
     {
       "file": "initial_state_validation.json",
       "index": 19,
-      "description": "Valid component with accessibility attributes",
+      "description": "Valid component with @accessibility attributes",
       "schema": "agent_to_renderer",
       "data": {
         "version": "1.0",
@@ -4863,7 +4863,7 @@
               "id": "root",
               "component": "Text",
               "text": "Accessible component",
-              "accessibility": {
+              "@accessibility": {
                 "label": "Greeting text",
                 "description": "Welcomes the user to the application"
               }
@@ -4877,6 +4877,35 @@
     {
       "file": "initial_state_validation.json",
       "index": 20,
+      "description": "Invalid: component with bare legacy metadata on envelope",
+      "schema": "agent_to_renderer",
+      "data": {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "test_surface",
+          "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Legacy bare metadata component",
+              "metadata": {
+                "extensions": {
+                  "custom_theme": {
+                    "variant": "dark"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "upstreamValid": false,
+      "expect": "INVALID_MESSAGE"
+    },
+    {
+      "file": "initial_state_validation.json",
+      "index": 21,
       "description": "Invalid: component with unexpected property on envelope",
       "schema": "agent_to_renderer",
       "data": {

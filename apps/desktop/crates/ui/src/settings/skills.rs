@@ -673,7 +673,7 @@ fn field_error(chrome: &PageChrome, id: &str, message: Value, visible: Value) ->
 fn sm_button(ink: &Ink, id: &str, icon: Option<&str>, label: &str, fill: &str, hover: &str, fg: &str, event: &str, radius: f32) -> Value {
     let glyph = icon.map(|icon| json!({"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": ink.r(SM), "height": ink.r(SM), "color": fg, "flexShrink": 0}}));
     let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label}, "style": {"fontSize": ink.r(SM), "lineHeight": ink.r(SM), "color": fg, "flexShrink": 0}});
-    json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
+    json!({"id": id, "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": radius, "backgroundColor": fill, "cursor": "pointer", ":hover": {"backgroundColor": hover}},
         "children": glyph.into_iter().chain([text]).collect::<Vec<_>>()})
 }

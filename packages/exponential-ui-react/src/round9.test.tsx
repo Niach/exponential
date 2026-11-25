@@ -13,7 +13,7 @@ const tree = (node: NestedNode) => reduceNested(node, { catalogId: CORE_CATALOG_
 
 describe(`accessibility live + hidden`, () => {
   const attrs = (accessibility: Record<string, unknown>, data: Record<string, unknown> = {}, props: Record<string, unknown> = { text: `t` }, component = `Text`) => {
-    const { container } = render(<ExponentialSurface root={tree({ id: `n`, component, props, accessibility } as NestedNode)} data={data} theme="neutral" />)
+    const { container } = render(<ExponentialSurface root={tree({ id: `n`, component, props, "@accessibility": accessibility } as NestedNode)} data={data} theme="neutral" />)
     return container.querySelector(`[data-xui-id="n"]`)!
   }
   it(`live maps to aria-live, on any component`, () => {

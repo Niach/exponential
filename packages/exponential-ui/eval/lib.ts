@@ -421,11 +421,12 @@ export function nestedSurface(surface: AuthoredSurface): { tree: unknown; data: 
 }
 
 function withTemplates(node: UiNode, templates: Record<string, UiNode>): unknown {
-  const out: Record<string, unknown> = { id: node.id, component: node.component, props: node.props }
+  const { checks, ...props } = node.props
+  const out: Record<string, unknown> = { id: node.id, component: node.component, props, ...(checks === undefined ? {} : { "@checks": checks }) }
   if (node.style) out.style = node.style
   if (node.on) out.on = node.on
   if (node.visible !== undefined) out.visible = node.visible
-  if (node.accessibility) out.accessibility = node.accessibility
+  if (node.accessibility) out[`@accessibility`] = node.accessibility
   if (node.template) {
     out.template = node.template
     const t = templates[node.template.component]

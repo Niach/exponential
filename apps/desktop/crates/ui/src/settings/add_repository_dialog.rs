@@ -881,7 +881,7 @@ fn fix_button(ink: &Ink, chrome: &Chrome) -> [Value; 2] {
     let glyph_size = ink.r(0.875);
     let face = |id: &str, on: bool| {
         let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": path("/pane/fixLabel")}, "style": {"fontSize": size, "lineHeight": size, "color": ink.primary_button_fg, "flexShrink": 0}});
-        let mut button = json!({"id": id, "component": "Box", "accessibility": {"label": path("/pane/fixLabel")},
+        let mut button = json!({"id": id, "component": "Box", "@accessibility": {"label": path("/pane/fixLabel")},
             "style": {"position": "relative", "display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": chrome.radius, "backgroundColor": if on { ink.primary_button_fill.as_str() } else { "#00000000" }},
             "children": [glyph(&format!("{id}_icon"), json!("ui-github"), glyph_size, &ink.primary_button_fg), text]});
         if on {
@@ -906,7 +906,7 @@ fn fix_button(ink: &Ink, chrome: &Chrome) -> [Value; 2] {
 /// with the glyph inside and the clear once there is text; Box, Icon and a
 /// `bare` Input, since a `box` Input has neither the 28 px rung nor a glyph.
 fn search_row(ink: &Ink, chrome: &Chrome) -> Value {
-    let clear_box = json!({"id": "clear", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Clear search"}, "on": {"press": {"event": {"name": "clear"}}},
+    let clear_box = json!({"id": "clear", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": "Clear search"}, "on": {"press": {"event": {"name": "clear"}}},
         "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": ink.r(1.25), "height": ink.r(1.25), "borderRadius": chrome.radius, "cursor": "pointer", ":hover": {"backgroundColor": chrome.ghost_hover}},
         "children": [glyph("clear_icon", json!("ui-clear"), ink.r(0.75), &ink.muted)]});
     let clear = json!({"id": "clear_tip", "component": "Tooltip", "visible": path("/pane/hasQuery"), "props": {"content": "Clear search"}, "children": [clear_box]});
@@ -915,7 +915,7 @@ fn search_row(ink: &Ink, chrome: &Chrome) -> Value {
         "on": {
             "change": {"event": {"name": "edit", "context": {"field": "query"}}},
         }});
-    json!({"id": "search_row", "component": "Box", "visible": path("/pane/search"), "props": {"pressable": true}, "accessibility": {"label": copy::SEARCH_PLACEHOLDER}, "on": {"press": {"event": {"name": "focus_search"}}},
+    json!({"id": "search_row", "component": "Box", "visible": path("/pane/search"), "props": {"pressable": true}, "@accessibility": {"label": copy::SEARCH_PLACEHOLDER}, "on": {"press": {"event": {"name": "focus_search"}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "flexShrink": 0, "width": "100%", "height": 28, "paddingHorizontal": 8, "gap": 4, "borderRadius": ink.radius_lg, "borderWidth": 1, "borderColor": path("/pane/searchStroke"), "backgroundColor": chrome.field_fill},
         "children": [glyph("search_icon", json!("nav-search"), 14., &ink.muted), field, clear]})
 }
@@ -928,7 +928,7 @@ fn repo_row(ink: &Ink, chrome: &Chrome) -> Value {
     name["props"]["lines"] = json!(1);
     let mut lock = glyph("row_lock", json!("ui-private"), glyph_size, &ink.muted);
     lock["visible"] = path("private");
-    json!({"id": "row", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("name")}, "on": {"press": {"event": {"name": "pick", "context": {"key": path("key")}}}},
+    json!({"id": "row", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": path("name")}, "on": {"press": {"event": {"name": "pick", "context": {"key": path("key")}}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "width": "100%", "minWidth": 0, "flexShrink": 0, "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.5), "paddingVertical": ink.r(0.375), "borderRadius": chrome.radius, "cursor": "pointer", ":hover": {"backgroundColor": ink.fill_row}},
         "children": [glyph("row_icon", json!("ui-github"), glyph_size, &ink.muted), name, lock]})
 }
@@ -955,7 +955,7 @@ fn footer(ink: &Ink, chrome: &Chrome) -> Value {
     link_text["style"]["textDecoration"] = json!("underline");
     link_text["style"]["flexShrink"] = json!(0);
     link_text["style"]["paddingTop"] = json!(1);
-    let link = json!({"id": "link", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": path("label")}, "on": {"press": {"event": {"name": "open", "context": {"key": path("url")}}}},
+    let link = json!({"id": "link", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": path("label")}, "on": {"press": {"event": {"name": "open", "context": {"key": path("url")}}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "cursor": "pointer"},
         "children": [link_text, glyph("link_glyph", json!("ui-external-link"), crate::surface::PillSize::Sm.glyph(), &chrome.link)]});
     let comma = shown(xs("link_comma", json!(",")), path("comma"));

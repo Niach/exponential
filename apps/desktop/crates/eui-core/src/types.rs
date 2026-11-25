@@ -103,8 +103,11 @@ pub struct NestedNode {
     pub visible: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on: Option<IndexMap<String, Value>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, rename = "@accessibility", skip_serializing_if = "Option::is_none")]
     pub accessibility: Option<Value>,
+    /// Round 9 §5.1: the check mixin, at NODE level (never in `props`).
+    #[serde(default, rename = "@checks", skip_serializing_if = "Option::is_none")]
+    pub checks: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<NestedNode>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -112,10 +115,28 @@ pub struct NestedNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template: Option<Template>,
     /// Round 9 §5.5, §13: the node's own catalog.
-    #[serde(default, rename = "catalogId", skip_serializing_if = "Option::is_none")]
+    #[serde(default, rename = "@catalogId", skip_serializing_if = "Option::is_none")]
     pub catalog_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, rename = "@metadata", skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Value>,
+    /// Round 9 §5.1: a BARE mixin key at node level was there (refused).
+    #[doc(hidden)]
+    #[serde(default, rename = "catalogId", deserialize_with = "present", skip_serializing)]
+    pub bare_catalog_id: bool,
+    #[doc(hidden)]
+    #[serde(default, rename = "accessibility", deserialize_with = "present", skip_serializing)]
+    pub bare_accessibility: bool,
+    #[doc(hidden)]
+    #[serde(default, rename = "metadata", deserialize_with = "present", skip_serializing)]
+    pub bare_metadata: bool,
+    #[doc(hidden)]
+    #[serde(default, rename = "checks", deserialize_with = "present", skip_serializing)]
+    pub bare_checks: bool,
+}
+
+/// Any value, null included, reads as `true`.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    serde::de::IgnoredAny::deserialize(d).map(|_| true)
 }
 
 /// A2UI `children`: ids, or a template `{componentId, path, key?}`.
@@ -132,6 +153,23 @@ pub enum FlatChildren {
     },
 }
 
+impl PropSchema {
+    /// Round 9 §5.1: the CHECK MIXIN as the source catalogs declare it (an
+    /// array of the shared `check` shape); on the wire it is `@checks`.
+    pub fn is_check_mixin(&self) -> bool {
+        self.type_ == "array" && self.items.as_ref().is_some_and(|i| i.shape.as_deref() == Some("check"))
+    }
+}
+
+/// Round 9 §5.1: the mixin names. BARE, each is an ordinary prop of a
+/// component whose catalog declares it, and refused everywhere else.
+pub const MIXIN_NAMES: &[&str] = &["catalogId", "accessibility", "metadata", "checks"];
+
+/// Round 9 §5.1: why a bare mixin name is refused.
+pub fn bare_mixin(name: &str) -> String {
+    format!("{name} is not a declared prop (write @{name})")
+}
+
 impl FlatChildren {
     /// The normalized template of a `{componentId, path, key?}` list.
     pub fn template(&self) -> Option<Template> {
@@ -143,7 +181,8 @@ impl FlatChildren {
 }
 
 /// A node as it rides A2UI's `updateComponents`: props at the top level,
-/// children by id. `rest` holds the props.
+/// children by id, the envelope mixins under `@` (round 9 §5.1). `rest`
+/// holds the props and `@checks`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FlatComponent {
     pub id: String,
@@ -158,13 +197,13 @@ pub struct FlatComponent {
     pub style: Option<Props>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visible: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, rename = "@accessibility", skip_serializing_if = "Option::is_none")]
     pub accessibility: Option<Value>,
     /// Round 9 §5.5: the entry's own catalog (else the surface default).
-    #[serde(default, rename = "catalogId", skip_serializing_if = "Option::is_none")]
+    #[serde(default, rename = "@catalogId", skip_serializing_if = "Option::is_none")]
     pub catalog_id: Option<String>,
     /// Round 9 §5.1: `{extensions?}`, stored, never painted.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, rename = "@metadata", skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Value>,
     #[serde(flatten)]
     pub rest: Props,
@@ -295,6 +334,14 @@ impl ComponentDef {
     /// placeholder.
     pub fn is_offered(&self) -> bool {
         !self.is_hidden()
+    }
+    /// Round 9 §5.1: does the component take `@checks`?
+    pub fn is_checkable(&self) -> bool {
+        self.props.get("checks").is_some_and(PropSchema::is_check_mixin)
+    }
+    /// Round 9 §5.1: a bare mixin name the component declares as an ordinary prop.
+    pub fn declares_bare(&self, name: &str) -> bool {
+        self.props.get(name).is_some_and(|s| !(name == "checks" && s.is_check_mixin()))
     }
     /// True when the slots are ROW-SCOPED (`slotScope: "row"`, Table).
     pub fn has_row_slots(&self) -> bool {

@@ -1586,7 +1586,7 @@ fn image_row(ink: &Ink, chrome: &Chrome) -> Value {
     let remove = |dim: bool| {
         let id = if dim { "image_remove_dim" } else { "image_remove" };
         let visible = if dim { and(path("/pane/image/has"), path("/pane/image/disabled")) } else { and(path("/pane/image/has"), not(path("/pane/image/disabled"))) };
-        let mut button = json!({"id": id, "component": "Box", "visible": visible, "accessibility": {"label": spec.copy.remove},
+        let mut button = json!({"id": id, "component": "Box", "visible": visible, "@accessibility": {"label": spec.copy.remove},
             "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": side, "height": side, "borderRadius": chrome.radius},
             "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": 12, "height": 12, "color": chrome.muted}}]});
         if !dim {
@@ -1727,7 +1727,7 @@ fn billing(ink: &Ink, chrome: &Chrome) -> Value {
     // input wash and stroke, the `size_4` glyph `gap_1` before the label.
     let size = ink.r(SM);
     let manage = json!({"id": "billing_manage", "component": "Box", "visible": path("/pane/billing/manage"), "style": {"display": "flex", "flexDirection": "row"},
-        "children": [{"id": "billing_manage_button", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Manage billing on the web"}, "on": {"press": {"event": {"name": "manageBilling"}}},
+        "children": [{"id": "billing_manage_button", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": "Manage billing on the web"}, "on": {"press": {"event": {"name": "manageBilling"}}},
             "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": chrome.radius, "borderWidth": 1, "borderColor": chrome.button_stroke, "backgroundColor": chrome.button_fill, "cursor": "pointer"},
             "children": [
                 {"id": "billing_manage_icon", "component": "Icon", "props": {"name": "ui-external-link"}, "style": {"width": ink.r(1.), "height": ink.r(1.), "color": chrome.button_fg, "flexShrink": 0}},
@@ -1747,7 +1747,7 @@ fn danger_zone(ink: &Ink, chrome: &Chrome) -> Value {
     sentence["style"]["flexShrink"] = json!(1);
     sentence["style"]["minWidth"] = json!(0);
     let size = ink.r(XS);
-    let button = json!({"id": "danger_delete", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Delete team"}, "on": {"press": {"event": {"name": "deleteTeam"}}},
+    let button = json!({"id": "danger_delete", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": "Delete team"}, "on": {"press": {"event": {"name": "deleteTeam"}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 24, "paddingHorizontal": 8, "borderRadius": chrome.radius, "backgroundColor": chrome.danger_button, "cursor": "pointer", ":hover": {"backgroundColor": chrome.danger_button_hover}},
         "children": [
             {"id": "danger_delete_icon", "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": ink.r(0.75), "height": ink.r(0.75), "color": chrome.danger_button_fg, "flexShrink": 0}},

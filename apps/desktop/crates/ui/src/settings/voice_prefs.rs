@@ -542,7 +542,7 @@ fn push_to_talk(inks: &Inks) -> Value {
     // gpui-component's XSmall ghost Button: `h_5` / `px_1`, the `text_xs`
     // label at line height 1 (half a point under the box centre).
     let size = ink.r(XS);
-    let clear = json!({"id": "ptt_clear", "component": "Box", "visible": at("clear"), "props": {"pressable": true}, "accessibility": {"label": copy.shortcut_clear},
+    let clear = json!({"id": "ptt_clear", "component": "Box", "visible": at("clear"), "props": {"pressable": true}, "@accessibility": {"label": copy.shortcut_clear},
         "on": {"press": {"event": {"name": "pttClear"}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "height": ink.r(1.25), "paddingHorizontal": ink.r(0.25), "cursor": "pointer"},
         "children": [{"id": "ptt_clear_text", "component": "Text", "props": {"text": copy.shortcut_clear}, "style": {"fontSize": size, "lineHeight": size, "color": ink.foreground, "marginTop": 0.5, "marginBottom": -0.5}}]});

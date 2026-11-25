@@ -108636,6 +108636,104 @@
       ]
     },
     {
+      "name": "Text/formatString:calls",
+      "input": {
+        "id": "text",
+        "component": "Text",
+        "props": {
+          "text": {
+            "@call": "formatString",
+            "args": {
+              "value": "${add(a: ${/n}, b: 1)} of ${/total}"
+            }
+          }
+        },
+        "@accessibility": {
+          "label": {
+            "@call": "formatString",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+            "args": {
+              "value": "${add(a: 1, b: 1)}"
+            }
+          },
+          "description": {
+            "@call": "formatString",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+            "args": {
+              "value": "${formatNumber(value: ${/n}, decimals: 1)}"
+            }
+          }
+        }
+      },
+      "expanded": {
+        "id": "text",
+        "component": "Text",
+        "props": {
+          "text": {
+            "@call": "formatString",
+            "args": {
+              "value": "${add(a: ${/n}, b: 1)} of ${/total}"
+            }
+          }
+        },
+        "children": [],
+        "accessibility": {
+          "label": {
+            "@call": "formatString",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+            "args": {
+              "value": "${add(a: 1, b: 1)}"
+            }
+          },
+          "description": {
+            "@call": "formatString",
+            "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+            "args": {
+              "value": "${formatNumber(value: ${/n}, decimals: 1)}"
+            }
+          }
+        }
+      },
+      "issues": [],
+      "datasets": [
+        {
+          "data": {
+            "n": 2,
+            "total": 5
+          },
+          "bound": {
+            "id": "text",
+            "component": "Text",
+            "props": {
+              "text": "3 of 5"
+            },
+            "children": [],
+            "accessibility": {
+              "label": null,
+              "description": "2.0"
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": {
+            "id": "text",
+            "component": "Text",
+            "props": {
+              "text": "1 of "
+            },
+            "children": [],
+            "accessibility": {
+              "label": null,
+              "description": ""
+            }
+          },
+          "presses": []
+        }
+      ]
+    },
+    {
       "name": "Text/accessibility:bound-label",
       "input": {
         "id": "text",
@@ -108643,7 +108741,7 @@
         "props": {
           "text": "hi"
         },
-        "accessibility": {
+        "@accessibility": {
           "label": {
             "@path": "/l"
           },
@@ -119794,7 +119892,7 @@
             }
           }
         },
-        "accessibility": {
+        "@accessibility": {
           "label": {
             "@call": "dateAdd",
             "args": {

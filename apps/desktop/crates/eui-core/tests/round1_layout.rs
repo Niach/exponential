@@ -831,8 +831,8 @@ fn a_form_refuses_a_submit_with_failing_checks_then_submits_its_values() {
     let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
         "children": [{"id": "form", "component": "Form", "props": {"name": "signup", "summary": true}, "on": {"submit": {"event": {"name": "save"}}, "invalid": {"event": {"name": "invalid"}}},
             "children": [
-                {"id": "email", "component": "Input", "props": {"label": "Email", "name": "email", "value": {"@path": "/email"}, "checks": [{"condition": {"@call": "email", "args": {"value": {"@path": "/email"}}}, "message": "Enter an email"}]}},
-                {"id": "agree", "component": "Checkbox", "props": {"label": "I agree", "name": "agree", "checked": {"@path": "/agree"}, "checks": [{"condition": {"@path": "/agree"}, "message": "Required"}]}},
+                {"id": "email", "component": "Input", "props": {"label": "Email", "name": "email", "value": {"@path": "/email"}}, "@checks": [{"condition": {"@call": "email", "args": {"value": {"@path": "/email"}}}, "message": "Enter an email"}]},
+                {"id": "agree", "component": "Checkbox", "props": {"label": "I agree", "name": "agree", "checked": {"@path": "/agree"}}, "@checks": [{"condition": {"@path": "/agree"}, "message": "Required"}]},
                 {"id": "go", "component": "Button", "props": {"label": "Save", "submit": true}}
             ]}]}));
     s.set_data("", Some(json!({"email": "nope", "agree": false}))).unwrap();
@@ -866,8 +866,8 @@ fn a_form_refuses_a_submit_with_failing_checks_then_submits_its_values() {
 #[test]
 fn validate_on_blur_and_change() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [
-        {"id": "name", "component": "Input", "props": {"label": "Name", "name": "name", "value": {"@path": "/name"}, "checks": [{"condition": {"@call": "required", "args": {"value": {"@path": "/name"}}}, "message": "Required"}]}},
-        {"id": "code", "component": "Input", "props": {"label": "Code", "name": "code", "validateOn": "change", "value": {"@path": "/code"}, "checks": [{"condition": {"@call": "length", "args": {"value": {"@path": "/code"}, "min": 3}}, "message": "Too short"}]}}
+        {"id": "name", "component": "Input", "props": {"label": "Name", "name": "name", "value": {"@path": "/name"}}, "@checks": [{"condition": {"@call": "required", "args": {"value": {"@path": "/name"}}}, "message": "Required"}]},
+        {"id": "code", "component": "Input", "props": {"label": "Code", "name": "code", "validateOn": "change", "value": {"@path": "/code"}}, "@checks": [{"condition": {"@call": "length", "args": {"value": {"@path": "/code"}, "min": 3}}, "message": "Too short"}]}
     ]}));
     s.set_viewport(390.0, 0.0, None);
     let mut m = fixed();

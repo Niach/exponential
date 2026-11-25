@@ -94,7 +94,7 @@ describe(`fixtures/interactions-round1.json`, () => {
         props: { name: `f` },
         on: { submit: { event: { name: `submit` } }, invalid: { event: { name: `invalid` } } },
         children: [
-          { id: `agree`, component: `Checkbox`, props: { label: `I agree`, name: `agree`, checked: { "@path": `/agreed` }, checks: c.checks } },
+          { id: `agree`, component: `Checkbox`, props: { label: `I agree`, name: `agree`, checked: { "@path": `/agreed` }}, "@checks": c.checks },
           { id: `go`, component: `Button`, props: { label: `Send`, submit: true } },
         ],
       } as NestedNode)
@@ -117,7 +117,7 @@ describe(`fixtures/interactions-round1.json`, () => {
         props: { name: `f` },
         on: { submit: { event: { name: `submit` } }, invalid: { event: { name: `invalid` } } },
         children: [
-          { id: `x`, component: `Input`, props: { label: `X`, name: `x`, value: `v`, validateOn: `submit`, checks: c.checks } },
+          { id: `x`, component: `Input`, props: { label: `X`, name: `x`, value: `v`, validateOn: `submit`}, "@checks": c.checks },
           { id: `go`, component: `Button`, props: { label: `Send`, submit: true } },
         ],
       } as NestedNode)
@@ -140,7 +140,7 @@ describe(`fixtures/interactions-round1.json`, () => {
   for (const c of fixture.buttonChecks as ButtonCheckCase[]) {
     it(`buttonChecks: ${c.name}`, () => {
       const actions: SurfaceActionEvent[] = []
-      const root = tree({ id: `b`, component: `Button`, props: { label: `Go`, checks: c.checks }, on: { press: { event: { name: `press` } } } })
+      const root = tree({ id: `b`, component: `Button`, props: { label: `Go`}, "@checks": c.checks, on: { press: { event: { name: `press` } } } })
       const { container } = render(<ExponentialSurface root={root} data={c.data} theme="neutral" id={`bc`} host={{ onAction: (e) => void actions.push(e) }} />)
       const button = container.querySelector(`[data-xui-id="b"]`) as HTMLButtonElement
       expect(button.disabled).toBe(c.disabled)

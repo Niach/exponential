@@ -1724,7 +1724,7 @@ fn document(ink: &Ink, chrome: &Chrome, wake_placeholder: &str, teams: &[(String
         "children": [ink.band("voice_band", &voice_copy.label, None), ink.group("voice_group", voice_rows(ink, chrome, wake_placeholder)), wake_invalid, wake_word_error]});
     let error = field_error(ink, chrome, "error", path("/pane/error"), path("/pane/hasError"));
     let size = ink.r(SM);
-    let delete = json!({"id": "delete", "component": "Box", "visible": path("/pane/canDelete"), "props": {"pressable": true}, "accessibility": {"label": field_label("delete")}, "on": {"press": {"event": {"name": "delete"}}},
+    let delete = json!({"id": "delete", "component": "Box", "visible": path("/pane/canDelete"), "props": {"pressable": true}, "@accessibility": {"label": field_label("delete")}, "on": {"press": {"event": {"name": "delete"}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "alignSelf": "flex-start", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": chrome.radius, "backgroundColor": chrome.danger_bg, "cursor": "pointer", ":hover": {"backgroundColor": chrome.danger_hover}},
         "children": [
             {"id": "delete_icon", "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": ink.r(SM), "height": ink.r(SM), "color": chrome.danger_fg, "flexShrink": 0}},

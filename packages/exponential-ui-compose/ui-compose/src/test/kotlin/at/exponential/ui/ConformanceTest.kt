@@ -17,6 +17,7 @@ import at.exponential.ui.extension.ExtensionPainter
 import at.exponential.ui.extension.ExtensionRegistry
 import at.exponential.ui.ffi.HostRouter
 import at.exponential.ui.ffi.actionMessageWithUserMessageJson
+import at.exponential.ui.ffi.answerRendererCallJson
 import at.exponential.ui.ffi.cardV10Json
 import at.exponential.ui.ffi.errorMessageJson
 import at.exponential.ui.ffi.functionErrorMessageJson
@@ -718,6 +719,13 @@ class ConformanceTest {
                     val got = if (call != null) functionErrorMessageJson(s(c, "code"), call, s(c, "message"), c["path"]?.string)
                     else errorMessageJson(s(c, "code"), s(c["target"], "surfaceId"), s(c, "message"), c["path"]?.string)
                     same(got, c["expected"]!!)
+                },
+            )
+        }
+        for (c in list(f, "rendererCalls")) {
+            out.add(
+                case("rendererCall: ${s(c, "name")}") {
+                    same(answerRendererCallJson(c["op"]!!.json, c["data"]?.json ?: "{}", null), c["expected"]!!)
                 },
             )
         }

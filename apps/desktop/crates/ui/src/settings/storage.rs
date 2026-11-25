@@ -550,7 +550,7 @@ fn document(ink: &Ink, track: &str, list_hover: &str) -> Value {
         if press {
             t["style"]["cursor"] = json!("pointer");
             t["style"][":hover"] = json!({"backgroundColor": ink.fill_active});
-            json!({"id": format!("{id}_press"), "component": "Box", "visible": path("previewable"), "props": {"pressable": true}, "accessibility": {"label": path("filename")}, "on": {"press": {"event": {"name": "preview", "context": {"key": path("key")}}}}, "style": {"display": "flex", "minWidth": 0, "flexShrink": 1}, "children": [t]})
+            json!({"id": format!("{id}_press"), "component": "Box", "visible": path("previewable"), "props": {"pressable": true}, "@accessibility": {"label": path("filename")}, "on": {"press": {"event": {"name": "preview", "context": {"key": path("key")}}}}, "style": {"display": "flex", "minWidth": 0, "flexShrink": 1}, "children": [t]})
         } else {
             t["visible"] = not(path("previewable"));
             t

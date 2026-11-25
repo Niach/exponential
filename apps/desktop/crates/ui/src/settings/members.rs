@@ -1165,7 +1165,7 @@ fn pending_row(ink: &Ink, tints: &Tints) -> Value {
     let mut link = line(ink, "invite_link", json!("Link invite"), SM, &ink.muted);
     link["visible"] = not(path("hasEmail"));
     let glyph = ink.r(XS);
-    let revoke = json!({"id": "invite_revoke", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Revoke invite"}, "on": {"press": {"event": {"name": "revoke", "context": {"key": path("key")}}}},
+    let revoke = json!({"id": "invite_revoke", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": "Revoke invite"}, "on": {"press": {"event": {"name": "revoke", "context": {"key": path("key")}}}},
         "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 24, "height": 24, "borderRadius": 9999, "cursor": "pointer", ":hover": {"backgroundColor": tints.ghost_hover}},
         "children": [{"id": "invite_revoke_icon", "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": glyph, "height": glyph, "color": tints.ghost_fg, "flexShrink": 0}}]});
     json!({"id": "invite", "component": "Box",
@@ -1316,7 +1316,7 @@ pub(super) fn link_row(ink: &Ink, tints: &Tints, id: &str, base: &str, link: &st
     url["style"]["flexShrink"] = json!(1);
     let side = ink.r(1.25);
     let glyph = ink.r(XS);
-    let copy = json!({"id": format!("{id}_copy"), "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Copy"}, "on": {"press": {"event": {"name": "copy", "context": {"link": link}}}},
+    let copy = json!({"id": format!("{id}_copy"), "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": "Copy"}, "on": {"press": {"event": {"name": "copy", "context": {"link": link}}}},
         "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": side, "height": side, "borderRadius": tints.radius, "cursor": "pointer", ":hover": {"backgroundColor": tints.ghost_hover}},
         "children": [{"id": format!("{id}_copy_icon"), "component": "Icon", "props": {"name": path(&format!("{base}/copyIcon"))}, "style": {"width": glyph, "height": glyph, "color": tints.ghost_fg, "flexShrink": 0}}]});
     json!({"id": id, "component": "Box", "visible": visible, "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "width": "100%", "minWidth": 0},

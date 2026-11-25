@@ -378,7 +378,7 @@ export function fillRecordMacros(components: readonly Json[], bindings: readonly
       row.slots = { trailing: `${id}__rowDelete` }
     }
     extra.push(row)
-    if (editable) extra.push({ id: `${id}__rowDelete`, component: `Button`, icon: `ui-delete`, variant: `ghost`, size: `icon`, accessibility: { label: `$string.delete` }, on: { press: (node.on as Json).delete } })
+    if (editable) extra.push({ id: `${id}__rowDelete`, component: `Button`, icon: `ui-delete`, variant: `ghost`, size: `icon`, "@accessibility": { label: `$string.delete` }, on: { press: (node.on as Json).delete } })
     const query = typeof node.query === `string` && node.query.trim() ? node.query.trim().replace(/^\?/, ``) : `sort=updatedAt&order=desc`
     binds.push({ path: `${base}/rows`, source: `records:${kindName}?${query}` })
   }

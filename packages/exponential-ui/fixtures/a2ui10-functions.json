@@ -858,6 +858,274 @@
           "message": "catalog https://x.example/v1 is not available"
         }
       }
+    },
+    {
+      "name": "formatString: a call, named args",
+      "value": {
+        "@call": "formatString",
+        "args": {
+          "value": "${add(a: 1, b: ${/n})} of ${/n}"
+        }
+      },
+      "data": {
+        "n": 2
+      },
+      "expected": {
+        "value": "3 of 2"
+      }
+    },
+    {
+      "name": "formatString: literals, nested calls, strings with braces and escapes",
+      "value": {
+        "@call": "formatString",
+        "args": {
+          "value": "${concat(values: ${/v})}|${text(value: 'a}b\\'c')}|${text(value:true)}|${text(value: -1.5)}|${text(value: ${text(value: \"x\")})}|${text(value: text(value: /n))}"
+        }
+      },
+      "data": {
+        "v": [
+          "p",
+          "q"
+        ],
+        "n": 3
+      },
+      "expected": {
+        "value": "pq|a}b'c|true|-1.5|x|3"
+      }
+    },
+    {
+      "name": "formatString: \\${ is literal, an unclosed ${ too",
+      "value": {
+        "@call": "formatString",
+        "args": {
+          "value": "\\${/n} ${/n} ${/n"
+        }
+      },
+      "data": {
+        "n": 2
+      },
+      "expected": {
+        "value": "${/n} 2 ${/n"
+      }
+    },
+    {
+      "name": "formatString: a relative pointer and @index in a call",
+      "value": {
+        "@call": "formatString",
+        "args": {
+          "value": "${add(a: ${@index()}, b: 1)} ${name}"
+        }
+      },
+      "data": {
+        "rows": [
+          {
+            "name": "x"
+          }
+        ]
+      },
+      "scope": {
+        "base": "/rows/0",
+        "index": 0
+      },
+      "expected": {
+        "value": "1 x"
+      }
+    },
+    {
+      "name": "formatString: a malformed call fails",
+      "value": {
+        "@call": "formatString",
+        "args": {
+          "value": "${add(1, 2)}"
+        }
+      },
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "EXPRESSION_ERROR",
+          "message": "formatString: malformed expression"
+        }
+      }
+    },
+    {
+      "name": "formatString: a failing call fails it",
+      "value": {
+        "@call": "formatString",
+        "args": {
+          "value": "a ${nope(a: 1)}"
+        }
+      },
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "UNKNOWN_FUNCTION",
+          "message": "no function nope"
+        }
+      }
+    },
+    {
+      "name": "formatString: an effect never runs in a binding",
+      "value": {
+        "@call": "formatString",
+        "args": {
+          "value": "${openUrl(url: 'https://a.example')}"
+        }
+      },
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "EXPRESSION_ERROR",
+          "message": "openUrl cannot run in a binding"
+        }
+      }
+    },
+    {
+      "name": "formatString catalog: a call in ${…} resolves against the enclosing call's catalog, not the surface's",
+      "value": {
+        "@call": "formatString",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "args": {
+          "value": "${add(a: 1, b: 2)}"
+        }
+      },
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "UNKNOWN_FUNCTION",
+          "message": "no function add"
+        }
+      }
+    },
+    {
+      "name": "formatString catalog: nested calls too",
+      "value": {
+        "@call": "formatString",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "args": {
+          "value": "${formatString(value: ${add(a: 1, b: 2)})}"
+        }
+      },
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "UNKNOWN_FUNCTION",
+          "message": "no function add"
+        }
+      }
+    },
+    {
+      "name": "formatString catalog: the enclosing core call on a basic surface",
+      "value": {
+        "@call": "formatString",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "args": {
+          "value": "${add(a: 1, b: 2)}"
+        }
+      },
+      "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+      "expected": {
+        "value": "3"
+      }
+    },
+    {
+      "name": "formatString catalog: the surface default is basic",
+      "value": {
+        "@call": "formatString",
+        "args": {
+          "value": "${add(a: 1, b: 2)}"
+        }
+      },
+      "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "UNKNOWN_FUNCTION",
+          "message": "no function add"
+        }
+      }
+    },
+    {
+      "name": "formatString catalog: basic has its 14",
+      "value": {
+        "@call": "formatString",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "args": {
+          "value": "${formatNumber(value: 1234.5, decimals: 1)}"
+        }
+      },
+      "expected": {
+        "value": "1,234.5"
+      }
+    },
+    {
+      "name": "formatString catalog: @index has none",
+      "value": {
+        "@call": "formatString",
+        "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+        "args": {
+          "value": "${@index(offset: 1)}"
+        }
+      },
+      "scope": {
+        "base": "/rows/0",
+        "index": 0
+      },
+      "available": [
+        "https://ui.exponential.at/catalogs/core/v1",
+        "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"
+      ],
+      "expected": {
+        "value": "1"
+      }
+    },
+    {
+      "name": "agent: a pure function",
+      "value": {
+        "@call": "add",
+        "args": {
+          "a": 1,
+          "b": 2
+        }
+      },
+      "position": "agent",
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "agent: a rendererOnly function fails",
+      "value": {
+        "@call": "set",
+        "args": {
+          "path": "/n",
+          "value": 1
+        }
+      },
+      "position": "agent",
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "INVALID_FUNCTION_CALL",
+          "message": "set cannot be called by the agent"
+        }
+      }
+    },
+    {
+      "name": "agent: a rendererOnly function in a template expression fails",
+      "value": {
+        "@call": "formatString",
+        "args": {
+          "value": "${openUrl(url: 'x')}"
+        }
+      },
+      "position": "agent",
+      "expected": {
+        "value": null,
+        "failure": {
+          "code": "INVALID_FUNCTION_CALL",
+          "message": "openUrl cannot be called by the agent"
+        }
+      }
     }
   ],
   "routing": [

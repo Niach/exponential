@@ -1348,7 +1348,7 @@ fn disclosure(ink: &Ink, id: &str, label: Value, open: Value, closed: Value, eve
     let chevron = |suffix: &str, icon: &str, visible: Value| json!({"id": format!("{id}_{suffix}"), "component": "Icon", "visible": visible, "props": {"name": icon}, "style": {"width": CHEVRON, "height": CHEVRON, "color": ink.muted, "flexShrink": 0}});
     let mut children = vec![chevron("closed", "ui-chevron-right", closed), chevron("open", "ui-chevron-down", open)];
     children.extend(content);
-    json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": event}},
+    json!({"id": id, "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": label}, "on": {"press": {"event": event}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "flexGrow": 1, "flexShrink": 1, "flexBasis": 0, "minWidth": 0, "cursor": "pointer"},
         "children": children})
 }
@@ -1407,7 +1407,7 @@ fn server_tools(ink: &Ink, tints: &Tints) -> Value {
     };
     let mut retry = ink.text("tools_retry_text", json!(SETTINGS_MCP.retry), XS, &ink.primary);
     retry["style"]["cursor"] = json!("pointer");
-    let retry = json!({"id": "tools_retry", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": SETTINGS_MCP.retry},
+    let retry = json!({"id": "tools_retry", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": SETTINGS_MCP.retry},
         "on": {"press": {"event": {"name": "toolsRetry", "context": {"key": path("key")}}}}, "style": {"flexShrink": 0}, "children": [retry]});
     let line_box = |id: &str, visible: Value, children: Vec<Value>| json!({"id": id, "component": "Box", "visible": visible,
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "width": "100%", "minWidth": 0, "paddingLeft": indent, "paddingRight": ink.r(0.75), "paddingVertical": ink.r(0.375)},

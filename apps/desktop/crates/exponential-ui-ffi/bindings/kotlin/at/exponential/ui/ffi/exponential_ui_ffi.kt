@@ -806,6 +806,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_animation_frame_json(
     ): Int
+    external fun uniffi_exponential_ui_ffi_checksum_func_answer_renderer_call_json(
+    ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_apply_record_batch_json(
     ): Int
     external fun uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id(
@@ -1816,6 +1818,8 @@ internal object UniffiLib {
     external fun uniffi_exponential_ui_ffi_fn_func_action_message_with_user_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,`userMessage`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_animation_frame_json(`name`: RustBuffer.ByValue,`timingJson`: RustBuffer.ByValue,`elapsedMs`: Double,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_exponential_ui_ffi_fn_func_answer_renderer_call_json(`opJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`availableCatalogIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_exponential_ui_ffi_fn_func_apply_record_batch_json(`rowsJson`: RustBuffer.ByValue,`writesJson`: RustBuffer.ByValue,`recordsJson`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,`now`: RustBuffer.ByValue,`newIdsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -13452,6 +13456,25 @@ public object FfiConverterMapStringSequenceString: FfiConverterRustBuffer<Map<ko
         FfiConverterString.lower(`timingJson`),
         FfiConverterDouble.lower(`elapsedMs`),
         FfiConverterBoolean.lower(`reducedMotion`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Round 9 §6.9: the `rendererFunctionResponse` of a router `call` op,
+         * evaluated at the agent position. `data_json` = the surface's data (`{}`
+         * without one), `available_catalog_ids` = the router's.
+         */
+    @Throws(UiException::class) fun `answerRendererCallJson`(`opJson`: kotlin.String, `dataJson`: kotlin.String, `availableCatalogIds`: List<kotlin.String>?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_answer_renderer_call_json(
+    
+        
+        FfiConverterString.lower(`opJson`),
+        FfiConverterString.lower(`dataJson`),
+        FfiConverterOptionalSequenceString.lower(`availableCatalogIds`),_status)
 }
     )
     }
