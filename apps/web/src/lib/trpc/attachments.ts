@@ -19,6 +19,8 @@ import { replaceAttachmentReferencesInTx } from "@/lib/storage/attachment-refere
 // younger than this even when no markdown references it yet.
 export const SWEEP_GRACE_MS = 24 * 60 * 60 * 1000
 
+const SWEEP_PAUSED: boolean = true
+
 type Tx = Parameters<
   // eslint-disable-next-line quotes
   Parameters<typeof import("@/db/connection").db.transaction>[0]
@@ -258,6 +260,15 @@ export const attachmentsRouter = router({
     .input(z.object({ teamId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       await assertTeamOwner(ctx.session.user.id, input.teamId)
+
+      // #EXP-2115: it deleted result pictures and chat images. Off until it
+      // knows every reference; a client's old button lands here too.
+      if (SWEEP_PAUSED) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `Sweeping unreferenced images is paused. Nothing was deleted.`,
+        })
+      }
 
       const cutoff = new Date(Date.now() - SWEEP_GRACE_MS)
       const origin = ctx.request.url
