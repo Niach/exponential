@@ -12,6 +12,7 @@ import {
   type StuckRow,
 } from "@exp/domain-contract/merge-train"
 import { Badge } from "./badge"
+import { TeamLead, type RowTeam } from "./team-avatar"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { EmptyState } from "./empty-state"
@@ -45,8 +46,8 @@ export function NeedsYouList<Row extends NeedsYouRow>({
 }: {
   rows: readonly Row[]
   onOpen?: (row: Row) => void
-  /** #EXP-2027: a row's team mark on the cross-team list (md+), else null. */
-  teamOf?: (row: Row) => ReactNode
+  /** #EXP-2027: a row's team mark on the cross-team list, else null. */
+  teamOf?: (row: Row) => RowTeam | null
   /** #EXP-1710: a row's THE Button sm row under its meta (a stuck PR's
    *  Retry / Merge now / Close PR); null = none. */
   actions?: (row: Row) => ReactNode
@@ -71,11 +72,12 @@ export function NeedsYouList<Row extends NeedsYouRow>({
             data-kind={row.kind}
             onClick={() => onOpen?.(row)}
           >
-            <Glyph className={cn(`mt-0.5 size-4 shrink-0`, NEEDS_YOU_TONE)} />
+            <TeamLead team={teamOf?.(row)} lead={16} className="mt-0.5">
+              <Glyph className={cn(`size-4 shrink-0`, NEEDS_YOU_TONE)} />
+            </TeamLead>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-medium">{row.title}</span>
-                {teamOf?.(row)}
                 <span className="ml-auto shrink-0 pl-2 text-right text-xs text-muted-foreground">{row.age}</span>
               </div>
               <div className="mt-0.5 truncate text-xs text-muted-foreground">

@@ -59,8 +59,58 @@ public enum NavBadges {
         return unread > 0 ? Value(count: unread, tone: .muted) : .none
     }
 
-    /// The OS app icon (`appIconCases`): every team's needs-you rows summed.
-    public static func appIconBadge(_ teamNeedsYou: [Int]) -> Int {
-        teamNeedsYou.reduce(0) { $0 + Swift.max(0, $1) }
+    /// A parent's badge over the rows it hides (`sumCases`): a folded folder,
+    /// the phones' Teams tab. Attention while a counted row needs the viewer.
+    public static func sumBadges(_ rows: [Value]) -> Value {
+        let lit = rows.filter { $0.count > 0 }
+        if lit.isEmpty { return .none }
+        return Value(
+            count: lit.reduce(0) { $0 + $1.count },
+            tone: lit.contains { $0.tone == .attention } ? .attention : .muted
+        )
+    }
+
+    /// A team row (`teamCases`): its share of Needs you, and while folded its
+    /// hidden rows' muted counts (the attention ones are in the share).
+    public static func teamBadge(needsYou: Int, open: Bool, rows: [Value]) -> Value {
+        let hidden = open ? [] : rows.filter { $0.tone == .muted }
+        return sumBadges([Value(count: needsYou, tone: .attention)] + hidden)
+    }
+
+    public struct NeedsYouCounts: Equatable, Sendable {
+        public let total: Int
+        public let teams: [String: Int]
+    }
+
+    /// Needs you (`needsYouCases`): `rows` = THE list's rows' teams over every
+    /// member team and the Assistant's home; a row outside `teams` (the
+    /// Assistant's) and the waiting installs belong to no team.
+    public static func needsYouCounts(rows: [String?], teams: [String], installs: Int) -> NeedsYouCounts {
+        var counts = Dictionary(teams.map { ($0, 0) }, uniquingKeysWith: { a, _ in a })
+        for case let team? in rows where counts[team] != nil { counts[team]! += 1 }
+        return NeedsYouCounts(total: rows.count + Swift.max(0, installs), teams: counts)
+    }
+
+    /// The OS app icon (`appIconCases`): every account's Needs you total.
+    public static func appIconBadge(_ accountNeedsYou: [Int]) -> Int {
+        accountNeedsYou.reduce(0) { $0 + Swift.max(0, $1) }
+    }
+
+    /// A row's team mark on its lead (`teamMark`), bottom right: the mark's
+    /// side, the ground ring around it, how far it hangs past the lead.
+    public struct TeamMark: Equatable, Sendable {
+        public let mark: Int
+        public let ring: Int
+        public let offset: Int
+    }
+
+    public static let teamMarkSizes: [(lead: Int, mark: TeamMark)] = [
+        (40, TeamMark(mark: 20, ring: 2, offset: 2)),
+        (24, TeamMark(mark: 14, ring: 2, offset: 3)),
+        (0, TeamMark(mark: 10, ring: 1, offset: 4)),
+    ]
+
+    public static func teamMark(lead: Int) -> TeamMark {
+        (teamMarkSizes.first { $0.lead <= lead } ?? teamMarkSizes[teamMarkSizes.count - 1]).mark
     }
 }

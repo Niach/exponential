@@ -2588,18 +2588,13 @@ public enum SessionTree {
         reads: [TreeSessionRead] = [],
         now: String? = nil
     ) -> [ChatsListGroup] {
-        // EXP-1323: unread = the tree's newest agent-authored message is
-        // newer than the viewer's read of the root.
+        // EXP-1323: unread = the root's own newest agent message (event cards
+        // excluded) is newer than the viewer's read: `Chats.unreadCount` > 0.
         var readAt: [String: Double] = [:]
         for read in reads { readAt[read.sessionId] = ms(read.readAt) ?? 0 }
-        var rootOf: [String: String] = [:]
-        for session in sessions { rootOf[session.id] = session.rootId }
-        var newestAgentInTree: [String: Double] = [:]
-        for message in messages where message.authorKind == "agent" {
-            let at = ms(message.createdAt) ?? 0
-            if let rootId = rootOf[message.sessionId] {
-                newestAgentInTree[rootId] = max(newestAgentInTree[rootId] ?? 0, at)
-            }
+        var newestAgent: [String: Double] = [:]
+        for message in messages where message.authorKind == "agent" && message.card?.kind != "event" {
+            newestAgent[message.sessionId] = max(newestAgent[message.sessionId] ?? 0, ms(message.createdAt) ?? 0)
         }
         func unread(_ newest: Double?, _ sessionId: String) -> Bool {
             guard let newest else { return false }
@@ -2641,7 +2636,7 @@ public enum SessionTree {
                 title: title,
                 busy: live.contains { $0.busy },
                 needsYou: needsYou,
-                unread: unread(newestAgentInTree[root.id], root.id),
+                unread: unread(newestAgent[root.id], root.id),
                 activityAt: activity,
                 deviceId: root.deviceId,
                 wall: treeWall(tree)
@@ -2738,7 +2733,7 @@ public enum SessionTree {
                     icon: agent.icon ?? ListCopy.agentDefaultIcon,
                     color: agent.color ?? ListCopy.agentDefaultColor,
                     busy: live && conversation?.busy == true,
-                    needsYou: live && conversation?.needsInput == true,
+                    needsYou: conversation.map(sessionAsks) ?? false,
                     assistant: agent.isAssistant,
                     groupChatId: (agent.groupChatId ?? "").isEmpty ? nil : agent.groupChatId
                 )

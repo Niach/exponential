@@ -1186,7 +1186,7 @@ public enum Chats {
     /// #EXP-1733: the Chats list's APPS section (`appRowCases`): one row
     /// per live team app in `Apps.sortApps` order, its preview / time /
     /// unread from the viewer's session with the app (the root with `appId`
-    /// and `userId == me`); needs you / busy = that root's `needsInput` /
+    /// and `userId == me`); needs you / busy = that root's `sessionAsks` /
     /// `busy`. Never selectable; none on the Archived page.
     public static func appChatRows(
         apps: [ChatApp],
@@ -1205,7 +1205,7 @@ public enum Chats {
                 sessions.first { $0.parentId == nil && $0.appId == app.appId && $0.userId == me }
             }
             let id = session?.id
-            let needsYou = session?.needsInput ?? false
+            let needsYou = session.map(SessionTree.sessionAsks) ?? false
             let busy = session?.busy ?? false
             var newest: String?
             if let id {

@@ -2,8 +2,8 @@ import { createContext, useContext, useEffect, useMemo, type ReactNode } from "r
 import { useTeamMemberships } from "@/hooks/use-team-data"
 import { useNeedsYouCounts } from "@/hooks/use-needs-you"
 
-// #FEED-232 (nav-badges.json `appIconBadge`): the OS app icon = every team's
-// Needs you rows (distinct), via `navigator.setAppBadge` where the browser
+// #FEED-232 (nav-badges.json `appIconBadge`): the OS app icon = the
+// account's Needs you total, via `navigator.setAppBadge` where the browser
 // has it (an installed PWA); 0 clears it. Mounted once, in the team layout.
 // #PERF-13: the same ONE count feeds the sidebar and the team page
 // (`useMemberNeedsYouCounts`); it ran three times per synced row, and at the

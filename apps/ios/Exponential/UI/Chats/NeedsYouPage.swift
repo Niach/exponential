@@ -15,6 +15,7 @@ import SwiftUI
 struct NeedsYouPage: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(SessionListsModel.self) private var lists
+    @Environment(TeamState.self) private var teamState
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.toaster) private var toaster
@@ -53,7 +54,11 @@ struct NeedsYouPage: View {
                             Task { pushRoute(await AppRoute.openingNeedsYou(row, accountId: accountId, deps: deps)) }
                         }
                     },
-                    onAction: { row, action in run(action, on: row) }
+                    onAction: { row, action in run(action, on: row) },
+                    teamOf: { row in
+                        teamState.team(lists.chatRoots[row.rootId]?.teamId)
+                            .map { ChatRowTeam(name: $0.name, iconUrl: $0.iconUrl) }
+                    }
                 ) {
                     LivePendingInstalls()
                 }
@@ -165,6 +170,7 @@ struct NeedsYouPageContent<Band: View>: View {
     var pendingInstalls = 0
     let onOpen: (NeedsYou.Row) -> Void
     var onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)?
+    var teamOf: (NeedsYou.Row) -> ChatRowTeam? = { _ in nil }
     @ViewBuilder var band: () -> Band
 
     var body: some View {
@@ -180,7 +186,7 @@ struct NeedsYouPageContent<Band: View>: View {
                         band()
                     }
                     if !rows.isEmpty {
-                        NeedsYouList(rows: rows, onOpen: onOpen, onAction: onAction)
+                        NeedsYouList(rows: rows, onOpen: onOpen, onAction: onAction, teamOf: teamOf)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -194,6 +200,6 @@ struct NeedsYouPageContent<Band: View>: View {
 
 extension NeedsYouPageContent where Band == EmptyView {
     init(rows: [NeedsYou.Row], onOpen: @escaping (NeedsYou.Row) -> Void, onAction: ((NeedsYou.Row, MergeTrain.StuckRow.Action) -> Void)? = nil) {
-        self.init(rows: rows, onOpen: onOpen, onAction: onAction) { EmptyView() }
+        self.init(rows: rows, onOpen: onOpen, onAction: onAction, teamOf: teamOf) { EmptyView() }
     }
 }

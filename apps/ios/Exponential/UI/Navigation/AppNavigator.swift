@@ -577,6 +577,8 @@ struct MainNavigator: View {
     @State private var sessionLists = SessionListsModel()
     /// #EXP-2109: the Teams pages' tree (layout, agents, apps, owned teams).
     @State private var sidebarTree = SidebarTreeModel()
+    /// The minute the nav badges read (a PR gets stuck with time).
+    @State private var badgeNow = Date()
     /// The bar hides while the keyboard is up.
     @State private var keyboardVisible = false
     /// #EXP-2109: the bar's New popup is up.
@@ -655,8 +657,14 @@ struct MainNavigator: View {
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
         // #EXP-1384: every page header's inbox count (#FEED-232).
         .environment(\.inboxUnreadCount, activeInboxUnreadCount)
-        // #FEED-232 (nav-badges.json `appIconCases`): the OS app icon = every
-        // team's needs-you rows summed; 0 clears it.
+        // #FEED-232 (nav-badges.json `appIconCases`): the OS app icon = the
+        // account's Needs you total; 0 clears it.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                badgeNow = Date()
+            }
+        }
         .onChange(of: appIconBadgeCount, initial: true) { _, count in
             UNUserNotificationCenter.current().setBadgeCount(count)
         }
@@ -831,6 +839,11 @@ struct MainNavigator: View {
                 PhoneDock(
                     selected: litTab,
                     chatsBadge: sessionLists.chatsBadge,
+                    teamsBadge: sidebarTree.teamsBadge(
+                        teams: teamState.teams, teamState: teamState, lists: sessionLists,
+                        me: deps.auth.userId, now: badgeNow
+                    ),
+                    assistantBadge: sessionLists.assistantBadge,
                     issueEnabled: composeTarget != nil,
                     newOpen: $newMenuOpen,
                     // EXP-1210: every entry SWITCHES the root (a re-tap pops
@@ -914,19 +927,21 @@ struct MainNavigator: View {
         }.count
     }
 
-    /// #FEED-232: the app icon's number (`NavBadges.appIconBadge` over every
-    /// team's needs-you rows).
+    /// #FEED-232: the app icon's number (`NavBadges.appIconBadge`): the
+    /// signed-in account's Needs you total, waiting installs included.
     private var appIconBadgeCount: Int {
-        // #EXP-1950: installs waiting for approval are Needs you rows.
         NavBadges.appIconBadge([
-            widgetNeedsYou.count, deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").rows.count,
+            sessionLists.needsYouCounts(
+                me: deps.auth.userId, now: badgeNow,
+                installs: deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").waitingRows
+            ).total,
         ])
     }
 
     /// #EXP-1830 (home-widgets.json `needs-you`): THE Needs you rows over
     /// every team of the active account, newest first.
     private var widgetNeedsYou: [NeedsYou.Row] {
-        sessionLists.needsYou(me: deps.auth.userId, now: Date())
+        sessionLists.needsYou(me: deps.auth.userId, now: badgeNow)
     }
 
     /// EXP-1210: the root a bar entry (or a link to its destination) lands

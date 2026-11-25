@@ -18,6 +18,9 @@ struct PhoneDock: View {
     var selected: Chats.Shell.Tab?
     /// #FEED-232: the Chats tab's count badge, over every team.
     var chatsBadge: NavBadges.Value = .none
+    /// nav-badges.json `teams-tab`, `assistant`.
+    var teamsBadge: NavBadges.Value = .none
+    var assistantBadge: NavBadges.Value = .none
     /// The viewer has a board: the popup's Issue row.
     var issueEnabled = true
     /// The New popup is up.
@@ -90,6 +93,7 @@ struct PhoneDock: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(tab.label)
+        .accessibilityValue(NavBadges.countBadgeLabel(badge(tab).count))
         .accessibilityAddTraits(lit ? .isSelected : [])
         .accessibilityIdentifier(tab.testId)
         .overlay(alignment: .bottom) {
@@ -107,10 +111,8 @@ struct PhoneDock: View {
             AppIcon(icon(tab), size: PhoneDockMetrics.icon)
                 .frame(width: PhoneDockMetrics.icon, height: PhoneDockMetrics.icon)
                 .overlay(alignment: .topTrailing) {
-                    if tab == .chats {
-                        CountBadge(chatsBadge)
-                            .offset(x: 8, y: -6)
-                    }
+                    CountBadge(badge(tab))
+                        .offset(x: 8, y: -6)
                 }
             Text(tab.label)
                 .font(.system(size: PhoneDockMetrics.label, weight: .medium))
@@ -120,6 +122,15 @@ struct PhoneDock: View {
         .frame(maxWidth: .infinity)
         .frame(height: PhoneDockMetrics.height)
         .contentShape(Rectangle())
+    }
+
+    private func badge(_ tab: Chats.Shell.Tab) -> NavBadges.Value {
+        switch tab {
+        case .chats: chatsBadge
+        case .teams: teamsBadge
+        case .assistant: assistantBadge
+        default: .none
+        }
     }
 
     private func icon(_ tab: Chats.Shell.Tab) -> String {
@@ -141,6 +152,10 @@ struct PhoneDock: View {
                         color: selected ? DesignTokens.Palette.foreground.opacity(0.35) : .clear,
                         radius: PhoneDockMetrics.glow / 2
                     )
+            }
+            .overlay(alignment: .topTrailing) {
+                CountBadge(assistantBadge)
+                    .offset(x: 2, y: -2)
             }
             .contentShape(Circle())
             .frame(height: PhoneDockMetrics.height, alignment: .top)
