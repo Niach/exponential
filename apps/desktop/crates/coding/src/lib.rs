@@ -60,6 +60,7 @@ pub use eagent::codex_trust;
 pub mod computer_place;
 pub mod context_layout;
 pub mod continue_attempts;
+pub mod wall_resume;
 pub mod device_doctor;
 pub mod direct_inbox;
 pub mod doctor;

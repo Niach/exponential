@@ -3478,6 +3478,7 @@ impl DaemonHost {
         let excluded = self.pickup.excluded();
         let views = live.live_views();
         let revive_held = live.revive_held();
+        let wall_due = live.wall_due(&self.pickup.ctx.data_dir);
         let mut actions = coding::pickup::plan(coding::pickup::PickupInput {
             device_id: &self.pickup.device_id,
             sessions: rows,
@@ -3485,6 +3486,7 @@ impl DaemonHost {
             live: &views,
             in_flight: &excluded,
             revive_held: &revive_held,
+            wall_due: &wall_due,
             moves,
             member_inputs,
         });

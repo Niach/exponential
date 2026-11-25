@@ -263,6 +263,10 @@ impl RunBackend for RunLifecycle {
         record_context_base(ctx, tokens, model);
     }
 
+    fn wall_resume(&self, ctx: &SessionCtx, resets_at: Option<i64>) {
+        coding::wall_resume::set(&ctx.data_dir, &ctx.session_id, resets_at);
+    }
+
     /// EXP-784: the launcher's resume record carries the previous run's
     /// native id as `claude_session_id` (its EXP-443 pin, chained through
     /// `agent_native_session_id`) and the engine upserts
@@ -1122,6 +1126,9 @@ fn spawn_tickers(
     commands: flume::Sender<EngineCommand>,
 ) -> flume::Receiver<()> {
     let ctx = Arc::clone(ctx);
+    if !ctx.replay {
+        ctx.load_wall_resume(coding::wall_resume::get(&ctx.data_dir, &ctx.session_id));
+    }
     let (exit_tx, exit_rx) = flume::bounded(1);
     let mut diffs = steer::DiffSnapshots::new();
     let mut needs_input = steer::NeedsInputForwarder::new();
@@ -1290,6 +1297,7 @@ fn spawn_tickers(
             }
             tick_stall(&ctx, &mut stall, &commands);
             tick_api_retry(&ctx, &commands);
+            tick_wall_resume(&ctx, &commands);
             // REV2-17: the run's ONE redactor (`SessionCtx.redactor`),
             // never a weaker key-only one — the worktree patch is the
             // likeliest place a launcher secret an agent copied into a
@@ -1481,6 +1489,18 @@ fn tick_api_retry(ctx: &SessionCtx, commands: &flume::Sender<EngineCommand>) {
             );
             ctx.notice(crate::api_retry::give_up_notice());
         }
+    }
+}
+
+/// EXP-2099, one tick: a run whose turn the usage wall ended carries on once
+/// the reset passed, through the same inbox.
+fn tick_wall_resume(ctx: &SessionCtx, commands: &flume::Sender<EngineCommand>) {
+    let ready = ctx.feed.phase() == Some(EnginePhase::Live)
+        && ctx.turn_signal.is_idle()
+        && !ctx.needs_input.load(Ordering::SeqCst);
+    if ctx.with_wall_resume(|wall| wall.tick(steer::now_unix_millis(), ready)) {
+        log::info!("engine: session {}'s usage wall has reset — continuing the turn it ended", ctx.session_id);
+        let _ = commands.send(EngineCommand::HostSteer(crate::wall_resume::WALL_RESUME_PROMPT.to_string()));
     }
 }
 

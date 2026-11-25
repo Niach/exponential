@@ -350,6 +350,9 @@ pub struct PickupInput<'a> {
     /// EXP-1374: the same set holds an interrupted run's
     /// [`PickupAction::Continue`] (once per absence).
     pub revive_held: &'a HashSet<String>,
+    /// EXP-2099: sessions whose last turn the usage wall ended and whose
+    /// reset has passed ([`LiveRegistry::wall_due`]).
+    pub wall_due: &'a HashSet<String>,
     /// EXP-1542: the server's move records ([`move_records`] over the
     /// synced `events`); empty while that shape is not up.
     pub moves: &'a [MoveRecord],
@@ -613,7 +616,8 @@ impl PickupAction {
 ///   left mid-turn (`blocked` = an interruption with `resume: true`,
 ///   [`SessionRow::continue_interruption`]), unless
 ///   [`PickupInput::revive_held`] names it. A pending input wins (Resume:
-///   its report clears the flag).
+///   its report clears the flag). EXP-2099: also any row whose usage wall
+///   reset ([`PickupInput::wall_due`]).
 /// - **Revoke**: a handed message whose row is gone (unqueued).
 /// - **Deliver**: a live session's pending person messages not yet handed.
 /// - **Answer**: an open card of a live session whose row is answered.
@@ -782,6 +786,9 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
             queue.extend(answered.get(row.id.as_str()).into_iter().flatten().map(|m| (*m).clone()));
             if !queue.is_empty() {
                 starts.push((row, PickupAction::Resume { session: row.clone(), messages: queue }));
+            } else if input.wall_due.contains(&row.id) {
+                // EXP-2099: persistent or not, and whatever ran here before.
+                starts.push((row, PickupAction::Continue { session: row.clone() }));
             } else if row.is_root() && row.is_persistent() && !input.revive_held.contains(&row.id) {
                 starts.push((row, PickupAction::Revive { session: row.clone() }));
             } else if !row.is_persistent()
@@ -1898,6 +1905,19 @@ impl LiveRegistry {
             .filter(|(_, state)| state.settled || state.attempts >= MAX_LAUNCH_ATTEMPTS || now < state.not_before)
             .map(|(id, _)| id.clone())
             .collect()
+    }
+
+    /// EXP-2099: the sessions a usage wall's passed reset continues
+    /// ([`crate::wall_resume::due`]), less the ones backing off. Its file IS
+    /// the once, so a settled revive (an engine ran here) never holds it.
+    pub fn wall_due(&self, data_dir: &std::path::Path) -> HashSet<String> {
+        let mut due = crate::wall_resume::due(data_dir, eagent::wire::activity::now_unix_millis());
+        if !due.is_empty() {
+            let now = std::time::Instant::now();
+            let revives = locked(&self.revives);
+            due.retain(|id| revives.get(id).is_none_or(|state| now >= state.not_before));
+        }
+        due
     }
 
     /// Count a revive attempt (the backoff starts now); returns the count.
@@ -3312,6 +3332,11 @@ pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), W
         deps.live.settle_revive(session_id);
         return Ok(());
     }
+    // EXP-2099: a passed wall reset goes first (its file is taken by any
+    // turn, so it can never be continued a second time).
+    if crate::wall_resume::due(&deps.coding.data_dir, eagent::wire::activity::now_unix_millis()).contains(session_id) {
+        return continue_walled(row, deps);
+    }
     let Some(kind) = row.continue_interruption() else {
         return Ok(());
     };
@@ -3347,6 +3372,48 @@ pub fn continue_interrupted(row: &SessionRow, deps: &PickupDeps) -> Result<(), W
     spawn_continuation(row, record, claim, brief, continue_prompt(kind), deps)
         .map(|()| log::info!("pickup: continued interrupted session {session_id} ({kind})"))
         .map_err(WakeError::from)
+}
+
+/// EXP-2099: resume a run the usage wall stopped, its reset passed, with
+/// [`eagent::engine::wall_resume::WALL_RESUME_PROMPT`] as the seed turn. The
+/// reset is dropped when that turn STARTS (the engine does), so a process
+/// that dies before it tries again, as often as `continue_attempts` allows.
+fn continue_walled(row: &SessionRow, deps: &PickupDeps) -> Result<(), WakeError> {
+    let session_id = row.id.as_str();
+    let data_dir = &deps.coding.data_dir;
+    let Some(claim) = ClaimLock::try_acquire(data_dir, session_id)? else {
+        // The process that holds it continues it; a dying one is retried.
+        return contended(session_id, deps);
+    };
+    // Read again under the claim: another process may have continued it.
+    if crate::wall_resume::get(data_dir, session_id).is_none() {
+        return Ok(());
+    }
+    let Some(record) = crate::run_registry::get(data_dir, session_id) else {
+        crate::wall_resume::set(data_dir, session_id, None);
+        log::info!("pickup: walled session {session_id} has no run record here — not continued");
+        return Ok(());
+    };
+    deps.live.note_revive(session_id);
+    let brief = fetch_brief(&deps.coding.trpc, session_id)
+        .map_err(|err| format!("brief of session {session_id}: {err}"))?;
+    if !crate::continue_attempts::note(data_dir, session_id) {
+        crate::wall_resume::set(data_dir, session_id, None);
+        log::warn!("pickup: walled session {session_id} was continued too often lately — not continued");
+        return Ok(());
+    }
+    let prompt = eagent::engine::wall_resume::WALL_RESUME_PROMPT.to_string();
+    match spawn_continuation(row, record, claim, brief, prompt, deps) {
+        Ok(()) => {
+            log::info!("pickup: continued session {session_id} after its usage wall reset");
+            Ok(())
+        }
+        // Replied and idled: theirs to restart.
+        Err(err) => {
+            crate::wall_resume::set(data_dir, session_id, None);
+            Err(err.into())
+        }
+    }
 }
 
 /// #EXP-1492: a revive/continuation whose claim another process of this
@@ -4480,6 +4547,7 @@ mod tests {
         live: HashMap<String, LiveView>,
         in_flight: HashSet<String>,
         revive_held: HashSet<String>,
+        wall_due: HashSet<String>,
         moves: Vec<MoveRecord>,
     }
 
@@ -4491,6 +4559,7 @@ mod tests {
                 live: HashMap::new(),
                 in_flight: HashSet::new(),
                 revive_held: HashSet::new(),
+                wall_due: HashSet::new(),
                 moves: Vec::new(),
             }
         }
@@ -4513,6 +4582,7 @@ mod tests {
                 live: &self.live,
                 in_flight: &self.in_flight,
                 revive_held: &self.revive_held,
+                wall_due: &self.wall_due,
                 moves: &self.moves,
                 member_inputs: &MemberInputs::default(),
             })
@@ -4579,6 +4649,64 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// EXP-2099: a usage wall's passed reset continues a row with no engine,
+    /// persistent or not, whatever ran here before; never a live, ended or
+    /// other device's one, and a newer input wins.
+    #[test]
+    fn plan_continues_a_run_whose_usage_wall_reset() {
+        let at = "2026-10-01T00:00:00Z";
+        let row = |id: &str| session(id, SESSION_STATUS_IDLE, DEV, at);
+        let mut pass = Pass::new(
+            vec![
+                row("t1"),
+                agent("a1", SESSION_STATUS_IDLE),
+                row("held"),
+                session("ended", SESSION_STATUS_ENDED, DEV, at),
+                session("moved", SESSION_STATUS_IDLE, "dev-2", at),
+                row("live"),
+                row("spoken"),
+                row("other"),
+            ],
+            vec![message("m1", "spoken", "2026-10-02T00:00:00Z")],
+        )
+        .live("live", LiveView::default());
+        pass.revive_held.insert("held".to_string());
+        pass.wall_due =
+            ["t1", "a1", "held", "ended", "moved", "live", "spoken"].into_iter().map(str::to_string).collect();
+        let mut ids = continued(&pass);
+        ids.sort();
+        assert_eq!(ids, vec!["a1", "held", "t1"]);
+    }
+
+    /// EXP-2099: the continuation resumes the recorded run with the wall
+    /// prompt; the kept reset is the engine's to drop (its turn's start), so
+    /// a process that dies before that tries again, up to the cap.
+    #[test]
+    fn a_passed_wall_reset_resumes_the_session_with_the_wall_prompt() {
+        let dir = temp_dir("pickup-wall");
+        let base = canned_server(vec![
+            (200, BRIEF_OK.to_string()), (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let row = session("sess-1", SESSION_STATUS_IDLE, DEV, "t");
+        let now = eagent::wire::activity::now_unix_millis();
+        crate::wall_resume::set(&dir.0, "sess-1", Some(now + 60_000));
+        assert!(host.deps.live.wall_due(&dir.0).is_empty(), "the wall still stands");
+        continue_interrupted(&row, &host.deps).unwrap();
+        assert!(host.spawned.lock().unwrap().is_empty());
+        crate::wall_resume::set(&dir.0, "sess-1", Some(now - 120_000));
+        host.deps.live.settle_revive("sess-1");
+        assert!(host.deps.live.wall_due(&dir.0).contains("sess-1"), "an engine that ran here never holds it");
+        continue_interrupted(&row, &host.deps).unwrap();
+        let spawned = host.spawned.lock().unwrap().clone();
+        assert_eq!(spawned.len(), 1);
+        assert!(spawned[0].prompt.as_deref().unwrap().ends_with(eagent::engine::wall_resume::WALL_RESUME_PROMPT));
+        // Live now: nothing more.
+        continue_interrupted(&row, &host.deps).unwrap();
+        assert_eq!(host.spawned.lock().unwrap().len(), 1);
     }
 
     /// EXP-1374: a non-persistent row its device left mid-turn continues
@@ -5413,6 +5541,7 @@ mod tests {
             live: &live,
             in_flight: &HashSet::new(),
             revive_held: &HashSet::new(),
+            wall_due: &HashSet::new(),
             moves: &[],
             member_inputs: &MemberInputs::new(&rows, &agents, &users),
         });
@@ -5448,6 +5577,7 @@ mod tests {
             live: &live,
             in_flight: &HashSet::new(),
             revive_held: &HashSet::new(),
+            wall_due: &HashSet::new(),
             moves: &[],
             member_inputs: &MemberInputs::new(&rows, &agents, &users),
         });
@@ -6155,6 +6285,7 @@ mod tests {
             live: &views,
             in_flight: &HashSet::new(),
             revive_held: &held,
+            wall_due: &HashSet::new(),
             moves: &[],
             member_inputs: &MemberInputs::default(),
         });
@@ -7427,6 +7558,7 @@ mod tests {
                 live: &views,
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                wall_due: &HashSet::new(),
                 moves: &[],
                 member_inputs: &MemberInputs::default(),
             })
@@ -8217,6 +8349,7 @@ mod tests {
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                wall_due: &HashSet::new(),
                 moves: &[],
                 member_inputs: &MemberInputs::default(),
             })
@@ -8328,6 +8461,7 @@ mod tests {
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                wall_due: &HashSet::new(),
                 moves: &[],
                 member_inputs: &MemberInputs::default(),
             })
@@ -8712,6 +8846,7 @@ mod tests {
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                wall_due: &HashSet::new(),
                 moves: &[],
                 member_inputs: &MemberInputs::default(),
             })
@@ -8934,6 +9069,7 @@ mod tests {
                     live,
                     in_flight: &HashSet::new(),
                     revive_held: &HashSet::new(),
+                    wall_due: &HashSet::new(),
                     moves: &[],
                     member_inputs: &MemberInputs::default(),
                 })
