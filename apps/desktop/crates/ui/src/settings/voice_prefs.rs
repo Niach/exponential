@@ -1294,7 +1294,7 @@ mod tests {
         let tree = document(&test_inks(), &test_options(true));
         let header = tree["children"].as_array().unwrap().iter().find(|node| node["id"] == "tray_header").expect("the header");
         assert_eq!(header["children"][0]["component"], "Text");
-        assert_eq!(header["children"][0]["props"]["text"], path("/pane/tray/header"));
+        assert_eq!(header["children"][0]["props"]["text"], super::path("/pane/tray/header"));
         let tree: eui_core::NestedNode = serde_json::from_value(document(&test_inks(), &test_options(true))).expect("parses");
         assert_eq!(tree.id, "root");
     }

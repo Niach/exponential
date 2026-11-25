@@ -467,7 +467,7 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
     runs_on.extend(divided(ink, account_none));
     runs_on.extend(divided(ink, select_row("model", crate::chat_screen::MENU_MODEL, "model", "model", json!({}))));
     let runs_on_block = json!({"id": "runs_on_block", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
-        "children": [ink.band("runs_on_band", &AGENT_SETTINGS.copy.runs_on, None), ink.group("runs_on_group", runs_on),
+        "children": [ink.band("runs_on_band", AGENT_SETTINGS.copy.runs_on.as_str(), None), ink.group("runs_on_group", runs_on),
             field_error(ink, chrome, "device_error", path("/pane/deviceError"), path("/pane/hasDeviceError"))]});
     let instructions = json!({"id": "instructions_card", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "gap": ink.r(0.25), "width": "100%"},
         "children": [ink.group("instructions_group", vec![instructions_field(json!(true))]), instructions_caption(ink),
