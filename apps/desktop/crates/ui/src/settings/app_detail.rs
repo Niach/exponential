@@ -1110,7 +1110,7 @@ fn tools(ink: &Ink) -> Value {
     hint["style"]["paddingBottom"] = json!(ink.r(0.25));
     json!({"id": "app-settings-tools", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
         "children": [
-            {"id": "tools_head", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [ink.band("tools_title", &copy.title, None), hint]},
+            {"id": "tools_head", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [ink.band("tools_title", copy.title.as_str(), None), hint]},
             ink.group("tools_group", vec![list, none]),
         ]})
 }

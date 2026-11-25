@@ -280,9 +280,9 @@ impl Ink {
     }
 
     /// `glass_section_header`: the `fill_section` strip (`px_3` / `py_1p5`,
-    /// `gap_1p5`, `mb_1`, `radius_md`), the `text_sm` MEDIUM label at 85%,
-    /// then a spacer and the trailing control.
-    pub(super) fn band(&self, id: &str, label: &str, trailing: Option<Value>) -> Value {
+    /// `gap_1p5`, `mb_1`, `radius_md`), the `text_sm` MEDIUM label (a literal
+    /// or a [`path`]) at 85%, then a spacer and the trailing control.
+    pub(super) fn band(&self, id: &str, label: impl Into<Value>, trailing: Option<Value>) -> Value {
         self.band_with(id, None, label, None, trailing)
     }
 
@@ -292,10 +292,11 @@ impl Ink {
     /// node IS their label, and an empty `{id}_label` beside it doubled that
     /// node id (#EXP-1887: a debug build panicked on the duplicate
     /// accessibility node, a release one dropped it from the tree).
-    pub(super) fn band_with(&self, id: &str, leading: Option<Value>, label: &str, loading: Option<Value>, trailing: Option<Value>) -> Value {
+    pub(super) fn band_with(&self, id: &str, leading: Option<Value>, label: impl Into<Value>, loading: Option<Value>, trailing: Option<Value>) -> Value {
+        let label = label.into();
         let mut children: Vec<Value> = leading.into_iter().collect();
-        if !label.is_empty() {
-            let mut text = faded(self.text(&format!("{id}_label"), json!(label), SM, &self.foreground), 0.85);
+        if label != json!("") {
+            let mut text = faded(self.text(&format!("{id}_label"), label, SM, &self.foreground), 0.85);
             text["props"]["lines"] = json!(1);
             text["style"]["fontWeight"] = json!(500);
             text["style"]["minWidth"] = json!(0);

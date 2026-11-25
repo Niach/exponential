@@ -682,8 +682,7 @@ fn sm_button(ink: &Ink, id: &str, icon: Option<&str>, label: &str, fill: &str, h
 /// group, the body group, the On by default row and Save; `gap_4` before the
 /// owner's Delete.
 fn page_document(ink: &Ink, chrome: &PageChrome) -> Value {
-    let mut band = ink.band("band", "", None);
-    band["children"][0]["props"]["text"] = path("/pane/header");
+    let band = ink.band("band", path("/pane/header"), None);
     let glyph = ink.r(1.);
     let name = json!({"id": "name", "component": "Input", "props": {"label": spec::NAME_LABEL, "name": "name", "variant": "code", "placeholder": spec::NAME_PLACEHOLDER, "value": path("/pane/fields/name"), "disabled": path("/pane/readOnly")},
         "style": {"flexGrow": 1, "flexShrink": 1, "minWidth": 0},

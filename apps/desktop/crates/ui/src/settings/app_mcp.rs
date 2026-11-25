@@ -388,7 +388,7 @@ pub(super) fn webhooks_group(ink: &Ink, tints: &Tints) -> Value {
     let list = json!({"id": "hooks_rows", "component": "List", "props": {"gap": "none"},
         "template": {"component": "hook_item", "path": "/pane/hooks/rows", "key": "key"}, "children": [item]});
     json!({"id": apps.test_ids.webhooks, "component": "Box", "visible": path("/pane/hooks/show"), "style": {"display": "flex", "flexDirection": "column", "width": "100%", "minWidth": 0},
-        "children": [ink.band("hooks_band", &copy.title, None), ink.group("hooks_group", vec![list])]})
+        "children": [ink.band("hooks_band", copy.title.as_str(), None), ink.group("hooks_group", vec![list])]})
 }
 
 #[cfg(test)]

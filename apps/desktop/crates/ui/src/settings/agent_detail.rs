@@ -1721,7 +1721,7 @@ fn document(ink: &Ink, chrome: &Chrome, wake_placeholder: &str, teams: &[(String
     // #EXP-1859: why a team agent that is on does not listen, inline.
     let wake_word_error = field_error(ink, chrome, "voice_wake_word_error", path("/pane/voice/wakeWord/error"), path("/pane/voice/wakeWord/hasError"));
     let voice = json!({"id": "voice", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "width": "100%"},
-        "children": [ink.band("voice_band", &voice_copy.label, None), ink.group("voice_group", voice_rows(ink, chrome, wake_placeholder)), wake_invalid, wake_word_error]});
+        "children": [ink.band("voice_band", voice_copy.label.as_str(), None), ink.group("voice_group", voice_rows(ink, chrome, wake_placeholder)), wake_invalid, wake_word_error]});
     let error = field_error(ink, chrome, "error", path("/pane/error"), path("/pane/hasError"));
     let size = ink.r(SM);
     let delete = json!({"id": "delete", "component": "Box", "visible": path("/pane/canDelete"), "props": {"pressable": true}, "@accessibility": {"label": field_label("delete")}, "on": {"press": {"event": {"name": "delete"}}},
