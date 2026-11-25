@@ -110,6 +110,7 @@ public struct ChatRowView<Lead: View>: View {
     public var body: some View {
         HStack(alignment: .center, spacing: ChatListMetrics.gap) {
             leadCell
+                .fixedGlyphs()
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {

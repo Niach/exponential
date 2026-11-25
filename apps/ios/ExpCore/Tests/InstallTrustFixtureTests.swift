@@ -171,6 +171,7 @@ final class InstallTrustFixtureTests: XCTestCase {
         // Under it the actions, Approve then Remove.
         let actions = lines[1]
         XCTAssertEqual(actions["props"] as? [String: String], ["direction": "horizontal", "gap": "sm"])
+        XCTAssertEqual(actions["style"] as? [String: String], ["paddingHorizontal": "$spacing.md", "paddingBottom": "$spacing.md"])
         let parts = try XCTUnwrap(actions["children"] as? [Object])
         XCTAssertEqual(parts.map { $0["component"] as? String }, ["Button", "Button"])
         XCTAssertEqual(parts[0]["props"] as? [String: String], ["label": "Approve", "size": "sm"])
