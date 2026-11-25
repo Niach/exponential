@@ -25,12 +25,15 @@ const LEASE = process.env.LEASE_HOST ?? `http://localhost:3933`
 mkdirSync(out, { recursive: true })
 
 const CARD = { title: `Tests`, surface: { root: { id: `s`, component: `Stack`, children: [{ id: `r`, component: `Row`, props: { title: `Unit tests`, subtitle: `97 passed` }, slots: { trailing: { id: `g`, component: `Badge`, props: { text: `Green` } } } }, { id: `m`, component: `Markdown`, props: { text: `Ready to **ship**; see \`apps.ts\`.` } }, { id: `b`, component: `Button`, props: { label: `Ship` }, on: { press: { event: { name: `reply`, context: { text: `Ship` } } } } }] } } }
+// #NEW-140: the engine's wasm rides in the document, gzipped (no request).
+const SPIN = { title: `Motion`, surface: { root: { id: `s`, component: `Stack`, children: [{ id: `m`, component: `Motion`, props: { size: [48, 48], duration: 1000, autoplay: false, poster: 300, layers: [{ type: `shape`, transform: { position: [24, 24], rotation: { keys: [{ t: 0, v: 0 }, { t: 1000, v: 360 }] } }, shapes: [{ type: `ellipse`, size: [36, 36] }, { type: `trim`, end: 70 }, { type: `stroke`, color: `$color.primary`, width: 4 }] }] } }, { id: `c`, component: `Canvas`, props: { label: `Bars`, size: [240, 80], shapes: [{ type: `group`, shapes: [{ type: `rect`, position: [60, 50], size: [24, 40] }, { type: `rect`, position: [120, 40], size: [24, 60] }, { type: `fill`, color: `$color.primary` }] }] } }] } } }
 const VIEWS = [
   { id: `issues`, tool: `exponential_issues`, args: { op: `list`, limit: 8 }, screen: `issues` },
   { id: `issue`, tool: `exponential_issues`, args: { op: `get`, id: `EXP-1800` }, screen: `issue` },
   { id: `inbox`, tool: `exponential_notifications`, args: { op: `list` }, screen: `inbox` },
   { id: `devices`, tool: `exponential_devices`, args: { op: `list` }, screen: `devices` },
   { id: `genui-card`, tool: `exponential_show`, args: CARD, screen: `card` },
+  { id: `genui-motion`, tool: `exponential_show`, args: SPIN, screen: `card` },
   { id: `genui-app`, tool: `exponential_apps`, args: { op: `get`, slug: `standup` }, screen: `app` },
 ]
 
@@ -55,6 +58,7 @@ async function facts(frame, root) {
     ground: await frame.locator(`html`).evaluate((el) => getComputedStyle(el).getPropertyValue(`--background`).trim()),
     hostVariable: await frame.locator(`html`).evaluate((el) => el.style.getPropertyValue(`--color-background-primary`)),
     line: await frame.locator(`[data-testid="view-expired"]`).count(),
+    engine: await frame.locator(`[data-xui-c="Motion"], [data-xui-c="Canvas"]`).evaluateAll((els) => els.map((el) => (el.closest(`[data-state]`) ?? el.querySelector(`[data-state]`))?.getAttribute(`data-state`) ?? null)),
     toasts: await frame.locator(`[data-sonner-toast]`).count(),
   }
 }
@@ -109,4 +113,4 @@ for (const view of VIEWS) {
 }
 await browser.close()
 writeFileSync(`${out}/matrix.json`, `${JSON.stringify(rows, null, 2)}\n`)
-for (const row of rows) console.log(`${row.view.padEnd(11)} ${row.state.padEnd(8)} screen=${row.screen} dark=${row.dark} expired=${row.expired} line=${row.line} toasts=${row.toasts}${row.errors.length ? ` ERRORS ${row.errors.join(` | `)}` : ``}`)
+for (const row of rows) console.log(`${row.view.padEnd(11)} ${row.state.padEnd(8)} screen=${row.screen} dark=${row.dark} expired=${row.expired} line=${row.line} toasts=${row.toasts}${row.engine.length ? ` engine=${row.engine}` : ``}${row.errors.length ? ` ERRORS ${row.errors.join(` | `)}` : ``}`)

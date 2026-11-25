@@ -41,22 +41,30 @@ went with EXP-1291.
 
 Each resource is its OWN built document (`packages/mcp-apps`, one vite pass
 per view, script and stylesheet inlined, nothing shared at runtime) with the
-view stamped into its `exp-view` meta tag. Bytes on 2026-11-24:
+view stamped into its `exp-view` meta tag. Bytes:
 
-| View | One document for all (master `4b3d0b09bf`) | Per view (NEW-24, master `cc6dbc61f3`) |
-| --- | --- | --- |
-| `issues` | 4,535,127 (`app.html`) | 2,355,337 (`issues.html`) |
-| `inbox` | 4,535,127 (`app.html`) | 2,353,744 (`inbox.html`) |
-| `devices` | 4,535,127 (`app.html`) | 814,563 (`devices.html`) |
-| `genui` | 4,814,372 (`genui.html`) | 3,180,392 (`genui.html`) |
+| View | One document for all (master `4b3d0b09bf`) | Per view (NEW-24) | Budget, and built (NEW-140, 2026-11-25) |
+| --- | --- | --- | --- |
+| `issues` | 4,535,127 (`app.html`) | 2,445,139 | 1,350,000 (1,240,674) |
+| `inbox` | 4,535,127 (`app.html`) | 2,443,550 | 1,350,000 (1,235,911) |
+| `devices` | 4,535,127 (`app.html`) | 815,340 | 700,000 (625,794) |
+| `genui` | 4,814,372 (`genui.html`) | 3,182,784 | 2,000,000 (1,924,791) |
 
-The split alone saved nothing: the workspace packages declare no
-`sideEffects`, so the `@exp/ui` barrel carried the catalogue's specimens and
-every fixture into each document. The views' build marks those modules pure
-(`vite.config.ts` `PURE_MODULES`). What is left in `issues` and `inbox` is the
-eUI renderer their Markdown draws with (the Motion wasm alone is 635 kB
-inlined). `issues`, `inbox` and `genui` are still over OpenClaw's 2 MiB cap:
-NEW-140.
+OpenClaw caps a resource at 2 MiB (2,097,152). `MCP_APP_MAX_BYTES`
+(`packages/mcp-apps/src/build/lean.ts`) is the budget; a document over its own
+fails the build, which the pull request gate runs. What the build drops:
+
+- the workspace packages declare no `sideEffects`, so a barrel (`@exp/ui`)
+  would carry the catalogue's specimens: their modules are marked pure
+  (`vite.config.ts` `PURE_MODULES`);
+- a fixture a module reads by member keeps only the members read
+  (`leanJson`): no `$comment`, no replay cases;
+- the renderer's tables (macros, core catalog, themes) and `contract.json` ride
+  gzipped and are unpacked in place before the modules run;
+- the Motion engine: only `genui` carries it, gzipped and unpacked in place.
+  Before NEW-140 a Motion or Canvas never drew there: Vite's unfilled preload
+  marker threw, and the `data:` URL it fetched is outside `connect-src`;
+- the Tailwind utilities no script of the document names (`pruneUtilities`).
 
 A resource's `_meta.ui` carries `prefersBorder: true` and a CSP of
 `resourceDomains: [app origin, fonts.googleapis.com, fonts.gstatic.com]`; no
@@ -136,6 +144,7 @@ line is there over the kept screen.
 | inbox (`exponential_notifications` `list`) | pass | pass | pass, dark | pass, read-only |
 | devices (`exponential_devices` `list`) | pass | pass | pass, dark | pass, read-only |
 | genui card (`exponential_show`) | pass | pass | pass, dark | pass, read-only |
+| genui Motion + Canvas (`exponential_show`, NEW-140, 2026-11-25) | pass | pass | pass, dark | pass, read-only |
 | genui app (`exponential_apps` `get`) | pass | pass | pass, dark | pass, read-only |
 
 Seen in the expired cells: only the screen the tool result drew is kept.
@@ -165,7 +174,7 @@ it. "Compatible" means the protocol facts above match what the host documents.
 | Codex CLI / Codex app / IDE extension | **No** | openai/codex#21019: rendering sits behind `enable_mcp_apps`; tools and resources work. Codex plugins (skills + MCP + hooks) load in Codex CLI/app and ChatGPT, not the IDE extension. | Text only. |
 | Cursor ≥ 2.6 (2026-03-03) | Yes | Sandboxed iframe + postMessage; `structuredContent` since 3.0; team marketplaces for plugins. | Compatible; not rendered there. |
 | VS Code GitHub Copilot Chat | Yes | Official support matrix. | Compatible; not rendered there. |
-| OpenClaw (Control UI) | Yes, `mcp.apps.enabled` | Double-iframe proxy on a separate sandbox origin, resources capped at **2 MiB**, 4 requests in flight, 120 requests/min, 30 tool calls/min per view, app HTML + results live in a **10-minute in-memory view lease**. An expired transcript preview shows a recovery message; a pinned or reconstructed card is **read-only** (the host refetches the `ui://` document but grants no tool calls); entrypoint panels offer Relaunch. | The only host EXP-1183 tested (2026-10). Since NEW-24 an expired view is read-only instead of a skeleton (proven with lease-host, not in OpenClaw). `issues`, `inbox` and `genui` are over the 2 MiB cap: NEW-140. |
+| OpenClaw (Control UI) | Yes, `mcp.apps.enabled` | Double-iframe proxy on a separate sandbox origin, resources capped at **2 MiB**, 4 requests in flight, 120 requests/min, 30 tool calls/min per view, app HTML + results live in a **10-minute in-memory view lease**. An expired transcript preview shows a recovery message; a pinned or reconstructed card is **read-only** (the host refetches the `ui://` document but grants no tool calls); entrypoint panels offer Relaunch. | The only host EXP-1183 tested (2026-10). Since NEW-24 an expired view is read-only instead of a skeleton (proven with lease-host, not in OpenClaw). Every view is under the 2 MiB cap since NEW-140 (measured, not loaded in OpenClaw). |
 | pi (coding agent) | No MCP natively | MCP arrives through extensions (`pi-mcp-extension` and friends: tools only, resources "v2"). pi's own TUI is rich: widgets, overlays, `SelectList`, `Markdown`, `Image` (Kitty/iTerm2). | A pi extension draws our data with pi-tui components (section 6). |
 | Goose, Postman, MCPJam, Microsoft 365 Copilot, Archestra, PostHog Code | Yes (matrix) | | Compatible; not rendered there. |
 
@@ -374,8 +383,8 @@ nobody but Danny has; record each outcome in section 2 with the date.
 - [ ] **Cursor ≥ 2.6** and **VS Code Copilot Chat**: add the server as a
   remote MCP server, the same prompt.
 - [ ] **OpenClaw**: `openclaw plugins install clawhub:@exponential/openclaw-plugin`,
-  `openclaw config set mcp.apps.enabled true --strict-json`. Which views load
-  at all (the 2 MiB cap, NEW-140); then wait 10 minutes and reopen the card:
+  `openclaw config set mcp.apps.enabled true --strict-json`. Every
+  view loads (all are under the 2 MiB cap since NEW-140); then wait 10 minutes and reopen the card:
   the read-only state with the last screen, or the line alone if the sandbox
   has no `sessionStorage`.
 
