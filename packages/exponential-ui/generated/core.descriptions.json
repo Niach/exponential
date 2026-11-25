@@ -3569,6 +3569,17 @@
       "example": {
         "status": "read"
       }
+    },
+    "AvatarBadge": {
+      "props": {
+        "size": {
+          "description": "Badge size."
+        }
+      },
+      "description": "`badge` on its child's bottom-right corner.",
+      "example": {
+        "size": "default"
+      }
     }
   },
   "defs": {

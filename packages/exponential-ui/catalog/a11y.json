@@ -848,6 +848,11 @@
       "role": "img",
       "notes": "img labelled `sending`/`sent`/`read`/`notSent` by its status",
       "keys": []
+    },
+    "AvatarBadge": {
+      "role": "none",
+      "notes": "none (layout only); the badge names itself",
+      "keys": []
     }
   }
 }

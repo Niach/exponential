@@ -339,8 +339,9 @@ function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogVi
     else if (isDynamic(href)) baseProps.pressable = presenceOperand(href, undefined, { id: node.id, props: {}, vars: {} })
   }
   const exp: Expansion = { view, macro, def, source: node, baseProps, variants: responsiveVariants(node.props), claimed: new Set(), issues, built: [] }
-  // #VAPP-284: `{childCount}` = the author's children (an alternative root's test).
-  const ctx: ExprContext = { id: node.id, props: baseProps, vars: { childCount: node.children.length }, types: view.components[macro]?.props }
+  // #VAPP-284: `{childCount}` = the author's children (an alternative root's test);
+  // `{slotCount}` = the author's slots.
+  const ctx: ExprContext = { id: node.id, props: baseProps, vars: { childCount: node.children.length, slotCount: Object.keys(node.slots ?? {}).length }, types: view.components[macro]?.props }
   const alternative = def.alternatives?.find((a) => evalConditionValue(a.$if, ctx) === true)
   const [root] = alternative ? [buildNode(alternative.root, exp, ctx, node.id, undefined)] : expandTemplate(def.root, exp, ctx, node.id)
   root.style = mergeStyle(root.style, node.style)
@@ -369,15 +370,17 @@ function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogVi
 }
 
 /** #VAPP-277: hand `props` to every `component` node under `node` (a nested
- *  `macro` node ends the walk), never over an author-set prop. */
-function passDown(node: UiNode, macro: string, component: string, props: Record<string, unknown>): UiNode {
+ *  `macro` node ends the walk), never over an
+ *  author-set prop (`style` the same, key by key). */
+function passDown(node: UiNode, macro: string, component: string, props: Record<string, unknown>, style: Record<string, unknown> | undefined): UiNode {
   if (node.component === macro) return node
-  const out: UiNode = { ...node, children: node.children.map((c) => passDown(c, macro, component, props)) }
-  if (node.slots) out.slots = Object.fromEntries(Object.entries(node.slots).map(([k, v]) => [k, passDown(v, macro, component, props)]))
+  const out: UiNode = { ...node, children: node.children.map((c) => passDown(c, macro, component, props, style)) }
+  if (node.slots) out.slots = Object.fromEntries(Object.entries(node.slots).map(([k, v]) => [k, passDown(v, macro, component, props, style)]))
   if (node.component === component) {
     const merged = { ...node.props }
     for (const [k, v] of Object.entries(props)) if (merged[k] === undefined && v !== undefined) merged[k] = v
     out.props = merged
+    if (style) out.style = mergeStyle(style, node.style)
   }
   return out
 }
@@ -392,7 +395,8 @@ function applyPasses(node: UiNode, def: MacroDef): UiNode {
     if (!target) continue
     if (pass.$if !== undefined && evalConditionValue(pass.$if, ctx) !== true) continue
     const props = (evalValue(pass.props, ctx) as Record<string, unknown>) ?? {}
-    slots = { ...slots, [pass.slot]: passDown(target, node.component, pass.component, props) }
+    const style = pass.style ? (evalValue(pass.style, ctx) as Record<string, unknown>) : undefined
+    slots = { ...slots, [pass.slot]: passDown(target, node.component, pass.component, props, style) }
   }
   return { ...node, slots }
 }

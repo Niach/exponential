@@ -8531,6 +8531,15 @@
               }
             }
           ]
+        },
+        "AvatarBadge": {
+          "tile": [
+            {
+              "style": {
+                "backgroundColor": "$color.background"
+              }
+            }
+          ]
         }
       }
     },
@@ -18727,6 +18736,15 @@
               }
             }
           ]
+        },
+        "AvatarBadge": {
+          "tile": [
+            {
+              "style": {
+                "backgroundColor": "$color.background"
+              }
+            }
+          ]
         }
       }
     },
@@ -27985,6 +28003,15 @@
               },
               "style": {
                 "color": "$color.destructive"
+              }
+            }
+          ]
+        },
+        "AvatarBadge": {
+          "tile": [
+            {
+              "style": {
+                "backgroundColor": "$color.background"
               }
             }
           ]
@@ -38182,6 +38209,15 @@
               },
               "style": {
                 "color": "$color.destructive"
+              }
+            }
+          ]
+        },
+        "AvatarBadge": {
+          "tile": [
+            {
+              "style": {
+                "backgroundColor": "$color.background"
               }
             }
           ]
