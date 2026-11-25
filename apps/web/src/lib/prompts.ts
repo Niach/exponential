@@ -348,9 +348,9 @@ export const WEB_PROMPTS = {
   sweepImages: (count: number) =>
     destructiveConfirm(
       count === 1
-        ? `Delete 1 unreferenced image?`
-        : `Delete ${count} unreferenced images?`,
-      `An unsaved draft may still use them. Uploads from the last 24 hours are kept.`,
+        ? `Sweep 1 unreferenced image?`
+        : `Sweep ${count} unreferenced images?`,
+      `They are deleted in 30 days, unless something still shows them. Uploads from the last 24 hours are kept.`,
       `delete`,
       `Delete`
     ),

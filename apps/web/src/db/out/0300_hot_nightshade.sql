@@ -1,0 +1,2 @@
+ALTER TABLE "attachments" ADD COLUMN "swept_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "idx_attachments_swept" ON "attachments" USING btree ("swept_at") WHERE swept_at IS NOT NULL;

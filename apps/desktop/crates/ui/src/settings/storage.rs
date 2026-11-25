@@ -304,10 +304,8 @@ impl StoragePane {
         let plural = if candidates == 1 { "" } else { "s" };
         let spec = AlertSpec::new(
             format!("Sweep {candidates} unreferenced image{plural}?"),
-            "These images are no longer embedded in any description or \
-             comment in this team, so deleting them changes no text. Images \
-             uploaded in the last 24 hours are kept. They may still be \
-             sitting in an unsaved draft. Files are never swept.",
+            "They are deleted in 30 days, unless something still shows them. \
+             Uploads from the last 24 hours are kept.",
             "Sweep images",
         )
         .ok_variant(ButtonVariant::Danger)
@@ -403,8 +401,8 @@ impl StoragePane {
                 let rows = &list.attachments;
                 // EXP-878 / EXP-1557: draft files are private and never
                 // listed, but they are the team's bytes — the summary names
-                // them like web's "(incl. … in unsaved drafts)".
-                let drafts = (list.draft_bytes > 0).then(|| format!(" (incl. {} in unsaved drafts)", format_bytes(list.draft_bytes))).unwrap_or_default();
+                // them like web's "(incl. … not listed here)".
+                let drafts = (list.draft_bytes > 0).then(|| format!(" (incl. {} not listed here)", format_bytes(list.draft_bytes))).unwrap_or_default();
                 let plural = if rows.len() == 1 { "" } else { "s" };
                 out["summary"] = json!(format!("{} attachment{plural} · {}{drafts}", rows.len(), format_bytes(list.total_bytes)));
                 out["empty"] = json!(rows.is_empty());
@@ -679,7 +677,7 @@ fn sweep_result_message(deleted: i64, freed_bytes: i64, skipped_recent: i64) -> 
     }
     let plural = if deleted == 1 { "" } else { "s" };
     SharedString::from(format!(
-        "Deleted {deleted} image{plural}, freeing {}.",
+        "Swept {deleted} image{plural} ({}). Deleted in 30 days.",
         format_bytes(freed_bytes)
     ))
 }
@@ -788,11 +786,11 @@ mod tests {
         );
         assert_eq!(
             sweep_result_message(1, 2048, 0).as_ref(),
-            "Deleted 1 image, freeing 2.0 KB."
+            "Swept 1 image (2.0 KB). Deleted in 30 days."
         );
         assert_eq!(
             sweep_result_message(3, 1_572_864, 1).as_ref(),
-            "Deleted 3 images, freeing 1.5 MB."
+            "Swept 3 images (1.5 MB). Deleted in 30 days."
         );
     }
 }

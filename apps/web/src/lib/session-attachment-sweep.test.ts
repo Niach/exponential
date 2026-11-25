@@ -20,6 +20,11 @@ vi.mock(`@/lib/storage/bun-s3-cleanup`, () => ({
   deleteStorageObjectsViaBun: mocks.deleteStorageObjectsViaBun,
 }))
 
+vi.mock(`@/lib/swept-images`, () => ({
+  SWEPT_IMAGE_RETENTION_MS: 30 * 24 * 60 * 60 * 1000,
+  purgeSweptImagesInTx: async () => ({ storageKeys: [] }),
+}))
+
 const {
   ORPHAN_SESSION_ATTACHMENT_RETENTION_MS,
   isOrphanSessionAttachmentPurgeDue,

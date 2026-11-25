@@ -281,7 +281,7 @@ pub struct TeamAttachmentRow {
 pub struct AttachmentsListForTeamOutput {
     pub attachments: Vec<TeamAttachmentRow>,
     pub total_bytes: i64,
-    /// The part of `total_bytes` in other members' unsaved drafts (EXP-878:
+    /// The part of `total_bytes` in rows the list omits (drafts, chats, results, EXP-878:
     /// never listed). Defaulted so an older server's reply still parses.
     #[serde(default)]
     pub draft_bytes: i64,

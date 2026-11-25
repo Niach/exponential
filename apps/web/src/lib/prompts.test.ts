@@ -252,7 +252,7 @@ describe(`web-only prompts`, () => {
 
   it(`plural pairs and the Free plan numbers`, () => {
     expect(WEB_PROMPTS.sweepImages(1).title).toBe(
-      `Delete 1 unreferenced image?`
+      `Sweep 1 unreferenced image?`
     )
     expect(WEB_PROMPTS.deleteStatus(`QA`, 1).body).toBe(
       `1 issue moves to the status you pick.`

@@ -25,6 +25,7 @@ vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
   deleteStorageObjects: h.deleteStorageObjects,
 }))
 
+
 import { attachments, comments, issueDrafts, issues } from "@/db/schema"
 import { attachmentsRouter, SWEEP_GRACE_MS } from "@/lib/trpc/attachments"
 
@@ -40,6 +41,9 @@ interface AttachmentRow {
   boardId?: string | null
   commentId?: string | null
   draftId?: string | null
+  messageId?: string | null
+  appId?: string | null
+  sessionId?: string | null
   asFile?: boolean
   uploaderId?: string | null
   filename: string
@@ -65,6 +69,10 @@ const state = {
   commentUpdates: [] as Record<string, unknown>[],
   draftUpdates: [] as Record<string, unknown>[],
   deletedTables: [] as string[],
+  // EXP-2115: what chats, results and sealed trees name (one raw query).
+  storedReferences: [] as string[],
+  // Rows marked `swept_at` (the fake ignores predicates: passes, not rows).
+  sweptIds: 0,
 }
 
 function project(
@@ -99,7 +107,9 @@ function thenable(rows: unknown[]) {
 
 function makeQueryable() {
   return {
-    execute: async () => ({ rows: [{ txid: `42` }] }),
+    execute: async () => ({
+      rows: [{ txid: `42` }, ...state.storedReferences.map((id) => ({ id }))],
+    }),
     select: (fields: Record<string, unknown>) => ({
       from: (table: unknown) => ({
         where: () => {
@@ -130,7 +140,8 @@ function makeQueryable() {
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
         where: async () => {
-          if (table === issues) state.issueUpdates.push(values)
+          if (table === attachments) state.sweptIds += 1
+          else if (table === issues) state.issueUpdates.push(values)
           else if (table === issueDrafts) state.draftUpdates.push(values)
           else state.commentUpdates.push(values)
         },
@@ -172,6 +183,8 @@ function resetState() {
   h.assertTeamOwner.mockReset()
   h.assertTeamOwner.mockResolvedValue(undefined)
   h.deleteStorageObjects.mockClear()
+  state.storedReferences = []
+  state.sweptIds = 0
 }
 
 function imageRow(overrides: Partial<AttachmentRow> = {}): AttachmentRow {
@@ -186,6 +199,13 @@ function imageRow(overrides: Partial<AttachmentRow> = {}): AttachmentRow {
     sizeBytes: 100,
     width: 10,
     height: 20,
+    commentId: null,
+    draftId: null,
+    messageId: null,
+    appId: null,
+    sessionId: null,
+    asFile: false,
+    sweptAt: null,
     storageKey: `issues/issue-1/${ATT_A}-shot.png`,
     createdAt: new Date(Date.now() - 2 * SWEEP_GRACE_MS),
     ...overrides,
@@ -357,11 +377,6 @@ describe(`attachments.sweepUnreferencedImages`, () => {
       freedBytes: 250,
       skippedRecentCount: 1,
     })
-    // The non-image row is never swept — Files-list rows are not markdown
-    // references and would otherwise be reclaimed the moment they exist.
-    expect(h.deleteStorageObjects).toHaveBeenCalledWith([
-      `issues/issue-1/${ATT_B}-old.png`,
-    ])
   })
 
   it(`is owner-gated`, async () => {
@@ -388,9 +403,6 @@ describe(`attachments.sweepUnreferencedImages`, () => {
     const result = await caller.sweepUnreferencedImages({ teamId: TEAM })
 
     expect(result.deletedCount).toBe(1)
-    expect(h.deleteStorageObjects).toHaveBeenCalledWith([
-      `issues/issue-1/${ATT_B}-old.png`,
-    ])
   })
 
   // EXP-1247: an image picked through a FILE path lists in Files and is
@@ -409,9 +421,6 @@ describe(`attachments.sweepUnreferencedImages`, () => {
     const result = await caller.sweepUnreferencedImages({ teamId: TEAM })
 
     expect(result.deletedCount).toBe(1)
-    expect(h.deleteStorageObjects).toHaveBeenCalledWith([
-      `issues/issue-1/${ATT_B}-old.png`,
-    ])
   })
 
   it(`never reclaims comment-linked images (EXP-554: linked, not embedded)`, async () => {
@@ -428,9 +437,41 @@ describe(`attachments.sweepUnreferencedImages`, () => {
     const result = await caller.sweepUnreferencedImages({ teamId: TEAM })
 
     expect(result.deletedCount).toBe(1)
-    expect(h.deleteStorageObjects).toHaveBeenCalledWith([
-      `issues/issue-1/${ATT_B}-old.png`,
-    ])
+  })
+})
+
+describe(`attachments.sweepUnreferencedImages (EXP-2115)`, () => {
+  beforeEach(resetState)
+
+  it(`never takes a result picture, a chat image, the team icon or an app image`, async () => {
+    const id = (n: number) => `66666666-6666-4666-8666-66666666666${n}`
+    state.attachmentRows = [
+      imageRow({ id: id(1), issueId: null, boardId: null }), // Guide picture, team icon
+      imageRow({ id: id(2), issueId: null, boardId: null, messageId: `m1` }),
+      imageRow({ id: id(3), issueId: null, boardId: null, appId: `app1` }),
+      imageRow({ id: id(4), sessionId: `s1` }), // a result filed on its issue
+      imageRow({ id: ATT_B, storageKey: `stale` }),
+    ]
+    const result = await caller.sweepUnreferencedImages({ teamId: TEAM })
+    expect(result.deletedCount).toBe(1)
+    // The button counts what the sweep takes.
+    const list = await caller.listForTeam({ teamId: TEAM })
+    expect(list.attachments.filter((row) => row.isImage && !row.referenced).map((row) => row.id)).toEqual([ATT_B])
+  })
+
+  it(`keeps an issue image a chat, a Guide or a sealed tree still names`, async () => {
+    state.attachmentRows = [imageRow({ id: ATT_A }), imageRow({ id: ATT_B, sizeBytes: 7 })]
+    state.storedReferences = [ATT_A]
+    const result = await caller.sweepUnreferencedImages({ teamId: TEAM })
+    expect(result).toMatchObject({ deletedCount: 1, freedBytes: 7 })
+  })
+
+  it(`marks, never deletes: rows and blobs stay for the 30-day purge`, async () => {
+    state.attachmentRows = [imageRow({ id: ATT_B })]
+    await caller.sweepUnreferencedImages({ teamId: TEAM })
+    expect(state.sweptIds).toBe(1)
+    expect(state.deletedTables).toEqual([])
+    expect(h.deleteStorageObjects).not.toHaveBeenCalled()
   })
 })
 

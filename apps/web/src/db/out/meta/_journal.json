@@ -2101,6 +2101,13 @@
       "when": 1795540282358,
       "tag": "0299_exp2119_older_epochs",
       "breakpoints": true
+    },
+    {
+      "idx": 300,
+      "version": "7",
+      "when": 1795619015969,
+      "tag": "0300_hot_nightshade",
+      "breakpoints": true
     }
   ]
 }

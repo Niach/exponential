@@ -147,9 +147,9 @@ export function TeamStorageSection({
       }
 
       toast.success(
-        `Deleted ${result.deletedCount} image${
+        `Swept ${result.deletedCount} image${
           result.deletedCount === 1 ? `` : `s`
-        }, freeing ${formatAttachmentSize(result.freedBytes)}.`
+        } (${formatAttachmentSize(result.freedBytes)}). Deleted in 30 days.`
       )
     } catch (error) {
       failedAction(`sweep`, `unreferenced images`, error)
@@ -193,12 +193,12 @@ export function TeamStorageSection({
             <p className="text-sm text-muted-foreground">
               {rows.length} attachment{rows.length === 1 ? `` : `s`} ·{` `}
               {formatAttachmentSize(list.totalBytes)}
-              {/* EXP-878: draft files are private to their author and never
-                  listed here, but they are the team's bytes all the same. */}
+              {/* EXP-878/EXP-2115: drafts, chats, results, icons and swept
+                  images have no row here, but they are the team's bytes all the same. */}
               {list.draftBytes > 0 && (
                 <>
-                  {` `}(incl. {formatAttachmentSize(list.draftBytes)} in
-                  unsaved drafts)
+                  {` `}(incl. {formatAttachmentSize(list.draftBytes)} not
+                  listed here)
                 </>
               )}
             </p>
