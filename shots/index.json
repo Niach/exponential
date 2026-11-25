@@ -8176,29 +8176,6 @@
         "sha256": "1facb4a4080496d082d83c2a892441321b793d46d3f17157190e6c3c328e03eb"
       }
     },
-    "teams-menu": {
-      "android": {
-        "file": "shots/teams-menu/android.webp",
-        "width": 876,
-        "height": 1800,
-        "bytes": 32522,
-        "sha256": "38fd3ea11d76f02fa7a03a46f0773a9de3823028736bbb3b44c2e46204efbf46"
-      },
-      "ios": {
-        "file": "shots/teams-menu/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 29674,
-        "sha256": "3ac4590b74094093e8c5800afc2859e352f836d630920c2285e573757545f2f9"
-      },
-      "web-mobile": {
-        "file": "shots/teams-menu/web-mobile.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 26636,
-        "sha256": "0b07d0d721644bb9b6df54724e59a3d9bec03f573072827a64894f27e0f56ffb"
-      }
-    },
     "team-mark": {
       "android": {
         "file": "shots/team-mark/android.webp",
@@ -8227,15 +8204,38 @@
         "file": "shots/teams/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 17886,
-        "sha256": "d7b91b1454fe896e404034d66eceefeebccd75d3c70a79e39264f9ab0f649cfd"
+        "bytes": 39612,
+        "sha256": "b9d4cb7b43129d3b8f745bf1481f06ae751b9e0e5c8bf015edc8e4b689bbc218"
       },
       "web-mobile": {
         "file": "shots/teams/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 15280,
-        "sha256": "8b53e595dc5fd792cc7a75d17948d4bddbeb696aaeb048c8c0bad5d8cf72d30e"
+        "bytes": 40328,
+        "sha256": "dfe505b962f5fe04682f189b97f850ea677db8471f2f0cdde405f6641b980d6c"
+      }
+    },
+    "teams-menu": {
+      "android": {
+        "file": "shots/teams-menu/android.webp",
+        "width": 876,
+        "height": 1800,
+        "bytes": 32522,
+        "sha256": "38fd3ea11d76f02fa7a03a46f0773a9de3823028736bbb3b44c2e46204efbf46"
+      },
+      "ios": {
+        "file": "shots/teams-menu/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 11624,
+        "sha256": "158a52e58ac445f81aa8d4fbb8bea74c42bde9085830df44022c5eda8e925a10"
+      },
+      "web-mobile": {
+        "file": "shots/teams-menu/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 12740,
+        "sha256": "a00b89919b0d6b59de3703eb1d62f244c323c8a4af666a0c6e557bc010cae085"
       }
     },
     "terminal": {
