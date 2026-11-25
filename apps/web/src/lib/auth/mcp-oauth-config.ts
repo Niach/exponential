@@ -1,4 +1,6 @@
+import type { cimd } from "@better-auth/cimd"
 import type { McpOptions } from "@better-auth/mcp"
+import { clientMetadataFetch } from "./client-metadata-fetch"
 
 // The MCP OAuth authorization server's configuration (better-auth 1.7,
 // `@better-auth/mcp` on `@better-auth/oauth-provider`), kept beside the auth
@@ -62,6 +64,25 @@ export function mcpOAuthOptions(env: NodeJS.ProcessEnv = process.env): McpOption
     allowUnauthenticatedClientRegistration: true,
     clientRegistrationDefaultApplicationType: `infer`,
     grantTypes: [`authorization_code`, `refresh_token`],
+  }
+}
+
+/** #NEW-141: Client ID Metadata Documents: a client names itself by the https
+ *  URL of its own metadata (ChatGPT and Claude prefer it over registering), so
+ *  nothing is left to go stale. Off with `MCP_CIMD_ENABLED=false`, for an
+ *  instance that cannot reach the internet: its clients register instead. */
+export function cimdOptions(env: NodeJS.ProcessEnv = process.env): Parameters<typeof cimd>[0] | null {
+  if ((env.MCP_CIMD_ENABLED ?? ``).toLowerCase() === `false`) return null
+  return { fetchClientMetadataResource: clientMetadataFetch(), metadataProfile: `mcp-2026-07-28` }
+}
+
+/** The host a metadata document proves, null for a registered client. */
+export function metadataClientHost(clientId: string): string | null {
+  try {
+    const url = new URL(clientId)
+    return url.protocol === `https:` ? url.host : null
+  } catch {
+    return null
   }
 }
 

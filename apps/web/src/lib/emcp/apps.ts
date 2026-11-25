@@ -38,14 +38,18 @@ const VIEW_TITLES: Record<McpAppView, string> = {
 
 /** A tool's `_meta` binding to its view. `exponential_issues_show` (the
  *  issues view's tool; `issues_list` has no byte budget for the binding) also
- *  advertises a global entrypoint (OpenAI's plugin extension, rendered by
- *  OpenClaw): the issue list opens without a model call, with `{}` = the
- *  caller's open issues. */
+ *  advertises a global and a thread entrypoint (OpenAI's plugin extension,
+ *  rendered by ChatGPT and OpenClaw): the issue list opens without a model
+ *  call, with `{}` = the caller's open issues (#NEW-141: nouns.ts). */
 export function mcpAppToolMeta(view: McpAppView): Record<string, unknown> {
   return {
-    ui: { resourceUri: MCP_APP_RESOURCE_URIS[view] },
+    ui: {
+      resourceUri: MCP_APP_RESOURCE_URIS[view],
+      // The spec's default, named because the mention search has to (mentions.ts).
+      ...(view === `issues` ? { visibility: [`model`, `app`] } : {}),
+    },
     ...(view === `issues`
-      ? { "openai/ui": { entrypoints: [{ type: `global` }] } }
+      ? { "openai/ui": { entrypoints: [{ type: `global` }, { type: `thread` }] } }
       : {}),
   }
 }
@@ -118,6 +122,10 @@ export function mcpAppCsp(appOrigin: string) {
   }
 }
 
+/** #NEW-141: the modes every view lays out for (packages/mcp-apps bridge.ts
+ *  `VIEW_DISPLAY_MODES`); a view asks for `fullscreen` itself where it opens so. */
+export const MCP_APP_DISPLAY_MODES = { availableDisplayModes: [`inline`, `fullscreen`], preferredDisplayMode: `inline` }
+
 /** Registers the views. Outside `registerExponentialTools` on purpose:
  *  the context budget (context-budget.ts) measures TOOL definitions against a
  *  stand-in server that only implements `registerTool`. `appOrigin` is where
@@ -141,7 +149,7 @@ export function registerExponentialApps(
             uri,
             mimeType: MCP_APP_MIME_TYPE,
             text: mcpAppHtml(view, undefined, appOrigin),
-            _meta: { ui: { prefersBorder: true, csp: mcpAppCsp(appOrigin) } },
+            _meta: { ui: { prefersBorder: true, csp: mcpAppCsp(appOrigin) }, "openai/ui": MCP_APP_DISPLAY_MODES },
           },
         ],
       })
