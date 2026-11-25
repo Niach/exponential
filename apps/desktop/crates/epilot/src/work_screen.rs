@@ -638,7 +638,7 @@ mod tests {
         // A focused game on display 2, a plain window on display 1, one off-screen.
         let windows = [window(1000, true, true), window(0, false, false), window(5000, false, true)];
         let state = state_of(&displays, &windows, None);
-        assert_eq!(state, State { count: 2, picked: None, fullscreen: vec![1], active: Some(1), active_fullscreen: true, windows_read: true, space_only: false });
+        assert_eq!(state, State { count: 2, picked: None, fullscreen: vec![1], active: Some(1), active_fullscreen: true, windows_read: true, space_only: false, locked: false });
         assert_eq!(work_displays(&state), [0]);
         assert_eq!(state_of(&displays, &[], Some(2)).active, None);
     }
