@@ -244,6 +244,15 @@ export interface TrustStore {
   /** #EXP-2161 (member-space.json `rootMark`): which roots count, sticky, as
    *  the member's own Assistant conversation. Absent = a store from before. */
   rootMarks?: Record<string, RootMark>
+  /** #EXP-2161: endpoint ids ever served with a verifying space registration
+   *  (any account's), sticky, sorted: never an ordinary install again. Absent = none. */
+  knownSpaces?: string[]
+}
+
+/** Whether this install ever knew `endpointId` as a member space's. */
+export function knownSpace(store: TrustStore, endpointId: string | null | undefined): boolean {
+  if (!endpointId) return false
+  return store.knownSpaces?.includes(endpointId) === true || store.pins[endpointId]?.class === `space`
 }
 
 export function emptyTrustStore(self: string, userId: string, existing = false): TrustStore {
@@ -289,10 +298,20 @@ export function reconcileTrust(before: TrustStore, served: { installs: ServedIns
   // space's row is never an ordinary install of the account.
   const spaceRows = new Map<string, ServedInstall>()
   const rowsServed: ServedInstall[] = []
+  // Once a space, always one: a row of it without that registration (the
+  // server's to serve) is skipped whole.
+  const spaces = new Set([...(before.knownSpaces ?? []), ...Object.keys(before.pins).filter((id) => before.pins[id]!.class === `space` && !(before.space && id === before.self))])
+  const ordinary: ServedInstall[] = []
   for (const install of served.installs) {
-    if (registrationClass(install) !== `space`) rowsServed.push(install)
-    else if (install.userId === before.userId) spaceRows.set(install.endpointId, install)
+    if (registrationClass(install) !== `space`) {
+      ordinary.push(install)
+      continue
+    }
+    spaces.add(install.endpointId)
+    if (install.userId === before.userId) spaceRows.set(install.endpointId, install)
   }
+  rowsServed.push(...ordinary.filter((install) => !spaces.has(install.endpointId)))
+  if (spaces.size > 0) before = { ...before, knownSpaces: [...spaces].sort() }
   if (before.space) return reconcileSpace(before, { installs: rowsServed, approvals: served.approvals }, spaceRows)
   const store: TrustStore = {
     ...before,
@@ -556,11 +575,13 @@ export function pinnedSigners(store: TrustStore, rootIsOwnAssistant = false): st
   return Object.keys(store.pins).filter((endpointId) => pinCovers(store.pins[endpointId]!.class ?? `install`, rootIsOwnAssistant))
 }
 
-/** #EXP-2161: a signer pinned as a space that does not cover the root is
+/** #EXP-2161: an unpinned signer this install ever knew as a space, or one
+ *  pinned as a space that does not cover the root, is
  *  refused in every mode, never recorded like an unpinned older build. */
 function outsideSpacePin(store: TrustStore, endpointId: string | null | undefined, rootIsOwnAssistant: boolean): boolean {
   const pin = endpointId ? store.pins[endpointId] : undefined
-  return pin?.class === `space` && !pinCovers(`space`, rootIsOwnAssistant)
+  if (!pin) return knownSpace(store, endpointId)
+  return pin.class === `space` && !pinCovers(`space`, rootIsOwnAssistant)
 }
 
 // ── the four rules ────────────────────────────────────────────────────────
@@ -688,7 +709,7 @@ export function wrapTarget(
   const pin = store.pins[target.endpointId]
   if (pin && !pinCovers(pin.class ?? `install`, rootIsOwnAssistant)) return { wrap: false, reason: `unapproved` }
   // #EXP-2161: a space is wrapped for as the space its member let in, or not at all.
-  if (!pin && registrationClass(target) === `space`) return { wrap: false, reason: `unapproved` }
+  if (!pin && (knownSpace(store, target.endpointId) || registrationClass(target) === `space`)) return { wrap: false, reason: `unapproved` }
   if (pin) {
     return pin.x25519Public === target.x25519Public && pin.userId === target.userId ? { wrap: true, record: `verified` } : { wrap: false, reason: `keyMismatch` }
   }

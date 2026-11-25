@@ -38,12 +38,13 @@ function served(spec: { key: string; approvalRequested?: boolean; registration?:
   }
 }
 
-type StoreSpec = { viewer: string; space?: boolean; joined: boolean; existing?: boolean; pins: Record<string, unknown>; members?: string[] }
+type StoreSpec = { viewer: string; space?: boolean; joined: boolean; existing?: boolean; pins: Record<string, unknown>; members?: string[]; knownSpaces?: string[] }
 function build(spec: StoreSpec): TrustStore {
   const viewer = keys[spec.viewer]!
   const store = emptyTrustStore(viewer.endpointId, viewer.userId, spec.existing ?? false)
   store.joined = spec.joined
   store.members = spec.members ?? []
+  if (spec.knownSpaces) store.knownSpaces = spec.knownSpaces.map((name) => keys[name]!.endpointId)
   for (const [name, pin] of Object.entries(spec.pins)) {
     const [via, by, kind] = pin as [PinVia, string | null, string | undefined]
     const { userId, x25519Public, endpointId } = keys[name]!
