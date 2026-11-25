@@ -137,8 +137,6 @@ final class AgentComposerModel {
     var plainPicked: [String] = []
     var onPlainPick: ([String]) -> Void = { _ in }
     private var pullRequestRows: [StartPullRequestOption.Candidate] = []
-    /// Every live app's agent: listed as its app only.
-    private var appAgentIds: [String] = []
     @ObservationIgnored private var openPulls: [PullRequestEntity] = []
     @ObservationIgnored private var pullLinks: [PullRequestIssueEntity] = []
     @ObservationIgnored private var poolTask: Task<Void, Never>?
@@ -252,12 +250,11 @@ final class AgentComposerModel {
             let prompts = try PromptEntity.fetchAll(db)
             let agents = try AgentDefinitionEntity.fetchAll(db)
             let teams = try TeamEntity.fetchAll(db)
-            let apps = try AppEntity.filter(Column("deleted_at") == nil).fetchAll(db).compactMap(\.agentId)
             let pulls = try PullRequestEntity
                 .filter(Column("state") == DomainContract.prStateOpen)
                 .fetchAll(db)
             let links = try PullRequestIssueEntity.fetchAll(db)
-            return (boards, prompts, (agents, teams, apps), pulls, links)
+            return (boards, prompts, (agents, teams), pulls, links)
         }
         poolTask = Task { [weak self] in
             do {
@@ -269,7 +266,6 @@ final class AgentComposerModel {
                     self.agentRows = agents.0
                     self.syncedTeamIds = agents.1.map(\.id)
                     self.teamRows = agents.1
-                    self.appAgentIds = agents.2
                     self.followChatTeams()
                     self.openPulls = pulls
                     self.pullLinks = links
@@ -440,9 +436,8 @@ final class AgentComposerModel {
             let me = deps.auth.userId
             let mine = agentRows.filter { AgentSettings.isMyAssistant($0, me: me) }
             let assistant = mine.first { !syncedTeamIds.contains($0.teamId) } ?? mine.first
-            let appAgents = Set(appAgentIds)
             return (assistant.map { [$0] } ?? []) + agentRows
-                .filter { !$0.isAssistant && syncedTeamIds.contains($0.teamId) && !appAgents.contains($0.id) }
+                .filter { !$0.isAssistant && syncedTeamIds.contains($0.teamId) }
                 .sorted { ($0.sortOrder, $0.name) < ($1.sortOrder, $1.name) }
         }
         guard let teamId else { return [] }
