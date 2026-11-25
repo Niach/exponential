@@ -5,7 +5,7 @@
 //! distribution ships; a missing tool is a warning, never a crash.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     process::Command,
     time::{Duration, Instant},
@@ -185,6 +185,46 @@ impl LaunchGuard {
     }
 }
 
+/// #EDE-224: the window a hand-off to an app should bring forward. The app
+/// takes a link on its own socket (no launch token: it runs as a unit), so
+/// its next window opens behind the focused one (#EDE-76) and it cannot
+/// raise itself: the shell focuses that window for it, through its grant.
+#[derive(Debug, Default)]
+pub struct FocusNext {
+    armed: Option<Armed>,
+}
+
+#[derive(Debug)]
+struct Armed {
+    apps: Vec<String>,
+    /// The windows already up when the hand-off went out.
+    known: HashSet<String>,
+    until: Instant,
+}
+
+impl FocusNext {
+    /// As long as a launch token lives: a window later than that is not the hand-off's.
+    pub const WINDOW: Duration = Duration::from_secs(ede_protocol::LAUNCH_TOKEN_SECS);
+
+    /// The next new window of one of `apps` is the one to focus; `known` = the window ids up now.
+    pub fn arm(&mut self, apps: &[&str], known: impl IntoIterator<Item = String>, now: Instant) {
+        self.armed = Some(Armed { apps: apps.iter().map(|a| a.to_string()).collect(), known: known.into_iter().collect(), until: now + Self::WINDOW });
+    }
+
+    /// The compositor's window list changed: the new window of the armed
+    /// apps to focus, once (`(id, app_id)` pairs).
+    pub fn opened<'a>(&mut self, windows: impl IntoIterator<Item = (&'a str, Option<&'a str>)>, now: Instant) -> Option<String> {
+        let armed = self.armed.as_ref()?;
+        if now >= armed.until {
+            self.armed = None;
+            return None;
+        }
+        let id = windows.into_iter().find(|(id, app)| !armed.known.contains(*id) && app.is_some_and(|a| armed.apps.iter().any(|w| w == a)))?.0.to_string();
+        self.armed = None;
+        Some(id)
+    }
+}
+
 /// `playerctl` when it is installed.
 pub fn media(action: &str) {
     let verb = match action {
@@ -218,6 +258,25 @@ pub fn screenshot_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #EDE-224: the hand-off's window is the app's first new one: an
+    /// other app's window, one up before, or one after the token's
+    /// lifetime is not focused; the next one is focused once.
+    #[test]
+    fn focus_next_picks_the_apps_next_new_window_once() {
+        let t0 = Instant::now();
+        let mut next = FocusNext::default();
+        assert_eq!(next.opened([("w1", Some("at.exponential"))], t0), None, "nothing armed");
+        next.arm(&["at.exponential", "at.exponential.staging"], ["w1".to_string()], t0);
+        assert_eq!(next.opened([("w1", Some("at.exponential")), ("w2", Some("firefox")), ("w3", None)], t0), None, "the app's old window, another app's");
+        let list = [("w1", Some("at.exponential")), ("w2", Some("firefox")), ("w8", Some("at.exponential"))];
+        assert_eq!(next.opened(list, t0 + Duration::from_secs(1)), Some("w8".into()));
+        assert_eq!(next.opened(list, t0 + Duration::from_secs(2)), None, "focused once");
+
+        next.arm(&["at.exponential"], [], t0);
+        assert_eq!(next.opened([("w9", Some("at.exponential"))], t0 + FocusNext::WINDOW), None, "the token's lifetime is over");
+        assert_eq!(next.opened([("w9", Some("at.exponential"))], t0 + Duration::from_secs(1)), None, "and it stays disarmed");
+    }
 
     #[test]
     fn reads_wpctl_volume_lines() {
