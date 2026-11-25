@@ -4,7 +4,7 @@ pub mod moving;
 pub mod resize;
 
 pub use moving::MoveSurfaceGrab;
-pub use resize::ResizeSurfaceGrab;
+pub use resize::{ResizeEdge, ResizeSurfaceGrab};
 
 /// linux/input-event-codes.h
 pub const BTN_LEFT: u32 = 0x110;
