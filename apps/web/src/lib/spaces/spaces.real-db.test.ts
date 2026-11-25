@@ -171,6 +171,11 @@ afterAll(async () => {
   if (!ready.ok) return
   if (made.users.length) {
     const ids = sql.raw(`('${made.users.join(`','`)}')`)
+    // The spaces end as the product ends them (another suite's watchdog may too).
+    await db.transaction(async (tx) => {
+      const left = await tx.select({ id: devices.id }).from(devices).where(and(inArray(devices.userId, made.users), sql`space_host_id IS NOT NULL`))
+      await endSpacesInTx(tx, left.map((d) => d.id), `accountDeleted`)
+    })
     await db.execute(sql`DELETE FROM agents WHERE owner_id IN ${ids}`)
     await db.execute(sql`DELETE FROM teams WHERE owner_id IN ${ids}`)
     if (made.teams.length) await db.delete(teams).where(inArray(teams.id, made.teams))
