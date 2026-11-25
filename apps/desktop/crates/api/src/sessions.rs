@@ -710,6 +710,17 @@ pub fn pr_files(trpc: &TrpcClient, pull_request_id: &str) -> Result<Vec<PrFile>,
     Ok(output.files)
 }
 
+/// #EXP-2138 (held-gone.json SERVER): `sessions.heldGone`: which of `ids` (at
+/// most `domain::held_gone::BATCH`) were deleted and which this account may
+/// not have any more. An older server answers 404. Blocking.
+pub fn held_gone(trpc: &TrpcClient, ids: &[String]) -> Result<domain::held_gone::HeldAnswer, ApiError> {
+    #[derive(Serialize)]
+    struct Input<'a> {
+        ids: &'a [String],
+    }
+    trpc.mutation("sessions.heldGone", &Input { ids })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
