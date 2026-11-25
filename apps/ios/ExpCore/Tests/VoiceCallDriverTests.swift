@@ -377,4 +377,60 @@ final class VoiceCallDriverTests: XCTestCase {
         XCTAssertNil(driver.answeredAt)
         XCTAssertEqual(driver.state.phase, .hidden)
     }
+
+    /// EXP-2111: an answered call, then `finish`; what its log said.
+    private func logged(_ finish: (VoiceCallDriver, FakePlatform) -> Void) async throws -> FakeSink {
+        let log = Log()
+        let platform = FakePlatform(log)
+        let driver = VoiceCallDriver(platform: platform)
+        driver.start(agentId: "agent-1", keys: FakeKeys(), device: "mint-desk", language: "en", fallback: false)
+        platform.answerHold?(true, nil)
+        platform.answer = .success(VoiceCall.Ticket(
+            callId: "8D4C4E3E-1111-4222-8333-444455556666", ticket: "t", url: Self.relay, deviceId: "d-mint", device: "mint-desk", seal: true
+        ))
+        try await settle(log, count: 4)
+        platform.grant(true)
+        try await settle(log, count: 11)
+        platform.socket?.inbound?.opened()
+        for frame in [#"{"t":"call_ready"}"#, #"{"t":"call_event","event":{"t":"rang"}}"#, #"{"t":"call_event","event":{"t":"ready"}}"#] {
+            platform.socket?.inbound?.text(frame)
+        }
+        try await settle(log, count: 14)
+        platform.socket?.inbound?.data(Data([1]))
+        finish(driver, platform)
+        for _ in 0..<500 where driver.caller.stage != .idle { try await Task.sleep(nanoseconds: 1_000_000) }
+        XCTAssertEqual(driver.caller.stage, .idle)
+        XCTAssertFalse(platform.sink.lines.isEmpty)
+        for line in platform.sink.lines {
+            for secret in ["agent-1", "mint", "wss:", "relay.test", "ticket=", "4444"] {
+                XCTAssertFalse(line.contains(secret), line)
+            }
+        }
+        return platform.sink
+    }
+
+    func testAnIdleCallIsItsLinesAndOneFailure() async throws {
+        let sink = try await logged { _, platform in platform.socket?.inbound?.text(#"{"t":"call_end","reason":"idle"}"#) }
+        XCTAssertEqual(sink.lines, [
+            "call -: started (fallback false)",
+            "call -: the microphone is held",
+            "call 8d4c4e3e: ticket after 0 ms (fallback false, sealed true)",
+            "call 8d4c4e3e: the relay socket is open after 0 ms",
+            "call 8d4c4e3e: call_ready: the host joined after 0 ms",
+            "call 8d4c4e3e: the host rang",
+            "call 8d4c4e3e: the host's voice is ready",
+            "call 8d4c4e3e: answered after 0 ms",
+            "call 8d4c4e3e: the host's first audio frame came after 0 ms",
+            "call 8d4c4e3e: ended by=far reason=idle stage=paired phase=listening answered=true lasted=0 ms sealed=true up=0 down=1 last_down=0 ms ago",
+        ])
+        XCTAssertEqual(sink.failures.map(\.reason), ["idle"])
+        XCTAssertEqual(sink.failures.first?.tag, "8d4c4e3e")
+        XCTAssertEqual(sink.failures.first?.message, "Voice call ended: idle")
+    }
+
+    func testEndCallIsNoFailure() async throws {
+        let sink = try await logged { driver, _ in driver.end() }
+        XCTAssertEqual(sink.lines.last?.contains("ended by=here reason=hung_up"), true)
+        XCTAssertEqual(sink.failures, [])
+    }
 }

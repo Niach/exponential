@@ -150,7 +150,8 @@ public extension VoiceCall {
 
         private static func code(_ code: String?) -> String {
             guard let code, !code.isEmpty else { return HangUpRules.failedCode }
-            return code.range(of: "^[A-Za-z][A-Za-z0-9_]{0,31}$", options: .regularExpression) == nil ? "other" : code
+            // `\z`: a `$` would let a trailing newline through.
+            return code.range(of: #"^[A-Za-z][A-Za-z0-9_]{0,31}\z"#, options: .regularExpression) == nil ? "other" : code
         }
 
         /// Who ended the call and why, from the input that did.
