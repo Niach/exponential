@@ -525,13 +525,13 @@ fn rail_derive_bench() {
         cx.update(|cx| {
             let started = Instant::now();
             let _span = tracing::trace_span!("rail.bench").entered();
-            let needs = tracing::trace_span!("b.needs_you").in_scope(|| crate::needs_you::rows_in_team(&team, cx).rows.len());
+            let needs = tracing::trace_span!("b.needs_you").in_scope(|| crate::needs_you::rows_in_all_teams(cx).rows.len());
             // As the rail reads them since #FEED-232: the Chats count, the
             // agents' unread replies (the Chats model) and every team's
             // Needs you count (the team picker, the app icon).
             let badge = tracing::trace_span!("b.chats_count").in_scope(|| crate::session_data::rail_chats_count(&team, cx).count);
             let unread = tracing::trace_span!("b.agent_unread").in_scope(|| crate::session_data::agent_unread_counts(&team, cx).len());
-            let _ = tracing::trace_span!("b.counts_by_team").in_scope(|| crate::needs_you::counts_by_team(cx).len());
+            let _ = tracing::trace_span!("b.counts").in_scope(|| crate::needs_you::counts(cx).total);
             let live = tracing::trace_span!("b.live_roots").in_scope(|| crate::session_data::live_roots_for_rail(&team, cx).len());
             let agents = tracing::trace_span!("b.agents").in_scope(|| crate::session_data::agents_in_team(&team, cx).len());
             (started.elapsed().as_secs_f64() * 1e3, (needs, badge, unread, live, agents))

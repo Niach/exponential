@@ -568,7 +568,7 @@ impl HostPlugin for Host {
     }
 
     /// #EDE-65: the rail's glyphs as the IDE paints them (the agent's mark,
-    /// its dot), and lane I: a team agent's icon in its colour by the IDE
+    /// its count badge or working dot), and lane I: a team agent's icon in its colour by the IDE
     /// rail's own name (`ide:agent:<id>`, its `shell_regions` glyphs), which
     /// the host owns and paints from its glyph map.
     fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, _cx: &App) -> Option<gpui::AnyElement> {
@@ -589,7 +589,7 @@ impl HostPlugin for Host {
             let path = assets::icon_path(&glyph.icon)?;
             return Some(svg().path(path).size(px(size)).text_color(gpui::rgb(glyph.color)).into_any_element());
         }
-        uicore_gpui::glyphs::paint(name, size, color, &assets::icon_path)
+        uicore_gpui::glyphs::paint(name, size, color, &assets::icon_path, _cx)
     }
 
     fn on_action(&self, event: &ActionEvent, cx: &mut App) {

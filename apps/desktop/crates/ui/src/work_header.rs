@@ -351,12 +351,9 @@ pub(crate) fn render_floating_bar(
     measure: Option<ClusterMeasure>,
     below: Option<AnyElement>,
 ) -> AnyElement {
-    let cluster = h_flex()
+    let cluster = crate::controls::header_cluster(right)
         .relative()
         .flex_shrink_0()
-        .items_center()
-        .gap_1()
-        .children(right)
         .when_some(measure, |cluster, (cell, entity_id)| {
             cluster.child(
                 gpui::canvas(

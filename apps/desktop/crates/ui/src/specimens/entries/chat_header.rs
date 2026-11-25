@@ -1,8 +1,9 @@
 //! #EXP-1688: `chat-header` (Special components): THE chat header on a phone
 //! (`fixtures/chats.json` `shell.chatHeader`). The IDE has no phone shell, so
 //! this twin paints the web entry's specimen statically: the ghost back
-//! button, the lead disc, the title over one subtitle line, then an agent
-//! chat's telephone and the `…`.
+//! button, the lead disc, the title over one subtitle line (left), then the
+//! header actions as filled circles (#EXP-2109 header-actions.json): an agent
+//! chat's telephone and +, the `…` last.
 
 use gpui::{div, px, AnyElement, App, Div, FontWeight, Hsla, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
@@ -10,7 +11,7 @@ use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use domain::chats::{ChatLead, CHATS};
 
 use crate::chat_list::chat_lead_disc;
-use crate::icons::{registry, ExpIcon};
+use crate::icons::registry;
 
 pub(crate) const ID: &str = "chat-header";
 pub(crate) const OWNER: &str = "EXP-1688";
@@ -18,7 +19,8 @@ pub(crate) const OWNER: &str = "EXP-1688";
 /// The phone column (the web island's 390px).
 const PHONE_W: f32 = 390.;
 
-fn button(icon: ExpIcon, cx: &App) -> AnyElement {
+/// The ghost Back.
+fn back(cx: &App) -> AnyElement {
     let spec = &CHATS.shell.chat_header;
     div()
         .size(px(spec.button))
@@ -26,19 +28,19 @@ fn button(icon: ExpIcon, cx: &App) -> AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .child(Icon::new(icon).with_size(px(spec.glyph)).text_color(cx.theme().muted_foreground))
+        .child(Icon::new(registry::UI_BACK).with_size(px(spec.glyph)).text_color(cx.theme().muted_foreground))
         .into_any_element()
 }
 
-fn header(lead: AnyElement, title: &str, marks: &[domain::chats::ChatMark], subtitle: &str, tone: Hsla, call: bool, cx: &App) -> AnyElement {
+fn header(lead: AnyElement, title: &str, marks: &[domain::chats::ChatMark], subtitle: &str, tone: Hsla, agent: bool, cx: &App) -> AnyElement {
     let spec = &CHATS.shell.chat_header;
-    let mut row = h_flex()
+    let row = h_flex()
         .w_full()
         .h(px(spec.row))
         .px(px(spec.padding_x))
         .gap(px(spec.gap))
         .items_center()
-        .child(button(registry::UI_BACK, cx))
+        .child(back(cx))
         .child(
             h_flex().flex_1().min_w_0().gap(px(spec.disc_gap)).items_center().child(lead).child(
                 v_flex()
@@ -64,10 +66,12 @@ fn header(lead: AnyElement, title: &str, marks: &[domain::chats::ChatMark], subt
                     .child(div().truncate().text_size(px(spec.subtitle)).text_color(tone).child(SharedString::from(subtitle.to_string()))),
             ),
         );
-    if call {
-        row = row.child(button(registry::VOICE_CALL, cx));
+    let mut actions = vec![super::phone_page_header::circle(registry::UI_MORE, false, cx)];
+    if agent {
+        actions.insert(0, super::phone_page_header::circle(registry::UI_ADD, false, cx));
+        actions.insert(0, super::phone_page_header::circle(registry::VOICE_CALL, false, cx));
     }
-    row.child(button(registry::UI_MORE, cx)).into_any_element()
+    row.child(crate::controls::header_cluster(actions).flex_shrink_0()).into_any_element()
 }
 
 fn disc(lead: ChatLead, cx: &App) -> AnyElement {
@@ -85,7 +89,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .gap_3()
         .rounded_xl()
         .bg(cx.theme().background)
-        .child(caption("A chat that needs you (48px, ghost buttons, always leading)"))
+        .child(caption("A chat that needs you (48px, the title left, the round …)"))
         .child(header(
             disc(ChatLead::NeedsYou, cx),
             "Reduce cold start",
@@ -105,7 +109,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
             false,
             cx,
         ))
-        .child(caption("An agent chat (the telephone)"))
+        .child(caption("An agent chat (the telephone, New conversation, the …)"))
         .child(header(disc(ChatLead::Waiting, cx), "Triage", &[], "Agent", muted, true, cx))
 }
 

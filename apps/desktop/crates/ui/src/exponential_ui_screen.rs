@@ -580,8 +580,8 @@ impl HostPlugin for SpecimenHost {
     }
 
     /// #EDE-65: the rail's glyphs (eDE's chats in the ede-panel entry).
-    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, _cx: &App) -> Option<gpui::AnyElement> {
-        uicore_gpui::glyphs::paint(name, size, color, &|n| self.icon(n))
+    fn icon_element(&self, name: &str, size: f32, color: gpui::Hsla, cx: &App) -> Option<gpui::AnyElement> {
+        uicore_gpui::glyphs::paint(name, size, color, &|n| self.icon(n), cx)
     }
 
     fn on_action(&self, event: &ActionEvent, _cx: &mut App) {

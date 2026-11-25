@@ -399,6 +399,54 @@ pub(crate) fn team_avatar_of(image: Option<crate::markdown::CachedImage>, size: 
     }
 }
 
+/// A team as a row's lead wears it: its name (assistive tech) and its image.
+#[derive(Clone)]
+pub(crate) struct RowTeam {
+    pub(crate) name: gpui::SharedString,
+    pub(crate) image: Option<crate::markdown::CachedImage>,
+}
+
+/// THE TEAM MARK ON A ROW (nav-badges.json `teamMark`): `lead` (a square of
+/// `side`) wearing its team's mark bottom right, over a tile of the `ground`
+/// the row sits on that rings it; `key` names the row. `None` = the lead alone (no member team, or
+/// a selected row: its check takes the corner).
+pub(crate) fn with_team_mark(key: &str, lead: impl gpui::IntoElement, side: f32, team: Option<&RowTeam>, ground: gpui::Hsla, cx: &App) -> gpui::AnyElement {
+    use gpui::{InteractiveElement as _, StatefulInteractiveElement as _};
+    use gpui_component::ActiveTheme as _;
+    let Some(team) = team else { return lead.into_any_element() };
+    let domain::nav_badges::TeamMarkGeometry { mark, ring, offset } = domain::nav_badges::team_mark_of(side);
+    let (mark, ring, offset) = (mark as f32, ring as f32, offset as f32);
+    div()
+        .relative()
+        .flex_shrink_0()
+        .child(lead)
+        .child(
+            div()
+                .id(gpui::SharedString::from(format!("team-mark-{key}")))
+                .role(gpui::Role::Image)
+                .aria_label(team.name.clone())
+                .absolute()
+                .right(px(-(offset + ring)))
+                .bottom(px(-(offset + ring)))
+                .p(px(ring))
+                .rounded(px(mark * TEAM_IMAGE.mark.radius_fraction as f32 + ring))
+                .bg(ground)
+                .text_color(cx.theme().muted_foreground)
+                .child(team_avatar_of(team.image.clone(), mark)),
+        )
+        .into_any_element()
+}
+
+/// The sidebar's ground behind a row (the window gradient, opaque).
+pub(crate) fn sidebar_ground() -> gpui::Hsla {
+    theme::background_gradient_color_at(0.5)
+}
+
+/// The content card's ground behind a row, opaque.
+pub(crate) fn card_ground() -> gpui::Hsla {
+    crate::surface::panel_fill_at(0.5)
+}
+
 /// One avatar + name row (EXP-426): the ONE shape every user-listing surface
 /// shares — the assignee picker menus (via `pickers::user_menu_item`) and
 /// the `@` autocomplete rows.
