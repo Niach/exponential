@@ -6162,7 +6162,12 @@ internal fun SessionComposer(
         onPickPrompt = { prompt -> viewModel.insertPrompt(prompt.id, at = promptCaret[0] to promptCaret[1]) },
         account = composerAccount,
         teams = teamsPickState?.let { state ->
-            com.exponential.app.ui.agent.TeamsPickBinding(state.teams, state.picked, viewModel::setTeamsPick)
+            com.exponential.app.ui.agent.TeamsPickBinding(
+                state.teams,
+                state.picked,
+                viewModel::setTeamsPick,
+                state.own?.let { com.exponential.app.domain.TeamsPick.Owner.Root(it) } ?: com.exponential.app.domain.TeamsPick.Owner.Assistant,
+            )
         },
     )
 

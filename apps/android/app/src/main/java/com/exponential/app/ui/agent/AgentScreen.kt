@@ -67,6 +67,7 @@ import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuConditions
 import com.exponential.app.domain.ComposerMenuSurface
 import com.exponential.app.domain.ComposerAgentRow
+import com.exponential.app.domain.TeamsPick
 import com.exponential.app.ui.components.picker.AccountPicker
 import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.components.picker.DevicePickerDevice
@@ -254,7 +255,7 @@ fun AgentScreen(
     val plainTeams by viewModel.plainTeamIds.collectAsStateWithLifecycle()
     val teamsPick = when {
         toMyAssistant -> TeamsPickBinding(pickTeamRows, teamsPicked, viewModel::setTeamsPick)
-        recipientId == null -> TeamsPickBinding(pickTeamRows, plainTeams, viewModel::setPlainTeams)
+        recipientId == null -> TeamsPickBinding(pickTeamRows, plainTeams, viewModel::setPlainTeams, TeamsPick.Owner.Home)
         else -> null
     }
     // NEW-2: the picked saved prompt's synced row (its chip).

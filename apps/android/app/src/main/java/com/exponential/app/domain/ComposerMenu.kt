@@ -306,6 +306,24 @@ object TeamsPick {
         )
     }
 
+    /** Whose pick it is (`removableCases`). */
+    sealed interface Owner {
+        data object Assistant : Owner
+
+        /** A plain root, [own] = its own team. */
+        data class Root(val own: String) : Owner
+
+        /** Home's plain chat. */
+        data object Home : Owner
+    }
+
+    /** The chips with an ×: never one that could only widen a plain chat's pick. */
+    fun removable(owner: Owner, chips: List<String>): List<String> = when (owner) {
+        Owner.Assistant -> chips
+        is Owner.Root -> chips - owner.own
+        Owner.Home -> if (chips.size == 1) emptyList() else chips
+    }
+
     /** A tap in a plain root's picker or on a chip: the new set (null = every
      *  team, each id stored) minus its own team. */
     fun plainPicked(own: String, next: List<String>?, teamIds: List<String>): List<String> = (next ?: teamIds) - own
