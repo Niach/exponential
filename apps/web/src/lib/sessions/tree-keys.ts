@@ -261,7 +261,9 @@ export async function createTreeKeyInTx(
   if (new Set(targets).size !== targets.length) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `One wrap per install` })
   }
-  if (!targets.includes(input.installId)) {
+  // #EXP-2161: a space starts chats it does not read (below): no wrap of its own.
+  const space = spaceOf(userId)
+  if (!targets.includes(input.installId) && !(space && targets.length > 0)) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Include a wrap for your own install` })
   }
   await lockTreeKeys(tx, input.rootId)
@@ -270,7 +272,21 @@ export async function createTreeKeyInTx(
   if (root.clearTree) throw new TRPCError({ code: `BAD_REQUEST`, message: CLEAR_TREE_REFUSAL })
   const readers = await treeReaders(tx, root)
   const caller = readers.get(input.installId)
-  if (!caller) throw notFound()
+  // #EXP-2161 (member-space.json, THE INSTALL): the first key of a chat its
+  // Assistant just started, for the chat's readers alone.
+  const starts =
+    !caller &&
+    !!space &&
+    root.sealEpoch === null &&
+    root.userId === userId &&
+    space.assistantId !== null &&
+    root.startedByAgentId === space.assistantId &&
+    root.createdAt >= space.createdAt &&
+    (await approvedSpaceInstallIds(tx, [signer.id])).has(signer.id)
+  if (!caller && !starts) throw notFound()
+  if (caller && !targets.includes(input.installId)) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `Include a wrap for your own install` })
+  }
   if (root.sealEpoch === null) {
     if (input.epoch !== 1) {
       throw new TRPCError({ code: `CONFLICT`, message: `A tree's first key is epoch 1` })
@@ -284,7 +300,7 @@ export async function createTreeKeyInTx(
     }
     // #EXP-1951 (`rotation.rotatorCases`): a root that is DUE (a reader
     // was dropped) is rotated by the next reader that is online.
-    if (root.userId !== userId && !caller.executing && root.sealRotateEpoch == null) {
+    if (root.userId !== userId && !caller?.executing && root.sealRotateEpoch == null) {
       throw new TRPCError({
         code: `FORBIDDEN`,
         message: `Only the session's starter or its device rotates the key`,

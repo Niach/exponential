@@ -1868,6 +1868,28 @@ mod tests {
         }
     }
 
+    /// #EXP-2161: only a root the viewer started, of the Assistant they own.
+    #[test]
+    fn the_own_assistant_root() {
+        use crate::rows::{AgentDefRow, SessionRow};
+        let agent: AgentDefRow = serde_json::from_value(json!({ "id": "a", "role": "assistant", "owner_id": "me" })).unwrap();
+        let team_agent: AgentDefRow = serde_json::from_value(json!({ "id": "t", "role": "agent", "owner_id": "me" })).unwrap();
+        let theirs: AgentDefRow = serde_json::from_value(json!({ "id": "b", "role": "assistant", "owner_id": "you" })).unwrap();
+        let agents = [agent, team_agent, theirs];
+        let root = |agent: Option<&str>, user: &str, parent: Option<&str>| SessionRow {
+            id: "r".into(),
+            agent_id: agent.map(Into::into),
+            user_id: Some(user.into()),
+            parent_id: parent.map(Into::into),
+            ..Default::default()
+        };
+        assert!(is_own_assistant_root(&root(Some("a"), "me", None), &agents, "me"));
+        for other in [root(None, "me", None), root(Some("a"), "you", None), root(Some("a"), "me", Some("p")), root(Some("t"), "me", None), root(Some("b"), "me", None)] {
+            assert!(!is_own_assistant_root(&other, &agents, "me"));
+        }
+        assert!(!is_own_assistant_root(&root(Some("a"), "me", None), &agents, ""));
+    }
+
     #[test]
     fn assistant_widget_size_cases_match_the_fixture() {
         let fixture: Value = serde_json::from_str(AGENT_SETTINGS_JSON).unwrap();

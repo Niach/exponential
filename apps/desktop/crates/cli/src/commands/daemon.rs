@@ -1239,6 +1239,10 @@ fn run_daemon(args: &[String]) -> CommandResult {
             let keys = coding::sealing::changed();
             if keys != seen_keys {
                 seen_keys = keys;
+                // #EXP-2161: a start that waited for this key waits no longer.
+                if space {
+                    lock_or_recover(&pickup.backoff).clear();
+                }
                 worker.send(DaemonWork::Pickup).ok();
             }
         }

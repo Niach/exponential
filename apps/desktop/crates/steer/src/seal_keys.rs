@@ -953,6 +953,13 @@ impl SealService for KeyHolder {
     }
 
     fn fetch_secrets(&self, root_id: &str) {
+        // #EXP-2161: a wrap that lands right after this install's approval is
+        // judged by what that approval pinned, not by the store from before.
+        if let Some(trust) = self.trust() {
+            if trust.snapshot().state == crate::install_trust::TrustState::Waiting {
+                trust.sync();
+            }
+        }
         if let Err(err) = self.pull(Some(&[root_id.to_string()])) {
             log::debug!("seal-keys: sessionKeys.mine {root_id} failed: {err}");
         }
@@ -995,7 +1002,12 @@ impl SealService for KeyHolder {
 
     fn new_root_readers(&self, target_device: &str) -> Vec<(String, String)> {
         let readers = lock(&self.inner.device_readers).clone();
-        let readers = readers.map(|readers| readers(target_device)).unwrap_or_default();
+        let mut readers = readers.map(|readers| readers(target_device)).unwrap_or_default();
+        // #EXP-2161: a space keeps no key of a chat it starts: the member's
+        // own trusted installs do.
+        if let Some(trust) = self.trust().filter(|trust| trust.store().space) {
+            readers.extend(trust.own_pinned_installs());
+        }
         // #EXP-1950 R4: a new root's seal wraps only for allowed targets.
         readers.into_iter().filter(|(install_id, x25519)| self.may_wrap(None, install_id, x25519, None)).collect()
     }
