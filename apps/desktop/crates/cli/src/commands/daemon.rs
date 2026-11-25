@@ -1377,9 +1377,6 @@ fn run_daemon(args: &[String]) -> CommandResult {
     if let Some(proxy) = &viewer_proxy {
         proxy.stop();
     }
-    if let Some(enet) = &enet {
-        enet.stop();
-    }
     if let Some(handle) = control.take() {
         handle.stop();
     }
@@ -1412,6 +1409,14 @@ fn run_daemon(args: &[String]) -> CommandResult {
         let remaining = deadline.saturating_duration_since(Instant::now());
         let _ = session.wait_timeout(remaining.max(Duration::from_millis(50)));
     }
+    // EXP-2130: the key holder goes AFTER the runs: until here an agent still
+    // works (the push above takes up to 20 s) and its last reply is sealed;
+    // without a holder every card of that window was refused unencrypted.
+    if let Some(enet) = &enet {
+        enet.stop();
+    }
+    // EXP-2130: the claims of what ended are free for the next process.
+    pickup.live.prune();
     let reaped = coding::reaper::reap(&ctx.data_dir);
     if reaped > 0 {
         log::info!("reaped {reaped} escaped agent processes");

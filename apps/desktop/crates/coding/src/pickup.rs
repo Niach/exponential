@@ -1566,8 +1566,9 @@ fn key_and_reseal(trpc: &api::TrpcClient, row: &SessionRow, device_id: &str) {
 /// A per-session lockfile under `{data_dir}/session-claims/` held for the
 /// lifetime of the session's engine in this process (inside its
 /// [`LiveRegistry`] entry). A `proper-lockfile` mkdir lock
-/// ([`crate::lockfile`]) with a heartbeat, so a crashed holder's claim goes
-/// stale on its own; taking it never waits.
+/// ([`crate::lockfile`]) with a heartbeat and a holder file, so a dead
+/// holder's claim is free at once (an older build's, without the file, once
+/// it is stale); taking it never waits.
 pub struct ClaimLock {
     guard: crate::lockfile::LockGuard,
 }
@@ -1576,6 +1577,19 @@ impl std::fmt::Debug for ClaimLock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClaimLock").field("path", &self.guard.path()).finish()
     }
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    // SAFETY: signal 0 sends nothing; an invalid pid is an errno.
+    let sent = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    sent || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+/// Not known here: alive.
+#[cfg(not(unix))]
+fn process_alive(_pid: u32) -> bool {
+    true
 }
 
 /// The claims directory under the data dir.
@@ -1610,7 +1624,14 @@ impl ClaimLock {
             std::fs::create_dir_all(parent)
                 .map_err(|err| format!("create {}: {err}", parent.display()))?;
         }
-        match crate::lockfile::acquire(&path, CLAIM_LOCK_OPTIONS) {
+        // EXP-2130: the claim a dead (or re-exec'd) process left is taken at
+        // once, unless the agent it ran is still there (the startup reap
+        // clears the record): then only once it is stale, as ever.
+        let agent_gone = || {
+            let child = crate::run_registry::get(data_dir, session_id).and_then(|record| record.acp_child_pid);
+            child.is_none_or(|pid| !process_alive(pid))
+        };
+        match crate::lockfile::acquire_held(&path, CLAIM_LOCK_OPTIONS, &agent_gone) {
             Ok(guard) => Ok(Some(Self { guard })),
             Err(crate::lockfile::LockError::Contended) => Ok(None),
             Err(err) => Err(format!("claim lock {}: {err}", path.display())),
@@ -5894,6 +5915,151 @@ mod tests {
     }
 
     // ---- ClaimLock + LiveRegistry ----
+
+    /// EXP-2130, the other process of the tests below: takes a claim, says
+    /// so, then holds it (`hold`) or re-execs (`exec`, what an update does).
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "a helper process of the claim tests"]
+    fn claim_holder_process() {
+        let Ok(dir) = std::env::var("EXP_TEST_CLAIM_DIR") else { return };
+        let dir = std::path::PathBuf::from(dir);
+        let claim = ClaimLock::try_acquire(&dir, "s-1").unwrap().expect("free");
+        std::fs::write(dir.join("held"), "").unwrap();
+        if std::env::var("EXP_TEST_CLAIM_EXEC").is_ok() {
+            use std::os::unix::process::CommandExt;
+            panic!("{}", std::process::Command::new("sleep").arg("120").exec());
+        }
+        std::thread::sleep(std::time::Duration::from_secs(120));
+        drop(claim);
+    }
+
+    #[cfg(unix)]
+    struct ClaimHolder(std::process::Child);
+
+    #[cfg(unix)]
+    impl ClaimHolder {
+        fn start(dir: &std::path::Path, exec: bool) -> Self {
+            let _ = std::fs::remove_file(dir.join("held"));
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "pickup::tests::claim_holder_process", "--ignored", "--nocapture"])
+                .env("EXP_TEST_CLAIM_DIR", dir)
+                .stdout(std::process::Stdio::null());
+            if exec {
+                command.env("EXP_TEST_CLAIM_EXEC", "1");
+            }
+            let held = Self(command.spawn().unwrap());
+            for _ in 0..600 {
+                if dir.join("held").exists() {
+                    return held;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            panic!("the holder never took the claim");
+        }
+
+        fn kill(mut self) {
+            self.0.kill().unwrap();
+            self.0.wait().unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    impl Drop for ClaimHolder {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// EXP-2130: a live process's claim is never taken (also once its
+    /// heartbeat stalled past `stale`); a killed one's at once, not 30 s later.
+    #[cfg(unix)]
+    #[test]
+    fn a_killed_process_claim_is_taken_at_once_and_a_live_ones_never() {
+        let dir = temp_dir("pickup-claim-killed");
+        let holder = ClaimHolder::start(&dir.0, false);
+        assert!(ClaimLock::try_acquire(&dir.0, "s-1").unwrap().is_none(), "held by a live process");
+        // A stalled host: stopped, its directory an hour old.
+        unsafe { libc::kill(holder.0.id() as i32, libc::SIGSTOP) };
+        let lock = ClaimLock::path(&dir.0, "s-1").unwrap();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::open(&lock).unwrap().set_modified(old).unwrap();
+        assert!(ClaimLock::try_acquire(&dir.0, "s-1").unwrap().is_none(), "stalled is not gone");
+        unsafe { libc::kill(holder.0.id() as i32, libc::SIGCONT) };
+        holder.kill();
+
+        let holder = ClaimHolder::start(&dir.0, false);
+        holder.kill();
+        assert!(lock.is_dir(), "killed: nothing was released");
+        let claim = ClaimLock::try_acquire(&dir.0, "s-1").unwrap().expect("taken at once");
+        assert!(ClaimLock::try_acquire(&dir.0, "s-1").unwrap().is_none(), "by one process only");
+        drop(claim);
+        assert_eq!(std::fs::read_dir(dir.0.join(CLAIMS_DIR)).unwrap().count(), 0, "released in full");
+    }
+
+    /// EXP-2130: an update re-execs the daemon under the SAME pid.
+    #[cfg(unix)]
+    #[test]
+    fn a_re_execd_process_claim_is_taken_at_once() {
+        let dir = temp_dir("pickup-claim-exec");
+        let _holder = ClaimHolder::start(&dir.0, true);
+        let mut claim = None;
+        // The helper says "held" before it execs.
+        for _ in 0..100 {
+            claim = ClaimLock::try_acquire(&dir.0, "s-1").unwrap();
+            if claim.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(claim.is_some());
+    }
+
+    /// EXP-2130: many processes' worth of contenders over one dead claim:
+    /// one gets it.
+    #[cfg(unix)]
+    #[test]
+    fn one_contender_takes_a_dead_claim() {
+        let dir = temp_dir("pickup-claim-race");
+        ClaimHolder::start(&dir.0, false).kill();
+        let gate = std::sync::Barrier::new(16);
+        let taken: Vec<ClaimLock> = std::thread::scope(|scope| {
+            let runs: Vec<_> = (0..16)
+                .map(|_| scope.spawn(|| {
+                    gate.wait();
+                    ClaimLock::try_acquire(&dir.0, "s-1").unwrap()
+                }))
+                .collect();
+            runs.into_iter().filter_map(|run| run.join().unwrap()).collect()
+        });
+        assert_eq!(taken.len(), 1);
+    }
+
+    /// EXP-2130: what keeps the 30 s rule: a dead holder whose AGENT still
+    /// runs, and a claim an older build (no holder file) took after it.
+    #[cfg(unix)]
+    #[test]
+    fn a_dead_holders_live_agent_and_an_older_builds_claim_are_not_taken_over() {
+        let dir = temp_dir("pickup-claim-agent");
+        let mut agent = std::process::Command::new("sleep").arg("120").spawn().unwrap();
+        ClaimHolder::start(&dir.0, false).kill();
+        crate::run_registry::record(&dir.0, RunRecord { acp_child_pid: Some(agent.id()), ..record(&dir.0, "s-1") });
+        let taken = ClaimLock::try_acquire(&dir.0, "s-1");
+        agent.kill().unwrap();
+        agent.wait().unwrap();
+        assert!(taken.unwrap().is_none(), "its agent still runs");
+        assert!(ClaimLock::try_acquire(&dir.0, "s-1").unwrap().is_some(), "the agent went");
+
+        ClaimHolder::start(&dir.0, false).kill();
+        let lock = ClaimLock::path(&dir.0, "s-1").unwrap();
+        std::fs::remove_dir(&lock).unwrap();
+        std::fs::create_dir(&lock).unwrap();
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(2);
+        std::fs::File::open(&lock).unwrap().set_modified(later).unwrap();
+        assert!(ClaimLock::try_acquire(&dir.0, "s-1").unwrap().is_none(), "an older build's");
+    }
 
     #[test]
     fn a_claim_is_exclusive_until_released() {
