@@ -44,7 +44,10 @@ import {
   Pill,
   GlassSectionHeader,
   Menu,
+  MenuGestureHost,
+  menuProps,
   type MenuEntry,
+  type MenuSessionProps,
   Prompt,
   SkeletonRows,
 } from "@exp/ui"
@@ -73,6 +76,10 @@ import {
   useDeviceLogins,
 } from "@/components/device-logins"
 import { Empty } from "@/components/empty"
+import { SidebarNameInput } from "@/components/team/sidebar-folders"
+import { copySidebarLink, sidebarMenuEntries, SidebarPointerMenu } from "@/components/team/sidebar-menus"
+import { renameDevice } from "@/components/team/sidebar-tree"
+import { SIDEBAR_MENU_COPY } from "@exp/domain-contract/sidebar-menus"
 import { useAgentUsageRefresh } from "@/hooks/use-agent-usage-refresh"
 import {
   deviceLoginRows,
@@ -82,6 +89,7 @@ import {
 
 // This is a MULTI-CLIENT surface (iOS/Android/desktop render the same list)
 // — concepts, never raw lucide glyphs (CLAUDE.md icon rule).
+const DEVICE_CARD_MENU = `device-card`
 const DefaultIcon = conceptIcon(`ui-device-default`)
 const AddIcon = conceptIcon(`ui-add`)
 // EXP-1560: the card's ⋯ overflow and its rows.
@@ -189,6 +197,31 @@ export function MyMachines({
     if (arrival) setSettingsTargetId(arrival)
   }, [arrival])
 
+  // #EXP-2126 (sidebar-menus.json `phone`): a card's long-press = THE device
+  // menu; a phone has no device page, so Open is left out (Settings says it).
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const deviceMenu = (session: MenuSessionProps) => {
+    const device = devices?.find((row) => row.deviceId === session.target.id)
+    if (!device) return null
+    const own = deviceIsMine(device)
+    return (
+      <SidebarPointerMenu
+        session={session}
+        title={device.deviceLabel || device.deviceId}
+        entries={sidebarMenuEntries(`device`, { mine: own }, {
+          "copy-link": () => copySidebarLink(`/devices/${device.deviceId}`),
+          ...(own && device.registered
+            ? {
+                // After the menu closed and handed focus back.
+                rename: () => void setTimeout(() => setRenaming(device.deviceId), 0),
+                settings: () => setSettingsTargetId(device.deviceId),
+              }
+            : {}),
+        })}
+      />
+    )
+  }
+
   const dropCopy = removeDeviceSharePrompt(
     dropTarget?.deviceLabel || dropTarget?.deviceId || `this device`
   )
@@ -202,6 +235,7 @@ export function MyMachines({
   )
 
   return (
+    <MenuGestureHost menus={{ [DEVICE_CARD_MENU]: deviceMenu }}>
     <div className="mb-6">
       {/* EXP-616: the iOS Agents screen's plain-text section header — no
           count, the trailing control rides along. */}
@@ -229,6 +263,9 @@ export function MyMachines({
               now={now}
               latestVersions={latestVersions}
               teamId={teamId}
+              renaming={renaming === device.deviceId}
+              onRenamed={() => setRenaming(null)}
+              onChanged={onChanged}
               onSettings={
                 device.registered ? () => setSettingsTargetId(device.deviceId) : undefined
               }
@@ -302,6 +339,7 @@ export function MyMachines({
         onChanged={onChanged}
       />
     </div>
+    </MenuGestureHost>
   )
 }
 
@@ -350,6 +388,9 @@ function DeviceCard({
   latestVersions,
   teamId,
   readOnly = false,
+  renaming = false,
+  onRenamed,
+  onChanged,
   onSettings,
   onRemoveFromTeam,
 }: {
@@ -358,6 +399,10 @@ function DeviceCard({
   latestVersions: { desktop: string | null; cli: string | null } | null
   teamId?: string
   readOnly?: boolean
+  /** #EXP-2126: the menu's Rename: the name in place. */
+  renaming?: boolean
+  onRenamed?: () => void
+  onChanged?: () => void
   /** Own REGISTERED devices: the ⋯'s Device settings. */
   onSettings?: () => void
   /** FEED-149: a team owner's Remove on a teammate's shared card. */
@@ -440,6 +485,7 @@ function DeviceCard({
   return (
     <GlassCard
       data-testid={`device-row-${device.deviceId}`}
+      {...menuProps(DEVICE_CARD_MENU, device.deviceId)}
       className={cn(
         `flex min-w-0 flex-col gap-3`,
         !online && `opacity-60`,
@@ -458,13 +504,26 @@ function DeviceCard({
             the tags beneath. */}
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-1.5">
-            <span
-              className="min-w-0 truncate text-sm font-medium"
-              // EXP-525: a teammate's shared card keeps the attribution here.
-              title={!mine && device.owner ? `Shared by ${device.owner.name}` : label}
-            >
-              {label}
-            </span>
+            {renaming ? (
+              <SidebarNameInput
+                label={SIDEBAR_MENU_COPY.rename}
+                testId="device-name"
+                initial={label}
+                onSave={(name) => {
+                  onRenamed?.()
+                  renameDevice(device.deviceId, name, label, onChanged)
+                }}
+                onCancel={() => onRenamed?.()}
+              />
+            ) : (
+              <span
+                className="min-w-0 truncate text-sm font-medium"
+                // EXP-525: a teammate's shared card keeps the attribution here.
+                title={!mine && device.owner ? `Shared by ${device.owner.name}` : label}
+              >
+                {label}
+              </span>
+            )}
             {device.version && (
               <span
                 // Only my own machine's update is mine to act on.
