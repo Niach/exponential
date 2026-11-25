@@ -566,6 +566,12 @@ pub(crate) trait Backend: Send {
     /// Top first, the focused one `active`, each marked `fullscreen` (one
     /// window-list read: the work-screen gate reads it on every call).
     fn list_windows(&self) -> Result<Vec<WindowInfo>, String>;
+    /// #FEED-313: the person's screen is locked or its screensaver is on:
+    /// a look shows the lock screen and nothing can be driven. Not readable
+    /// = not locked.
+    fn screen_locked(&self) -> bool {
+        false
+    }
     /// Raise + focus `id` (a `WindowInfo::id`).
     fn activate_window(&self, id: u64) -> Result<(), String>;
     fn mouse_move(&self, x: i32, y: i32) -> Result<(), String>;

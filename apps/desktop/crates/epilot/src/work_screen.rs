@@ -79,6 +79,8 @@ pub const GAMING: &str = "gaming";
 pub const KEYS_ELSEWHERE: &str = "keysElsewhere";
 /// #EXP-1514: the pick is the agent space only (`spaceGateCases`).
 pub const SPACE_ONLY: &str = "spaceOnly";
+/// #FEED-313: the person's screen is locked (`lockedGateCases`).
+pub const SCREEN_LOCKED: &str = "screenLocked";
 
 /// #EXP-1514: the reserved Work screen pick `space.value`: agents work in
 /// an agent space only, never on this device's screen. No display id is
@@ -110,6 +112,8 @@ pub struct State {
     /// #EXP-1514: the stored pick is [`SPACE_PICK`] (`spaceOnly`): nothing
     /// is done on this screen.
     pub space_only: bool,
+    /// #FEED-313: the person's screen is locked or its screensaver is on.
+    pub locked: bool,
 }
 
 /// One tool call as the gate sees it (`gateCases[].calls[].call`).
@@ -176,6 +180,9 @@ pub fn gate(state: &State, call: Call<'_>) -> Result<(), Refusal> {
     // #EXP-1514: the pick Agent space only, checked first.
     if state.space_only {
         return Err(refuse(SPACE_ONLY, Fields::default(), &work));
+    }
+    if state.locked {
+        return Err(refuse(SCREEN_LOCKED, Fields::default(), &work));
     }
     if state.picked.is_some() && work.is_empty() {
         return Err(refuse(PICKED_GONE, Fields::default(), &work));
@@ -369,6 +376,7 @@ pub(crate) fn state_of(displays: &[DisplayInfo], windows: &[WindowInfo], picked:
         active_fullscreen: active.is_some_and(|window| window.fullscreen),
         windows_read: true,
         space_only: false,
+        locked: false,
     }
 }
 
@@ -516,7 +524,7 @@ mod tests {
 
     #[test]
     fn the_gate_replays_every_gate_case() {
-        let cases = fixture()["gateCases"].as_array().unwrap().iter().chain(fixture()["spaceGateCases"].as_array().unwrap());
+        let cases = fixture()["gateCases"].as_array().unwrap().iter().chain(fixture()["spaceGateCases"].as_array().unwrap()).chain(fixture()["lockedGateCases"].as_array().unwrap());
         for case in cases {
             let name = case["name"].as_str().unwrap();
             let raw = &case["state"];
@@ -528,6 +536,7 @@ mod tests {
                 active_fullscreen: raw["activeFullscreen"].as_bool().unwrap(),
                 windows_read: raw["windowsRead"].as_bool().unwrap_or(true),
                 space_only: raw["spaceOnly"].as_bool().unwrap_or(false),
+                locked: raw["locked"].as_bool().unwrap_or(false),
             };
             assert_eq!(work_displays(&state), indexes(&case["work"]), "{name}: work");
             for step in case["calls"].as_array().unwrap() {

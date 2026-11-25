@@ -352,6 +352,20 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     ).rejects.toThrow(/encrypted card/)
   })
 
+  it(`#FEED-313: the summary sealed beside a sealed report closes the session's own chat; a plaintext one never joins it`, async () => {
+    const w = await world()
+    const { tree, rootId, childId } = await sealedTree(w)
+    const sealedReport = (id: string) =>
+      sealCard(tree.publicKey, 1, { kind: `report`, sessionId: id, status: `ended`, final: true, summary: `The screen is locked.` })
+    const closing = sealBody(tree.publicKey, 1, `The screen is locked.`)
+    const said = async (id: string) => (await messagesOf(id)).filter((m) => m.authorKind === `agent` && m.card === null).map((m) => m.body)
+    await endSession({ userId: w.owner, sessionId: childId, summary: closing, sealedReport: sealedReport(childId) })
+    expect(await said(childId)).toEqual([closing])
+    const child2 = (await sendSession({ userId: w.owner, input: { parentId: rootId, text: sealBody(tree.publicKey, 1, `c2`) } })).sessionId
+    await endSession({ userId: w.owner, sessionId: child2, summary: `in clear`, sealedReport: sealedReport(child2) })
+    expect(await said(child2)).toEqual([])
+  })
+
   it(`a sealed report card is copied whole (per tree); a sealed summary or last reply is never read into a report`, async () => {
     const w = await world()
     const { tree, rootId, childId } = await sealedTree(w)
