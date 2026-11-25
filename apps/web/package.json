@@ -45,6 +45,7 @@
     "@sentry/core": "11.10.0",
     "@sentry/react": "11.10.0",
     "@better-auth/passkey": "1.7.15",
+    "@better-auth/cimd": "1.7.15",
     "@better-auth/mcp": "1.7.15",
     "@better-auth/oauth-provider": "1.7.15",
     "@creem_io/better-auth": "^1.1.1",
