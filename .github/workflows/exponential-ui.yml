@@ -57,6 +57,9 @@ on:
       swift_only:
         type: boolean
         default: false
+    secrets:
+      RUNNER_STATUS_TOKEN:
+        required: false
   workflow_dispatch: {}
 
 permissions:
@@ -76,7 +79,8 @@ jobs:
   # and the Swift legs on the MacBook when they are up.
   pick:
     uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   react:
     needs: pick

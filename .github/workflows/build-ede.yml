@@ -38,6 +38,7 @@ jobs:
   build:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/apt-mirror
@@ -49,6 +50,7 @@ jobs:
             libxcb1-dev libssl-dev libfontconfig1-dev clang libpipewire-0.3-dev libclang-dev
       - uses: actions/cache@v4
         id: xwayland
+        if: github.event_name == 'pull_request' # #EXP-2151: a release builds its own
         with:
           path: ~/ede-xwayland
           key: xwayland-noble-${{ hashFiles('apps/ede/packaging/xwayland/build.sh') }}
@@ -62,6 +64,7 @@ jobs:
         run: apps/ede/packaging/xwayland/build.sh ~/ede-xwayland
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        if: github.event_name == 'pull_request'
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
           workspaces: |
@@ -71,7 +74,10 @@ jobs:
       - uses: ./.github/actions/cargo-fetch
         with:
           dir: apps/ede
+          restore: ${{ github.event_name == 'pull_request' }}
       - uses: ./.github/actions/cargo-fetch
+        with:
+          restore: ${{ github.event_name == 'pull_request' }}
       # #LOGS-2: line tables in the release build, split off before packing
       # (split-debug.sh), so the packages ship what they shipped before and
       # GlitchTip gets the debug files.
@@ -200,6 +206,7 @@ jobs:
   repo:
     needs: [build, rpm, arch]
     runs-on: ubuntu-24.04
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -272,6 +279,7 @@ jobs:
     needs: [repo, smoke]
     if: startsWith(github.ref, 'refs/tags/ede-v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
     runs-on: ubuntu-latest
+    environment: ${{ (github.ref_type == 'tag' || github.ref == 'refs/heads/master') && 'release' || '' }}
     concurrency:
       group: pkg-publish
       cancel-in-progress: false

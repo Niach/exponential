@@ -9,7 +9,10 @@ name: ios-core
 # ExpCore replay stops every ios-v* tag.
 
 on:
-  workflow_call: {}
+  workflow_call:
+    secrets:
+      RUNNER_STATUS_TOKEN:
+        required: false
   workflow_dispatch: {}
 
 permissions:
@@ -18,7 +21,8 @@ permissions:
 jobs:
   pick:
     uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   ios-core:
     needs: pick

@@ -33,6 +33,9 @@ on:
       compile_only:
         type: boolean
         default: false
+    secrets:
+      RUNNER_STATUS_TOKEN:
+        required: false
   workflow_dispatch: {}
 
 permissions:
@@ -42,7 +45,8 @@ jobs:
   # EXP-1364: fork PRs never run here; the MacBook takes the job when it is up.
   pick:
     uses: ./.github/workflows/pick-runner.yml
-    secrets: inherit
+    secrets:
+      RUNNER_STATUS_TOKEN: ${{ secrets.RUNNER_STATUS_TOKEN }}
 
   compile:
     needs: pick
