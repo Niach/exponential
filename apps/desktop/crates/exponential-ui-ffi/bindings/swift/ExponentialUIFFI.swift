@@ -9307,6 +9307,21 @@ public func animationFrameJson(name: String, timingJson: String, elapsedMs: Doub
 })
 }
 /**
+ * Round 9 §6.9: the `rendererFunctionResponse` of a router `call` op,
+ * evaluated at the agent position. `data_json` = the surface's data (`{}`
+ * without one), `available_catalog_ids` = the router's.
+ */
+public func answerRendererCallJson(opJson: String, dataJson: String, availableCatalogIds: [String]?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+        uniffiCallStatus in
+    uniffi_exponential_ui_ffi_fn_func_answer_renderer_call_json(
+        FfiConverterString.lower(opJson),
+        FfiConverterString.lower(dataJson),
+        FfiConverterOptionSequenceString.lower(availableCatalogIds),uniffiCallStatus
+    )
+})
+}
+/**
  * VAPP-194: apply a `records.batch` (`eui_core::host::apply_record_batch`)
  * to `rows_json` (record rows) all or nothing, checked against
  * `records_json` (the package's kinds): `{"rows": [...], "ids": [...]}` or
@@ -10835,6 +10850,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_animation_frame_json() != 6210) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_answer_renderer_call_json() != 41288) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_apply_record_batch_json() != 62617) {

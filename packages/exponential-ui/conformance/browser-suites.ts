@@ -22,6 +22,7 @@ import {
   UNKNOWN_COMPONENT,
   builtinTheme,
   actionMessage,
+  answerRendererCall,
   cardV10,
   checkGeometry,
   errorMessage,
@@ -348,6 +349,7 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         })
       for (const c of w.errors) record(`a2ui10`, `error: ${c.name}`, () => canon(errorMessage(c.code, c.target, c.message, c.path)) === canon(c.expected))
       for (const c of w.actions) record(`a2ui10`, `action: ${c.name}`, () => canon(actionMessage(c.input)) === canon(c.expected))
+      for (const c of w.rendererCalls) record(`a2ui10`, `rendererCall: ${c.name}`, () => canon(answerRendererCall(c.op, c.data ?? {}, c.available)) === canon(c.expected))
       for (const c of w.cards)
         record(`a2ui10`, `card: ${c.name}`, () => {
           const out = cardV10(c.input, c.acceptV09 ?? true)

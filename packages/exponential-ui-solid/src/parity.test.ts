@@ -25,7 +25,7 @@ const layout: NestedNode = {
       ],
     },
     { id: `card`, component: `Card`, props: { title: `Card`, description: { "@path": `/lede` } }, children: [{ id: `badge`, component: `Badge`, props: { text: `New`, icon: `star` } }] },
-    { id: `press`, component: `Box`, props: { pressable: true }, accessibility: { label: `Open` }, children: [{ id: `press-t`, component: `Text`, props: { text: `Open`, align: `center` } }] },
+    { id: `press`, component: `Box`, props: { pressable: true }, "@accessibility": { label: `Open` }, children: [{ id: `press-t`, component: `Text`, props: { text: `Open`, align: `center` } }] },
   ],
 }
 

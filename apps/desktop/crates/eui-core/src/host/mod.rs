@@ -54,7 +54,7 @@ pub use package::{
     PACKAGE_FORMAT_VERSION,
 };
 pub mod calls;
-pub use calls::{route_handle, CallEffect, CallHub, PressRoute, SettledCall, SharedCalls, MAX_SENT_ISSUES};
+pub use calls::{answer_renderer_call, route_handle, CallEffect, CallHub, PressRoute, SettledCall, SharedCalls, MAX_SENT_ISSUES};
 pub use policy::{decide_route, routed_call_key, RouteDecision, RouteDecisionInput, 
     app_file_id, combine_decisions, decide_function, decide_url, expand_link_base, image_dimensions, image_frames, image_header, is_builtin_function, is_private_host, media_image_check, ImageHeader, matches_pattern, media_image_within_limits, media_request, media_within_limits, package_policy, svg_dimensions,
     police_text_links, safe_href, FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, MediaRule, TextLink, UrlDecision, UrlPolicy, APP_FILE_ID_PATTERN, APP_FILE_SCHEME, BUILTIN_FUNCTIONS,

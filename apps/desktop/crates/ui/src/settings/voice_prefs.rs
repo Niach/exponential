@@ -542,7 +542,7 @@ fn push_to_talk(inks: &Inks) -> Value {
     // gpui-component's XSmall ghost Button: `h_5` / `px_1`, the `text_xs`
     // label at line height 1 (half a point under the box centre).
     let size = ink.r(XS);
-    let clear = json!({"id": "ptt_clear", "component": "Box", "visible": at("clear"), "props": {"pressable": true}, "accessibility": {"label": copy.shortcut_clear},
+    let clear = json!({"id": "ptt_clear", "component": "Box", "visible": at("clear"), "props": {"pressable": true}, "@accessibility": {"label": copy.shortcut_clear},
         "on": {"press": {"event": {"name": "pttClear"}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "height": ink.r(1.25), "paddingHorizontal": ink.r(0.25), "cursor": "pointer"},
         "children": [{"id": "ptt_clear_text", "component": "Text", "props": {"text": copy.shortcut_clear}, "style": {"fontSize": size, "lineHeight": size, "color": ink.foreground, "marginTop": 0.5, "marginBottom": -0.5}}]});
@@ -603,8 +603,7 @@ fn document(inks: &Inks, options: &Options) -> Value {
         ])
     });
 
-    let mut header = ink.band("tray_header", "", None);
-    header["children"][0]["props"]["text"] = path("/pane/tray/header");
+    let mut header = ink.band("tray_header", path("/pane/tray/header"), None);
     header["visible"] = tray.clone();
 
     let mut tray_rows = vec![
@@ -1291,6 +1290,11 @@ mod tests {
         for member_rows_only in [true, false] {
             assert_eq!(super::super::doc::duplicate_ids(&document(&test_inks(), &test_options(member_rows_only))), Vec::<String>::new());
         }
+        // #EXP-2132: the tray group's header says its text.
+        let tree = document(&test_inks(), &test_options(true));
+        let header = tree["children"].as_array().unwrap().iter().find(|node| node["id"] == "tray_header").expect("the header");
+        assert_eq!(header["children"][0]["component"], "Text");
+        assert_eq!(header["children"][0]["props"]["text"], super::path("/pane/tray/header"));
         let tree: eui_core::NestedNode = serde_json::from_value(document(&test_inks(), &test_options(true))).expect("parses");
         assert_eq!(tree.id, "root");
     }

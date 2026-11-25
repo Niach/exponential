@@ -3,7 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { startListDrag } from "@exponential_app/eui/web"
 import { SIDEBAR_TREE_MAX_DEPTH } from "@exp/domain-contract/sidebar-tree"
 import { chatSections, CHATS_COPY, type ChatListView, type ChatSelectionRow } from "@exp/domain-contract/chats"
-import { Button, ChatList, ChatsHeader, conceptIcon, FAB_FOOT_CLASS, NeedsYouEntryRow, TeamAvatar, useIsMobile } from "@exp/ui"
+import { Button, ChatList, ChatsHeader, conceptIcon, FAB_FOOT_CLASS, NeedsYouEntryRow, useIsMobile } from "@exp/ui"
 import { ChatSelectionBar } from "@/components/chat/chat-selection-bar"
 import { useCrossTeamChatList } from "@/components/chat/cross-team-chat-list"
 import { useChatListSelection } from "@/components/chat/use-chat-list-selection"
@@ -140,7 +140,7 @@ function ChatsRoute() {
   /** A row's team mark (none outside the member teams: the Assistant). */
   const markOf = (id: string) => {
     const team = memberTeams.byId.get(teamOf(id) ?? ``)
-    return team ? <TeamAvatar iconUrl={team.iconUrl} size={16} /> : null
+    return team ? { iconUrl: team.iconUrl, name: team.name } : null
   }
 
   const assistants = new Set(agentRows.filter((row) => row.assistant).map((row) => row.agentId))

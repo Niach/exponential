@@ -36,7 +36,7 @@ const form: NestedNode = {
   component: `Form`,
   props: { summary: true },
   children: [
-    { id: `in`, component: `Input`, props: { label: `Title`, name: `title`, description: `Short`, value: { "@path": `/title` }, checks: [{ condition: { "@call": `required`, args: { value: { "@path": `/title` } } }, message: `Required` }], validateOn: `change` } },
+    { id: `in`, component: `Input`, props: { label: `Title`, name: `title`, description: `Short`, value: { "@path": `/title` }, validateOn: `change` }, "@checks": [{ condition: { "@call": `required`, args: { value: { "@path": `/title` } } }, message: `Required` }] },
     { id: `ta`, component: `Textarea`, props: { label: `Body`, name: `body`, value: `Hello`, autosize: true, maxRows: 6 } },
     { id: `nf`, component: `NumberField`, props: { label: `Seats`, name: `seats`, value: { "@path": `/seats` }, min: 1, max: 50, step: 0.5, unit: `seats` } },
     { id: `cb`, component: `Checkbox`, props: { label: `Agree`, name: `agree`, description: `Terms`, checked: { "@path": `/agree` } } },

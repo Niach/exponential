@@ -55,6 +55,7 @@ import androidx.compose.ui.semantics.expand
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
@@ -144,8 +145,8 @@ fun TeamsScreen(
     viewModel: TeamsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val needsYou by chats.needsYouByTeam.collectAsStateWithLifecycle()
-    val agentRows by chats.agentRows.collectAsStateWithLifecycle()
+    val needsYou by chats.needsYou.collectAsStateWithLifecycle()
+    val rowBadges by chats.rowBadges.collectAsStateWithLifecycle()
     val list by chats.chatList.collectAsStateWithLifecycle()
     val conversations by chats.conversations.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
@@ -158,10 +159,8 @@ fun TeamsScreen(
     var archiving by remember { mutableStateOf<BoardEntity?>(null) }
     var menuFor by remember { mutableStateOf<TeamTreeRow?>(null) }
 
-    val badges = remember(agentRows, list) {
-        agentRows.associate { it.agentId to NavBadges.rowBadge(it.unreadCount, it.needsYou) } +
-            list.rows.associate { it.sessionId to NavBadges.rowBadge(it.unreadCount, it.needsYou) }
-    }
+    val shares = remember(needsYou) { needsYou.counts(installs = 0).teams }
+    val badgeOf = leafBadges(rowBadges, conversations)
     val marks = remember(list) {
         list.rows.associate { it.sessionId to SessionTree.chatRowMarkState(it.needsYou, it.busy) }
     }
@@ -246,8 +245,8 @@ fun TeamsScreen(
                     )
                     state.rows.isNotEmpty() -> TeamsTree(
                         state = state,
-                        needsYou = needsYou,
-                        badges = badges,
+                        needsYou = shares,
+                        badgeOf = badgeOf,
                         marks = marks,
                         onOpen = open,
                         onMenu = { row ->
@@ -324,12 +323,18 @@ fun TeamsScreen(
     }
 }
 
+/** A leaf's `rowBadge`: a placed chat's, an agent's by its [conversations]. */
+internal fun leafBadges(
+    rowBadges: Map<String, NavBadges.Badge>,
+    conversations: Map<String, String>,
+): (leafId: String) -> NavBadges.Badge = { id -> rowBadges[conversations[id] ?: id] ?: NavBadges.NONE }
+
 /** The active account's tree: one glass group, no hairlines, tree guides. */
 @Composable
 private fun TeamsTree(
     state: TeamsState,
     needsYou: Map<String, Int>,
-    badges: Map<String, NavBadges.Badge>,
+    badgeOf: (leafId: String) -> NavBadges.Badge,
     marks: Map<String, SessionTree.SessionState?>,
     onOpen: (TeamTreeRow) -> Unit,
     onMenu: (TeamTreeRow) -> Unit,
@@ -357,7 +362,7 @@ private fun TeamsTree(
                     trailing = {
                         when {
                             row.row.kind == SidebarTree.ROW_TEAM -> {
-                                CountBadge(needsYou[row.team.id] ?: 0, NavBadges.Tone.Attention, testTag = "team-row-badge")
+                                CountBadge(state.groupBadge(row.row, needsYou, badgeOf), testTag = "team-row-badge")
                                 // header-actions.json `rows.team`: + then `…`.
                                 MenuAnchor(groups = { newMenu(row) }) { open ->
                                     CircleIconButton(
@@ -379,8 +384,11 @@ private fun TeamsTree(
                                 }
                                 FoldChevron(row, showCount = false)
                             }
-                            row.group -> FoldChevron(row, showCount = true)
-                            else -> CountBadge(badges[row.row.id] ?: NavBadges.NONE, testTag = "team-item-badge")
+                            row.group -> {
+                                CountBadge(state.groupBadge(row.row, needsYou, badgeOf), testTag = "team-folder-badge")
+                                FoldChevron(row, showCount = true)
+                            }
+                            else -> CountBadge(badgeOf(row.row.id), testTag = "team-item-badge")
                         }
                     },
                     mark = marks[row.row.id],
@@ -499,9 +507,15 @@ private fun RowLead(row: TeamTreeRow, mark: SessionTree.SessionState?) {
     }
 }
 
-/** A folder's name in edit, in place: Done, a tap elsewhere or Back keeps it. */
+/** A folder's (a device's) name in edit, in place: Done, a tap elsewhere or Back keeps it. */
 @Composable
-private fun NameField(name: String, onDone: (String) -> Unit, modifier: Modifier = Modifier) {
+internal fun NameField(
+    name: String,
+    onDone: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    style: TextStyle = MaterialTheme.typography.bodyLarge,
+    tag: String = TeamsTestIds.FOLDER_NAME,
+) {
     var value by remember { mutableStateOf(TextFieldValue(name, TextRange(0, name.length))) }
     val focus = remember { FocusRequester() }
     var focused by remember { mutableStateOf(false) }
@@ -519,7 +533,7 @@ private fun NameField(name: String, onDone: (String) -> Unit, modifier: Modifier
         value = value,
         onValueChange = { value = it },
         singleLine = true,
-        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        textStyle = style.copy(color = MaterialTheme.colorScheme.onSurface),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { commit() }),
@@ -528,7 +542,7 @@ private fun NameField(name: String, onDone: (String) -> Unit, modifier: Modifier
             .onFocusChanged {
                 if (it.isFocused) focused = true else if (focused) commit()
             }
-            .testTag(TeamsTestIds.FOLDER_NAME),
+            .testTag(tag),
     )
 }
 

@@ -10,6 +10,7 @@ import {
   CARD_CLEAR_FIELDS,
   CARD_STAMP_FIELDS,
   cardItemWire,
+  dedupedSendStep,
   type CardItemAction,
   generateTreeKey,
   openBody,
@@ -250,4 +251,17 @@ describe(`rotation (#EXP-1951)`, () => {
       for (const wrap of c.wraps) expect(c.readers).toContain(wrap.to)
     }
   })
+})
+
+// #EXP-2141: the rule behind `dedupedSend` (web, desktop, Android, iOS replay it).
+test.each(fixture.dedupedSend.cases)(`dedupedSend: $name`, (c) => {
+  const own = { epoch: 1, publicKey: `own` }
+  const servers: Record<string, { epoch: number; publicKey: string } | null> = {
+    own,
+    other: { epoch: 1, publicKey: `other` },
+    otherEpoch: { epoch: 2, publicKey: `other` },
+    keyless: null,
+    unknown: null,
+  }
+  expect(dedupedSendStep({ keyed: c.keyed, own, server: servers[c.server]! })).toBe(c.step as `adopt` | `fetch`)
 })

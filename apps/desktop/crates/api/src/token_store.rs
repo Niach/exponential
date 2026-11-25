@@ -222,28 +222,30 @@ impl TokenStore {
             level = current.parent().filter(|parent| parent.starts_with(&account_dir));
         }
 
-        // §7.2: create with restrictive perms BEFORE the write — the file
-        // must never exist world-readable, even for an instant.
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options
-            .open(&path)
-            .map_err(|e| ApiError::TokenStore(format!("open {path:?}: {e}")))?;
-        // `mode(0o600)` only applies on create; tighten a pre-existing file too.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = file.set_permissions(fs::Permissions::from_mode(0o600));
-        }
-        file.write_all(value.as_bytes())
+        write_private(&path, value.as_bytes())
             .map_err(|e| ApiError::TokenStore(format!("write {path:?}: {e}")))?;
         Ok(())
     }
+}
+
+/// A whole file, 0600 before the first byte (§7.2), in place of the old one
+/// in one step (#EDE-226): another process following it never reads a half
+/// written or an empty one.
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    let part = path.with_file_name(format!(".{name}.{}.part", uuid::Uuid::new_v4().simple()));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let written = options.open(&part).and_then(|mut file| file.write_all(bytes)).and_then(|()| fs::rename(&part, path));
+    if written.is_err() {
+        let _ = fs::remove_file(&part);
+    }
+    written
 }
 
 /// Best-effort 0700 on the per-account secrets dir.

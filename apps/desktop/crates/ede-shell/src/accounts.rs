@@ -74,7 +74,7 @@ enum Saved {
 /// #VAPP-273: the members (the viewer's role), the apps (the team's
 /// published packages) and their records, for a connected desktop;
 /// #EDE-65: what the tray's inbox and Needs you read (`inbox::SHAPES`),
-/// and the viewer's read marks (the rail's unread dot, the IDE's rule).
+/// and the viewer's read marks (the rail's unread count, the IDE's rule).
 pub(crate) const SHAPES: &[&str] = &[
     "teams",
     "team_members",
@@ -135,6 +135,22 @@ impl Workspaces {
         self.changes.clone()
     }
 
+    /// #EDE-226: the login's one account ([`crate::session_account`]), as a
+    /// list: everything the shell shows and syncs goes through it.
+    pub fn session_accounts(&self) -> Vec<api::accounts::Account> {
+        let picked = saved_account(&self.current_path);
+        crate::session_account::session_account(self.auth.signed_in_accounts(), picked.as_deref()).into_iter().collect()
+    }
+
+    pub fn session_account(&self) -> Option<api::accounts::Account> {
+        self.session_accounts().pop()
+    }
+
+    /// #EDE-226: a signed-out account's own store goes with its entry.
+    pub fn wipe_when_forgotten(&self, account_id: &str) {
+        crate::session_account::wipe_when_forgotten(self.auth.clone(), self.data_dir.clone(), account_id.to_string());
+    }
+
     /// #EDE-223: a signed-out account's sync stops (its store stays on disk).
     pub fn stop_account(&self, account_id: &str) {
         self.sync.stop_account(account_id);
@@ -151,7 +167,7 @@ impl Workspaces {
             Some(Saved::Local) => None,
             Some(Saved::Team(team)) => Some(Pending { team: Some(team), account: None }),
             // One account per eDE login: the first signed-in one.
-            None => self.auth.signed_in_accounts().first().map(|a| Pending { team: None, account: Some(a.id.clone()) }),
+            None => self.session_accounts().first().map(|a| Pending { team: None, account: Some(a.id.clone()) }),
         };
         let Some(pending) = pending else { return local.map(StartOn::Local) };
         let entries = self.entries();
@@ -177,7 +193,7 @@ impl Workspaces {
         if self.demo {
             return;
         }
-        for account in self.auth.signed_in_accounts() {
+        for account in self.session_accounts() {
             self.start_account(&account);
         }
     }
@@ -203,7 +219,7 @@ impl Workspaces {
             return demo_entries();
         }
         let mut entries: Vec<SwitcherEntry> = self.desktops.active().into_iter().map(|d| SwitcherEntry::local(&d.id, &d.name)).collect();
-        for account in self.auth.signed_in_accounts() {
+        for account in self.session_accounts() {
             let Some(store) = self.sync.store(&account.id) else { continue };
             let Some(spec) = sync::shapes::shape_by_name("teams") else { continue };
             let mut teams: Vec<(String, String)> = store
@@ -285,7 +301,7 @@ impl Workspaces {
         if self.demo {
             return vec![("demo".into(), "danny@example.com".into())];
         }
-        self.auth.signed_in_accounts().into_iter().map(|a| (a.id, a.email)).collect()
+        self.session_accounts().into_iter().map(|a| (a.id, a.email)).collect()
     }
 
     /// #EDE-65: every signed-in account's store the tray reads (the inbox,
@@ -295,7 +311,7 @@ impl Workspaces {
         if self.demo {
             return Vec::new();
         }
-        self.auth.signed_in_accounts().into_iter().filter_map(|a| Some((a.id.clone(), a.user_id.clone(), self.sync.store(&a.id)?))).collect()
+        self.session_accounts().into_iter().filter_map(|a| Some((a.id.clone(), a.user_id.clone(), self.sync.store(&a.id)?))).collect()
     }
 
     /// #EDE-65: `notifications.markRead` on the account's instance, one call
@@ -318,7 +334,7 @@ impl Workspaces {
         if self.demo {
             return None;
         }
-        let mut sources: Vec<crate::issues::Source> = self.auth.signed_in_accounts().iter().filter_map(|a| self.sync.store(&a.id)).map(crate::issues::Source::Account).collect();
+        let mut sources: Vec<crate::issues::Source> = self.session_accounts().iter().filter_map(|a| self.sync.store(&a.id)).map(crate::issues::Source::Account).collect();
         for d in self.desktops.active() {
             sources.push(crate::issues::Source::Local { id: d.id.clone(), name: d.name.clone(), path: self.desktops.desktop_dir(&d.id).join("local.sqlite") });
         }
@@ -355,6 +371,12 @@ fn read_saved_team(path: &Path) -> Option<String> {
         Saved::Team(id) => Some(id),
         Saved::Local => None,
     }
+}
+
+/// #EDE-226: the account the saved team belongs to.
+fn saved_account(path: &Path) -> Option<String> {
+    let value: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    value["account"].as_str().filter(|id| !id.is_empty()).map(str::to_string)
 }
 
 fn write_current(path: &Path, entry: &SwitcherEntry) -> std::io::Result<()> {

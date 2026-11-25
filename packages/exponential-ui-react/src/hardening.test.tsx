@@ -54,7 +54,7 @@ describe(`required = the contract's (dynamic.ts LOGIC_FUNCTIONS, Rust data.rs)`,
     expect(CLIENT_FUNCTIONS.required({ value: false }, { data: {} })).toEqual({ valid: false })
   })
   it(`a Checkbox checked=false fails its required check`, () => {
-    const root = tree({ id: `agree`, component: `Checkbox`, props: { label: `Agree`, name: `agree`, checked: { "@path": `/agree` }, checks: [{ condition: { "@call": `required`, args: { value: { "@path": `/agree` } } }, message: `Please agree` }] } })
+    const root = tree({ id: `agree`, component: `Checkbox`, props: { label: `Agree`, name: `agree`, checked: { "@path": `/agree` }}, "@checks": [{ condition: { "@call": `required`, args: { value: { "@path": `/agree` } } }, message: `Please agree` }] })
     const { container } = render(<ExponentialSurface root={root} data={{ agree: false }} theme="neutral" id="rq" />)
     fireEvent.click(container.querySelector(`[role="checkbox"]`)!)
     fireEvent.click(container.querySelector(`[role="checkbox"]`)!)

@@ -39,6 +39,27 @@ describe(`AppBridge`, () => {
     expect(onToolResult).toHaveBeenCalledWith({ content: [] })
   })
 
+  it(`#NEW-141: publishes model context only to a host that takes it`, async () => {
+    for (const takes of [true, false]) {
+      const { self, posted, deliver } = fakeWindow()
+      const bridge = new AppBridge({}, self)
+      const connected = bridge.connect()
+      deliver({ jsonrpc: `2.0`, id: posted[0].id, result: { hostContext: {}, hostCapabilities: takes ? { updateModelContext: { text: {} } } : {} } })
+      await connected
+      const before = posted.length
+      bridge.updateModelContext({ title: `EXP-1 A`, text: `open` })
+      bridge.updateModelContext(null)
+      expect(posted.slice(before).map((m) => [m.method, m.params])).toEqual(
+        takes
+          ? [
+              [`ui/update-model-context`, { content: [{ type: `text`, text: `open`, _meta: { "openai/title": `EXP-1 A` } }] }],
+              [`ui/update-model-context`, { content: [] }],
+            ]
+          : []
+      )
+    }
+  })
+
   it(`answers a teardown and rejects a failed call`, async () => {
     const { self, posted, deliver } = fakeWindow()
     const bridge = new AppBridge({}, self)

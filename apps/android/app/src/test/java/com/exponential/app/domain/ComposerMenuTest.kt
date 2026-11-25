@@ -188,6 +188,39 @@ class ComposerMenuTest {
     }
 
     @Test
+    fun `plainCases match the fixture (EXP-2122)`() {
+        val cases = fixture.getValue("teamsPick").jsonObject.getValue("plainCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        fun ids(value: kotlinx.serialization.json.JsonElement?): List<String>? = (value as? JsonArray)?.map { it.jsonPrimitive.content }
+        for (case in cases) {
+            val teams = case.getValue("teams").jsonArray.map { it.jsonObject.string("id") }
+            val expected = case.getValue("expected").jsonObject
+            val pick = TeamsPick.plain(case.string("own"), ids(case["stored"]), ids(case["picked"]), teams)
+            assertEquals(case.string("name"), ids(expected["shown"]), pick.shown)
+            val unchanged = (expected["scope"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "unchanged"
+            assertEquals(case.string("name"), !unchanged, pick.changed)
+            assertEquals(case.string("name"), ids(expected["scope"]), pick.scope)
+        }
+        assertEquals(listOf("t2", "t3"), TeamsPick.plainPicked("t1", null, listOf("t1", "t2", "t3")))
+        assertEquals(emptyList<String>(), TeamsPick.plainPicked("t1", listOf("t1"), listOf("t1", "t2", "t3")))
+    }
+
+    @Test
+    fun `removableCases match the fixture (EXP-2122)`() {
+        val cases = fixture.getValue("teamsPick").jsonObject.getValue("removableCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        fun ids(case: kotlinx.serialization.json.JsonObject, key: String) = case.getValue(key).jsonArray.map { it.jsonPrimitive.content }
+        for (case in cases) {
+            val owner = when (case.string("kind")) {
+                "assistant" -> TeamsPick.Owner.Assistant
+                "root" -> TeamsPick.Owner.Root(case.string("own"))
+                else -> TeamsPick.Owner.Home
+            }
+            assertEquals(case.string("name"), ids(case, "expected"), TeamsPick.removable(owner, ids(case, "chips")))
+        }
+    }
+
+    @Test
     fun `the teams pick never empties and every team reads as null (EXP-1715)`() {
         val ids = listOf("t1", "t2", "t3")
         assertEquals(null, TeamsPick.next(listOf("t3", "t1", "t2"), ids))

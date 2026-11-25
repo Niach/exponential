@@ -425,7 +425,7 @@ fn toasts_time_out_unless_hovered(cx: &mut TestAppContext) {
 fn a_failed_submit_announces_and_focuses_the_first_invalid_field(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
         {"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"invalid": {"event": {"name": "bad"}}, "submit": {"event": {"name": "ok"}}}, "children": [
-            {"id": "agree", "component": "Checkbox", "props": {"label": "Agree", "name": "agree", "checks": [{"condition": {"@call": "required", "args": {"value": {"@path": "/agree"}}}, "message": "Agree first"}]}},
+            {"id": "agree", "component": "Checkbox", "props": {"label": "Agree", "name": "agree"}, "@checks": [{"condition": {"@call": "required", "args": {"value": {"@path": "/agree"}}}, "message": "Agree first"}]},
             {"id": "go", "component": "Button", "props": {"label": "Send", "submit": true}}
         ]}
     ]});
@@ -448,7 +448,7 @@ fn a_failed_submit_announces_and_focuses_the_first_invalid_field(cx: &mut TestAp
 fn a_press_right_after_typing_submits_what_was_typed(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
         {"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"invalid": {"event": {"name": "bad"}}, "submit": {"event": {"name": "ok"}}}, "children": [
-            {"id": "hours", "component": "NumberField", "props": {"label": "Hours", "name": "hours", "value": {"@path": "/hours"}, "checks": [{"condition": {"@call": "lt", "args": {"a": 0, "b": {"@path": "/hours"}}}, "message": "More than 0"}]}},
+            {"id": "hours", "component": "NumberField", "props": {"label": "Hours", "name": "hours", "value": {"@path": "/hours"}}, "@checks": [{"condition": {"@call": "lt", "args": {"a": 0, "b": {"@path": "/hours"}}}, "message": "More than 0"}]},
             {"id": "go", "component": "Button", "props": {"label": "Save", "submit": true}}
         ]}
     ]});
@@ -472,7 +472,7 @@ fn a_press_right_after_typing_submits_what_was_typed(cx: &mut TestAppContext) {
 fn a_focused_number_field_selects_its_seed_and_typing_replaces_it(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
         {"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"invalid": {"event": {"name": "bad"}}, "submit": {"event": {"name": "ok"}}}, "children": [
-            {"id": "hours", "component": "NumberField", "props": {"label": "Hours", "name": "hours", "step": 0.25, "value": {"@path": "/hours"}, "checks": [{"condition": {"@call": "lt", "args": {"a": 0, "b": {"@path": "/hours"}}}, "message": "More than 0"}]}},
+            {"id": "hours", "component": "NumberField", "props": {"label": "Hours", "name": "hours", "step": 0.25, "value": {"@path": "/hours"}}, "@checks": [{"condition": {"@call": "lt", "args": {"a": 0, "b": {"@path": "/hours"}}}, "message": "More than 0"}]},
             {"id": "note", "component": "Input", "props": {"label": "Note", "name": "note", "value": "seeded"}},
             {"id": "go", "component": "Button", "props": {"label": "Save", "submit": true}}
         ]}
@@ -969,7 +969,7 @@ fn macro_roots_carry_their_a11y_roles(cx: &mut TestAppContext) {
         {"id": "err", "component": "Alert", "props": {"type": "error", "title": "Payment failed"}},
         {"id": "warn", "component": "Alert", "props": {"type": "warning", "title": "Low balance"}},
         {"id": "note", "component": "Alert", "props": {"type": "info", "title": "Heads up"}},
-        {"id": "named", "component": "Card", "props": {"title": "Ignored"}, "accessibility": {"label": "Billing"}}
+        {"id": "named", "component": "Card", "props": {"title": "Ignored"}, "@accessibility": {"label": "Billing"}}
     ]});
     let (view, _log, cx) = surface(cx, tree, false);
     let info = |id: &str| view.read_with(cx, |v, _| v.accessible_info(id)).unwrap_or_else(|| panic!("{id} has an a11y node"));

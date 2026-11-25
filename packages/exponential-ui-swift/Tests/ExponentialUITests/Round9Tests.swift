@@ -47,7 +47,7 @@ final class Round9Tests: XCTestCase {
         for c in cases {
             let name = c["name"]!.string!
             let host = Host()
-            let m = try model(form([["id": "x", "component": "Input", "props": ["label": "X", "name": "x", "value": "v", "validateOn": "submit", "checks": c["checks"]!.any]]]), data: c["data"], host: host)
+            let m = try model(form([["id": "x", "component": "Input", "props": ["label": "X", "name": "x", "value": "v", "validateOn": "submit"], "@checks": c["checks"]!.any]]), data: c["data"], host: host)
             let want = c["shown"]?["severity"]?.string
             XCTAssertEqual(m.fieldChecks("x").shown?.severity, want, "\(name): shown")
             XCTAssertEqual(m.fieldChecks("x").shown?.message, c["shown"]?["message"]?.string, "\(name): shown message")
@@ -76,7 +76,7 @@ final class Round9Tests: XCTestCase {
         for c in cases {
             let host = Host()
             let m = try model(["id": "root", "component": "Box", "children": [
-                ["id": "b", "component": "Button", "props": ["label": "Go", "checks": c["checks"]!.any], "on": ["press": ["event": ["name": "press"]]]],
+                ["id": "b", "component": "Button", "props": ["label": "Go"], "@checks": c["checks"]!.any, "on": ["press": ["event": ["name": "press"]]]],
             ]], data: c["data"], host: host)
             m.press(id: "b")
             XCTAssertEqual(host.actions.isEmpty, c["disabled"]!.bool!, c["name"]!.string!)
@@ -97,10 +97,9 @@ final class Round9Tests: XCTestCase {
                     var p = props
                     p["label"] = "L"
                     p["name"] = "x"
-                    p["checks"] = [["condition": ["@path": "/r"]]]
                     p["validateOn"] = "submit"
                     let plain = try model(form([["id": "x", "component": component, "props": ["label": "L", "name": "x"].merging(props) { a, _ in a }]]), theme: theme)
-                    let m = try model(form([["id": "x", "component": component, "props": p]]), data: .object(["r": .object(["valid": .bool(false), "severity": .string(severity), "message": .string("Note")])]), theme: theme)
+                    let m = try model(form([["id": "x", "component": component, "props": p, "@checks": [["condition": ["@path": "/r"]]]]]), data: .object(["r": .object(["valid": .bool(false), "severity": .string(severity), "message": .string("Note")])]), theme: theme)
                     m.submitForm(id: "f")
                     m.pass()
                     let i = try XCTUnwrap(m.index(of: "x.error"), "\(component) \(severity)")
@@ -117,7 +116,7 @@ final class Round9Tests: XCTestCase {
     }
 
     func testAnErrorPartStillPaintsTheErrorColour() throws {
-        let m = try model(form([["id": "x", "component": "Input", "props": ["label": "L", "name": "x", "validateOn": "submit", "checks": [["condition": ["@path": "/r"], "message": "No"]]]]]), data: .object(["r": .bool(false)]))
+        let m = try model(form([["id": "x", "component": "Input", "props": ["label": "L", "name": "x", "validateOn": "submit"], "@checks": [["condition": ["@path": "/r"], "message": "No"]]]]), data: .object(["r": .bool(false)]))
         m.submitForm(id: "f")
         m.pass()
         let i = try XCTUnwrap(m.index(of: "x.error"))
@@ -128,8 +127,8 @@ final class Round9Tests: XCTestCase {
 
     func testAccessibilityLiveWinsOverTextLive() throws {
         let m = try model(["id": "root", "component": "Box", "children": [
-            ["id": "a", "component": "Text", "props": ["text": "a", "live": "polite"], "accessibility": ["live": "assertive"]],
-            ["id": "b", "component": "Text", "props": ["text": "b", "live": "polite"], "accessibility": ["live": "off"]],
+            ["id": "a", "component": "Text", "props": ["text": "a", "live": "polite"], "@accessibility": ["live": "assertive"]],
+            ["id": "b", "component": "Text", "props": ["text": "b", "live": "polite"], "@accessibility": ["live": "off"]],
             ["id": "c", "component": "Text", "props": ["text": "c", "live": "polite"]],
             ["id": "d", "component": "Text", "props": ["text": "d", "live": "off"]],
         ]])
@@ -146,8 +145,8 @@ final class Round9Tests: XCTestCase {
 
     func testALiveTextAndAnInlineMarkdownAnnounceTheirChanges() throws {
         let m = try model(["id": "root", "component": "Box", "children": [
-            ["id": "t", "component": "Text", "props": ["text": ["@path": "/t"]], "accessibility": ["live": "assertive"]],
-            ["id": "md", "component": "Markdown", "props": ["text": ["@path": "/m"], "profile": "inline"], "accessibility": ["live": "polite"]],
+            ["id": "t", "component": "Text", "props": ["text": ["@path": "/t"]], "@accessibility": ["live": "assertive"]],
+            ["id": "md", "component": "Markdown", "props": ["text": ["@path": "/m"], "profile": "inline"], "@accessibility": ["live": "polite"]],
         ]], data: .object(["t": .string("one"), "m": .string("uno")]))
         m.setData(path: "/t", value: .string("two"))
         m.pass()
@@ -162,7 +161,7 @@ final class Round9Tests: XCTestCase {
     func testFieldMessagesSpeakAlertForAnErrorStatusForAnAdvisory() throws {
         for (severity, role, live) in [("error", "alert", "assertive"), ("warning", "status", "polite"), ("info", "status", "polite")] {
             let host = Host()
-            let m = try model(form([["id": "x", "component": "Input", "props": ["label": "L", "name": "x", "value": "v", "validateOn": "submit", "checks": [["condition": ["@path": "/r"]]]]]]), data: .object(["r": .object(["valid": .bool(false), "severity": .string(severity), "message": .string("Note")])]), host: host)
+            let m = try model(form([["id": "x", "component": "Input", "props": ["label": "L", "name": "x", "value": "v", "validateOn": "submit"], "@checks": [["condition": ["@path": "/r"]]]]]), data: .object(["r": .object(["valid": .bool(false), "severity": .string(severity), "message": .string("Note")])]), host: host)
             m.submitForm(id: "f")
             m.pass()
             let n = try XCTUnwrap(m.node(id: "x.error"))
@@ -175,7 +174,7 @@ final class Round9Tests: XCTestCase {
     func testAccessibilityHiddenIsADynamicBooleanAndKeepsThePaint() throws {
         for (value, hidden) in [(JSONValue.bool(true), true), (.bool(false), false), (.string("TRUE"), true), (.string("yes"), false), (.number(1), true), (.number(0), false), (.null, false)] {
             let m = try model(["id": "root", "component": "Box", "children": [
-                ["id": "t", "component": "Text", "props": ["text": "Hi"], "accessibility": ["hidden": ["@path": "/h"]]],
+                ["id": "t", "component": "Text", "props": ["text": "Hi"], "@accessibility": ["hidden": ["@path": "/h"]]],
             ]], data: .object(["h": value]))
             let n = try XCTUnwrap(m.node(id: "t"))
             XCTAssertEqual(A11yInfo.of(n, model: m, style: m.style(n.index)).hidden, hidden, "\(value)")
@@ -278,8 +277,8 @@ final class Round9Tests: XCTestCase {
                 field("notes", "Textarea", "Notes (warning)", "/warning", ["value": "short"]),
                 field("news", "Checkbox", "Newsletter (info)", "/info", ["checked": true]),
                 field("plan", "Select", "Plan (error)", "/error", ["value": "free", "options": [["label": "Free", "value": "free"]]]),
-                ["id": "warned", "component": "Button", "props": ["label": "Warning: enabled", "checks": check]],
-                ["id": "blocked", "component": "Button", "props": ["label": "Error: disabled", "checks": [["condition": ["@path": "/error"]]]]],
+                ["id": "warned", "component": "Button", "props": ["label": "Warning: enabled"], "@checks": check],
+                ["id": "blocked", "component": "Button", "props": ["label": "Error: disabled"], "@checks": [["condition": ["@path": "/error"]]]],
         ])
         severities["style"] = ["padding": "$spacing.xl"]
         severities["children"] = (severities["children"] as? [Any])?.dropLast().map { $0 }

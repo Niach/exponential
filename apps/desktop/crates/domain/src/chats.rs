@@ -1187,7 +1187,7 @@ pub struct AppChatRowsInput<'a> {
 /// #EXP-1733 (TS `appChatRows`): the Chats list's APPS section: one row per
 /// live team app in [`crate::apps::sort_apps`] order, its preview / time /
 /// unread from the viewer's session with the app (the root with `app_id`
-/// and `user_id == me`); needs you / busy = that root's `needs_input` /
+/// and `user_id == me`); needs you / busy = that root's `session_asks` /
 /// `busy`. None on the Archived page.
 pub fn app_chat_rows(input: AppChatRowsInput<'_>) -> Vec<AppChatRow> {
     if input.view == ChatListView::Archived {
@@ -1205,7 +1205,7 @@ pub fn app_chat_rows(input: AppChatRowsInput<'_>) -> Vec<AppChatRow> {
                 })
             });
             let id = session.map(|session| session.id.clone());
-            let needs_you = session.is_some_and(|session| session.needs_input);
+            let needs_you = session.is_some_and(crate::session_tree::session_asks);
             let busy = session.is_some_and(|session| session.busy);
             let newest = id.as_deref().and_then(|id| {
                 input

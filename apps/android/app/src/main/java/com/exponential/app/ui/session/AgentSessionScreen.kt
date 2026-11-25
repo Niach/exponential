@@ -779,8 +779,13 @@ private fun RunFaceContent(
     val teammateTail by viewModel.teammateTail.collectAsStateWithLifecycle()
     // #EXP-2089 (message-delivery.json ORDER): every person's not-consumed
     // rows in ONE list, oldest first, between the held rows and the outbox.
-    val pendingTail = remember(teammateTail, ownTail) {
-        com.exponential.app.domain.MessageDelivery.pendingTail(teammateTail, ownTail)
+    // #EXP-2129: without the ones a restarted run echoed already.
+    val echoedPending by viewModel.echoedPending.collectAsStateWithLifecycle()
+    val pendingTail = remember(teammateTail, ownTail, echoedPending) {
+        com.exponential.app.domain.MessageDelivery.withoutEchoed(
+            com.exponential.app.domain.MessageDelivery.pendingTail(teammateTail, ownTail),
+            echoedPending,
+        )
     }
     // #FEED-260 (steer-enet.json SYNCED TAIL): a NOT-live feed (the stored
     // tail painted at open, a dropped feed's cache, an empty feed) is
@@ -792,9 +797,13 @@ private fun RunFaceContent(
     val tailMessages = syncedWindow.messages
     val feedLive = phase == AgentPhase.Live
     // An EMPTY feed takes it only while the live transcript cannot be
-    // loaded (the OFFLINE LINE's condition): a reachable device's replay
-    // is on its way.
-    val tailUnreachable = if (session?.isEnded == true) history == HistoryState.DeviceOffline else hostDevice.offline
+    // loaded (#EXP-2138: the last dial said NO FEED, whatever the row): a
+    // device still being dialled may hold it.
+    val tailUnreachable = com.exponential.app.data.steer.steerTailUnreachable(
+        ended = session?.isEnded == true,
+        noFeed = phase == AgentPhase.Starting || history == HistoryState.DeviceOffline,
+        deviceOffline = hostDevice.offline,
+    )
     // #EXP-1998 (find-in-chat.json): every message the tail would draw with
     // no cap (find in chat counts them); it shows the newest `syncedTailMax`,
     // or every one from the message find in chat landed on ([findWiden],
@@ -6162,7 +6171,12 @@ internal fun SessionComposer(
         onPickPrompt = { prompt -> viewModel.insertPrompt(prompt.id, at = promptCaret[0] to promptCaret[1]) },
         account = composerAccount,
         teams = teamsPickState?.let { state ->
-            com.exponential.app.ui.agent.TeamsPickBinding(state.teams, state.picked, viewModel::setTeamsPick)
+            com.exponential.app.ui.agent.TeamsPickBinding(
+                state.teams,
+                state.picked,
+                viewModel::setTeamsPick,
+                state.own?.let { com.exponential.app.domain.TeamsPick.Owner.Root(it) } ?: com.exponential.app.domain.TeamsPick.Owner.Assistant,
+            )
         },
     )
 
@@ -6891,7 +6905,9 @@ private fun ExpandedSteerComposer(
         modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp),
         strip = {
             // #EXP-1715: the Assistant's picked teams (a subset only).
-            menu.teams?.let { com.exponential.app.ui.agent.TeamPickChips(it, enabled = !sending) }
+            menu.teams?.let {
+                com.exponential.app.ui.agent.TeamPickChips(it, enabled = !sending, modifier = Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp))
+            }
             PendingAttachmentStrip(
                 items = pendingImages,
                 enabled = !sending,

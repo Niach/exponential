@@ -222,7 +222,7 @@ unpublished until VAPP-91) carries two Apache-2.0 sources:
   apply; 4(a)/4(c) are met by the vendored licence and the untouched headers.
   Round 9 (VAPP-289) adds the A2UI **1.0** schemas, basic catalog, test cases
   and protocol document under `packages/exponential-ui/vendor/a2ui/v1_0/`
-  (a2ui-project/a2ui `main`, commit `1e9ed04b5585721ac6df8313030f9bfb42ccc6fa`),
+  (a2ui-project/a2ui `main`, commit `a23b19c4f2102695c506adb7d1ded1f5f81a7688`),
   pinned the same way, and **Unicode 17.0.0** `DerivedCoreProperties.txt`
   (Unicode licence, data file, byte-for-byte) under
   `packages/exponential-ui/vendor/unicode/`, read by the identifier tables.

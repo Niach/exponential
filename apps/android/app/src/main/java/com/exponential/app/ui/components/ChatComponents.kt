@@ -151,7 +151,7 @@ fun ChatRow(
     selected: Boolean? = null,
     /** #EDE-98: the root's marks ([Chats.chatMarks]) right after the title. */
     marks: List<String> = emptyList(),
-    /** #EXP-2109: the row's team mark, after the title, before the time. */
+    /** The row's team: its mark on the lead; null = none. */
     team: com.exponential.app.data.db.TeamEntity? = null,
 ) {
     val unread = row.unreadCount > 0
@@ -175,7 +175,7 @@ fun ChatRow(
             .padding(start = ChatRowEdge),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box {
+        TeamMarkedLead(team, size = Chats.Shell.LEAD_DISC.dp, selected = isSelected) {
             ChatLeadDisc(row.lead, agent, selected = isSelected)
             if (isSelected) ChatSelectBadge(Modifier.align(Alignment.BottomEnd))
         }
@@ -196,7 +196,6 @@ fun ChatRow(
                         )
                         com.exponential.app.ui.chat.ChatMarks(marks)
                     }
-                    ChatTeamMark(team)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         row.time,
@@ -371,7 +370,7 @@ private fun DiscChatRow(
         // chats.json AGENT ROWS: the avatar ALWAYS (busy reads in the
         // preview, never as the working mark); needs you = the chat lead's
         // amber badge on it (web `ChatLeadDisc` `run-mark-badge`).
-        Box(modifier = Modifier.size(Chats.Shell.LEAD_DISC.dp)) {
+        TeamMarkedLead(team, size = Chats.Shell.LEAD_DISC.dp, modifier = Modifier.size(Chats.Shell.LEAD_DISC.dp)) {
             disc()
             if (needsYou) {
                 Box(
@@ -401,7 +400,6 @@ private fun DiscChatRow(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    ChatTeamMark(team)
                     if (time.isNotEmpty()) {
                         Spacer(Modifier.width(8.dp))
                         Text(time, style = MaterialTheme.typography.labelMedium, color = timeColor, maxLines = 1)
@@ -422,21 +420,6 @@ private fun DiscChatRow(
             }
         }
     }
-}
-
-/** #EXP-2109: a Chats row's TEAM MARK (the sidebars' Active rows'); none for a
- *  row outside the member teams (the viewer's Assistant). */
-@Composable
-private fun ChatTeamMark(team: com.exponential.app.data.db.TeamEntity?) {
-    if (team == null) return
-    Spacer(Modifier.width(8.dp))
-    TeamAvatar(
-        team.iconUrl,
-        size = 16.dp,
-        modifier = Modifier
-            .testTag("chat-team-mark")
-            .semantics { contentDescription = team.name },
-    )
 }
 
 /** A chat row's text edge from the screen edge (both sides). */

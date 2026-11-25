@@ -118,13 +118,13 @@ export function flattenSurface(tree: SurfaceNode, rootId = `root`): FlatComponen
   }
   const walk = (n: SurfaceNode, isRoot: boolean): string => {
     const id = nameOf(n, isRoot)
-    // #AXC-19: the check mixin rides the wire as `@checks` (A2UI 1.0).
+    // Round 9 §5.1: the mixins ride the wire under `@`.
     const { checks, ...props } = (n.props ?? {}) as Record<string, unknown>
     const flat: FlatComponent = { id, component: n.component, ...props, ...(checks !== undefined ? { "@checks": checks } : {}) }
     if (n.style) flat.style = n.style
     if (n.on) flat.on = n.on
     if (n.visible !== undefined) flat.visible = n.visible
-    if (n.accessibility) flat.accessibility = n.accessibility
+    if (n.accessibility) flat[`@accessibility`] = n.accessibility
     out.push(flat)
     if (Array.isArray(n.children)) flat.children = n.children.map((c) => walk(c, false))
     else if (n.children) {

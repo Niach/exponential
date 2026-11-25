@@ -36,7 +36,7 @@ import {
 } from "@/components/launch-dialog/launch-options-pane"
 import { McpServerMenuRows } from "@/components/launch-dialog/mcp-server-picker"
 import { SkillSearchList, type SkillPickerRow } from "@/components/launch-dialog/skill-picker"
-import { TeamPickSearchList, type PickTeam } from "@/components/launch-dialog/team-pick"
+import { TeamPickSearchList, type PickTeam, type TeamPickOwner } from "@/components/launch-dialog/team-pick"
 import { skillsMenuValue } from "@exp/domain-contract/skills"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import { accountOptionKey, type AccountOption } from "@/lib/accounts/account-option"
@@ -183,6 +183,7 @@ export interface ComposerTeamsBinding {
   teams: readonly PickTeam[]
   picked: readonly string[] | null
   onChange: (next: string[] | null) => void
+  owner: TeamPickOwner
 }
 
 /** THE "+" of every composer ×4. */

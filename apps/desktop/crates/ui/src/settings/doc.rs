@@ -280,9 +280,9 @@ impl Ink {
     }
 
     /// `glass_section_header`: the `fill_section` strip (`px_3` / `py_1p5`,
-    /// `gap_1p5`, `mb_1`, `radius_md`), the `text_sm` MEDIUM label at 85%,
-    /// then a spacer and the trailing control.
-    pub(super) fn band(&self, id: &str, label: &str, trailing: Option<Value>) -> Value {
+    /// `gap_1p5`, `mb_1`, `radius_md`), the `text_sm` MEDIUM label (a literal
+    /// or a [`path`]) at 85%, then a spacer and the trailing control.
+    pub(super) fn band(&self, id: &str, label: impl Into<Value>, trailing: Option<Value>) -> Value {
         self.band_with(id, None, label, None, trailing)
     }
 
@@ -292,10 +292,11 @@ impl Ink {
     /// node IS their label, and an empty `{id}_label` beside it doubled that
     /// node id (#EXP-1887: a debug build panicked on the duplicate
     /// accessibility node, a release one dropped it from the tree).
-    pub(super) fn band_with(&self, id: &str, leading: Option<Value>, label: &str, loading: Option<Value>, trailing: Option<Value>) -> Value {
+    pub(super) fn band_with(&self, id: &str, leading: Option<Value>, label: impl Into<Value>, loading: Option<Value>, trailing: Option<Value>) -> Value {
+        let label = label.into();
         let mut children: Vec<Value> = leading.into_iter().collect();
-        if !label.is_empty() {
-            let mut text = faded(self.text(&format!("{id}_label"), json!(label), SM, &self.foreground), 0.85);
+        if label != json!("") {
+            let mut text = faded(self.text(&format!("{id}_label"), label, SM, &self.foreground), 0.85);
             text["props"]["lines"] = json!(1);
             text["style"]["fontWeight"] = json!(500);
             text["style"]["minWidth"] = json!(0);
@@ -409,7 +410,7 @@ impl Ink {
     /// rung's corner, its `size_3p5` glyph at 70%, the list hover wash.
     pub(super) fn ghost_icon_button(&self, id: &str, icon: &str, label: Value, event: Value, list_hover: &str) -> Value {
         let glyph = self.r(0.875);
-        json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": event}},
+        json!({"id": id, "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": label}, "on": {"press": {"event": event}},
             "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 32, "height": 32, "borderRadius": self.radius_md, "cursor": "pointer", ":hover": {"backgroundColor": list_hover}},
             "children": [{"id": format!("{id}_icon"), "component": "Icon", "props": {"name": icon}, "style": {"width": glyph, "height": glyph, "color": self.foreground, "opacity": VALUE_ALPHA}}]})
     }
@@ -438,7 +439,7 @@ impl Ink {
             faces.push(json!({"id": format!("{id}_off_spin"), "component": "Spinner", "visible": loading, "style": {"width": glyph, "height": glyph, "color": self.muted, "opacity": HINT_ALPHA}}));
         }
         faces.insert(0, icon);
-        let off = json!({"id": format!("{id}_off"), "component": "Box", "visible": locked, "accessibility": {"label": label},
+        let off = json!({"id": format!("{id}_off"), "component": "Box", "visible": locked, "@accessibility": {"label": label},
             "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 32, "height": 32, "borderRadius": self.radius_md},
             "children": faces});
         json!({"id": format!("{id}_slot"), "component": "Box", "visible": visible, "style": {"display": "flex", "flexShrink": 0}, "children": [menu, off]})

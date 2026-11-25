@@ -325,9 +325,11 @@ struct AppNavigator: View {
             } else if deps.auth.accounts.isEmpty {
                 // First launch — no accounts at all.
                 InstanceView()
+                    .onAppear { UNUserNotificationCenter.current().setBadgeCount(0) }
             } else if deps.auth.accounts.allSatisfy({ $0.token == nil }) {
                 // Every account is signed out — show login for the most recent.
                 LoginView()
+                    .onAppear { UNUserNotificationCenter.current().setBadgeCount(0) }
             } else if deps.auth.isAuthenticated, deps.auth.needsOnboarding {
                 // First-run wizard (web onboarding parity): the session read at
                 // login explicitly reported no onboardingCompletedAt. Gated on
@@ -577,6 +579,8 @@ struct MainNavigator: View {
     @State private var sessionLists = SessionListsModel()
     /// #EXP-2109: the Teams pages' tree (layout, agents, apps, owned teams).
     @State private var sidebarTree = SidebarTreeModel()
+    /// The minute the nav badges read (a PR gets stuck with time).
+    @State private var badgeNow = Date()
     /// The bar hides while the keyboard is up.
     @State private var keyboardVisible = false
     /// #EXP-2109: the bar's New popup is up.
@@ -634,7 +638,7 @@ struct MainNavigator: View {
         .onChange(of: tab) { _, target in
             // #NEW-12: a landing on a phone root lights its sidebar entry.
             newMenuOpen = false
-            if sidebar.tab != target { sidebar = SidebarItem(target, assistantId: sessionLists.assistant?.agentId) }
+            if phoneTab(sidebar) != target { sidebar = SidebarItem(target, assistantId: sessionLists.assistant?.agentId) }
         }
         .onChange(of: path) { _, _ in newMenuOpen = false }
         // #EXP-1815: the screen's thread (`willPresent` stays quiet on it).
@@ -655,8 +659,14 @@ struct MainNavigator: View {
         .environment(\.accountId, deps.auth.activeAccountId ?? "")
         // #EXP-1384: every page header's inbox count (#FEED-232).
         .environment(\.inboxUnreadCount, activeInboxUnreadCount)
-        // #FEED-232 (nav-badges.json `appIconCases`): the OS app icon = every
-        // team's needs-you rows summed; 0 clears it.
+        // #FEED-232 (nav-badges.json `appIconCases`): the OS app icon = the
+        // account's Needs you total; 0 clears it.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                badgeNow = Date()
+            }
+        }
         .onChange(of: appIconBadgeCount, initial: true) { _, count in
             UNUserNotificationCenter.current().setBadgeCount(count)
         }
@@ -831,6 +841,11 @@ struct MainNavigator: View {
                 PhoneDock(
                     selected: litTab,
                     chatsBadge: sessionLists.chatsBadge,
+                    teamsBadge: sidebarTree.teamsBadge(
+                        teams: teamState.teams, teamState: teamState, lists: sessionLists,
+                        me: deps.auth.userId, now: badgeNow
+                    ),
+                    assistantBadge: sessionLists.assistantBadge,
                     issueEnabled: composeTarget != nil,
                     newOpen: $newMenuOpen,
                     // EXP-1210: every entry SWITCHES the root (a re-tap pops
@@ -914,19 +929,21 @@ struct MainNavigator: View {
         }.count
     }
 
-    /// #FEED-232: the app icon's number (`NavBadges.appIconBadge` over every
-    /// team's needs-you rows).
+    /// #FEED-232: the app icon's number (`NavBadges.appIconBadge`): the
+    /// signed-in account's Needs you total, waiting installs included.
     private var appIconBadgeCount: Int {
-        // #EXP-1950: installs waiting for approval are Needs you rows.
         NavBadges.appIconBadge([
-            widgetNeedsYou.count, deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").rows.count,
+            sessionLists.needsYouCounts(
+                me: deps.auth.userId, now: badgeNow,
+                installs: deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").waitingRows
+            ).total,
         ])
     }
 
     /// #EXP-1830 (home-widgets.json `needs-you`): THE Needs you rows over
     /// every team of the active account, newest first.
     private var widgetNeedsYou: [NeedsYou.Row] {
-        sessionLists.needsYou(me: deps.auth.userId, now: Date())
+        sessionLists.needsYou(me: deps.auth.userId, now: badgeNow)
     }
 
     /// EXP-1210: the root a bar entry (or a link to its destination) lands
@@ -977,20 +994,29 @@ struct MainNavigator: View {
     }
 
     private struct AssistantLanding {
+        let agentId: String
         let page: ChatPage?
     }
 
     /// #EXP-2109: the Assistant's conversation opens as its TAB, from
     /// anywhere; the page of it the route names (nil = its Conversation).
     private func assistantLanding(_ route: AppRoute) -> AssistantLanding? {
-        guard !splitActive, let assistant = sessionLists.assistant else { return nil }
+        guard let assistant = sessionLists.assistant else { return nil }
         switch route {
         case let .agentChannel(_, agentId, settings) where agentId == assistant.agentId && !settings:
-            return AssistantLanding(page: nil)
+            return AssistantLanding(agentId: agentId, page: nil)
         case let .chat(_, chatId, child) where chatId == sessionLists.agentConversations[assistant.agentId]:
-            return AssistantLanding(page: child)
+            return AssistantLanding(agentId: assistant.agentId, page: child)
         default:
             return nil
+        }
+    }
+
+    /// The split layout's Assistant: its sidebar entry.
+    private func selectAssistant(_ landing: AssistantLanding) {
+        if sidebar != .agentChannel(landing.agentId) || !path.isEmpty { selectSidebar(.agentChannel(landing.agentId)) }
+        if let page = landing.page, let rootId = sessionLists.agentConversations[landing.agentId] {
+            chatLanding.land(chatId: rootId, page: page)
         }
     }
 
@@ -1001,9 +1027,11 @@ struct MainNavigator: View {
         // #NEW-12: the split layout's entries are sidebar picks.
         if splitActive, let item = sidebarItem(for: route) {
             selectSidebar(item)
+        } else if splitActive, let landing = assistantLanding(route) {
+            selectAssistant(landing)
         } else if let target = Self.tab(for: route) {
             selectTab(target)
-        } else if let landing = assistantLanding(route) {
+        } else if !splitActive, let landing = assistantLanding(route) {
             navigate { landOnAssistant(landing.page) }
         } else if case let .chat(_, chatId, child) = route, let index = Self.chatIndex(chatId, in: path) {
             navigate { landOnChat(at: index, chatId: chatId, page: child) }
@@ -1253,7 +1281,7 @@ extension MainNavigator {
             )),
             listColumn: tabletListColumn,
             detailRoot: tabletDetailRoot,
-            placeholderIcon: sidebar.placeholderIcon,
+            placeholder: sidebar,
             path: $path,
             listPush: listPushAction,
             destination: { route, pushed in
@@ -1322,11 +1350,17 @@ extension MainNavigator {
             swap.disablesAnimations = true
             withTransaction(swap) {
                 sidebar = item
-                tab = item.tab
+                tab = phoneTab(item)
                 path = []
             }
             sidebarPicks += 1
         }
+    }
+
+    /// The phone root a narrowed window shows for `item`.
+    private func phoneTab(_ item: SidebarItem) -> MainTab {
+        if case let .agentChannel(agentId) = item, agentId == sessionLists.assistant?.agentId { return .assistant }
+        return item.tab
     }
 
     /// The entry's list column (nil = the entry is one page).
@@ -1738,7 +1772,7 @@ extension MainNavigator {
             return
         }
         if let landing = assistantLanding(route) {
-            landOnAssistant(landing.page)
+            if splitActive { selectAssistant(landing) } else { landOnAssistant(landing.page) }
             return
         }
         let root: MainTab = if case .board = route { .teams } else { .chats }

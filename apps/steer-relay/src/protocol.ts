@@ -1010,7 +1010,8 @@ export type ServerFrame =
   // Relay → a device's CONTROL socket, from the web server's admin routes
   // (`POST /sessions/:id/kill` and `/interrupt`): end the session, or
   // interrupt its running turn (EXP-1291; the session stays live).
-  | { t: `kill`; sessionId: string }
+  // #EXP-2138: `reason: "deleted"` = the session's row was deleted.
+  | { t: `kill`; sessionId: string; reason?: string }
   | { t: `interrupt`; sessionId: string }
   // EXP-988/EXP-936: relay → a device's CONTROL socket. The run's OWN MCP
   // call (`exponential_sessions_compact`) asked the host to compact the

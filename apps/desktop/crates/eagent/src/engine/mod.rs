@@ -32,6 +32,7 @@ pub mod sink;
 pub mod stall;
 pub mod starved;
 pub mod transport;
+pub mod wall_resume;
 
 pub use adapters::{Adapter, AdapterKind, LaunchSpec};
 pub use child_exit::ChildExitLink;

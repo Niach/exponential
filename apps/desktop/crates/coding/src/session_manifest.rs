@@ -134,6 +134,141 @@ pub fn dir_allowed(dir: &Path, roots: &[PathBuf]) -> bool {
     roots.iter().filter_map(|root| std::fs::canonicalize(root).ok()).any(|root| dir != root && dir.starts_with(&root))
 }
 
+/// #EXP-2150: where sessions keep their private builds (`CARGO_TARGET_DIR`
+/// under `~/.cache/exp-<id>/`): never a root of its own ([`dir_allowed`]
+/// would then take `~/.cache/uv`), only its `exp-*` entries
+/// ([`cache_dir_allowed`]).
+pub fn cache_home() -> Option<PathBuf> {
+    std::env::var_os("XDG_CACHE_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+}
+
+/// Is `dir` an `exp-*` entry of `cache`, or inside one (symlinks and `..`
+/// resolved)? Every recorded `~/.cache/exp-<id>/target` was refused until
+/// #EXP-2150, and its record went with the manifest: 7 targets of 14-18 GB
+/// filled mint's disk on 2026-11-25.
+pub fn cache_dir_allowed(dir: &Path, cache: &Path) -> bool {
+    let (Ok(dir), Ok(cache)) = (std::fs::canonicalize(dir), std::fs::canonicalize(cache)) else { return false };
+    dir.strip_prefix(&cache)
+        .ok()
+        .and_then(|rest| rest.components().next())
+        .is_some_and(|first| first.as_os_str().to_string_lossy().starts_with("exp-"))
+}
+
+/// The session of `dir`'s manifests, other than `session`, whose own `dir`
+/// entry overlaps `path` (the same dir, inside it, or around it): what two
+/// sessions list is not one's to delete.
+fn listed_by_another(manifests: &Path, session: &str, path: &Path) -> Option<String> {
+    let resolve = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let path = resolve(path);
+    sessions_with_manifests(manifests).into_iter().filter(|other| other != session).find(|other| {
+        std::fs::read_to_string(manifests.join(other)).is_ok_and(|text| {
+            parse(&text).iter().any(|entry| {
+                matches!(entry, Entry::Dir(dir) if { let dir = resolve(dir); dir.starts_with(&path) || path.starts_with(&dir) })
+            })
+        })
+    })
+}
+
+/// Why a cache dir stays although its session ended: another session lists
+/// it, a process has it open (or its cwd in it), or that cannot be told.
+fn cache_dir_held(manifests: &Path, session: &str, path: &Path) -> Option<String> {
+    if let Some(other) = listed_by_another(manifests, session, path) {
+        return Some(format!("session {other} lists it too"));
+    }
+    let real = std::fs::canonicalize(path).ok()?;
+    match crate::cargo_target_gc::open_files_under(&real) {
+        Some(open) if open.is_empty() => None,
+        Some(_) => Some("a process has it open".to_string()),
+        None => Some("its open files cannot be read".to_string()),
+    }
+}
+
+/// The session id prefix an `exp-<8 hex>[-…]` cache dir is named after.
+fn cache_dir_session(name: &str) -> Option<&str> {
+    let rest = name.strip_prefix("exp-")?;
+    let prefix = rest.get(..8)?;
+    let hex = prefix.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    (hex && matches!(rest.as_bytes().get(8), None | Some(b'-'))).then_some(prefix)
+}
+
+/// The cargo targets in `cache`'s dirs named after `session` (the dir itself
+/// or up to two levels in), whether or not its manifest lists them.
+fn cache_targets_of(cache: &Path, session: &str) -> Vec<PathBuf> {
+    let mut targets = Vec::new();
+    let Ok(entries) = std::fs::read_dir(cache) else { return targets };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if cache_dir_session(&name).is_some_and(|prefix| session.starts_with(prefix)) {
+            collect_targets(&entry.path(), 2, &mut targets);
+        }
+    }
+    targets.sort();
+    targets
+}
+
+/// A dir cargo made, by the tag it writes (never some other tool's cache).
+fn is_cargo_made(dir: &Path) -> bool {
+    std::fs::read_to_string(dir.join("CACHEDIR.TAG")).is_ok_and(|tag| tag.contains("created by cargo"))
+}
+
+fn collect_targets(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) {
+    if !dir.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
+        return;
+    }
+    if is_cargo_made(dir) {
+        out.push(dir.to_path_buf());
+    } else if depth > 0 {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            collect_targets(&entry.path(), depth - 1, out);
+        }
+    }
+}
+
+/// #EXP-2150: the sessions of `known` that still have a cargo target in a
+/// cache dir named after them. A name two known sessions could own is
+/// nobody's ([`remove_cache_targets`] takes only what this returns).
+pub fn sessions_with_cache_targets<'a>(cache: &Path, known: impl Iterator<Item = &'a str> + Clone) -> Vec<String> {
+    let mut sessions = Vec::new();
+    for entry in std::fs::read_dir(cache).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(prefix) = cache_dir_session(&name) else { continue };
+        let mut owners = known.clone().filter(|id| id.starts_with(prefix));
+        let (Some(owner), None) = (owners.next(), owners.next()) else { continue };
+        if !cache_targets_of(cache, owner).is_empty() {
+            sessions.push(owner.to_string());
+        }
+    }
+    sessions.sort();
+    sessions.dedup();
+    sessions
+}
+
+/// #EXP-2150: deletes the ended `session`'s cargo targets in the cache dirs
+/// named after it (nothing else there: a dir can hold a rig's scripts), each
+/// only while no other session lists it and no process has it open.
+pub fn remove_cache_targets(manifests: &Path, cache: &Path, session: &str) -> Vec<(PathBuf, Outcome)> {
+    if !valid_session(session) {
+        return Vec::new();
+    }
+    cache_targets_of(cache, session)
+        .into_iter()
+        .map(|target| {
+            let outcome = match cache_dir_held(manifests, session, &target) {
+                Some(why) => Outcome::Kept(why),
+                None => match std::fs::remove_dir_all(&target) {
+                    Ok(()) => Outcome::Removed,
+                    Err(err) => Outcome::Kept(err.to_string()),
+                },
+            };
+            log::info!("session manifest [{session}]: target {} → {outcome:?}", target.display());
+            (target, outcome)
+        })
+        .collect()
+}
+
 /// The roots a session's `dir` entries may live under on this machine.
 pub fn dir_roots(worktree: Option<&Path>) -> Vec<PathBuf> {
     let mut roots = vec![std::env::temp_dir(), PathBuf::from("/tmp"), PathBuf::from("/var/tmp")];
@@ -178,17 +313,29 @@ pub enum Outcome {
 /// manifest goes either way (a simulator that cannot be deleted now will not
 /// be deletable by a later sweep either). Blocking.
 pub fn clean(dir: &Path, session: &str, worktree: Option<&Path>) -> Vec<(Entry, Outcome)> {
+    clean_with(dir, session, &dir_roots(worktree), cache_home().as_deref())
+}
+
+fn clean_with(dir: &Path, session: &str, roots: &[PathBuf], cache: Option<&Path>) -> Vec<(Entry, Outcome)> {
     if !valid_session(session) {
         return Vec::new();
     }
     let path = dir.join(session);
     let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
-    let roots = dir_roots(worktree);
     let results: Vec<(Entry, Outcome)> =
         parse(&text).into_iter().map(|entry| {
             let outcome = match &entry {
                 Entry::Lane(pid) => end_lane(*pid, session),
-                _ => clean_entry(&entry, &roots),
+                // #EXP-2150: `~/.cache/exp-*`, outside every root.
+                Entry::Dir(path)
+                    if !dir_allowed(path, roots) && cache.is_some_and(|cache| cache_dir_allowed(path, cache)) =>
+                {
+                    match cache_dir_held(dir, session, path) {
+                        Some(why) => Outcome::Kept(format!("{}: {why}", path.display())),
+                        None => clean_entry(&entry, &[cache.unwrap_or(path).to_path_buf()]),
+                    }
+                }
+                _ => clean_entry(&entry, roots),
             };
             log::info!("session manifest [{session}]: {entry:?} → {outcome:?}");
             (entry, outcome)
@@ -445,6 +592,78 @@ mod tests {
         clean(&manifests, "s1875", None);
         assert!(!xdg.exists());
         let _ = std::fs::remove_dir_all(&manifests);
+    }
+
+    /// #EXP-2150 regression: a private target under `~/.cache/exp-<id>` was
+    /// recorded, refused at the session's end, and its record dropped.
+    #[test]
+    fn a_recorded_private_target_goes_with_its_session() {
+        let base = temp("cache");
+        let cache = base.join("cache");
+        let manifests = base.join("manifests");
+        std::fs::create_dir_all(&manifests).unwrap();
+        for dir in ["exp-5e551010/target/debug", "exp-5e551011/target", "uv/wheels", "exp-shared", "exponential-desktop"] {
+            std::fs::create_dir_all(cache.join(dir)).unwrap();
+        }
+        let list = |session: &str, dirs: &[&str]| {
+            let text: String = dirs.iter().map(|dir| format!("dir\t{}\n", cache.join(dir).display())).collect();
+            std::fs::write(manifests.join(session), text).unwrap();
+        };
+        list("5e551010-aaaa", &["exp-5e551010", "uv", "exp-shared", "exponential-desktop", "exp-5e551010/../uv"]);
+        list("5e551011-bbbb", &["exp-shared/mine"]);
+        let results = clean_with(&manifests, "5e551010-aaaa", &[], Some(&cache));
+        assert_eq!(results[0].1, Outcome::Removed, "the session's own cache dir");
+        assert!(!cache.join("exp-5e551010").exists());
+        assert!(matches!(results[1].1, Outcome::Kept(_)) && cache.join("uv/wheels").exists(), "never another cache");
+        assert!(matches!(&results[2].1, Outcome::Kept(why) if why.contains("5e551011-bbbb")), "{:?}", results[2]);
+        assert!(matches!(results[3].1, Outcome::Kept(_)) && cache.join("exponential-desktop").exists());
+        assert!(cache.join("uv").exists(), "`..` resolves out of it");
+        assert!(cache.join("exp-shared").exists() && cache.join("exp-5e551011/target").exists());
+        assert!(!cache_dir_allowed(&cache, &cache), "never the cache itself");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// #EXP-2150: a private target nobody recorded, in a dir named after its
+    /// session: only the cargo target goes, only when the name has one
+    /// owner, and never while a process has it open.
+    #[test]
+    fn an_unrecorded_private_target_goes_once_its_one_session_ended() {
+        let base = temp("orphan");
+        let cache = base.join("cache");
+        let manifests = base.join("manifests");
+        std::fs::create_dir_all(&manifests).unwrap();
+        let target = |dir: &str| {
+            std::fs::create_dir_all(cache.join(dir)).unwrap();
+            std::fs::write(cache.join(dir).join("CACHEDIR.TAG"), "# This file is a cache directory tag created by cargo.\n").unwrap();
+        };
+        for dir in ["exp-aaaa1111/target", "exp-aaaa1111-b/wt/target", "exp-bbbb2222/target", "exp-ede224/target", "exp-cccc3333/target"] {
+            target(dir);
+        }
+        std::fs::write(cache.join("exp-aaaa1111/rig.sh"), "").unwrap();
+        std::fs::create_dir_all(cache.join("exp-aaaa1111/other-cache")).unwrap();
+        std::fs::write(cache.join("exp-aaaa1111/other-cache/CACHEDIR.TAG"), "some other tool").unwrap();
+        // Two sessions could own exp-bbbb2222; nobody known owns cccc3333.
+        let known = ["aaaa1111-0000", "bbbb2222-0000", "bbbb2222-1111"];
+        assert_eq!(sessions_with_cache_targets(&cache, known.iter().copied()), ["aaaa1111-0000"]);
+
+        let held = cache.join("exp-aaaa1111/target/held.lock");
+        let open = std::fs::File::create(&held).unwrap();
+        let results = remove_cache_targets(&manifests, &cache, "aaaa1111-0000");
+        #[cfg(target_os = "linux")]
+        {
+            assert!(held.exists(), "a process has it open: {results:?}");
+            assert!(!cache.join("exp-aaaa1111-b/wt/target").exists(), "{results:?}");
+        }
+        drop(open);
+        remove_cache_targets(&manifests, &cache, "aaaa1111-0000");
+        assert!(!cache.join("exp-aaaa1111/target").exists());
+        assert!(cache.join("exp-aaaa1111/rig.sh").exists(), "only the target");
+        assert!(cache.join("exp-aaaa1111/other-cache").exists(), "only a target cargo made");
+        for dir in ["exp-bbbb2222/target", "exp-ede224/target", "exp-cccc3333/target"] {
+            assert!(cache.join(dir).exists(), "{dir}");
+        }
+        assert!(sessions_with_cache_targets(&cache, known.iter().copied()).is_empty(), "nothing left to sweep");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

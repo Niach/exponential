@@ -409,6 +409,40 @@ pub fn pending_rows<'r>(viewer_id: &str, rows: &'r [HandoffRow]) -> Vec<(&'r Han
     pending.into_iter().map(|row| (row, row.author_id.as_deref() == Some(viewer_id))).collect()
 }
 
+/// ECHOED PENDING (#EXP-2129, `echoedPendingCases`, TS `echoedPending`): the
+/// not-consumed person rows, every person's, whose line the transcript holds
+/// already (a woken run echoes its input seconds before the device stamps it
+/// consumed): the echo draws them, never a pending bubble too.
+pub fn echoed_pending(rows: &[HandoffRow], echoes: &[HandoffEcho]) -> Vec<String> {
+    let pending = |row: &HandoffRow| row.consumed_at.as_deref().is_none_or(str::is_empty);
+    let mut people: Vec<(&HandoffRow, &str)> = rows
+        .iter()
+        .filter(|row| row.author_kind == "user" && !row.has_card && !row.body.trim().is_empty())
+        .filter_map(|row| Some((row, row.author_id.as_deref()?)))
+        .collect();
+    people.sort_by(|(a, _), (b, _)| millis(&a.created_at).cmp(&millis(&b.created_at)).then_with(|| a.id.cmp(&b.id)));
+    let Some((oldest, _)) = people.iter().find(|(row, _)| pending(row)) else { return Vec::new() };
+    let since = millis(&oldest.created_at) - MATCH_WINDOW_MS;
+    let mut taken: HashSet<usize> = HashSet::new();
+    let mut echoed = Vec::new();
+    for (row, author) in people {
+        if !pending(row) && row.consumed_at.as_deref().and_then(parse_instant).is_some_and(|at| at < since) {
+            continue;
+        }
+        let body = row.body.trim();
+        let from = millis(&row.created_at) - MATCH_WINDOW_MS;
+        let echo = echoes.iter().enumerate().position(|(index, echo)| {
+            !taken.contains(&index) && echo.at.is_some_and(|at| at >= from) && echo_matches(&echo.text, body, author)
+        });
+        let Some(index) = echo else { continue };
+        taken.insert(index);
+        if pending(row) {
+            echoed.push(row.id.clone());
+        }
+    }
+    echoed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -706,6 +740,38 @@ mod tests {
                 .map(|row| (row["id"].as_str().unwrap(), row["own"].as_bool().unwrap()))
                 .collect();
             assert_eq!(got, expected, "{}", case["name"]);
+        }
+    }
+
+    /// #EXP-2129: `echoedPendingCases`.
+    #[test]
+    fn replays_every_echoed_pending_case() {
+        let fixture: serde_json::Value = serde_json::from_str(FIXTURE_JSON).unwrap();
+        let cases = fixture["echoedPendingCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let rows: Vec<HandoffRow> = case["input"]["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| HandoffRow {
+                    id: row["id"].as_str().unwrap().into(),
+                    author_kind: row["authorKind"].as_str().unwrap().into(),
+                    author_id: row["authorId"].as_str().map(str::to_string),
+                    body: row["body"].as_str().unwrap().into(),
+                    created_at: row["createdAt"].as_str().unwrap().into(),
+                    consumed_at: row["consumedAt"].as_str().map(str::to_string),
+                    has_card: !row["card"].is_null(),
+                })
+                .collect();
+            let echoes: Vec<HandoffEcho> = case["input"]["echoes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|echo| HandoffEcho { text: echo["text"].as_str().unwrap().into(), at: echo["at"].as_i64() })
+                .collect();
+            let expected: Vec<&str> = case["expected"].as_array().unwrap().iter().map(|id| id.as_str().unwrap()).collect();
+            assert_eq!(echoed_pending(&rows, &echoes), expected, "{}", case["name"]);
         }
     }
 

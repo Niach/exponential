@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import com.exponential.app.domain.VoiceCall
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
@@ -13,6 +14,7 @@ import io.sentry.Breadcrumb
 import io.sentry.RequestDetails
 import io.sentry.Sentry
 import io.sentry.SentryEvent
+import io.sentry.SentryLevel
 import io.sentry.android.core.SentryAndroid
 import io.sentry.okhttp.SentryOkHttpInterceptor
 import io.sentry.protocol.User
@@ -112,6 +114,33 @@ object Observability {
     fun nonFatal(tag: String, message: String, error: Throwable) {
         Log.e(tag, message, error)
         if (running != null) Sentry.captureException(error)
+    }
+
+    /** EXP-2111: a call's log line as a breadcrumb (never a word of the call). */
+    fun callLine(line: String) {
+        if (running != null) addCallLine(line)
+    }
+
+    /** EXP-2111: the ONE event of a call that ended any other way than a hang-up. */
+    fun callFailed(end: VoiceCall.CallLog.End) {
+        if (running != null) sendCallFailed(end)
+    }
+
+    internal fun addCallLine(line: String) {
+        Sentry.addBreadcrumb(Breadcrumb().apply { category = "call"; message = line; level = SentryLevel.INFO })
+    }
+
+    internal fun sendCallFailed(end: VoiceCall.CallLog.End) {
+        Sentry.captureMessage(end.message, SentryLevel.WARNING) { scope ->
+            scope.fingerprint = listOf("voice-call-end", end.reason)
+            for ((name, value) in mapOf("call_tag" to end.tag, "call_by" to end.by, "call_reason" to end.reason, "call_stage" to end.stage, "call_phase" to end.phase)) scope.setTag(name, value)
+            scope.setExtra("answered", end.answered.toString())
+            scope.setExtra("sealed", end.sealed.toString())
+            scope.setExtra("lastedMs", end.lastedMs.toString())
+            scope.setExtra("upFrames", end.upFrames.toString())
+            scope.setExtra("downFrames", end.downFrames.toString())
+            scope.setExtra("lastDownMs", end.lastDownMs?.toString() ?: "never")
+        }
     }
 
     /** Network spans for our API + Electric shape requests only (inert while Sentry is off). */

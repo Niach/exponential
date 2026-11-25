@@ -26,7 +26,7 @@
 # idle|needsAccount|picking|running|done|failed, accounts, summary, progress, label, teamName,
 # error}), uploads through the team import API and the desktop becomes that team (archived here for 30
 # days).
-surface("settings", extensions={ede: {layer: "top", anchor: ["top", "left", "right", "bottom"], exclusiveZone: -1, margin: {bottom: 48}, keyboard: "on-demand", onDemand: true, functions: ["set", "ede_service", "ede_output", "ede_config", "ede_settings", "ede_launch", "ede_switcher", "ede_workspace", "ede_notify_clear", "ede_close_document", "ede_share"]}})
+surface("settings", extensions={ede: {layer: "top", anchor: ["top", "left", "right", "bottom"], exclusiveZone: -1, margin: {bottom: 48}, keyboard: "on-demand", onDemand: true, functions: ["set", "ede_account", "ede_service", "ede_output", "ede_config", "ede_settings", "ede_launch", "ede_switcher", "ede_workspace", "ede_notify_clear", "ede_close_document", "ede_share"]}})
 $/config/diagnostics/send = true
 $/config/keyboard/layout = "us"
 $/config/keyboard/repeat_delay = 400
@@ -34,6 +34,8 @@ $/config/keyboard/repeat_rate = 30
 $/config/theme/bridge = true
 $/config/theme/summary = ""
 $/date = ""
+$/installs/code = ""
+$/installs/waiting = false
 $/notifications/count = 0
 $/outputs = []
 $/pages/datetime/clock = "24-hour"
@@ -80,6 +82,7 @@ $/shell/switcher/current/id = "local"
 $/shell/switcher/current/kind = "local"
 $/shell/switcher/current/name = "Local"
 $/shell/switcher/entries = [{kind: "local", id: "local", name: "Local", current: true}]
+$/signOut/open = false
 $/user/login = ""
 $/user/name = ""
 root = Box(style={display: "flex", flexDirection: "column", width: 1280, height: 672, backgroundColor: "$color.background"}, children=[shell])
@@ -265,13 +268,18 @@ local_agents_empty = EmptyState(icon="settings-agents", title="No agents on a lo
 page_local_apps = Stack(direction="vertical", gap="md", children=[page_local_apps_title, local_apps_empty], visible=eq(a=$/settings/page, b="local-apps"))
 page_local_apps_title = Heading(text="Apps", level="h3")
 local_apps_empty = EmptyState(icon="nav-apps", title="No apps on a local desktop", description="Apps come with a team. Share this desktop as a team to add one.", actionLabel="Connect Exponential", on={press: ede_switcher(action="connect")})
-page_account = Stack(direction="vertical", gap="md", children=[page_account_title, account_me, account_exponential, account_list, account_row, account_connect], visible=eq(a=$/settings/page, b="account"))
+page_account = Stack(direction="vertical", gap="md", children=[page_account_title, account_me, account_exponential, account_list, account_waiting, account_connect, account_sign_out_button, account_sign_out], visible=eq(a=$/settings/page, b="account"))
 page_account_title = Heading(text="Account", level="h3")
 account_me = Row(title=$/user/name, subtitle=$/user/login, icon="settings-account")
 account_exponential = Row(title="Exponential", value="Not signed in", icon="brand-exponential", density="compact", visible=eq(a=len(value=$/accounts), b=0))
 account_list = List(gap="none", children=_template($/accounts, account_row, key="id"), visible=not(value=eq(a=len(value=$/accounts), b=0)))
 account_row = Row(title=$email, subtitle=$instance, icon="brand-exponential", density="compact")
-account_connect = Button(label="Connect Exponential", icon="brand-exponential", variant="outline", on={press: ede_switcher(action="connect")})
+account_waiting = Box(style={display: "flex", flexDirection: "column", alignItems: "center", gap: "$spacing.md", paddingBottom: "$spacing.xl3"}, children=[account_waiting_state, account_waiting_code], visible=cond(if=$/installs/waiting, then=true, else=false))
+account_waiting_state = EmptyState(icon="ui-private", title="Waiting for approval", style={paddingBottom: 0})
+account_waiting_code = Text(text=$/installs/code, variant="muted", align="center")
+account_connect = Button(label="Connect Exponential", icon="brand-exponential", variant="outline", on={press: ede_switcher(action="connect")}, visible=eq(a=len(value=$/accounts), b=0))
+account_sign_out_button = Button(label="Sign out", icon="ui-sign-out", variant="outline", disabled=$/account/signingOut, on={press: set(path="/signOut/open", value=true)}, visible=not(value=eq(a=len(value=$/accounts), b=0)))
+account_sign_out = AlertDialog(title="Sign out of Exponential?", description="This desktop's keys and its copy of your chats are removed. You stay on Local.", confirmLabel="Sign out", destructive=true, open=$/signOut/open, on={confirm: Event("ede_account", {action: "sign-out"})})
 page_whats_new = Stack(direction="vertical", gap="md", children=[page_whats_new_title, whats_new_version, whats_new_open], visible=eq(a=$/settings/page, b="whats-new"))
 page_whats_new_title = Heading(text="What's new", level="h3")
 whats_new_version = Row(title="Exponential Desktop", value=$/services/about/ede, icon="brand-exponential", density="compact")
@@ -434,7 +442,7 @@ switcher_entries = List(gap="none", children=_template($entries, switcher_entry,
 switcher_entry = Row(title=$name, selected=$current, density="compact", pressable=true, slots={leading: "switcher_entry_avatar"}, on={press: set(path="/settings/team", value={kind: $kind, id: $id, name: $name, account: $account})})
 switcher_entry_avatar = Avatar(name=$name, size="sm")
 switcher_sep = Separator()
-switcher_connect = Row(title="Connect Exponential", icon="brand-exponential", density="compact", pressable=true, on={press: ede_switcher(action="connect")})
+switcher_connect = Row(title="Connect Exponential", icon="brand-exponential", density="compact", pressable=true, on={press: ede_switcher(action="connect")}, visible=eq(a=len(value=$/accounts), b=0))
 nav_local_general = Row(title="General", icon="settings-general", selected=eq(a=$/settings/page, b="local-general"), density="compact", pressable=true, depth=0, on={press: set(path="/settings/page", value="local-general")}, visible=or(values=[eq(a=$/settings/team/kind, b="local"), and(values=[eq(a=$/settings/team/kind, b=""), eq(a=$/shell/switcher/current/kind, b="local")])]))
 nav_local_agents = Row(title="Agents", icon="settings-agents", selected=eq(a=$/settings/page, b="local-agents"), density="compact", pressable=true, depth=0, on={press: set(path="/settings/page", value="local-agents")}, visible=or(values=[eq(a=$/settings/team/kind, b="local"), and(values=[eq(a=$/settings/team/kind, b=""), eq(a=$/shell/switcher/current/kind, b="local")])]))
 nav_local_apps = Row(title="Apps", icon="nav-apps", selected=eq(a=$/settings/page, b="local-apps"), density="compact", pressable=true, depth=0, on={press: set(path="/settings/page", value="local-apps")}, visible=or(values=[eq(a=$/settings/team/kind, b="local"), and(values=[eq(a=$/settings/team/kind, b=""), eq(a=$/shell/switcher/current/kind, b="local")])]))

@@ -35,6 +35,14 @@ enum SidebarItem: Hashable {
         }
     }
 
+    /// The entry's page is a chat screen, its header its own.
+    var ownsHeader: Bool {
+        switch self {
+        case .agentChannel, .chat: true
+        default: false
+        }
+    }
+
     /// The muted glyph of an empty detail column.
     var placeholderIcon: String {
         switch self {
@@ -62,7 +70,7 @@ struct TabletShell: View {
     /// The entry's own page under the detail stack (nil = the detail's root
     /// is the path's first route, else the empty glyph).
     let detailRoot: AnyView?
-    let placeholderIcon: String
+    let placeholder: SidebarItem
     @Binding var path: [AppRoute]
     /// A list-column row's open: REPLACES the detail.
     let listPush: PushRouteAction
@@ -173,7 +181,9 @@ struct TabletShell: View {
         if let detailRoot {
             NavigationStack(path: $path) {
                 detailRoot
-                    .toolbar(.visible, for: .navigationBar)
+                    // A chat draws its own header: the bar stands only while
+                    // it carries the sidebar's toggle.
+                    .toolbar(wide && placeholder.ownsHeader ? .hidden : .visible, for: .navigationBar)
                     .toolbar { sidebarToggle }
                     // A one-page entry's root (the Assistant): nothing to go back to.
                     .environment(\.detailColumnRoot, true)
@@ -190,7 +200,7 @@ struct TabletShell: View {
                     } else {
                         ZStack {
                             AppBackground()
-                            AppIcon(placeholderIcon, size: 44)
+                            AppIcon(placeholder.placeholderIcon, size: 44)
                                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         }
                         .toolbar(.hidden, for: .navigationBar)
@@ -218,7 +228,11 @@ struct TabletSidebar: View {
     @Environment(TeamState.self) private var teamState
     @Environment(SessionListsModel.self) private var lists
     @Environment(SidebarTreeModel.self) private var tree
+    @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
+    @Environment(\.toaster) private var toaster
     @State private var now = Date()
+    @State private var addDevice = false
 
     var body: some View {
         ZStack {
@@ -265,6 +279,9 @@ struct TabletSidebar: View {
                 now = Date()
             }
         }
+        .background {
+            Color.clear.sheet(isPresented: $addDevice) { AddDeviceSheet(accountId: accountId) }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tablet-sidebar")
     }
@@ -272,9 +289,10 @@ struct TabletSidebar: View {
     // MARK: - Entries
 
     private var needsYouCount: Int {
-        // #EXP-1950: installs waiting for approval count as Needs you rows.
-        lists.needsYou(me: deps.auth.userId, now: now).count
-            + deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").rows.count
+        lists.needsYouCounts(
+            me: deps.auth.userId, now: now,
+            installs: deps.installTrust.snapshot(deps.auth.activeAccountId ?? "").waitingRows
+        ).total
     }
 
     @ViewBuilder
@@ -293,7 +311,7 @@ struct TabletSidebar: View {
             row(.drafts, title: "Drafts", badge: NavBadges.Value(count: draftCount, tone: .muted)) { glyph(AppIcons.navDrafts) }
         }
         if let assistant = lists.assistant {
-            row(.agentChannel(assistant.agentId), title: assistant.name, badge: lists.agentBadge(assistant)) {
+            row(.agentChannel(assistant.agentId), title: assistant.name, badge: lists.assistantBadge) {
                 ExpLogoMark(size: 18, color: .white)
             }
         }
@@ -321,6 +339,11 @@ struct TabletSidebar: View {
             let lead: Chats.ChatLead = chat.needsYou ? .needsYou : chat.busy ? .working : .waiting
             return AnyView(row(.chat(chat.rootId), title: chat.title, bold: chat.unread) {
                 ChatLeadMark(lead: lead, cli: lists.clis[chat.sessionId], size: 18)
+                    .teamCorner(
+                        teamState.team(lists.chatRoots[chat.rootId]?.teamId)
+                            .map { ChatRowTeam(name: $0.name, iconUrl: $0.iconUrl) },
+                        lead: 18
+                    )
             })
         }
     }
@@ -343,6 +366,45 @@ struct TabletSidebar: View {
         AppIcon(icon, size: 18).foregroundStyle(color)
     }
 
+    /// #EXP-2126: an entry's kind in sidebar-menus.json (the tree's rows bring
+    /// their own menu).
+    private func menuKind(_ item: SidebarItem) -> SidebarMenus.Kind? {
+        switch item {
+        case .agent: .home
+        case .needsYou: .needsYou
+        case .chats: .chats
+        case .drafts: .drafts
+        case .devices: .devices
+        case .agentChannel: .assistant
+        case .settings, .app, .board, .chat: nil
+        }
+    }
+
+    private func run(_ action: SidebarMenus.Action, _ item: SidebarItem) {
+        switch action {
+        case .open: onSelect(item)
+        case .newChat: onSelect(.agent)
+        case .addDevice: addDevice = true
+        case .compact: send(.compact, item)
+        case .newConversation: send(.newConversation, item)
+        case .settings: pushRoute(.assistantSettings(accountId: accountId))
+        default: break
+        }
+    }
+
+    private func send(_ entry: Chats.AgentMenuEntry, _ item: SidebarItem) {
+        guard case let .agentChannel(agentId) = item, let text = Chats.agentMenuSends[entry] else { return }
+        Task { @MainActor in
+            do {
+                _ = try await deps.sessionsApi.send(accountId: accountId, .agent(agentId: agentId, text: text))
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "send", thing: "the message"), description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+
     /// One rail row: the glyph, the name, THE count badge (#FEED-232); the open entry's
     /// row is filled (`flatRow(isActive:)`, a master-detail's open item).
     private func row<Glyph: View>(
@@ -352,23 +414,26 @@ struct TabletSidebar: View {
         bold: Bool = false,
         @ViewBuilder glyph: () -> Glyph
     ) -> some View {
-        Button { onSelect(item) } label: {
-            HStack(spacing: 10) {
-                glyph()
-                    .frame(width: 20, height: 20)
-                Text(title)
-                    .font(.system(size: 15, weight: bold ? .semibold : .regular))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer(minLength: 4)
-                CountBadge(badge)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 36)
-            .contentShape(Rectangle())
-            .flatRow(isActive: selection == item)
+        let kind = menuKind(item)
+        return HStack(spacing: 10) {
+            glyph()
+                .frame(width: 20, height: 20)
+            Text(title)
+                .font(.system(size: 15, weight: bold ? .semibold : .regular))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            CountBadge(badge)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .frame(height: 36)
+        .contentShape(Rectangle())
+        .flatRow(isActive: selection == item)
+        .accessibilityElement(children: .combine)
+        .sidebarRowMenu(
+            kind ?? .chats, title: title, actions: kind.map { SidebarMenus.phoneMenu($0) } ?? [],
+            onTap: { onSelect(item) }, onPick: { run($0, item) }
+        )
         .accessibilityIdentifier(testId(item))
     }
 

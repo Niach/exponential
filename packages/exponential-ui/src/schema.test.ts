@@ -82,7 +82,7 @@ describe(`catalog definitions (round 9 §11)`, () => {
     for (const [name, prop] of [[`Label`, `for`], [`Popover`, `anchor`], [`Menu`, `anchor`]])
       expect(core.components[name].properties[prop].$ref).toBe(`common_types.json#/$defs/ComponentId`)
     // Unknown names the unmapped component in props the envelope owns.
-    expect(Object.keys(core.components.Unknown.properties)).toEqual([`component`, `style`, `visible`])
+    expect(Object.keys(core.components.Unknown.properties)).toEqual([`component`, `catalogId`, `style`, `visible`])
     for (const def of Object.values(core.components) as Doc[]) expect(def.unevaluatedProperties).toBeUndefined()
   })
 

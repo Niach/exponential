@@ -108,6 +108,11 @@ object InstallApprovalView {
                 node("$id-approve", "Button", mapOf("label" to Copy.APPROVE, "size" to "sm"), extra = press(Events.APPROVE, row.installId)),
                 node("$id-remove", "Button", mapOf("label" to Copy.REMOVE, "size" to "sm", "variant" to "ghost"), extra = press(Events.REMOVE, row.installId)),
             ),
+            extra = mapOf(
+                "style" to JsonObject(
+                    mapOf("paddingHorizontal" to JsonPrimitive("\$spacing.md"), "paddingBottom" to JsonPrimitive("\$spacing.md")),
+                ),
+            ),
         )
         return node(id, "Stack", mapOf("direction" to "vertical", "gap" to "sm"), children = listOf(line, actions))
     }

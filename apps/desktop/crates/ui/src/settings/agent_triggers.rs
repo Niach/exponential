@@ -149,7 +149,7 @@ pub(super) fn section(ink: &Ink, chrome: &Chrome) -> Value {
     add["visible"] = at("canAdd");
     // gpui centres the label's line half a point lower than the flex centre.
     add["children"][1]["style"]["paddingTop"] = json!(1);
-    let band = ink.band("triggers_band", &copy.triggers, Some(add));
+    let band = ink.band("triggers_band", copy.triggers.as_str(), Some(add));
     let mut check_in = select_row("check_in_select", &copy.check_in, "triggerList/checkIn", "checkIn", json!({}));
     check_in["props"]["disabled"] = at("readOnly");
     // One trigger row: `picker_value_label` (one line, at most 240 px);

@@ -43,6 +43,9 @@ struct AgentsView: View {
     @State private var removeAccountTarget: AccountRemoveTarget?
     /// EXP-1137: the sign-out a chip is confirming.
     @State private var signOutAccountTarget: AccountRemoveTarget?
+    /// #EXP-2126: the device being renamed (its long-press menu) and its name.
+    @State private var renameTarget: RenameTarget?
+    @State private var renameName = ""
     /// EXP-1169: the band's "Add device" sheet.
     @State private var showAddDevice = false
     /// A-16: the instance's latest client builds — the cards' version compare
@@ -71,6 +74,10 @@ struct AgentsView: View {
     /// out: a sign-in is its own sheet (`AgentLoginSheet`), not a tab of the
     /// machine's settings.
     private struct DeviceSettingsTarget: Identifiable {
+        let id: String
+    }
+
+    private struct RenameTarget: Identifiable {
         let id: String
     }
 
@@ -357,6 +364,22 @@ struct AgentsView: View {
             Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
+                .glassAlert(item: $renameTarget) { target in
+                    GlassAlert(
+                        title: SidebarMenus.copy[.rename] ?? "",
+                        actions: [
+                            GlassAlertAction("Cancel", role: .outline, isCancel: true, id: "cancel") {},
+                            GlassAlertAction("Save", role: .primary, isDefault: true, id: "save") { rename(target.id) },
+                        ]
+                    ) {
+                        GlassTextField("Name", text: $renameName, accessibilityIdentifier: "device-rename-name")
+                    }
+                }
+        )
+        .background(
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
                 // FEED-149: the team owner's Remove, confirmed (prompts.json).
                 .glassAlert(item: $dropShareTarget) { target in
                     GlassAlert(
@@ -365,6 +388,35 @@ struct AgentsView: View {
                     )
                 }
         )
+    }
+
+    /// #EXP-2126: a device row's long-press pick (sidebar-menus.json `device`).
+    private func runMenu(_ action: SidebarMenus.Action, _ device: SteerDevice) {
+        switch action {
+        case .settings: settingsTarget = DeviceSettingsTarget(id: device.deviceId)
+        case .rename:
+            renameName = deviceName(device)
+            renameTarget = RenameTarget(id: device.deviceId)
+        case .copyLink:
+            guard let base = deps.auth.accounts.first(where: { $0.id == accountId })?.instanceUrl else { return }
+            UIPasteboard.general.string = DevicesList.link(base: base, deviceId: device.deviceId)
+            toaster.success(SidebarMenus.linkCopied)
+        default: break
+        }
+    }
+
+    private func rename(_ deviceId: String) {
+        let label = renameName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty, label != devices?.first(where: { $0.deviceId == deviceId })?.deviceLabel else { return }
+        Task {
+            do {
+                try await deps.devicesApi.rename(accountId: accountId, deviceId: deviceId, label: label)
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "rename", thing: "the device"), description: error.userFacingMessage
+                )
+            }
+        }
     }
 
     /// The machine a confirm names: its label, or its id for a row that has
@@ -522,6 +574,10 @@ struct AgentsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
         .opacity(row.group == .offline ? 0.6 : 1)
+        .sidebarRowMenu(
+            .device, title: deviceName(device), actions: SidebarMenus.deviceMenu(mine: settings),
+            onPick: { runMenu($0, device) }
+        )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("device-card-\(device.deviceId)")
     }

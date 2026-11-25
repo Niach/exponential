@@ -44,7 +44,7 @@ const ready = await probeRealDb(`
 if (!ready.ok) console.info(`[merge-train worker.real-db] skipped: ${ready.reason}`)
 
 const { sendSession } = await import(`@/lib/sessions/send`)
-const { recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
+const { applyPullRequestBase, recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
 const worker = await import(`@/lib/merge-train/worker`)
 const { setForgeForTests } = await import(`@/lib/ecode/forge`)
 const { confirmRetry } = await import(`@/lib/merge-train/confirm`)
@@ -78,6 +78,8 @@ class FakeForge {
   squashed: number[] = []
   missingPipeline = false
   required = [`gate`]
+  /** #FEED-307: a base with its own required names (default `required`). */
+  requiredOn = new Map<string, string[]>()
   /** The pipeline reports nothing yet: a run stays live across passes. */
   hold = false
   refuseFastForward = false
@@ -121,7 +123,7 @@ class FakeForge {
       },
       readBranch: async (_repo, branch) =>
         (this.staleReads > 0 ? this.beforeFastForward.get(branch) : undefined) ?? this.branch.get(branch) ?? null,
-      requiredChecks: async () => this.required,
+      requiredChecks: async (_repo, base) => this.requiredOn.get(base) ?? this.required,
       dispatchPipeline: async (_repo, inputs) => {
         if (this.missingPipeline) return { ok: false, missing: true, message: `no train.yml` }
         const units = JSON.parse(inputs.units) as TrainPipelineUnit[]
@@ -451,7 +453,8 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     const top = await w.pr(502, { base: `exp/501` })
     await db.update(pullRequests).set({ basePullRequestId: bottom }).where(eq(pullRequests.id, top))
     await w.idle()
-    await pass(w.repoId)
+    await worker.queuePullRequest(bottom, { stack: true })
+    await worker.drainMergeTrainEdges()
     expect(fake.dispatches[0]!.units.map((u) => u.prs.map((p) => p.number))).toEqual([[501, 502]])
     fake.branch.set(`main`, `someone-else`)
     // The landing finds the base moved: the same pass recomposes on it.
@@ -473,13 +476,91 @@ describe.skipIf(!ready.ok)(`EXP-1709: the merge train worker`, () => {
     await db.update(pullRequests).set({ basePullRequestId: bottom }).where(inArray(pullRequests.id, [ready, waiting]))
     await gateRunning(waiting)
     await w.idle()
-    await pass(w.repoId)
+    await worker.queuePullRequest(bottom, { stack: true })
+    await worker.drainMergeTrainEdges()
     expect(fake.dispatches[0]!.units.map((u) => u.prs.map((p) => p.number))).toEqual([[511, 512]])
     await pass(w.repoId)
     expect((await prRow(bottom)).mergeState).toBe(`merged`)
     expect((await prRow(ready)).mergeState).toBe(`merged`)
     expect((await prRow(waiting)).mergeState).toBe(`checks`)
     expect(fake.closed.map((c) => c.number)).toEqual([511, 512])
+  })
+
+  // #3389 landed with #3394 and #3397 (never asked for, their `gate` never run).
+  for (const how of [`the train alone`, `a plain merge`, `an agent's force`] as const) {
+    it(`#FEED-307: a base landing by ${how} never lands the PRs stacked on it`, async () => {
+      const w = await world()
+      fake.requiredOn.set(`exp/531`, [])
+      fake.requiredOn.set(`exp/532`, [])
+      const bottom = await w.pr(531)
+      // A workflow on a PR into a feature branch: no `gate`, all green or none.
+      const mid = await w.pr(532, { base: `exp/531`, checks: false })
+      const top = await w.pr(533, { base: `exp/532`, checks: false })
+      fake.prs.get(532)!.updatedAt = new Date(Date.now() - 60 * 60_000)
+      fake.prs.get(533)!.updatedAt = new Date(Date.now() - 60 * 60_000)
+      await db.insert(pullRequestChecks).values({ teamId: w.teamId, pullRequestId: mid, headSha: `head-532`, name: `lint`, status: `completed`, conclusion: `success`, required: false })
+      await w.idle()
+      if (how === `a plain merge`) await worker.queuePullRequest(bottom)
+      if (how === `an agent's force`) await worker.mergeNowPullRequest(bottom, { keepPersonHolds: true, by: w.owner })
+      await worker.drainMergeTrainEdges()
+      await pass(w.repoId, 3)
+      expect((await prRow(bottom)).mergeState).toBe(`merged`)
+      expect(await prRow(mid)).toMatchObject({ state: `open`, mergeState: `checks`, mergeApprovedAt: null, mergeNow: false })
+      expect(await prRow(top)).toMatchObject({ state: `open`, mergeState: `checks`, mergeWait: `stack`, mergeApprovedAt: null, mergeNow: false })
+      expect(fake.dispatches.flatMap((d) => d.units.map((u) => u.prs.map((p) => p.number)))).toEqual([[531]])
+      expect(fake.closed.map((c) => c.number)).toEqual([531])
+    })
+  }
+
+  it(`#FEED-307: a retargeted PR waits for a required check that ran on its new base`, async () => {
+    const w = await world()
+    fake.requiredOn.set(`exp/541`, [])
+    const bottom = await w.pr(541)
+    const child = await w.pr(542, { base: `exp/541` })
+    // Its `gate` ran into the feature branch, an hour ago.
+    const hourAgo = new Date(Date.now() - 60 * 60_000)
+    await db.update(pullRequestChecks).set({ startedAt: hourAgo }).where(eq(pullRequestChecks.pullRequestId, child))
+    await w.idle()
+    await pass(w.repoId, 2)
+    expect((await prRow(bottom)).mergeState).toBe(`merged`)
+    await applyPullRequestBase({ pullRequestId: child, base: `main` })
+    fake.prs.get(542)!.updatedAt = new Date()
+    await pass(w.repoId, 2)
+    expect(await prRow(child)).toMatchObject({ mergeState: `checks`, mergeWait: `checks` })
+    // Nothing runs: its agent is told once; the stale row never releases it.
+    fake.prs.get(542)!.updatedAt = new Date(Date.now() - 6 * 60_000)
+    await pass(w.repoId, 3)
+    expect(await prRow(child)).toMatchObject({ mergeState: `held`, mergeHold: `no_checks` })
+    expect(await lines(w.children[542]!)).toHaveLength(1)
+    expect(fake.dispatches).toHaveLength(1)
+    // The gate ran with the new base: now it rides.
+    await db.update(pullRequestChecks).set({ startedAt: new Date(Date.now() + 1000) }).where(eq(pullRequestChecks.pullRequestId, child))
+    await pass(w.repoId)
+    expect((await prRow(child)).mergeState).toBe(`testing`)
+  })
+
+  it(`#FEED-307: an explicit stack lands whole: a person's line never takes the PRs above, a forced stack goes untested`, async () => {
+    const w = await world()
+    const a = await w.pr(551)
+    const b = await w.pr(552, { base: `exp/551` })
+    const c = await w.pr(553, { base: `exp/552` })
+    await w.idle()
+    expect((await worker.mergeNowPullRequest(b, { by: w.owner })).refused).toBe(
+      `Can't merge #552 now: it is stacked on #551. Merge #551 first, or pass stack: true to land the whole stack.`
+    )
+    await worker.approvePullRequest(b, { stack: true })
+    await worker.drainMergeTrainEdges()
+    expect(fake.dispatches[0]!.units.map((u) => u.prs.map((p) => p.number))).toEqual([[551, 552]])
+    await pass(w.repoId)
+    expect([(await prRow(a)).mergeState, (await prRow(b)).mergeState, (await prRow(c)).state]).toEqual([`merged`, `merged`, `open`])
+    expect(fake.closed.map((p) => p.number)).toEqual([551, 552])
+
+    const d = await w.pr(561)
+    await w.pr(562, { base: `exp/561` })
+    await w.idle()
+    expect((await worker.mergeNowPullRequest(d, { by: w.owner, stack: true })).refused).toBeNull()
+    await worker.drainMergeTrainEdges()
+    expect([fake.dispatches.at(-1)!.inputs.mode, fake.dispatches.at(-1)!.units.map((u) => u.prs.map((p) => p.number))]).toEqual([`untested`, [[561, 562]]])
   })
 
   it(`a PR still on a landed PR's branch rides no batch (#EXP-1711)`, async () => {

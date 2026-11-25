@@ -730,21 +730,21 @@
                     "placeholder": "you@example.com",
                     "value": {
                       "@path": "/invite/email"
-                    },
-                    "checks": [
-                      {
-                        "condition": {
-                          "@call": "email",
-                          "args": {
-                            "value": {
-                              "@path": "/invite/email"
-                            }
+                    }
+                  },
+                  "@checks": [
+                    {
+                      "condition": {
+                        "@call": "email",
+                        "args": {
+                          "value": {
+                            "@path": "/invite/email"
                           }
-                        },
-                        "message": "Enter an email address"
-                      }
-                    ]
-                  }
+                        }
+                      },
+                      "message": "Enter an email address"
+                    }
+                  ]
                 },
                 {
                   "id": "invite_role",

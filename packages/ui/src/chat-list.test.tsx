@@ -160,14 +160,14 @@ describe(`ChatList`, () => {
         rows={[]}
         agentRows={agentRows}
         appRows={[appRow]}
-        agentTeamOf={(id) => (id === agentRows[0]!.agentId ? null : <span data-testid={`mark-${id}`} />)}
-        appTeamOf={(id) => <span data-testid={`mark-${id}`} />}
+        agentTeamOf={(id) => (id === agentRows[0]!.agentId ? null : { iconUrl: null, name: `Team ${id}` })}
+        appTeamOf={(id) => ({ iconUrl: null, name: `Team ${id}` })}
       />
     )
     const agents = screen.getAllByTestId(CHAT_AGENT_ROW_TEST_ID)
-    expect(agents[0]!.querySelector(`[data-testid^=mark-]`)).toBeNull()
-    expect(agents[1]!.querySelector(`[data-testid=mark-${agentRows[1]!.agentId}]`)).toBeTruthy()
-    expect(screen.getByTestId(CHAT_APP_ROW_TEST_ID).querySelector(`[data-testid=mark-app-1]`)).toBeTruthy()
+    expect(agents[0]!.querySelector(`[data-slot=team-corner]`)).toBeNull()
+    expect(agents[1]!.querySelector(`[data-slot=team-corner][aria-label="Team ${agentRows[1]!.agentId}"]`)).toBeTruthy()
+    expect(screen.getByTestId(CHAT_APP_ROW_TEST_ID).querySelector(`[data-slot=team-corner][aria-label="Team app-1"]`)).toBeTruthy()
   })
 
   it(`shows the empty state with no rows`, () => {

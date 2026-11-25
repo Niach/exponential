@@ -162,6 +162,20 @@ export function App({ view, views }: { view: AppView; views: AppViews }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen])
 
+  // #NEW-141: the issue the person opened is what the conversation is about.
+  // Its number and title only: the model reads the rest itself.
+  const openIssue = screen.kind === `issue` ? screen.issue : null
+  useEffect(() => {
+    if (view !== `issues` || screen.kind === `waiting` || leaseRef.current.isExpired()) return
+    bridge.current?.updateModelContext(
+      openIssue && {
+        title: `${openIssue.identifier} ${openIssue.title}`,
+        text: `The person has Exponential issue ${openIssue.identifier} open: ${openIssue.title}`,
+      }
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, screen.kind === `waiting`, openIssue?.id, openIssue?.title])
+
   const openLink = (url: string) => bridge.current?.openLink(url)
   // Stable for the view's lifetime: views key effects on `call`.
   const actions = useMemo(

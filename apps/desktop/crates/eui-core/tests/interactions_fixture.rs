@@ -89,7 +89,7 @@ fn check_cases_fail_and_pass_like_the_reference() {
         let name = c["name"].as_str().unwrap();
         let mut s = surface_with_issues(json!({"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"submit": {"event": {"name": "submit"}}, "invalid": {"event": {"name": "invalid"}}},
             "children": [
-                {"id": "agree", "component": "Checkbox", "props": {"label": "I agree", "name": "agree", "checked": {"@path": "/agreed"}, "checks": c["checks"]}},
+                {"id": "agree", "component": "Checkbox", "props": {"label": "I agree", "name": "agree", "checked": {"@path": "/agreed"}}, "@checks": c["checks"]},
                 {"id": "go", "component": "Button", "props": {"label": "Send", "submit": true}}
             ]}));
         s.set_data("", Some(c["data"].clone())).unwrap();
@@ -125,7 +125,7 @@ fn check_severities_show_one_message_and_only_an_error_blocks() {
         let name = c["name"].as_str().unwrap();
         let mut s = surface_with_issues(json!({"id": "f", "component": "Form", "props": {"name": "f"}, "on": {"submit": {"event": {"name": "submit"}}, "invalid": {"event": {"name": "invalid"}}},
             "children": [
-                {"id": "x", "component": "Input", "props": {"label": "X", "name": "x", "value": "v", "validateOn": "submit", "checks": c["checks"]}},
+                {"id": "x", "component": "Input", "props": {"label": "X", "name": "x", "value": "v", "validateOn": "submit"}, "@checks": c["checks"]},
                 {"id": "go", "component": "Button", "props": {"label": "Send", "submit": true}}
             ]}));
         s.set_data("", Some(c["data"].clone())).unwrap();
@@ -165,7 +165,7 @@ fn button_checks_disable_on_an_error_alone() {
     for c in f["buttonChecks"].as_array().unwrap() {
         let name = c["name"].as_str().unwrap();
         let mut s = surface_with_issues(json!({"id": "root", "component": "Box", "children": [
-            {"id": "b", "component": "Button", "props": {"label": "Go", "checks": c["checks"]}, "on": {"press": {"event": {"name": "press"}}}}
+            {"id": "b", "component": "Button", "props": {"label": "Go"}, "@checks": c["checks"], "on": {"press": {"event": {"name": "press"}}}}
         ]}));
         s.set_data("", Some(c["data"].clone())).unwrap();
         let mut m = fixed();

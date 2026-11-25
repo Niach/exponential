@@ -295,17 +295,22 @@ export async function mintSessionToken(
  * the capture "succeeds"), which is exactly why it is checked explicitly.
  */
 export async function sessionValid(baseUrl: string, token: string): Promise<boolean> {
+  return (await sessionMember(baseUrl, token)) !== null
+}
+
+/** The user id a session token signs in, null when it does not validate. */
+export async function sessionMember(baseUrl: string, token: string): Promise<string | null> {
   try {
     const response = await fetch(`${baseUrl}/api/auth/get-session`, {
       headers: { authorization: `Bearer ${token}`, origin: baseUrl },
       tls: { rejectUnauthorized: false },
       signal: AbortSignal.timeout(15_000),
     })
-    if (!response.ok) return false
+    if (!response.ok) return null
     const body = (await response.json()) as { user?: { id?: string } } | null
-    return Boolean(body?.user?.id)
+    return body?.user?.id ?? null
   } catch {
-    return false
+    return null
   }
 }
 
@@ -457,8 +462,6 @@ export async function captureDesktop(
   // whatever this Mac happens to have checked out.
   const reposRoot = options.reposRoot ?? buildRepoFixture()
   console.log(`[desktop] repos root: ${reposRoot}${options.reposRoot ? `` : ` (the repo fixture)`}`)
-  // One data dir per RUN: a stable device identity across the lane's launches.
-  const dataDir = makeDataDir(reposRoot)
   // Signed-out views get their OWN dirs — see `signedOut`. Tracked so an abort
   // cannot leave them behind.
   const scratchDirs: string[] = []
@@ -467,11 +470,14 @@ export async function captureDesktop(
   scratchDirs.push(zdotdir)
 
   let token = await mintSessionToken(baseUrl)
-  if (!(await sessionValid(baseUrl, token))) {
+  const member = await sessionMember(baseUrl, token)
+  if (member === null) {
     throw new Error(
       `the freshly minted session for ${DEMO_EMAIL} does not validate at ${baseUrl} — the instance is not the one that was seeded`
     )
   }
+  // One data dir per RUN: a stable device identity across the lane's launches.
+  const dataDir = makeDataDir(reposRoot, member)
   // Minted on first use, and only if an onboarding view is in scope: most runs
   // never touch the wizard, and a lane that does not need them should not
   // fail because the seed predates it. Two wizard identities (EXP-725): the
@@ -579,14 +585,18 @@ export async function captureDesktop(
  * repos root, and `changelogSeenId` = the head changelog entry pre-dismisses
  * the sidebar "What's new" card, the same dismissed state the web lane seeds
  * (`capture-web.ts`), so no client's shot carries a per-release banner.
+ * `member` (#EXP-2121): the signed-in user, whose Assistant button already
+ * slid in and welcomed them on this device (`assistant_fab.rs` `FabMemory`),
+ * so a single-view run never photographs the welcome bubble.
  */
-export function makeDataDir(reposRoot?: string): string {
+export function makeDataDir(reposRoot?: string, member?: string): string {
   const dir = mkdtempSync(join(tmpdir(), `exp-shots-desktop-`))
   // #EXP-1868: a run killed before its `finally` still loses it at session end.
   sessionManifestAdd(`dir`, dir)
   const settings = {
     ...(reposRoot ? { reposRoot } : {}),
     changelogSeenId: desktopChangelogHeadId(),
+    ...(member ? { assistantFab: { [member]: { entered: true, welcomed: true, bubbled: [] } } } : {}),
   }
   writeFileSync(join(dir, `settings.json`), `${JSON.stringify(settings, null, 2)}\n`)
   return dir

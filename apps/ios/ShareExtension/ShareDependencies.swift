@@ -53,6 +53,6 @@ final class ShareDependencies {
                 return mine.first { $0.x25519Public == key.publicKey && $0.revokedAt == nil }?.installId
             }
         )
-        self.sealing = SendSealing(holder: holder, crypto: crypto)
+        self.sealing = SendSealing(holder: holder, crypto: crypto, asksForSecrets: false)
     }
 }

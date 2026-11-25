@@ -19,6 +19,7 @@ import {
   steerNoFeedState,
   steerNoFeedInputs,
   steerSyncedTail,
+  steerTailUnreachable,
   steerOfflineLine,
   type SteerTailFeedRow,
   type SteerSyncedMessage,
@@ -87,6 +88,12 @@ describe(`steer over eNet (fixtures/steer-enet.json)`, () => {
       expect(picked.map((m) => m.id)).toEqual(c.expected)
     })
   }
+  for (const c of fixture.tailUnreachableCases) {
+    test(`tailUnreachable: ${c.name}`, () => {
+      expect(steerTailUnreachable(c)).toBe(c.unreachable)
+    })
+  }
+
   for (const c of fixture.offlineLineCases) {
     test(`offlineLine: ${c.name}`, () => {
       expect(steerOfflineLine(c)).toBe(c.line)

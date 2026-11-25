@@ -423,7 +423,7 @@ export async function awaitRebaseOffMergedBranch(
   if (pull.baseRef && pull.baseRef !== opts.base) {
     await db
       .update(pullRequests)
-      .set({ base: pull.baseRef, basePullRequestId: null, updatedAt: new Date() })
+      .set({ base: pull.baseRef, basePullRequestId: null, mergeBaseChangedAt: new Date(), mergeWithStack: false, updatedAt: new Date() })
       .where(eq(pullRequests.id, opts.pullRequestId))
   }
 }

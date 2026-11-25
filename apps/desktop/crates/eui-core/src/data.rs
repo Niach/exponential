@@ -240,6 +240,9 @@ pub enum Position {
     #[default]
     Reactive,
     Action,
+    /// §6.9: a `callRendererFunction`: every call obeys the agent caller
+    /// boundary.
+    Agent,
 }
 
 /// Round 9 §6.8: why an evaluation failed, as the error the renderer sends.
@@ -277,6 +280,7 @@ pub type RouteAnswer = Result<Value, Failure>;
 
 const EXPRESSION_ERROR: &str = "EXPRESSION_ERROR";
 const UNKNOWN_FUNCTION: &str = "UNKNOWN_FUNCTION";
+const INVALID_FUNCTION_CALL: &str = "INVALID_FUNCTION_CALL";
 
 impl<'a> ResolveContext<'a> {
     pub fn new(data: &'a Value, scope: &'a str) -> ResolveContext<'a> {
@@ -387,47 +391,41 @@ fn text_of(v: Option<&Value>) -> String {
     }
 }
 
-/// §6.2: `${@index()}` / `${@index(offset: <number literal>)}`: `Some(offset)`.
-fn index_expr(expr: &str) -> Option<f64> {
-    let inner = expr.strip_prefix("@index")?.trim_start().strip_prefix('(')?.strip_suffix(')')?.trim();
-    if inner.is_empty() {
-        return Some(0.0);
-    }
-    let digits = inner.strip_prefix("offset")?.trim_start().strip_prefix(':')?.trim_start();
-    let body = digits.strip_prefix('-').unwrap_or(digits);
-    let (whole, fraction) = body.split_once('.').map_or((body, None), |(w, f)| (w, Some(f)));
-    let number = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
-    (number(whole) && fraction.is_none_or(number)).then(|| digits.parse().ok()).flatten()
-}
-
 /// The basic `formatString`: `${<pointer>}` (absolute, or relative to the
-/// scope) and the `@index` form (§6.2).
-fn interpolate(text: &str, ctx: &ResolveContext) -> String {
+/// scope), `${@index()}` (§6.2) and `${fn(name: value)}`, a call of the
+/// catalog the enclosing call resolved to (`format_template.rs`).
+fn interpolate(text: &str, catalog: &str, ctx: &ResolveContext) -> Value {
+    use crate::format_template::{parse_template, TemplatePart, MALFORMED_TEMPLATE};
     let mut out = String::new();
-    let mut rest = text;
-    while let Some(start) = rest.find("${") {
-        out.push_str(&rest[..start]);
-        let after = &rest[start + 2..];
-        match after.find('}') {
-            Some(end) => {
-                let expr = after[..end].trim();
-                if let Some(offset) = index_expr(expr) {
-                    if let Some(index) = ctx.item_index() {
-                        out.push_str(&json::number_to_string(index as f64 + offset));
-                    }
-                } else if let Some(v) = ctx.read_path(expr) {
+    for part in parse_template(text, catalog) {
+        match part {
+            TemplatePart::Text(t) => out.push_str(&t),
+            TemplatePart::Path(path) => {
+                if let Some(v) = ctx.read_path(&path) {
                     out.push_str(&crate::format::display_string(v));
                 }
-                rest = &after[end + 1..];
             }
-            None => {
-                out.push_str(&rest[start..]);
-                rest = "";
+            TemplatePart::Malformed => {
+                ctx.fail(Failure::new(EXPRESSION_ERROR, MALFORMED_TEMPLATE));
+                return Value::Null;
+            }
+            TemplatePart::Call(call) => {
+                // Outside a template an index prints nothing.
+                if call["@call"] == crate::functions::INDEX_FUNCTION && ctx.item_index().is_none() {
+                    continue;
+                }
+                let before = ctx.failed();
+                let value = evaluate_call_in(&call, ctx);
+                if !before && ctx.failed() {
+                    return Value::Null;
+                }
+                if let Some(v) = value {
+                    out.push_str(&crate::format::display_string(&v));
+                }
             }
         }
     }
-    out.push_str(rest);
-    out
+    Value::String(out)
 }
 
 /// ECMAScript `\\s`.
@@ -494,7 +492,7 @@ pub fn call_function(name: &str, args: &Map<String, Value>, ctx: &ResolveContext
             validation(n.is_finite() && within(n))
         }
         "email" => validation(is_email(&text_of(a("value")))),
-        "formatString" => Value::String(interpolate(&text_of(a("value")), ctx)),
+        "formatString" => interpolate(&text_of(a("value")), ctx.catalog_id.filter(|c| !c.is_empty()).unwrap_or(CORE_CATALOG_ID), ctx),
         // Round 9 §6.7: DynamicBoolean args under the 1.0 coercion table.
         "and" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().all(|x| coerce_boolean(Some(x))))),
         "or" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().any(|x| coerce_boolean(Some(x))))),
@@ -687,6 +685,11 @@ fn evaluate_call_in(call: &Value, ctx: &ResolveContext) -> Option<Value> {
         let offset = offset.as_ref().map_or(0.0, json::to_number);
         return Some(json::number(index as f64 + if offset.is_nan() { 0.0 } else { offset }));
     }
+    if ctx.position == Position::Agent {
+        if let Some(refused) = crate::functions::agent_call_refusal(name) {
+            return failed_call(Failure::new(INVALID_FUNCTION_CALL, refused), None, ctx);
+        }
+    }
     // 2. The call's catalog: its own, else the surface default.
     let own = call.get("catalogId").and_then(Value::as_str);
     let catalog = own.or(ctx.catalog_id).filter(|c| !c.is_empty()).unwrap_or(CORE_CATALOG_ID);
@@ -722,6 +725,9 @@ fn evaluate_call_in(call: &Value, ctx: &ResolveContext) -> Option<Value> {
     if crate::functions::declared_function(table, name).is_some() {
         if reactive && effect {
             return failed_call(Failure::new(EXPRESSION_ERROR, format!("{name} cannot run in a binding")), None, ctx);
+        }
+        if name == "formatString" {
+            return Some(interpolate(&text_of(args.get("value")), catalog, ctx));
         }
         if !effect {
             return call_function(name, &args, ctx).or_else(|| args.get("default").cloned());

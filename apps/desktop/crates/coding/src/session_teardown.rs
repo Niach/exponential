@@ -251,6 +251,13 @@ pub fn sweep_ended(
     if let Some(manifests) = crate::session_manifest::manifest_dir() {
         scoped.extend(crate::session_manifest::sessions_with_manifests(&manifests));
     }
+    // #EXP-2150: or a private cargo target in `~/.cache/exp-<id>` it never
+    // listed (or whose record an older build dropped).
+    let cache = crate::session_manifest::cache_home();
+    if let Some(cache) = &cache {
+        let known = rows.iter().map(|row| row.id.as_str());
+        scoped.extend(crate::session_manifest::sessions_with_cache_targets(cache, known));
+    }
     scoped.sort();
     scoped.dedup();
     let ended = ended_with_scopes(rows, &scoped, live);
@@ -258,6 +265,9 @@ pub fn sweep_ended(
         let worktree = crate::run_registry::get(data_dir, session_id).map(|record| record.cwd);
         log::info!("session teardown [{session_id}]: ended with leftovers on this host");
         teardown(data_dir, session_id, worktree.as_deref(), None);
+        if let (Some(cache), Some(manifests)) = (&cache, crate::session_manifest::manifest_dir()) {
+            crate::session_manifest::remove_cache_targets(&manifests, cache, session_id);
+        }
     })
 }
 

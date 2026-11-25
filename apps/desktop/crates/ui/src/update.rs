@@ -67,6 +67,28 @@ const BLOCKED_RETRY_INTERVAL: Duration = Duration::from_secs(60);
 const USER_AGENT: &str = "exp-desktop-update-check";
 /// EXP-1489: how often the auto-restart watcher reads the gate.
 const RESTART_WATCH_INTERVAL: Duration = Duration::from_secs(5);
+/// While it drains, every second: a turn's edge is short.
+const RESTART_DRAIN_INTERVAL: Duration = Duration::from_secs(1);
+/// #EXP-2144: how often a release whose install failed is tried again by
+/// itself (each [`RECHECK_INTERVAL`]).
+const MAX_INSTALL_ATTEMPTS: u32 = 6;
+
+/// DEV-ONLY `EXP_UPDATE_CLOCK=<n>`: the watcher's bounds pass n times as fast
+/// (a hand test of the drain and the cap). Unset in every real build.
+fn restart_clock_speed() -> u32 {
+    std::env::var("EXP_UPDATE_CLOCK").ok().and_then(|speed| speed.parse().ok()).unwrap_or(1)
+}
+
+/// How long after its relaunch this process counts as not relaunched.
+const RELAUNCH_FAILED_AFTER: Duration = Duration::from_secs(120);
+
+fn restart_watch_interval() -> Duration {
+    if coding::pickup::turns_held() {
+        RESTART_DRAIN_INTERVAL
+    } else {
+        RESTART_WATCH_INTERVAL
+    }
+}
 
 /// Whether this build channel checks for updates at all. Production does;
 /// staging is skipped (see the module doc). A runtime `const` rather than a
@@ -168,9 +190,44 @@ pub struct UpdateState {
     /// Unlike a normal update it cannot be dismissed — the app is unusable
     /// until it updates.
     blocked: bool,
-    /// EXP-1489: since when the swapped build waits for its restart (the
-    /// [`updater::restart::MAX_WAIT`] clock).
-    ready_since: Option<Instant>,
+    /// #EXP-2144: what the restart of a swapped build pauses here.
+    pausing: Pausing,
+    /// #EXP-2144: the installs tried for the offered release.
+    install_attempts: u32,
+}
+
+/// #EXP-2144: what the restart would pause right now ("Restart to update").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pausing {
+    /// Sessions live here: each pauses and resumes by itself.
+    pub live: usize,
+    /// Those of them mid-turn.
+    pub working: usize,
+    /// New turns wait for the restart.
+    pub draining: bool,
+}
+
+/// #EXP-2144: the ready banner's line.
+pub(crate) fn ready_line(version: &str, pausing: Pausing) -> String {
+    let count = |n: usize, what: &str| format!("{n} {what}{}", if n == 1 { "" } else { "s" });
+    if pausing.draining {
+        return match pausing.working {
+            0 => format!("Exponential {version} is ready. New turns wait; it restarts in a moment."),
+            n => format!(
+                "Exponential {version} is ready. New turns wait; it restarts when {} finish{}.",
+                count(n, "running turn"),
+                if n == 1 { "es" } else { "" },
+            ),
+        };
+    }
+    match pausing.live {
+        0 => format!("Exponential {version} is ready. Restart to finish updating."),
+        n => format!(
+            "Exponential {version} is ready. Restarting pauses {}, then {} on.",
+            count(n, "session"),
+            if n == 1 { "it goes" } else { "they go" },
+        ),
+    }
 }
 
 impl UpdateState {
@@ -202,6 +259,25 @@ impl UpdateState {
         &self.phase
     }
 
+    /// #EXP-2144: what the restart would pause right now.
+    pub fn pausing(&self) -> Pausing {
+        self.pausing
+    }
+
+    /// A drain starting shows a dismissed banner again: it holds turns back.
+    fn set_pausing(&mut self, pausing: Pausing, cx: &mut gpui::Context<Self>) {
+        if self.pausing == pausing {
+            return;
+        }
+        if pausing.draining && !self.pausing.draining {
+            self.dismissed = false;
+        }
+        self.pausing = pausing;
+        if matches!(self.phase, UpdatePhase::ReadyToRestart { .. }) {
+            cx.notify();
+        }
+    }
+
     /// Dismiss the banner for the rest of this session (not persisted — a fresh
     /// launch that still sees a newer release shows it again). A LATER release
     /// found by the periodic re-check un-dismisses (see [`Self::offer`]).
@@ -221,8 +297,19 @@ impl UpdateState {
         ) {
             return;
         }
+        // #EXP-2144: the readiness block says since when (`App update`).
+        if info.plan.is_some() {
+            updater::pending::note(&info.version, std::time::SystemTime::now());
+        }
         match &self.available {
             Some(current) if current.version == info.version => {
+                // #EXP-2144: a failed install is tried again by itself.
+                if info.plan.is_some()
+                    && matches!(self.phase, UpdatePhase::Failed { .. })
+                    && self.install_attempts < MAX_INSTALL_ATTEMPTS
+                {
+                    self.phase = UpdatePhase::Available;
+                }
                 // Same release re-confirmed — keep phase (a Failed banner
                 // keeps its retry affordance) and the dismissal. But adopt a
                 // newly buildable install plan (EXP-316): the first fetch can
@@ -237,6 +324,7 @@ impl UpdateState {
                 self.dismissed = false;
                 self.available = Some(info);
                 self.phase = UpdatePhase::Available;
+                self.install_attempts = 0;
             }
         }
         cx.notify();
@@ -340,50 +428,99 @@ fn auto_install(cx: &mut App) {
     }
 }
 
+/// #EXP-2144: the last key or click of a person in this app.
+#[derive(Default)]
+struct LastInput(Option<Instant>);
+impl Global for LastInput {}
+
+/// #EXP-2144: a person typed or clicked in the app just now.
+pub(crate) fn note_input(cx: &mut App) {
+    cx.set_global(LastInput(Some(Instant::now())));
+}
+
+/// #EXP-2144: what a restart right now would meet here
+/// ([`updater::restart::decide`]), and how many sessions it would pause:
+/// (the live ones, those of them mid-turn).
+fn observe(blocked: bool, now: Instant, cx: &App) -> (updater::restart::Observed, usize, usize) {
+    let engines: Vec<engine::EngineSession> = crate::coding_flow::LocalSessions::global_ref(cx)
+        .map(|sessions| sessions.read(cx).acp_hosts())
+        .unwrap_or_default();
+    let live: Vec<_> = engines.iter().filter(|engine| !engine.is_done()).collect();
+    // A session that is not up yet has its first message claimed and no turn
+    // a resume could pick up from.
+    let starting = live.iter().any(|engine| matches!(engine.phase(), None | Some(engine::EnginePhase::Connecting)));
+    // EXP-1675: a background task (a build, a test run) is work in flight
+    // too, not a pause between turns.
+    let working = live.iter().filter(|engine| engine.agent_busy()).count();
+    let seen = updater::restart::Observed {
+        required: blocked,
+        working: working > 0 || starting,
+        unresumable: starting
+            || crate::session_pickup::starting(cx)
+            || crate::device_sync::command_running(cx),
+        typed_ago: cx
+            .try_global::<LastInput>()
+            .and_then(|input| input.0)
+            .map(|at| now.saturating_duration_since(at)),
+        engaged: etalk_gpui::voice_call::active(cx)
+            || etalk_gpui::meeting::state(cx).running
+            || crate::local_desktops::turn_running(cx),
+    };
+    (seen, live.len(), working)
+}
+
 /// EXP-1489: the restart of a swapped build, by the CLI daemon's rule
-/// ([`updater::restart::restart_gate`]): once every session this app hosts
-/// pauses between turns, at most [`updater::restart::MAX_WAIT`], and at
-/// once when the server refuses this build. A person at the app (a focused
-/// window) is never restarted under unless the build is refused: the
-/// banner's "Restart to update" is theirs. The quit hook suspends every
-/// run; one cut mid-turn reads `restarted` and the next launch continues
-/// it by itself.
+/// ([`updater::restart`]): once every session this app hosts pauses between
+/// turns, past a bound by holding new turns back until they do, and at the
+/// cap whatever runs. The quit hook suspends every run; one cut mid-turn
+/// reads `restarted` and the next launch continues it by itself.
+///
+/// #EXP-2144: a focused window held this forever (a MacBook whose app stays
+/// in front all day never left 0.14.178): a person is one who TYPES, and
+/// that holds it bounded too.
 fn watch_restart(cx: &mut App, model: Entity<UpdateState>) {
+    cx.set_global(LastInput::default());
+    cx.intercept_keystrokes(|_, _, cx| note_input(cx)).detach();
     cx.spawn(async move |cx| {
-        let mut last_busy = Instant::now();
+        let mut watch = updater::restart::Watch::at_speed(restart_clock_speed());
         loop {
-            cx.background_executor().timer(RESTART_WATCH_INTERVAL).await;
+            cx.background_executor().timer(restart_watch_interval()).await;
             let restart = cx.update(|cx| {
-                let engines: Vec<engine::EngineSession> = crate::coding_flow::LocalSessions::global_ref(cx)
-                    .map(|sessions| sessions.read(cx).acp_hosts())
-                    .unwrap_or_default();
-                let live: Vec<_> = engines.iter().filter(|engine| !engine.is_done()).collect();
                 let now = Instant::now();
-                // EXP-1675: a background task (a build, a test run) is work
-                // in flight too, not a pause between turns.
-                if live.iter().any(|engine| engine.agent_busy()) {
-                    last_busy = now;
-                }
-                let state = model.read(cx);
-                let (UpdatePhase::ReadyToRestart { restart_path }, Some(ready_since)) =
-                    (&state.phase, state.ready_since)
-                else {
-                    return None;
+                let (ready, blocked) = {
+                    let state = model.read(cx);
+                    let ready = match &state.phase {
+                        UpdatePhase::ReadyToRestart { restart_path } => Some(restart_path.clone()),
+                        _ => None,
+                    };
+                    (ready, state.blocked)
                 };
-                let paused = (!live.is_empty()).then(|| Some(now.saturating_duration_since(last_busy)));
-                let gate = updater::restart::restart_gate(
-                    paused,
-                    now.saturating_duration_since(ready_since),
-                    state.blocked,
-                );
-                let attended = cx.active_window().is_some();
-                (gate == updater::restart::RestartGate::Now && (state.blocked || !attended))
-                    .then(|| restart_path.clone())
+                let (seen, live, working) = observe(blocked, now, cx);
+                let gate = watch.tick(now, ready.is_some(), &seen);
+                // Held through the restart itself: nothing starts beside it.
+                let draining = gate != updater::restart::RestartGate::Wait;
+                if draining != coding::pickup::turns_held() {
+                    log::info!(
+                        "[ui] update: {} ({live} live session(s), {working} working)",
+                        if draining { "new turns wait for the restart" } else { "new turns start again" }
+                    );
+                    crate::session_pickup::hold_turns(draining, cx);
+                }
+                model.update(cx, |state, cx| state.set_pausing(Pausing { live, working, draining }, cx));
+                ready.filter(|_| gate == updater::restart::RestartGate::Now).inspect(|_| {
+                    log::info!(
+                        "[ui] update: restarting on the new version ({live} live session(s) pause, {working} cut mid-turn)"
+                    );
+                })
             });
             if let Some(restart_path) = restart {
-                log::info!("[ui] update: restarting on the new version");
                 cx.update(|cx| relaunch(restart_path, cx));
-                return;
+                // Still here: the relaunch failed to start. Turns go on, and
+                // the next pause tries again.
+                cx.background_executor().timer(RELAUNCH_FAILED_AFTER).await;
+                log::warn!("[ui] update: the relaunch did not quit this build, trying again");
+                cx.update(|cx| crate::session_pickup::hold_turns(false, cx));
+                watch = updater::restart::Watch::at_speed(restart_clock_speed());
             }
         }
     })
@@ -397,6 +534,7 @@ fn watch_restart(cx: &mut App, model: Entity<UpdateState>) {
 /// this process itself ([`coding::process::await_relaunch`]). gpui's restart
 /// stays the fallback, and the path everywhere else.
 pub(crate) fn relaunch(restart_path: Option<PathBuf>, cx: &mut App) {
+    log::info!("[ui] update: relaunching ({})", restart_path.as_ref().map_or("this build".to_string(), |path| path.display().to_string()));
     let exe = cfg!(target_os = "windows")
         .then(|| restart_path.clone().or_else(|| std::env::current_exe().ok()))
         .flatten();
@@ -507,6 +645,7 @@ pub fn start_update(cx: &mut App) {
         }
         let plan = state.available.as_ref()?.plan.clone()?;
         state.phase = UpdatePhase::Downloading { received: 0, total: None };
+        state.install_attempts += 1;
         cx.notify();
         Some(plan)
     });
@@ -541,10 +680,7 @@ pub fn start_update(cx: &mut App) {
                             UpdatePhase::Downloading { received, total }
                         }
                         UpdateEvent::Installing => UpdatePhase::Installing,
-                        UpdateEvent::Ready { restart_path } => {
-                            state.ready_since = Some(Instant::now());
-                            UpdatePhase::ReadyToRestart { restart_path }
-                        }
+                        UpdateEvent::Ready { restart_path } => UpdatePhase::ReadyToRestart { restart_path },
                         UpdateEvent::Failed { message } => UpdatePhase::Failed { message },
                     };
                     cx.notify();
@@ -932,6 +1068,23 @@ mod tests {
         }
         // No advert = ask the API.
         assert!(matches!(check_advert(None, "0.14.143", |_| panic!("no probe")), AdvertCheck::Unknown));
+    }
+
+    /// #EXP-2144: the banner says what the restart pauses.
+    #[test]
+    fn the_ready_banner_counts_the_sessions_it_pauses() {
+        let line = |live, working, draining| ready_line("0.14.184", Pausing { live, working, draining });
+        assert_eq!(line(0, 0, false), "Exponential 0.14.184 is ready. Restart to finish updating.");
+        assert_eq!(line(1, 1, false), "Exponential 0.14.184 is ready. Restarting pauses 1 session, then it goes on.");
+        assert_eq!(line(3, 1, false), "Exponential 0.14.184 is ready. Restarting pauses 3 sessions, then they go on.");
+        assert_eq!(
+            line(3, 1, true),
+            "Exponential 0.14.184 is ready. New turns wait; it restarts when 1 running turn finishes."
+        );
+        assert_eq!(
+            line(3, 2, true),
+            "Exponential 0.14.184 is ready. New turns wait; it restarts when 2 running turns finish."
+        );
     }
 
     /// EXP-1693 on the advert path: a release still missing our asset is

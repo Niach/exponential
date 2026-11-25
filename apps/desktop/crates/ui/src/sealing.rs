@@ -1017,7 +1017,7 @@ mod tests {
     #[test]
     fn a_deduped_send_never_adopts_its_own_key() {
         struct Chat {
-            stored: Result<(u32, [u8; 32]), ()>,
+            stored: Result<Option<(u32, [u8; 32])>, ()>,
             own: contract::TreeKey,
             did: Mutex<Vec<String>>,
         }
@@ -1046,28 +1046,41 @@ mod tests {
             fn tree_of(&self, session: &str) -> Result<TreeFacts, String> {
                 self.did.lock().unwrap().push(format!("get {session}"));
                 let key = self.stored.map_err(|()| "offline".to_string())?;
-                Ok(TreeFacts { root_id: session.into(), clear: false, key: Some(key) })
+                Ok(TreeFacts { root_id: session.into(), clear: false, key })
             }
         }
-        let own = contract::generate_tree_key;
-        let cases: [(bool, fn(&contract::TreeKey) -> Result<(u32, [u8; 32]), ()>, &[&str]); 5] = [
-            (true, |_| Ok((1, [7; 32])), &["get s1", "key s1@1", "want s1@1"]),
-            (true, |own| Ok((1, own.public)), &["get s1", "adopt s1"]),
-            (true, |_| Ok((2, [7; 32])), &["get s1", "adopt s1"]),
-            (true, |_| Err(()), &["get s1", "adopt s1"]),
-            (false, |_| Ok((1, [7; 32])), &["adopt s1"]),
-        ];
-        for (index, (keyed, stored, did)) in cases.into_iter().enumerate() {
-            let own = own();
-            let chat = Chat { stored: stored(&own), own, did: Mutex::new(Vec::new()) };
+        // #EXP-2141: every `dedupedSend` case (sealed-content.json).
+        let fixture: Value = serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/sealed-content.json")).unwrap();
+        for case in fixture["dedupedSend"]["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let keyed = case["keyed"].as_bool().unwrap();
+            let own = contract::generate_tree_key();
+            let stored = match case["server"].as_str().unwrap() {
+                "own" => Ok(Some((1, own.public))),
+                "other" => Ok(Some((1, [7; 32]))),
+                "otherEpoch" => Ok(Some((2, [7; 32]))),
+                "keyless" => Ok(None),
+                "unknown" => Err(()),
+                other => panic!("{name}: {other}"),
+            };
+            let chat = Chat { stored, own, did: Mutex::new(Vec::new()) };
             let input = SendInput { client_message_id: keyed.then(|| "turn-c1".into()), ..agent_send() };
             let target = target_for(&input, &|_| None, || None);
             let out = deliver(&chat, &input, &target, true, &mut |wire| {
-                assert!(wire.seal.is_some(), "{index}: a first chat's key rides inline");
+                assert!(wire.seal.is_some(), "{name}: a first chat's key rides inline");
                 Ok(SendOutput { session_id: "s1".into(), ..SendOutput::default() })
             });
-            assert!(out.is_ok(), "{index}");
-            assert_eq!(*chat.did.lock().unwrap(), did, "{index}");
+            assert!(out.is_ok(), "{name}");
+            let mut did: Vec<&str> = Vec::new();
+            if case["asks"].as_bool().unwrap() {
+                did.push("get s1");
+            }
+            match case["step"].as_str().unwrap() {
+                "adopt" => did.push("adopt s1"),
+                "fetch" => did.extend(["key s1@1", "want s1@1"]),
+                other => panic!("{name}: {other}"),
+            }
+            assert_eq!(*chat.did.lock().unwrap(), did, "{name}");
         }
     }
 

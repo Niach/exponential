@@ -4,6 +4,7 @@ import fixture from "../fixtures/message-delivery.json" with { type: "json" }
 import {
   bubbleActions,
   deliveryState,
+  echoedPending,
   outboxMerge,
   ownHandoff,
   pendingRows,
@@ -51,6 +52,12 @@ describe(`ownHandoff`, () => {
 })
 
 describe(`pendingRows`, () => {
+  for (const entry of fixture.echoedPendingCases) {
+    test(`echoed pending: ${entry.name}`, () => {
+      expect(echoedPending(entry.input as { rows: HandoffRow[]; echoes: HandoffEcho[] })).toEqual(entry.expected)
+    })
+  }
+
   for (const entry of fixture.pendingCases) {
     test(entry.name, () => {
       expect(pendingRows(entry.input as { viewerId: string; rows: PendingRow[] })).toEqual(entry.expected)

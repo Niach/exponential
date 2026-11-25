@@ -34,7 +34,7 @@ private fun fieldStates(): String = FIELDS.joinToString(
     postfix = "]}",
 ) { (field, path) ->
     val (id, label, value) = field
-    """{"id":"$id","component":"Input","props":{"label":"$label","name":"$id","value":"$value","validateOn":"blur","checks":[{"condition":{"@path":"$path"}}]}}"""
+    """{"id":"$id","component":"Input","props":{"label":"$label","name":"$id","value":"$value","validateOn":"blur"}, "@checks": [{"condition":{"@path":"$path"}}]}"""
 }
 
 private fun failing(severity: String, message: String) = JsonValue.Obj(

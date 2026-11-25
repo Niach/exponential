@@ -783,7 +783,7 @@ fn input_row(id: &str, label: Value, placeholder: &str, visible: Value) -> Value
 fn sm_button(ink: &Ink, id: &str, glyph: Option<Value>, label: Value, fill: &str, stroke: Option<&str>, fg: &str, event: &str, radius: f32) -> Value {
     let size = ink.r(SM);
     let text = json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": label.clone()}, "style": {"fontSize": size, "lineHeight": size, "color": fg, "flexShrink": 0}});
-    let mut button = json!({"id": id, "component": "Box", "props": {"pressable": true}, "accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
+    let mut button = json!({"id": id, "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": label}, "on": {"press": {"event": {"name": event}}},
         "style": {"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "gap": ink.r(0.25), "height": 32, "paddingHorizontal": 12, "borderRadius": radius, "backgroundColor": fill, "cursor": "pointer"},
         "children": glyph.into_iter().chain([text]).collect::<Vec<_>>()});
     if let Some(stroke) = stroke {
@@ -828,7 +828,7 @@ fn document(ink: &Ink, chrome: &Chrome) -> Value {
             json!({"id": format!("{id}_text"), "component": "Text", "props": {"text": "Advanced"}, "style": {"fontSize": size, "lineHeight": size * LINE, "color": color}}),
         ]
     };
-    let hover = json!({"id": "advanced_hover", "component": "Box", "props": {"pressable": true}, "accessibility": {"label": "Advanced"}, "on": {"press": {"event": {"name": "advanced"}}},
+    let hover = json!({"id": "advanced_hover", "component": "Box", "props": {"pressable": true}, "@accessibility": {"label": "Advanced"}, "on": {"press": {"event": {"name": "advanced"}}},
         "style": {"position": "absolute", "top": 0, "left": 0, "right": 0, "bottom": 0, "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": ink.r(0.5), "paddingHorizontal": ink.r(0.25), "cursor": "pointer", "opacity": 0, ":hover": {"opacity": 1}},
         "children": face("advanced_bright", &ink.foreground)});
     let mut children = face("advanced_muted", &ink.muted);

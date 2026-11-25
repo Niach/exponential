@@ -123,6 +123,8 @@ pub struct AuthStore {
     accounts_path: PathBuf,
     events_tx: flume::Sender<AuthEvent>,
     events_rx: flume::Receiver<AuthEvent>,
+    /// #EDE-226: every [`AuthStore::watch`]er hears each [`AuthStore::reload`].
+    watchers: std::sync::Mutex<Vec<flume::Sender<AuthEvent>>>,
 }
 
 impl AuthStore {
@@ -163,6 +165,7 @@ impl AuthStore {
             accounts_path,
             events_tx,
             events_rx,
+            watchers: Default::default(),
         })
     }
 
@@ -260,6 +263,7 @@ impl AuthStore {
 
         {
             let mut state = self.state.write().unwrap();
+            self.adopt_disk_locked(&mut state);
             state.tokens.insert(account.id.clone(), token.to_string());
             match state.accounts.iter_mut().find(|a| a.id == account.id) {
                 Some(existing) => {
@@ -294,6 +298,7 @@ impl AuthStore {
     /// way); no event — the wizard advances on its own state.
     pub fn set_onboarding_completed(&self, account_id: &str, completed_at: &str) {
         let mut state = self.state.write().unwrap();
+        self.adopt_disk_locked(&mut state);
         if let Some(account) = state.accounts.iter_mut().find(|a| a.id == account_id) {
             if account.onboarding_completed_at.is_none() {
                 account.onboarding_completed_at = Some(completed_at.to_string());
@@ -310,6 +315,7 @@ impl AuthStore {
     /// known name.
     pub fn update_identity(&self, account_id: &str, email: &str, name: Option<&str>) {
         let mut state = self.state.write().unwrap();
+        self.adopt_disk_locked(&mut state);
         if let Some(account) = state.accounts.iter_mut().find(|a| a.id == account_id) {
             let name = name.map(str::to_string).or_else(|| account.name.clone());
             if account.email == email && account.name == name {
@@ -343,6 +349,7 @@ impl AuthStore {
     pub fn remove_account(&self, account_id: &str) {
         let had_token = {
             let mut state = self.state.write().unwrap();
+            self.adopt_disk_locked(&mut state);
             let had = state.tokens.remove(account_id).is_some();
             state.accounts.retain(|a| a.id != account_id);
             self.persist_locked(&state);
@@ -424,6 +431,8 @@ impl AuthStore {
         for event in &events {
             let _ = self.events_tx.send(event.clone());
         }
+        let mut watchers = self.watchers.lock().unwrap_or_else(|p| p.into_inner());
+        watchers.retain(|watcher| events.iter().all(|event| watcher.send(event.clone()).is_ok()));
         events
     }
 
@@ -433,17 +442,18 @@ impl AuthStore {
     /// one consumer). The thread ends with the store or the receiver.
     pub fn watch(self: &Arc<Self>, every: std::time::Duration) -> flume::Receiver<AuthEvent> {
         let (tx, rx) = flume::unbounded();
+        let dropped = tx.clone();
+        self.watchers.lock().unwrap_or_else(|p| p.into_inner()).push(tx);
         let store = Arc::downgrade(self);
         let spawned = std::thread::Builder::new()
             .name("accounts-watch".into())
             .spawn(move || loop {
                 std::thread::sleep(every);
-                let Some(store) = store.upgrade() else { return };
-                for event in store.reload() {
-                    if tx.send(event).is_err() {
-                        return;
-                    }
+                if dropped.is_disconnected() {
+                    return;
                 }
+                let Some(store) = store.upgrade() else { return };
+                store.reload();
             });
         if let Err(e) = spawned {
             log::warn!("accounts watch: {e}");
@@ -457,6 +467,39 @@ impl AuthStore {
         self.events_rx.clone()
     }
 
+    /// #EDE-226: a deliberate sign-out of the whole login (eDE's Settings →
+    /// Account): the account's entry, its secrets and its directory (the
+    /// sync store, the install's identity, its keys, the chat store) go.
+    /// `false`: it is signed in again meanwhile, nothing was touched.
+    pub fn forget_account(&self, account_id: &str, data_dir: &std::path::Path) -> bool {
+        self.reload();
+        if self.token(account_id).is_some() {
+            return false;
+        }
+        self.remove_account(account_id);
+        // An id names one directory below `accounts`, never a path out of it.
+        let plain = !account_id.is_empty() && !account_id.starts_with('.') && !account_id.contains(['/', '\\']);
+        if plain {
+            let dir = data_dir.join("accounts").join(account_id);
+            if let Err(e) = fs::remove_dir_all(&dir) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    log::warn!("sign-out: {}: {e}", dir.display());
+                }
+            }
+        }
+        true
+    }
+
+    /// #EDE-226: several processes share `accounts.json`: a write starts from
+    /// what is on disk, so it never puts back what another process removed
+    /// and never drops what it added. Unreadable = this process's own.
+    fn adopt_disk_locked(&self, state: &mut State) {
+        let disk = fs::read_to_string(&self.accounts_path).ok().and_then(|raw| serde_json::from_str::<AccountsFile>(&raw).ok());
+        if let Some(file) = disk {
+            state.accounts = file.accounts;
+        }
+    }
+
     fn persist_locked(&self, state: &State) {
         if let Some(dir) = self.accounts_path.parent() {
             let _ = fs::create_dir_all(dir);
@@ -465,7 +508,10 @@ impl AuthStore {
             accounts: state.accounts.clone(),
         };
         if let Ok(json) = serde_json::to_string_pretty(&file) {
-            let _ = fs::write(&self.accounts_path, json);
+            // In one step (#EDE-226): the other processes follow this file.
+            if let Err(e) = crate::token_store::write_private(&self.accounts_path, json.as_bytes()) {
+                log::warn!("accounts.json: {e}");
+            }
         }
     }
 }
@@ -533,6 +579,44 @@ mod tests {
         fs::write(dir.0.join("accounts.json"), "{\"accounts\": [").unwrap();
         assert!(shell.reload().is_empty());
         assert_eq!(shell.signed_in_accounts().len(), 1);
+    }
+
+    /// #EDE-226: a write never undoes another process's: the shell removed
+    /// the account, the app (loaded before) stamps it; and the other way
+    /// round a sign-in keeps the account another process added.
+    #[test]
+    fn a_write_starts_from_what_another_process_wrote() {
+        let dir = TempDir::new("disk");
+        let shell = test_store(&dir);
+        let account = shell.sign_in("app.exponential.at", "tok-A", &AuthUser { onboarding_completed_at: None, ..user() }).unwrap();
+        let app = test_store(&dir);
+        shell.remove_account(&account.id);
+        app.set_onboarding_completed(&account.id, "2026-11-25T00:00:00.000Z");
+        app.update_identity(&account.id, "other@example.com", None);
+        assert!(test_store(&dir).accounts().is_empty(), "the removed account stays removed");
+
+        let first = shell.sign_in("app.exponential.at", "tok-B", &user()).unwrap();
+        let second = app.sign_in("app.exponential.at", "tok-C", &AuthUser { id: "user-2".into(), ..user() }).unwrap();
+        let ids: Vec<String> = test_store(&dir).accounts().into_iter().map(|a| a.id).collect();
+        assert_eq!(ids, vec![first.id, second.id]);
+    }
+
+    /// #EDE-226: the sign-out of the whole login leaves nothing of the
+    /// account behind, and never touches one that signed in again.
+    #[test]
+    fn forgetting_an_account_removes_its_entry_its_secrets_and_its_directory() {
+        let dir = TempDir::new("forget");
+        let store = test_store(&dir);
+        let account = store.sign_in("app.exponential.at", "tok-A", &user()).unwrap();
+        let home = dir.0.join("accounts").join(&account.id);
+        fs::write(home.join("seal-keys"), "k").unwrap();
+        assert!(!store.forget_account(&account.id, &dir.0), "signed in: kept");
+        assert!(home.join("seal-keys").exists());
+        store.sign_out(&account.id);
+        assert!(store.forget_account(&account.id, &dir.0));
+        assert!(!home.exists());
+        assert!(test_store(&dir).accounts().is_empty());
+        assert!(store.forget_account("..", &dir.0) && dir.0.exists(), "never a path out of accounts/");
     }
 
     #[test]

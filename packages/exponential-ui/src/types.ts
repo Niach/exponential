@@ -185,12 +185,14 @@ export interface MacroTemplate {
  *  `$if` holds (evaluated in the macro's own context, literal only), every
  *  `component` node in the author's `slot` subtree (a nested node of the same
  *  macro ends the walk) takes `props` (evaluated like any template value, so a
- *  bound macro prop passes the binding itself), never over a prop its author set. */
+ *  bound macro prop passes the binding itself), never over a prop its author set;
+ *  `style` likewise, under the node's own style. */
 export interface MacroPass {
   slot: string
   component: string
   $if?: unknown
   props: Record<string, unknown>
+  style?: Record<string, unknown>
 }
 
 /** #VAPP-284: a `$on` entry with its own context. */
@@ -206,7 +208,8 @@ export interface MacroDef {
   /** #VAPP-284: other roots, tried in order: the first whose `$if` holds
    *  (decided at expansion: a bound condition never picks one) replaces
    *  `root`, and its root part keeps the author's id whatever it is named.
-   *  The conditions also see `{childCount}` (the author's children). */
+   *  The conditions also see `{childCount}` and `{slotCount}` (the author's
+   *  children and slots). */
   alternatives?: readonly { $if: unknown; root: MacroTemplate }[]
   /** #EXP-1760: parts of the ROOT native the macro styles too (an
    *  IconPicker's Popover `content`): `<Macro>/<part>` layers over
@@ -313,20 +316,23 @@ export interface NodeAccessibility extends AuthoredAccessibility {
 }
 
 /** A node as it rides A2UI's `updateComponents`: props at the top level,
- *  children by id. The core catalog keeps that convention. */
+ *  children by id, the envelope mixins under `@` (round 9 §5.1). A bare
+ *  `catalogId`, `accessibility`, `metadata` or `checks` is a catalog prop. */
 export interface FlatComponent {
   id: string
   component: string
   /** Round 9 §5.5: overrides the surface's default catalog. */
-  catalogId?: string
+  "@catalogId"?: string
   /** Round 9 §5.1: stored and exposed, never painted. */
-  metadata?: Metadata
+  "@metadata"?: Metadata
+  "@accessibility"?: AuthoredAccessibility
+  /** Round 9 §5.1: the check mixin (Checkable components only). */
+  "@checks"?: unknown
   children?: string[] | WireChildTemplate
   slots?: Record<string, string>
   on?: Record<string, Action>
   style?: Record<string, unknown>
   visible?: Visible
-  accessibility?: AuthoredAccessibility
   [prop: string]: unknown
 }
 
@@ -353,19 +359,22 @@ export interface UiNode {
   recipe?: { macro: string; part: string; props: Record<string, unknown>; authored?: string[] }
 }
 
-/** The nested authoring form (fixtures, kitchen sink): the same as UiNode
- *  minus what the reducer fills in. */
+/** The nested authoring form (cards, fixtures, kitchen sink): the same as
+ *  UiNode minus what the reducer fills in, its envelope keys spelled as on
+ *  the wire (`@catalogId`, `@accessibility`, `@metadata`, `@checks`). */
 export interface NestedNode {
   id: string
   component: string
   /** Round 9 §13: only the core id. */
-  catalogId?: string
-  metadata?: Metadata
+  "@catalogId"?: string
+  "@metadata"?: Metadata
+  "@accessibility"?: AuthoredAccessibility
+  /** Round 9 §5.1: the check mixin, at NODE level (never in `props`). */
+  "@checks"?: unknown
   props?: Record<string, unknown>
   style?: Record<string, unknown>
   visible?: Visible
   on?: Record<string, Action>
-  accessibility?: AuthoredAccessibility
   children?: NestedNode[]
   slots?: Record<string, NestedNode>
   template?: ChildTemplate

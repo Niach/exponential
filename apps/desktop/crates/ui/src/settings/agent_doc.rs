@@ -204,14 +204,14 @@ fn clip_row(ink: &Ink, chrome: &Chrome) -> Value {
             "children": [column, control]});
         if pressable {
             node["props"] = json!({"pressable": true});
-            node["accessibility"] = json!({"label": copy.clip_upload});
+            node["@accessibility"] = json!({"label": copy.clip_upload});
             node["on"] = json!({"press": {"event": {"name": "voiceClip"}}});
             node["style"]["cursor"] = json!("pointer");
         }
         node
     };
     let size = ink.r(SM);
-    let remove = json!({"id": "voice_clip_remove", "component": "Box", "visible": path("/pane/voice/clip/removable"), "props": {"pressable": true}, "accessibility": {"label": copy.clip_remove},
+    let remove = json!({"id": "voice_clip_remove", "component": "Box", "visible": path("/pane/voice/clip/removable"), "props": {"pressable": true}, "@accessibility": {"label": copy.clip_remove},
         "on": {"press": {"event": {"name": "voiceClipRemove"}}},
         "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "flexShrink": 0, "width": 28, "height": 28, "borderRadius": chrome.radius, "cursor": "pointer", ":hover": {"backgroundColor": chrome.list_hover}},
         "children": [{"id": "voice_clip_remove_icon", "component": "Icon", "props": {"name": "ui-delete"}, "style": {"width": size, "height": size, "color": ink.muted, "flexShrink": 0}}]});

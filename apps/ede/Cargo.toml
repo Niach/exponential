@@ -37,3 +37,12 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# As apps/desktop: line numbers in our own backtraces, no debug info for the
+# dependencies. Full debug info made one debug target 24 GB (#EXP-2150); for a
+# debugger: CARGO_PROFILE_DEV_DEBUG=full.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

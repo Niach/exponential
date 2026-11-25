@@ -13,7 +13,8 @@ import {
   coreCatalog,
   sharedCatalogView,
 } from "./catalog"
-import { SURFACE_COMPONENT, checkEntry, escapeToken } from "./entry"
+import { ENVELOPE_KEYS, SURFACE_COMPONENT, checkEntry, escapeToken } from "./entry"
+import { MIXIN_NAMES, bareMixin, declaresBare, isCheckable } from "./mixins"
 import { upgradeCard09 } from "./upgrade09"
 import { mapBasicComponent } from "./basic-map"
 import { isDynamic } from "./expr"
@@ -32,9 +33,9 @@ import type {
   WireChildTemplate,
 } from "./types"
 
-/** Round 9 §5.3: the ENVELOPE keys (`ComponentCommon`); everything else is
- *  a declared prop of the resolved catalog component. */
-export const RESERVED_KEYS: readonly string[] = [`id`, `component`, `catalogId`, `accessibility`, `metadata`]
+/** Round 9 §5.3: the ENVELOPE keys (`ComponentCommon` + `@checks`);
+ *  everything else is a declared prop of the resolved catalog component. */
+export const RESERVED_KEYS: readonly string[] = ENVELOPE_KEYS
 /** The declared props the reducer lifts out of `props` into the node. */
 const STRUCTURAL = new Set([...RESERVED_KEYS, `children`, `slots`, `on`, `style`, `visible`])
 /** Round 9 §5.1: the closed `accessibility` object. */
@@ -306,19 +307,31 @@ function unknown(id: string, component: string, catalogId: string | undefined): 
   return { id, component: UNKNOWN_COMPONENT, props: catalogId === undefined ? { component } : { component, catalogId }, children: [] }
 }
 
-/** #AXC-19: A2UI 1.0 writes the check mixin as `@checks` (what the Express
- *  compiler emits); the legacy bare `checks` is still read. Inside, the prop
- *  is `checks` (catalog, nodes, painters); `@checks` wins when both are set. */
+/** Round 9 §5.1: the check mixin's wire key; in a NORMALIZED node (catalog
+ *  source, painters) the prop stays `checks`. */
 export const WIRE_CHECKS = `@checks`
 
-function ownProps(flat: FlatComponent): Record<string, unknown> {
-  const props: Record<string, unknown> = {}
-  const wire = flat[WIRE_CHECKS] !== undefined
-  for (const [key, value] of Object.entries(flat)) {
-    if (STRUCTURAL.has(key) || value === undefined || (wire && key === `checks`)) continue
-    props[key === WIRE_CHECKS ? `checks` : key] = value
+/** Round 9 §5.1: what a direct caller's node holds beyond the router's entry
+ *  check: a bare mixin name the component does not declare (dropped, an
+ *  issue naming the `@` key) and `@checks` on a component that takes none.
+ *  `outer` = a nested node (its own level holds the mixins). */
+function liftMixins(props: Record<string, unknown>, checks: unknown, outer: Record<string, unknown> | undefined, def: ComponentDef, id: string, issues: ReduceIssue[]): Record<string, unknown> {
+  for (const name of MIXIN_NAMES) {
+    const inProps = Object.prototype.hasOwnProperty.call(props, name) && !declaresBare(def, name)
+    if (inProps) delete props[name]
+    if (inProps || (outer !== undefined && outer[name] !== undefined)) issues.push(reduceIssue(id, bareMixin(name), `/${name}`, `INVALID_MESSAGE`))
+  }
+  if (checks !== undefined) {
+    if (isCheckable(def)) props.checks = checks
+    else issues.push(reduceIssue(id, `takes no @checks`, `/@checks`))
   }
   return props
+}
+
+function ownProps(flat: FlatComponent, def: ComponentDef, issues: ReduceIssue[]): Record<string, unknown> {
+  const props: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(flat)) if (!STRUCTURAL.has(key) && value !== undefined) props[key] = value
+  return liftMixins(props, flat[WIRE_CHECKS], undefined, def, flat.id, issues)
 }
 
 /** Round 9 §5.5: the available set when the caller names none. */
@@ -353,21 +366,21 @@ export function allowsChildren(def: ComponentDef): boolean {
 /** Round 9 §5.1: the closed accessibility object (unknown keys reported and dropped). */
 function accessibilityOf(value: unknown, id: string, issues: ReduceIssue[]): Record<string, unknown> | undefined {
   if (typeof value !== `object` || value === null || Array.isArray(value)) {
-    issues.push(reduceIssue(id, `accessibility: expected an object`, `/accessibility`))
+    issues.push(reduceIssue(id, `accessibility: expected an object`, `/@accessibility`))
     return undefined
   }
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(value)) {
     if (!ACCESSIBILITY_KEYS.includes(k)) {
-      issues.push(reduceIssue(id, `accessibility.${k}: unknown key`, `/accessibility/${escapeToken(k)}`))
+      issues.push(reduceIssue(id, `accessibility.${k}: unknown key`, `/@accessibility/${escapeToken(k)}`))
       continue
     }
     if (k === `live` && !LIVE_VALUES.includes(v as string)) {
-      issues.push(reduceIssue(id, `accessibility.live: expected one of ${LIVE_VALUES.join(`|`)}`, `/accessibility/live`))
+      issues.push(reduceIssue(id, `accessibility.live: expected one of ${LIVE_VALUES.join(`|`)}`, `/@accessibility/live`))
       continue
     }
     if (ACCESSIBILITY_STATES.includes(k) && typeof v !== `boolean` && !isDynamic(v)) {
-      issues.push(reduceIssue(id, `accessibility.${k}: expected a boolean`, `/accessibility/${k}`))
+      issues.push(reduceIssue(id, `accessibility.${k}: expected a boolean`, `/@accessibility/${k}`))
       continue
     }
     out[k] = v
@@ -407,7 +420,7 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
   }
   const lookup = (id: string) => byId.get(id)
   /** Round 9 §5.5: a component's catalog = its own, else the surface default. */
-  const catalogOf = (flat: FlatComponent): string | undefined => (typeof flat.catalogId === `string` ? flat.catalogId : options.catalogId)
+  const catalogOf = (flat: FlatComponent): string | undefined => (typeof flat[`@catalogId`] === `string` ? flat[`@catalogId`] : options.catalogId)
   const visiting = new Set<string>()
   const placed = new Set<string>()
   // R8 F52: the ids whose second place was already reported (a 4 MB
@@ -473,6 +486,7 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
           const built = child(childId)
           if (built) (node.slots ??= {})[slot] = built
         }
+        for (const name of MIXIN_NAMES) if (flat[name] !== undefined) issues.push(reduceIssue(id, bareMixin(name), `/${name}`, `INVALID_MESSAGE`))
         for (const i of mapped.issues ?? []) issues.push(reduceIssue(id, i.message, `/${escapeToken(i.prop)}`))
       }
     } else {
@@ -481,7 +495,7 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
         issues.push(reduceIssue(id, `unknown component ${flat.component}`, `/component`))
         node = unknown(id, flat.component, catalogId)
       } else {
-        node = { id, component: flat.component, props: ownProps(flat), children: [] }
+        node = { id, component: flat.component, props: ownProps(flat, def, issues), children: [] }
         if (Array.isArray(flat.children)) node.children = children(flat.children)
         else if (flat.children && typeof flat.children === `object`) node.template = childTemplate(flat.children)
         if (flat.style) node.style = flat.style
@@ -494,16 +508,17 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
     }
     for (const c of node.children) parents.set(c, flat.component)
     for (const c of Object.values(node.slots ?? {})) parents.set(c, flat.component)
-    // `visible`, `accessibility` and `metadata` hold on EVERY component, basic or core.
+    // `visible`, `@accessibility` and `@metadata` hold on EVERY component, basic or core.
     if (flat.visible !== undefined) {
       if (validVisible(flat.visible)) node.visible = flat.visible
       else issues.push(reduceIssue(id, `visible: expected a boolean, a binding or a function call`, `/visible`))
     }
-    if (flat.accessibility !== undefined) {
-      const a11y = accessibilityOf(flat.accessibility, id, issues)
+    if (flat[`@accessibility`] !== undefined) {
+      const a11y = accessibilityOf(flat[`@accessibility`], id, issues)
       if (a11y) node.accessibility = a11y
     }
-    if (flat.metadata && typeof flat.metadata === `object`) node.metadata = flat.metadata
+    const metadata = flat[`@metadata`]
+    if (metadata && typeof metadata === `object`) node.metadata = metadata
     visiting.delete(id)
     if (options.validate !== false && node.component !== UNKNOWN_COMPONENT) validateBuilt(node, id, extensions, issues)
     return node
@@ -523,11 +538,13 @@ function validateBuilt(node: UiNode, id: string, extensions: readonly ExtensionD
   const view = sharedCatalogView(extensions)
   const def = view.components[node.component]
   if (!def) return
-  for (const issue of validateProps(def, node.props, { path: `props`, extensions })) issues.push(reduceIssue(id, `${issue.path}: ${issue.message}`, issuePointer(issue.path)))
+  // §5.1: the mixin's wire key is `@checks`.
+  const pointer = (path: string) => (/^props\.checks\b/.test(path) && isCheckable(def) ? issuePointer(path).replace(`/checks`, `/@checks`) : issuePointer(path))
+  for (const issue of validateProps(def, node.props, { path: `props`, extensions })) issues.push(reduceIssue(id, `${issue.path}: ${issue.message}`, pointer(issue.path)))
   if (!allowsChildren(def) && node.children.length > 0) issues.push(reduceIssue(id, `${node.component} takes no children`, `/children`, `UNALLOWED_CHILD`))
   for (const slot of Object.keys(node.slots ?? {}))
     if (!slotAllowed(def.slots, slot)) issues.push(reduceIssue(id, `slots.${slot}: ${node.component} has no such slot`, `/slots/${escapeToken(slot)}`))
-  for (const issue of validateNode(node, { extensions })) issues.push(reduceIssue(id, `${issue.path}: ${issue.message}`, issuePointer(issue.path)))
+  for (const issue of validateNode(node, { extensions })) issues.push(reduceIssue(id, `${issue.path}: ${issue.message}`, pointer(issue.path)))
 }
 
 /** Round 9 §5.6: every node against its own `allowedParents` (catalog
@@ -572,7 +589,7 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
   const parents = new Map<UiNode, string>()
   const walk = (n: NestedNode, depth: number): UiNode | undefined => {
     if (!spend(budget, n.id, issues)) return undefined
-    const catalogId = typeof n.catalogId === `string` ? n.catalogId : options.catalogId
+    const catalogId = typeof n[`@catalogId`] === `string` ? n[`@catalogId`] : options.catalogId
     if (depth > MAX_DEPTH) {
       issues.push(reduceIssue(n.id, LIMIT_ISSUES.depth))
       return unknown(n.id, n.component, catalogId)
@@ -587,7 +604,7 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
       return unknown(n.id, n.component, catalogId)
     }
     const children = (n.children ?? []).map((c) => walk(c, depth + 1)).filter((c): c is UiNode => c !== undefined)
-    const node: UiNode = { id: n.id, component: n.component, props: { ...(n.props ?? {}) }, children }
+    const node: UiNode = { id: n.id, component: n.component, props: liftMixins({ ...(n.props ?? {}) }, n[WIRE_CHECKS], n as unknown as Record<string, unknown>, def, n.id, issues), children }
     for (const c of children) parents.set(c, n.component)
     if (n.style) node.style = n.style
     if (n.visible !== undefined) {
@@ -595,11 +612,12 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
       else issues.push(reduceIssue(n.id, `visible: expected a boolean, a binding or a function call`, `/visible`))
     }
     if (n.on) node.on = n.on
-    if (n.accessibility !== undefined) {
-      const a11y = accessibilityOf(n.accessibility, n.id, issues)
+    if (n[`@accessibility`] !== undefined) {
+      const a11y = accessibilityOf(n[`@accessibility`], n.id, issues)
       if (a11y) node.accessibility = a11y
     }
-    if (n.metadata && typeof n.metadata === `object`) node.metadata = n.metadata
+    const metadata = n[`@metadata`]
+    if (metadata && typeof metadata === `object`) node.metadata = metadata
     if (n.template) node.template = n.template
     if (n.slots) {
       node.slots = {}
@@ -645,12 +663,15 @@ export function cardProblems(root: NestedNode): string[] {
   }
   const walk = (n: NestedNode): void => {
     const { props, children, slots, template, ...rest } = n as NestedNode & { template?: unknown }
-    const failure = checkEntry({ ...rest, ...(props ?? {}) }, { catalogId: CORE_CATALOG_ID })
+    // The mixins sit at NODE level: an `@` key inside `props` is no prop.
+    const stray = Object.keys(props ?? {}).find((k) => k.startsWith(`@`))
+    const failure = stray === undefined ? checkEntry({ ...rest, ...(props ?? {}) }, { catalogId: CORE_CATALOG_ID }) : { pointer: `/props/${escapeToken(stray)}`, message: `${stray} sits next to props` }
     if (failure) out.push(`${String(n.id)}: ${failure.pointer || `/`} ${failure.message}`)
     known(props)
     known(n.on)
     known(n.visible)
-    known(n.accessibility)
+    known(n[`@accessibility`])
+    known(n[`@checks`])
     if (Array.isArray(children)) children.forEach(walk)
     for (const child of Object.values(slots ?? {})) walk(child)
   }

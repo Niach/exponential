@@ -1,85 +1,23 @@
 import { TRPCError } from "@trpc/server"
 import { z } from "zod"
-import { and, desc, eq, ilike, inArray, isNotNull, or } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull } from "drizzle-orm"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { attachments, comments, issueDrafts, issues } from "@/db/schema"
+import { attachments, issueDrafts } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import {
   collectAttachmentStorageKeys,
-  collectReferencedAttachmentIds,
   isAcceptedImageContentType,
   isAudioContentType,
   isVideoContentType,
 } from "@/lib/storage/issue-attachments"
 import { deleteStorageObjects } from "@/lib/storage/issue-attachment-cleanup"
+import { collectSweepableIdsInTx, SWEEP_COLUMNS } from "@/lib/storage/image-references"
 import { replaceAttachmentReferencesInTx } from "@/lib/storage/attachment-references"
 
 // Grace window for the owner-triggered sweep: an image uploaded moments ago
 // may still be sitting in an unsaved editor draft, so never reclaim anything
 // younger than this even when no markdown references it yet.
 export const SWEEP_GRACE_MS = 24 * 60 * 60 * 1000
-
-type Tx = Parameters<
-  // eslint-disable-next-line quotes
-  Parameters<typeof import("@/db/connection").db.transaction>[0]
->[0]
-
-// Read-only surface shared by the connection and a transaction handle.
-type Queryable = Pick<Tx, `select`>
-
-/**
- * Every attachment id referenced by any issue description or comment body in
- * the team, in ONE pass: a cheap LIKE prefilter narrows the rows to texts that
- * mention the attachment route at all, then the exact markdown parser decides.
- */
-async function collectTeamReferencedAttachmentIdsInTx(
-  tx: Queryable,
-  teamId: string,
-  origin: string
-): Promise<Set<string>> {
-  const pattern = `%/api/attachments/%`
-
-  const [descriptionRows, commentRows, ownerLinkedRows] = await Promise.all([
-    tx
-      .select({ text: issues.description })
-      .from(issues)
-      .where(
-        and(eq(issues.teamId, teamId), ilike(issues.description, pattern))
-      ),
-    tx
-      .select({ text: comments.body })
-      .from(comments)
-      .where(and(eq(comments.teamId, teamId), ilike(comments.body, pattern))),
-    // Comment attachments (EXP-554) are linked via comment_id, never embedded
-    // in markdown — without this they'd read as unreferenced sweep bait.
-    // EXP-878: a DRAFT's attachments are the same case — their only body is
-    // the unsaved draft description, which is not an issue or a comment. The
-    // owning column IS the reference; they die with the draft. EXP-1247: a
-    // FILE-path upload (`as_file`) is a Files row, never a markdown embed.
-    tx
-      .select({ id: attachments.id })
-      .from(attachments)
-      .where(
-        and(
-          eq(attachments.teamId, teamId),
-          or(
-            isNotNull(attachments.commentId),
-            isNotNull(attachments.draftId),
-            eq(attachments.asFile, true)
-          )
-        )
-      ),
-  ])
-
-  const referenced = collectReferencedAttachmentIds(
-    [...descriptionRows, ...commentRows].map((row) => row.text ?? ``),
-    origin
-  )
-  for (const row of ownerLinkedRows) {
-    referenced.add(row.id)
-  }
-  return referenced
-}
 
 export const attachmentsRouter = router({
   /**
@@ -187,7 +125,8 @@ export const attachmentsRouter = router({
    * and rejects the WHOLE response on one null, and a draft's files are
    * private to its author anyway (`issueDrafts.listAttachments`). Their bytes
    * still count: `totalBytes` covers the team's every row so the usage
-   * number stays honest, and `draftBytes` names the part the list omits.
+   * number stays honest, and `draftBytes` names the part the list omits
+   * (swept images waiting for their purge too).
    */
   listForTeam: authedProcedure
     .input(z.object({ teamId: z.string().uuid() }))
@@ -196,18 +135,16 @@ export const attachmentsRouter = router({
 
       const allRows = await ctx.db
         .select({
-          id: attachments.id,
-          issueId: attachments.issueId,
-          boardId: attachments.boardId,
+          ...SWEEP_COLUMNS,
           uploaderId: attachments.uploaderId,
           filename: attachments.filename,
-          contentType: attachments.contentType,
           sizeBytes: attachments.sizeBytes,
           width: attachments.width,
           height: attachments.height,
           durationMs: attachments.durationMs,
           posterStorageKey: attachments.posterStorageKey,
           createdAt: attachments.createdAt,
+          sweptAt: attachments.sweptAt,
         })
         .from(attachments)
         .where(eq(attachments.teamId, input.teamId))
@@ -218,13 +155,14 @@ export const attachmentsRouter = router({
       // (non-null `issueId`/`boardId`) visible to the callers' types.
       const rows = allRows.filter(
         (row): row is typeof row & { issueId: string; boardId: string } =>
-          row.issueId !== null && row.boardId !== null
+          row.issueId !== null && row.boardId !== null && row.sweptAt === null
       )
 
-      const referencedIds = await collectTeamReferencedAttachmentIdsInTx(
+      const { referencedIds } = await collectSweepableIdsInTx(
         ctx.db,
         input.teamId,
-        ctx.request.url
+        ctx.request.url,
+        rows
       )
 
       const totalBytes = allRows.reduce(
@@ -234,14 +172,16 @@ export const attachmentsRouter = router({
       const listedBytes = rows.reduce((total, row) => total + row.sizeBytes, 0)
 
       return {
-        attachments: rows.map((row) => ({
+        attachments: rows.map(
+          ({ commentId: _c, draftId: _d, messageId: _m, appId: _a, sessionId, asFile: _f, sweptAt: _s, ...row }) => ({
           ...row,
           isImage: isAcceptedImageContentType(row.contentType),
           // EXP-824: inline media rows preview in the lightbox and show a
           // duration; `referenced` already counts their plain-link embeds.
           isVideo: isVideoContentType(row.contentType),
           isAudio: isAudioContentType(row.contentType),
-          referenced: referencedIds.has(row.id),
+          // A result filed on an issue is named by its session.
+          referenced: sessionId !== null || referencedIds.has(row.id),
         })),
         totalBytes,
         draftBytes: totalBytes - listedBytes,
@@ -249,10 +189,12 @@ export const attachmentsRouter = router({
     }),
 
   /**
-   * Owner-only bulk reclaim: deletes IMAGE attachments that no markdown in the
-   * team references any more and that are older than the grace window. Files
-   * (non-inline-image rows, and EXP-1247 `as_file` images) are never swept —
-   * they live in the issue's Files list, which is not a markdown reference.
+   * Owner-only bulk reclaim: marks ISSUE images that nothing in the team
+   * references any more (`isSweepableImage`, #EXP-2115) and that are older
+   * than the grace window; the purge deletes a marked one 30 days later
+   * (lib/swept-images.ts), unless something showed or named it by then. Files (non-inline-image rows, and EXP-1247
+   * `as_file` images) are never swept — they live in the issue's Files list,
+   * which is not a markdown reference.
    */
   sweepUnreferencedImages: authedProcedure
     .input(z.object({ teamId: z.string().uuid() }))
@@ -267,50 +209,37 @@ export const attachmentsRouter = router({
 
         const rows = await tx
           .select({
-            id: attachments.id,
-            contentType: attachments.contentType,
+            ...SWEEP_COLUMNS,
             sizeBytes: attachments.sizeBytes,
-            storageKey: attachments.storageKey,
-            posterStorageKey: attachments.posterStorageKey,
-            asFile: attachments.asFile,
             createdAt: attachments.createdAt,
           })
           .from(attachments)
-          .where(eq(attachments.teamId, input.teamId))
+          .where(and(eq(attachments.teamId, input.teamId), isNull(attachments.sweptAt)))
 
-        const imageRows = rows.filter(
-          (row) => !row.asFile && isAcceptedImageContentType(row.contentType)
-        )
-
-        if (imageRows.length === 0) {
-          return { txId, deleted: [], skippedRecentCount: 0 }
-        }
-
-        const referencedIds = await collectTeamReferencedAttachmentIdsInTx(
+        const { sweepableIds } = await collectSweepableIdsInTx(
           tx,
           input.teamId,
-          origin
+          origin,
+          rows
         )
-
-        const unreferenced = imageRows.filter(
-          (row) => !referencedIds.has(row.id)
-        )
+        const unreferenced = rows.filter((row) => sweepableIds.has(row.id))
         const deleted = unreferenced.filter((row) => row.createdAt < cutoff)
         const skippedRecentCount = unreferenced.length - deleted.length
 
         if (deleted.length > 0) {
-          await tx.delete(attachments).where(
-            inArray(
-              attachments.id,
-              deleted.map((row) => row.id)
+          await tx
+            .update(attachments)
+            .set({ sweptAt: new Date() })
+            .where(
+              inArray(
+                attachments.id,
+                deleted.map((row) => row.id)
+              )
             )
-          )
         }
 
         return { txId, deleted, skippedRecentCount }
       })
-
-      await deleteStorageObjects(collectAttachmentStorageKeys(result.deleted))
 
       return {
         txId: result.txId,

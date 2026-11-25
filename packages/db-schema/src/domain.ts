@@ -1086,17 +1086,7 @@ export function toIssueDescription(text: string): string | null {
   return trimmed ? trimmed : null
 }
 
-export function formatDateForMutation(date: Date | null | undefined) {
-  if (!date) {
-    return null
-  }
-
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, `0`)
-  const day = String(date.getDate()).padStart(2, `0`)
-
-  return `${year}-${month}-${day}`
-}
+export { formatDateForMutation } from "./date"
 
 /** EXP-1029: a device's agent defaults as ONE flattened view — the shape the
  *  settings UI edits (EXP-1020). `model` is the last used agent's launch

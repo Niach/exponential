@@ -83,7 +83,7 @@ public enum InstallApprovalView {
         let actions = node("\(id)-actions", "Stack", props: ["direction": .string("horizontal"), "gap": .string("sm")], children: [
             node("\(id)-approve", "Button", props: ["label": .string(Copy.approve), "size": .string("sm")], extra: press(Events.approve, row.installId)),
             node("\(id)-remove", "Button", props: ["label": .string(Copy.remove), "size": .string("sm"), "variant": .string("ghost")], extra: press(Events.remove, row.installId)),
-        ])
+        ], extra: ["style": .object(["paddingHorizontal": .string("$spacing.md"), "paddingBottom": .string("$spacing.md")])])
         return node(id, "Stack", props: ["direction": .string("vertical"), "gap": .string("sm")], children: [line, actions])
     }
 

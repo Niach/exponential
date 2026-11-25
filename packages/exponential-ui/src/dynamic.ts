@@ -15,6 +15,8 @@ import { sharedCatalogView, type CatalogView } from "./catalog"
 import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID } from "./catalog"
 import { FUNCTION_NAMES } from "./catalog.generated"
 import { basicMap } from "./basic-map"
+import { INDEX_FUNCTION, agentCallRefusal } from "./functions"
+import { MALFORMED_TEMPLATE, parseTemplate } from "./format-template"
 import { CORE_FUNCTIONS, coerceBoolean, isBinding, isCall, isDynamic, present } from "./expr"
 import { regexCheck } from "./regex"
 import { ENGLISH_FORMAT_FUNCTIONS, FORMAT_FUNCTION_NAMES, englishFormatter, formatFunctions, type Formatter, type ZoneOffset } from "./format"
@@ -266,11 +268,14 @@ export interface RoutedCall {
   catalogId: string
   args: Record<string, unknown>
   /** `reactive` (a binding, a check) or `action` (a press). */
-  position: `reactive` | `action`
+  position: CallPosition
 }
 /** The host's answer: a value (local run, a settled agent answer, the
  *  pending placeholder) or a failure. */
 export type RouteAnswer = { value: unknown } | { failure: Failure }
+
+/** Round 9 §6.4, §6.9: where a call is evaluated. */
+export type CallPosition = `reactive` | `action` | `agent`
 
 export interface ResolveOptions {
   scope?: DataScope
@@ -296,8 +301,9 @@ export interface ResolveOptions {
   /** Round 9 §5.5: the router's available catalog ids (absent = no check). */
   available?: readonly string[]
   /** Round 9 §6.4: `reactive` (bindings, visible, accessibility, checks;
-   *  the default) or `action` (a press: effects may run). */
-  position?: `reactive` | `action`
+   *  the default), `action` (a press: effects may run) or `agent` (§6.9: a
+   *  `callRendererFunction`: every call obeys the agent caller boundary). */
+  position?: CallPosition
   /** Round 9 §6.5: the host's routing of a name that is no local catalog
    *  function (policy, registered host functions, the agent channel). */
   route?: (call: RoutedCall) => RouteAnswer
@@ -386,11 +392,15 @@ function evaluateCallIn(call: FunctionCall, data: unknown, options: ResolveOptio
   const name = call[`@call`]
   const reactive = (options.position ?? `reactive`) === `reactive`
   // 1. `@index`: the innermost template item's index + offset.
-  if (name === `@index`) {
+  if (name === INDEX_FUNCTION) {
     const offset = isPlainObject(call.args) && call.args.offset !== undefined ? resolveIn(call.args.offset, data, options, box) : 0
     const at = scopeIndex(options.scope)
     if (at === undefined) return fail(box, { code: `EXPRESSION_ERROR`, message: `@index outside a template` })
     return at + (typeof offset === `number` ? offset : Number(offset) || 0)
+  }
+  if (options.position === `agent`) {
+    const refused = agentCallRefusal(name)
+    if (refused !== undefined) return fail(box, { code: `INVALID_FUNCTION_CALL`, message: refused })
   }
   // 2. The call's catalog: its own, else the surface default.
   const ownCatalog = typeof call.catalogId === `string` ? call.catalogId : undefined
@@ -411,7 +421,7 @@ function evaluateCallIn(call: FunctionCall, data: unknown, options: ResolveOptio
   // core's table; `catalogId` stays basic on the wire (routed calls).
   if (catalogFunctionNames(ownCatalog ?? (catalogId === A2UI_BASIC_CATALOG_ID ? CORE_CATALOG_ID : catalogId)).has(name)) {
     if (reactive && EFFECT_FUNCTIONS.has(name)) return fail(box, { code: `EXPRESSION_ERROR`, message: `${name} cannot run in a binding` })
-    if (name === `formatString`) return formatStringValue(args.value, data, options)
+    if (name === `formatString`) return formatStringValue(args.value, catalogId, data, options, box)
     const run = (fn: (args: Record<string, unknown>) => unknown): unknown => {
       try {
         const out = fn(args)
@@ -454,17 +464,24 @@ function scopeIndex(scope: DataScope | undefined): number | undefined {
 }
 
 /** The basic `formatString`: `${<pointer>}` (absolute, or relative to the
- *  scope) and `${@index()}` / `${@index(offset: <number literal>)}` (§6.2). */
-function formatStringValue(template: unknown, data: unknown, options: ResolveOptions): string {
-  return textOf(template).replace(/\$\{([^}]*)\}/g, (_, raw: string) => {
-    const expr = raw.trim()
-    const index = /^@index\(\s*(?:offset\s*:\s*(-?\d+(?:\.\d+)?)\s*)?\)$/.exec(expr)
-    if (index) {
-      const at = scopeIndex(options.scope)
-      return at === undefined ? `` : String(at + (index[1] ? Number(index[1]) : 0))
+ *  scope), `${@index()}` (§6.2) and `${fn(name: value)}`, a call of the
+ *  catalog the enclosing call resolved to (src/format-template.ts). */
+function formatStringValue(template: unknown, catalogId: string, data: unknown, options: ResolveOptions, box: FailBox): string | null {
+  let out = ``
+  for (const part of parseTemplate(textOf(template), catalogId)) {
+    if (typeof part === `string`) out += part
+    else if (part === null) return fail(box, { code: `EXPRESSION_ERROR`, message: MALFORMED_TEMPLATE }) as null
+    else if (isBinding(part)) out += displayString(readPath(data, part[`@path`], options.scope))
+    else {
+      // Outside a template an index prints nothing.
+      if (part[`@call`] === INDEX_FUNCTION && scopeIndex(options.scope) === undefined) continue
+      const before = box.failure
+      const value = evaluateCallIn(part, data, options, box)
+      if (box.failure !== before) return null
+      out += displayString(value)
     }
-    return displayString(readPath(data, expr, options.scope))
-  })
+  }
+  return out
 }
 
 /** Round 9 §6.6: a ValidationResult. */

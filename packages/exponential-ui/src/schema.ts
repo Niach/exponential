@@ -12,6 +12,7 @@
 import styleJson from "../generated/style.runtime.json" with { type: "json" }
 import vendoredBasic from "../vendor/a2ui/v1_0/catalogs/basic/v1/catalog.json" with { type: "json" }
 import { catalogView, coreCatalog, TOKEN_GROUPS } from "./catalog"
+import { isCheckMixin } from "./mixins"
 import { ICON_NAMES } from "./catalog.generated"
 import { isIdentifier } from "./ids"
 import type { CatalogView } from "./catalog"
@@ -33,7 +34,7 @@ const FUNCTION_KEYS: readonly string[] = [`type`, `description`, `properties`, `
 const RENDERER_ONLY: ReadonlySet<string> = new Set([`set`, `bind`, `openUrl`])
 const USER_ACTIVATION: ReadonlySet<string> = new Set([`openUrl`])
 /** §5.1: the entry envelope: never a declared prop. */
-const ENVELOPE: ReadonlySet<string> = new Set([`id`, `component`, `catalogId`, `accessibility`, `metadata`])
+const ENVELOPE: ReadonlySet<string> = new Set([`id`, `component`])
 
 const SCHEMA_URI = `https://json-schema.org/draft/2020-12/schema`
 const PROTOCOL_VERSION = `1.0`
@@ -146,9 +147,10 @@ function componentSchema(name: string, def: ComponentDef, ctx: Ctx, defs: Json):
   let checkable = false
   for (const [prop, schema] of Object.entries(def.props)) {
     // The Unknown placeholder names the unmapped component in a prop called
-    // `component` / `catalogId`: the envelope owns those keys on the wire.
+    // `component`: the envelope owns that key on the wire.
     if (ENVELOPE.has(prop)) continue
-    if (prop === `checks`) {
+    // §5.1: the check mixin is `Checkable`'s `@checks`.
+    if (prop === `checks` && isCheckMixin(schema)) {
       checkable = true
       continue
     }

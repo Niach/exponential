@@ -162,6 +162,10 @@ pub fn call_ring_turn(mode: Option<&str>, phrase: Option<String>) -> Option<Stri
 /// nothing and the relay's ring timer answers the caller `no_answer`.
 pub type CallRingFn = Arc<dyn Fn(CallRing) + Send + Sync>;
 
+/// #EXP-2138: a session of this device was DELETED (held-gone.json THE
+/// SIGNAL). Same non-blocking contract as [`CheckInFn`].
+pub type DeletedFn = Arc<dyn Fn(String) + Send + Sync>;
+
 /// Stop handle for the channel task. Dropping it does NOT stop the task —
 /// call [`ControlChannelHandle::stop`] (sign-out / account switch).
 pub struct ControlChannelHandle {
@@ -188,6 +192,7 @@ pub fn spawn_control_channel(
     control_api: Arc<dyn ControlApi>,
     on_check_in: CheckInFn,
     on_call_ring: CallRingFn,
+    on_deleted: DeletedFn,
 ) -> ControlChannelHandle {
     let stopped = Arc::new(AtomicBool::new(false));
     let (stop_tx, stop_rx) = flume::bounded::<()>(1);
@@ -200,6 +205,7 @@ pub fn spawn_control_channel(
         control_api,
         on_check_in,
         on_call_ring,
+        on_deleted,
         stopped,
         stop_rx,
     ));
@@ -260,6 +266,7 @@ async fn run_control_loop(
     control_api: Arc<dyn ControlApi>,
     on_check_in: CheckInFn,
     on_call_ring: CallRingFn,
+    on_deleted: DeletedFn,
     stopped: Arc<AtomicBool>,
     stop_rx: flume::Receiver<()>,
 ) {
@@ -347,6 +354,7 @@ async fn run_control_loop(
                 &control_api,
                 &on_check_in,
                 &on_call_ring,
+                &on_deleted,
                 &stop_rx,
             )
             .await
@@ -380,6 +388,7 @@ async fn connect_and_listen(
     control_api: &Arc<dyn ControlApi>,
     on_check_in: &CheckInFn,
     on_call_ring: &CallRingFn,
+    on_deleted: &DeletedFn,
     stop_rx: &flume::Receiver<()>,
 ) -> ConnectionOutcome {
     let mut ws = match dial(url).await {
@@ -477,9 +486,12 @@ async fn connect_and_listen(
                         Some(ServerFrame::CheckIn) => on_check_in(),
                         // VAPP-43: the relay's session-scoped commands, to
                         // the session's live run here (unknown = ignored).
-                        Some(ServerFrame::Kill { session_id: Some(session_id) }) => {
+                        Some(ServerFrame::Kill { session_id: Some(session_id), reason }) => {
                             let routed = crate::publisher::control(&session_id, ControlCmd::Kill);
-                            log::info!("steer control: kill for {session_id} (live here: {routed})");
+                            log::info!("steer control: kill for {session_id} (live here: {routed}, reason: {reason:?})");
+                            if reason.as_deref() == Some(domain::held_gone::KILL_REASON_DELETED) {
+                                on_deleted(session_id);
+                            }
                         }
                         Some(ServerFrame::Interrupt { session_id: Some(session_id) }) => {
                             let routed = crate::publisher::control(&session_id, ControlCmd::Interrupt);
