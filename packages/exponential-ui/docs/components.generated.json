@@ -9333,6 +9333,42 @@
         "status": "read"
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe MessageStatus/<part>."
+    },
+    {
+      "name": "AvatarBadge",
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "specimenId": "exponential-ui-avatar-badge",
+      "description": "`badge` on its child's bottom-right corner.",
+      "children": "one",
+      "slots": [
+        "badge"
+      ],
+      "events": [],
+      "basic": [],
+      "props": [
+        {
+          "name": "size",
+          "type": "sm | default | lg",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "default",
+          "description": "Badge size."
+        }
+      ],
+      "accessibility": {
+        "role": "none",
+        "notes": "none (layout only); the badge names itself",
+        "keys": []
+      },
+      "example": {
+        "id": "example",
+        "component": "AvatarBadge",
+        "size": "default"
+      },
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe AvatarBadge/<part>."
     }
   ]
 }

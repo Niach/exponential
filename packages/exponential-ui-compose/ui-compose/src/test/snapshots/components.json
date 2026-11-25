@@ -883,6 +883,146 @@
       }
     ]
   },
+  "AvatarBadge\/example" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "avatar_badge"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "avatar_badge.anchor"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "avatar_badge_child"
+      }
+    ]
+  },
+  "AvatarBadge\/size=default" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "avatar_badge"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "avatar_badge.anchor"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "avatar_badge_child"
+      }
+    ]
+  },
+  "AvatarBadge\/size=lg" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "avatar_badge"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "avatar_badge.anchor"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "avatar_badge_child"
+      }
+    ]
+  },
+  "AvatarBadge\/size=sm" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "avatar_badge"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "avatar_badge.anchor"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          40,
+          20
+        ],
+        "id" : "avatar_badge_child"
+      }
+    ]
+  },
   "Badge\/example" : {
     "height" : 20,
     "nodes" : [

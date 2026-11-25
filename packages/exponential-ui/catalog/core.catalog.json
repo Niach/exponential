@@ -7432,6 +7432,27 @@
       "example": {
         "status": "read"
       }
+    },
+    "AvatarBadge": {
+      "kind": "macro",
+      "group": "media",
+      "lite": false,
+      "children": "one",
+      "slots": [
+        "badge"
+      ],
+      "description": "`badge` on its child's bottom-right corner.",
+      "props": {
+        "size": {
+          "type": "enum",
+          "enum": "controlSize",
+          "default": "default",
+          "description": "Badge size."
+        }
+      },
+      "example": {
+        "size": "default"
+      }
     }
   }
 }

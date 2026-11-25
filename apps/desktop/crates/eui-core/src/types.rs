@@ -432,7 +432,7 @@ pub struct MacroDef {
     pub pass: Vec<MacroPass>,
     /// #VAPP-284: other roots, tried in order: the first whose `$if` holds
     /// AT EXPANSION (a bound condition never picks one) replaces `root`; its
-    /// root part keeps the author's id. The conditions see `{childCount}`.
+    /// root part keeps the author's id. The conditions see `{childCount}` and `{slotCount}`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub alternatives: Vec<MacroAlternative>,
     /// #EXP-1760: parts of the ROOT native the macro styles too (an
@@ -453,6 +453,8 @@ pub struct MacroPass {
     pub if_: Option<Value>,
     #[serde(default)]
     pub props: Props,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<Props>,
 }
 
 /// #VAPP-284: one of a macro's alternative roots (`MacroDef.alternatives`).
