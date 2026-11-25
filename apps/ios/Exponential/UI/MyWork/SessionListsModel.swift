@@ -70,7 +70,7 @@ final class SessionListsModel {
     /// follow the clock, so the fold runs in the view).
     private(set) var needsYouInputs: [String: NeedsYouInput] = [:]
     /// #EXP-1714: the synced teams' ids and the viewer: their own rows of an
-    /// unsynced (personal) team show in every team (`inTeamOrPersonal`).
+    /// unsynced (personal) team count in Needs you, in no team.
     private(set) var syncedTeamIds: Set<String> = []
     private(set) var viewerId: String?
     /// #EDE-99: every synced root (its team, starter, title, agent), by id:
@@ -84,6 +84,7 @@ final class SessionListsModel {
     /// Bumped by every `apply`/`stop`: what `chatList`'s memo is valid for.
     @ObservationIgnored private var revision = 0
     @ObservationIgnored private var chatListMemo: [Chats.ChatListView: (key: String, list: Chats.ChatList)] = [:]
+    @ObservationIgnored private var needsYouMemo: (key: String, rows: [NeedsYou.Row])?
     @ObservationIgnored private var boundAccountId: String?
 
     nonisolated init() {}
@@ -91,6 +92,9 @@ final class SessionListsModel {
     /// #FEED-232 (nav-badges.json `chatsCases`): the Chats destination's
     /// count badge (the phone tab, the iPad sidebar row), over every team.
     var chatsBadge: NavBadges.Value { NavBadges.chatsBadge(groups, reads: reads) }
+
+    /// nav-badges.json `assistant`: the dock's disc and the iPad sidebar row.
+    var assistantBadge: NavBadges.Value { assistant.map(agentBadge) ?? .none }
 
     /// The viewer's ONE Assistant: the global one (its personal team never
     /// syncs), else the first of theirs.
@@ -173,35 +177,55 @@ final class SessionListsModel {
         chatRoots.mapValues { SearchList.GlobalChatRoot(title: $0.title, agent: $0.agent) }
     }
 
-    /// #FEED-191 (needs-you.json): every plan, question and ready PR waiting
-    /// on the viewer in this team, newest first.
-    func needsYou(teamId: String, me: String?, now: Date) -> [NeedsYou.Row] {
-        guard let input = needsYouInputs[teamId] else { return [] }
-        return NeedsYou.rows(
-            now: now.timeIntervalSince1970 * 1000,
-            me: me,
-            sessions: input.sessions,
-            messages: input.messages,
-            pullRequests: input.pullRequests,
-            mergeMode: input.mergeMode,
-            owner: me.map { input.owners.contains($0) } ?? false,
-            groupChatIds: groupChatIds
-        )
+    /// nav-badges.json NEEDS YOU: THE rows over every member team and the
+    /// Assistant's home (#EXP-1714: the viewer's own of an unsynced team) in
+    /// ONE read (an ask mirrored into the Assistant's chat is its origin's
+    /// row), newest first; the PR rows fold per team (its merge mode, its
+    /// owners).
+    func needsYou(me: String?, now: Date) -> [NeedsYou.Row] {
+        // Read either way, so the caller observes them.
+        let inputs = needsYouInputs, synced = syncedTeamIds, starters = rootStarter, groups = groupChatIds
+        let key = "\(revision)|\(me ?? "")|\(Int(now.timeIntervalSince1970 / 60))"
+        if let needsYouMemo, needsYouMemo.key == key { return needsYouMemo.rows }
+        func rows(_ input: NeedsYouInput) -> [NeedsYou.Row] {
+            NeedsYou.rows(
+                now: now.timeIntervalSince1970 * 1000,
+                me: me,
+                sessions: input.sessions,
+                messages: input.messages,
+                pullRequests: input.pullRequests,
+                mergeMode: input.mergeMode,
+                owner: me.map { input.owners.contains($0) } ?? false,
+                groupChatIds: groups
+            )
+        }
+        var decisions = NeedsYouInput()
+        var out: [NeedsYou.Row] = []
+        for teamId in inputs.keys.sorted() {
+            guard var input = inputs[teamId] else { continue }
+            if !synced.isEmpty, !synced.contains(teamId) {
+                input.sessions.removeAll { starters[$0.rootId] != me }
+            }
+            decisions.sessions += input.sessions
+            decisions.messages += input.messages
+            guard !input.pullRequests.isEmpty else { continue }
+            input.messages = []
+            out += rows(input)
+        }
+        out = (rows(decisions) + out).sorted { $0.createdAt > $1.createdAt }
+        needsYouMemo = (key, out)
+        return out
     }
 
-    /// Every team's Needs you rows, newest first, with the viewer's own of an
-    /// unsynced (personal) team (#EXP-1714): each team folds with its own
-    /// merge mode and owners.
-    func needsYou(me: String?, now: Date) -> [NeedsYou.Row] {
-        var seen = Set<String>()
-        return needsYouInputs.keys.sorted()
-            .flatMap { teamId -> [NeedsYou.Row] in
-                let rows = needsYou(teamId: teamId, me: me, now: now)
-                guard !syncedTeamIds.isEmpty, !syncedTeamIds.contains(teamId) else { return rows }
-                return rows.filter { rootStarter[$0.rootId] == me }
-            }
-            .filter { seen.insert($0.messageId).inserted }
-            .sorted { $0.createdAt > $1.createdAt }
+    /// nav-badges.json `needsYouCases`: the total (the entry, the app icon)
+    /// and each synced team's share. `installs` = the installs waiting for
+    /// this install's approval.
+    func needsYouCounts(me: String?, now: Date, installs: Int = 0) -> NavBadges.NeedsYouCounts {
+        let rows = needsYou(me: me, now: now)
+        let teamOf = Dictionary(sessions.map { ($0.id, $0.teamId) }, uniquingKeysWith: { a, _ in a })
+        return NavBadges.needsYouCounts(
+            rows: rows.map { teamOf[$0.sessionId] }, teams: Array(syncedTeamIds), installs: installs
+        )
     }
 
     /// (Re)binds to an account's pool; a no-op while already bound to it.

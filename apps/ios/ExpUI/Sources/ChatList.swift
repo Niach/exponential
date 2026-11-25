@@ -20,12 +20,10 @@ public enum ChatListMetrics {
     /// Lead → text column.
     public static let gap: CGFloat = 14
     public static let rowVerticalPadding: CGFloat = 12
-    /// #EXP-2109: a row's team mark.
-    public static let teamMark: CGFloat = 16
 }
 
-/// #EXP-2109: a row's team on a list over several teams: its mark after the
-/// title, before the time.
+/// #EXP-2109: a row's team on a list over several teams: its mark on the
+/// row's lead (`TeamCorner`).
 public struct ChatRowTeam: Equatable, Sendable {
     public let name: String
     public let iconUrl: String?
@@ -62,7 +60,7 @@ public struct ChatRowView<Lead: View>: View {
     /// false = the lead is a plain glyph centred in the disc column, no
     /// disc, the row as tall as its text (the Archived entry).
     private let leadDisc: Bool
-    /// #EXP-2109: the row's team mark before the time; nil = none.
+    /// #EXP-2109: the row's team mark on the lead disc; nil = none.
     private let team: ChatRowTeam?
     private let lead: Lead
 
@@ -110,7 +108,9 @@ public struct ChatRowView<Lead: View>: View {
     public var body: some View {
         HStack(alignment: .center, spacing: ChatListMetrics.gap) {
             leadCell
-                .accessibilityHidden(true)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(team?.name ?? "")
+                .accessibilityHidden(team == nil)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     HStack(spacing: CGFloat(Chats.Shell.markGap)) {
@@ -122,12 +122,6 @@ public struct ChatRowView<Lead: View>: View {
                         ChatMarksView(marks: marks)
                     }
                     Spacer(minLength: 4)
-                    if let team {
-                        TeamAvatar(iconUrl: team.iconUrl, size: ChatListMetrics.teamMark)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 }
-                            .accessibilityLabel(team.name)
-                    }
                     if let needsYouCount {
                         CountBadge(count: needsYouCount, tone: .attention)
                     } else {
@@ -188,6 +182,8 @@ public struct ChatRowView<Lead: View>: View {
                         .overlay { if selected { Circle().fill(GlassTokens.fillActive) } }
                 }
                 .clipShape(Circle())
+                // nav-badges.json `teamMark`: the check takes its corner.
+                .teamCorner(selected ? nil : team, lead: Int(ChatListMetrics.leadDisc))
                 .overlay(alignment: .bottomTrailing) {
                     if selected { ChatSelectBadge() }
                 }

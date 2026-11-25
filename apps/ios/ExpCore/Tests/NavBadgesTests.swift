@@ -93,11 +93,64 @@ final class NavBadgesTests: XCTestCase {
         }
     }
 
+    private func values(_ list: Any?) throws -> [NavBadges.Value] {
+        try (list as? [Any] ?? []).map { try value($0) }
+    }
+
+    func testSumCases() throws {
+        for c in try cases("sumCases") {
+            XCTAssertEqual(NavBadges.sumBadges(try values(c["input"])), try value(c["expected"]), c["name"] as? String ?? "")
+        }
+    }
+
+    func testTeamCases() throws {
+        for c in try cases("teamCases") {
+            let input = try XCTUnwrap(c["input"] as? [String: Any])
+            let got = NavBadges.teamBadge(
+                needsYou: try XCTUnwrap(input["needsYou"] as? Int),
+                open: try XCTUnwrap(input["open"] as? Bool),
+                rows: try values(input["rows"])
+            )
+            XCTAssertEqual(got, try value(c["expected"]), c["name"] as? String ?? "")
+        }
+    }
+
+    func testNeedsYouCases() throws {
+        for c in try cases("needsYouCases") {
+            let input = try XCTUnwrap(c["input"] as? [String: Any])
+            let expected = try XCTUnwrap(c["expected"] as? [String: Any])
+            let got = NavBadges.needsYouCounts(
+                rows: try XCTUnwrap(input["rows"] as? [[String: Any]]).map { $0["teamId"] as? String },
+                teams: try XCTUnwrap(input["teams"] as? [String]),
+                installs: try XCTUnwrap(input["installs"] as? Int)
+            )
+            XCTAssertEqual(got.total, expected["total"] as? Int, c["name"] as? String ?? "")
+            XCTAssertEqual(got.teams, expected["teams"] as? [String: Int], c["name"] as? String ?? "")
+        }
+    }
+
+    func testDestinations() throws {
+        let ids = try cases("destinations").filter { $0["badge"] as? Bool == true }.compactMap { $0["id"] as? String }
+        XCTAssertEqual(ids, [
+            "assistant", "needs-you", "team", "folder", "agent", "session", "teams-tab", "chats", "chat-row",
+            "inbox", "drafts", "app-icon",
+        ])
+    }
+
+    func testTeamMarkLeadCases() throws {
+        let mark = try XCTUnwrap(try fixture()["teamMark"] as? [String: Any])
+        for c in try XCTUnwrap(mark["leadCases"] as? [[String: Any]]) {
+            let expected = try XCTUnwrap(c["expected"] as? [String: Int])
+            let got = NavBadges.teamMark(lead: try XCTUnwrap(c["lead"] as? Int))
+            XCTAssertEqual(["mark": got.mark, "ring": got.ring, "offset": got.offset], expected)
+        }
+    }
+
     func testAppIconCases() throws {
         for c in try cases("appIconCases") {
             let name = c["name"] as? String ?? ""
-            let teams = try ((c["teams"] as? [[String: Any]]) ?? []).map { try XCTUnwrap($0["needsYou"] as? Int) }
-            XCTAssertEqual(NavBadges.appIconBadge(teams), c["expected"] as? Int, name)
+            let accounts = try ((c["accounts"] as? [[String: Any]]) ?? []).map { try XCTUnwrap($0["needsYou"] as? Int) }
+            XCTAssertEqual(NavBadges.appIconBadge(accounts), c["expected"] as? Int, name)
         }
     }
 }

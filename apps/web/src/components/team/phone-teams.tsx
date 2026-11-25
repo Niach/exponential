@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
-import { rowBadge } from "@exp/domain-contract/nav-badges"
 import { phoneTeamsEmpty, SIDEBAR_TREE_COPY, sidebarTeamOpenKey } from "@exp/domain-contract/sidebar-tree"
 import { Button, conceptIcon, FabButton, GlassGroup, Menu, SkeletonRows } from "@exp/ui"
 import type { Team } from "@/db/schema"
-import { useCrossTeamChatList } from "@/components/chat/cross-team-chat-list"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { Empty } from "@/components/empty"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
@@ -45,9 +43,6 @@ export function PhoneTeams({ me, teamSlug }: { me: string; teamSlug?: string }) 
     for (const group of groups) for (const row of group.rows) map.set(row.sessionId, row)
     return map
   }, [groups])
-  // A placed session's count badge = its Chats row's.
-  const { list } = useCrossTeamChatList(teamIds, me)
-  const sessionBadges = useMemo(() => new Map(list.rows.map((row) => [row.sessionId, rowBadge(row)])), [list.rows])
   const [counts, setCounts] = useState<ReadonlyMap<string, number>>(new Map())
   const onCount = useCallback(
     (teamId: string, count: number) =>
@@ -103,7 +98,6 @@ export function PhoneTeams({ me, teamSlug }: { me: string; teamSlug?: string }) 
                 chatRows={chatRows}
                 me={me}
                 active={NO_ACTIVE}
-                sessionBadges={sessionBadges}
                 onCount={onCount}
               />
             </GlassGroup>

@@ -106,6 +106,53 @@ final class SidebarTreeModel {
         ) { _ in true }
     }
 
+    // MARK: - Badges (nav-badges.json)
+
+    /// An agent's or a placed session's `rowBadge`; a board and an app never.
+    func itemBadge(_ id: String, kind: SidebarTree.ItemKind, lists: SessionListsModel) -> NavBadges.Value {
+        switch kind {
+        case .agent:
+            lists.agents.first { $0.agentId == id }.map(lists.agentBadge) ?? .none
+        case .session:
+            NavBadges.rowBadge(
+                unreadCount: Chats.unreadCount(rootId: id, messages: lists.chatMessages, reads: lists.reads),
+                needsYou: lists.chatRow(id)?.needsYou ?? false
+            )
+        case .board, .app: .none
+        }
+    }
+
+    /// `teamCases`: the team's share of Needs you, folded its rows' unread too.
+    func teamBadge(
+        _ teamId: String, open: Bool, teamState: TeamState, lists: SessionListsModel, me: String?, now: Date
+    ) -> NavBadges.Value {
+        NavBadges.teamBadge(
+            needsYou: lists.needsYouCounts(me: me, now: now).teams[teamId] ?? 0,
+            open: open,
+            rows: open ? [] : items(teamId, teamState: teamState, lists: lists).map { itemBadge($0.id, kind: $0.kind, lists: lists) }
+        )
+    }
+
+    /// `sumCases`: a folded folder's hidden rows.
+    func folderBadge(_ folderId: String, teamId: String, teamState: TeamState, lists: SessionListsModel) -> NavBadges.Value {
+        let items = items(teamId, teamState: teamState, lists: lists)
+        let kinds = Dictionary(items.map { ($0.id, $0.kind) }, uniquingKeysWith: { a, _ in a })
+        var inside = false
+        var badges: [NavBadges.Value] = []
+        for row in folderRows(teamId, teamState: teamState, lists: lists) {
+            if row.depth == 0 { inside = row.id == folderId }
+            else if inside, let kind = kinds[row.id] { badges.append(itemBadge(row.id, kind: kind, lists: lists)) }
+        }
+        return NavBadges.sumBadges(badges)
+    }
+
+    /// `teams-tab`: the team rows, folded, summed.
+    func teamsBadge(teams: [TeamEntity], teamState: TeamState, lists: SessionListsModel, me: String?, now: Date) -> NavBadges.Value {
+        NavBadges.sumBadges(teams.map {
+            teamBadge($0.id, open: false, teamState: teamState, lists: lists, me: me, now: now)
+        })
+    }
+
     // MARK: - Folds (device-local; no flag = open)
 
     func isTeamOpen(_ teamId: String) -> Bool {

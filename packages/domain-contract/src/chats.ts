@@ -320,7 +320,8 @@ export function chatTimeLabel(at: string, now: string, utcOffsetMinutes: number)
   return local.getUTCFullYear() === today.getUTCFullYear() ? date : `${date}, ${local.getUTCFullYear()}`
 }
 
-function unreadCount(rootId: string, messages: readonly TreeMessage[], reads: readonly TreeSessionRead[]): number {
+/** A conversation's unread agent messages (event cards excluded). */
+export function unreadCount(rootId: string, messages: readonly TreeMessage[], reads: readonly TreeSessionRead[]): number {
   const read = ms(reads.find((r) => r.sessionId === rootId)?.readAt) ?? -1
   return messages.filter(
     (m) => m.sessionId === rootId && m.authorKind === `agent` && m.card?.kind !== `event` && (ms(m.createdAt) ?? 0) > read
