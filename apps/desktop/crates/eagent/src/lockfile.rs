@@ -76,12 +76,25 @@
 //! No async, no `rand`, no new crates — one `std::thread` per held lock,
 //! sleeping in short slices so a release stops it promptly.
 //!
+//! ## The holder file (EXP-2130)
+//!
+//! The mtime alone cannot tell a dead holder from a slow one for `stale`
+//! seconds, so a process restarted at once found its own dead predecessor's
+//! lock held. [`acquire_held`] (locks only OUR builds take) adds
+//! `<lock>.holder`: an OS file lock the kernel drops with the holder's
+//! process (or its re-exec), holding the stamp last written to the directory.
+//! Got the OS lock + the directory still carries that stamp = its holder is
+//! gone: reclaimed at once. OS lock taken = its holder lives, however old the
+//! directory. A directory with any other stamp is a holder without the file
+//! (an older build) and keeps the mtime rule.
+//!
 //! [`proper-lockfile`]: https://github.com/moxystudio/node-proper-lockfile
 
-use std::io;
+use std::fs::{File, OpenOptions, TryLockError};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The longest a heartbeat thread sleeps before it re-checks the release
@@ -182,6 +195,93 @@ struct LockState {
     /// Seconds-since-epoch of the mtime we last wrote — the value a stat must
     /// read back if the lock is still ours.
     mtime_secs: AtomicU64,
+    /// [`acquire_held`]'s holder file, OS-locked while the guard holds.
+    holder: Mutex<Option<Holder>>,
+}
+
+impl LockState {
+    fn holder(&self) -> std::sync::MutexGuard<'_, Option<Holder>> {
+        self.holder.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn record(&self, stamp: u64) {
+        if let Some(holder) = self.holder().as_ref() {
+            holder.record(stamp);
+        }
+    }
+}
+
+/// The OS-locked `<lock>.holder` of [`acquire_held`].
+#[derive(Debug)]
+struct Holder {
+    path: PathBuf,
+    file: File,
+}
+
+impl Holder {
+    /// `Contended` = a live process has it; `Ok(None)` = no OS lock to be
+    /// had on this file system (the mtime rule alone decides).
+    fn take(path: PathBuf) -> Result<Option<Self>, LockError> {
+        loop {
+            let file = match OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path) {
+                Ok(file) => file,
+                Err(err) => return Err(LockError::Io(err)),
+            };
+            match file.try_lock() {
+                Ok(()) => {}
+                Err(TryLockError::WouldBlock) => return Err(LockError::Contended),
+                Err(TryLockError::Error(err)) => {
+                    log::debug!("lockfile: no OS lock on {}: {err}", path.display());
+                    return Ok(None);
+                }
+            }
+            // A holder that released removed the file we opened: again.
+            if still_at(&file, &path) {
+                return Ok(Some(Self { path, file }));
+            }
+        }
+    }
+
+    /// The stamp a holder that never released left behind.
+    fn recorded(&self) -> Option<u64> {
+        let mut text = String::new();
+        (&self.file).seek(SeekFrom::Start(0)).ok()?;
+        (&self.file).read_to_string(&mut text).ok()?;
+        text.trim().parse().ok()
+    }
+
+    /// A fixed width: an overwrite never leaves an older stamp's tail.
+    fn record(&self, stamp: u64) {
+        let written = (&self.file)
+            .seek(SeekFrom::Start(0))
+            .and_then(|_| (&self.file).write_all(format!("{stamp:020}").as_bytes()));
+        if let Err(err) = written {
+            log::debug!("lockfile: {} not written: {err}", self.path.display());
+        }
+    }
+
+    /// The release: no record, no file (Windows keeps the empty one), no lock.
+    fn clear(self) {
+        let _ = self.file.set_len(0);
+        #[cfg(unix)]
+        let _ = std::fs::remove_file(&self.path);
+        let _ = self.file.unlock();
+    }
+}
+
+#[cfg(unix)]
+fn still_at(file: &File, path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (file.metadata(), std::fs::metadata(path)) {
+        (Ok(held), Ok(there)) => held.ino() == there.ino() && held.dev() == there.dev(),
+        _ => false,
+    }
+}
+
+/// Never removed there ([`Holder::clear`]).
+#[cfg(not(unix))]
+fn still_at(_file: &File, _path: &Path) -> bool {
+    true
 }
 
 /// A held lock. Dropping it releases; losing it (see
@@ -223,6 +323,15 @@ impl LockGuard {
         if self.state.released.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
+        let holder = self.state.holder().take();
+        let removed = self.remove();
+        if let Some(holder) = holder {
+            holder.clear();
+        }
+        removed
+    }
+
+    fn remove(&self) -> io::Result<()> {
         if self.state.compromised.load(Ordering::SeqCst) {
             log::debug!(
                 "lockfile: not removing compromised lock {} (it is no longer ours)",
@@ -266,7 +375,7 @@ pub fn acquire(path: &Path, options: LockOptions) -> Result<LockGuard, LockError
                     "lockfile: acquired {} on attempt {attempt}/{attempts}",
                     path.display()
                 );
-                return Ok(spawn_guard(path.to_path_buf(), stamp, options));
+                return Ok(spawn_guard(path.to_path_buf(), stamp, options, None));
             }
             Err(LockError::Contended) if attempt < attempts => {
                 let wait = options.backoff + jitter(options.jitter);
@@ -280,6 +389,28 @@ pub fn acquire(path: &Path, options: LockOptions) -> Result<LockGuard, LockError
             Err(err) => return Err(err),
         }
     }
+}
+
+/// [`acquire`] with the holder file (one attempt): a holder whose process is
+/// provably gone is taken over at once, a live one never. `takeover` has the
+/// last word on the former (the caller knows what else the dead holder may
+/// have left running); `false` = the mtime rule.
+pub fn acquire_held(path: &Path, options: LockOptions, takeover: &dyn Fn() -> bool) -> Result<LockGuard, LockError> {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".holder");
+    let holder = Holder::take(PathBuf::from(name))?;
+    let mut taken = try_acquire(path, Some(options.stale));
+    if let (Err(LockError::Contended), Some(holder)) = (&taken, &holder) {
+        let left = || holder.recorded().is_some_and(|stamp| dir_mtime(path).is_ok_and(|mtime| epoch_secs(mtime) == stamp));
+        if left() && takeover() && left() {
+            log::info!("lockfile: {} reclaimed, its holder's process is gone", path.display());
+            match std::fs::remove_dir(path) {
+                Err(err) if err.kind() != io::ErrorKind::NotFound => return Err(LockError::Io(err)),
+                _ => taken = try_acquire(path, None),
+            }
+        }
+    }
+    Ok(spawn_guard(path.to_path_buf(), taken?, options, holder))
 }
 
 /// One mkdir. `stale = None` is the "retry with staleness disabled" mode: an
@@ -335,11 +466,15 @@ fn stamp_fresh(path: &Path) -> Result<SystemTime, LockError> {
 }
 
 /// Build the guard and start its heartbeat.
-fn spawn_guard(path: PathBuf, stamp: SystemTime, options: LockOptions) -> LockGuard {
+fn spawn_guard(path: PathBuf, stamp: SystemTime, options: LockOptions, holder: Option<Holder>) -> LockGuard {
+    if let Some(holder) = &holder {
+        holder.record(epoch_secs(stamp));
+    }
     let state = Arc::new(LockState {
         compromised: AtomicBool::new(false),
         released: AtomicBool::new(false),
         mtime_secs: AtomicU64::new(epoch_secs(stamp)),
+        holder: Mutex::new(holder),
     });
     let worker_state = Arc::clone(&state);
     let worker_path = path.clone();
@@ -386,6 +521,7 @@ fn heartbeat(path: PathBuf, state: Arc<LockState>, update: Duration) {
                     return compromise(&state, &path, format_args!("mtime write failed: {err}"));
                 }
                 state.mtime_secs.store(epoch_secs(next), Ordering::SeqCst);
+                state.record(epoch_secs(next));
             }
         }
     }
