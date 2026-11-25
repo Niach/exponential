@@ -6101,22 +6101,22 @@
         "file": "shots/needs-you/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 14090,
-        "sha256": "7383a94b5f2c41bcd3cb027acfcd5bbea50ee24d7ed337a953ba22e123360e90"
+        "bytes": 22626,
+        "sha256": "ccfcbeadf1b127b6c8800f66adc69a8f4d4d75c7d14c2a2e0e5b9c4f6e6a3fee"
       },
       "web": {
         "file": "shots/needs-you/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 42842,
-        "sha256": "39c2c349034093ce052a5ffd4505f6b932ff8a4242d051b3014a80db45b5fe62"
+        "bytes": 44138,
+        "sha256": "90f03804dd06cefd53a1a90ba02c50f09d9d26a9fd2a60fadec5d5463e2b3a4d"
       },
       "web-mobile": {
         "file": "shots/needs-you/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 11424,
-        "sha256": "51614f01a53e38e005555cfef30f116dc7ba6ef1aecd41feb24b4bb9973819aa"
+        "bytes": 19904,
+        "sha256": "97e7f84496fca435f042edf0e113bf374e13282d034ab239c627409e1097c305"
       }
     },
     "new-agent": {
