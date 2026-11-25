@@ -427,6 +427,8 @@ struct Shell {
     engine_seats: engine::exposes::Seats,
     /// #EDE-64: the apps launched in the last seconds.
     launches: system::LaunchGuard,
+    /// #EDE-224: the Exponential app's next window after a hand-off.
+    focus_next: system::FocusNext,
     /// The installed packages (the factory and the person's directories).
     engine_apps: Vec<engine::EngineApp>,
     /// The launcher's entries, for the `launch` capability.
@@ -1523,8 +1525,10 @@ fn ide_open(shell: &SharedShell, link: Option<&str>) {
         return;
     }
     if link.is_some_and(accounts::ide_send) {
+        bring_forward(shell, &EXPONENTIAL_APPS);
         return;
     }
+    bring_forward(shell, &EXPONENTIAL_APPS);
     // A cold start keeps the link: the entry's Exec takes it as `%U` (its
     // single-instance boot feeds command-line `exponential://` args in).
     let command = app_entry(&shell.borrow(), "at.exponential").map(|a| ide_command(a, link));
@@ -1550,16 +1554,8 @@ const EXPONENTIAL_APPS: [&str; 2] = ["at.exponential", "at.exponential.staging"]
 /// clicks launches anything once.
 fn launch_app(shell: &SharedShell, app: &str) {
     let wanted = app.trim_end_matches(".desktop");
-    if EXPONENTIAL_APPS.contains(&wanted) {
-        let open = {
-            let s = shell.borrow();
-            let mine: Vec<_> = s.model.windows.iter().filter(|w| w.app == wanted).collect();
-            mine.iter().find(|w| w.focused).or(mine.first()).map(|w| w.id.clone())
-        };
-        if let Some(id) = open.and_then(|id| ede_protocol::WindowId::new(&id).ok()) {
-            with_ede(shell, |ede| ede.focus(id));
-            return;
-        }
+    if EXPONENTIAL_APPS.contains(&wanted) && bring_forward(shell, &[wanted]) {
+        return;
     }
     let exec = shell.borrow().apps.iter().find(|a| a.id.trim_end_matches(".desktop") == wanted).map(|a| a.exec.clone());
     let Some(exec) = exec else {
@@ -1571,6 +1567,26 @@ fn launch_app(shell: &SharedShell, app: &str) {
     } else {
         tracing::info!(app, "already starting");
     }
+}
+
+/// #EDE-224: after a hand-off the app's window comes forward: its window up
+/// now (true), else the next one it opens within a launch token's lifetime
+/// (the app gets the link on its socket, without a token, so that window
+/// opens behind the focused one and the app cannot raise it itself).
+fn bring_forward(shell: &SharedShell, apps: &[&str]) -> bool {
+    let open = {
+        let s = shell.borrow();
+        let mine: Vec<_> = s.model.windows.iter().filter(|w| apps.contains(&w.app.as_str())).collect();
+        mine.iter().find(|w| w.focused).or(mine.first()).map(|w| w.id.clone())
+    };
+    if let Some(id) = open.and_then(|id| ede_protocol::WindowId::new(&id).ok()) {
+        with_ede(shell, |ede| ede.focus(id));
+        return true;
+    }
+    let mut s = shell.borrow_mut();
+    let known: Vec<String> = s.windows.iter().map(|w| w.id.to_string()).collect();
+    s.focus_next.arm(apps, known, Instant::now());
+    false
 }
 
 /// The installed entry for an app id (a window's app_id, a pin), if any.
@@ -2003,7 +2019,7 @@ fn dispatch(shell: &SharedShell, event: ShellEvent, cx: &mut App) {
 
 /// `/windows` and the model from the compositor's list.
 fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, workspaces: Vec<ede_protocol::WorkspaceInfo>, cx: &mut App) {
-    {
+    let next = {
         let mut s = shell.borrow_mut();
         for e in uicore_data::workspace_events(&s.model, &workspaces) {
             s.model = reduce(&s.model, &e);
@@ -2017,7 +2033,14 @@ fn windows_changed(shell: &SharedShell, list: Vec<ede_protocol::WindowInfo>, wor
         for app in list.iter().filter_map(|w| w.app_id.as_deref()) {
             s.launches.mapped(app);
         }
+        let next = s.focus_next.opened(list.iter().map(|w| (w.id.as_str(), w.app_id.as_deref())), Instant::now());
         s.windows = list;
+        next
+    };
+    // #EDE-224: the hand-off's window, opened behind: forward now.
+    if let Some(id) = next.and_then(|id| ede_protocol::WindowId::new(&id).ok()) {
+        tracing::info!(window = %id, "the hand-off's window comes forward");
+        with_ede(shell, |ede| ede.focus(id));
     }
     previews_refresh(shell);
     overlays_refresh(shell);
@@ -2268,8 +2291,10 @@ fn hand_off(shell: &SharedShell, url: &str) {
     }
     if accounts::ide_send(url) {
         tracing::info!(url, "handed to the Exponential app");
+        bring_forward(shell, &EXPONENTIAL_APPS);
         return;
     }
+    bring_forward(shell, &EXPONENTIAL_APPS);
     let command = EXPONENTIAL_APPS.iter().find_map(|id| app_entry(&shell.borrow(), id).map(|app| format!("{} '{url}'", app.exec)));
     match command {
         Some(command) => person_launch(shell, &command),
@@ -4337,6 +4362,7 @@ fn main() {
             engine: None,
             engine_seats: engine::exposes::seats(Vec::new()),
             launches: system::LaunchGuard::default(),
+            focus_next: system::FocusNext::default(),
             engine_apps: Vec::new(),
             launchable: Arc::new(Vec::new()),
             team_stores: None,
