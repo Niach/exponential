@@ -1654,11 +1654,11 @@ fn instructions(ink: &Ink, chrome: &Chrome) -> Value {
         "children": [ink.group("instructions_group", vec![loading, failed, field]), caption]})
 }
 
-/// The Assistant's identity: the brand mark in a 36 px muted disc (never a
+/// The Assistant's identity: the brand mark, 36 px (never a
 /// stored icon, web `AssistantMark size-9`) + the name.
 fn assistant_identity(ink: &Ink, chrome: &Chrome) -> Value {
-    let mark = json!({"id": "assistant_mark", "component": "Box", "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "width": 36, "height": 36, "flexShrink": 0, "borderRadius": 9999, "backgroundColor": chrome.disc},
-        "children": [{"id": "assistant_mark_icon", "component": "Icon", "props": {"name": "brand-exponential"}, "style": {"width": 27, "height": 27, "color": ink.foreground}}]});
+    let mark = json!({"id": "assistant_mark", "component": "Box", "style": {"display": "flex", "alignItems": "center", "justifyContent": "center", "width": 36, "height": 36, "flexShrink": 0, "borderRadius": 9999},
+        "children": [{"id": "assistant_mark_icon", "component": "Icon", "props": {"name": "brand-exponential"}, "style": {"width": 36, "height": 36, "color": ink.foreground}}]});
     let name = json!({"id": "assistant_name", "component": "Input", "props": {"variant": "bare", "label": "Name", "name": "name", "placeholder": AGENT_SETTINGS.copy.name_placeholder.clone(), "value": path("/pane/fields/name")}, "style": {"flexGrow": 1, "minWidth": 0}});
     let mut row = ink.shell("assistant_identity", false, json!(true), vec![mark, name]);
     row["style"]["gap"] = json!(ink.r(0.5));

@@ -151,9 +151,9 @@
       "label": 11,
       "gap": 4,
       "disc": 60,
-      "mark": 40,
+      "mark": 50,
       "raise": 16,
-      "ring": 6,
+      "ring": 4,
       "glow": 26
     },
     "newMenu": {

@@ -94,7 +94,7 @@ vi.mock(`@/components/chat/chat-menu`, () => ({
 }))
 vi.mock(`@/components/team/sidebar-shared`, () => ({ NavCountBadge: () => null }))
 vi.mock(`@/hooks/use-device-glyphs`, () => ({ useDeviceGlyphs: () => () => null }))
-vi.mock(`@/hooks/use-team-data`, () => ({ useTeamBoards: () => [] }))
+vi.mock(`@/hooks/use-team-data`, () => ({ useTeamBoards: () => [], useTeamBoardsWithReady: () => ({ boards: [], boardsReady: true }) }))
 vi.mock(`@/hooks/use-apps`, () => ({ useApps: () => ({ apps: [] }) }))
 vi.mock(`@/hooks/use-sidebar-folders`, () => ({
   useSidebarFolders: (_teamId: string, _section: string, ids: (entries: SidebarEntry[]) => string[]) => {

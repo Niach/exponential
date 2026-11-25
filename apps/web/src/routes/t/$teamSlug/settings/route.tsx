@@ -86,18 +86,20 @@ function PhoneSettingsLayout() {
 
   return (
     <div className={`flex w-full flex-col ${PAGE_END_CLEARANCE}`} data-testid={SETTINGS_NAV_TEST_IDS.page}>
-      <MobileDetailHeader
-        title={
-          isListSub && section && sub ? (
-            <PushedTitle>
-              <SubPageTitle teamSlug={teamSlug} section={section} sub={sub} fallback={label ?? ``} />
-            </PushedTitle>
-          ) : (
-            <PushedTitle>{label ?? `Settings`}</PushedTitle>
-          )
-        }
-        onBack={back}
-      />
+      <div className="sticky top-0 z-20 pt-[env(safe-area-inset-top)]">
+        <MobileDetailHeader
+          title={
+            isListSub && section && sub ? (
+              <PushedTitle>
+                <SubPageTitle teamSlug={teamSlug} section={section} sub={sub} fallback={label ?? ``} />
+              </PushedTitle>
+            ) : (
+              <PushedTitle>{label ?? `Settings`}</PushedTitle>
+            )
+          }
+          onBack={back}
+        />
+      </div>
       {/* pt-6 clears the header band's 24px fade (DETAIL_EDGE_TOP_CLASS
           -bottom-6), which otherwise eats the first card's top edge
           (EXP-1554). */}

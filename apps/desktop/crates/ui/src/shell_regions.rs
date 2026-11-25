@@ -485,8 +485,8 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
     value
 }
 
-/// #EXP-2124: the Assistant row's glyph (the IDE paints the brand mark in
-/// its muted disc, web `AssistantMark`).
+/// #EXP-2124: the Assistant row's glyph (the IDE paints the brand mark,
+/// web `AssistantMark`).
 const ASSISTANT_MARK: &str = "ide:assistant";
 
 /// #EXP-2124: which of the document's item menus a row opens (the table
@@ -1507,8 +1507,7 @@ impl HostPlugin for RegionHost {
         if name == "ide:computer" {
             return self.computer.borrow().as_ref().map(|state| crate::sidebar::computer_button(state, cx));
         }
-        // #EXP-2124: the Assistant's row: the brand mark at three quarters of
-        // a muted disc (web `AssistantMark`).
+        // #EXP-2124: the Assistant's row: the brand mark (web `AssistantMark`).
         if name == ASSISTANT_MARK {
             return Some(assistant_mark(size, cx));
         }
@@ -2075,18 +2074,13 @@ fn new_tab_menu_items(assistant: Option<&str>, teams: &[NewTabTeamRow]) -> Vec<V
         .collect()
 }
 
-/// #EXP-2124: the Assistant's mark: the brand logo at three quarters of a
-/// muted disc (web `AssistantMark`).
+/// #EXP-2124: the Assistant's mark: the brand logo filling the glyph's box (web
+/// `AssistantMark`).
 fn assistant_mark(size: f32, cx: &App) -> AnyElement {
-    div()
+    Icon::from(crate::icons::ExpIcon::Logo)
         .size(gpui::px(size))
         .flex_shrink_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .bg(cx.theme().muted)
-        .child(Icon::from(crate::icons::ExpIcon::Logo).size(gpui::px(size * 0.75)).text_color(cx.theme().foreground))
+        .text_color(cx.theme().foreground)
         .into_any_element()
 }
 

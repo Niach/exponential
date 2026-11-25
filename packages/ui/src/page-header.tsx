@@ -3,6 +3,7 @@ import { CHATS_COPY, CHATS_SHELL, CHATS_TEST_IDS } from "@exp/domain-contract/ch
 
 import { cn } from "./cn"
 import { Badge } from "./badge"
+import { DETAIL_EDGE_TOP_CLASS } from "./detail-chrome"
 import { FabButton } from "./fab-chrome"
 import { conceptIcon } from "./icons.generated"
 
@@ -17,6 +18,11 @@ import { conceptIcon } from "./icons.generated"
 
 const SearchIcon = conceptIcon(`nav-search`)
 const InboxIcon = conceptIcon(`nav-inbox`)
+
+/** chats.json `shell.header`: PINNED. A list page's first child: it sticks to
+ *  the top of its scroller, full bleed over the page's 16px padding, and the
+ *  list scrolls under its edge fade. */
+const PAGE_HEADER_PINNED_CLASS = `sticky top-0 z-20 -mx-4 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-2`
 
 export function PageHeader({
   title,
@@ -42,8 +48,9 @@ export function PageHeader({
   return (
     <div
       data-testid={CHATS_TEST_IDS.pageHeader}
-      className={cn(`flex items-center gap-3`, className)}
+      className={cn(`flex items-center gap-3`, PAGE_HEADER_PINNED_CLASS, className)}
     >
+      <span aria-hidden className={DETAIL_EDGE_TOP_CLASS} />
       {leading}
       <h1 className="min-w-0 flex-1 truncate text-[34px] font-bold leading-tight tracking-tight">
         {title}
