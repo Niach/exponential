@@ -62,7 +62,8 @@ export { agentCallRefusal, nestedCallRefusal, allowedCallers, checkArgs, declare
 export type { AllowedCallers } from "./functions"
 export { MALFORMED_TEMPLATE, parseTemplate } from "./format-template"
 export type { TemplatePart } from "./format-template"
-export { A2UI_VERSION_09, ENVELOPE_KEYS, MIXIN_NAMES, SURFACE_COMPONENT, bareMixin, declaresBare, isCheckMixin, isCheckable, checkCall, checkDynamicValue, checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "./entry"
+export { A2UI_VERSION_09, ENVELOPE_KEYS, SURFACE_COMPONENT, checkCall, checkDynamicValue, checkEntry, checkEnvelope, checkMetadata, entryRefusal } from "./entry"
+export { MIXIN_NAMES, bareMixin, declaresBare, isCheckMixin, isCheckable } from "./mixins"
 export type { EntryContext, EntryFailure, Envelope } from "./entry"
 // Round 2 (docs/round-2-contract.md): formatting, lists, panels, direction, animation.
 export { displayString, englishFormatter, intlFormatter, formatCompact, formatFunctions, formatPattern, parseDateValue, relativeTimeUnit, currencyDigits, FORMAT_FUNCTION_NAMES, ENGLISH_FORMAT_FUNCTIONS, ENGLISH_DATE_PATTERNS, ENGLISH_TIME_PATTERN, ENGLISH_DATE_TIME_JOIN, fixedOffset, intlZoneOffset } from "./format"

@@ -10,16 +10,14 @@ import { A2UI_BASIC_CATALOG_ID, A2UI_VERSION, ACCEPT_V09, CORE_CATALOG_ID, CORE_
 import { isDataSchema } from "./dynamic"
 import { INDEX_FUNCTION } from "./functions"
 import { isIdentifier } from "./ids"
-import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
+import { MIXIN_NAMES, bareMixin, declaresBare } from "./mixins"
+import type { ComponentDef, ExtensionDef } from "./types"
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)
 
 /** The envelope keys of a component entry (`ComponentCommon` + the
  *  `Checkable` mixin, §5.1). */
 export const ENVELOPE_KEYS: readonly string[] = [`id`, `component`, `@catalogId`, `@accessibility`, `@metadata`, `@checks`]
-/** §5.1: the mixin names. BARE, each is an ordinary prop of a component whose
- *  catalog declares it, and refused everywhere else. */
-export const MIXIN_NAMES: readonly string[] = [`catalogId`, `accessibility`, `metadata`, `checks`]
 /** The reserved container `createSurface` implies (§5.4). */
 export const SURFACE_COMPONENT = `Surface`
 export { INDEX_FUNCTION }
@@ -147,28 +145,6 @@ export function entryDef(component: string, catalogId: string | undefined, exten
   if (ext) return own(ext.components) ?? own(coreCatalog.components)
   return undefined
 }
-
-/** §5.1: the source catalogs declare the CHECK MIXIN as an array of the
- *  shared `check` shape (`schema.ts` emits `Checkable` for it); on the wire
- *  it is `@checks`, never a prop named `checks`. */
-export function isCheckMixin(schema: PropSchema | undefined): boolean {
-  return schema?.type === `array` && schema.items?.shape === `check`
-}
-
-/** §5.1: does the component take `@checks`? */
-export const isCheckable = (def: ComponentDef | undefined): boolean => isCheckMixin(ownProp(def, `checks`))
-
-/** §5.1: a bare mixin name the component declares as an ordinary prop. */
-export function declaresBare(def: ComponentDef | undefined, name: string): boolean {
-  const schema = ownProp(def, name)
-  return schema !== undefined && !(name === `checks` && isCheckMixin(schema))
-}
-
-const ownProp = (def: ComponentDef | undefined, name: string): PropSchema | undefined =>
-  def && Object.prototype.hasOwnProperty.call(def.props, name) ? def.props[name] : undefined
-
-/** §5.1: why a bare mixin name is refused. */
-export const bareMixin = (name: string): string => `${name} is not a declared prop (write @${name})`
 
 /** The basic catalog's component-id fields (§14.3): `child`, `Tabs.tabs[].child`, `Modal.trigger`/`content`. */
 function basicIdRefs(component: string, entry: Record<string, unknown>): [string, unknown][] {

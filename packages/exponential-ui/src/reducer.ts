@@ -13,7 +13,8 @@ import {
   coreCatalog,
   sharedCatalogView,
 } from "./catalog"
-import { ENVELOPE_KEYS, MIXIN_NAMES, SURFACE_COMPONENT, bareMixin, checkEntry, declaresBare, escapeToken, isCheckable } from "./entry"
+import { ENVELOPE_KEYS, SURFACE_COMPONENT, checkEntry, escapeToken } from "./entry"
+import { MIXIN_NAMES, bareMixin, declaresBare, isCheckable } from "./mixins"
 import { upgradeCard09 } from "./upgrade09"
 import { mapBasicComponent } from "./basic-map"
 import { isDynamic } from "./expr"

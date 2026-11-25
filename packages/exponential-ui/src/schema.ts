@@ -12,7 +12,7 @@
 import styleJson from "../generated/style.runtime.json" with { type: "json" }
 import vendoredBasic from "../vendor/a2ui/v1_0/catalogs/basic/v1/catalog.json" with { type: "json" }
 import { catalogView, coreCatalog, TOKEN_GROUPS } from "./catalog"
-import { isCheckMixin } from "./entry"
+import { isCheckMixin } from "./mixins"
 import { ICON_NAMES } from "./catalog.generated"
 import { isIdentifier } from "./ids"
 import type { CatalogView } from "./catalog"
