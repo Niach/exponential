@@ -322,7 +322,7 @@ fun AgentsScreen(
                                     onAddAccount = { addAccountDevice = device },
                                     onUpdate = { viewModel.requestDeviceUpdate(device.deviceId) },
                                     onMenu = { menuTarget = device },
-                                    onRenamed = { name ->
+                                    onRenamed = { name: String ->
                                         renamingId = null
                                         if (name.isNotBlank() && name.trim() != device.displayLabel) {
                                             viewModel.renameDevice(device.deviceId, name)
