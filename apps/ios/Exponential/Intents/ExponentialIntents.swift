@@ -78,7 +78,7 @@ struct IntentBoard: AppIntents.AppEntity {
         let rows = (try? await pool.read { db -> [BoardEntity] in
             let boards = Dictionary(grouping: try BoardEntity.fetchAll(db), by: \.teamId)
             return TeamGroups.ordered(try TeamEntity.fetchAll(db)).flatMap { team in
-                (boards[team.id] ?? []).sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
+                BoardOrder.sorted(boards[team.id] ?? [])
             }
         }) ?? []
         return rows.enumerated().map { index, board in

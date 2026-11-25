@@ -22,6 +22,9 @@ export interface BoardPickerBoard {
   /** A repo-backed board with no icon of its own draws the repo glyph
    *  (EXP-449: the anonymous colour dot is gone everywhere). */
   repositoryId?: string | null
+  /** #EXP-2125: the board's team, named under it while a list spans several
+   *  (the search finds it too). */
+  teamName?: string | null
 }
 
 interface BoardPickerBase extends PickerSurfaceProps {
@@ -55,6 +58,7 @@ export function boardPickerItems(boards: readonly BoardPickerBoard[]): PickerIte
     label: board.name,
     icon: getBoardIcon(board),
     color: board.color ?? undefined,
+    ...(board.teamName ? { description: board.teamName, keywords: [board.name, board.teamName] } : {}),
   }))
 }
 

@@ -614,6 +614,15 @@ impl WysiwygDescription {
         self.sync_images(cx);
     }
 
+    /// #EXP-2125: a draft moved to another team: its members and issues are
+    /// what the pills and the autocomplete read from now on.
+    pub(crate) fn set_team(&mut self, team_id: String, cx: &mut Context<Self>) {
+        self.completion_source = Some(store_completion_source(team_id.clone()));
+        self.team_id = Some(team_id);
+        self.sync_refs(cx);
+        cx.notify();
+    }
+
     /// Refresh the member/issue snapshot the pill decorator reads. Runs on
     /// init and whenever a collection behind it moves
     /// ([`Self::schedule_ref_refresh`]).
