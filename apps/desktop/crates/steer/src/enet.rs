@@ -511,6 +511,12 @@ impl InstallNode {
             })
             .map(|entry| (entry.install_id.clone(), entry.x25519_public.clone()))
             .collect();
+        // #EXP-1950 R4 + #EXP-2123 (`keyMaker` newRoot): the key holder's one
+        // rule (the gateway's too): allowed readers only, and no key while
+        // this install waits for approval (the send fails, no root is made).
+        if let Some(holder) = self.key_holder() {
+            return holder.new_root_seal(readers).map_err(|e| e.to_string());
+        }
         coding::sealing::seal_new_root(&install_id, &push.public(), &readers).map_err(|e| e.to_string())
     }
 
