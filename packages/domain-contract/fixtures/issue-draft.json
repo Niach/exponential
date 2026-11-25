@@ -1,5 +1,5 @@
 {
-  "_comment": "EXP-1170: the NEW ISSUE page, identical x4 (web lib/issue-draft-page.ts, desktop domain::issue_draft, iOS ExpCore IssueDraftPage, Android domain/IssueDraftPage). There is no create dialog: every New issue opener mints a draft uuid and navigates to the issue detail IN DRAFT MODE, the same layout as the detail with only these differences: the identifier slot reads `header`, the leading edge is Back and the trailing cluster is the primary `create` button alone (EXP-1247: the close/discard button and its confirm are gone x4; discarding is the leave dialog's answer), the body is title (placeholder `titlePlaceholder`, focused on open), property chips (status, priority, assignee, labels, due date, a board picker when the team has more than one board; no estimate), description (placeholder `descriptionPlaceholder`) and the draft's Files, nothing else. FILES (EXP-1247): only rows that are not inline (the description embeds images and clips) or that were uploaded through a FILE path (the rail's Attach file, the Files paperclip: `attachments.as_file`, images included, never inlined); the image button, paste and drop inline. `issueDrafts.listAttachments` returns only those rows. AUTOSAVE: one coalesced `issueDrafts.upsert` of the full row, `debounceMs` after the last title/description edit, at once on a chip change, on blur, on leaving the page and before Create; a title, description or attachment is content, chips alone never create a row; leaving an emptied existing draft deletes it. A draft with no title lists as `untitled`. EXP-1212: a draft WITH content (title, description or attachment) never goes silently. LEAVING the page (back, a nav entry, opening another screen, closing its IDE tab) is HELD and asks `leave`: `create` (the page's Create, disabled without a title; the held navigation then continues instead of opening the new issue), `keep` (save, then continue) or `discard` (delete, then continue; no second confirmation); dismissing the dialog stays on the page. A draft with no content leaves silently and is deleted as before. EXP-1272: a REOPENED draft (its row existed when the page opened: a Drafts list, a link to a saved draft) never asks: leaving runs `keep` at once (save, then continue; a save that fails stays on the page with the save error), so only a fresh New issue with content asks `leave` (table `exitPrompt`). Phones (iOS, Android, web below md): the Inbox tab's dot also lights exactly while the Inbox shows its Drafts tab (the drafts it lists), the SAME dot and colour as unread (table `inboxDot`); wide web and the IDE keep their Drafts nav entry with its count. Quitting the app or closing the browser tab is not held (the autosave keeps the draft). Details x4: while the file list of a reopened draft is not known yet it counts as content; nothing is asked while a Create is in flight; `keep` that fails to save stays on the page with the save error; a mode that never writes a draft row (a sub-issue or share compose on phones) offers `create` and `discard` only, no `keep`; the dialog never puts keyboard focus on `discard`. Wording and weight (Danny, 2026-10-05): each prompt is ONE question, the title; there is no body line. The leave dialog's default answer is `create` (primary, trailing, takes Enter and the initial focus; shown disabled without a title, then `keep` takes the focus), `keep` is the plain button beside it, `discard` a quiet destructive text button set apart on the leading edge; the buttons are the compact size in ONE row (they stack only when the row does not fit). EXP-1231 CONCURRENCY: the same draft may be open on several clients (another tab, another device) at once; whichever client creates the issue or discards the draft consumes the row for all of them. The server stamps the created issue with the draft's id (`issues.draft_id`, synced) and refuses any later `issueDrafts.upsert` of a consumed id (CONFLICT), so no client can resurrect it. Every open page watches its row (`concurrency`): an issue carrying this draft id = CREATED ELSEWHERE, the page stops writing and replaces itself with that issue's detail at once, no prompt, no toast (its own Create does the same); a row that was synced and is gone with no such issue after `discardedGraceMs` = DISCARDED ELSEWHERE, the page stops writing, shows the `discardedElsewhere` toast and leaves (Back); a row that returns within the grace (a resync, this client's own racing write) resumes editing. Nothing is concluded while the page's own Create is in flight or after its own Create or a leave-dialog Discard. A row this page has never seen synced is never 'gone'.",
+  "_comment": "EXP-1170: the NEW ISSUE page, identical x4 (web lib/issue-draft-page.ts, desktop domain::issue_draft, iOS ExpCore IssueDraftPage, Android domain/IssueDraftPage). There is no create dialog: every New issue opener mints a draft uuid and navigates to the issue detail IN DRAFT MODE, the same layout as the detail with only these differences: the identifier slot reads `header`, the leading edge is Back and the trailing cluster is the primary `create` button alone (EXP-1247: the close/discard button and its confirm are gone x4; discarding is the leave dialog's answer), the body is title (placeholder `titlePlaceholder`, focused on open), property chips (status, priority, assignee, labels, due date, a board picker when `boards` offers more than one board; no estimate), description (placeholder `descriptionPlaceholder`) and the draft's Files, nothing else. FILES (EXP-1247): only rows that are not inline (the description embeds images and clips) or that were uploaded through a FILE path (the rail's Attach file, the Files paperclip: `attachments.as_file`, images included, never inlined); the image button, paste and drop inline. `issueDrafts.listAttachments` returns only those rows. AUTOSAVE: one coalesced `issueDrafts.upsert` of the full row, `debounceMs` after the last title/description edit, at once on a chip change, on blur, on leaving the page and before Create; a title, description or attachment is content, chips alone never create a row; leaving an emptied existing draft deletes it. A draft with no title lists as `untitled`. EXP-1212: a draft WITH content (title, description or attachment) never goes silently. LEAVING the page (back, a nav entry, opening another screen, closing its IDE tab) is HELD and asks `leave`: `create` (the page's Create, disabled without a title; the held navigation then continues instead of opening the new issue), `keep` (save, then continue) or `discard` (delete, then continue; no second confirmation); dismissing the dialog stays on the page. A draft with no content leaves silently and is deleted as before. EXP-1272: a REOPENED draft (its row existed when the page opened: a Drafts list, a link to a saved draft) never asks: leaving runs `keep` at once (save, then continue; a save that fails stays on the page with the save error), so only a fresh New issue with content asks `leave` (table `exitPrompt`). Phones (iOS, Android, web below md): the Inbox tab's dot also lights exactly while the Inbox shows its Drafts tab (the drafts it lists), the SAME dot and colour as unread (table `inboxDot`); wide web and the IDE keep their Drafts nav entry with its count. Quitting the app or closing the browser tab is not held (the autosave keeps the draft). Details x4: while the file list of a reopened draft is not known yet it counts as content; nothing is asked while a Create is in flight; `keep` that fails to save stays on the page with the save error; a mode that never writes a draft row (a sub-issue or share compose on phones) offers `create` and `discard` only, no `keep`; the dialog never puts keyboard focus on `discard`. Wording and weight (Danny, 2026-10-05): each prompt is ONE question, the title; there is no body line. The leave dialog's default answer is `create` (primary, trailing, takes Enter and the initial focus; shown disabled without a title, then `keep` takes the focus), `keep` is the plain button beside it, `discard` a quiet destructive text button set apart on the leading edge; the buttons are the compact size in ONE row (they stack only when the row does not fit). EXP-1231 CONCURRENCY: the same draft may be open on several clients (another tab, another device) at once; whichever client creates the issue or discards the draft consumes the row for all of them. The server stamps the created issue with the draft's id (`issues.draft_id`, synced) and refuses any later `issueDrafts.upsert` of a consumed id (CONFLICT), so no client can resurrect it. Every open page watches its row (`concurrency`): an issue carrying this draft id = CREATED ELSEWHERE, the page stops writing and replaces itself with that issue's detail at once, no prompt, no toast (its own Create does the same); a row that was synced and is gone with no such issue after `discardedGraceMs` = DISCARDED ELSEWHERE, the page stops writing, shows the `discardedElsewhere` toast and leaves (Back); a row that returns within the grace (a resync, this client's own racing write) resumes editing. Nothing is concluded while the page's own Create is in flight or after its own Create or a leave-dialog Discard. A row this page has never seen synced is never 'gone'. #EXP-2125 THE BOARD PICKER (`boards`, issueDraftBoards): there is no active team, so it offers EVERY member team's boards (personal teams hold none) as THE BoardPicker's flat rows, in one order ×4: the teams by name (sidebar-tree.json `teams`), in each the boards by sortOrder, ties by id (sidebar-tree.json `teamItems`: never the order they synced in); while the list spans more than one team every row says its team's name as the picker row's muted description (`showTeam`; a search finds it too), else no description (and the phones keep the team's folders). `only` (the chat's, the parent issue's or the share's team) keeps that team's boards alone: a New issue in a chat, a sub-issue and a share (share-targets.json) never leave their team. Fewer than two boards = no picker. A PICK (`picks`, issueDraftPick) in the draft's own team changes the board alone; in ANOTHER team it moves the draft there: the board, the team, and what belongs to a team goes (status = that team's Backlog, labels, the assignee: the sole member there, else none), what does not stays (title, description, files, priority, due date). It lands at once, no confirm, the page stays open and writes like any chip change (the same draft id); status, labels, members, the Drafts list and Create then follow the new team. A fresh draft's default board is the one asked for, else the last-used one, else the first of `boards` in the team it opens on.",
   "copy": {
     "header": "New issue",
     "titlePlaceholder": "Issue title",
@@ -70,6 +70,261 @@
       "unread": 1,
       "drafts": 3,
       "lit": true
+    }
+  ],
+  "boards": [
+    {
+      "case": "two teams: by name, boards by sortOrder, ties by id, each row with its team",
+      "teams": [
+        {
+          "id": "t-2",
+          "name": "Zen",
+          "kind": "team"
+        },
+        {
+          "id": "t-1",
+          "name": "acme",
+          "kind": "team"
+        },
+        {
+          "id": "t-p",
+          "name": "A personal",
+          "kind": "personal"
+        }
+      ],
+      "boards": [
+        {
+          "id": "b-4",
+          "teamId": "t-2",
+          "sortOrder": 0
+        },
+        {
+          "id": "b-2",
+          "teamId": "t-1",
+          "sortOrder": 0
+        },
+        {
+          "id": "b-1",
+          "teamId": "t-1",
+          "sortOrder": 0
+        },
+        {
+          "id": "b-3",
+          "teamId": "t-1",
+          "sortOrder": -1
+        },
+        {
+          "id": "b-p",
+          "teamId": "t-p",
+          "sortOrder": 0
+        },
+        {
+          "id": "b-x",
+          "teamId": "t-x",
+          "sortOrder": 0
+        }
+      ],
+      "only": null,
+      "expected": {
+        "boards": [
+          "b-3",
+          "b-1",
+          "b-2",
+          "b-4"
+        ],
+        "showTeam": true
+      }
+    },
+    {
+      "case": "the second team holds no board: no team names",
+      "teams": [
+        {
+          "id": "t-1",
+          "name": "acme",
+          "kind": "team"
+        },
+        {
+          "id": "t-2",
+          "name": "Zen",
+          "kind": "team"
+        }
+      ],
+      "boards": [
+        {
+          "id": "b-1",
+          "teamId": "t-1",
+          "sortOrder": 1
+        },
+        {
+          "id": "b-2",
+          "teamId": "t-1",
+          "sortOrder": 0
+        }
+      ],
+      "only": null,
+      "expected": {
+        "boards": [
+          "b-2",
+          "b-1"
+        ],
+        "showTeam": false
+      }
+    },
+    {
+      "case": "held to one team (a chat's, a parent's, a share's)",
+      "teams": [
+        {
+          "id": "t-1",
+          "name": "acme",
+          "kind": "team"
+        },
+        {
+          "id": "t-2",
+          "name": "Zen",
+          "kind": "team"
+        }
+      ],
+      "boards": [
+        {
+          "id": "b-1",
+          "teamId": "t-1",
+          "sortOrder": 0
+        },
+        {
+          "id": "b-2",
+          "teamId": "t-2",
+          "sortOrder": 0
+        }
+      ],
+      "only": "t-2",
+      "expected": {
+        "boards": [
+          "b-2"
+        ],
+        "showTeam": false
+      }
+    },
+    {
+      "case": "nothing to offer",
+      "teams": [],
+      "boards": [
+        {
+          "id": "b-1",
+          "teamId": "t-1",
+          "sortOrder": 0
+        }
+      ],
+      "only": null,
+      "expected": {
+        "boards": [],
+        "showTeam": false
+      }
+    }
+  ],
+  "picks": [
+    {
+      "case": "another board of the same team: the board alone",
+      "draft": {
+        "teamId": "t-1",
+        "boardId": "b-1",
+        "statusId": "s-1",
+        "labelIds": [
+          "l-1"
+        ],
+        "assigneeId": "u-2",
+        "assigneeAgentId": null,
+        "priority": "high",
+        "dueDate": "2026-12-01",
+        "title": "Fix it",
+        "description": "Body"
+      },
+      "board": {
+        "id": "b-2",
+        "teamId": "t-1"
+      },
+      "soleMemberId": null,
+      "expected": {
+        "teamId": "t-1",
+        "boardId": "b-2",
+        "statusId": "s-1",
+        "labelIds": [
+          "l-1"
+        ],
+        "assigneeId": "u-2",
+        "assigneeAgentId": null,
+        "priority": "high",
+        "dueDate": "2026-12-01",
+        "title": "Fix it",
+        "description": "Body"
+      }
+    },
+    {
+      "case": "another team's board: the team's things go",
+      "draft": {
+        "teamId": "t-1",
+        "boardId": "b-1",
+        "statusId": "s-1",
+        "labelIds": [
+          "l-1"
+        ],
+        "assigneeId": "u-2",
+        "assigneeAgentId": null,
+        "priority": "high",
+        "dueDate": "2026-12-01",
+        "title": "Fix it",
+        "description": "Body"
+      },
+      "board": {
+        "id": "b-9",
+        "teamId": "t-2"
+      },
+      "soleMemberId": null,
+      "expected": {
+        "teamId": "t-2",
+        "boardId": "b-9",
+        "statusId": null,
+        "labelIds": [],
+        "assigneeId": null,
+        "assigneeAgentId": null,
+        "priority": "high",
+        "dueDate": "2026-12-01",
+        "title": "Fix it",
+        "description": "Body"
+      }
+    },
+    {
+      "case": "another team's board with one member: theirs",
+      "draft": {
+        "teamId": "t-1",
+        "boardId": "b-1",
+        "statusId": "s-1",
+        "labelIds": [
+          "l-1"
+        ],
+        "assigneeId": null,
+        "assigneeAgentId": "a-1",
+        "priority": "high",
+        "dueDate": "2026-12-01",
+        "title": "Fix it",
+        "description": "Body"
+      },
+      "board": {
+        "id": "b-9",
+        "teamId": "t-2"
+      },
+      "soleMemberId": "u-1",
+      "expected": {
+        "teamId": "t-2",
+        "boardId": "b-9",
+        "statusId": null,
+        "labelIds": [],
+        "assigneeId": "u-1",
+        "assigneeAgentId": null,
+        "priority": "high",
+        "dueDate": "2026-12-01",
+        "title": "Fix it",
+        "description": "Body"
+      }
     }
   ]
 }
