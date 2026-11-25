@@ -832,7 +832,7 @@ fn a_waiting_install_makes_no_chat_key_against_an_honest_and_a_malicious_server(
         *lock(&server.device_key) = Some(device.clone());
         coding::sealing::install(Arc::new(holder.clone()));
         let body = coding::sealing::seal_body("keyless", "the first words");
-        let opened = body.as_deref().map(|body| enet_core::sealed::open_body(body, &|e| (e == 1).then_some(device.secret)).text);
+        let opened = body.as_ref().ok().map(|body| enet_core::sealed::open_body(body, &|e| (e == 1).then_some(device.secret)).text);
         // (b') a tree no device keys: the no-key refusal, never plaintext.
         *lock(&server.device_key) = None;
         let none = coding::sealing::seal_body("keyless-2", "never in clear");
