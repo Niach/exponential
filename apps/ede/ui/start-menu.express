@@ -84,6 +84,6 @@ no_apps = EmptyState(icon="ui-empty-search", title="No results", size="list", vi
 bottom = Box(style={display: "flex", flexDirection: "row", alignItems: "center", gap: "$spacing.sm", padding: "$spacing.sm", borderTopWidth: 1, borderColor: "$color.border"}, children=[search, whats_new, account, devices, settings])
 search = Input(label="Search", name="query", type="search", placeholder="Search apps and issues", value=$/shell/startMenu/query, on={submit: ede_start_menu(activate=true)}, style={flexGrow: 1})
 whats_new = Button(label="What's new", icon="nav-changelog", variant="ghost", size="icon", on={press: ede_launch(app="at.exponential")})
-account = Button(label="Account", icon="nav-account", variant="ghost", size="icon", on={press: ede_launch(app="at.exponential")})
+account = Button(label="Account", icon="nav-account", variant="ghost", size="icon", on={press: ede_open_document(name="settings", page="account")})
 devices = Button(label="Devices", icon="nav-devices", variant="ghost", size="icon", on={press: ede_launch(app="at.exponential")})
 settings = Button(label="Settings", icon="nav-settings", variant="ghost", size="icon", on={press: ede_open_document(name="settings")})

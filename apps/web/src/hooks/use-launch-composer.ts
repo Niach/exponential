@@ -435,11 +435,12 @@ export function useLaunchComposer({
   const effectiveTeamRef = useRef(effectiveTeamId)
   effectiveTeamRef.current = effectiveTeamId
   const teams: ComposerTeamsBinding | null = toAssistant
-    ? { teams: pickTeams, picked: teamsPicked, onChange: setTeamsPicked }
+    ? { teams: pickTeams, picked: teamsPicked, onChange: setTeamsPicked, owner: { kind: `assistant` } }
     : homeTeams && recipient === null
       ? {
           teams: homePickTeams,
           picked: plainTeamIds,
+          owner: { kind: `home` },
           // Every team checked again (null) = every team, still a list.
           onChange: (next) => setPlainPicked(next ?? homeTeamIds),
         }

@@ -240,6 +240,14 @@ export class KeyHolder {
     })
   }
 
+  /** #EXP-2141 (sealed-content.json `dedupedSend`): a send landed in a chat
+   *  another send keyed: its wraps now; still none = every pass asks again. */
+  async fetchKey(rootId: string, epoch: number): Promise<void> {
+    if (this.stopped || this.keys.get(rootId)?.has(epoch)) return
+    await this.refresh([rootId]).catch(() => {})
+    if (!this.keys.get(rootId)?.has(epoch)) this.unopened.set(`${rootId}\n${epoch}`, { rootId, epoch })
+  }
+
   /** As a holder: wraps every pending reader of an epoch this install holds
    *  (#EXP-2119: superseded ones too). */
   async answerPending(): Promise<number> {

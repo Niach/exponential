@@ -241,7 +241,12 @@ pub(crate) fn leave(cx: &mut App) {
     if let Some(id) = store.session(cx).account_id().map(str::to_string) {
         store.sign_out(&id, cx);
     }
-    let account = AuthContext::global(cx).auth.signed_in_accounts().into_iter().next();
+    // #EDE-226: the login's account, the rule of the start (`session::bootstrap`).
+    let wanted = match crate::session::ede_pick(elocal::ede_legacy_root().as_deref()) {
+        crate::session::EdePick::Team { account_id, .. } => account_id,
+        crate::session::EdePick::Local => None,
+    };
+    let account = crate::session::pick_account(AuthContext::global(cx).auth.signed_in_accounts(), wanted.as_deref());
     if let Some(account) = account {
         crate::session::connect_account(&account, cx);
     }

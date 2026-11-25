@@ -303,6 +303,29 @@ struct LiveSession {
 
 type Sessions = Arc<Mutex<Vec<LiveSession>>>;
 
+/// #EDE-226: what a change of `accounts.json` means to the running daemon.
+#[derive(Debug, PartialEq, Eq)]
+enum AccountFollow {
+    Nothing,
+    SignedOut,
+    Restart,
+}
+
+/// A new token while signed in is read at call time; another account's
+/// changes are not the daemon's, until its own is signed out: the next
+/// sign-in, whoever's, is then the one it runs as.
+fn account_follow(signed_out: &mut bool, own: &str, event: &api::AuthEvent) -> AccountFollow {
+    match event {
+        api::AuthEvent::SignedIn { .. } if *signed_out => AccountFollow::Restart,
+        api::AuthEvent::SignedIn { .. } => AccountFollow::Nothing,
+        api::AuthEvent::SignedOut { account_id } | api::AuthEvent::Unauthorized { account_id } if account_id == own && !*signed_out => {
+            *signed_out = true;
+            AccountFollow::SignedOut
+        }
+        _ => AccountFollow::Nothing,
+    }
+}
+
 /// EXP-1489: the restart of an installed update — every live session is
 /// suspended (a run cut mid-turn reports `lost: daemon_restart`, so its row
 /// reads `restarted` with resume and the new process continues it; one
@@ -462,6 +485,9 @@ fn run_daemon(args: &[String]) -> CommandResult {
     if runtime.is_some() {
         coding::sealing::expect_service(true);
     }
+    // #EDE-226: sign-ins and sign-outs of the other processes.
+    let account_changes = ctx.auth.watch(Duration::from_secs(2));
+    let mut signed_out = false;
     let personal_key = context::ensure_personal_key(&ctx).ok();
     let sessions: Sessions = Arc::new(Mutex::new(Vec::new()));
     // EXP-484: the collected agent status (accounts + usage windows), filled
@@ -1158,6 +1184,23 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // the update gate and the session reaper). #FEED-211: a pass
             // still in flight is left to finish; none starts beside it.
             start_agent_status(&agent_status, &ctx, &doctor, None);
+        }
+        // #EDE-226: the shell, the app and `exponential login` / `logout` share
+        // this account: a sign-out empties the token under the loop, a
+        // sign-in after one starts the daemon anew (its install was revoked).
+        while let Ok(event) = account_changes.try_recv() {
+            match account_follow(&mut signed_out, &ctx.account.id, &event) {
+                AccountFollow::Nothing => {}
+                AccountFollow::SignedOut => log::warn!("{} was signed out on this machine; waiting for the next sign-in", ctx.account.email),
+                AccountFollow::Restart => {
+                    log::info!("signed in again; restarting the daemon");
+                    suspend_for_restart(&sessions, UpdateTrigger::Now);
+                    if let Some(handle) = control.take() {
+                        handle.stop();
+                    }
+                    super::update::exec_self();
+                }
+            }
         }
         // Session start/end changes the inventory's busy flags.
         if session_change {
@@ -4707,6 +4750,19 @@ mod tests {
             recorded_at: coding::run_registry::now_secs(),
             extra: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// #EDE-226: a sign-out is waited out, the next sign-in restarts; a
+    /// rotated token or another account's sign-out is neither.
+    #[test]
+    fn a_sign_in_after_a_sign_out_restarts_the_daemon() {
+        use api::AuthEvent::{SignedIn, SignedOut};
+        let id = |id: &str| id.to_string();
+        let mut out = false;
+        assert_eq!(account_follow(&mut out, "a", &SignedIn { account_id: id("a") }), AccountFollow::Nothing, "a new token");
+        assert_eq!(account_follow(&mut out, "a", &SignedOut { account_id: id("b") }), AccountFollow::Nothing);
+        assert_eq!(account_follow(&mut out, "a", &SignedOut { account_id: id("a") }), AccountFollow::SignedOut);
+        assert_eq!(account_follow(&mut out, "a", &SignedIn { account_id: id("a") }), AccountFollow::Restart);
     }
 
     /// EXP-862 review nit: the accounts a live run is on come off ONE

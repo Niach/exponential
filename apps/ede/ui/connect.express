@@ -5,7 +5,9 @@
 # handler) or a code (the device-code flow: the code and the page to enter it at, the shell polls).
 # The host feeds /connecting {state idle|browser|code|done|failed, code, uri, email, error}; the
 # instance is the document's own data (/connect/instance). On success the account joins accounts.json
-# (the IDE's too) and its teams join the switcher.
+# (the IDE's too) and its teams join the switcher. #EDE-226: it is the one sign-in of the login, shown
+# at the first one and in Settings, exactly one account; an install that waits for approval then shows
+# so with its code (install-trust.json's waiting state, /installs).
 surface("connect", extensions={ede: {layer: "top", size: {width: 520, height: 360}, keyboard: "on-demand", onDemand: true, functions: ["set", "ede_connect", "ede_close_document"]}})
 $/connect/instance = "https://app.exponential.at"
 $/connecting/code = ""
@@ -14,6 +16,8 @@ $/connecting/error = ""
 $/connecting/instance = ""
 $/connecting/state = "idle"
 $/connecting/uri = ""
+$/installs/code = ""
+$/installs/waiting = false
 root = Box(style={display: "flex", flexDirection: "column", gap: "$spacing.md", padding: "$spacing.lg", width: 520, height: 360, backgroundColor: "$color.popover", borderWidth: 1, borderColor: "$color.border", borderRadius: "$radius.lg"}, children=[connect_head, connect_idle, connect_browser_wait, connect_code, connect_done, connect_failed])
 connect_head = Stack(direction="horizontal", gap="sm", align="center", justify="between", children=[connect_title, connect_close])
 connect_title = Heading(text="Connect Exponential", level="h3")
@@ -37,7 +41,11 @@ connect_code_actions = Stack(direction="horizontal", gap="sm", align="center", j
 connect_code_open = Button(label="Open the page", icon="ui-external-link", variant="default", on={press: ede_connect(action="open")})
 connect_code_cancel = Button(label="Cancel", variant="ghost", on={press: ede_connect(action="cancel")})
 connect_code_waiting = Text(text="Waiting for the approval…", variant="muted", align="center")
-connect_done = Stack(direction="vertical", gap="md", children=[connect_done_text, connect_done_email, connect_done_hint, connect_done_close], visible=eq(a=$/connecting/state, b="done"))
+connect_done = Stack(direction="vertical", gap="md", children=[connect_done_account, connect_done_waiting, connect_done_close], visible=eq(a=$/connecting/state, b="done"))
+connect_done_account = Stack(direction="vertical", gap="md", children=[connect_done_text, connect_done_email, connect_done_hint], visible=not(value=cond(if=$/installs/waiting, then=true, else=false)))
+connect_done_waiting = Box(style={display: "flex", flexDirection: "column", alignItems: "center", gap: "$spacing.md", paddingBottom: "$spacing.xl3"}, children=[connect_done_waiting_state, connect_done_waiting_code], visible=cond(if=$/installs/waiting, then=true, else=false))
+connect_done_waiting_state = EmptyState(icon="ui-private", title="Waiting for approval", style={paddingBottom: 0})
+connect_done_waiting_code = Text(text=$/installs/code, variant="muted", align="center")
 connect_done_text = Text(text="Connected as", variant="muted")
 connect_done_email = Text(text=$/connecting/email, variant="title", lines=1)
 connect_done_hint = Text(text="Your teams are in the switcher.", variant="body")

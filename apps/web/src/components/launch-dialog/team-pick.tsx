@@ -3,7 +3,7 @@
 // multi picker rows (the team's own mark + name, the switcher's order);
 // nothing picked = every team (null). While the pick is a subset, the picked
 // teams ride as the composer's removable pill chips.
-import { ChipRemoveButton, Pill, SearchList, TeamAvatar, type PickerItem } from "@exp/ui"
+import { ChipRemoveButton, cn, Pill, SearchList, TeamAvatar, type PickerItem } from "@exp/ui"
 import { COMPOSER_MENU_TEST_IDS } from "@/components/launch-dialog/composer-menu"
 
 export interface PickTeam {
@@ -65,20 +65,57 @@ export function teamPickShowsChips(picked: readonly string[] | null, teams: read
   return chosen > 0 && chosen < teams.length
 }
 
+/** #EXP-2122 (`plainCases`): a plain root's pick: its own team always, the
+ *  others from the composer's `picked` (null = untouched: the stored ones);
+ *  `scope` = the next send's `scopeTeamIds` (undefined = left out). */
+export function plainTeamsPick(input: {
+  own: string
+  stored: readonly string[] | null
+  picked: readonly string[] | null
+  teams: readonly { id: string }[]
+}): { shown: string[]; scope: string[] | null | undefined } {
+  const ordered = (ids: readonly string[]) =>
+    input.teams.filter((team) => team.id !== input.own && ids.includes(team.id)).map((team) => team.id)
+  const stored = ordered(input.stored ?? [])
+  const others = input.picked === null ? stored : ordered(input.picked)
+  return {
+    shown: input.teams.filter((team) => team.id === input.own || others.includes(team.id)).map((team) => team.id),
+    scope: others.join(`,`) === stored.join(`,`) ? undefined : others.length > 0 ? others : null,
+  }
+}
+
+/** Who the pick belongs to: the Assistant, a plain root (`own` = its own
+ *  team), or Home's plain chat. */
+export type TeamPickOwner = { kind: `assistant` } | { kind: `root`; own: string } | { kind: `home` }
+
+/** `removableCases`: the chips with an ×: never one that could only widen a
+ *  plain chat's pick. */
+export function removableTeamChips(owner: TeamPickOwner, chips: readonly string[]): string[] {
+  if (owner.kind === `root`) return chips.filter((id) => id !== owner.own)
+  if (owner.kind === `home` && chips.length === 1) return []
+  return [...chips]
+}
+
 /** The picked teams as the composer's chips (a subset only). */
 export function TeamPickChips({
   teams,
   picked,
   onChange,
+  owner,
   disabled,
 }: {
   teams: readonly PickTeam[]
   picked: readonly string[] | null
   onChange: (next: string[] | null) => void
+  owner: TeamPickOwner
   disabled?: boolean
 }) {
   if (picked === null || !teamPickShowsChips(picked, teams)) return null
   const chosen = teams.filter((team) => picked.includes(team.id))
+  const removable = removableTeamChips(
+    owner,
+    chosen.map((team) => team.id)
+  )
   return (
     <>
       {chosen.map((team) => (
@@ -86,22 +123,24 @@ export function TeamPickChips({
           key={team.id}
           size="sm"
           mode="readonly"
-          className="max-w-[16rem] pr-1"
+          className={cn(`max-w-[16rem]`, removable.includes(team.id) && `pr-1`)}
           data-testid={`agent-composer-chip-team-${team.id}`}
           title={team.name}
         >
           <TeamAvatar iconUrl={team.iconUrl} size={12} />
           <span className="min-w-0 truncate">{team.name}</span>
-          <ChipRemoveButton
-            label={`Remove ${team.name}`}
-            testId={`agent-composer-chip-team-${team.id}-remove`}
-            disabled={disabled}
-            onRemove={() =>
-              onChange(
-                chosen.length === 1 ? null : nextTeamsPick(chosen.filter((row) => row.id !== team.id).map((row) => row.id), teams)
-              )
-            }
-          />
+          {removable.includes(team.id) && (
+            <ChipRemoveButton
+              label={`Remove ${team.name}`}
+              testId={`agent-composer-chip-team-${team.id}-remove`}
+              disabled={disabled}
+              onRemove={() =>
+                onChange(
+                  chosen.length === 1 ? null : nextTeamsPick(chosen.filter((row) => row.id !== team.id).map((row) => row.id), teams)
+                )
+              }
+            />
+          )}
         </Pill>
       ))}
     </>
