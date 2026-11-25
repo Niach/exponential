@@ -101,7 +101,8 @@ pub fn reclaim(data_dir: &Path, cwd: &Path, requested_at: SystemTime) -> bool {
 /// EXP-764: purge ONE ended repo-less run — its scratch dir and trust entries
 /// ([`reclaim`]), then its run record. Returns whether
 /// the run's local state went; `false` (nothing touched, record included) when
-/// `cwd` is not a scratch dir or a resume re-entered it. The hosts drop the
+/// `cwd` is not a scratch dir, a resume re-entered it or the run is a team
+/// agent's. The hosts drop the
 /// steer journal on `true`; it lives in the steer crate, above this one.
 ///
 /// `requested_at` is the moment the run was seen to END, not the moment this
@@ -115,6 +116,12 @@ pub fn purge(data_dir: &Path, session_id: &str, cwd: &Path, requested_at: System
     if crate::run_registry::get(data_dir, session_id).is_some_and(|record| record.is_aside()) {
         crate::run_registry::remove(data_dir, session_id);
         return true;
+    }
+    // #EXP-2138: a team agent's run never ends for its device, whoever ended
+    // its row (the group chat move ends and detaches it): its dir, record and
+    // journal stay, in both hosts (EXP-1292).
+    if crate::run_registry::get(data_dir, session_id).is_some_and(|record| record.kind.is_persistent()) {
+        return false;
     }
     match reclaim_dir(data_dir, cwd, requested_at) {
         // EXP-781: `Failed` sits with `ReEntered`, not with `Gone` — the
@@ -437,6 +444,23 @@ mod tests {
         assert!(run.join(crate::mcp_json::MCP_JSON_FILE).exists());
         assert!(crate::run_registry::get(&dir.0, "aside").is_none());
         assert!(crate::run_registry::get(&dir.0, "parent").is_some());
+    }
+
+    /// #EXP-2138: a team agent's run ended by the server keeps its dir and its
+    /// record (the host keeps the journal with them).
+    #[test]
+    fn purge_keeps_an_agents_dir_and_record() {
+        let dir = temp_dir("scratch-purge-agent");
+        let channel = scratch(&dir.0, "agent-1", "agent-1");
+        let mut agent = crate::run_registry::sample_record("agent-1");
+        agent.kind = crate::run_registry::RunKind::Agent;
+        agent.cwd = channel.clone();
+        agent.clone = None;
+        crate::run_registry::record(&dir.0, agent);
+
+        assert!(!purge(&dir.0, "agent-1", &channel, SystemTime::now()));
+        assert!(channel.join(crate::mcp_json::MCP_JSON_FILE).exists());
+        assert!(crate::run_registry::get(&dir.0, "agent-1").is_some());
     }
 
     /// The resume race on the purge path: a re-entered dir keeps EVERYTHING,
