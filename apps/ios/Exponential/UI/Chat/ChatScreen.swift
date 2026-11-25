@@ -1223,10 +1223,7 @@ struct ChatScreen: View {
         guard let rows else { return }
         let boardId = rows.issues.first?.boardId
             ?? chatTeamIds.lazy.compactMap { teamId in
-                teamState.boards
-                    .filter { $0.teamId == teamId }
-                    .sorted { ($0.sortOrder ?? 0, $0.name) < ($1.sortOrder ?? 0, $1.name) }
-                    .first?.id
+                teamState.boards(of: teamId).first?.id
             }.first
         guard let boardId else {
             toaster.error(FeedbackStates.Errors.title(verb: "file", thing: "the issue"), description: "The team has no board yet.")
