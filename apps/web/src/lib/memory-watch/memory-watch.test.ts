@@ -10,6 +10,7 @@ import { readMemory, type MemoryReading } from "./readings"
 const GB = 1024 ** 3
 const healthy: MemoryReading = {
   host: { totalBytes: 8 * GB, availableBytes: 4 * GB, swapTotalBytes: 4 * GB, swapFreeBytes: 3 * GB },
+  disk: { totalBytes: 75 * GB, freeBytes: 20 * GB },
   containers: [{ name: `aaaaaaaaaaaa`, usedBytes: GB, limitBytes: 2 * GB, oomKills: 0 }],
 }
 const low = (): MemoryReading => ({ ...healthy, host: { ...healthy.host!, availableBytes: 0.5 * GB } })
@@ -47,25 +48,28 @@ describe(`readMemory`, () => {
   it(`falls back to this container, and to nothing where there is no cgroup v2`, async () => {
     await cgroup(`own`, { "memory.current": `10\n`, "memory.max": `20\n` })
     const own = await readMemory({ meminfo: join(dir, `nope`), ownCgroup: join(dir, `own`) })
-    expect(own).toEqual({ host: null, containers: [{ name: `this web container`, usedBytes: 10, limitBytes: 20, oomKills: 0 }] })
-    expect(await readMemory({ meminfo: join(dir, `nope`), ownCgroup: join(dir, `nope`) })).toEqual({ host: null, containers: [] })
+    expect(own).toEqual({ host: null, disk: { totalBytes: expect.any(Number), freeBytes: expect.any(Number) }, containers: [{ name: `this web container`, usedBytes: 10, limitBytes: 20, oomKills: 0 }] })
+    expect(await readMemory({ meminfo: join(dir, `nope`), ownCgroup: join(dir, `nope`), disk: join(dir, `nope`) })).toEqual({ host: null, disk: null, containers: [] })
   })
 })
 
 describe(`memoryAlerts`, () => {
   it(`is quiet on a healthy host, and without a limit or swap`, () => {
     expect(memoryAlerts(healthy)).toEqual([])
-    expect(memoryAlerts({ host: { ...healthy.host!, swapTotalBytes: 0, swapFreeBytes: 0 }, containers: [{ ...healthy.containers[0]!, usedBytes: 99 * GB, limitBytes: null }] })).toEqual([])
-    expect(memoryAlerts({ host: null, containers: [] })).toEqual([])
+    expect(memoryAlerts({ ...healthy, host: { ...healthy.host!, swapTotalBytes: 0, swapFreeBytes: 0 }, containers: [{ ...healthy.containers[0]!, usedBytes: 99 * GB, limitBytes: null }] })).toEqual([])
+    expect(memoryAlerts({ host: null, disk: null, containers: [] })).toEqual([])
+    // A disk that could never hold the threshold.
+    expect(memoryAlerts({ ...healthy, disk: { totalBytes: 20 * GB, freeBytes: GB } })).toEqual([])
   })
 
   it(`names low memory, full swap and a container at its limit`, () => {
     // The shepherd's reading of 2026-11-25: swap 3,430 of 4,095 MB used.
     const keys = memoryAlerts({
       host: { totalBytes: 7757, availableBytes: 900, swapTotalBytes: 4095, swapFreeBytes: 600 },
+      disk: { totalBytes: 75 * GB, freeBytes: 14.9 * GB },
       containers: [{ name: `c`, usedBytes: 1.9 * GB, limitBytes: 2 * GB, oomKills: 0 }],
     }).map((alert) => alert.key)
-    expect(keys).toEqual([`host-memory`, `host-swap`, `container:c`])
+    expect(keys).toEqual([`host-memory`, `host-swap`, `host-disk`, `container:c`])
   })
 })
 
@@ -120,6 +124,22 @@ describe(`the watch`, () => {
     expect(mail.mock.calls[1]![1]).toBe(`Memory alert: The host has 391 MB of 7813 MB memory available`)
     await watch.tick()
     expect(mail).toHaveBeenCalledTimes(2)
+  })
+
+  it(`a disk below 15 GB is mailed the same way (#EXP-2147)`, async () => {
+    vi.spyOn(console, `error`).mockImplementation(() => {})
+    const report = vi.fn()
+    const mail = vi.fn().mockResolvedValue(undefined)
+    const watch = createMemoryWatch({
+      env: { MEMORY_ALERT_EMAIL: `a@example.com` },
+      read: async () => ({ ...healthy, disk: { totalBytes: 75 * GB, freeBytes: 14 * GB } }),
+      report,
+      mail,
+    })
+    for (let i = 0; i < 5; i++) await watch.tick()
+    expect(report).toHaveBeenCalledExactlyOnceWith({ key: `host-disk`, text: `The host has 14.0 GB of 75.0 GB disk free` })
+    expect(mail).toHaveBeenCalledTimes(1)
+    expect(thresholdsFrom({ MEMORY_WATCH_DISK_FREE_GB: `20` }).diskFreeBytes).toBe(20 * GB)
   })
 
   it(`a threshold of 100 fires on real readings (the rollout's proof), bad values keep the default`, () => {

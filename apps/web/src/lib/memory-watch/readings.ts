@@ -1,8 +1,9 @@
 // #EXP-2133: what the memory watch reads. Plain files, no shell, no Docker
 // socket: /proc/meminfo shows the HOST inside a container, /sys/fs/cgroup shows
 // this container, and a read-only bind of the host's /sys/fs/cgroup
-// (MEMORY_WATCH_CGROUP_ROOT) shows every container on the host.
-import { readFile, readdir } from "node:fs/promises"
+// (MEMORY_WATCH_CGROUP_ROOT) shows every container on the host. The disk is the
+// one this container's filesystem lies on: Docker's, on the host.
+import { readFile, readdir, statfs } from "node:fs/promises"
 import { join } from "node:path"
 
 export interface HostMemory {
@@ -23,8 +24,14 @@ export interface ContainerMemory {
   oomKills: number
 }
 
+export interface DiskSpace {
+  totalBytes: number
+  freeBytes: number
+}
+
 export interface MemoryReading {
   host: HostMemory | null
+  disk: DiskSpace | null
   containers: ContainerMemory[]
 }
 
@@ -85,6 +92,16 @@ export interface ReadingPaths {
   ownCgroup?: string
   /** The host's cgroup root, bind-mounted; unset = only this container. */
   cgroupRoot?: string
+  disk?: string
+}
+
+async function readDisk(path: string): Promise<DiskSpace | null> {
+  try {
+    const { bsize, blocks, bavail } = await statfs(path)
+    return blocks > 0 ? { totalBytes: bsize * blocks, freeBytes: bsize * bavail } : null
+  } catch {
+    return null
+  }
 }
 
 export async function readMemory(paths: ReadingPaths = {}): Promise<MemoryReading> {
@@ -94,5 +111,5 @@ export async function readMemory(paths: ReadingPaths = {}): Promise<MemoryReadin
     const own = await readCgroup(paths.ownCgroup ?? `/sys/fs/cgroup`, `this web container`)
     containers = own ? [own] : []
   }
-  return { host: meminfo === null ? null : parseMeminfo(meminfo), containers }
+  return { host: meminfo === null ? null : parseMeminfo(meminfo), disk: await readDisk(paths.disk ?? `/`), containers }
 }

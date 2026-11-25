@@ -141,7 +141,7 @@ describe(`the client`, () => {
   it(`follows no redirect with the text`, async () => {
     const { createServer } = await import(`node:http`)
     let hits = 0
-    const redirecting = createServer((req, res) => {
+    const redirecting = createServer((_req, res) => {
       hits += 1
       res.writeHead(307, { location: `/elsewhere` }).end()
     })

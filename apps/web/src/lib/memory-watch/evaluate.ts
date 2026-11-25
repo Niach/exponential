@@ -9,9 +9,11 @@ export interface MemoryThresholds {
   swapFreePercent: number
   /** Alert while a container uses more than this share of its limit. */
   containerUsedPercent: number
+  /** Alert while the disk has less than this free; a disk too small to ever hold it (#EXP-2147) never. */
+  diskFreeBytes: number
 }
 
-export const DEFAULT_THRESHOLDS: MemoryThresholds = { hostAvailablePercent: 12, swapFreePercent: 15, containerUsedPercent: 90 }
+export const DEFAULT_THRESHOLDS: MemoryThresholds = { hostAvailablePercent: 12, swapFreePercent: 15, containerUsedPercent: 90, diskFreeBytes: 15 * 1024 ** 3 }
 
 /** Readings in a row (one a minute) before an alert: a build or a backup passes. */
 export const CONFIRM_READINGS = 3
@@ -25,6 +27,7 @@ export interface MemoryAlert {
 }
 
 const mb = (bytes: number) => `${Math.round(bytes / 1048576)} MB`
+const gb = (bytes: number) => `${(bytes / 1024 ** 3).toFixed(1)} GB`
 const percent = (part: number, whole: number) => (part / whole) * 100
 
 /** Every condition the reading meets right now. */
@@ -39,6 +42,10 @@ export function memoryAlerts(reading: MemoryReading, thresholds: MemoryThreshold
   }
   if (host && host.swapTotalBytes > 0 && percent(host.swapFreeBytes, host.swapTotalBytes) < thresholds.swapFreePercent) {
     alerts.push({ key: `host-swap`, text: `The host has ${mb(host.swapFreeBytes)} of ${mb(host.swapTotalBytes)} swap free` })
+  }
+  const { disk } = reading
+  if (disk && disk.totalBytes > 2 * thresholds.diskFreeBytes && disk.freeBytes < thresholds.diskFreeBytes) {
+    alerts.push({ key: `host-disk`, text: `The host has ${gb(disk.freeBytes)} of ${gb(disk.totalBytes)} disk free` })
   }
   for (const container of reading.containers) {
     if (container.limitBytes && percent(container.usedBytes, container.limitBytes) > thresholds.containerUsedPercent) {

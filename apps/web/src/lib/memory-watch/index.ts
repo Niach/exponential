@@ -1,5 +1,5 @@
 // #EXP-2133: the memory watch. Every minute it reads the host's available
-// memory and swap and the containers' usage against their limits; a condition
+// memory and swap, its free disk and the containers' usage against their limits; a condition
 // that holds for three readings is an alert: a log line, an event in
 // diagnostics (GlitchTip) and one mail per MEMORY_ALERT_EMAIL address. The mail
 // does not depend on GlitchTip, which may be what eats the memory.
@@ -19,6 +19,11 @@ const shareOf = (raw: string | undefined, fallback: number): number => {
   return raw?.trim() && Number.isFinite(n) && n >= 0 && n <= 100 ? n : fallback
 }
 
+const bytesOf = (rawGb: string | undefined, fallback: number): number => {
+  const n = Number(rawGb)
+  return rawGb?.trim() && Number.isFinite(n) && n >= 0 ? n * 1024 ** 3 : fallback
+}
+
 export function memoryWatchEnabled(env: Env): boolean {
   const flag = (env.MEMORY_WATCH ?? ``).trim().toLowerCase()
   return flag === `on` || flag === `true` || flag === `1`
@@ -28,6 +33,7 @@ export function thresholdsFrom(env: Env): MemoryThresholds {
   return {
     hostAvailablePercent: shareOf(env.MEMORY_WATCH_HOST_AVAILABLE_PERCENT, DEFAULT_THRESHOLDS.hostAvailablePercent),
     swapFreePercent: shareOf(env.MEMORY_WATCH_SWAP_FREE_PERCENT, DEFAULT_THRESHOLDS.swapFreePercent),
+    diskFreeBytes: bytesOf(env.MEMORY_WATCH_DISK_FREE_GB, DEFAULT_THRESHOLDS.diskFreeBytes),
     containerUsedPercent: shareOf(env.MEMORY_WATCH_CONTAINER_USED_PERCENT, DEFAULT_THRESHOLDS.containerUsedPercent),
   }
 }
@@ -113,7 +119,7 @@ export function startMemoryWatch(): void {
       reportSchedulerRun(`memory-watch`, {
         ok: true,
         durationMs: performance.now() - startMs,
-        detail: `${reading?.host ? `${mb(reading.host.availableBytes)} MB available, ${mb(reading.host.swapFreeBytes)} MB swap free` : `no host reading`}, ${reading?.containers.length ?? 0} container(s), ${alerts.length} alert(s)`,
+        detail: `${reading?.host ? `${mb(reading.host.availableBytes)} MB available, ${mb(reading.host.swapFreeBytes)} MB swap free` : `no host reading`}, ${reading?.disk ? `${mb(reading.disk.freeBytes)} MB disk free` : `no disk reading`}, ${reading?.containers.length ?? 0} container(s), ${alerts.length} alert(s)`,
       })
     } catch (err) {
       reportSchedulerRun(`memory-watch`, { ok: false, durationMs: performance.now() - startMs, error: String(err) })
