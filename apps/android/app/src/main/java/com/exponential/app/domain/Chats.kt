@@ -161,9 +161,9 @@ object Chats {
             const val LABEL = 11
             const val GAP = 4
             const val DISC = 60
-            const val MARK = 40
+            const val MARK = 50
             const val RAISE = 16
-            const val RING = 6
+            const val RING = 4
             const val GLOW = 26
         }
 

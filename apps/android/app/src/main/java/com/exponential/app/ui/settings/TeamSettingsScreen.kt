@@ -1,5 +1,8 @@
 package com.exponential.app.ui.settings
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.ColorSwatchGrid
 import com.exponential.app.ui.theme.ExpMono
@@ -38,14 +41,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -100,8 +100,6 @@ import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetPrimaryAction
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.icons.ExpIcons
@@ -261,18 +259,14 @@ fun TeamSettingsScreen(
     var confirm by remember { mutableStateOf<SettingsConfirm?>(null) }
     val title = section?.let { id -> SettingsNav.ROWS.firstOrNull { it.id == id }?.label } ?: "Settings"
 
-    Scaffold(
+    PinnedScaffold(
         topBar = {
-            // EXP-1554: the phone page title is centred (iOS, the app editor).
-            CenterAlignedTopAppBar(
-                title = { TopBarTitle(title) },
-                navigationIcon = {
-                    TopBarBackButton(onClick = onBack)
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+            PageHeader(
+                title = title,
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
-        containerColor = Color.Transparent,
     ) { padding ->
         Column(
             modifier = Modifier

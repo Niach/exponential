@@ -1,5 +1,8 @@
 package com.exponential.app.ui.settings
 
+import androidx.compose.foundation.layout.statusBarsPadding
+import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedScaffold
 import com.exponential.app.domain.SettingsNav
 import com.exponential.app.domain.SettingsNavGroups
 import androidx.compose.foundation.clickable
@@ -15,13 +18,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,8 +54,6 @@ import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.data.chatstore.ChatStoreSettings
 import com.exponential.app.data.chatstore.KeepToolSteps
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
 import com.exponential.app.ui.gettingstarted.GettingStartedSheet
 import com.exponential.app.ui.gettingstarted.GettingStartedViewModel
@@ -124,19 +123,18 @@ fun SettingsScreen(
     val account = accounts.firstOrNull { it.id == activeId }
 
     Scaffold(containerColor = Color.Transparent) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = com.exponential.app.ui.components.BottomBarInset)
-                .testTag("settings-tab"),
+        com.exponential.app.ui.components.PinnedHeaderColumn(
+            modifier = Modifier.padding(padding).fillMaxSize().testTag("settings-tab"),
+            header = {
+                PageHeader(title = com.exponential.app.domain.Chats.Copy.HEADERS.getValue("settings"))
+            },
         ) {
-            com.exponential.app.ui.components.PageHeader(
-                title = com.exponential.app.domain.Chats.Copy.HEADERS.getValue("settings"),
-            )
             Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = com.exponential.app.ui.components.BottomBarInset)
+                    .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 if (account != null) {
@@ -253,7 +251,7 @@ private fun SettingsPageRow(id: String, onClick: () -> Unit) {
         modifier = Modifier.testTag("settings-$id"),
         // #EXP-1987: the brand mark, never the page's concept glyph.
         leading = if (id == SettingsNavGroups.ASSISTANT) {
-            { com.exponential.app.ui.components.ExponentialMark(size = 20.dp, tint = MaterialTheme.colorScheme.onSurface) }
+            { com.exponential.app.ui.components.ExponentialMark(size = 22.dp, tint = MaterialTheme.colorScheme.onSurface) }
         } else {
             null
         },
@@ -478,15 +476,14 @@ fun TeamSettingsRootScreen(
     viewModel: TeamSettingsRootViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    Scaffold(
+    PinnedScaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { TopBarTitle(com.exponential.app.domain.SidebarTree.Copy.SETTINGS) },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+            PageHeader(
+                title = com.exponential.app.domain.SidebarTree.Copy.SETTINGS,
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
-        containerColor = Color.Transparent,
     ) { padding ->
         Column(
             modifier = Modifier
@@ -527,15 +524,14 @@ fun SecuritySettingsScreen(
     val accounts by settings.accounts.collectAsStateWithLifecycle()
     val activeId by settings.activeAccountId.collectAsStateWithLifecycle()
     val account = accounts.firstOrNull { it.id == activeId }
-    Scaffold(
+    PinnedScaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { TopBarTitle(SettingsNavGroups.PAGES.getValue("security").label) },
-                navigationIcon = { TopBarBackButton(onClick = onBack) },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+            PageHeader(
+                title = SettingsNavGroups.PAGES.getValue("security").label,
+                onBack = onBack,
+                modifier = Modifier.statusBarsPadding(),
             )
         },
-        containerColor = Color.Transparent,
     ) { padding ->
         Column(
             modifier = Modifier

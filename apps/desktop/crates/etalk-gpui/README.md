@@ -29,6 +29,7 @@ that order. Then the host tells Voice what changed:
 | `etalk_gpui::messages_changed(cx)` | the conversation's messages changed (a reply to speak, a turn done) |
 | `etalk_gpui::session_changed(cx)` | the signed-in account changed or signed out |
 | `etalk_gpui::agents_changed(cx)` | an agent's name changed |
+| `etalk_gpui::devices_changed(cx)` | the member's devices changed |
 | `etalk_gpui::voice_call::on_ring(call_id, agent_id, cx)` | a remote caller rings this device |
 
 and reads it back where it draws its own screens (`speak_replies::speaking`,

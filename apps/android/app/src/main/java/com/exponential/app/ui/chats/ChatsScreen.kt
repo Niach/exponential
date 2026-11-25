@@ -64,6 +64,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.exponential.app.ui.components.LocalPageHeaderActions
 import com.exponential.app.ui.components.PageHeader
+import com.exponential.app.ui.components.PinnedHeaderColumn
 import com.exponential.app.ui.components.PageHeaderActions
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
@@ -352,17 +353,20 @@ fun ChatsContent(
             selected = if (selecting) row.sessionId in selected else null,
         )
     }
-    LazyColumn(
-        modifier = modifier.fillMaxSize().testTag(SessionTree.ListCopy.TEST_ID_LIST),
-        contentPadding = PaddingValues(bottom = BottomBarInset),
-    ) {
-        item(key = "__header__") {
+    PinnedHeaderColumn(
+        modifier = modifier.fillMaxSize(),
+        header = {
             if (archivedPage) {
-                PageHeader(title = Chats.Copy.ARCHIVED_TITLE, onBack = onBack, actions = headerActions)
+                PageHeader(title = Chats.Copy.ARCHIVED_TITLE, onBack = onBack)
             } else {
                 PageHeader(title = Chats.Copy.HEADERS.getValue("chats"), actions = headerActions)
             }
-        }
+        },
+    ) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().testTag(SessionTree.ListCopy.TEST_ID_LIST),
+        contentPadding = PaddingValues(bottom = BottomBarInset),
+    ) {
         // #FEED-191 (needs-you.json THE ENTRY): the first row; none = no row.
         if (!archivedPage && needsYouCount > 0) {
             item(key = "__needs_you__") {
@@ -422,6 +426,7 @@ fun ChatsContent(
                 }
             }
         }
+    }
     }
 }
 

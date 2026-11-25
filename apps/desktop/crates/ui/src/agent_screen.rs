@@ -107,6 +107,8 @@ pub(crate) fn agent_header_menu(
     cx: &App,
 ) -> Option<AnyElement> {
     let (kind, entries) = crate::chat_actions::agent_screen_entries(agent_id, link.is_some(), cx);
+    // #EXP-2109: New conversation is the header's +.
+    let entries = domain::session_screen::header_session_menu(&entries);
     let agent_id = agent_id.to_string();
     // #EDE-129: Search in chat makes the menu (whatever else it lists).
     crate::chat_actions::screen_menu_button(
@@ -146,7 +148,22 @@ fn take_settings_request(agent_id: &str, cx: &mut App) -> bool {
     asked
 }
 
-/// NEW-55 (voice-call.json): THE telephone, left of `…`, the header's icon
+/// #EXP-2109 (header-actions.json `adds.agent-chat`): THE + of an agent's
+/// header = New conversation (the send), for who may steer it.
+pub(crate) fn agent_header_add(agent_id: &str, cx: &App) -> Option<AnyElement> {
+    use domain::session_screen::{session_screen_menu_label, SessionScreenMenuEntry};
+    let (kind, entries) = crate::chat_actions::agent_screen_entries(agent_id, false, cx);
+    let entry = SessionScreenMenuEntry::NewConversation;
+    if !entries.contains(&entry) {
+        return None;
+    }
+    let agent_id = agent_id.to_string();
+    let button = crate::controls::header_button("agent-header-add", registry::UI_ADD, session_screen_menu_label(kind.as_str(), entry), cx)
+        .on_click(move |_, window, cx| crate::chat_actions::run_agent_screen_entry(entry, &agent_id, &|_, _| {}, window, cx));
+    Some(div().flex_shrink_0().child(button).into_any_element())
+}
+
+/// NEW-55 (voice-call.json): THE telephone, left of the +, the header's icon
 /// button: disabled with the reason as its tooltip while a call cannot start
 /// (EXP-1857: no desktop of the member's speaks, voice-call.json
 /// `callTarget`, or a call this client does not run). S-3: while THIS client runs the call with
@@ -158,12 +175,12 @@ pub(crate) fn agent_header_call(agent_id: &str, name: &str, panel: FocusHandle, 
     let reason = (!here).then(|| etalk_gpui::voice_call::unavailable(agent_id, cx)).flatten();
     let tooltip = reason.clone().unwrap_or_else(|| copy.call.replace("{agent}", name));
     let agent_id = agent_id.to_string();
-    let button = crate::controls::ghost_icon_button(
+    let button = crate::controls::header_button(
         etalk::call::VOICE_CALL.test_ids.call.as_str(),
-        Icon::new(registry::VOICE_CALL),
+        registry::VOICE_CALL,
+        tooltip,
         cx,
     )
-    .tooltip(tooltip)
     .disabled(reason.is_some())
     .on_click(move |_, window, cx| {
         if !etalk_gpui::voice_call::runs_for(&agent_id, cx) {
@@ -1400,6 +1417,7 @@ impl AgentScreenView {
         let agent = self.agent.as_ref();
         let name = agent.map(agent_def_name).unwrap_or_default();
         let call = agent.map(|agent| agent_header_call(&agent.id, &name, panel, cx));
+        let add = agent.and_then(|agent| agent_header_add(&agent.id, cx));
         let this = cx.entity().downgrade();
         let on_settings: OnPress = Rc::new(move |_window, cx| {
             let _ = this.update(cx, |this, cx| {
@@ -1426,7 +1444,7 @@ impl AgentScreenView {
                 subtitle,
                 subtitle_color: None,
                 on_subtitle: None,
-                trailing: call.into_iter().collect(),
+                trailing: call.into_iter().chain(add).collect(),
                 menu,
                 back,
                 tabs,

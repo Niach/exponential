@@ -445,6 +445,10 @@ fn shaped(input: &IdeSidebarInput, glyphs: &HashMap<String, Glyph>, hover: Optio
         let mut folder: Option<String> = None;
         for row in team["rows"].as_array_mut().into_iter().flatten() {
             row["team"] = id.clone();
+            // #EXP-2109: which New list a team row's hover + opens.
+            if row["kind"] == "team" {
+                row["owner"] = json!(owner);
+            }
             if row["kind"] == "folder" {
                 folder = row["id"].as_str().map(str::to_string);
             }
@@ -635,7 +639,20 @@ pub(crate) struct SidebarRegion {
 }
 
 impl SidebarRegion {
+    /// #EXP-2109: a row's Move to folder rows, as its sidebar menu shows them.
+    fn move_items_of(&self, id: &str) -> Vec<Value> {
+        let rows = self.shown.as_ref().and_then(|value| value["tree"].as_array());
+        let own = rows.into_iter().flatten().find(|row| row["id"] == id && row["kind"] == "item").and_then(|row| row["moveItems"].as_array().cloned());
+        own.unwrap_or_else(|| move_items(&[], None))
+    }
+
     pub(crate) fn new(nav: Entity<Navigation>, window: &mut Window, cx: &mut App) -> Entity<Self> {
+        let region = Self::build(nav, window, cx);
+        cx.default_global::<SidebarRegions>().0.insert(window.window_handle().window_id(), region.downgrade());
+        region
+    }
+
+    fn build(nav: Entity<Navigation>, window: &mut Window, cx: &mut App) -> Entity<Self> {
         cx.new(|cx: &mut gpui::Context<Self>| {
             let glyphs = Rc::new(RefCell::new(HashMap::new()));
             let hover = Rc::new(RefCell::new(None));
@@ -804,6 +821,11 @@ impl SidebarRegion {
         let Some(team) = self.input.teams.first().map(|team| team.id.clone()) else { return };
         self.dev_team_menu_done = true;
         *self.hover.borrow_mut() = Some(team.clone());
+        // `hover`: the row's buttons alone, no menu (#EXP-2109 pictures).
+        if std::env::var("EXP_DEV_TEAM_MENU").is_ok_and(|v| v.trim() == "hover") {
+            cx.notify();
+            return;
+        }
         let (view, handle) = (self.view.clone(), self.window);
         // Once the row and its `…` are laid out (a few frames; no frame
         // callback, a headless window never requests one).
@@ -1222,7 +1244,13 @@ fn menu_nodes() -> Vec<(String, &'static str, domain::sidebar_menus::SidebarMenu
     }
     // An Active row already in its team's list has no Add to sidebar.
     const PLACED: &[&str] = &["add-to-sidebar"];
+    const TEAM_MORE_HIDDEN: &[&str] = &["new"];
     let mut out: Vec<(String, &'static str, I, &'static [&'static str])> = nodes.into_iter().map(|(node, kind, input)| (node, kind, input, &[] as &'static [&'static str])).collect();
+    // #EXP-2109 (header-actions.json `rows.team`): the + is the New list, so
+    // the hover `…` is the menu without New.
+    for node in out.iter_mut().filter(|node| node.0 == "ide_team_more") {
+        node.3 = TEAM_MORE_HIDDEN;
+    }
     out.push(("ide_active_delete_placed_menu".into(), "active-session", deletes, PLACED));
     out.push(("ide_active_keep_placed_menu".into(), "active-session", I::default(), PLACED));
     out
@@ -1381,6 +1409,75 @@ fn row_menu(kind: &str, id: String, team: String, value: &str, region: gpui::Wea
             }
         }
     }
+}
+
+/// #EXP-2109: each window's sidebar, for a header's `…` (a board's menu).
+#[derive(Default)]
+struct SidebarRegions(HashMap<gpui::WindowId, gpui::WeakEntity<SidebarRegion>>);
+
+impl gpui::Global for SidebarRegions {}
+
+/// #EXP-2109 (header-actions.json `board`): the board header's `…`: its
+/// sidebar menu without what the + does.
+pub(crate) fn board_header_menu(board_id: &str, cx: &App) -> Vec<&'static str> {
+    let owner = Store::try_global(cx)
+        .and_then(|store| store.collections().boards.read(cx).get(board_id).map(|board| board.team_id.clone()))
+        .is_some_and(|team_id| crate::settings::is_owner(cx, &team_id));
+    domain::header_actions::header_menu(&domain::sidebar_menus::sidebar_item_menu("board", domain::sidebar_menus::SidebarMenuInput { owner, ..Default::default() }))
+}
+
+/// [`board_header_menu`] as THE IDE menu's rows; each pick runs the sidebar
+/// row's own verb.
+pub(crate) fn board_header_menu_items(
+    mut menu: gpui_component::menu::PopupMenu,
+    board_id: &str,
+    entries: &[&'static str],
+    window: &mut Window,
+    cx: &mut gpui::Context<gpui_component::menu::PopupMenu>,
+) -> gpui_component::menu::PopupMenu {
+    use crate::icons::registry::concept_by_name;
+    use domain::sidebar_menus::{sidebar_menu_copy, sidebar_menu_destructive, sidebar_menu_icon, SIDEBAR_MENU_SEPARATOR};
+    let Some(team) = Store::try_global(cx).and_then(|store| store.collections().boards.read(cx).get(board_id).map(|board| board.team_id.clone())) else { return menu };
+    let region = cx
+        .try_global::<SidebarRegions>()
+        .and_then(|regions| regions.0.get(&window.window_handle().window_id()).cloned())
+        .unwrap_or_else(gpui::WeakEntity::new_invalid);
+    let moves = region.read_with(cx, |region, _| region.move_items_of(board_id)).unwrap_or_default();
+    let pick = |value: String| {
+        let (board, team, region) = (board_id.to_string(), team.clone(), region.clone());
+        move |window: &mut Window, cx: &mut App| row_menu("board", board.clone(), team.clone(), &value, region.clone(), window, cx)
+    };
+    for id in entries.iter().copied() {
+        let icon = concept_by_name(sidebar_menu_icon(id));
+        let label = sidebar_menu_copy(id);
+        menu = match id {
+            SIDEBAR_MENU_SEPARATOR => menu.separator(),
+            "move" => {
+                let rows: Vec<(Option<crate::icons::ExpIcon>, String, Option<Rc<dyn Fn(&mut Window, &mut App)>>)> = moves
+                    .iter()
+                    .map(|row| match row["value"].as_str() {
+                        Some(value) => {
+                            let run: Rc<dyn Fn(&mut Window, &mut App)> = Rc::new(pick(value.to_string()));
+                            (row["icon"].as_str().and_then(concept_by_name), row["label"].as_str().unwrap_or_default().to_string(), Some(run))
+                        }
+                        None => (None, String::new(), None),
+                    })
+                    .collect();
+                crate::controls::pointer_submenu(menu, icon, label, None, window, cx, move |mut sub, _, _| {
+                    for (icon, label, run) in rows.iter().cloned() {
+                        sub = match run {
+                            Some(run) => sub.item(crate::controls::pointer_menu_item(icon, label, |_| None, move |window, cx| run(window, cx))),
+                            None => sub.separator(),
+                        };
+                    }
+                    sub
+                })
+            }
+            id if sidebar_menu_destructive("board", id) => menu.item(crate::controls::danger_pointer_menu_item(icon.unwrap_or(crate::icons::registry::UI_DELETE), label, pick(id.to_string()))),
+            id => menu.item(crate::controls::pointer_menu_item(icon, label, |_| None, pick(id.to_string()))),
+        };
+    }
+    menu
 }
 
 /// #EXP-2124 `move`: where Move to folder puts an item.
@@ -2517,6 +2614,18 @@ mod tests {
                 assert_eq!(found["props"]["openOn"], "contextmenu", "{node} opens on a right-click");
             }
         }
+        // #EXP-2109: the hover + is THE New list, the hover `…` has no New.
+        for (node, owner) in [("ide_team_add", true), ("ide_team_add_member", false)] {
+            let found = find_node(&doc["root"], node).unwrap_or_else(|| panic!("{node} is in the document"));
+            let want: Vec<Value> = uicore_model::ide::new_items(owner).into_iter().map(|e| json!({"label": e.label, "value": e.value, "icon": e.icon})).collect();
+            assert_eq!(found["props"]["items"], Value::Array(want), "{node}");
+        }
+        let trailing = find_node(&doc["root"], "ide_team_trailing").expect("the team row's trailing slot");
+        let order: Vec<&str> = trailing["children"].as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).collect();
+        assert_eq!(order, ["ide_team_dot", "ide_team_add", "ide_team_add_member", "ide_team_more", "ide_team_fold"]);
+        let more = find_node(&doc["root"], "ide_team_more").expect("the team row's `…`");
+        let ids: Vec<&str> = more["props"]["items"].as_array().unwrap().iter().map(|i| i["value"].as_str().unwrap_or("separator")).collect();
+        assert_eq!(ids, domain::header_actions::header_menu(&domain::sidebar_menus::sidebar_item_menu("team", Default::default())));
         // Every row kind of the table has its menu in the document.
         let kinds: Vec<&str> = menu_nodes().into_iter().map(|(_, kind, _, _)| kind).collect();
         for kind in domain::sidebar_menus::sidebar_menu_kinds() {

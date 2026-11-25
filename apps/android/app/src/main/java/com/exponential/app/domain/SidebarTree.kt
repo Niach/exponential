@@ -3,10 +3,9 @@ package com.exponential.app.domain
 /**
  * #EXP-2109 (fixtures/sidebar-tree.json, its `$comment` IS the spec; the pure
  * reference is `packages/domain-contract/src/sidebar-tree.ts`): the phone's
- * Teams tab, one page per level (Teams › team › folder), over the member's
- * synced `sidebar_layout` section [SECTION]. Read-only: nothing drags, nothing
- * is created. `SidebarTreeTest` replays `teams`, `teamItems`, `teamsMenu` and
- * `phone`.
+ * Teams tab, ONE page holding the nested tree (team, folder, item), over the
+ * member's synced `sidebar_layout` section [SECTION]. `SidebarTreeTest` replays
+ * `teams`, `teamItems`, `teamsMenu` and `phone`.
  */
 object SidebarTree {
     /** The one mixed list per team. */
@@ -15,13 +14,14 @@ object SidebarTree {
     /** The Teams page's + menu. */
     val TEAMS_MENU: List<String> = listOf("new-team", "join-team")
 
+    /** A team's device-local expanded flag; no stored flag = OPEN. */
+    fun teamOpenKey(teamId: String): String = "sidebar-team-open:$teamId"
+
     object Copy {
         const val TEAM_ACTIONS = "Team actions"
-        const val NEW = "New"
         const val SETTINGS = "Settings"
         const val NEW_TEAM = "New team"
         const val JOIN_TEAM = "Join team"
-        val KINDS: Map<Kind, String> = linkedMapOf(Kind.Board to "Board", Kind.Agent to "Agent", Kind.App to "App", Kind.Session to "Session")
     }
 
     enum class Kind(val wire: String) { Board("board"), Agent("agent"), App("app"), Session("session") }
@@ -66,32 +66,58 @@ object SidebarTree {
             placed.map { Item(it.id, Kind.Session) }
     }
 
-    /** A phone team page's `…` menu. */
-    data class MenuItem(val id: String, val children: List<Kind>)
+    /** One row of the Teams tab; [kind] = `team`, `folder` or a [Kind]'s wire. */
+    data class PhoneTreeRow(
+        val kind: String,
+        val id: String,
+        val teamId: String,
+        val depth: Int,
+        /** A folder's name; null on the rest. */
+        val name: String?,
+        val open: Boolean,
+        val count: Int,
+    )
 
-    fun phoneTeamMenu(owner: Boolean): List<MenuItem> = buildList {
-        if (owner) add(MenuItem("new", listOf(Kind.Board, Kind.Agent, Kind.App)))
-        add(MenuItem("settings", emptyList()))
-    }
+    const val ROW_TEAM = "team"
+    const val ROW_FOLDER = "folder"
 
-    /** One row of a phone team page: a folder ([kind] null, its [name]) or an item. */
-    data class PhoneRow(val kind: Kind?, val id: String, val name: String?)
+    data class PhoneTreeTeam(
+        val id: String,
+        val items: List<Item>,
+        val entries: List<SidebarFolders.Entry>,
+        val open: Boolean,
+        val closedFolders: Set<String>,
+    )
 
-    /** One page of the Teams tab: a team's top level ([folderId] null) or a
-     *  folder's children; null = the folder is gone. */
-    fun phoneTeamPage(items: List<Item>, entries: List<SidebarFolders.Entry>, folderId: String?): List<PhoneRow>? {
-        val kinds = items.associate { it.id to it.kind }
-        fun item(id: String) = PhoneRow(kinds.getValue(id), id, null)
-        val tree = SidebarFolders.tree(items.map { it.id }, entries)
-        if (folderId == null) {
-            return tree.map { node ->
-                when (node) {
-                    is SidebarFolders.Node.Folder -> PhoneRow(null, node.id, node.name)
-                    is SidebarFolders.Node.Item -> item(node.id)
-                }
+    /** A team's `sidebarRows` (depth 0 = its top level). */
+    fun folderRows(team: PhoneTreeTeam): List<SidebarFolders.Row> =
+        SidebarFolders.rows(SidebarFolders.tree(team.items.map { it.id }, team.entries)) { it !in team.closedFolders }
+
+    /** THE Teams tab: the teams in [teams]' order, each its row and (open) its
+     *  nodes one level deeper, with the item's kind. */
+    fun phoneTreeRows(teams: List<PhoneTreeTeam>): List<PhoneTreeRow> = teams.flatMap { team ->
+        val kinds = team.items.associate { it.id to it.kind.wire }
+        val rows = folderRows(team)
+        val head = PhoneTreeRow(ROW_TEAM, team.id, team.id, 0, null, team.open, rows.count { it.depth == 0 })
+        if (!team.open) {
+            listOf(head)
+        } else {
+            listOf(head) + rows.map { row ->
+                PhoneTreeRow(
+                    kind = if (row.kind == SidebarFolders.KIND_FOLDER) ROW_FOLDER else kinds.getValue(row.id),
+                    id = row.id,
+                    teamId = team.id,
+                    depth = row.depth + 1,
+                    name = row.name,
+                    open = row.open,
+                    count = row.count,
+                )
             }
         }
-        return (tree.firstOrNull { it is SidebarFolders.Node.Folder && it.id == folderId } as? SidebarFolders.Node.Folder)
-            ?.children?.map(::item)
     }
+
+    /** The viewer's ONLY team without a node (id, count): its empty state
+     *  shows under the group; null = none. */
+    fun phoneTeamsEmpty(teams: List<Pair<String, Int>>): String? =
+        teams.singleOrNull()?.takeIf { it.second == 0 }?.first
 }

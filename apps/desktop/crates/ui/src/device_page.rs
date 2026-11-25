@@ -28,7 +28,7 @@ use gpui::{
     ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon};
 
 use domain::rows::{DeviceRow, SessionRow};
 use domain::session_tree::SessionState;
@@ -308,9 +308,8 @@ impl DevicePageView {
             .child(if online { COPY_ONLINE } else { crate::machines::COPY_OFFLINE });
         let settings = (mine && row.is_some()).then(|| {
             let row_id = row.map(|row| row.id.clone()).unwrap_or_default();
-            crate::surface::glass_pill_button("device-page-settings", crate::surface::PillSize::Md, cx)
-                .icon(registry::NAV_SETTINGS)
-                .label(domain::sidebar_tree::sidebar_tree_copy().settings.clone())
+            // #EXP-2109: the page's own icon (header-actions.json `device`).
+            crate::controls::header_button("device-page-settings", registry::NAV_SETTINGS, domain::sidebar_tree::sidebar_tree_copy().device_settings.clone(), cx)
                 .on_click(move |_, window, cx| {
                     navigate(window, cx, Screen::DeviceSettings { device_id: row_id.clone() });
                 })

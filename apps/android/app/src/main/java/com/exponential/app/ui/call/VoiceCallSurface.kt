@@ -604,8 +604,8 @@ class AgentCallViewModel @Inject constructor(
 }
 
 /**
- * THE telephone in the agent chat's header, left of `…`: the header's ghost
- * button ([com.exponential.app.ui.chat.ChatHeaderButton], like the menu). Disabled = dimmed;
+ * THE telephone in the agent chat's header, left of `…`: THE header
+ * circle ([com.exponential.app.ui.components.PageHeaderCircle], like the menu). Disabled = dimmed;
  * #EXP-1878: a tap toasts the reason (`callTap`, voice-call.json `tapCases`).
  * An enabled tap asks for the microphone once, then calls.
  */
@@ -626,13 +626,13 @@ fun AgentCallButton(
     }
     val toaster = com.exponential.app.ui.components.LocalToaster.current
     val availability = target.availability
-    com.exponential.app.ui.chat.ChatHeaderButton(
+    com.exponential.app.ui.components.PageHeaderCircle(
         ExpIcons.voiceCall,
         VoiceCall.Copy.call(agentName),
         onClick = {
             val tap = VoiceCall.callTap(VoiceCall.Platform.Phone, availability)
             tap.toast?.let { toaster.info(it) }
-            if (!tap.call || agentId == null) return@ChatHeaderButton
+            if (!tap.call || agentId == null) return@PageHeaderCircle
             if (viewModel.hasMicPermission()) viewModel.start(agentId, agentName, agentIcon, agentColor) else permission.launch(Manifest.permission.RECORD_AUDIO)
         },
         enabled = agentId != null,
