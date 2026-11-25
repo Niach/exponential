@@ -62,7 +62,7 @@ describe(`upgradeStoredPackage`, () => {
   it(`skips format 6, reports what it cannot read`, async () => {
     expect(await upgradeStoredPackage(fixture.packages.alreadyV6)).toEqual({ kind: `current` })
     expect(await upgradeStoredPackage(null)).toEqual({ kind: `empty` })
-    expect(await upgradeStoredPackage(fixture.packages.formatFour)).toEqual({ kind: `failed`, reason: `format version 4 has no upgrade` })
+    expect(await upgradeStoredPackage(fixture.packages.formatFour)).toEqual({ kind: `unloadable`, reason: `format version 4 is read by no client` })
     expect(await upgradeStoredPackage([])).toEqual({ kind: `failed`, reason: `a package is an object` })
     const broken = await upgradeStoredPackage(fixture.packages.brokenTemplate)
     expect(broken).toMatchObject({ kind: `failed`, reason: expect.stringContaining(`no component has the id root`) })
