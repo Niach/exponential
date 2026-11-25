@@ -86,6 +86,16 @@ public final class SyncDebug: @unchecked Sendable {
     /// The banner's answer per account, re-derived on every report and
     /// written ONLY when it differs (EXP-1358).
     public private(set) var health: [String: Health] = [:]
+    /// The accounts whose newest answer was a failure, without the banner's
+    /// grace (an offline cold start says so at its first poll).
+    public private(set) var disconnected: Set<String> = []
+
+    /// Nothing got through since the last failure (pure).
+    public nonisolated static func disconnected(_ health: AccountHealth?) -> Bool {
+        guard let failed = health?.lastErrorAt, health?.lastErrorWasUnauthorized != true else { return false }
+        return health?.lastSuccessAt.map { $0 < failed } ?? true
+    }
+
     // A hard, non-transient failure that stops sync from ever starting for an
     // account: DB pool open / GRDB migration failure, or a resync that can't
     // relaunch (no token, pool throws). Surfaced prominently in SyncDebugView
@@ -254,6 +264,10 @@ public final class SyncDebug: @unchecked Sendable {
     private func publishHealth(accountId: String) {
         let next = health(forAccountId: accountId)
         if health[accountId] != next { health[accountId] = next }
+        let cut = Self.disconnected(accountHealth[accountId])
+        if disconnected.contains(accountId) != cut {
+            if cut { disconnected.insert(accountId) } else { disconnected.remove(accountId) }
+        }
     }
 
     /// A request that never produced an HTTP response (network down, DNS, TLS).

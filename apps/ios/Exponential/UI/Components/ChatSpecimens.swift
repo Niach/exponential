@@ -883,7 +883,7 @@ struct NeedsYouSpecimens: View {
             AppBackground()
             VStack(alignment: .leading, spacing: 16) {
                 NeedsYouEntryRow(count: Self.rows.count)
-                NeedsYouList(rows: Self.rows, onOpen: { _ in }, onAction: { _, _ in })
+                NeedsYouList(rows: Self.rows, onOpen: { _ in }, onAction: { _, _ in }, onDismiss: { _ in })
             }
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

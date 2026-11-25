@@ -155,7 +155,7 @@ impl TalkHost for TestHost {
         let session = self.state.borrow().call_session?;
         Some(Box::new(move || Some(session.to_string())))
     }
-    fn call_ended(&self, session_id: &str, _: &App) {
+    fn call_ended(&self, session_id: &str, _: Option<&etalk::call::host::HostReport>, _: &App) {
         self.state.borrow_mut().ended.push(session_id.to_string());
     }
     fn send(&self, outgoing: Outgoing, _: &App) -> Option<SendJob> {

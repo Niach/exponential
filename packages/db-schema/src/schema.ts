@@ -4310,6 +4310,85 @@ export const steerConnectionEvents = pgTable(
   ]
 )
 
+// EXP-2110: ONE durable record per streamed voice call (SERVER-ONLY: no shape
+// proxy, no client sync; etalk voice-call.json `record` is the spec). Metadata
+// only: ids, instants, who ended it and why, frame counts; NEVER a word, a
+// caption, a name or a frame. Inserted when the server mints the call,
+// `ended_*` written once the relay reports the end (or the sweep closes it
+// with a reason), `host_*` by the host's hang-up report. Rows are deleted
+// `record.retentionDays` after the mint; both FKs cascade, so deleting the
+// account or the team takes them too.
+export const voiceCalls = pgTable(
+  `voice_calls`,
+  {
+    callId: uuid(`call_id`).primaryKey(),
+    // The id's first eight hex digits: the tag in every side's log.
+    tag: varchar({ length: 8 }).notNull(),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    // The called agent's team: whose owners may read the record.
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    agentId: uuid(`agent_id`).references(() => agents.id, { onDelete: `set null` }),
+    // The steer device the call rings.
+    deviceId: varchar(`device_id`, { length: 128 }).notNull(),
+    // web | desktop | android | ios | phone (a phone that names itself not).
+    platform: varchar({ length: 16 }).notNull(),
+    appVersion: varchar(`app_version`, { length: 64 }),
+    // call | turn (EXP-1859).
+    mode: varchar({ length: 8 }).notNull().default(`call`),
+    sealed: boolean().notNull(),
+    mintedAt: timestamp(`minted_at`, { withTimezone: true }).notNull(),
+    // Facts of the host: its ticket, and its own report of the hang-up.
+    hostTicketAt: timestamp(`host_ticket_at`, { withTimezone: true }),
+    answeredMs: integer(`answered_ms`),
+    hostEndedBy: varchar(`host_ended_by`, { length: 16 }),
+    hostReason: varchar(`host_reason`, { length: 64 }),
+    // Facts of the relay (its clock).
+    relayBoot: varchar(`relay_boot`, { length: 64 }),
+    rangAt: timestamp(`rang_at`, { withTimezone: true }),
+    pairedAt: timestamp(`paired_at`, { withTimezone: true }),
+    firstDownAt: timestamp(`first_down_at`, { withTimezone: true }),
+    lastUpAt: timestamp(`last_up_at`, { withTimezone: true }),
+    lastDownAt: timestamp(`last_down_at`, { withTimezone: true }),
+    framesUp: integer(`frames_up`).notNull().default(0),
+    framesDown: integer(`frames_down`).notNull().default(0),
+    framesDropped: integer(`frames_dropped`).notNull().default(0),
+    framesSkipped: integer(`frames_skipped`).notNull().default(0),
+    // null = the call is not over yet.
+    endedAt: timestamp(`ended_at`, { withTimezone: true }),
+    // caller | host | relay | server (the sweep).
+    endedBy: varchar(`ended_by`, { length: 16 }),
+    reason: varchar({ length: 64 }),
+  },
+  (table) => [
+    index(`idx_voice_calls_tag`).on(table.tag),
+    index(`idx_voice_calls_minted`).on(table.mintedAt),
+    index(`idx_voice_calls_team_minted`).on(table.teamId, table.mintedAt),
+    index(`idx_voice_calls_user`).on(table.userId),
+    index(`idx_voice_calls_open`)
+      .on(table.mintedAt)
+      .where(sql`ended_at IS NULL`),
+  ]
+)
+
+// EXP-2110: the steer relay's process-wide counters, one row per relay
+// process (SERVER-ONLY): its latest cumulative values, upserted each minute,
+// so a relay restart loses at most a minute; a total = the sum over boots.
+// Same retention as `voice_calls`.
+export const steerRelayBoots = pgTable(
+  `steer_relay_boots`,
+  {
+    boot: varchar({ length: 64 }).primaryKey(),
+    startedAt: timestamp(`started_at`, { withTimezone: true }).notNull(),
+    seenAt: timestamp(`seen_at`, { withTimezone: true }).notNull(),
+    counters: jsonb().$type<Record<string, number>>().notNull(),
+  },
+  (table) => [index(`idx_steer_relay_boots_seen`).on(table.seenAt)]
+)
+
 // EXP-759: durable per-user client-platform ledger (SERVER-ONLY, admin
 // console; never synced — no shape proxy). Touched by lib/auth/resolve-bearer.ts
 // on every authenticated API request (in-process throttled): natives identify
@@ -5184,4 +5263,5 @@ export type SyncedDeviceWorktree = Omit<
   DeviceWorktree,
   `userId` | `sharedTeamIds`
 >
+export type VoiceCallRecord = InferSelectModel<typeof voiceCalls>
 export type DeviceCommand = InferSelectModel<typeof deviceCommands>
