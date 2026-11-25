@@ -249,12 +249,6 @@ impl Gate {
             if !arming && self.seen.contains(row.id) {
                 return;
             }
-            // EXP-1859: a reply this desktop cannot read yet (a new chat's key
-            // is on its way) is looked at when it can.
-            let unread = row.message.author_kind == Some(etalk::voice::AUTHOR_KIND_AGENT) && !row.message.has_card && row.message.body.is_none_or(|body| body.trim().is_empty());
-            if !arming && unread {
-                return;
-            }
             let first = self.seen.insert(row.id.to_string());
             if arming {
                 if let Some(created) = row.message.created_at {
@@ -328,6 +322,8 @@ struct VoiceTurn {
     session_id: String,
     /// EXP-1859: whose conversation it is (a wake turn may be any agent's).
     agent_id: String,
+    /// Its stored row (None = unknown: the gate's new rows are read).
+    message_id: Option<String>,
     at: std::time::Instant,
 }
 
@@ -678,10 +674,12 @@ pub fn stop(cx: &mut App) {
 /// conversation with `agent_id`, the voice agent or the one a wake phrase
 /// named): its reply is read aloud in that agent's voice (voice.json
 /// `voiceTurn`; a typed message's never is).
-pub fn voice_turn(session_id: &str, agent_id: &str, cx: &mut App) {
+/// `message_id` = the turn's stored row: its reply is the first after that,
+/// however late it syncs or opens.
+pub fn voice_turn(session_id: &str, agent_id: &str, message_id: Option<&str>, cx: &mut App) {
     if let Some(entity) = global(cx) {
         entity.update(cx, |this, _| {
-            this.voice_turn = Some(VoiceTurn { session_id: session_id.to_string(), agent_id: agent_id.to_string(), at: std::time::Instant::now() });
+            this.voice_turn = Some(VoiceTurn { session_id: session_id.to_string(), agent_id: agent_id.to_string(), message_id: message_id.map(str::to_string), at: std::time::Instant::now() });
         });
     }
 }
@@ -739,26 +737,6 @@ pub(crate) fn speak_reply(id: String, text: String, session_id: String, agent_id
         cx.notify();
         true
     })
-}
-
-/// EXP-1859: a voice turn's reply that came before the turn was known to be
-/// this desktop's (its host had sent it): said now, under the rules every
-/// voice turn's reply is said by. Once: the turn got its reply.
-pub(crate) fn speak_late(id: String, body: &str, session_id: &str, agent_id: &str, cx: &mut App) {
-    let Some(entity) = global(cx) else { return };
-    let text = entity.update(cx, |this, cx| {
-        let mine = this.voice_turn.as_ref().is_some_and(|turn| turn.session_id == session_id);
-        let meeting = this.settings.meeting() && this.settings.voice_device_id == host::device_id(cx);
-        if !mine || meeting || this.download == Download::Unavailable || !this.own_voice(cx).active() {
-            return None;
-        }
-        let language = this.voice_for(Some(agent_id), cx).language;
-        let spoken = etalk::voice::spoken_text(body, VOICE.max_chars, &language);
-        (this.voices.contains(&language) && !spoken.is_empty()).then_some(spoken)
-    });
-    if let Some(text) = text {
-        speak_reply(id, text, session_id.to_string(), agent_id, cx);
-    }
 }
 
 /// NEW-67: new voice settings arrived (a heartbeat, or this device's own
@@ -965,7 +943,10 @@ impl SpeakReplies {
     fn on_messages(&mut self, cx: &mut Context<Self>) -> Option<(String, String)> {
         let host = host::host(cx)?;
         let fresh = self.gate.observe(|since, visit| host.messages_since(since, cx, visit));
-        if fresh.is_empty() || self.download == Download::Unavailable {
+        // EXP-1859: a waiting turn's reply may be no NEW row: synced locked and
+        // opened later, or before the turn's send answered.
+        let waits = self.voice_turn.as_ref().is_some_and(|turn| turn.message_id.is_some());
+        if (fresh.is_empty() && !waits) || self.download == Download::Unavailable {
             return None;
         }
         let voice = self.own_voice(cx);
@@ -1006,7 +987,7 @@ impl SpeakReplies {
         if self.voice_turn.as_ref().is_some_and(|turn| turn.at.elapsed() > VOICE_TURN_TTL) {
             self.voice_turn = None;
         }
-        let VoiceTurn { session_id: conversation, agent_id, .. } = self.voice_turn.clone()?;
+        let VoiceTurn { session_id: conversation, agent_id, message_id, .. } = self.voice_turn.clone()?;
         let language = self.voice_for(Some(&agent_id), cx).language;
         let context = VoiceContext {
             agent_session_id: Some(conversation.as_str()),
@@ -1017,8 +998,11 @@ impl SpeakReplies {
             armed_at: self.gate.armed_at(),
             meeting,
         };
-        // A burst (a reconnect) speaks only its newest reply.
-        let (id, spoken) = reply_to_speak(rows(), &context)?;
+        let (id, spoken) = match message_id {
+            Some(sent) => self.reply_after(&sent, &conversation, &context, cx)?,
+            // A burst (a reconnect) speaks only its newest reply.
+            _ => reply_to_speak(rows(), &context)?,
+        };
         let _ = self.ensure_voice(Some(&agent_id), cx);
         let client = self.client.as_ref()?;
         client.speak(id.clone(), spoken.clone());
@@ -1027,6 +1011,20 @@ impl SpeakReplies {
         self.speaking = Some(Speaking { message_id: id, session_id: conversation, chat_id: None, title: etalk::voice::first_sentence(&spoken).to_string() });
         cx.notify();
         None
+    }
+
+    /// EXP-1859: the first reply after the turn's stored row `sent` (the one
+    /// push to talk's capsule shows), once both are here and it can be read.
+    fn reply_after(&self, sent: &str, conversation: &str, context: &VoiceContext<'_>, cx: &App) -> Option<(String, String)> {
+        let host = host::host(cx)?;
+        let mut rows = Vec::new();
+        host.session_messages(conversation, cx, &mut |row| rows.push(Row::of(row)));
+        let instant = |row: &Row| row.created_at.as_deref().and_then(etalk::voice::parse_instant);
+        let sent = rows.iter().find(|row| row.id == sent)?;
+        let (after, armed_at) = (instant(sent)?, sent.created_at.clone()?);
+        let context = VoiceContext { armed_at: &armed_at, ..*context };
+        let first = rows.iter().filter(|row| instant(row).is_some_and(|at| at > after) && etalk::voice::should_speak(&row.message(), &context)).min_by_key(|row| instant(row))?;
+        reply_to_speak([(first.id.as_str(), first.message())], &context)
     }
 
     fn on_event(&mut self, event: etalk::Event, cx: &mut Context<Self>) {
@@ -1281,12 +1279,12 @@ mod tests {
             ..settings()
         };
         let rig = Rig::install(meeting_on("d-other"), cx);
-        cx.update(|cx| voice_turn(CONVERSATION, AGENT, cx));
+        cx.update(|cx| voice_turn(CONVERSATION, AGENT, None, cx));
         rig.message("r1", "agent", "All green.", 5, cx);
         assert_eq!(rig.spoken(), ["r1"], "the meeting runs on another desktop");
         cx.update(|cx| {
             set_settings(meeting_on(HERE), cx);
-            voice_turn(CONVERSATION, AGENT, cx);
+            voice_turn(CONVERSATION, AGENT, None, cx);
         });
         rig.message("r2", "agent", "Shipped.", 6, cx);
         assert!(rig.spoken().is_empty(), "nothing is read aloud mid-meeting here");
@@ -1302,7 +1300,7 @@ mod tests {
         let row = |id: &str, session_id, second: u32| Row { id: id.into(), author_kind: "agent", body: "All green.".into(), has_card: false, created_at: format!("2026-11-17T10:00:{second:02}.000Z"), session_id: Some(session_id) };
         rig.row(row("r0", TEAM_CONVERSATION, 1), cx);
         assert!(rig.spoken().is_empty(), "a typed message's reply");
-        cx.update(|cx| voice_turn(TEAM_CONVERSATION, TEAM_AGENT, cx));
+        cx.update(|cx| voice_turn(TEAM_CONVERSATION, TEAM_AGENT, None, cx));
         rig.row(row("r1", CONVERSATION, 2), cx);
         assert!(rig.spoken().is_empty(), "another agent's chat is not the turn's");
         rig.requests();

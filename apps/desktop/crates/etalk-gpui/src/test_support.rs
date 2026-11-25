@@ -58,6 +58,8 @@ struct State {
     ended: Vec<String>,
     /// #EXP-1992: every send: where it went (None = to the agent) and its text.
     sent: Vec<(Option<String>, String)>,
+    /// The messages are not synced (yet, or again).
+    unready: bool,
     /// EXP-1859: the sends' `clientMessageId`s.
     keys: Vec<Option<String>>,
     /// #EXP-1981: what `voice.callSession` was asked: (agent id, call id).
@@ -146,7 +148,7 @@ impl TalkHost for TestHost {
             };
             visit(&TalkMessage { id: &row.id, message });
         }
-        true
+        !self.state.borrow().unready
     }
     fn call_session(&self, agent_id: &str, call_id: Option<&str>, _: &App) -> Option<crate::host::CallSessionJob> {
         self.state.borrow_mut().session_asks.push((agent_id.to_string(), call_id.map(str::to_string)));
@@ -307,6 +309,15 @@ impl Rig {
         self.state.borrow_mut().rows.push(row);
         cx.update(crate::messages_changed);
         cx.run_until_parked();
+    }
+
+    /// EXP-1859: the feed starts over: not ready, then every row again.
+    pub(crate) fn resync(&self, cx: &mut gpui::TestAppContext) {
+        for ready in [false, true] {
+            self.state.borrow_mut().unready = !ready;
+            cx.update(crate::messages_changed);
+            cx.run_until_parked();
+        }
     }
 
     /// EXP-1859: row `id` opens (its chat's key came).

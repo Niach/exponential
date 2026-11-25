@@ -105,7 +105,15 @@ trait Writer {
     fn tree_of(&self, session_id: &str) -> Result<TreeFacts, String> {
         Err(format!("{session_id}: no server to ask"))
     }
+    /// EXP-1859: a send went into a chat whose key this install may not hold
+    /// yet (another end created it a moment ago): asked for now, never only
+    /// at the next periodic pull, so the answer can be read.
+    fn want_secret(&self, _root_id: &str, _epoch: u32) {}
 }
+
+/// EXP-1859: when [`Writer::want_secret`] asks (seconds after the last ask):
+/// the chat's maker may still be wrapping its key to this install.
+const SECRET_ASKS: [u64; 6] = [0, 1, 1, 2, 3, 3];
 
 /// [`Writer::tree_of`]: a tree as the server has it.
 #[derive(Clone, Debug, PartialEq)]
@@ -145,6 +153,21 @@ impl Writer for Live<'_> {
         if let Some(service) = sealing::service() {
             service.keyring().set_current(root_id, epoch, public);
         }
+    }
+    fn want_secret(&self, root_id: &str, epoch: u32) {
+        let Some(service) = sealing::service().filter(|service| service.keyring().secret(root_id, epoch).is_none()) else { return };
+        let root_id = root_id.to_string();
+        std::thread::spawn(move || {
+            for wait in SECRET_ASKS {
+                std::thread::sleep(Duration::from_secs(wait));
+                service.fetch_secrets(&root_id);
+                if service.keyring().secret(&root_id, epoch).is_some() {
+                    log::info!("[sealing] {root_id}: the chat's key is here");
+                    return;
+                }
+            }
+            log::info!("[sealing] {root_id}: no key for this install yet");
+        });
     }
     /// `sessions get` (any member id resolves to its root, no messages read)
     /// for the root and its clear flag, then `sessionKeys.publicKeys` by the
@@ -560,8 +583,12 @@ fn send_sealed(
 ) -> Result<SendOutput, api::ApiError> {
     let mut attempt = |fresh: bool| {
         let mut wire = input.clone();
-        let seal = seal_send(writer, &mut wire, &resolve(writer, input, target, fresh)).map_err(no_key)?;
+        let target = resolve(writer, input, target, fresh);
+        let seal = seal_send(writer, &mut wire, &target).map_err(no_key)?;
         let out = send(&wire)?;
+        if let SealTarget::Keyed { root_id, epoch, .. } = &target {
+            writer.want_secret(root_id, *epoch);
+        }
         if let Some(seal) = seal.filter(|seal| keyed_the_tree(writer, &wire, &out, seal)) {
             writer.adopt(&out.session_id, &seal);
         }
@@ -605,6 +632,7 @@ fn keyed_the_tree(writer: &dyn Writer, wire: &SendInput, out: &SendOutput, seal:
     }
     log::info!("[sealing] {root_id}: another send keyed the chat: this one's key is dropped");
     writer.note_key(&root_id, epoch, public);
+    writer.want_secret(&root_id, epoch);
     false
 }
 
@@ -995,6 +1023,9 @@ mod tests {
             fn note_key(&self, root: &str, epoch: u32, _: [u8; 32]) {
                 self.did.lock().unwrap().push(format!("key {root}@{epoch}"));
             }
+            fn want_secret(&self, root: &str, epoch: u32) {
+                self.did.lock().unwrap().push(format!("want {root}@{epoch}"));
+            }
             fn tree_of(&self, session: &str) -> Result<TreeFacts, String> {
                 self.did.lock().unwrap().push(format!("get {session}"));
                 let key = self.stored.map_err(|()| "offline".to_string())?;
@@ -1003,7 +1034,7 @@ mod tests {
         }
         let own = contract::generate_tree_key;
         let cases: [(bool, fn(&contract::TreeKey) -> Result<(u32, [u8; 32]), ()>, &[&str]); 5] = [
-            (true, |_| Ok((1, [7; 32])), &["get s1", "key s1@1"]),
+            (true, |_| Ok((1, [7; 32])), &["get s1", "key s1@1", "want s1@1"]),
             (true, |own| Ok((1, own.public)), &["get s1", "adopt s1"]),
             (true, |_| Ok((2, [7; 32])), &["get s1", "adopt s1"]),
             (true, |_| Err(()), &["get s1", "adopt s1"]),
@@ -1021,6 +1052,50 @@ mod tests {
             assert!(out.is_ok(), "{index}");
             assert_eq!(*chat.did.lock().unwrap(), did, "{index}");
         }
+    }
+
+    /// EXP-1859: the job's own path for an agent whose chat another end just
+    /// made: the store has none, the server names it with its key. The send
+    /// is sealed to THAT key (nothing inline) and its secret is asked for at
+    /// once: without it this desktop reads no answer.
+    #[test]
+    fn a_send_into_a_chat_made_elsewhere_asks_for_its_key() {
+        struct Made(contract::TreeKey, Mutex<Vec<String>>);
+        impl Writer for Made {
+            fn seal_body(&self, _: &str, _: &str) -> Result<String, String> {
+                unreachable!("the key is named")
+            }
+            fn seal_card(&self, _: &str, _: &Value) -> Result<Value, String> {
+                unreachable!()
+            }
+            fn new_root(&self, _: Option<&str>) -> Result<NewRootSeal, String> {
+                unreachable!("the chat exists")
+            }
+            fn adopt(&self, _: &str, _: &NewRootSeal) {
+                unreachable!()
+            }
+            fn send_target(&self, _: Option<&str>, _: Option<&str>) -> Result<api::sessions::SendTarget, String> {
+                Ok(api::sessions::SendTarget { root_id: Some("r1".into()), epoch: Some(1), public_key: Some(self.0.public_key()), ..Default::default() })
+            }
+            fn note_key(&self, root: &str, epoch: u32, _: [u8; 32]) {
+                self.1.lock().unwrap().push(format!("key {root}@{epoch}"));
+            }
+            fn want_secret(&self, root: &str, epoch: u32) {
+                self.1.lock().unwrap().push(format!("want {root}@{epoch}"));
+            }
+        }
+        let chat = Made(contract::generate_tree_key(), Mutex::default());
+        let input = SendInput { client_message_id: Some("turn-c1".into()), ..agent_send() };
+        let target = target_for(&input, &|_| None, || None);
+        let out = deliver(&chat, &input, &target, true, &mut |wire| {
+            chat.1.lock().unwrap().push("send".into());
+            assert!(wire.seal.is_none());
+            let text = contract::open_body(wire.text.as_deref().unwrap(), &|_| Some(chat.0.secret)).text;
+            assert_eq!(text.as_deref(), Some("hi"));
+            Ok(SendOutput { session_id: "r1".into(), message_id: Some("theirs".into()), ..Default::default() })
+        });
+        assert_eq!(out.unwrap().message_id.as_deref(), Some("theirs"));
+        assert_eq!(*chat.1.lock().unwrap(), ["key r1@1", "send", "want r1@1"]);
     }
 
     fn stale_fixture() -> (Value, contract::TreeKey) {

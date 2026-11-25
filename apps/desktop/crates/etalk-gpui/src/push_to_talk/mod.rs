@@ -219,8 +219,6 @@ pub struct PushToTalk {
     /// EXP-1859: the turn in flight was dialled before it fell back: its
     /// host may have sent it, under this key.
     turn_key: Option<String>,
-    /// [`Self::on_messages`] says the reply it finds (no one else will).
-    late: bool,
     /// #NEW-56: the tray's Mute, mirrored here: the tray calls in from its
     /// own update, where reading it would panic.
     muted: bool,
@@ -301,7 +299,6 @@ fn start(
             turn_agent: None,
             turn_dial: None,
             turn_key: None,
-            late: false,
             muted: false,
             overlay: overlay::Overlay::default(),
         }
@@ -1274,15 +1271,14 @@ impl PushToTalk {
                 match result {
                     Ok(output) => {
                         // S-3: the reply to a spoken turn is read aloud.
-                        crate::speak_replies::voice_turn(&output.session_id, &agent_id, cx);
+                        crate::speak_replies::voice_turn(&output.session_id, &agent_id, output.message_id.as_deref(), cx);
                         this.sent = Some(Sent { session_id: output.session_id, message_id: output.message_id, at: None });
                         this.step(PttEvent::Sent, cx);
-                        // EXP-1859: its host sent it first: the reply may be
-                        // here already, looked at before it was this turn's.
+                        // EXP-1859: its host may have sent it first: the reply
+                        // may be here already.
                         if key.is_some() {
-                            this.late = true;
+                            crate::speak_replies::on_messages(cx);
                             this.on_messages(cx);
-                            this.late = false;
                         }
                     }
                     Err(err) => {
@@ -1337,10 +1333,6 @@ impl PushToTalk {
         let Some(Some(sent_at)) = sent_at else { return };
         let reply = replies.into_iter().filter(|(at, _, _)| *at > sent_at).min_by_key(|(at, _, _)| *at).map(|(_, id, body)| (id, body));
         let Some((id, body)) = reply else { return };
-        if self.late {
-            let agent_id = self.turn_agent.clone().unwrap_or_default();
-            crate::speak_replies::speak_late(id.clone(), &body, &sent.session_id, &agent_id, cx);
-        }
         let speaking = crate::speak_replies::speaking(cx).is_some_and(|speaking| speaking.message_id == id);
         self.reply_id = Some(id);
         self.step(PttEvent::Replied { body, speaking }, cx);
@@ -1988,6 +1980,12 @@ mod tests {
         rig.worker(etalk::Event::Heard { id: "wake-1".into(), text: "Status?".into() }, cx);
         assert!(rig.spoken().is_empty());
         assert_eq!(phase(cx), PttPhase::Thinking);
+        // The feed starts over meanwhile (a new chat): its rows are history to
+        // the gate, not to a turn that waits; the key comes 30 s later.
+        rig.resync(cx);
+        cx.executor().advance_clock(Duration::from_secs(30));
+        cx.run_until_parked();
+        assert_eq!(phase(cx), PttPhase::Thinking);
         rig.open_row("r1", "All green.", cx);
         assert_eq!(rig.spoken(), ["r1"]);
         assert_eq!(phase(cx), PttPhase::Speaking);
@@ -2007,14 +2005,14 @@ mod tests {
             let second = 10 * (round as u32 + 1);
             cx.update(|cx| {
                 if !at_said {
-                    crate::speak_replies::voice_turn(TEAM_CONVERSATION, TEAM_AGENT, cx);
+                    crate::speak_replies::voice_turn(TEAM_CONVERSATION, TEAM_AGENT, None, cx);
                 }
                 global(cx).unwrap().update(cx, |this, cx| this.dial_turn("wake-1".into(), TEAM_AGENT.into(), "Hey Team".into(), cx));
                 let turn = TurnDial { id: "wake-1".into(), call_id: Some("c-1".into()), agent_id: TEAM_AGENT.into(), link: Some(Box::new(TurnLink::default())), held: Vec::new(), ready: true, answered: true, said: false, replying: false };
                 global(cx).unwrap().update(cx, |this, _| this.turn_dial = Some(turn));
                 if at_said {
                     // Armed meanwhile (an older send answered late).
-                    crate::speak_replies::voice_turn(TEAM_CONVERSATION, TEAM_AGENT, cx);
+                    crate::speak_replies::voice_turn(TEAM_CONVERSATION, TEAM_AGENT, None, cx);
                 }
             });
             turn_event(DialLinkEvent::Event(serde_json::json!({ "t": "said", "text": "Status?" })), cx);
@@ -2028,7 +2026,7 @@ mod tests {
             assert!(rig.spoken().is_empty(), "played by the call, at said: {at_said}");
         }
         cx.update(|cx| {
-            crate::speak_replies::voice_turn(CONVERSATION, crate::test_support::AGENT, cx);
+            crate::speak_replies::voice_turn(CONVERSATION, crate::test_support::AGENT, None, cx);
             crate::speak_replies::drop_turn(TEAM_AGENT, cx);
         });
         rig.row(row("other", CONVERSATION, 40), cx);
