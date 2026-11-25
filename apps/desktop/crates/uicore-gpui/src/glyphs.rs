@@ -39,6 +39,19 @@ pub fn parse_count(rest: &str) -> Option<(usize, BadgeTone)> {
     Some((count, tone))
 }
 
+/// THE count badge in the rail's own colours and type: eDE's shell never sets
+/// gpui-component's theme, whose default is the light one in the system font.
+fn rail_count(count: usize, tone: BadgeTone, cx: &App) -> Option<Div> {
+    let badge = count_badge(count, tone, cx)?.font_family("Inter");
+    Some(match tone {
+        BadgeTone::Muted => {
+            let palette = theme::exponential_dark();
+            badge.bg(palette.muted).text_color(palette.muted_foreground)
+        }
+        _ => badge,
+    })
+}
+
 /// `inner` at `size` with `corner` over its top-right corner.
 pub fn cornered(inner: AnyElement, corner: AnyElement, size: f32) -> AnyElement {
     div().relative().size(px(size)).child(inner).child(div().absolute().top(px(-6.)).right(px(-8.)).child(corner)).into_any_element()
@@ -66,7 +79,7 @@ pub fn paint(name: &str, size: f32, color: Hsla, icon: &dyn Fn(&str) -> Option<S
     let corner = match badge.strip_prefix("count:") {
         Some(rest) => {
             let (count, tone) = parse_count(rest)?;
-            count_badge(count, tone, cx)?.into_any_element()
+            rail_count(count, tone, cx)?.into_any_element()
         }
         None => dot(dot_color(badge.strip_prefix("dot:")?)?).into_any_element(),
     };
