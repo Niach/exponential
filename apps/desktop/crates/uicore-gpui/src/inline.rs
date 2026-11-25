@@ -39,9 +39,10 @@ pub fn popup(doc: &uicore_docs::Doc) -> Document {
 
 /// #EDE-65: what eDE does not draw of the sidebar the IDE shares
 /// (#EXP-1725): the IDE's header (the team switcher, search, new and the
-/// rail toggle) and its menu, the IDE's nav and its corners (eDE's start,
+/// rail toggle) and its menu, the IDE's nav, its Getting started row
+/// (#EXP-2124) and its corners (eDE's start,
 /// chat and new-issue buttons live on the taskbar).
-pub const EDE_SIDEBAR_PRUNED: &[&str] = &["header", "switcher_menu", "ide_nav", "corner"];
+pub const EDE_SIDEBAR_PRUNED: &[&str] = &["header", "switcher_menu", "ide_nav", "ide_getting_started", "corner"];
 
 /// Drops the nodes a host draws itself or has no use for.
 pub fn without(doc: &mut Document, ids: &[&str]) {

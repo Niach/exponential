@@ -63,6 +63,7 @@ pub fn sidebar_tree_copy() -> &'static SidebarTreeCopy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SidebarRootRow {
+    Assistant,
     Home,
     NeedsYou,
     Chats,
@@ -73,6 +74,7 @@ pub enum SidebarRootRow {
 impl SidebarRootRow {
     pub fn as_str(self) -> &'static str {
         match self {
+            SidebarRootRow::Assistant => "assistant",
             SidebarRootRow::Home => "home",
             SidebarRootRow::NeedsYou => "needs-you",
             SidebarRootRow::Chats => "chats",
@@ -82,9 +84,10 @@ impl SidebarRootRow {
     }
 }
 
-/// The fixed rows above the teams; Needs you and Drafts only while they count.
-pub fn sidebar_root_rows(needs_you: usize, drafts: usize) -> Vec<SidebarRootRow> {
-    let mut rows = vec![SidebarRootRow::Home];
+/// The fixed rows above the teams: the viewer's Assistant first (#EXP-2124,
+/// while they have one); Needs you and Drafts only while they count.
+pub fn sidebar_root_rows(needs_you: usize, drafts: usize, assistant: bool) -> Vec<SidebarRootRow> {
+    let mut rows = if assistant { vec![SidebarRootRow::Assistant, SidebarRootRow::Home] } else { vec![SidebarRootRow::Home] };
     if needs_you > 0 {
         rows.push(SidebarRootRow::NeedsYou);
     }
@@ -179,10 +182,10 @@ pub fn sidebar_teams(teams: &[SidebarTeamInput]) -> Vec<String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SidebarNewKind {
-    Board,
+    Session,
     Agent,
     App,
-    Session,
+    Board,
 }
 
 impl SidebarNewKind {
@@ -192,6 +195,16 @@ impl SidebarNewKind {
             SidebarNewKind::Agent => "agent",
             SidebarNewKind::App => "app",
             SidebarNewKind::Session => "session",
+        }
+    }
+
+    fn parse(kind: &str) -> Option<Self> {
+        match kind {
+            "board" => Some(SidebarNewKind::Board),
+            "agent" => Some(SidebarNewKind::Agent),
+            "app" => Some(SidebarNewKind::App),
+            "session" => Some(SidebarNewKind::Session),
+            _ => None,
         }
     }
 }
@@ -221,14 +234,10 @@ pub struct SidebarMenuItem {
     pub children: Vec<SidebarNewKind>,
 }
 
-/// A team row's `…` / right-click menu (settings-nav.json `newEntries`:
-/// board, agent and app are owner-only).
+/// A team row's `…` / right-click menu: New › THE New list (#EXP-2124,
+/// `sidebar_menus::sidebar_new_kinds`), New folder, Settings.
 pub fn sidebar_team_menu(owner: bool) -> Vec<SidebarMenuItem> {
-    let kinds = if owner {
-        vec![SidebarNewKind::Board, SidebarNewKind::Agent, SidebarNewKind::App, SidebarNewKind::Session]
-    } else {
-        vec![SidebarNewKind::Session]
-    };
+    let kinds = crate::sidebar_menus::sidebar_new_kinds(owner).into_iter().filter_map(SidebarNewKind::parse).collect();
     vec![
         SidebarMenuItem { id: SidebarMenuId::New, children: kinds },
         SidebarMenuItem { id: SidebarMenuId::NewFolder, children: Vec::new() },

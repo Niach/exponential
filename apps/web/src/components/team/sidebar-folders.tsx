@@ -5,7 +5,6 @@ import { SIDEBAR_TREE_MAX_DEPTH, sidebarTeamRows, type SidebarTreeRow } from "@e
 import {
   conceptIcon,
   Input,
-  Menu,
   MenuGestureHost,
   menuProps,
   SidebarMenu,
@@ -20,6 +19,7 @@ import {
 } from "@exp/ui"
 import { useSidebarFolders, type SidebarFolders } from "@/hooks/use-sidebar-folders"
 import { cn } from "@/lib/utils"
+import { sidebarMenuEntries, SidebarPointerMenu } from "@/components/team/sidebar-menus"
 
 // #EXP-1832 (fixtures/sidebar-folders.json + the genUI List's `reorderable`
 // rules, packages/exponential-ui/fixtures/list-reorder.json): ONE sidebar
@@ -29,13 +29,12 @@ import { cn } from "@/lib/utils"
 // line = reorder, the highlighted row = drop INTO); a drop onto a row makes a
 // folder whose name is edited in place (Enter saves, Esc keeps "New folder").
 // A folder is a row with the fold chevron (+ its count when folded), never a
-// link; its right-click menu has Rename and Ungroup. Phones (the sheet) never
+// link; its right-click menu is THE table's `folder` row (#EXP-2124,
+// sidebar-menus.json): Rename and Ungroup. Phones (the sheet) never
 // drag.
 
 const FolderIcon = conceptIcon(`ui-folder`)
 const ChevronIcon = conceptIcon(`ui-chevron-right`)
-const RenameIcon = conceptIcon(`ui-edit`)
-const UngroupIcon = conceptIcon(`ui-folder-open`)
 
 /** The folder menu's kind (`menuProps`), per section (and per team: every
  *  team's List hosts its own folder menu, #EXP-2027). */
@@ -151,19 +150,15 @@ export function SidebarFolderRows({
     }
   }
 
-  const folderMenu = ({ target, open, onOpenChange }: MenuSessionProps) => (
-    <Menu
-      mode="pointer"
-      anchor={target.anchor}
-      open={open}
-      onOpenChange={onOpenChange}
-      returnFocus={target.origin}
-      aria-label="Folder actions"
-      title="Folder"
-      entries={[
-        { kind: `item`, id: `rename`, label: `Rename`, icon: RenameIcon, onSelect: () => folders.setEditingId(target.id) },
-        { kind: `item`, id: `ungroup`, label: `Ungroup`, icon: UngroupIcon, onSelect: () => folders.ungroup(target.id) },
-      ]}
+  // #EXP-2124: THE table's `folder` menu (Rename, Ungroup).
+  const folderMenu = (session: MenuSessionProps) => (
+    <SidebarPointerMenu
+      session={session}
+      title={folders.rows.find((row) => row.id === session.target.id)?.name ?? SIDEBAR_FOLDER_DEFAULT_NAME}
+      entries={sidebarMenuEntries(`folder`, {}, {
+        rename: () => folders.setEditingId(session.target.id),
+        ungroup: () => folders.ungroup(session.target.id),
+      })}
     />
   )
 
@@ -187,7 +182,9 @@ export function SidebarFolderRows({
               >
                 <FolderIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
                 {editing ? (
-                  <FolderNameInput
+                  <SidebarNameInput
+                    label="Folder name"
+                    testId="sidebar-folder-name"
                     initial={row.name ?? SIDEBAR_FOLDER_DEFAULT_NAME}
                     onSave={(name) => folders.rename(row.id, name)}
                     onCancel={() => folders.setEditingId(null)}
@@ -210,13 +207,18 @@ export function SidebarFolderRows({
   )
 }
 
-/** The in-place name field: Enter (or leaving it) saves, Esc keeps the name
- *  it had (a new folder's default). */
-function FolderNameInput({
+/** The in-place name field (a folder's; #EXP-2124 a device's Rename too):
+ *  Enter (or leaving it) saves, Esc keeps the name it had (a new folder's
+ *  default). */
+export function SidebarNameInput({
+  label,
+  testId,
   initial,
   onSave,
   onCancel,
 }: {
+  label: string
+  testId: string
   initial: string
   onSave: (name: string) => void
   onCancel: () => void
@@ -226,8 +228,8 @@ function FolderNameInput({
     <Input
       autoFocus
       defaultValue={initial}
-      aria-label="Folder name"
-      data-testid="sidebar-folder-name"
+      aria-label={label}
+      data-testid={testId}
       className="h-6 min-w-0 flex-1 px-1.5 py-0 text-sm"
       onFocus={(e) => e.currentTarget.select()}
       onClick={(e) => e.stopPropagation()}

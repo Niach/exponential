@@ -1,10 +1,11 @@
-import type { PointerEvent as ReactPointerEvent } from "react"
+import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
+import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import { startListDrag } from "@exponential_app/eui/web"
 import { SIDEBAR_TREE_MAX_DEPTH } from "@exp/domain-contract/sidebar-tree"
 import {
   AgentRunMark,
-  CHAT_ROW_MENU_KIND,
+  MenuGestureHost,
   menuProps,
   SidebarGroup,
   SidebarGroupContent,
@@ -17,8 +18,9 @@ import {
   TeamAvatar,
   chatRunMarkState,
   useSidebar,
+  type MenuSessionProps,
 } from "@exp/ui"
-import { sessionCollection } from "@/lib/collections"
+import { sessionCollection, sidebarLayoutCollection } from "@/lib/collections"
 import {
   CHATS_LIST_COPY,
   railChats,
@@ -31,6 +33,8 @@ import { useDeviceGlyphs } from "@/hooks/use-device-glyphs"
 import { cn } from "@/lib/utils"
 import { useEnteringRows } from "@/hooks/use-entering-rows"
 import { SIDEBAR_TEAM_LIST_ATTR, sidebarTeamDrop } from "@/hooks/use-sidebar-tree"
+import { openHandlers, sidebarMenuEntries, SidebarPointerMenu } from "@/components/team/sidebar-menus"
+import { useCanDeleteChat, useChatActions } from "@/components/chat/chat-menu"
 
 // EXP-923 / EXP-1293 / EXP-1318: the ACTIVE band lives in the SIDEBAR,
 // at its bottom — `railChats` over the Chats list of EVERY member team
@@ -43,10 +47,15 @@ import { SIDEBAR_TEAM_LIST_ATTR, sidebarTeamDrop } from "@/hooks/use-sidebar-tre
 // the chat with the `running` origin, which creates NO work tab
 // (`lib/work-tabs.ts` `TABLESS_ORIGIN`). #EXP-1461: ROOTS only (a child
 // never lists), a bold title = unread; a row that changes band
-// enters on the motion tokens. Chat 58cb32df: a root row opens THE chat
-// menu (chats.json MENUS) through the team layout's menu host. #EXP-2027
+// enters on the motion tokens. #EXP-2124 (sidebar-menus.json): a row's
+// right-click opens THE table's `active-session` menu (Open, Open in new tab,
+// Copy link, Add to sidebar while it is not placed, the chat's Delete behind
+// its confirm for its starter or an owner). #EXP-2027
 // (sidebar-tree.json `drop`): a row drags onto its team's list
 // (`sidebarDropSession`, through the list's registered drop).
+
+/** #EXP-2124: an Active row's menu kind (`menuProps`). */
+export const SIDEBAR_ACTIVE_MENU_KIND = `sidebar-active`
 
 /** The words a row shows while its title is held (EXP-1316: an
  *  issue-linked row waits for the issue shapes). */
@@ -182,8 +191,32 @@ export function SidebarRunningSection({
   const deviceGlyph = useDeviceGlyphs()
   const { isMobile } = useSidebar()
   const entering = useEnteringRows(rows.map((row) => row.sessionId))
-  if (rows.length === 0) return null
+  const placed = usePlacedSessions()
+  // The chat a Delete was asked for: its own team's slug is where the open
+  // chat closes back to (the confirm outlives the menu).
+  const [deletingTeam, setDeletingTeam] = useState<string | null>(null)
+  const chatActions = useChatActions(deletingTeam ? teams.get(deletingTeam)?.slug : undefined)
+  const activeMenu = (session: MenuSessionProps) => {
+    const row = rows.find((candidate) => candidate.sessionId === session.target.id)
+    const team = row ? teams.get(row.teamId) : undefined
+    if (!row || !team) return null
+    return (
+      <ActiveSessionMenu
+        session={session}
+        row={row}
+        team={team}
+        placed={placed.has(row.sessionId)}
+        onOpen={() => openChat(team.slug, row.sessionId)}
+        onDelete={() => {
+          setDeletingTeam(row.teamId)
+          chatActions.requestDelete(row.sessionId)
+        }}
+      />
+    )
+  }
+  if (rows.length === 0) return chatActions.dialog
   return (
+    <MenuGestureHost menus={{ [SIDEBAR_ACTIVE_MENU_KIND]: activeMenu }}>
     <SidebarGroup data-testid="sidebar-running">
       {/* EXP-1022: the main menu's plain group label, like Boards above it —
           the filled group band belongs to LISTS, not the menu. */}
@@ -208,9 +241,7 @@ export function SidebarRunningSection({
                   isActive={shown === row.sessionId}
                   onClick={() => openChat(team.slug, row.sessionId)}
                   data-testid={`sidebar-running-${row.sessionId}`}
-                  // Chat 58cb32df: a chat row's menu (S-3: Delete) on
-                  // right-click / long-press.
-                  {...menuProps(CHAT_ROW_MENU_KIND, row.sessionId)}
+                  {...menuProps(SIDEBAR_ACTIVE_MENU_KIND, row.sessionId)}
                 >
                   <ChatRunMark row={row} />
                   <SidebarRunningTitle title={row.title} unread={row.unread} />
@@ -230,6 +261,64 @@ export function SidebarRunningSection({
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
+    {chatActions.dialog}
+    </MenuGestureHost>
+  )
+}
+
+/** The sessions the viewer placed in a team's list (an Active row's Add to
+ *  sidebar hides once its session is one). */
+function usePlacedSessions(): ReadonlySet<string> {
+  const { data } = useLiveQuery(
+    (query) =>
+      query
+        .from({ s: sidebarLayoutCollection })
+        .where(({ s }) => and(eq(s.section, `team`), eq(s.kind, `item`))),
+    []
+  )
+  return useMemo(
+    () => new Set(((data ?? []) as { targetId: string | null }[]).flatMap((row) => (row.targetId ? [row.targetId] : []))),
+    [data]
+  )
+}
+
+/** #EXP-2124: an Active row's menu off THE table. */
+function ActiveSessionMenu({
+  session,
+  row,
+  team,
+  placed,
+  onOpen,
+  onDelete,
+}: {
+  session: MenuSessionProps
+  row: ChatsListRow
+  team: SidebarRunningTeam
+  placed: boolean
+  onOpen: () => void
+  onDelete: () => void
+}) {
+  const root = sessionCollection.get(row.sessionId) ?? null
+  const canDelete = useCanDeleteChat(root)
+  const href = `/t/${encodeURIComponent(team.slug)}/sessions/${encodeURIComponent(row.sessionId)}`
+  return (
+    <SidebarPointerMenu
+      session={session}
+      title={row.title || CHATS_LIST_COPY.rail}
+      entries={sidebarMenuEntries(`active-session`, { canDelete }, {
+        ...openHandlers(href, onOpen, { kind: `chat`, chatId: row.sessionId, from: null, teamId: row.teamId, teamSlug: team.slug }),
+        ...(placed
+          ? {}
+          : {
+              "add-to-sidebar": () =>
+                sidebarTeamDrop(row.teamId)?.(
+                  { id: row.sessionId, teamId: row.teamId, parentId: row.parentId },
+                  { id: row.sessionId, into: row.teamId }
+                ),
+            }),
+        delete: onDelete,
+      })}
+    />
   )
 }
 

@@ -40,6 +40,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.VoiceApi
+import com.exponential.app.data.api.TrpcException
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AgentDefinitionEntity
@@ -47,7 +48,9 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.DeviceEntity
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.domain.AgentWake
 import com.exponential.app.domain.AudioApp
+import com.exponential.app.domain.MemberVoiceLike
 import com.exponential.app.domain.DesktopAudioDoctor
 import com.exponential.app.domain.Meeting
 import com.exponential.app.domain.Voice
@@ -88,6 +91,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.CancellationException
 
 /**
  * NEW-67 (voice plan v3, V1): Settings → Personal → Voice (`voice.json`, the
@@ -208,8 +213,65 @@ class VoiceSettingsViewModel @Inject constructor(
         )
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Vocabulary())
 
+    /** #EXP-1859: the agents of the member's teams as `voice.wake` reads them. */
+    val wakeAgents: StateFlow<List<AgentWake.AgentLike>> = agents.map { rows ->
+        rows.map { AgentWake.AgentLike(id = it.id, role = it.role, name = it.name, voice = it.agentVoice) }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #EXP-1859: a refused flip's copy per agent, inline under its row; cleared by the next flip. */
+    var wakeRefusals by mutableStateOf<Map<String, String>>(emptyMap())
+        private set
+
     init {
         load()
+    }
+
+    /** #EXP-1859: the `voice.wake` input off [settings] and the synced agents. */
+    fun wakeInput(settings: Voice.Settings, agents: List<AgentWake.AgentLike>): AgentWake.Input = AgentWake.Input(
+        settings = AgentWake.SettingsLike(
+            voiceDeviceId = settings.voiceDeviceId,
+            agentId = settings.agentId,
+            wakeWord = settings.wakeWord,
+            wakeAgentIds = settings.wakeAgentIds,
+            member = MemberVoiceLike(settings.language, settings.voiceFile, settings.voiceTranscript, settings.wakePhrase),
+        ),
+        agents = agents,
+    )
+
+    /**
+     * #EXP-1859: a team agent's Wake word row flipped (`voice.wakeAgent`).
+     * Optimistic through [AgentWake.toggle]: a refusal it already knows stays
+     * inline without a call; the server's BAD_REQUEST / NOT_FOUND reverts the
+     * row and shows its copy inline; any other failure reverts and toasts.
+     */
+    fun wakeAgent(agentId: String, on: Boolean) {
+        val previous = settings ?: return
+        wakeRefusals = wakeRefusals - agentId
+        val toggled = AgentWake.toggle(wakeInput(previous, wakeAgents.value), agentId, on)
+        if (toggled.error != null) {
+            wakeRefusals = wakeRefusals + (agentId to toggled.error)
+            return
+        }
+        settings = previous.copy(wakeWord = toggled.wakeWord, wakeAgentIds = toggled.wakeAgentIds)
+        val seq = ++saveSeq
+        viewModelScope.launch {
+            try {
+                val stored = voiceApi.wakeAgent(accountId, agentId, on)
+                if (seq == saveSeq) settings = keepText(stored)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (seq == saveSeq) {
+                    settings?.let { settings = it.copy(wakeWord = previous.wakeWord, wakeAgentIds = previous.wakeAgentIds) }
+                }
+                val code = (e as? TrpcException)?.code
+                val message = trpcErrorMessage(e, "")
+                if ((code == "BAD_REQUEST" || code == "NOT_FOUND") && message.isNotBlank()) {
+                    wakeRefusals = wakeRefusals + (agentId to message)
+                } else {
+                    failure = FailedAction("save", "the wake word", message)
+                }
+            }
+        }
     }
 
     fun load() {

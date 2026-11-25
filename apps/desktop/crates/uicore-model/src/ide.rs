@@ -147,12 +147,28 @@ pub struct IdeRepoInput {
     pub prs: Vec<IdePrInput>,
 }
 
+/// #EXP-2124: the viewer's Assistant, the sidebar's first row.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdeAssistantInput {
+    pub id: String,
+    pub name: String,
+    /// Its conversation's unread agent messages.
+    #[serde(default)]
+    pub unread: usize,
+    #[serde(default)]
+    pub needs_you: bool,
+}
+
 /// What the host knows.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdeSidebarInput {
     /// The open screen as `<kind>` or `<kind>:<id>`.
     pub screen: String,
+    /// #EXP-2124: the viewer's Assistant (none = no row).
+    #[serde(default)]
+    pub assistant: Option<IdeAssistantInput>,
     pub needs_you: usize,
     pub drafts: usize,
     pub chats: IdeCount,
@@ -447,17 +463,17 @@ pub fn agent_dot(needs_you: bool, busy: bool) -> Option<IdeDot> {
     }
 }
 
-/// The team menu's New entries (sidebar-tree.json `teamMenu`: board, agent
-/// and app are the owners').
-fn new_items(owner: bool) -> Vec<IdeMenuEntry> {
+/// THE New list (#EXP-2124, domain-contract sidebar-menus.json `newKinds`:
+/// a chat for every member, then agent, app and board for owners), the team
+/// menu's New submenu and the new-tab menu's team submenus.
+pub fn new_items(owner: bool) -> Vec<IdeMenuEntry> {
     let entry = |value: &str, icon: &str| IdeMenuEntry { label: copy(value), value: value.into(), icon: icon.into() };
-    let mut out = Vec::new();
+    let mut out = vec![entry("session", "action-chat")];
     if owner {
-        out.push(entry("board", "nav-boards"));
         out.push(entry("agent", "settings-agents"));
         out.push(entry("app", "nav-apps"));
+        out.push(entry("board", "nav-boards"));
     }
-    out.push(entry("session", "action-chat"));
     out
 }
 
@@ -465,7 +481,14 @@ pub fn ide_sidebar(input: &IdeSidebarInput) -> IdeSidebar {
     let screen = input.screen.as_str();
     let editing = input.editing_folder.as_deref();
     let on = |kind: &str, id: &str| screen.strip_prefix(kind).and_then(|s| s.strip_prefix(':')) == Some(id);
-    let mut rows = vec![nav("home", "nav-home", screen == "home", 0, IdeTone::Muted)];
+    let mut rows = Vec::new();
+    if let Some(assistant) = &input.assistant {
+        let badge = agent_count(assistant.unread, assistant.needs_you);
+        let count = count_label(badge.count);
+        let tone = count.is_some().then_some(badge.tone);
+        rows.push(IdeNavRow { id: "assistant".into(), title: assistant.name.clone(), icon: "brand-exponential".into(), selected: on("agent", &assistant.id), count, tone });
+    }
+    rows.push(nav("home", "nav-home", screen == "home", 0, IdeTone::Muted));
     if input.needs_you > 0 || screen == "needs-you" {
         rows.push(nav("needs-you", "nav-needs-you", screen == "needs-you", input.needs_you, IdeTone::Attention));
     }

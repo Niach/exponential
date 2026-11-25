@@ -42,7 +42,7 @@ fn open_keys() {
 fn root() {
     let f = fixture();
     for case in cases(&f, "root") {
-        let got = sidebar_root_rows(field(case, "needsYou"), field(case, "drafts"));
+        let got = sidebar_root_rows(field(case, "needsYou"), field(case, "drafts"), field(case, "assistant"));
         assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
         let names: Vec<&str> = got.iter().map(|row| row.as_str()).collect();
         assert_eq!(json!(names), case["expected"], "{} as_str", case["name"]);

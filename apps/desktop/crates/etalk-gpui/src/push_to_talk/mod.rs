@@ -579,7 +579,7 @@ impl PushToTalk {
                 // #EXP-1847: the voice agent's own phrase (the Assistant's) wins.
                 let phrase = host::wake_phrase_of(Some(&armed.agent_id), phrase, cx);
                 let settings = VoiceSettings { wake_phrase: phrase, ..Default::default() };
-                let phrase = etalk::voice::wake_phrase(&settings, self.agent_label(cx).as_deref())?;
+                let phrase = etalk::voice::wake_phrase(&settings, self.label_of(armed.agent_id.clone(), cx).as_deref())?;
                 // #EXP-1847: the wake turn is heard in the voice agent's language.
                 let language = host::language_of(&armed.agent_id, &armed.language, cx);
                 // EXP-1859: every agent switched on listens too (the host's
@@ -929,7 +929,10 @@ impl PushToTalk {
         }
         let armed = self.armed.as_ref()?;
         // EXP-1859: a wake turn's capsule names the woken agent.
-        let agent_id = self.turn_agent.clone().unwrap_or_else(|| armed.agent_id.clone());
+        self.label_of(self.turn_agent.clone().unwrap_or_else(|| armed.agent_id.clone()), cx)
+    }
+
+    fn label_of(&self, agent_id: String, cx: &App) -> Option<String> {
         let settings = VoiceSettings { agent_id: Some(agent_id), ..Default::default() };
         crate::voice_tray::agent_label(&settings, cx)
     }

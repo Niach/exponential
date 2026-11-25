@@ -5,6 +5,7 @@ import {
   SIDEBAR_FOLDER_DEFAULT_NAME,
   sidebarFolderOpenKey,
   sidebarMove,
+  sidebarMoveToNewFolder,
   sidebarRows,
   sidebarTree,
   sidebarUngroup,
@@ -116,6 +117,9 @@ export interface SidebarFolders {
   ungroup: (folderId: string) => void
   /** New folder: an empty `New folder` at the end, its name in edit. */
   addFolder: () => void
+  /** #EXP-2124 Move to folder › New folder: a new folder holding the item,
+   *  its name in edit. */
+  moveToNewFolder: (id: string) => void
   /** A root session dropped onto the list (refused for another team / a child). */
   dropSession: (session: SidebarSessionInput, move: SidebarMove) => void
 }
@@ -242,6 +246,15 @@ export function useSidebarFolders(
     setEditingId(id)
   }, [teamId, stableIds, entries, send])
 
+  const moveToNewFolder = useCallback(
+    (id: string) => {
+      const writes = sidebarMoveToNewFolder(stableIds, entries, id, crypto.randomUUID())
+      send(writes)
+      if (writes?.createdFolderId) setEditingId(writes.createdFolderId)
+    },
+    [stableIds, entries, send]
+  )
+
   const ungroup = useCallback(
     (folderId: string) => send(sidebarUngroup(stableIds, entries, folderId)),
     [stableIds, entries, send]
@@ -266,5 +279,5 @@ export function useSidebarFolders(
     [teamId, closedSet]
   )
 
-  return { rows, items: stableIds, editingId, setEditingId, move, toggle, rename, ungroup, addFolder, dropSession }
+  return { rows, items: stableIds, editingId, setEditingId, move, toggle, rename, ungroup, addFolder, moveToNewFolder, dropSession }
 }
