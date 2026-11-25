@@ -31,7 +31,7 @@ pub fn memory_starved(pid: u32) -> Option<String> {
         return None;
     }
     let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).ok()?;
-    starved_under(Path::new("/sys/fs/cgroup"), own_cgroup(&cgroup)?)
+    starved_under(Path::new(CGROUP_ROOT), own_cgroup(&cgroup)?)
 }
 
 /// The cgroup v2 path in a `/proc/<pid>/cgroup` file (`0::/user.slice/…`).
@@ -78,9 +78,8 @@ fn full_avg10(pressure: &str) -> Option<f64> {
         .ok()
 }
 
-/// #FEED-306: overrides the cgroup2 mount [`device_pressure`] reads, from
-/// the launch's spawn env (tests: a fake cgroup tree).
-pub const CGROUP_ROOT_ENV: &str = "EXP_CGROUP_ROOT";
+/// The cgroup2 mount [`device_pressure`] reads.
+pub const CGROUP_ROOT: &str = "/sys/fs/cgroup";
 
 /// `memory.pressure`'s `some avg10` (percent of the last 10 s in which at
 /// least one task of the cgroup stalled on memory) at which a slice reads

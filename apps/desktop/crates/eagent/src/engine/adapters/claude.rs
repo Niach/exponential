@@ -257,14 +257,26 @@ enum Startup {
     Late,
 }
 
+/// #FEED-306: reads the memory pressure a silent start's process (its pid)
+/// is under, when the start's window ends and before it is stopped.
+pub type PressureReader = Arc<dyn Fn(u32) -> Option<starved::DevicePressure> + Send + Sync>;
+
 pub struct ClaudeAgent {
     spec: LaunchSpec,
+    pressure: PressureReader,
 }
 
 impl ClaudeAgent {
     pub fn new(spec: impl Into<LaunchSpec>) -> Result<ClaudeAgent, EngineError> {
         let spec = spec.into();
-        Ok(ClaudeAgent { spec })
+        let pressure: PressureReader = Arc::new(|pid| starved::device_pressure(pid, std::path::Path::new(starved::CGROUP_ROOT)));
+        Ok(ClaudeAgent { spec, pressure })
+    }
+
+    /// #EXP-2103: another reader of the device's memory pressure (tests).
+    pub fn with_pressure_reader(mut self, pressure: PressureReader) -> ClaudeAgent {
+        self.pressure = pressure;
+        self
     }
 }
 
@@ -274,7 +286,7 @@ impl ConnectTo<Client> for ClaudeAgent {
         client: impl ConnectTo<Agent>,
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send {
         async move {
-            let session = Arc::new(ClaudeSession::new(self.spec));
+            let session = Arc::new(ClaudeSession::new(self.spec, self.pressure));
             let main_session = session.clone();
             let on_initialize = session.clone();
             let on_new = session.clone();
@@ -508,6 +520,7 @@ impl ConnectTo<Client> for ClaudeAgent {
 
 struct ClaudeSession {
     spec: LaunchSpec,
+    pressure: PressureReader,
     /// The ACP session id: the host's STABLE handle for this run. EXP-784
     /// decoupled it from claude's own session uuid (`State::native_session_id`,
     /// the `--session-id` pin / `--resume` target): a `/clear` gives the CLI a
@@ -1450,7 +1463,7 @@ struct PlanTask {
 }
 
 impl ClaudeSession {
-    fn new(spec: LaunchSpec) -> ClaudeSession {
+    fn new(spec: LaunchSpec, pressure: PressureReader) -> ClaudeSession {
         // EXP-784: TWO uuids. The ACP session id is the host's handle (a
         // recorded one on `session/load`, else fresh); claude's own is the
         // `--session-id` pin, a uuid the CLI has never seen, or the recorded
@@ -1484,6 +1497,7 @@ impl ClaudeSession {
         let (gone_gate, gone) = flume::bounded(0);
         ClaudeSession {
             spec,
+            pressure,
             session_id: SessionId::new(session_id),
             gone,
             gone_gate: Mutex::new(Some(gone_gate)),
@@ -1641,13 +1655,6 @@ impl ClaudeSession {
         let mut attempt = 1;
         let mut starved_by: Option<String> = None;
         let mut pressure: Option<starved::DevicePressure> = None;
-        let cgroup_root = self
-            .spec
-            .spawn
-            .env
-            .iter()
-            .find(|(name, _)| name == starved::CGROUP_ROOT_ENV)
-            .map_or_else(|| std::path::PathBuf::from("/sys/fs/cgroup"), |(_, root)| std::path::PathBuf::from(root));
         let child = loop {
             let timeout = start_timeout(&self.spec.spawn.env, attempt);
             let child = Arc::new(self.spawn_child(resume).map_err(|error| {
@@ -1685,7 +1692,7 @@ impl ClaudeSession {
                 }
                 Startup::Silent { starved } if !heard.load(Ordering::SeqCst) && !child.stdout_drained() => {
                     // #FEED-306: read while the child still lives in its cgroup.
-                    if let Some(now) = starved::device_pressure(child.pid, &cgroup_root) {
+                    if let Some(now) = (self.pressure)(child.pid) {
                         pressure = Some(now);
                     }
                     // Retired FIRST, so its pump's end reads as a stale

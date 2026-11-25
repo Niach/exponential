@@ -1699,10 +1699,10 @@ async fn a_cli_silent_twice_fails_the_start_with_the_reason() {
 /// memory.high for four hours (a runaway build held 12.6 GB of it), and
 /// every failed start said only "answered nothing for 90s". A start that
 /// fails while its cgroups are under memory pressure names the slice, its
-/// use against its cap and the scope holding the most. The fake claude
-/// builds the fake cgroup tree (`EXP_CGROUP_ROOT`) around its OWN cgroup
-/// path: on a systemd host the child runs in a run scope of its own, never
-/// in this test's cgroup (the gate's runner, 2026-11-24).
+/// use against its cap and the scope holding the most. The child runs in a
+/// run scope of its own on a systemd host, so the fake cgroup tree is built
+/// around the cgroup the child is IN, when the adapter asks (#EXP-2103: the
+/// fake claude used to build it itself, within its start window).
 #[tokio::test]
 async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_scope() {
     if std::fs::read_to_string("/proc/self/cgroup").map_or(true, |text| !text.lines().any(|line| line.starts_with("0::"))) {
@@ -1711,9 +1711,7 @@ async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_sc
     }
     let _session = one_session_at_a_time();
     let work = workdir("silent-pressure");
-    let fake_root = work.0.join("cgroup").display().to_string();
-    let slice_file = work.0.join("slice.txt");
-    let slice_env = slice_file.display().to_string();
+    let root = work.0.join("cgroup");
     let spawns = work.0.join("spawns.txt").display().to_string();
     let spec = spec_env(
         &Path::new(FIXTURES).join("basic"),
@@ -1722,13 +1720,32 @@ async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_sc
         &[
             ("EXP_FAKE_CLAUDE_HANGS", "5"),
             ("EXP_FAKE_CLAUDE_SPAWNS", spawns.as_str()),
-            (engine::starved::CGROUP_ROOT_ENV, fake_root.as_str()),
-            ("EXP_FAKE_CLAUDE_PRESSURE", slice_env.as_str()),
-            (engine::adapters::claude::START_TIMEOUT_ENV, "2000"),
+            (engine::adapters::claude::START_TIMEOUT_ENV, "500"),
             (engine::adapters::claude::START_BACKOFF_ENV, "0"),
         ],
     );
-    let adapter = ClaudeAgent::new(spec).expect("the adapter builds");
+    // Each reading: the child's slice's name, `None` without a parent slice.
+    let readings: Arc<Mutex<Vec<Option<String>>>> = Arc::default();
+    let read = readings.clone();
+    let reader: engine::adapters::claude::PressureReader = Arc::new(move |pid| {
+        let cgroup = std::fs::read_to_string(format!("/proc/{pid}/cgroup")).expect("the silent child still runs");
+        let own = cgroup.lines().find_map(|line| line.strip_prefix("0::")).expect("cgroup v2").to_string();
+        let slice = own.rsplit_once('/').map(|(slice, _)| slice).filter(|slice| !slice.is_empty());
+        read.lock().unwrap().push(slice.and_then(|slice| slice.rsplit('/').next()).map(str::to_string));
+        let slice = slice?;
+        for (dir, current, high) in [
+            (slice, "17609365913", "17179869184"),
+            (own.as_str(), "52428800", "max"),
+            (&format!("{slice}/run-exp-hog.scope"), "13529146982", "max"),
+        ] {
+            let dir = root.join(dir.trim_start_matches('/'));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("memory.current"), current).unwrap();
+            std::fs::write(dir.join("memory.high"), high).unwrap();
+        }
+        engine::starved::device_pressure_under(&root, &own)
+    });
+    let adapter = ClaudeAgent::new(spec).expect("the adapter builds").with_pressure_reader(reader);
     let error = Client
         .v1()
         .name("feed306-test-client")
@@ -1749,7 +1766,9 @@ async fn a_silent_start_under_memory_pressure_names_the_slice_and_its_biggest_sc
         .await
         .expect("the connection runs cleanly")
         .expect("the start fails");
-    let Ok(slice_name) = std::fs::read_to_string(&slice_file).map(|name| name.trim().to_string()) else {
+    let readings = readings.lock().unwrap().clone();
+    assert_eq!(readings.len(), 3, "every silent attempt is read while its child lives: {readings:?}");
+    let Some(Some(slice_name)) = readings.last() else {
         eprintln!("the fake claude's cgroup has no parent slice: nothing to check");
         return;
     };
