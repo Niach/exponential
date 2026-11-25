@@ -79,6 +79,9 @@ fn restart_clock_speed() -> u32 {
     std::env::var("EXP_UPDATE_CLOCK").ok().and_then(|speed| speed.parse().ok()).unwrap_or(1)
 }
 
+/// How long after its relaunch this process counts as not relaunched.
+const RELAUNCH_FAILED_AFTER: Duration = Duration::from_secs(120);
+
 fn restart_watch_interval() -> Duration {
     if coding::pickup::turns_held() {
         RESTART_DRAIN_INTERVAL
@@ -494,7 +497,8 @@ fn watch_restart(cx: &mut App, model: Entity<UpdateState>) {
                 };
                 let (seen, live, working) = observe(blocked, now, cx);
                 let gate = watch.tick(now, ready.is_some(), &seen);
-                let draining = gate == updater::restart::RestartGate::Drain;
+                // Held through the restart itself: nothing starts beside it.
+                let draining = gate != updater::restart::RestartGate::Wait;
                 if draining != coding::pickup::turns_held() {
                     log::info!(
                         "[ui] update: {} ({live} live session(s), {working} working)",
@@ -511,7 +515,12 @@ fn watch_restart(cx: &mut App, model: Entity<UpdateState>) {
             });
             if let Some(restart_path) = restart {
                 cx.update(|cx| relaunch(restart_path, cx));
-                return;
+                // Still here: the relaunch failed to start. Turns go on, and
+                // the next pause tries again.
+                cx.background_executor().timer(RELAUNCH_FAILED_AFTER).await;
+                log::warn!("[ui] update: the relaunch did not quit this build, trying again");
+                cx.update(|cx| crate::session_pickup::hold_turns(false, cx));
+                watch = updater::restart::Watch::at_speed(restart_clock_speed());
             }
         }
     })
