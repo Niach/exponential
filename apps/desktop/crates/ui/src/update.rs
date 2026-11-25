@@ -209,7 +209,7 @@ pub(crate) fn ready_line(version: &str, pausing: Pausing) -> String {
     let count = |n: usize, what: &str| format!("{n} {what}{}", if n == 1 { "" } else { "s" });
     if pausing.draining {
         return match pausing.working {
-            0 => format!("Exponential {version} is ready. Restarting now."),
+            0 => format!("Exponential {version} is ready. New turns wait; it restarts in a moment."),
             n => format!(
                 "Exponential {version} is ready. New turns wait; it restarts when {} finish{}.",
                 count(n, "running turn"),

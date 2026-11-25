@@ -80,13 +80,14 @@ pub fn decide(seen: &Observed, rested: Duration, waited: Duration) -> RestartGat
         return RestartGate::Now;
     }
     let holdable = waited < HOLD_MAX;
-    // A drain would mute the very chat a call speaks to: it holds no turns.
-    if holdable && seen.engaged {
+    // A drain would mute the very chat a call speaks to, or the answer to
+    // what the person just typed: neither holds any turns.
+    if holdable && (seen.engaged || seen.typed_ago.is_some_and(|ago| ago < TYPING_GAP)) {
         return RestartGate::Wait;
     }
     let draining = waited >= DRAIN_AFTER;
     let wait = if draining { RestartGate::Drain } else { RestartGate::Wait };
-    if holdable && (seen.unresumable || seen.typed_ago.is_some_and(|ago| ago < TYPING_GAP)) {
+    if holdable && seen.unresumable {
         return wait;
     }
     let gap = if draining { DRAIN_GAP } else { TURN_GAP };
@@ -211,7 +212,9 @@ mod tests {
     #[test]
     fn typing_holds_it_bounded() {
         let typing = Observed { typed_ago: Some(SEC), ..WORKING };
-        assert_eq!(run(|_| typing).0, HOLD_MAX);
+        let (at, gates) = run(|_| typing);
+        assert_eq!(at, HOLD_MAX);
+        assert!(gates.iter().all(|gate| *gate == RestartGate::Wait), "their messages still get a turn");
         // Stopped after the cap: the next tick past the gap goes.
         let (at, _) = run(|at| if at < 2 * MAX_WAIT { typing } else { Observed { typed_ago: Some(MIN), ..WORKING } });
         assert_eq!(at, 2 * MAX_WAIT);
