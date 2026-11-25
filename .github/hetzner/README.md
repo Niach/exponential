@@ -19,7 +19,9 @@ on one disk. On 2026-11-12 GlitchTip's debug-file uploads filled it to 100%
 (`/data/coolify/services/<glitchtip>/ops/glitchtip_maintenance.py`, declared
 as a bind in the service compose). To change it: edit it here, update the
 storage's content in Coolify (Service → worker → Storages, or `coolify service
-storage update`), restart the service. Without `--apply` it only prints what
+storage update`), restart the service. Coolify's storages API answered 200 but
+kept the old `content` on 2026-11-25: check the host file's sha256 after every
+GlitchTip redeploy. Without `--apply` it only prints what
 it would delete:
 
 ```
