@@ -44,6 +44,43 @@ const UP_LOSS_PERCENT: i32 = 10;
 /// voice-call.json `constants.jitterMs`.
 pub const JITTER_MS: u32 = 40;
 
+/// The relay passes `constants.maxFramesPerSecond` (60) per socket from a
+/// bucket of one second's worth and DROPS the rest. EXP-1859: a dialled wake
+/// turn hands over seconds of audio at once, so frames leave through a bucket
+/// inside the relay's, in order (an ordinary call's 50 a second never wait).
+const FRAME_RATE: f64 = 58.;
+const FRAME_BURST: f64 = 45.;
+
+struct Pacer {
+    tokens: f64,
+    at: tokio::time::Instant,
+    queue: std::collections::VecDeque<Vec<u8>>,
+}
+
+impl Pacer {
+    fn new() -> Self {
+        Pacer { tokens: FRAME_BURST, at: tokio::time::Instant::now(), queue: Default::default() }
+    }
+
+    /// The next frame that may leave now.
+    fn next(&mut self) -> Option<Vec<u8>> {
+        let now = tokio::time::Instant::now();
+        self.tokens = (self.tokens + (now - self.at).as_secs_f64() * FRAME_RATE).min(FRAME_BURST);
+        self.at = now;
+        if self.tokens < 1. {
+            return None;
+        }
+        let frame = self.queue.pop_front()?;
+        self.tokens -= 1.;
+        Some(frame)
+    }
+
+    /// When a queued frame may leave.
+    fn due(&self) -> tokio::time::Instant {
+        self.at + std::time::Duration::from_secs_f64(((1. - self.tokens) / FRAME_RATE).max(0.001))
+    }
+}
+
 /// What the socket reports to the IDE.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CallCallerEvent {
@@ -365,6 +402,7 @@ pub(crate) async fn run(
     })?;
     let (mut sink, mut source) = stream.split();
     let mut up = UpFramer::new()?;
+    let mut pacer = Pacer::new();
     let mut down = Downlink::new()?;
     let mut ready = false;
     let mut muted = false;
@@ -414,6 +452,11 @@ pub(crate) async fn run(
             }
             () = async { tokio::time::sleep_until(offered.expect("guarded") + timing.handshake).await }, if offered.is_some() => {
                 fail_call!(&reasons.no_key, "not sealed in time")
+            }
+            () = tokio::time::sleep_until(pacer.due()), if !pacer.queue.is_empty() => {
+                while let Some(frame) = pacer.next() {
+                    send_within(&mut sink, Message::Binary(frame.into()), timeout).await?;
+                }
             }
             _ = hello_tick.tick(), if helloing => {
                 let hello = sealed.as_ref().expect("guarded").hello.clone();
@@ -599,7 +642,8 @@ pub(crate) async fn run(
                                 frames
                             }
                         };
-                        for frame in frames {
+                        pacer.queue.extend(frames);
+                        while let Some(frame) = pacer.next() {
                             send_within(&mut sink, Message::Binary(frame.into()), timeout).await?;
                         }
                     }
@@ -666,6 +710,52 @@ mod tests {
         assert_eq!(*events.lock().unwrap(), vec![CallCallerEvent::Ready]);
         let told = tokio::time::timeout(timeout * 10, heard.recv_async()).await.expect("the host is told").unwrap();
         assert_eq!(serde_json::from_str::<Value>(&told).unwrap(), json!({ "t": "call_end", "reason": "dropped" }));
+    }
+
+    /// EXP-1859: a backlog handed over at once leaves complete, in order and
+    /// inside the relay's frame limit (replayed here as its bucket).
+    #[tokio::test]
+    async fn a_backlog_is_paced_inside_the_relays_limit() {
+        let fixture: Value = serde_json::from_str(etalk::call::VOICE_CALL_JSON).unwrap();
+        let limit = fixture["constants"]["maxFramesPerSecond"].as_f64().unwrap();
+        assert!(FRAME_RATE < limit && FRAME_BURST < limit);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}/", listener.local_addr().unwrap());
+        let (said, heard) = flume::unbounded::<(std::time::Instant, u16)>();
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+            ws.send(Message::text(json!({ "t": "call_ready" }).to_string())).await.unwrap();
+            while let Some(Ok(frame)) = ws.next().await {
+                if let Message::Binary(frame) = frame {
+                    let (kind, seq, _) = parse_audio_frame(&frame).unwrap();
+                    assert_eq!(kind, KIND_UP);
+                    let _ = said.send((std::time::Instant::now(), seq));
+                }
+            }
+        });
+        let (tx, rx) = flume::unbounded();
+        let (ready_tx, ready_rx) = flume::unbounded();
+        let call = tokio::spawn(async move {
+            let _ = run(&url, &rx, &move |event| { if event == CallCallerEvent::Ready { let _ = ready_tx.send(()); } }, TEST_TIMING, None).await;
+        });
+        ready_rx.recv_async().await.unwrap();
+        // 2.4 s at once, then live blocks behind it.
+        tx.send(Outbound::Audio(vec![100; 120 * 320])).unwrap();
+        for _ in 0..20 {
+            tx.send(Outbound::Audio(vec![100; 320])).unwrap();
+        }
+        let (mut tokens, mut at) = (limit, None);
+        for expected in 0..140u16 {
+            let (now, seq) = tokio::time::timeout(Duration::from_secs(10), heard.recv_async()).await.expect("every frame leaves").unwrap();
+            assert_eq!(seq, expected, "in order, no gap");
+            let passed = at.map_or(0., |at: std::time::Instant| (now - at).as_secs_f64());
+            tokens = (tokens + passed * limit).min(limit) - 1.;
+            at = Some(now);
+            assert!(tokens >= 0., "frame {seq}: the relay would drop it");
+        }
+        tx.send(Outbound::End(None)).unwrap();
+        call.await.unwrap();
     }
 
     /// #EXP-2017 (voice-call.json `caller`): End call is a reason-less

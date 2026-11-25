@@ -273,6 +273,8 @@ pub trait DialLink: 'static {
 
 /// EXP-1857: a dialled call, connected.
 pub struct DialConnection {
+    /// The call's id (EXP-1859: a turn's one message is keyed by it).
+    pub call_id: String,
     pub link: Box<dyn DialLink>,
     pub events: flume::Receiver<DialLinkEvent>,
 }
@@ -375,6 +377,13 @@ pub trait TalkHost: 'static {
     /// no server or not signed in.
     fn dial_call(&self, agent_id: &str, cx: &mut App) -> Option<Task<Result<DialConnection, DialError>>> {
         let _ = (agent_id, cx);
+        None
+    }
+    /// EXP-1859: [`Self::dial_call`] as a TURN call (`voice.startCall`
+    /// `mode: turn` with the heard wake `phrase`): one turn on the agent's
+    /// own device. None = this host cannot dial (the turn stays local).
+    fn dial_turn(&self, agent_id: &str, phrase: &str, cx: &mut App) -> Option<Task<Result<DialConnection, DialError>>> {
+        let _ = (agent_id, phrase, cx);
         None
     }
     /// A device of the member's (None = unknown).

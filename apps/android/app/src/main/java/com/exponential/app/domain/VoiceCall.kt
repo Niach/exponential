@@ -138,6 +138,10 @@ object VoiceCall {
         const val ALIVE_MS = 5_000
         /** EXP-1858: a server's speech worker exits after this long without a call. */
         const val SERVER_IDLE_MS = 600_000
+        /** EXP-1859: a wake turn's call dials this long before the voice device falls back to its local turn (hosted there, never on a phone). */
+        const val TURN_DIAL_MS = 2_000
+        /** EXP-1859: a turn call hangs up when no reply starts within this (the reply lands in the chat). */
+        const val TURN_REPLY_WAIT_MS = 60_000
     }
 
     /** FEED-272 (`tabs`): the Chat / Voice tabs on top of the call surface. */

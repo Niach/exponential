@@ -223,7 +223,7 @@ fun NavHostController.openLinkDestination(destination: LinkDestination, uri: Uri
         LinkDestination.Devices -> navigateDeepLink(Routes.DEVICES)
         is LinkDestination.Settings -> navigateDeepLink(Routes.teamSettings(destination.teamId, destination.section))
         LinkDestination.AssistantSettings -> navigateDeepLink(Routes.ASSISTANT_SETTINGS)
-        is LinkDestination.TeamHome -> navigateDeepLink(Routes.team(destination.teamId))
+        is LinkDestination.TeamHome -> openTeam(destination.teamId, tabSwitch)
         is LinkDestination.TeamSettings -> navigateDeepLink(Routes.teamSettingsRoot(destination.teamId))
         is LinkDestination.AppRun -> navigate(Routes.appRun(destination.appId))
         is LinkDestination.AppScreen -> navigate(Routes.appScreen(destination.appId, destination.screen, destination.params))

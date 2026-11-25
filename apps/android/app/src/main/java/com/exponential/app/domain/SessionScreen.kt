@@ -334,6 +334,13 @@ object SessionScreen {
         linkIssue: Boolean = false,
     ): List<MenuEntry> = menu(kind.wire, phone, member, settings, publish, export, delete, linkIssue)
 
+    /** The phone header's `…` of a chat: [menu] through `headerMenu` (an agent's
+     *  + sends New conversation). */
+    fun headerMenu(kind: Kind, member: Boolean, settings: Boolean, delete: Boolean, linkIssue: Boolean): List<MenuEntry> {
+        val entries = menu(kind, phone = true, member, settings, publish = false, export = false, delete = delete, linkIssue = linkIssue)
+        return HeaderActions.menu(entries.map { it.wire }).map { wire -> MenuEntry.entries.first { it.wire == wire } }
+    }
+
     /** A menu entry's label for the kind (settings and delete read by kind). */
     fun menuLabel(kind: Kind, entry: MenuEntry): String = when (entry) {
         MenuEntry.LinkIssue -> Copy.Menu.LINK_ISSUE

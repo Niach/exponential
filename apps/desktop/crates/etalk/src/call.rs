@@ -117,6 +117,11 @@ pub struct CallConstants {
     /// EXP-1858: a server's speech worker exits after this long without a
     /// call (its GPU memory is free while idle; a ring loads it again).
     pub server_idle_ms: u64,
+    /// EXP-1859: a turn call not connected (`call_ready`) after this long
+    /// becomes the local turn on the caller.
+    pub turn_dial_ms: u64,
+    /// EXP-1859: a turn call hangs up when no reply started this long after its send.
+    pub turn_reply_wait_ms: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -918,6 +923,42 @@ pub fn call_wire_event(event: &CallEvent) -> Option<serde_json::Value> {
     })
 }
 
+/// EXP-1859: the one message of a turn call, as both its ends send it
+/// (`sessions.send` `clientMessageId`): a caller that fell back while its
+/// host already sent stores nothing twice, whichever came first.
+pub fn turn_message_id(call_id: &str) -> String {
+    format!("turn-{call_id}")
+}
+
+/// EXP-1859: what reaches a dialled wake turn's caller: the wake itself, or
+/// one of its host's flow events (`call_event`, or the hang-up).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TurnCallEvent {
+    Woke,
+    Flow(CallEvent),
+}
+
+/// EXP-1859 (voice-call.json `turnCapsuleCases`): what a TURN call's event
+/// does to the caller's push-to-talk capsule (a turn call has no call
+/// surface of its own). `sent` = the host's `said` came; `newest_reply` =
+/// the conversation's newest reply, the body Speaking shows. A failure
+/// shows nothing: before `said` the turn falls back to the local one (the
+/// capsule keeps listening), after it Thinking waits for the reply in the chat.
+pub fn turn_capsule(event: &TurnCallEvent, sent: bool, newest_reply: &str) -> Vec<crate::voice::PttEvent> {
+    use crate::voice::PttEvent;
+    let TurnCallEvent::Flow(event) = event else { return vec![PttEvent::KeyDown { muted: false }] };
+    match event {
+        CallEvent::Partial(text) => vec![PttEvent::Partial(text.clone())],
+        // The host sent it: heard and sent at once.
+        CallEvent::Said(text) => vec![PttEvent::Heard(text.clone()), PttEvent::Sent],
+        CallEvent::ReplyStarted(_) => vec![PttEvent::Replied { body: newest_reply.to_string(), speaking: true }],
+        CallEvent::ReplyFinished => vec![PttEvent::SpeakFinished],
+        // Only the phrase: hidden. After the send the capsule fades on its own.
+        CallEvent::End | CallEvent::HungUp(None) if !sent => vec![PttEvent::Empty],
+        _ => Vec::new(),
+    }
+}
+
 /// #EXP-1441: a caller's side of [`call_wire_event`]: one flow event in its
 /// wire form (`{t, ...}`, the `flowCases` event shape, `failed {code}`
 /// included) as a [`CallEvent`]; None = not a flow event.
@@ -1072,6 +1113,42 @@ pub fn call_timer(ms: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1859: every row of `turnCapsuleCases`: a turn call's event on the caller's capsule.
+    #[test]
+    fn a_turn_call_drives_the_capsule_as_the_cases_say() {
+        use crate::voice::PttEvent;
+        let fixture: serde_json::Value = serde_json::from_str(VOICE_CALL_JSON).unwrap();
+        let cases = fixture["turnCapsuleCases"].as_array().unwrap();
+        assert!(cases.len() >= 12, "{}", cases.len());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let event = match case["call"]["t"].as_str().unwrap() {
+                "woke" => TurnCallEvent::Woke,
+                _ => TurnCallEvent::Flow(call_event_of_wire(&case["call"]).unwrap_or_else(|| panic!("{name}: a flow event"))),
+            };
+            let sent = case["before"].as_str() == Some("sent");
+            let expected: Vec<PttEvent> = case["ptt"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|ptt| {
+                    let text = || ptt["text"].as_str().unwrap().to_string();
+                    match ptt["t"].as_str().unwrap() {
+                        "keyDown" => PttEvent::KeyDown { muted: ptt["muted"].as_bool().unwrap() },
+                        "partial" => PttEvent::Partial(text()),
+                        "heard" => PttEvent::Heard(text()),
+                        "sent" => PttEvent::Sent,
+                        "replied" => PttEvent::Replied { body: ptt["body"].as_str().unwrap().to_string(), speaking: ptt["speaking"].as_bool().unwrap() },
+                        "speakFinished" => PttEvent::SpeakFinished,
+                        "empty" => PttEvent::Empty,
+                        other => panic!("{name}: no capsule event {other}"),
+                    }
+                })
+                .collect();
+            assert_eq!(turn_capsule(&event, sent, "{newest reply}"), expected, "{name}");
+        }
+    }
 
     /// #EXP-1941: one call id is answered once, for five minutes.
     #[test]

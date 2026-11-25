@@ -1878,8 +1878,17 @@ pub enum ServerFrame {
     /// `call_host` ticket for `call_id` (tRPC `voice.callHostTicket`) and
     /// joins within the relay's ring timeout (voice-call.json
     /// `constants.ringTimeoutMs`), or the caller is told `no_answer`.
+    /// EXP-1859: `mode: turn` with the wake `phrase` = a one-turn call
+    /// (absent = an ordinary call; an older relay drops both).
     #[serde(rename_all = "camelCase")]
-    CallRing { call_id: String, agent_id: String },
+    CallRing {
+        call_id: String,
+        agent_id: String,
+        #[serde(default)]
+        mode: Option<String>,
+        #[serde(default)]
+        phrase: Option<String>,
+    },
     /// EXP-481: fire-and-forget check-in nudge — the web server persisted
     /// new work for this device (a queued command, edited launch defaults);
     /// heartbeat NOW instead of on the next cadence. No reply frame exists;
@@ -3325,6 +3334,18 @@ mod tests {
             ServerFrame::CallRing {
                 call_id: "call-1".to_string(),
                 agent_id: "agent-1".to_string(),
+                mode: None,
+                phrase: None,
+            }
+        );
+        // EXP-1859: a turn call's ring carries its mode and the wake phrase.
+        assert_eq!(
+            ServerFrame::parse(r#"{"t":"call_ring","callId":"call-1","agentId":"agent-1","mode":"turn","phrase":"Hey Ops"}"#).unwrap(),
+            ServerFrame::CallRing {
+                call_id: "call-1".to_string(),
+                agent_id: "agent-1".to_string(),
+                mode: Some("turn".to_string()),
+                phrase: Some("Hey Ops".to_string()),
             }
         );
         assert_eq!(ServerFrame::parse(r#"{"t":"call_ring","callId":"call-1"}"#), None);

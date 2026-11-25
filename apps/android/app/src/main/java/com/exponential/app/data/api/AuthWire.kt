@@ -52,6 +52,15 @@ object AuthWire {
         put("name", JsonPrimitive(name))
     }
 
+    /** A refused Add passkey (web `PasskeysSection` / iOS copy): the fresh-session
+     *  guard gets the sentence that says what to do, anything else is the server's own. */
+    fun passkeyRegisterErrorMessage(code: String?, message: String?): String? =
+        if (code == "SESSION_NOT_FRESH") {
+            "Sign in again to add a passkey (your current session is older than a day)."
+        } else {
+            message
+        }
+
     /**
      * Login-screen copy for a failed `/sign-in/email-otp` (contract EXP-857).
      * The three known codes get wording that says what to do next; anything else

@@ -220,13 +220,17 @@ fun AgentsScreen(
     Scaffold(
         containerColor = Color.Transparent,
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            // The page header; pushed from the Settings tab's Devices row, the
-            // back control first.
-            com.exponential.app.ui.components.PageHeader(
-                title = com.exponential.app.domain.Chats.Copy.HEADERS.getValue("devices"),
-                onBack = onBack,
-            )
+        // The page header; pushed from the Settings tab's Devices row, the
+        // back control first.
+        com.exponential.app.ui.components.PinnedHeaderColumn(
+            modifier = Modifier.padding(padding).fillMaxSize(),
+            header = {
+                com.exponential.app.ui.components.PageHeader(
+                    title = com.exponential.app.domain.Chats.Copy.HEADERS.getValue("devices"),
+                    onBack = onBack,
+                )
+            },
+        ) {
             // No relay → nothing here can take a start: the full empty state.
             if (state.steerEnabled == false) {
                 // No relay → nothing here can take a start.

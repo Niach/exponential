@@ -139,7 +139,6 @@ import com.exponential.app.ui.settings.VoiceSettingsScreen
 import com.exponential.app.ui.settings.SecuritySettingsScreen
 import com.exponential.app.ui.settings.SettingsScreen
 import com.exponential.app.ui.settings.TeamSettingsRootScreen
-import com.exponential.app.ui.teams.TeamPageScreen
 import com.exponential.app.ui.teams.TeamsScreen
 import com.exponential.app.ui.settings.SyncDiagnosticsScreen
 import com.exponential.app.ui.settings.TeamSettingsScreen
@@ -685,7 +684,7 @@ private fun AuthenticatedNav(
                 is EntityTarget.Agent -> navController.open(Routes.agentDm(target.id), tabSwitch)
                 EntityTarget.Devices -> navController.navigate(Routes.DEVICES) { launchSingleTop = true }
                 is EntityTarget.TeamSettings -> navController.openTeamSettings(target.teamId, target.section, tabSwitch)
-                is EntityTarget.Team -> target.teamId?.let { navController.navigate(Routes.team(it)) }
+                is EntityTarget.Team -> target.teamId?.let { navController.openTeam(it, tabSwitch) }
                     ?: navController.selectTab(MainTabs.TEAMS, tabSwitch)
                 // Session 58cb32df: the inbox is a page, pushed.
                 EntityTarget.Inbox -> navController.navigate(MainTabs.INBOX) { launchSingleTop = true }
@@ -754,27 +753,21 @@ private fun AuthenticatedNav(
         }
         composable(MainTabs.TEAMS) {
             TeamsScreen(
-                onOpenTeam = { id -> navController.navigate(Routes.team(id)) { launchSingleTop = true } },
+                onOpenBoard = { id -> navController.navigate(Routes.board(id)) },
+                onOpenAgent = { id, root -> navController.open(root?.let { Routes.chat(it) } ?: Routes.agentDm(id), tabSwitch) },
+                onOpenAgentSettings = { id, root -> navController.open(Routes.agentChatSettings(id, root), tabSwitch) },
+                onRunApp = { id -> navController.navigate(Routes.appRun(id)) },
+                onEditApp = { id, settings -> navController.navigate(if (settings) Routes.appSettings(id) else Routes.app(id)) },
+                onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
+                onNewChat = { teamId -> navController.navigateDeepLink(agentRoute(AgentComposerSeed(teamId = teamId))) },
+                onNewAgent = { teamId -> navController.navigate(Routes.agentNew(teamId)) },
+                onNewIssue = { boardId -> navController.openIssueDraft(boardId) },
+                onOpenTeamSettings = { teamId, section ->
+                    navController.navigate(section?.let { Routes.teamSettings(teamId, it) } ?: Routes.teamSettingsRoot(teamId))
+                },
+                onOpenComposer = { navController.navigateDeepLink(AGENT_ROUTE) },
                 chats = chatsVm,
             )
-        }
-        listOf(Routes.TEAM_PATTERN, Routes.FOLDER_PATTERN).forEach { pattern ->
-            composable(pattern) {
-                TeamPageScreen(
-                    onBack = { navController.popBackStack() },
-                    onOpenFolder = { teamId, folderId -> navController.navigate(Routes.folder(teamId, folderId)) },
-                    onOpenBoard = { id -> navController.navigate(Routes.board(id)) },
-                    onOpenAgent = { id, root -> navController.open(root?.let { Routes.chat(it) } ?: Routes.agentDm(id), tabSwitch) },
-                    onRunApp = { id -> navController.navigate(Routes.appRun(id)) },
-                    onOpenApp = { id -> navController.navigate(Routes.app(id)) },
-                    onOpenChat = { id -> navController.open(Routes.chat(id), tabSwitch) },
-                    onNewAgent = { teamId -> navController.navigate(Routes.agentNew(teamId)) },
-                    onOpenSettings = { teamId -> navController.navigate(Routes.teamSettingsRoot(teamId)) },
-                    onOpenComposer = { navController.navigateDeepLink(AGENT_ROUTE) },
-                    chats = chatsVm,
-                    folder = pattern == Routes.FOLDER_PATTERN,
-                )
-            }
         }
         composable(Routes.TEAM_SETTINGS_ROOT_PATTERN) {
             Docked {
@@ -1134,6 +1127,7 @@ private fun AuthenticatedNav(
                 onOpenAgent = openAgent,
                 onOpenComposer = { navController.navigateDeepLink(AGENT_ROUTE) },
                 onNewIssue = { navController.openIssueDraft(boardId) },
+                onOpenTeamSettings = openReadinessTeamSettings,
                 // Session 58cb32df: the board's Drafts chip reopens a draft.
                 onOpenDraft = { draftBoard, draftId -> navController.openIssueDraft(draftBoard, draftId = draftId) },
                 // #EXP-1830: the My issues widget's header.

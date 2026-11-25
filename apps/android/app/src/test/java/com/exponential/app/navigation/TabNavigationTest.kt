@@ -29,7 +29,7 @@ class TabNavigationTest {
     fun `a detail pushed inside a tab keeps that tab`() {
         assertEquals(
             MainTabs.TEAMS,
-            MainTabs.current(listOf(null, "chats", "teams", Routes.TEAM_PATTERN, Routes.BOARD_PATTERN, ISSUE_ROUTE)),
+            MainTabs.current(listOf(null, "chats", "teams", Routes.BOARD_PATTERN, ISSUE_ROUTE)),
         )
         assertEquals(MainTabs.CHATS, MainTabs.current(listOf(null, "chats", "session/{sessionId}")))
     }
@@ -59,7 +59,6 @@ class TabNavigationTest {
     fun `a page lights its tab, a detail none`() {
         fun lit(route: String?) = Chats.Shell.page(MainTabs.page(route))
         assertEquals(Chats.Shell.Page("chats", true), lit("chats"))
-        assertEquals(Chats.Shell.Page("teams", true), lit(Routes.FOLDER_PATTERN))
         assertEquals(Chats.Shell.Page("teams", true), lit(Routes.BOARD_PATTERN))
         assertEquals(Chats.Shell.Page("teams", true), lit(Routes.TEAM_SETTINGS_PATTERN))
         assertEquals(Chats.Shell.Page("settings", true), lit(Routes.DEVICES_PATTERN))
@@ -67,12 +66,13 @@ class TabNavigationTest {
         assertEquals(Chats.Shell.Page("assistant", true), lit("assistant"))
         assertEquals(Chats.Shell.Page(null, false), lit(ISSUE_ROUTE))
         assertEquals(Chats.Shell.Page(null, false), lit(Routes.CHAT_PATTERN))
-        // Every page of the fixture has a route here.
+        // Every page of the fixture has a route here (a device is a sheet, a
+        // team and a folder are rows of the Teams tab).
         val routes = listOf(
-            "chats", "teams", "assistant", "settings", Routes.TEAM_PATTERN, Routes.FOLDER_PATTERN, Routes.BOARD_PATTERN,
+            "chats", "teams", "assistant", "settings", Routes.BOARD_PATTERN,
             Routes.TEAM_SETTINGS_ROOT_PATTERN, Routes.DEVICES_PATTERN, Routes.ABOUT,
         )
-        assertEquals(Chats.Shell.PAGES.keys - "device", routes.mapNotNull { MainTabs.page(it) }.toSet())
+        assertEquals(Chats.Shell.PAGES.keys - "device" - "team" - "folder", routes.mapNotNull { MainTabs.page(it) }.toSet())
     }
 
     @Test

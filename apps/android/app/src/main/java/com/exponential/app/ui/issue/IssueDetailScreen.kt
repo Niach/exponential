@@ -168,12 +168,10 @@ fun IssueMenuActions(
     val url = shareUrl
     // The Box anchors the dropdown to the button.
     Box {
-        CircleIconButton(
+        com.exponential.app.ui.components.PageHeaderCircle(
             ExpIcons.uiMore,
             "Issue actions",
             onClick = { overflowOpen = true },
-            modifier = Modifier.padding(end = 8.dp),
-            borderless = true,
         )
         GlassDropdownMenu(expanded = overflowOpen, onDismissRequest = { overflowOpen = false }) {
             if (url != null) {
