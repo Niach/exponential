@@ -10,16 +10,32 @@ import SwiftUI
 /// agent bubble (`AgentBubbleCircle`) at `size`, single select: the selected
 /// one wears the foreground ring (`ringWidth`), the others the glass-stroke
 /// hairline; no name under a circle (the name is the label and the
-/// accessibility label). The row scrolls sideways when it overflows. The
+/// accessibility label; #EXP-2136 a same-named agent of another team wears
+/// its team's mark, `TeamCorner`). The row scrolls sideways when it overflows. The
 /// host owns the pick (`ComposerAgentRow.composerAgentRow`) and stands the
 /// row `rowToCard` over the card.
 public struct ComposerAgentRowView: View {
+    /// A circle's team (name + mark).
+    public struct Team: Equatable {
+        public let name: String
+        public let iconUrl: String?
+
+        public init(name: String, iconUrl: String?) {
+            self.name = name
+            self.iconUrl = iconUrl
+        }
+    }
+
     public struct Item: Identifiable, Equatable {
         public let id: String
         public let name: String
         public let glyph: AgentBubbleCircle.Glyph
 
-        public init(id: String, name: String, glyph: AgentBubbleCircle.Glyph) {
+        /// `agentRow.teamMarkCases`: the team whose mark the circle wears.
+        public let team: Team?
+
+        public init(id: String, name: String, glyph: AgentBubbleCircle.Glyph, team: Team? = nil) {
+            self.team = team
             self.id = id
             self.name = name
             self.glyph = glyph
@@ -65,10 +81,11 @@ public struct ComposerAgentRowView: View {
                         circle(item)
                     }
                 }
-                // The selected ring straddles the circle's edge.
-                .padding(2)
+                // The selected ring straddles the circle's edge, a team mark
+                // hangs over its corner.
+                .padding(4)
             }
-            .padding(-2)
+            .padding(-4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
@@ -91,9 +108,14 @@ public struct ComposerAgentRowView: View {
                 glyphSize: Self.glyphSize
             )
             .contentShape(Circle())
+            #if !SHARE_EXTENSION
+            .teamCorner(
+                item.team.map { ChatRowTeam(name: $0.name, iconUrl: $0.iconUrl) }, lead: Int(ComposerAgentRow.size)
+            )
+            #endif
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(item.name)
+        .accessibilityLabel(item.team.map { "\(item.name), \($0.name)" } ?? item.name)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier(ComposerAgentRow.TestIds.option(item.id))
         .sensoryFeedback(.selection, trigger: isSelected) { _, now in now }
