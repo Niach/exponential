@@ -36,6 +36,30 @@ export const maySpaceRun = (tree: string, rootDeviceIsSpace: boolean): boolean =
 export const pinCovers = (pin: string | null, rootIsOwnAssistant: boolean): boolean =>
   pin === `install` || (pin === `space` && rootIsOwnAssistant)
 
+/** What an install remembers about a root, beside its pins. */
+export type RootMark = `assistant` | `never` | `unseen`
+/** What its synced rows say of it now (`unknown` = the row, or its agent's, is not synced). */
+export type RootSight = `assistant` | `other` | `unknown`
+
+/** `rootMarkCases`: whether a root counts as the member's own Assistant
+ *  conversation for a space's pin, sticky; `keyed` = its store already held a
+ *  key record of the root, `record` = it records one now. */
+export function rootMark(
+  mark: RootMark | null,
+  input: { see: RootSight; keyed: boolean; record?: boolean }
+): { mark: RootMark | null; counts: boolean } {
+  if (mark === `never` || input.see === `other`) return { mark: `never`, counts: false }
+  if (input.see === `assistant`) {
+    return mark === null && input.keyed ? { mark: `never`, counts: false } : { mark: `assistant`, counts: true }
+  }
+  if (mark === null && input.record && !input.keyed) return { mark: `unseen`, counts: false }
+  return { mark, counts: false }
+}
+
+/** `deviceCases`: what a request speaking through a space may run on. */
+export const spaceMayUseDevice = (device: string, ownTree: boolean): boolean =>
+  device === `space` ? ownTree : device === `otherShared`
+
 export interface SpaceDevice {
   rowId: string
   deviceId: string
