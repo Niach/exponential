@@ -537,6 +537,8 @@ fn run_pass(cx: &mut App) {
     // Rows this host claimed whose launch failed transiently read `running`
     // — the plan only launches `queued` ones.
     actions.extend(live.retry_launches(&device_id, &sessions, &in_flight));
+    // #EXP-2144: an update's drain (`crate::update`).
+    pickup::drop_held_turns(&mut actions);
     let blocking = |action: &PickupAction| match action {
         // EXP-849: a switch suspends + relaunches (network + git).
         // EXP-1341: a revive resumes/launches (network + git).
@@ -635,6 +637,20 @@ fn run_pass(cx: &mut App) {
             },
         });
     }
+}
+
+/// #EXP-2144: hold new turns back for an update's restart, or let them go
+/// (a pass runs what waited).
+pub(crate) fn hold_turns(hold: bool, cx: &mut App) {
+    if pickup::hold_turns(hold) && !hold {
+        schedule(cx);
+    }
+}
+
+/// #EXP-2144: a start, wake or switch is on its way to an engine (its
+/// message may be claimed already).
+pub(crate) fn starting(cx: &App) -> bool {
+    cx.try_global::<PickupHost>().is_some_and(|host| !host.in_flight.is_empty())
 }
 
 /// NEW-5: the sessions the pickup holds — engines live here and steps in

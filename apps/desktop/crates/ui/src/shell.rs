@@ -1260,6 +1260,8 @@ impl Render for Shell {
                             cx.stop_propagation();
                         }
                     })
+                    // #EXP-2144: a person at the app (with the keys).
+                    .capture_any_mouse_down(|_, _, cx| update::note_input(cx))
                     .capture_key_up(|event: &gpui::KeyUpEvent, _, cx| {
                         if etalk_gpui::push_to_talk::on_focused_key(false, &event.keystroke, cx) {
                             cx.stop_propagation();
@@ -1313,10 +1315,10 @@ impl Shell {
     /// pipeline is actively downloading/installing.
     fn render_update_banner(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let model = UpdateState::global_ref(cx)?;
-        let (info, phase) = {
+        let (info, phase, pausing) = {
             let state = model.read(cx);
             let (info, phase) = state.banner()?;
-            (info.clone(), phase.clone())
+            (info.clone(), phase.clone(), state.pausing())
         };
         let version = info.version.clone();
         let url = info.url.clone();
@@ -1331,7 +1333,7 @@ impl Shell {
             }
             UpdatePhase::Installing => format!("Installing Exponential {version}…").into(),
             UpdatePhase::ReadyToRestart { .. } => {
-                format!("Exponential {version} is ready. Restart to finish updating.").into()
+                update::ready_line(&version, pausing).into()
             }
             UpdatePhase::Failed { message } => {
                 format!("Update to Exponential {version} failed: {message}").into()

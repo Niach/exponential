@@ -68,6 +68,12 @@ pub(crate) fn install(root: std::path::PathBuf, cx: &mut App) {
     cx.set_global(LocalDesktops { desktops: Desktops::open(root).unwrap(), open: None, runs: None });
 }
 
+/// #EXP-2144: a Local desktop's agent has a turn in flight here (nothing
+/// continues it after a restart; its session waits for its next message).
+pub(crate) fn turn_running(cx: &App) -> bool {
+    cx.try_global::<LocalDesktops>().and_then(|locals| locals.runs.as_ref()).is_some_and(|runs| runs.any_turn())
+}
+
 /// The account id a Local desktop runs under.
 fn account_id(desktop: &str) -> String {
     format!("{PREFIX}{desktop}")

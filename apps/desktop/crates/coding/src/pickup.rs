@@ -918,6 +918,51 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     actions
 }
 
+/// #EXP-2144: this host drains for an update's restart (see
+/// [`hold_turns`]).
+static TURNS_HELD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// #EXP-2144: hold new turns back on this host (`updater::restart`'s drain),
+/// or let them go again. What is held stays where it is (a queued row, an
+/// unconsumed message), so the next pass, or the process after the restart,
+/// starts it. Returns whether that changed.
+pub fn hold_turns(hold: bool) -> bool {
+    TURNS_HELD.swap(hold, std::sync::atomic::Ordering::SeqCst) != hold
+}
+
+/// Whether [`hold_turns`] holds new turns back.
+pub fn turns_held() -> bool {
+    TURNS_HELD.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+impl PickupAction {
+    /// Would this start a turn (or reach into the running one as a steer)?
+    /// An answer to an open card does not: the running turn waits for it.
+    pub fn starts_turn(&self) -> bool {
+        match self {
+            Self::Launch { .. }
+            | Self::Resume { .. }
+            | Self::Revive { .. }
+            | Self::Continue { .. }
+            | Self::Deliver { .. }
+            | Self::DeliverAnswer { .. }
+            | Self::Switch { .. } => true,
+            Self::Revoke { .. }
+            | Self::Answer { .. }
+            | Self::Kill { .. }
+            | Self::Release { .. }
+            | Self::HandOff { .. } => false,
+        }
+    }
+}
+
+/// While [`turns_held`], a pass keeps only what starts no turn.
+pub fn drop_held_turns(actions: &mut Vec<PickupAction>) {
+    if turns_held() {
+        actions.retain(|action| !action.starts_turn());
+    }
+}
+
 /// EXP-849: the profile a live session must move to — its row names an
 /// account (non-empty) that is not the one its engine was launched for.
 /// The login the engine already runs on is planned at once (the switch
@@ -4533,6 +4578,32 @@ mod tests {
     /// idle with no engine and nothing pending, is revived; a chat, a
     /// child, another device's row, a queued/ended row, a live or in-flight
     /// one and one the registry holds are not.
+    /// #EXP-2144: while a host drains, nothing that starts a turn leaves a
+    /// pass; ends and card answers do, and the plan itself still holds every
+    /// message for the pass after.
+    #[test]
+    fn held_turns_stay_planned_and_unexecuted() {
+        let deliver = || PickupAction::Deliver { session_id: "s".into(), messages: vec![message("m", "s", "1")] };
+        let kill = || PickupAction::Kill { session_id: "s".into() };
+        let answer = || PickupAction::Answer {
+            session_id: "s".into(),
+            message_id: "m".into(),
+            question_id: "q".into(),
+            card: serde_json::json!({}),
+        };
+        let launch = || PickupAction::Launch { session: session("q", "queued", "d", "1") };
+        let all = || vec![kill(), launch(), deliver(), answer()];
+        let mut actions = all();
+        drop_held_turns(&mut actions);
+        assert_eq!(actions, all());
+        assert!(hold_turns(true));
+        let mut actions = all();
+        drop_held_turns(&mut actions);
+        assert!(hold_turns(false));
+        assert!(!hold_turns(false), "unchanged");
+        assert_eq!(actions, vec![kill(), answer()]);
+    }
+
     #[test]
     fn plan_revives_a_persistent_root_once_its_device_is_back() {
         let running = agent("a1", SESSION_STATUS_RUNNING);

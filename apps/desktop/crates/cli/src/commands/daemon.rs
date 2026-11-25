@@ -259,6 +259,23 @@ impl PendingUpdate {
     }
 }
 
+/// #EXP-2144: what the loop's live sessions (`idle_for` = each one's stretch
+/// at rest, `None` = working) mean to [`updater::restart::decide`]: what it
+/// sees and how long nothing has been working. Pure.
+fn update_seen(
+    idle_for: impl IntoIterator<Item = Option<Duration>>,
+    required: bool,
+    unresumable: bool,
+) -> (updater::restart::Observed, Duration) {
+    let mut rested = Duration::MAX;
+    let mut working = false;
+    for idle in idle_for {
+        working |= idle.is_none();
+        rested = rested.min(idle.unwrap_or(Duration::ZERO));
+    }
+    (updater::restart::Observed { required, working, unresumable, ..Default::default() }, rested)
+}
+
 /// EXP-641: whether a gated daemon should (re-)arm the update now. Pure so
 /// the retry cadence is unit-testable: the first attempt is immediate, later
 /// ones wait [`GATED_UPDATE_RETRY`] from the previous arm.
@@ -280,7 +297,7 @@ struct LiveSession {
     session: Arc<RunningSession>,
     /// FEED-36: since when the agent has been between turns (`None` while a
     /// turn is in flight) — the loop's 1 Hz tick keeps it; a pending update
-    /// reads it through [`updater::restart::restart_gate`].
+    /// reads it through [`updater::restart::decide`].
     idle_since: Option<Instant>,
 }
 
@@ -1152,7 +1169,16 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 &ctx.data_dir,
                 super::update::DAEMON_CHECK_INTERVAL_SECS,
             ) {
-                pending_update = Some(PendingUpdate::new(UpdateTrigger::Scheduled));
+                // #EXP-2144: only a build that is there waits for a restart.
+                crate::prefs::set_last_update_check(&ctx.data_dir, crate::prefs::now_epoch());
+                match super::update::check_only() {
+                    Ok(super::update::UpdateCheck::Available { version }) => {
+                        updater::pending::note(&version, std::time::SystemTime::now());
+                        pending_update = Some(PendingUpdate::new(UpdateTrigger::Scheduled));
+                    }
+                    Ok(_) => updater::pending::clear(),
+                    Err(err) => log::warn!("update check failed: {err:#}"),
+                }
             }
         }
         // EXP-681 (EXP-1292 port): under a SUSTAINED gate the shapes are
@@ -1205,32 +1231,46 @@ fn run_daemon(args: &[String]) -> CommandResult {
                 .lock()
                 .map(|claims| !claims.is_empty())
                 .unwrap_or(false);
-            let gate = if updater_busy {
-                if !update_held_by_claims {
-                    log::info!(
-                        "a {trigger:?} update is waiting for an agent sign-in/update command to finish"
-                    );
-                    update_held_by_claims = true;
-                }
-                updater::restart::RestartGate::Wait
-            } else {
-                update_held_by_claims = false;
+            if updater_busy && !update_held_by_claims {
+                log::info!("a {trigger:?} update is waiting for an agent sign-in/update command to finish");
+            }
+            update_held_by_claims = updater_busy;
+            let starting = pickup.starting();
+            let mut gate = {
                 let now = Instant::now();
                 let guard = lock_sessions(&sessions);
-                updater::restart::restart_gate(
-                    guard
-                        .iter()
-                        .filter(|live| !live.session.is_done())
-                        .map(|live| live.idle_since.map(|idle| now.saturating_duration_since(idle))),
-                    now.saturating_duration_since(since),
-                    trigger.immediate(),
-                )
+                let live = guard.iter().filter(|live| !live.session.is_done());
+                let (seen, rested) = update_seen(
+                    live.map(|live| live.idle_since.map(|idle| now.saturating_duration_since(idle))),
+                    trigger.immediate() && !updater_busy,
+                    updater_busy || starting,
+                );
+                updater::restart::decide(&seen, rested, now.saturating_duration_since(since))
             };
+            // #EXP-2144: turns are held for an update that is there, never
+            // for a check that finds nothing.
+            if gate == updater::restart::RestartGate::Drain && !coding::pickup::turns_held() {
+                match super::update::check_only() {
+                    Ok(super::update::UpdateCheck::Available { version }) => {
+                        log::info!("update {version} waited {}m: new turns wait for the restart", since.elapsed().as_secs() / 60);
+                        updater::pending::note(&version, std::time::SystemTime::now());
+                        coding::pickup::hold_turns(true);
+                    }
+                    // Nothing to install: the pass below says so and consumes
+                    // the request.
+                    Ok(_) => gate = updater::restart::RestartGate::Now,
+                    Err(err) => log::warn!("update check before the drain failed: {err:#}"),
+                }
+            } else if gate == updater::restart::RestartGate::Wait {
+                coding::pickup::hold_turns(false);
+            }
             if gate == updater::restart::RestartGate::Now {
                 pending_update = None;
                 match super::update::check_and_install() {
                     Ok(super::update::UpdateOutcome::Updated { version }) => {
                         log::info!("updated to {version} — restarting the daemon");
+                        // Nothing starts beside the suspends.
+                        coding::pickup::hold_turns(true);
                         suspend_for_restart(&sessions, trigger);
                         if let Some(handle) = control.take() {
                             handle.stop();
@@ -1242,6 +1282,7 @@ fn run_daemon(args: &[String]) -> CommandResult {
                     }
                     Ok(other) => {
                         log::info!("update check: {other:?}");
+                        updater::pending::clear();
                         if trigger == UpdateTrigger::Gated {
                             log::warn!(
                                 "still gated and no newer cli release is installable yet — retrying in {}s",
@@ -1283,6 +1324,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
                         }
                     }
                 }
+                // Still here (nothing installed, or the exec failed).
+                coding::pickup::hold_turns(false);
             }
         }
 
@@ -3255,6 +3298,12 @@ impl DaemonPickup {
             .collect()
     }
 
+    /// #EXP-2144: a start, wake or switch is on its way to an engine (its
+    /// message may be claimed already): a restart now would lose it.
+    fn starting(&self) -> bool {
+        !lock_or_recover(&self.in_flight).is_empty()
+    }
+
     /// The pass's `in_flight` set: attempts running and attempts backing off.
     fn excluded(&self) -> HashSet<String> {
         let now = Instant::now();
@@ -3492,6 +3541,7 @@ impl DaemonHost {
         // (or whose claim answer was lost) read `running` — plan only
         // launches `queued` ones.
         actions.extend(live.retry_launches(&self.pickup.device_id, rows, &excluded));
+        coding::pickup::drop_held_turns(&mut actions);
         if actions.is_empty() {
             return;
         }
@@ -4444,18 +4494,20 @@ mod tests {
     /// pause between turns, at most the cap — never 2h for an idle chat.
     #[test]
     fn a_pending_update_restarts_within_minutes_whatever_runs() {
-        use updater::restart::{restart_gate, RestartGate, MAX_WAIT, TURN_GAP};
+        use updater::restart::{decide, RestartGate, DRAIN_AFTER, MAX_WAIT, TURN_GAP};
         assert!(UpdateTrigger::Gated.immediate());
         assert!(UpdateTrigger::Now.immediate());
         assert!(!UpdateTrigger::Scheduled.immediate());
         assert!(!UpdateTrigger::Requested.immediate());
         let gate = |trigger: UpdateTrigger, idle: Option<Duration>, waited: Duration| {
-            restart_gate([idle], waited, trigger.immediate())
+            let (seen, rested) = update_seen([idle], trigger.immediate(), false);
+            decide(&seen, rested, waited)
         };
         let mid_turn = None;
         assert_eq!(gate(UpdateTrigger::Gated, mid_turn, Duration::ZERO), RestartGate::Now);
         assert_eq!(gate(UpdateTrigger::Now, mid_turn, Duration::ZERO), RestartGate::Now);
         assert_eq!(gate(UpdateTrigger::Scheduled, mid_turn, Duration::ZERO), RestartGate::Wait);
+        assert_eq!(gate(UpdateTrigger::Scheduled, mid_turn, DRAIN_AFTER), RestartGate::Drain);
         assert_eq!(gate(UpdateTrigger::Scheduled, mid_turn, MAX_WAIT), RestartGate::Now);
         assert_eq!(gate(UpdateTrigger::Requested, Some(TURN_GAP), Duration::ZERO), RestartGate::Now);
         assert!(MAX_WAIT < Duration::from_secs(2 * 60 * 60));
