@@ -1,3 +1,9 @@
+- New layout: a docked bar with Teams, the Assistant in the centre, New and Settings; no active team to switch
+- A team agent's settings page has a Wake word switch: your voice device listens for that agent's own phrase
+- Search also finds issues by meaning, and similar:NEW-12 lists an issue's likely duplicates
+- A newly approved device reads a chat's older messages too
+- The approval notice leaves a chat as soon as the device is approved
+- An ended chat no longer says its device is offline while that device is online
 - New devices need your OK: a new install shows a short code and waits until you approve it on a device you already use. Devices you already have are trusted automatically.
 - Issue search takes filters such as is:open, status:, created:7d or updated:today
 - Type a sentence in English or German into the search and pick the Search: row to turn it into filters
@@ -44,9 +50,3 @@
 - Chat bubbles get a tail on the first message of each group, yours on the right
 - A call to an agent on a server with a GPU is answered there; otherwise the call says why and hands over
 - Calls ring the agent's own desktop, or show "Voice on" the desktop that answers
-- A call with no desktop that can speak says so instead of waiting
-- Chat bubbles in their own colour, with the time on every bubble
-- One chat per app: an app's chat is your chat with its agent
-- A Voice section on every agent's settings page
-- An Events tab on every app: its agent's triggers, webhooks and recent runs
-- Sending into a chat whose keys changed re-seals and sends again, once
